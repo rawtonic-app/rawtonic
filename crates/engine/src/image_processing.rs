@@ -4744,9 +4744,12 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// gamut) channels where the source has them, gives the large blur of
 /// Clarity, Dehaze and Glow its whole radius at tile edges on photos with a
 /// short side above 3456 pixels (no seams), and turns the Classic and AgX
-/// looks' Color Grading and Calibration off with their tool switches.
+/// looks' Color Grading and Calibration off with their tool switches. 3
+/// (2026-10-23) takes a RAW photosite for dead only when it is also darker
+/// than its adjacent samples of the other colours, so thin dark lines keep
+/// their colour (`image_loader::DecodeVariant`, hot_pixels.rs).
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 2;
+pub const RENDER_VERSION: u64 = 3;
 
 /// The recipe's render pipeline version, 1 when missing, never newer than
 /// this renderer knows.

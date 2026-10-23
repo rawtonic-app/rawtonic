@@ -201,14 +201,6 @@ pub(crate) fn compute_thumbnail_cache_hash(
     Some(hasher.finalize().to_hex().to_string())
 }
 
-/// Whether the preview proxy of the RAW `source` (made for its master
-/// recipe's colour noise filter, `preview_proxy::read`; a virtual copy uses
-/// its photograph's) was made for the colour noise filter of `adjustments`.
-fn proxy_fits_recipe(source: &Path, adjustments: &serde_json::Value) -> bool {
-    rawtonic_engine::color_noise::multiscale(adjustments, true)
-        == image_loader::stored_multiscale(&source.to_string_lossy())
-}
-
 pub(crate) fn try_load_embedded_raw_preview(source_path: &Path) -> Option<DynamicImage> {
     let mmap = read_file_mapped(source_path).ok()?;
     image_loader::safe_embedded_preview_fallback(&mmap, &source_path.to_string_lossy())
@@ -236,7 +228,6 @@ pub fn generate_thumbnail_data(
         path_str,
         path_str,
         metadata,
-        false,
         gpu_context,
         preloaded_image,
         app_handle,
@@ -246,14 +237,13 @@ pub fn generate_thumbnail_data(
 /// The thumbnail of `path_str` developed with `metadata`'s adjustments
 /// (none: as a photograph never edited), as the Library shows it. Its
 /// decoded base is cached under `cache_key` (a photograph's own thumbnails
-/// use its path). `for_recipe`: adjustments other than the photograph's
-/// stored ones (a snapshot's), so a RAW is decoded for their colour noise
-/// filter, and its preview proxy only used when made for the same.
+/// use its path). A RAW is decoded for the decode variant of those
+/// adjustments (a snapshot's or a virtual copy's may differ from the
+/// photograph's), and its preview proxy only used when made for the same.
 pub(crate) fn develop_thumbnail(
     path_str: &str,
     cache_key: &str,
     metadata: Option<ImageMetadata>,
-    for_recipe: bool,
     gpu_context: Option<&GpuContext>,
     preloaded_image: Option<&DynamicImage>,
     app_handle: &AppHandle,
@@ -275,7 +265,7 @@ pub(crate) fn develop_thumbnail(
     let proxy = (is_raw
         && preloaded_image.is_none()
         && gpu_context.is_some()
-        && (!for_recipe || proxy_fits_recipe(&source_path, &adjustments)))
+        && crate::preview_proxy::stands_for(&source_path, &adjustments))
     .then(|| crate::preview_proxy::read(&source_path, &settings))
     .flatten();
     let (metadata, adjustments) = match (&proxy, metadata) {
@@ -379,25 +369,15 @@ pub(crate) fn develop_thumbnail(
                     }
                 };
 
-                let img = if for_recipe {
-                    image_loader::load_base_image_for_recipe(
-                        file_slice,
-                        &source_path_str,
-                        true,
-                        &settings,
-                        None,
-                        None,
-                        &adjustments,
-                    )?
-                } else {
-                    image_loader::load_base_image_from_bytes(
-                        file_slice,
-                        &source_path_str,
-                        true,
-                        &settings,
-                        None,
-                    )?
-                };
+                let img = image_loader::load_base_image_for_recipe(
+                    file_slice,
+                    &source_path_str,
+                    true,
+                    &settings,
+                    None,
+                    None,
+                    &adjustments,
+                )?;
 
                 if is_raw {
                     raw_scale_factor = crate::raw_processing::get_fast_demosaic_scale_factor(
@@ -570,11 +550,12 @@ pub(crate) fn develop_thumbnail(
         let tm_override = crate::image_processing::resolve_tonemapper_override(&settings, is_raw);
         let mut gpu_adjustments =
             get_all_adjustments_from_json(&meta.adjustments, is_raw, tm_override);
-        // A preview or a fast development: the last full decode's measures.
+        // A preview: the measures of the decode it was made from; a fast
+        // development: the last full decode's.
         crate::baseline_exposure::apply_base_look(
             &mut gpu_adjustments.global,
             &source_path_str,
-            None,
+            proxy.as_ref().and_then(|proxy| proxy.measures).as_ref(),
         );
         gpu_adjustments.global.detail_scale = total_scale;
         let lut_path = meta.adjustments["lutPath"].as_str();
@@ -1622,7 +1603,7 @@ mod thumbnail_queue_tests {
     use super::*;
 
     #[test]
-    fn a_recipe_uses_the_preview_proxy_only_when_made_for_its_colour_noise_filter() {
+    fn a_recipe_uses_the_preview_proxy_only_when_made_for_its_decode_variant() {
         let directory = tempfile::tempdir().unwrap();
         let photo = directory.path().join("A.RAF");
         fs::write(&photo, b"proxy fixture").unwrap();
@@ -1642,14 +1623,37 @@ mod thumbnail_queue_tests {
         let (source, _) = parse_virtual_path(&copy);
         // The proxy (the master's) fits a snapshot of the master's filter,
         // never one of the copy's.
-        assert!(proxy_fits_recipe(
+        let stands_for = crate::preview_proxy::stands_for;
+        assert!(stands_for(
             &source,
             &serde_json::json!({"colorNoiseVersion": 1})
         ));
-        assert!(!proxy_fits_recipe(
+        assert!(!stands_for(
             &source,
             &serde_json::json!({"colorNoiseVersion": 9})
         ));
+        // Nor one of another dead-photosite test: a render version 2 copy
+        // of a version 3 master and the other way round.
+        assert!(!stands_for(
+            &source,
+            &serde_json::json!({"colorNoiseVersion": 1, "renderVersion": 3})
+        ));
+        fs::write(
+            directory.path().join("A.RAF.rrdata"),
+            br#"{"version":1,"rating":0,"adjustments":{"colorNoiseVersion":9,"renderVersion":3}}"#,
+        )
+        .unwrap();
+        assert!(stands_for(
+            &source,
+            &serde_json::json!({"colorNoiseVersion": 9, "renderVersion": 3})
+        ));
+        assert!(!stands_for(
+            &source,
+            &serde_json::json!({"colorNoiseVersion": 9, "renderVersion": 2})
+        ));
+        // A never-edited photograph's proxies stand for itself.
+        fs::remove_file(directory.path().join("A.RAF.rrdata")).unwrap();
+        assert!(stands_for(&source, &serde_json::Value::Null));
     }
 
     #[test]

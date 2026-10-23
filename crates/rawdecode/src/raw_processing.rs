@@ -50,6 +50,7 @@ pub fn develop_raw_image_with(
         cancel_token,
         denoise,
         None,
+        crate::hot_pixels::DeadTest::default(),
     )
 }
 
@@ -71,6 +72,9 @@ impl std::fmt::Debug for DraftSink {
 /// instead of a separate fast decode beside the full one, which competed
 /// with it for the cores and decoded the file twice. The full development
 /// is the same with or without a sink, and starts once the sink returns.
+/// `dead_test` picks the test for dead photosites (hot_pixels.rs; the
+/// recipe's `renderVersion` decides it).
+#[allow(clippy::too_many_arguments)]
 pub fn develop_raw_image_with_draft(
     file_bytes: &[u8],
     fast_demosaic: bool,
@@ -79,6 +83,7 @@ pub fn develop_raw_image_with_draft(
     cancel_token: Option<(Arc<AtomicUsize>, usize)>,
     denoise: Option<&crate::mosaic_denoise::MosaicDenoise>,
     draft: Option<&DraftSink>,
+    dead_test: crate::hot_pixels::DeadTest,
 ) -> Result<DynamicImage> {
     let (developed_image, orientation) = develop_internal(
         file_bytes,
@@ -88,6 +93,7 @@ pub fn develop_raw_image_with_draft(
         cancel_token,
         denoise,
         draft,
+        dead_test,
     )?;
     #[cfg(feature = "performance-profiling")]
     let _orientation_stage = crate::performance::PerformanceStage::new("raw_orientation");
@@ -171,6 +177,7 @@ fn recover_clipped_pixel(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
     (cur_r, cur_g, cur_b)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn develop_internal(
     file_bytes: &[u8],
     fast_demosaic: bool,
@@ -179,6 +186,7 @@ fn develop_internal(
     cancel_token: Option<(Arc<AtomicUsize>, usize)>,
     denoise: Option<&crate::mosaic_denoise::MosaicDenoise>,
     draft: Option<&DraftSink>,
+    dead_test: crate::hot_pixels::DeadTest,
 ) -> Result<(DynamicImage, Orientation)> {
     let check_cancel = || -> Result<()> {
         if let Some((tracker, generation)) = &cancel_token
@@ -319,6 +327,7 @@ fn develop_internal(
                     active,
                     &config.cfa,
                     wb,
+                    dead_test,
                     |v: u16| (v as f32 - original_black_level) / range,
                     |l: f32| {
                         (l * range + original_black_level)
@@ -334,6 +343,7 @@ fn develop_internal(
                     active,
                     &config.cfa,
                     wb,
+                    dead_test,
                     |v: f32| (v - original_black_level) / range,
                     |l: f32| l * range + original_black_level,
                 )
@@ -2120,6 +2130,7 @@ mod draft_tests {
                 None,
                 None,
                 Some(&sink),
+                crate::hot_pixels::DeadTest::default(),
             )
             .unwrap();
             let full_ms = started.elapsed().as_secs_f64() * 1000.0;
@@ -2185,6 +2196,7 @@ mod draft_tests {
                 Some((Arc::clone(&generation), 1)),
                 None,
                 Some(&sink),
+                crate::hot_pixels::DeadTest::default(),
             );
             let full = FULL_DEVELOPMENTS.with(std::cell::Cell::get) - before;
             let name = path.file_name().unwrap().to_string_lossy().into_owned();

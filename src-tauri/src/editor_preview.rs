@@ -969,8 +969,8 @@ pub(crate) fn preview_source(state: &AppState) -> Result<(LoadedImage, f32, (u32
                     path: proxy.path,
                     image: proxy.image,
                     is_raw: proxy.is_raw,
-                    multiscale: None,
-                    measures: None,
+                    decode: None,
+                    measures: proxy.measures,
                 },
                 scale,
                 (proxy.full_width, proxy.full_height),
@@ -1904,6 +1904,23 @@ pub(crate) async fn activate_photo(
         );
         return Ok(false);
     };
+    // Only previews made for the recipe's decode variant stand in (a virtual
+    // copy's may differ from its master's, `preview_proxy::stands_for`).
+    let wanted = crate::image_loader::decode_variant(
+        &adjustments
+            .clone()
+            .filter(|a| a.is_object())
+            .unwrap_or_else(|| crate::exif_processing::load_sidecar(&sidecar_path).adjustments),
+        true,
+    );
+    if wanted != crate::image_loader::stored_decode_variant(&source_path.to_string_lossy()) {
+        #[cfg(feature = "performance-profiling")]
+        log::info!(
+            "[PERF] {}",
+            serde_json::json!({ "stage": "activate_photo_skipped", "reason": "other decode variant" })
+        );
+        return Ok(false);
+    }
     *state
         .current_source
         .lock()
@@ -1912,7 +1929,7 @@ pub(crate) async fn activate_photo(
         .proxy_memory
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(&path);
+        .get(&path, wanted);
     let proxy = match remembered {
         Some(proxy) => proxy,
         None => {
@@ -2912,7 +2929,7 @@ mod preview_memory_tests {
             path: "memory-fixture".into(),
             image: Arc::new(DynamicImage::ImageRgb32F(image::Rgb32FImage::new(12, 8))),
             is_raw: true,
-            multiscale: None,
+            decode: None,
             measures: None,
         };
         let result = compute_patched_and_warped(&loaded, &serde_json::json!({})).unwrap();

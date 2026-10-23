@@ -613,7 +613,9 @@ export interface Adjustments {
    * `RENDER_VERSION`): 2 = warps and straightening keep negative (wide-gamut)
    * channels, Clarity/Dehaze/Glow's large blur has its whole radius at tile
    * edges, and the Classic/AgX looks' Color Grading and Calibration follow
-   * their switches; 1 or missing = before. Per photo, never copied. */
+   * their switches; 3 = a RAW photosite counts as dead only when it is also
+   * darker than its adjacent samples of the other colours, so thin dark
+   * lines keep their colour; 1 or missing = before. Per photo, never copied. */
   renderVersion?: number;
   lutData?: string | null;
   lutIntensity?: number;
@@ -1214,7 +1216,18 @@ export const SHARPEN_VERSION = 3;
 export const LUMA_NOISE_VERSION = 2;
 
 /** The render pipeline fixes new edits start with (`renderVersion`). */
-export const RENDER_VERSION = 2;
+export const RENDER_VERSION = 3;
+
+/** The render version from which a RAW is developed with the second
+ * dead-photosite test (crates/engine/src/image_loader.rs
+ * `DEAD_TEST_RENDER_VERSION`). */
+export const DEAD_PIXEL_RENDER_VERSION = 3;
+
+/** Whether a recipe's RAW is developed with the second dead-photosite test,
+ * as the backend decides (`image_loader::decode_variant`; the editor's
+ * recipe of a never-edited photo already carries `RENDER_VERSION`). */
+export const deadPixelAdjacent = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
+  (adjustments.renderVersion ?? 1) >= DEAD_PIXEL_RENDER_VERSION;
 
 /** The AI Denoise version new edits start with (`aiDenoiseVersion`; notes:
  * benchmark-results/ai-denoise-mac-2026-10-18). */

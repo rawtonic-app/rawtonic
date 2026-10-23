@@ -1263,7 +1263,7 @@ mod tests {
             path: path.into(),
             image: image.clone(),
             is_raw: true,
-            multiscale: None,
+            decode: None,
             measures: None,
         };
         let pixels = || Arc::new(image::DynamicImage::new_rgb8(2, 1));

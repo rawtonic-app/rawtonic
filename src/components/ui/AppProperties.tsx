@@ -605,6 +605,9 @@ export interface LoadImageResult {
   /** The source was developed for the multi-scale colour noise filter (no
    * decode-time chroma clean-up); null for preview data. */
   color_noise_multiscale?: boolean | null;
+  /** The source was developed with the second dead-photosite test
+   * (`renderVersion` 3); null for preview data. */
+  dead_pixel_adjacent?: boolean | null;
 }
 
 /** Which preview an offline photograph shows: its 1:1 preview (full
@@ -663,6 +666,12 @@ export interface SelectedImage {
   colorNoiseMultiscale?: boolean;
   /** A colour noise filter the source failed to develop for (not retried). */
   colorNoiseMultiscaleFailed?: boolean;
+  /** The decoded source was developed with the second dead-photosite test
+   * (`deadPixelAdjacent` in src/utils/adjustments.ts); unknown for preview
+   * data. */
+  deadPixelAdjacent?: boolean;
+  /** A dead-photosite test the source failed to develop for (not retried). */
+  deadPixelAdjacentFailed?: boolean;
   /** The RAW is offline: the photograph shows (and is edited on) this preview. */
   offline?: OfflinePreview | null;
   metadata?: ImageMetadata | null;

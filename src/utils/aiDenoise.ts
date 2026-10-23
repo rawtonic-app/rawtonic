@@ -1,5 +1,5 @@
 import type { SelectedImage } from '../components/ui/AppProperties';
-import { colorNoiseMultiscale, type Adjustments } from './adjustments';
+import { colorNoiseMultiscale, deadPixelAdjacent, type Adjustments } from './adjustments';
 
 /**
  * The AI Denoise amount the open RAW must be developed with, or null when
@@ -42,14 +42,17 @@ export interface SourceDevelop {
   /** For the multi-scale colour noise filter: without the decode-time chroma
    * clean-up (undefined: the stored recipe's filter). */
   multiscale?: boolean;
+  /** With the second dead-photosite test (`renderVersion` 3; undefined: the
+   * stored recipe's). */
+  deadPixelAdjacent?: boolean;
 }
 
 /**
  * How the open RAW must be developed again so its source matches the
  * recipe, or null when it does: its AI Denoise amount (`aiDenoiseToApply`)
- * or its colour noise filter (`colorNoiseMultiscale`: reset of a legacy
- * edit, paste or a preset can change `colorNoiseVersion`) differs from the
- * source's. Only decoded RAWs on their file; never during a slider drag.
+ * its colour noise filter (`colorNoiseMultiscale`: reset of a legacy
+ * edit, paste or a preset can change `colorNoiseVersion`) or its
+ * dead-photosite test (`deadPixelAdjacent`) differs from the source's. Only decoded RAWs on their file; never during a slider drag.
  */
 export function sourceDevelopToApply(
   image: Pick<
@@ -62,10 +65,12 @@ export function sourceDevelopToApply(
     | 'aiDenoiseFailedVersion'
     | 'colorNoiseMultiscale'
     | 'colorNoiseMultiscaleFailed'
+    | 'deadPixelAdjacent'
+    | 'deadPixelAdjacentFailed'
     | 'offline'
   > | null,
   adjustments: Pick<Adjustments, 'aiDenoise' | 'aiDenoiseVersion'> &
-    Pick<Partial<Adjustments>, 'colorNoiseVersion' | 'colorNoiseReduction'> & {
+    Pick<Partial<Adjustments>, 'colorNoiseVersion' | 'colorNoiseReduction' | 'renderVersion'> & {
       sectionVisibility?: Record<string, boolean | undefined>;
     },
   dragging: boolean,
@@ -77,11 +82,17 @@ export function sourceDevelopToApply(
   const wanted = image.offline || have === undefined ? have : colorNoiseMultiscale(adjustments, true);
   // A filter whose development failed before is not retried.
   const multiscale = wanted === image.colorNoiseMultiscaleFailed ? have : wanted;
-  if (aiDenoise === null && multiscale === have) return null;
+  // The same for the dead-photosite test (`renderVersion`: reset of an
+  // older edit, undo).
+  const haveDead = image.deadPixelAdjacent;
+  const wantedDead = image.offline || haveDead === undefined ? haveDead : deadPixelAdjacent(adjustments);
+  const dead = wantedDead === image.deadPixelAdjacentFailed ? haveDead : wantedDead;
+  if (aiDenoise === null && multiscale === have && dead === haveDead) return null;
   const version = aiDenoise === null ? image.aiDenoiseVersion : adjustments.aiDenoiseVersion;
   return {
     aiDenoise: aiDenoise ?? Math.round(image.aiDenoise ?? 0),
     ...(version !== undefined && version !== null ? { aiDenoiseVersion: version } : {}),
     multiscale,
+    deadPixelAdjacent: dead,
   };
 }

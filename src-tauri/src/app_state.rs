@@ -113,10 +113,10 @@ pub struct LoadedImage {
     pub path: String,
     pub image: Arc<DynamicImage>,
     pub is_raw: bool,
-    /// The decode was developed for the multi-scale colour noise filter
-    /// (without the decode-time chroma clean-up,
-    /// `image_loader::load_base_image_from_bytes_for`); None for preview data.
-    pub multiscale: Option<bool>,
+    /// The decode variant it was developed for (colour noise filter and
+    /// dead-photosite test, `image_loader::load_base_image_from_bytes_for`);
+    /// None for preview data.
+    pub decode: Option<crate::image_loader::DecodeVariant>,
     /// The measures of the decode (`image_loader::DecodeMeasures`); None for
     /// preview data, drafts and other formats.
     pub measures: Option<crate::image_loader::DecodeMeasures>,
@@ -165,6 +165,12 @@ pub struct LoadedProxy {
     pub full_width: u32,
     pub full_height: u32,
     pub is_raw: bool,
+    /// The decode variant a stored preview proxy was made for (from its
+    /// key); None for a draft of the decode under way.
+    pub made_for: Option<crate::image_loader::DecodeVariant>,
+    /// The measures of the decode a stored proxy was made from (its facts);
+    /// None for drafts and proxies made before they were kept.
+    pub measures: Option<crate::image_loader::DecodeMeasures>,
 }
 
 /// The source the preview worker last rendered a frame from (a decode, its
