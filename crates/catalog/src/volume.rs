@@ -33,6 +33,35 @@ pub struct Volume {
     pub mount_point: PathBuf,
 }
 
+impl Volume {
+    /// Match a stored identity, including a pre-mount-ID macOS share UUID.
+    /// Ordinary enumeration stays mount-table-only; only a saved UUID needs
+    /// the legacy filesystem query. A mount path alone is never an identity.
+    pub fn matches_id(&self, saved: &str) -> bool {
+        if self.id == saved {
+            return true;
+        }
+        #[cfg(target_os = "macos")]
+        if self.kind == VolumeKind::Network && uuid_id(saved) {
+            return imp::uuid_volume(&self.mount_point, self.kind)
+                .is_some_and(|volume| volume.id.eq_ignore_ascii_case(saved));
+        }
+        false
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn uuid_id(id: &str) -> bool {
+    id.len() == 36
+        && id.bytes().enumerate().all(|(i, b)| {
+            if matches!(i, 8 | 13 | 18 | 23) {
+                b == b'-'
+            } else {
+                b.is_ascii_hexdigit()
+            }
+        })
+}
+
 /// The role of a volume in the Library, independent of its current availability.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -292,7 +321,12 @@ mod imp {
                 kind,
             });
         }
-        let path = c_path(&mount_point)?;
+        uuid_volume(&mount_point, kind)
+    }
+
+    /// The UUID form used before network mounts gained mount-derived IDs.
+    pub(super) fn uuid_volume(mount_point: &Path, kind: super::VolumeKind) -> Option<Volume> {
+        let path = c_path(mount_point)?;
         let mut request = libc::attrlist {
             bitmapcount: libc::ATTR_BIT_MAP_COUNT,
             reserved: 0,
@@ -493,6 +527,55 @@ fn linux_mounts(text: &str) -> Vec<LinuxMount> {
         .collect()
 }
 
+/// Keep the full table for longest-mount lookup, but do not classify runtime
+/// filesystems or application/container mounts as photo storage. In particular,
+/// /run/media remains available for actual removable drives.
+#[cfg(any(target_os = "linux", test))]
+fn linux_storage_mount(entry: &LinuxMount) -> bool {
+    let mount = &entry.mount;
+    if matches!(
+        entry.fs_type.as_str(),
+        "proc"
+            | "sysfs"
+            | "devtmpfs"
+            | "devpts"
+            | "cgroup"
+            | "cgroup2"
+            | "securityfs"
+            | "debugfs"
+            | "tracefs"
+            | "configfs"
+            | "pstore"
+            | "efivarfs"
+            | "mqueue"
+            | "hugetlbfs"
+            | "rpc_pipefs"
+            | "autofs"
+            | "overlay"
+            | "aufs"
+            | "fuse.portal"
+            | "nsfs"
+    ) {
+        return false;
+    }
+    if ["/snap", "/var/lib/snapd", "/var/lib/flatpak"]
+        .iter()
+        .any(|p| mount.starts_with(p))
+        || mount
+            .components()
+            .map(|c| c.as_os_str())
+            .collect::<Vec<_>>()
+            .windows(3)
+            .any(|p| p == [".local", "share", "flatpak"])
+    {
+        return false;
+    }
+    !(entry.fs_type == "tmpfs"
+        && ["/run", "/dev", "/tmp", "/var/run", "/var/lock"]
+            .iter()
+            .any(|p| mount.starts_with(p)))
+}
+
 #[cfg(any(target_os = "linux", test))]
 fn unescape(text: &str, hex: bool) -> String {
     let bytes = text.as_bytes();
@@ -544,6 +627,9 @@ mod imp {
     }
 
     fn identify(entry: &super::LinuxMount) -> Option<Volume> {
+        if !super::linux_storage_mount(entry) {
+            return None;
+        }
         let (mount_point, device) = (&entry.mount, &entry.source);
         let network = super::network_fs(&entry.fs_type);
         let block = device.starts_with("/dev/");
@@ -629,7 +715,8 @@ mod imp {
             .into_iter()
             .filter(|entry| {
                 let source = entry.source.to_string_lossy();
-                source.starts_with("/dev/") || source.starts_with("//") || source.contains(":/")
+                super::linux_storage_mount(entry)
+                    && (source.starts_with("/dev/") || super::network_fs(&entry.fs_type))
             })
             .map(|entry| format!("{}={}", entry.source.display(), entry.mount.display()))
             .collect()
@@ -731,6 +818,24 @@ mod imp {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn saved_macos_share_uuid_is_verified_before_matching_a_mount_id() {
+        let dir = tempfile::tempdir().unwrap();
+        // Exercise the real legacy getattrlist decoder without a live share.
+        let original = volume_of(dir.path()).unwrap();
+        let current = Volume {
+            id: "mount:new-form".into(),
+            kind: VolumeKind::Network,
+            ..original.clone()
+        };
+        assert!(current.matches_id(&original.id));
+        assert!(current.matches_id(&original.id.to_ascii_lowercase()));
+        assert!(!current.matches_id("00000000-0000-0000-0000-000000000000"));
+        assert!(!current.matches_id("mount:other"));
+        assert!(!uuid_id("not-a-uuid"));
+    }
+
     #[test]
     fn hidden_drives_under_volumes_count_but_system_and_snapshot_mounts_do_not() {
         // Browsable: always.
@@ -790,6 +895,38 @@ mod classification_tests {
         assert_eq!(
             classify(Path::new("/System/Volumes/Data"), false, false),
             VolumeKind::Startup
+        );
+    }
+
+    #[test]
+    fn linux_classification_ignores_pseudo_and_application_mounts() {
+        let mounts = linux_mounts(concat!(
+            "1 0 8:1 / / rw - ext4 /dev/sda1 rw\n",
+            "2 1 0:1 / /proc rw - proc proc rw\n",
+            "3 1 0:2 / /sys rw - sysfs sysfs rw\n",
+            "4 1 0:3 / /run rw - tmpfs tmpfs rw\n",
+            "5 1 0:4 / /run/user/1000 rw - tmpfs tmpfs rw\n",
+            "6 1 0:5 / /var/lib/containers/merged rw - overlay overlay rw\n",
+            "7 1 7:0 / /snap/app/1 ro - squashfs /dev/loop0 ro\n",
+            "8 1 8:1 /app /var/lib/flatpak/app rw - ext4 /dev/sda1 rw\n",
+            "9 1 0:6 / /run/user/1000/doc rw - fuse.portal portal rw\n",
+            "10 1 8:2 / /run/media/me/Photos rw - ext4 /dev/sdb1 rw\n",
+            "11 1 0:7 / /mnt/Photos rw - cifs //nas/Photos rw\n",
+            "12 1 8:3 / /srv/library rw - btrfs /dev/sdc1 rw\n",
+        ));
+        let paths: Vec<_> = mounts
+            .iter()
+            .filter(|m| linux_storage_mount(m))
+            .map(|m| m.mount.as_path())
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                Path::new("/"),
+                Path::new("/run/media/me/Photos"),
+                Path::new("/mnt/Photos"),
+                Path::new("/srv/library")
+            ]
         );
     }
 

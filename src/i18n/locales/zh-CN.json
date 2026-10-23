@@ -2558,6 +2558,7 @@
         "sortFolders": "文件夹排序",
         "title": "文件夹",
         "toasts": {
+          "loadFailed": "无法刷新目录文件夹：{{error}}",
           "showFailed": "无法显示文件夹：{{error}}"
         }
       },

@@ -2558,6 +2558,7 @@
         "sortFolders": "폴더 정렬",
         "title": "폴더",
         "toasts": {
+          "loadFailed": "카탈로그 폴더를 새로 고칠 수 없습니다: {{error}}",
           "showFailed": "폴더를 표시할 수 없습니다: {{error}}"
         }
       },

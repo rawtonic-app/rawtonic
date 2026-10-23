@@ -2703,6 +2703,7 @@
         "sortFolders": "Ordena les carpetes",
         "title": "Carpetes",
         "toasts": {
+          "loadFailed": "No s’han pogut actualitzar les carpetes del catàleg: {{error}}",
           "showFailed": "No s'ha pogut mostrar la carpeta: {{error}}"
         }
       },

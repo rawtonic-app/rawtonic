@@ -2703,6 +2703,7 @@
         "sortFolders": "Ordina cartelle",
         "title": "Cartelle",
         "toasts": {
+          "loadFailed": "Impossibile aggiornare le cartelle del catalogo: {{error}}",
           "showFailed": "Impossibile mostrare la cartella: {{error}}"
         }
       },

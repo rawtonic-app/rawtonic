@@ -2558,6 +2558,7 @@
         "sortFolders": "フォルダを並べ替え",
         "title": "フォルダ",
         "toasts": {
+          "loadFailed": "カタログフォルダーを更新できませんでした: {{error}}",
           "showFailed": "フォルダを表示できませんでした: {{error}}"
         }
       },

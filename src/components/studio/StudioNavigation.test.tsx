@@ -1,6 +1,7 @@
 import "../../i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
+import { toast } from "react-toastify";
 import { invoke } from "@tauri-apps/api/core";
 import StudioNavigation from "./StudioNavigation";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
@@ -498,4 +499,17 @@ describe("the session's Trash folder", () => {
       expect(names).not.toContain("Empty Trash");
     }
   });
+});
+
+it("reports catalog folder persistence failures and retains the last readable groups", async () => {
+  const previous = { catalog: true, volumes: [] };
+  useLibraryStore.setState({ catalogFolders: previous });
+  mockInvoke.mockImplementation(async (command) => {
+    if (command === "catalog_folders") throw new Error("cache persistence failed");
+    return [];
+  });
+  renderNavigation();
+  await act(async () => {});
+  expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("cache persistence failed"));
+  expect(useLibraryStore.getState().catalogFolders).toBe(previous);
 });

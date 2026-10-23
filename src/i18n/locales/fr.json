@@ -2703,6 +2703,7 @@
         "sortFolders": "Trier les dossiers",
         "title": "Dossiers",
         "toasts": {
+          "loadFailed": "Impossible d’actualiser les dossiers du catalogue : {{error}}",
           "showFailed": "Impossible d'afficher le dossier : {{error}}"
         }
       },
