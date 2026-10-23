@@ -15,6 +15,8 @@ let StudioDevelop: typeof import("./StudioDevelop").default;
 let StudioRelight: typeof import("./StudioRelight").default;
 let StudioUpright: typeof import("./StudioUpright").default;
 let StudioCropControls: typeof import("./StudioCropControls").default;
+let ToolColumn: typeof import("./toolLayout").ToolColumn;
+let ContextMenuProvider: typeof import("../../context/ContextMenuContext").ContextMenuProvider;
 let useEditorStore: typeof import("../../store/useEditorStore").useEditorStore;
 let debouncedSetHistory: typeof import("../../hooks/useEditorActions").debouncedSetHistory;
 let sliderDraft: typeof import("../../utils/sliderDraft");
@@ -27,6 +29,8 @@ beforeAll(async () => {
   StudioRelight = (await import("./StudioRelight")).default;
   StudioUpright = (await import("./StudioUpright")).default;
   StudioCropControls = (await import("./StudioCropControls")).default;
+  ({ ToolColumn } = await import("./toolLayout"));
+  ({ ContextMenuProvider } = await import("../../context/ContextMenuContext"));
   ({ useEditorStore } = await import("../../store/useEditorStore"));
   ({ debouncedSetHistory } = await import("../../hooks/useEditorActions"));
   sliderDraft = await import("../../utils/sliderDraft");
@@ -139,6 +143,31 @@ describe("Develop renders during a slider drag", () => {
     const counts = takeRenderCensus();
     expect(counts.StudioLut).toBeGreaterThan(0);
     expect(counts.StudioSnapshots).toBeGreaterThan(0);
+    rtl.act(() => useEditorStore.setState({ isSliderDragging: false }));
+  });
+
+  it("ends a press in a tool on release after another tool column went away", () => {
+    // The library's column beside Develop's, hidden later (browse sidebar).
+    const page = (library: boolean) => (
+      <ContextMenuProvider>
+        {library && (
+          <ToolColumn scope="library">
+            <div key="folders" />
+          </ToolColumn>
+        )}
+        <StudioDevelop />
+      </ContextMenuProvider>
+    );
+    const { rerender } = rtl.render(page(true));
+    rerender(page(false));
+    const slider = rtl.screen.getByRole("slider", { name: "Exposure" });
+    rtl.fireEvent.pointerDown(slider, { button: 0 });
+    rtl.fireEvent.pointerUp(slider, { button: 0 });
+    // Quick Adjust's wheel over the photo then edits as a drag.
+    rtl.act(() => useEditorStore.setState({ isSliderDragging: true }));
+    startRenderCensus();
+    setAdjustments({ vignetteAmount: 10 });
+    expect(takeRenderCensus().StudioLut).toBeGreaterThan(0);
     rtl.act(() => useEditorStore.setState({ isSliderDragging: false }));
   });
 });

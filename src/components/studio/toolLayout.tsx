@@ -33,6 +33,19 @@ let pressedSlot: string | null = null;
 const releasePress = () => {
   pressedSlot = null;
 };
+// Releases end the press wherever they happen, and a new press anywhere
+// forgets the last one first: a press outside any tool (the photo, a
+// shortcut) freezes nothing. One registration shared by all columns.
+const PRESS_EVENTS = ["pointerup", "pointercancel", "pointerdown"] as const;
+let pressWatchers = 0;
+function watchPresses() {
+  if (pressWatchers++ === 0)
+    for (const type of PRESS_EVENTS) window.addEventListener(type, releasePress, true);
+  return () => {
+    if (--pressWatchers === 0)
+      for (const type of PRESS_EVENTS) window.removeEventListener(type, releasePress, true);
+  };
+}
 
 /** A tool's content. While a slider drag that started in another tool is in
  * progress it keeps its last render: the drag's commits (every 250 ms,
@@ -143,18 +156,7 @@ export function ToolColumn({
   const [drag, setDrag] = useState<{ id: string; before: string | null } | null>(null);
   const { showContextMenu } = useContextMenu();
   const sliderDragging = useEditorStore((s) => s.isSliderDragging);
-  // Releases end the press wherever they happen; a press outside any tool
-  // (the photo, a shortcut) freezes nothing.
-  useEffect(() => {
-    window.addEventListener("pointerup", releasePress, true);
-    window.addEventListener("pointercancel", releasePress, true);
-    window.addEventListener("pointerdown", releasePress, true);
-    return () => {
-      window.removeEventListener("pointerup", releasePress, true);
-      window.removeEventListener("pointercancel", releasePress, true);
-      window.removeEventListener("pointerdown", releasePress, true);
-    };
-  }, []);
+  useEffect(watchPresses, []);
   const frozen = (id: string) =>
     sliderDragging && pressedSlot !== null && pressedSlot !== `${scope}/${id}`;
 
