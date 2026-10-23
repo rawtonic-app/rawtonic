@@ -71,6 +71,8 @@ export function describeCrossVolumeMove(plan: MovePlan): string {
 
 /** Mirrors `CopyProgress` in src-tauri/src/file_operations.rs. */
 interface CopyProgress {
+  /** The run Stop names, so it never stops another operation. */
+  run: number;
   label: string;
   done: number;
   total: number;
@@ -80,12 +82,12 @@ interface CopyProgress {
  * shows how far it is, with Stop (what was copied is removed, nothing moves). */
 async function withCopyProgress<T>(run: () => Promise<T>): Promise<T> {
   let shown: Id | null = null;
-  const stop = createElement(
-    'button',
-    { className: 'ml-3 underline', onClick: () => void invoke(Invokes.StopFileOperation) },
-    i18next.t('studio.library.fileOperations.stopCopying'),
-  );
   const unlisten = await listen<CopyProgress>('file-operation-progress', ({ payload }) => {
+    const stop = createElement(
+      'button',
+      { className: 'ml-3 underline', onClick: () => void invoke(Invokes.StopFileOperation, { run: payload.run }) },
+      i18next.t('studio.library.fileOperations.stopCopying'),
+    );
     const render = createElement(
       'span',
       null,

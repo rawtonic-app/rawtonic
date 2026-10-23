@@ -467,6 +467,9 @@ fn a_crash_at_any_step_of_an_undo_loses_nothing() {
             State::Undone => {
                 world.assert_moved(&world.source, &world.target);
                 assert_eq!(journal.last_redoable().unwrap().unwrap().id, op.id);
+                // Redo works, also over copies the undo kept.
+                journal.redo(&op.id, &world.trash).unwrap();
+                world.assert_at(&world.target, &world.source);
             }
             other => panic!("crash point {n}: {other:?}"),
         }
@@ -1024,4 +1027,39 @@ fn stop_during_the_last_verification_rolls_back() {
         .unwrap_err();
     assert!(format!("{error:#}").contains("Stopped"), "{error:#}");
     world.assert_at(&world.source, &world.target);
+}
+
+/// An undo whose copies could not go to the Trash keeps them; a redo takes
+/// them as the copies again (nothing copied) and trashes the originals.
+#[test]
+fn redo_takes_back_copies_an_undo_kept() {
+    let world = World::new();
+    let journal = world.journal();
+    let op = journal
+        .execute("move", "Move", world.steps(), &world.trash)
+        .unwrap();
+    world.trash.refuse.set(true);
+    let undone = journal.undo(&op.id, &world.trash).unwrap();
+    assert!(undone.note.unwrap().contains("cannot go to the Trash"));
+    world.trash.refuse.set(false);
+    let redone = journal.redo(&op.id, &world.trash).unwrap();
+    assert_eq!(redone.state, State::Done);
+    assert_eq!(redone.note, None);
+    world.assert_at(&world.target, &world.source);
+    // A kept copy that differs from the original is not taken over.
+    let world = World::new();
+    let journal = world.journal();
+    let op = journal
+        .execute("move", "Move", world.steps(), &world.trash)
+        .unwrap();
+    world.trash.refuse.set(true);
+    journal.undo(&op.id, &world.trash).unwrap();
+    world.trash.refuse.set(false);
+    fs::write(world.target.join("A.xmp"), b"edited there").unwrap();
+    let error = journal.redo(&op.id, &world.trash).unwrap_err();
+    assert!(format!("{error:#}").contains("already exists"), "{error:#}");
+    assert_eq!(
+        fs::read(world.target.join("A.xmp")).unwrap(),
+        b"edited there"
+    );
 }

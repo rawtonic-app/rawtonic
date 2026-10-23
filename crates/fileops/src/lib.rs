@@ -81,6 +81,11 @@ pub struct CopyState {
     /// volume has no Trash): both copies exist.
     #[serde(default)]
     pub kept: bool,
+    /// A redo found the destination holding the source's very bytes (a
+    /// copy its undo kept): it is taken as the copy, nothing is copied,
+    /// and only the source goes to the Trash.
+    #[serde(default)]
+    pub present: bool,
 }
 
 /// One file or folder of an operation.
@@ -828,10 +833,21 @@ impl Journal {
         );
         let mut steps = op.steps.clone();
         for step in &mut steps {
+            let from = step.from.clone();
             match &mut step.to {
                 // The item of the first trashing was put back by the undo.
                 Target::SystemTrash { item } => *item = None,
-                Target::OtherVolume { copy, .. } => *copy = CopyState::default(),
+                Target::OtherVolume { path, copy } => {
+                    // A copy the undo kept (its original was interrupted
+                    // or could not go to the Trash) is the copy again.
+                    let present = exists(path)
+                        && exists(&from)
+                        && same_content(&from, path, false, None).unwrap_or(false);
+                    *copy = CopyState {
+                        present,
+                        ..CopyState::default()
+                    };
+                }
                 Target::Path { .. } => {}
             }
         }
@@ -839,6 +855,13 @@ impl Journal {
         check_copies(&copy_pairs(&steps, Direction::Forward)).context("Nothing was redone")?;
         let created_dirs = create_target_parents(&steps).context("Nothing was redone")?;
         let staging_dirs = plan_staging(&mut steps, Direction::Forward)?;
+        for step in &mut steps {
+            if let Target::OtherVolume { copy, .. } = &mut step.to
+                && copy.present
+            {
+                copy.stamp = Some(Stamp::of(&step.from)?);
+            }
+        }
         let mut payload = Payload {
             steps,
             created_dirs,
@@ -1431,19 +1454,24 @@ fn validate(steps: &[Step]) -> Result<()> {
                 "{} cannot be moved into itself",
                 step.from.display()
             );
-            ensure!(
-                !exists(path) || same_file(&step.from, path),
-                "{} already exists",
-                path.display()
-            );
             match &step.to {
-                Target::Path { .. } => ensure!(
+                Target::OtherVolume { copy, .. } if copy.present => {}
+                Target::OtherVolume { .. } => {
+                    ensure!(!exists(path), "{} already exists", path.display())
+                }
+                _ => ensure!(
+                    !exists(path) || same_file(&step.from, path),
+                    "{} already exists",
+                    path.display()
+                ),
+            }
+            if let Target::Path { .. } = step.to {
+                ensure!(
                     same_volume(&step.from, path)?,
                     "{} is on another volume than {}; a rename cannot move it there",
                     path.display(),
                     step.from.display()
-                ),
-                _ => ensure!(!exists(path), "{} already exists", path.display()),
+                );
             }
         }
     }
@@ -1598,7 +1626,7 @@ fn copy_pairs(steps: &[Step], direction: Direction) -> Vec<(PathBuf, PathBuf)> {
     steps
         .iter()
         .filter_map(|step| match (&step.to, direction) {
-            (Target::OtherVolume { path, .. }, Direction::Forward) => {
+            (Target::OtherVolume { path, copy }, Direction::Forward) if !copy.present => {
                 Some((step.from.clone(), path.clone()))
             }
             (Target::OtherVolume { path, copy }, Direction::Back) if !copy.kept => {
@@ -1712,6 +1740,7 @@ fn plan_staging(steps: &mut [Step], direction: Direction) -> Result<Vec<PathBuf>
         copy.staged = None;
         copy.trashed = None;
         let destination = match direction {
+            Direction::Forward if copy.present => continue,
             Direction::Forward => path.clone(),
             Direction::Back if copy.kept => continue,
             Direction::Back => from,

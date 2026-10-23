@@ -23,7 +23,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -96,8 +96,47 @@ impl SystemTrash for PlatformTrash {
 
 static JOURNAL: Mutex<Option<Journal>> = Mutex::new(None);
 
-/// Set by Stop while files are copied to another drive.
-static STOP_COPYING: AtomicBool = AtomicBool::new(false);
+/// Stop for the file operation that is running: each run gets a number
+/// (sent with its progress), and Stop names the run it is for, so a Stop
+/// button left from a finished operation never stops the next one.
+struct StopSwitch {
+    running: AtomicU64,
+    next: AtomicU64,
+    stopped: AtomicBool,
+}
+
+impl StopSwitch {
+    const fn new() -> Self {
+        Self {
+            running: AtomicU64::new(0),
+            next: AtomicU64::new(1),
+            stopped: AtomicBool::new(false),
+        }
+    }
+    /// A run begins (holding the journal's lock); returns its number.
+    fn begin(&self) -> u64 {
+        let run = self.next.fetch_add(1, Ordering::SeqCst);
+        self.stopped.store(false, Ordering::SeqCst);
+        self.running.store(run, Ordering::SeqCst);
+        run
+    }
+    /// The run is over: a Stop for it does nothing any more.
+    fn end(&self, run: u64) {
+        let _ = self
+            .running
+            .compare_exchange(run, 0, Ordering::SeqCst, Ordering::SeqCst);
+    }
+    fn stop(&self, run: u64) {
+        if run != 0 && self.running.load(Ordering::SeqCst) == run {
+            self.stopped.store(true, Ordering::SeqCst);
+        }
+    }
+    fn stopped(&self, run: u64) -> bool {
+        self.stopped.load(Ordering::SeqCst) && self.running.load(Ordering::SeqCst) == run
+    }
+}
+
+static STOP: StopSwitch = StopSwitch::new();
 
 /// The event with the bytes copied so far by a move to another drive (or
 /// its undo or redo).
@@ -106,6 +145,8 @@ pub const FILE_OPERATION_PROGRESS: &str = "file-operation-progress";
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CopyProgress {
+    /// The run, for Stop.
+    run: u64,
     label: String,
     done: u64,
     total: u64,
@@ -113,12 +154,13 @@ struct CopyProgress {
 
 /// Sends the copy progress to the frontend (at most ten times a second)
 /// and passes Stop on. File operations run one at a time (the journal's
-/// lock): `start` clears an earlier Stop once this one holds it, so Stop
-/// pressed during one operation never reaches the next.
+/// lock): `start` begins this run there and the run ends when it is
+/// dropped, so Stop pressed for one operation never reaches another.
 struct ProgressEvents<'a> {
     app: &'a AppHandle,
     label: String,
     last: Cell<Option<Instant>>,
+    run: Cell<u64>,
 }
 
 impl<'a> ProgressEvents<'a> {
@@ -127,13 +169,20 @@ impl<'a> ProgressEvents<'a> {
             app,
             label: label.to_string(),
             last: Cell::new(None),
+            run: Cell::new(0),
         }
     }
 }
 
 impl ProgressEvents<'_> {
     fn start(&self) {
-        STOP_COPYING.store(false, Ordering::SeqCst);
+        self.run.set(STOP.begin());
+    }
+}
+
+impl Drop for ProgressEvents<'_> {
+    fn drop(&mut self) {
+        STOP.end(self.run.get());
     }
 }
 
@@ -152,6 +201,7 @@ impl CopyObserver for ProgressEvents<'_> {
         let _ = self.app.emit(
             FILE_OPERATION_PROGRESS,
             CopyProgress {
+                run: self.run.get(),
                 label: self.label.clone(),
                 done,
                 total,
@@ -159,15 +209,16 @@ impl CopyObserver for ProgressEvents<'_> {
         );
     }
     fn cancelled(&self) -> bool {
-        STOP_COPYING.load(Ordering::SeqCst)
+        STOP.stopped(self.run.get())
     }
 }
 
-/// Stops the copying of a move to another drive (or its undo or redo):
-/// what was copied is removed and nothing is moved.
+/// Stops the copying of the move to another drive (or its undo or redo)
+/// numbered `run` in its progress: what was copied is removed and nothing
+/// is moved. Does nothing once that run is over.
 #[tauri::command]
-pub fn stop_file_operation() {
-    STOP_COPYING.store(true, Ordering::SeqCst);
+pub fn stop_file_operation(run: u64) {
+    STOP.stop(run);
 }
 
 fn with_journal<T>(
@@ -1065,6 +1116,26 @@ mod tests {
         let dir = root.join("Job");
         rawtonic_catalog::Library::create(&dir, "Job", rawtonic_catalog::Mode::Session).unwrap();
         dir.canonicalize().unwrap()
+    }
+
+    /// Stop reaches only the run it names, and only while it runs.
+    #[test]
+    fn stop_reaches_only_the_run_it_names() {
+        let switch = StopSwitch::new();
+        let a = switch.begin();
+        switch.stop(a);
+        assert!(switch.stopped(a));
+        switch.end(a);
+        let b = switch.begin();
+        assert!(!switch.stopped(b), "a new run starts unstopped");
+        switch.stop(a);
+        assert!(!switch.stopped(b), "a Stop left from the last run");
+        switch.stop(b);
+        assert!(switch.stopped(b));
+        switch.end(b);
+        switch.stop(b);
+        let c = switch.begin();
+        assert!(!switch.stopped(c));
     }
 
     #[test]
