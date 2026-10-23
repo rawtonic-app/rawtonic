@@ -1,4 +1,5 @@
 import "../../i18n";
+import i18n from "i18next";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -802,4 +803,18 @@ it("shows a translated summary with backend export details as secondary text", (
   const alert = screen.getByRole("alert");
   expect(within(alert).getByText("The operation could not be completed.")).toBeTruthy();
   expect(within(alert).getByText("EIO: cannot write").tagName).toBe("SMALL");
+});
+
+
+it("retains specific German translations for known export failures", async () => {
+  await i18n.changeLanguage("de");
+  try {
+    useProcessStore.setState({ exportState: { status: Status.Error, errorMessage: "3 of 12 exports failed", progress: { current: 0, total: 0 } } });
+    render(<StudioExport />);
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("Der Vorgang konnte nicht abgeschlossen werden.");
+    expect(within(alert).getByText("3 von 12 Exporten fehlgeschlagen").tagName).toBe("SMALL");
+  } finally {
+    await i18n.changeLanguage("en");
+  }
 });

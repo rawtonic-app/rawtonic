@@ -379,6 +379,9 @@
       }
     }
   },
+  "errors": {
+    "operationFailed": "The operation could not be completed."
+  },
   "library": {
     "filters": {
       "rating": {
@@ -3024,7 +3027,6 @@
       "zoomLock": "Lock zoom",
       "zoomLockTitle": "Lock zoom: zooming the primary zooms and pans every photograph to the same point. Off, each photograph zooms on its own (wheel, pinch, double-click or Space over it)"
     },
-    "operationFailed": "The operation could not be completed.",
     "people": {
       "aria": "People mask",
       "everyone": "Everyone",

@@ -393,6 +393,9 @@
       }
     }
   },
+  "errors": {
+    "operationFailed": "Non è stato possibile completare l’operazione."
+  },
   "library": {
     "filters": {
       "rating": {
@@ -3119,7 +3122,6 @@
       "zoomLock": "Blocca zoom",
       "zoomLockTitle": "Blocca zoom: lo zoom sulla foto principale ingrandisce e sposta tutte le foto nello stesso punto. Disattivato, ogni foto zooma da sola (rotella, pizzico, doppio clic o Spazio sopra di essa)"
     },
-    "operationFailed": "Non è stato possibile completare l’operazione.",
     "people": {
       "aria": "Maschera persone",
       "everyone": "Tutti",

@@ -14,7 +14,6 @@ it("steps through decimal units including bytes and terabytes", () => {
   expect(formatFileSize(1_500_000_000_000)).toBe("1.5 TB");
 });
 
-
 it("handles zero, invalid inputs and rounded unit boundaries", () => {
   expect(formatFileSize(0)).toBe("0 byte");
   expect(formatFileSize(-1)).toBe("0 byte");

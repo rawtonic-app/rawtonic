@@ -1,5 +1,3 @@
-import OperationError from "../ui/OperationError";
-import { Invokes } from '../ui/AppProperties';
 import { useEffect, useRef, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
@@ -7,6 +5,8 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Check, FolderOpen, LoaderCircle, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import OperationError from "../ui/OperationError";
+import { Invokes } from "../ui/AppProperties";
 import { flushBeforeQuit, registerQuitFlush } from "../../utils/quit";
 
 export type TransferPurpose = "transfer" | "backup" | "restore";

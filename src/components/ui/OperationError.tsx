@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 export default function OperationError({ detail }: { detail: string }) {
   const { t } = useTranslation();
   return <>
-    <span className="block">{t("studio.operationFailed")}</span>
+    <span className="block">{t("errors.operationFailed")}</span>
     {detail && <small className="block whitespace-pre-wrap break-words">{detail}</small>}
   </>;
 }

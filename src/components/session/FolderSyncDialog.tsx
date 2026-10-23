@@ -1,9 +1,9 @@
-import OperationError from "../ui/OperationError";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Check, LoaderCircle, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import OperationError from "../ui/OperationError";
 import { Invokes } from "../ui/AppProperties";
 import {
   SYNC_GROUPS,

@@ -379,6 +379,9 @@
       }
     }
   },
+  "errors": {
+    "operationFailed": "操作を完了できませんでした。"
+  },
   "library": {
     "filters": {
       "rating": {
@@ -2950,7 +2953,6 @@
       "zoomLock": "ズームを連動",
       "zoomLockTitle": "ズームを連動：メイン写真をズームすると、すべての写真が同じ位置にズーム・移動します。オフでは各写真が個別にズームします（写真の上でホイール、ピンチ、ダブルクリック、またはSpace）"
     },
-    "operationFailed": "操作を完了できませんでした。",
     "people": {
       "aria": "人物マスク",
       "everyone": "全員",

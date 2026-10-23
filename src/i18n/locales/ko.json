@@ -379,6 +379,9 @@
       }
     }
   },
+  "errors": {
+    "operationFailed": "작업을 완료하지 못했습니다."
+  },
   "library": {
     "filters": {
       "rating": {
@@ -2950,7 +2953,6 @@
       "zoomLock": "확대/축소 연동",
       "zoomLockTitle": "확대/축소 연동: 기본 사진을 확대하면 모든 사진이 같은 지점으로 확대·이동합니다. 끄면 각 사진이 따로 확대됩니다(사진 위에서 휠, 핀치, 더블클릭 또는 Space)"
     },
-    "operationFailed": "작업을 완료하지 못했습니다.",
     "people": {
       "aria": "인물 마스크",
       "everyone": "모두",

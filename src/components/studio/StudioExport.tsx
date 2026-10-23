@@ -7,6 +7,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { currentEditForExport, useEditorStore } from "../../store/useEditorStore";
 import { useProcessStore } from "../../store/useProcessStore";
+import { renderErrorMessage } from "../../utils/renderErrors";
 import OperationError from "../ui/OperationError";
 import { formatFileSize } from "../../utils/formatFileSize";
 import { ExportQueueJobs } from "./StudioExportQueue";
@@ -1228,7 +1229,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
       )}
       {state.status === Status.Error && (
         <p className="studio-export-error" role="alert">
-          <OperationError detail={state.errorMessage} />
+          <OperationError detail={renderErrorMessage(state.errorMessage)} />
         </p>
       )}
       {state.status === Status.Success && (

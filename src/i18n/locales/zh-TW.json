@@ -379,6 +379,9 @@
       }
     }
   },
+  "errors": {
+    "operationFailed": "無法完成操作。"
+  },
   "library": {
     "filters": {
       "rating": {
@@ -2950,7 +2953,6 @@
       "zoomLock": "鎖定縮放",
       "zoomLockTitle": "鎖定縮放：縮放主要照片時，所有照片都會縮放並移到同一位置。關閉後，每張照片各自縮放（在照片上使用滾輪、雙指縮放、按兩下或空白鍵）"
     },
-    "operationFailed": "無法完成操作。",
     "people": {
       "aria": "人物遮色片",
       "everyone": "所有人",
