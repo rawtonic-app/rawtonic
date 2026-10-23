@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEditorStore } from '../../../store/useEditorStore';
 import { useSnapshotStore } from '../../../store/useSnapshotStore';
+import { useSettingsStore } from '../../../store/useSettingsStore';
 import { beforeSnapshot } from '../../../utils/beforeSnapshot';
 import { DEFAULT_SPLIT_POSITION, nudgeSplitPosition, splitPositionAt } from '../../../utils/beforeAfter';
 
@@ -19,10 +20,15 @@ export default function SplitViewOverlay() {
   const position = useEditorStore((state) => state.splitPosition);
   // While \ is held the whole photograph shows before: no divider, no labels.
   const peeking = useEditorStore((state) => state.showOriginal);
-  // The snapshot compared with names the before side.
+  // The snapshot shown names the before side: on the native display the one
+  // whose before is in place (an earlier request's can still be), in the
+  // browser split the one compared with (its frame waits for its recipe).
   useEditorStore((state) => state.beforeSnapshot);
-  useSnapshotStore((state) => state.snapshots);
-  const compared = beforeSnapshot();
+  const shownId = useEditorStore((state) => state.splitBeforeShows);
+  const browser = useSettingsStore((state) => state.osPlatform === 'linux');
+  const snapshots = useSnapshotStore((state) => state.snapshots);
+  const chosen = beforeSnapshot();
+  const compared = browser ? chosen : (snapshots.find((snapshot) => snapshot.id === shownId) ?? null);
   const rootRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
 

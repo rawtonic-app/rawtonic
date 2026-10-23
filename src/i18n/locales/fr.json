@@ -2040,6 +2040,7 @@
       },
       "snapshots": {
         "compare": "Comparer {{name}} à la retouche actuelle (l'avant d'Avant/Après)",
+        "compareDiffers": "{{name}} est cadré ou développé autrement (recadrage, géométrie, débruitage IA ou version de la réduction du bruit) : restaurez-le pour comparer",
         "compareEnd": "Comparer de nouveau à la photo non retouchée au lieu de {{name}}",
         "create": "Nouvel instantané de la retouche actuelle",
         "delete": "Supprimer l’instantané {{name}}",

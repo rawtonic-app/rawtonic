@@ -356,7 +356,7 @@ fn build_reduced_preview_base(
 }
 
 pub(crate) fn generate_shared_transformed_preview(
-    state: &tauri::State<AppState>,
+    state: &AppState,
     loaded_image: &LoadedImage,
     adjustments: &serde_json::Value,
     preview_dim: u32,
@@ -489,7 +489,7 @@ fn patched_warped_key(adjustments: &serde_json::Value) -> u64 {
 }
 
 pub(crate) fn compute_full_transformed_res(
-    state: &tauri::State<AppState>,
+    state: &AppState,
     loaded_image: &LoadedImage,
     adjustments: &serde_json::Value,
 ) -> Result<(Arc<DynamicImage>, (f32, f32)), String> {
@@ -577,7 +577,7 @@ pub(crate) fn cancel_thumbnail_generation(
 }
 
 pub fn get_cached_full_warped_image(
-    state: &tauri::State<AppState>,
+    state: &AppState,
     source: &Arc<DynamicImage>,
     is_raw: bool,
     js_adjustments: &serde_json::Value,
@@ -1005,7 +1005,7 @@ pub(crate) fn interim_source(
 /// `base_adjustments` may differ by a draft flag only.
 #[allow(clippy::too_many_arguments)]
 fn preview_base(
-    state: &tauri::State<AppState>,
+    state: &AppState,
     loaded_image: &LoadedImage,
     source_scale: f32,
     full_dims: (u32, u32),
@@ -1120,36 +1120,15 @@ pub async fn sample_curve_input(
         };
         // The layers' masks as the preview frame draws them.
         let mask_definitions = mask_definitions_from_json(&recipe);
-        let warped_image = resolve_warped_image_for_masks(
+        let mask_bitmaps = preview_mask_bitmaps(
             &state,
-            &loaded_image.image,
-            loaded_image.is_raw,
-            source_scale,
             &recipe,
             &mask_definitions,
+            (&loaded_image, source_scale, full_dims),
+            (width, height),
+            scale,
+            unscaled_crop_offset,
         )?;
-        let mask_geometry = PhotoGeometry::from_adjustments(&recipe)
-            .with_photo_size(full_dims.0 as f64, full_dims.1 as f64);
-        let crop_offset = (
-            unscaled_crop_offset.0 * scale,
-            unscaled_crop_offset.1 * scale,
-        );
-        let mask_bitmaps: Vec<Arc<MaskBitmap>> = mask_definitions
-            .iter()
-            .filter_map(|def| {
-                get_cached_or_generate_mask(
-                    &state,
-                    def,
-                    width,
-                    height,
-                    scale,
-                    crop_offset,
-                    &mask_geometry,
-                    warped_image.as_ref(),
-                )
-                .transpose()
-            })
-            .collect::<Result<_, _>>()?;
         let tm_override = resolve_tonemapper_override_from_handle(&app_handle, loaded_image.is_raw);
         let mut probe = get_all_adjustments_with_masks(
             &recipe,
@@ -1187,6 +1166,51 @@ pub async fn sample_curve_input(
     })
     .await
     .map_err(|error| format!("Curve input sampling task failed: {error}"))?
+}
+
+/// The bitmaps of `masks` (`recipe`'s) on a preview base of `size` at
+/// `scale` whose crop starts at `unscaled_crop_offset`, from the photograph
+/// (`source`: image, proxy pixels per full-resolution pixel, full size), as
+/// the preview frame draws them.
+fn preview_mask_bitmaps(
+    state: &AppState,
+    recipe: &serde_json::Value,
+    masks: &[MaskDefinition],
+    (loaded_image, source_scale, full_dims): (&LoadedImage, f32, (u32, u32)),
+    (width, height): (u32, u32),
+    scale: f32,
+    unscaled_crop_offset: (f32, f32),
+) -> Result<Vec<Arc<MaskBitmap>>, String> {
+    let warped_image = resolve_warped_image_for_masks(
+        state,
+        &loaded_image.image,
+        loaded_image.is_raw,
+        source_scale,
+        recipe,
+        masks,
+    )?;
+    let mask_geometry = PhotoGeometry::from_adjustments(recipe)
+        .with_photo_size(full_dims.0 as f64, full_dims.1 as f64);
+    let crop_offset = (
+        unscaled_crop_offset.0 * scale,
+        unscaled_crop_offset.1 * scale,
+    );
+    masks
+        .iter()
+        .filter_map(|def| {
+            get_cached_or_generate_mask(
+                state,
+                def,
+                width,
+                height,
+                scale,
+                crop_offset,
+                &mask_geometry,
+                warped_image.as_ref(),
+            )
+            .transpose()
+        })
+        .collect()
 }
 
 /// RGBA8 ProPhoto pixels as signed linear sRGB, one colour per pixel.
@@ -2043,9 +2067,10 @@ pub(crate) async fn activate_photo(
 }
 
 /// Renders the split view's before side (`js_adjustments`: the unedited
-/// recipe with the edit's framing, view states included) for the photograph
-/// at `path` and keeps it on the GPU beside the edited frames, as Capture
-/// One's before/after split shows both renders. Pixels stay native: the
+/// recipe with the edit's framing, or a snapshot compared with, framed and
+/// developed as the edit; view states included) for the photograph at `path`
+/// and keeps it on the GPU beside the edited frames, as Capture One's
+/// before/after split shows both renders. Pixels stay native: the
 /// display-shader readback (exactly the display frame's pixels) is uploaded
 /// to the display's before texture. Returns whether a before is in place;
 /// an unchanged request renders nothing.
@@ -2069,6 +2094,8 @@ fn render_split_before_blocking(
     mut adjustments: serde_json::Value,
     target_resolution: Option<u32>,
 ) -> Result<bool, String> {
+    #[cfg(feature = "performance-profiling")]
+    let _stage = crate::performance::PerformanceStage::new("split_before");
     let state = app_handle.state::<AppState>();
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
     #[cfg(not(target_os = "linux"))]
@@ -2114,69 +2141,16 @@ fn render_split_before_blocking(
         return Ok(true);
     }
 
-    // The edit's preview base when the before shares it (no retouch, same
-    // framing); else its own, without touching the edit's caches.
-    let transform_hash = calculate_transform_hash(&adjustments);
-    let cached = state
-        .cached_preview
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
-        .filter(|c| {
-            c.serves(&loaded_image.image, transform_hash, interim, false)
-                && c.preview_dim == preview_dim
-        })
-        .map(|c| (Arc::clone(&c.image), c.scale));
-    let (base, scale) = match cached {
-        Some(cached) => cached,
-        None => {
-            let preview = preview_base(
-                &state,
-                &loaded_image,
-                source_scale,
-                full_dims,
-                &adjustments,
-                &adjustments,
-                preview_dim,
-                preview_cache::preparation_key(&adjustments),
-            )?;
-            (preview.image, preview.scale)
-        }
-    };
-
-    let is_raw = loaded_image.is_raw;
-    let tm_override = resolve_tonemapper_override(&settings, is_raw);
-    let mut all_adjustments = get_all_adjustments_from_json(&adjustments, is_raw, tm_override);
-    crate::baseline_exposure::apply_base_look(
-        &mut all_adjustments.global,
-        &loaded_image.path,
-        loaded_image.measures.as_ref(),
-    );
-    all_adjustments.global.detail_scale = scale;
-    // Encoded for the window layer, as display frames are.
-    let space = context.display_space;
-    all_adjustments.global.output_space[0] = space.shader_code();
-    all_adjustments.global.output_matrix =
-        image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
-    let lut = adjustments["lutPath"]
-        .as_str()
-        .and_then(|p| lut_processing::get_or_load_lut(&state, p).ok());
-    // The unedited recipe has no local adjustments: no mask bitmaps.
-    let rendered = gpu_processing::process_and_get_dynamic_image_with_display_shader(
-        &context,
+    let tm_override = resolve_tonemapper_override(&settings, loaded_image.is_raw);
+    let rendered = develop_split_before(
         &state,
-        &base,
-        transform_hash,
-        RenderRequest {
-            adjustments: all_adjustments,
-            mask_bitmaps: &[],
-            lut,
-            roi: None,
-        },
-        "split_before",
-    )
-    .map_err(|error| format!("{PREVIEW_RENDER_FAILED}: {error}"))?;
-    let rendered = rendered.into_rgba8();
+        &context,
+        (&loaded_image, source_scale, full_dims),
+        &adjustments,
+        preview_dim,
+        interim,
+        tm_override,
+    )?;
 
     // Another photograph or decode meanwhile: this before is not wanted.
     let still_current = state.load_image_generation.load(Ordering::SeqCst) == load_generation
@@ -2201,6 +2175,96 @@ fn render_split_before_blocking(
     );
     display.render(&context.device, &context.queue);
     Ok(true)
+}
+
+/// The split's before of `adjustments` (hydrated, with the edit's framing)
+/// from `source` (image, proxy pixels per full-resolution pixel, full size;
+/// `interim`: shown only until the decode is in) at `preview_dim`: the
+/// display shader's readback, encoded for the window layer as display frames
+/// are, local adjustments included.
+#[allow(clippy::too_many_arguments)]
+fn develop_split_before(
+    state: &AppState,
+    context: &gpu_processing::GpuContext,
+    (loaded_image, source_scale, full_dims): (&LoadedImage, f32, (u32, u32)),
+    adjustments: &serde_json::Value,
+    preview_dim: u32,
+    interim: bool,
+    tm_override: Option<u32>,
+) -> Result<image::RgbaImage, String> {
+    // The edit's preview base when the before shares it (no retouch, same
+    // framing); else its own, without touching the edit's caches.
+    let transform_hash = calculate_transform_hash(adjustments);
+    let cached = state
+        .cached_preview
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .filter(|c| {
+            c.serves(&loaded_image.image, transform_hash, interim, false)
+                && c.preview_dim == preview_dim
+        })
+        .map(|c| (Arc::clone(&c.image), c.scale, c.unscaled_crop_offset));
+    let (base, scale, unscaled_crop_offset) = match cached {
+        Some(cached) => cached,
+        None => {
+            let preview = preview_base(
+                state,
+                loaded_image,
+                source_scale,
+                full_dims,
+                adjustments,
+                adjustments,
+                preview_dim,
+                preview_cache::preparation_key(adjustments),
+            )?;
+            (preview.image, preview.scale, preview.unscaled_crop_offset)
+        }
+    };
+    // A snapshot's local adjustments, as the preview frame draws them.
+    let mask_definitions = mask_definitions_from_json(adjustments);
+    let mask_bitmaps = preview_mask_bitmaps(
+        state,
+        adjustments,
+        &mask_definitions,
+        (loaded_image, source_scale, full_dims),
+        base.dimensions(),
+        scale,
+        unscaled_crop_offset,
+    )?;
+
+    let is_raw = loaded_image.is_raw;
+    let mut all_adjustments =
+        get_all_adjustments_with_masks(adjustments, is_raw, tm_override, &mask_definitions);
+    crate::baseline_exposure::apply_base_look(
+        &mut all_adjustments.global,
+        &loaded_image.path,
+        loaded_image.measures.as_ref(),
+    );
+    all_adjustments.global.detail_scale = scale;
+    // Encoded for the window layer, as display frames are.
+    let space = context.display_space;
+    all_adjustments.global.output_space[0] = space.shader_code();
+    all_adjustments.global.output_matrix =
+        image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+    let lut = adjustments["lutPath"]
+        .as_str()
+        .and_then(|p| lut_processing::get_or_load_lut(state, p).ok());
+    let rendered = gpu_processing::process_and_get_dynamic_image_with_display_shader(
+        context,
+        state,
+        &base,
+        transform_hash,
+        RenderRequest {
+            adjustments: all_adjustments,
+            mask_bitmaps: &mask_bitmaps,
+            lut,
+            roi: None,
+        },
+        "split_before",
+    )
+    .map_err(|error| format!("{PREVIEW_RENDER_FAILED}: {error}"))?;
+    Ok(rendered.into_rgba8())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2654,6 +2718,65 @@ mod split_view_tests {
         let mut perspective = before.clone();
         perspective["transformVertical"] = json!(-10);
         assert_ne!(key, split_frame_key("/a.NEF", &perspective));
+    }
+
+    /// A snapshot compared with shows its local adjustments in the split's
+    /// before: a radial layer brightens its part and leaves the rest (the
+    /// before once rendered without mask bitmaps, as for the unedited one).
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn the_split_before_shows_a_snapshots_local_adjustments() {
+        use crate::app_state::{AppState, LoadedImage};
+        use crate::gpu_processing::GpuContext;
+        use image::{DynamicImage, Rgb32FImage};
+        use std::sync::Arc;
+
+        let context = GpuContext::headless().expect("a GPU");
+        let state = AppState::default();
+        let (width, height) = (384, 256);
+        let loaded = LoadedImage {
+            path: "/split-before.tif".into(),
+            image: Arc::new(DynamicImage::ImageRgb32F(Rgb32FImage::from_pixel(
+                width,
+                height,
+                image::Rgb([0.18, 0.18, 0.18]),
+            ))),
+            is_raw: false,
+            decode: None,
+            measures: None,
+        };
+        let layer = json!({"id": "layer", "name": "Layer", "visible": true, "invert": false,
+            "opacity": 100, "adjustments": {"exposure": 2.0},
+            "subMasks": [{"id": "radial", "type": "radial", "visible": true, "mode": "additive",
+                "parameters": {"centerX": 96.0, "centerY": 128.0, "radiusX": 60.0,
+                    "radiusY": 60.0, "rotation": 0.0, "feather": 0.0}}]});
+        let render = |recipe: &serde_json::Value| {
+            super::develop_split_before(
+                &state,
+                &context,
+                (&loaded, 1.0, (width, height)),
+                recipe,
+                width,
+                false,
+                None,
+            )
+            .expect("a before")
+        };
+        let plain = render(&json!({}));
+        let snapshot = render(&json!({"masks": [layer]}));
+        assert_eq!(snapshot.dimensions(), plain.dimensions());
+        let (inside, outside) = ((96, 128), (300, 128));
+        let luma = |image: &image::RgbaImage, (x, y): (u32, u32)| image.get_pixel(x, y)[1];
+        assert!(
+            luma(&snapshot, inside) > luma(&plain, inside) + 40,
+            "the layer brightens its part: {} vs {}",
+            luma(&snapshot, inside),
+            luma(&plain, inside)
+        );
+        assert_eq!(
+            snapshot.get_pixel(outside.0, outside.1),
+            plain.get_pixel(outside.0, outside.1)
+        );
     }
 }
 

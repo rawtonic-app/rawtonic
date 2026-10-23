@@ -2040,6 +2040,7 @@
       },
       "snapshots": {
         "compare": "Compara {{name}} amb l'edició actual (l'abans d'Abans/Després)",
+        "compareDiffers": "{{name}} té un enquadrament o un revelat diferent (retall, geometria, reducció de soroll amb IA o versió de la reducció de soroll): restaura-la per comparar",
         "compareEnd": "Torna a comparar amb la foto sense editar en lloc de {{name}}",
         "create": "Nova instantània de l’edició actual",
         "delete": "Suprimeix la instantània {{name}}",

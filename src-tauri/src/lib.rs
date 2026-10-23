@@ -84,19 +84,12 @@ use rawtonic_engine::{auto_adjust, baseline_exposure, formats, lens_blur};
 use rawtonic_rawdecode::{gpu_demosaic, raw_processing};
 use rawtonic_runtime::allocator;
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicUsize};
-
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use tauri::Manager;
-use tokio::sync::Mutex as TokioMutex;
 
 use crate::app_settings::{AppSettings, load_settings};
-use crate::app_state::{
-    AppState, MetadataManager, ThumbnailManager, ThumbnailProgressTracker, WindowState,
-};
-use crate::cache_utils::DecodedImageCache;
+use crate::app_state::{AppState, WindowState};
 use crate::image_processing::get_or_init_gpu_context;
 use crate::launch_request::{LaunchRequest, emit_launch_request, parse_launch_args};
 use crate::window_customizer::PinchZoomDisablePlugin;
@@ -622,58 +615,7 @@ pub fn run() {
             crate::register_exit_handler();
             Ok(())
         })
-        .manage(AppState {
-            window_setup_complete: AtomicBool::new(false),
-            gpu_crash_flag_path: Mutex::new(None),
-            original_image: Mutex::new(None),
-            proxy_image: Mutex::new(None),
-            proxy_memory: Mutex::new(Default::default()),
-            offline_source: Mutex::new(None),
-            source_signal: Default::default(),
-            rendered_source: Default::default(),
-            current_source: Mutex::new(String::new()),
-            last_preview_dim: std::sync::atomic::AtomicU32::new(0),
-            cached_preview: Mutex::new(None),
-            reusable_previews: Mutex::new(Default::default()),
-            gpu_context: Mutex::new(None),
-            gpu_image_cache: Mutex::new(None),
-            gpu_processor: Mutex::new(None),
-            ai_state: Mutex::new(None),
-            ai_init_lock: TokioMutex::new(()),
-            ai_denoiser: Mutex::new([None, None]),
-            faces: Mutex::new(Default::default()),
-            active_ai_tasks: Mutex::new(HashMap::new()),
-            export_task_token: Arc::new(Mutex::new(None)),
-            merge_result: Arc::new(Mutex::new(None)),
-            indexing_task_handle: Mutex::new(None),
-            lut_cache: Mutex::new(Default::default()),
-            initial_file_path: Mutex::new(None),
-            pending_edit_session: Mutex::new(None),
-            thumbnail_cancellation_token: Arc::new(AtomicBool::new(false)),
-            thumbnail_progress: Mutex::new(ThumbnailProgressTracker { total: 0, completed: 0 }),
-            preview_jobs: Default::default(),
-            live_stroke: Default::default(),
-            analytics_worker_tx: Mutex::new(None),
-            mask_cache: Mutex::new(Default::default()),
-            mask_thumbnail_cache: Mutex::new(Default::default()),
-            patch_cache: Mutex::new(HashMap::new()),
-            geometry_cache: Mutex::new(HashMap::new()),
-            thumbnail_geometry_cache: Mutex::new(HashMap::new()),
-            lens_db: Mutex::new(None),
-            load_image_generation: Arc::new(AtomicUsize::new(0)),
-            preview_generation: AtomicUsize::new(0),
-            full_warped_cache: Mutex::new(None),
-            full_warped_build: Default::default(),
-            mask_source_wanted: Mutex::new(None),
-            mask_source_recipe: Mutex::new(None),
-            patched_warped_cache: Mutex::new(None),
-            full_transformed_cache: Mutex::new(None),
-            decoded_image_cache: Mutex::new(DecodedImageCache::new(5)),
-            thumbnail_manager: ThumbnailManager::new(),
-            metadata_manager: MetadataManager::new(),
-            disks_cache: Mutex::new(None),
-            disks_cache_refreshing: AtomicBool::new(false),
-        })
+        .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             session_bridge::session_create,
             snapshots::snapshots_list,

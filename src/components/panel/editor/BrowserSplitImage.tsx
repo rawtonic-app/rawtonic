@@ -4,12 +4,9 @@ import { Loader2, TriangleAlert } from "lucide-react";
 import { useEditorStore } from "../../../store/useEditorStore";
 import { useSettingsStore } from "../../../store/useSettingsStore";
 import { useSnapshotStore } from "../../../store/useSnapshotStore";
-import { beforeSnapshotAdjustments } from "../../../utils/beforeSnapshot";
+import { beforeAdjustments } from "../../../utils/beforeSnapshot";
 import { useBrowserViewPreview } from "../../../hooks/useBrowserViewPreview";
-import {
-  originalPreviewAdjustments,
-  browserSplitWidth,
-} from "../../../utils/beforeAfter";
+import { browserSplitWidth } from "../../../utils/beforeAfter";
 import type { RenderSize } from "../../../hooks/useImageRenderSize";
 import type { Adjustments } from "../../../utils/adjustments";
 
@@ -47,7 +44,7 @@ export default function BrowserSplitImage({
   useEditorStore((s) => s.beforeSnapshot);
   useSnapshotStore((s) => s.snapshots);
   const recipe = JSON.stringify({
-    ...originalPreviewAdjustments(adjustments, beforeSnapshotAdjustments()),
+    ...beforeAdjustments(adjustments),
     ...view,
   });
   const resolution = Math.min(

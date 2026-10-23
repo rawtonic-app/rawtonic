@@ -2040,6 +2040,7 @@
       },
       "snapshots": {
         "compare": "Comparar {{name}} com a edição atual (o antes de Antes/Depois)",
+        "compareDiffers": "{{name}} tem outro enquadramento ou revelação (recorte, geometria, redução de ruído com IA ou versão da redução de ruído): restaure-o para comparar",
         "compareEnd": "Comparar de novo com a foto sem edição em vez de {{name}}",
         "create": "Novo instantâneo da edição atual",
         "delete": "Eliminar o instantâneo {{name}}",

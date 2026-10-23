@@ -290,17 +290,26 @@ it("restores AI bitmaps under ids of their own, also while the renderer is still
 });
 
 it("is open from the start and compares a snapshot with the current edit in Before/After", async () => {
+  const crop = { x: 1, y: 2, width: 30, height: 20 };
+  const framed = (exposure: number) => ({ ...recipe(exposure), crop }) as Adjustments;
   kept[PHOTO] = [
-    { id: "a", name: "Bright", createdAt: "2026-10-20T10:00:00.000Z", adjustments: recipe(2) },
-    { id: "b", name: "Dark", createdAt: "2026-10-20T10:01:00.000Z", adjustments: recipe(-1) },
+    { id: "a", name: "Bright", createdAt: "2026-10-20T10:00:00.000Z", adjustments: framed(2) },
+    { id: "b", name: "Dark", createdAt: "2026-10-20T10:01:00.000Z", adjustments: framed(-1) },
+    { id: "c", name: "Uncropped", createdAt: "2026-10-20T10:02:00.000Z", adjustments: recipe(1) },
   ];
-  useEditorStore.setState({ adjustments: { ...recipe(0.5), crop: { x: 1, y: 2, width: 30, height: 20 } } as Adjustments });
+  useEditorStore.setState({ adjustments: framed(0.5) });
   render(<StudioSnapshots />);
   await screen.findByText("Bright");
   expect(document.querySelector<HTMLDetailsElement>('[data-tool-title="Snapshots"]')!.open).toBe(true);
+  // One framed otherwise cannot be the before beside the edit.
+  const uncropped = screen.getByRole("button", { name: "Compare Uncropped with the current edit (Before/After's before)" });
+  expect(uncropped).toHaveProperty("disabled", true);
+  expect(uncropped.getAttribute("title")).toBe(
+    "Uncropped is framed or developed differently (crop, geometry, AI Denoise or noise reduction version): restore it to compare",
+  );
   const compare = screen.getByRole("button", { name: "Compare Bright with the current edit (Before/After's before)" });
   fireEvent.click(compare);
-  // The split comes on, its before is the snapshot with the edit's framing.
+  // The split comes on, its before is the snapshot.
   expect(useEditorStore.getState().splitView).toBe(true);
   expect(useEditorStore.getState().beforeSnapshot).toEqual({ path: PHOTO, id: "a" });
   expect(compare.getAttribute("aria-pressed")).toBe("true");
@@ -308,7 +317,7 @@ it("is open from the start and compares a snapshot with the current edit in Befo
   const { beforeSnapshotAdjustments } = await import("../../utils/beforeSnapshot");
   const before = originalPreviewAdjustments(useEditorStore.getState().adjustments, beforeSnapshotAdjustments());
   expect(before.exposure).toBe(2);
-  expect(before.crop).toEqual({ x: 1, y: 2, width: 30, height: 20 });
+  expect(before.crop).toEqual(crop);
   // Another one replaces it; the same one again goes back to the unedited before.
   fireEvent.click(screen.getByRole("button", { name: "Compare Dark with the current edit (Before/After's before)" }));
   expect(useEditorStore.getState().beforeSnapshot?.id).toBe("b");
@@ -319,6 +328,6 @@ it("is open from the start and compares a snapshot with the current edit in Befo
   // A compared snapshot deleted, or another photograph: the unedited before.
   fireEvent.click(screen.getByRole("button", { name: "Compare Bright with the current edit (Before/After's before)" }));
   fireEvent.click(screen.getByRole("button", { name: "Delete snapshot Bright" }));
-  await waitFor(() => expect(kept[PHOTO]).toHaveLength(1));
+  await waitFor(() => expect(kept[PHOTO]).toHaveLength(2));
   await waitFor(() => expect(beforeSnapshotAdjustments()).toBeNull());
 });

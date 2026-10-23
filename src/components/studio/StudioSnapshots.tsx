@@ -7,7 +7,12 @@ import { useSettingsStore } from "../../store/useSettingsStore";
 import { useSnapshotStore, type Snapshot } from "../../store/useSnapshotStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
 import { splitViewAvailable } from "../../utils/beforeAfter";
-import { beforeSnapshot, compareWithSnapshot } from "../../utils/beforeSnapshot";
+import {
+  beforeSnapshot,
+  comparableWithEdit,
+  compareWithSnapshot,
+  comparisonSignature,
+} from "../../utils/beforeSnapshot";
 import { defaultSnapshotName, restoreSnapshot, takeSnapshot } from "../../utils/snapshots";
 import { ToolGroup } from "./StudioDevelop";
 
@@ -16,7 +21,8 @@ import { ToolGroup } from "./StudioDevelop";
  * history step (undoable); + takes one of the current edit (the history
  * takes one of any step); the split compares one with the current edit
  * (Before/After's before becomes it: Lightroom's snapshot copied to
- * Before); the pencil renames, the arrows update one with the current
+ * Before) while it frames and develops the photograph as the edit does;
+ * the pencil renames, the arrows update one with the current
  * edit. Open from the start, in the dock under the tools. Kept by the
  * library (the editor sidecar for a photograph in none). */
 export default function StudioSnapshots() {
@@ -30,6 +36,7 @@ export default function StudioSnapshots() {
   const path = image?.isReady ? image.path : null;
   const { toggleSplitView } = useEditorActions();
   useEditorStore((s) => s.beforeSnapshot);
+  const signature = useEditorStore((s) => comparisonSignature(s.adjustments, s.selectedImage?.isRaw ?? false));
   const compared = beforeSnapshot();
   const splitAvailable = useSettingsStore((s) =>
     splitViewAvailable(s.appSettings?.useWgpuRenderer, s.osPlatform),
@@ -95,6 +102,7 @@ export default function StudioSnapshots() {
               onEdit={(on) => setEditing(on ? snapshot.id : null)}
               compared={compared?.id === snapshot.id}
               canCompare={splitAvailable}
+              comparable={!image || comparableWithEdit(snapshot, signature, image.isRaw)}
               onCompare={() => compare(snapshot)}
             />
           ))}
@@ -117,6 +125,7 @@ function SnapshotRow({
   onEdit,
   compared,
   canCompare,
+  comparable,
   onCompare,
 }: {
   snapshot: Snapshot;
@@ -130,6 +139,8 @@ function SnapshotRow({
   compared: boolean;
   /** The split can show (`splitViewAvailable`). */
   canCompare: boolean;
+  /** It can be Before beside the edit (`comparableWithEdit`). */
+  comparable: boolean;
   onCompare(): void;
 }) {
   const { t, i18n } = useTranslation();
@@ -206,11 +217,16 @@ function SnapshotRow({
       <button
         type="button"
         className="studio-snapshot-compare"
-        disabled={disabled || !canCompare}
+        disabled={disabled || !canCompare || !comparable}
         aria-pressed={compared}
-        title={t(compared ? "studio.develop.snapshots.compareEnd" : "studio.develop.snapshots.compare", {
-          name: snapshot.name,
-        })}
+        title={t(
+          !comparable
+            ? "studio.develop.snapshots.compareDiffers"
+            : compared
+              ? "studio.develop.snapshots.compareEnd"
+              : "studio.develop.snapshots.compare",
+          { name: snapshot.name },
+        )}
         aria-label={t("studio.develop.snapshots.compare", { name: snapshot.name })}
         onClick={onCompare}
       >

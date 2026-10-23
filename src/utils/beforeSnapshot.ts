@@ -1,25 +1,77 @@
 import { useEditorStore } from '../store/useEditorStore';
 import { useSnapshotStore, type Snapshot } from '../store/useSnapshotStore';
 import { normalizeLoadedAdjustments, type Adjustments } from './adjustments';
+import { withOwnBitmapIds } from './bitmapIds';
+import { framingSignature, originalPreviewAdjustments } from './beforeAfter';
+import { developmentSignature } from './aiDenoise';
+
+const loaded = new WeakMap<Snapshot, { isRaw: boolean; adjustments: Adjustments; comparable: string }>();
+
+/** How a recipe frames the photograph and develops its RAW
+ * (`framingSignature`, `developmentSignature`), as a string. */
+export function comparisonSignature(adjustments: Adjustments, isRaw: boolean): string {
+  return `${framingSignature(adjustments)}|${developmentSignature(adjustments, isRaw)}`;
+}
+
+/** `snapshot` as a restore of it would load it, its AI bitmaps under ids of
+ * their own (`withOwnBitmapIds`: the native side keeps bitmaps by id and
+ * must not take them for the edit's newer ones), and its
+ * `comparisonSignature`. The same for each call while the snapshot stays as
+ * it is, so its bitmaps are sent once. */
+function loadedSnapshot(snapshot: Snapshot, isRaw: boolean) {
+  const kept = loaded.get(snapshot);
+  if (kept?.isRaw === isRaw) return kept;
+  const adjustments = withOwnBitmapIds(normalizeLoadedAdjustments(snapshot.adjustments, isRaw));
+  const entry = { isRaw, adjustments, comparable: comparisonSignature(adjustments, isRaw) };
+  loaded.set(snapshot, entry);
+  return entry;
+}
+
+/**
+ * Whether `snapshot` can be Before beside the edit (`signature`: the edit's
+ * `comparisonSignature`): it frames the photograph as the edit does (crop,
+ * orientation, transform and lens geometry: `BEFORE_FRAMING_KEYS`; its
+ * spots, drawn masks, relight depth and face retouch belong to its own
+ * framing) and develops the RAW as the edit does (AI Denoise, colour noise
+ * filter, dead-photosite test), so both sides render from the edit's source
+ * and Before is exactly the snapshot's export.
+ */
+export function comparableWithEdit(snapshot: Snapshot, signature: string, isRaw: boolean): boolean {
+  return loadedSnapshot(snapshot, isRaw).comparable === signature;
+}
 
 /**
  * The snapshot the open photograph is compared with: Before/After's before
  * (the split, the held \ peek) shows it instead of the unedited photograph,
  * as Lightroom's snapshot settings copied to Before. Null when none is
- * chosen, or the chosen one belongs to another photograph or is gone.
+ * chosen, the chosen one belongs to another photograph or is gone, or it
+ * cannot be compared with the edit as it is now (`comparableWithEdit`; it
+ * comes back when it can).
  */
 export function beforeSnapshot(): Snapshot | null {
-  const { beforeSnapshot: chosen, selectedImage } = useEditorStore.getState();
+  const { beforeSnapshot: chosen, selectedImage, adjustments } = useEditorStore.getState();
   const snapshots = useSnapshotStore.getState();
   if (!chosen || !selectedImage || chosen.path !== selectedImage.path || snapshots.path !== chosen.path) return null;
-  return snapshots.snapshots.find((snapshot) => snapshot.id === chosen.id) ?? null;
+  const snapshot = snapshots.snapshots.find((candidate) => candidate.id === chosen.id);
+  const signature = comparisonSignature(adjustments, selectedImage.isRaw);
+  if (!snapshot || !comparableWithEdit(snapshot, signature, selectedImage.isRaw)) return null;
+  return snapshot;
 }
 
-/** The chosen snapshot's adjustments as a restore of it would load them. */
+/** The compared snapshot's adjustments (`beforeSnapshot`) as `loadedSnapshot`
+ * prepares them, or null. */
 export function beforeSnapshotAdjustments(): Adjustments | null {
   const snapshot = beforeSnapshot();
   const image = useEditorStore.getState().selectedImage;
-  return snapshot && image ? normalizeLoadedAdjustments(snapshot.adjustments, image.isRaw) : null;
+  if (!snapshot || !image) return null;
+  return loadedSnapshot(snapshot, image.isRaw).adjustments;
+}
+
+/** The recipe Before/After shows as the before of the edit `adjustments`:
+ * the snapshot compared with, or the unedited photograph with the edit's
+ * framing (`originalPreviewAdjustments`). */
+export function beforeAdjustments(adjustments: Adjustments): Adjustments {
+  return originalPreviewAdjustments(adjustments, beforeSnapshotAdjustments());
 }
 
 /** Compares the open photograph with `snapshot` (null: with the unedited

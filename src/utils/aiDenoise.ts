@@ -1,6 +1,17 @@
 import type { SelectedImage } from '../components/ui/AppProperties';
 import { colorNoiseMultiscale, deadPixelAdjacent, type Adjustments } from './adjustments';
 
+/** A recipe's AI Denoise amount (0 … 100) as the backend reads it
+ * (`ai_denoise_amount`): off with Detail or its Noise reduction tool
+ * switched off. */
+function aiDenoiseAmount(
+  adjustments: Pick<Adjustments, 'aiDenoise'> & { sectionVisibility?: Record<string, boolean | undefined> },
+): number {
+  const visibility = adjustments.sectionVisibility ?? {};
+  const switchedOff = visibility.details === false || visibility.noiseReduction === false;
+  return switchedOff ? 0 : Math.round(Math.min(100, Math.max(0, adjustments.aiDenoise ?? 0)));
+}
+
 /**
  * The AI Denoise amount the open RAW must be developed with, or null when
  * its source already carries the recipe's amount, the amount failed before,
@@ -18,11 +29,7 @@ export function aiDenoiseToApply(
   dragging: boolean,
 ): number | null {
   if (!image?.isDecoded || !image.isRaw || dragging) return null;
-  // As the backend reads it (ai_denoise_amount): off with Detail or its
-  // Noise reduction tool switched off.
-  const visibility = adjustments.sectionVisibility ?? {};
-  const switchedOff = visibility.details === false || visibility.noiseReduction === false;
-  const wanted = switchedOff ? 0 : Math.round(Math.min(100, Math.max(0, adjustments.aiDenoise ?? 0)));
+  const wanted = aiDenoiseAmount(adjustments);
   const have = Math.round(image.aiDenoise ?? 0);
   // The version only matters with AI Denoise on (reset or paste can change it).
   const sameVersion = wanted === 0 || (adjustments.aiDenoiseVersion ?? 1) === (image.aiDenoiseVersion ?? 1);
@@ -95,4 +102,27 @@ export function sourceDevelopToApply(
     multiscale,
     deadPixelAdjacent: dead,
   };
+}
+
+/**
+ * How a recipe develops the RAW before any adjustment (AI Denoise amount and
+ * version, colour noise filter, dead-photosite test), as a string: equal for
+ * recipes whose renders can share one source. Empty for other photographs,
+ * whose source does not depend on it.
+ */
+export function developmentSignature(
+  adjustments: Pick<Adjustments, 'aiDenoise' | 'aiDenoiseVersion'> &
+    Pick<Partial<Adjustments>, 'colorNoiseVersion' | 'colorNoiseReduction' | 'renderVersion'> & {
+      sectionVisibility?: Record<string, boolean | undefined>;
+    },
+  isRaw: boolean,
+): string {
+  if (!isRaw) return '';
+  const amount = aiDenoiseAmount(adjustments);
+  return JSON.stringify([
+    amount,
+    amount > 0 ? (adjustments.aiDenoiseVersion ?? 1) : 1,
+    colorNoiseMultiscale(adjustments, true),
+    deadPixelAdjacent(adjustments),
+  ]);
 }
