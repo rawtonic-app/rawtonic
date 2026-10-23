@@ -171,21 +171,32 @@ impl ExportQueue {
         request: &serde_json::Value,
         paths: &[String],
     ) -> Result<String> {
-        ensure!(!paths.is_empty(), "Nothing to export");
-        let id = uuid::Uuid::new_v4().to_string();
+        Ok(self.enqueue_all(&[(label, request, paths)])?.remove(0))
+    }
+
+    /// Adds `jobs` (label, request, paths) in order in one transaction: all
+    /// of them are queued or, on an error, none.
+    pub fn enqueue_all(
+        &self,
+        jobs: &[(&str, &serde_json::Value, &[String])],
+    ) -> Result<Vec<String>> {
         let tx = self.conn.unchecked_transaction()?;
-        tx.execute(
-            "INSERT INTO jobs(id,label,state,request) VALUES(?,?,'queued',?)",
-            params![id, label, serde_json::to_string(request)?],
-        )?;
-        {
+        let mut ids = Vec::with_capacity(jobs.len());
+        for (label, request, paths) in jobs {
+            ensure!(!paths.is_empty(), "Nothing to export");
+            let id = uuid::Uuid::new_v4().to_string();
+            tx.execute(
+                "INSERT INTO jobs(id,label,state,request) VALUES(?,?,'queued',?)",
+                params![id, label, serde_json::to_string(request)?],
+            )?;
             let mut insert = tx.prepare("INSERT INTO items(job_id,idx,path) VALUES(?,?,?)")?;
             for (index, path) in paths.iter().enumerate() {
                 insert.execute(params![id, index as i64, path])?;
             }
+            ids.push(id);
         }
         tx.commit()?;
-        Ok(id)
+        Ok(ids)
     }
 
     /// The oldest queued job, marked running.
@@ -442,6 +453,26 @@ mod tests {
 
     fn paths(n: usize) -> Vec<String> {
         (0..n).map(|i| format!("/photos/{i}.RAF")).collect()
+    }
+
+    #[test]
+    fn a_batch_is_queued_whole_or_not_at_all() {
+        let (_dir, q) = queue();
+        let (web, print) = (json!({"format":"jpg"}), json!({"format":"tiff"}));
+        let failed = q.enqueue_all(&[("Web", &web, &paths(2)), ("Print", &print, &[])]);
+        assert!(failed.is_err());
+        assert!(
+            q.jobs().unwrap().is_empty(),
+            "no job of a failed batch stays queued"
+        );
+        let ids = q
+            .enqueue_all(&[("Web", &web, &paths(2)), ("Print", &print, &paths(2))])
+            .unwrap();
+        let jobs = q.jobs().unwrap();
+        assert_eq!(
+            jobs.iter().map(|j| &j.id).collect::<Vec<_>>(),
+            ids.iter().collect::<Vec<_>>()
+        );
     }
 
     #[test]

@@ -17,9 +17,9 @@ use serde_json::Value;
 use crate::adjustment_utils::apply_all_transformations;
 use crate::cache_utils::calculate_full_job_hash;
 use crate::gpu_processing::{
-    GpuContext, GpuImageCache, GpuProcessorState, MaskUploader, ReadbackShader,
+    GpuContext, GpuImageCache, GpuProcessorState, MaskUploader, ReadbackShader, RenderOutput,
     RenderOutputPrecision, RenderRequest, RenderSource, process_and_get_dynamic_image_inner,
-    upload_render_source,
+    process_and_get_dynamic_images, upload_render_source,
 };
 use crate::image_processing::{
     AllAdjustments, MAX_MASKS, PreparedAdjustments, get_all_adjustments_with_masks,
@@ -1144,10 +1144,35 @@ pub fn render_prepared_and_save(
         render_output_precision(actual_output_format, export_settings),
         export_settings.color_space,
     )?;
+    #[cfg(feature = "performance-profiling")]
+    drop(render_stage);
+    save_rendered_export(
+        processed,
+        source_path_str,
+        js_adjustments,
+        export_settings,
+        output,
+        cancelled,
+    )
+}
+
+/// Resizes, sharpens, watermarks and saves one recipe's render (from
+/// [`render_prepared_export`] or [`render_prepared_exports`]). `cancelled`
+/// runs before the write.
+pub fn save_rendered_export(
+    processed: DynamicImage,
+    source_path_str: &str,
+    js_adjustments: &Value,
+    export_settings: &ExportSettings,
+    output: &ExportOutput,
+    cancelled: &dyn Fn() -> Result<(), String>,
+) -> Result<(), String> {
+    #[cfg(feature = "performance-profiling")]
+    let geometry_stage = crate::performance::PerformanceStage::new("export_geometry");
     let final_image =
         apply_export_geometry_and_watermark(processed, export_settings).map(|(image, _)| image)?;
     #[cfg(feature = "performance-profiling")]
-    drop(render_stage);
+    drop(geometry_stage);
     cancelled()?;
     let generated = rawtonic_engine::image_loader::has_generated_areas(js_adjustments);
     save_export_image(
@@ -1405,6 +1430,54 @@ pub fn render_prepared_export(
         None,
         None,
         ReadbackShader::Export,
+    )
+}
+
+/// Renders a prepared photo into each `(precision, colour space)` of
+/// `outputs`: on the GPU with one main pass for all of them (the same pixels
+/// as one [`render_prepared_export`] each), in windows one by one.
+pub fn render_prepared_exports(
+    prepared: &PreparedExport,
+    env: &RenderEnv,
+    debug_tag: &str,
+    outputs: &[(RenderOutputPrecision, OutputColorSpace)],
+) -> Result<Vec<DynamicImage>, String> {
+    let PreparedTarget::Gpu(kept) = &prepared.target else {
+        return outputs
+            .iter()
+            .map(|&(precision, space)| {
+                render_prepared_export(prepared, env, debug_tag, precision, space)
+            })
+            .collect();
+    };
+    if let [(precision, space)] = outputs {
+        return render_prepared_export(prepared, env, debug_tag, *precision, *space)
+            .map(|image| vec![image]);
+    }
+    let render_outputs: Vec<RenderOutput> = outputs
+        .iter()
+        .map(|&(precision, space)| {
+            let mut adjustments = prepared.adjustments.clone();
+            set_output_color_space(&mut adjustments, space);
+            RenderOutput {
+                precision,
+                output_space: adjustments.global.output_space,
+                output_matrix: adjustments.global.output_matrix,
+            }
+        })
+        .collect();
+    process_and_get_dynamic_images(
+        env.context,
+        env.processor,
+        kept,
+        RenderRequest {
+            adjustments: prepared.adjustments.clone(),
+            mask_bitmaps: &[],
+            lut: prepared.lut.clone(),
+            roi: None,
+        },
+        debug_tag,
+        &render_outputs,
     )
 }
 

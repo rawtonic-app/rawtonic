@@ -144,14 +144,13 @@ pub fn enqueue_all(app: &AppHandle, requests: Vec<ExportRequest>) -> Result<Vec<
         .map(|request| Ok((label_for(request), serde_json::to_value(request)?, request)))
         .collect::<Result<Vec<_>, serde_json::Error>>()
         .map_err(|e| e.to_string())?;
-    // Under one lock, so the runner sees all of them or none.
-    let ids = with_queue(|q| {
-        requests
-            .iter()
-            .map(|(label, value, request)| q.enqueue(label, value, &request.paths))
-            .collect::<anyhow::Result<Vec<_>>>()
-    })
-    .ok_or("The export queue is not available.")?;
+    // Under one lock and in one transaction: the runner sees all of them
+    // or none, and a failure queues none.
+    let jobs: Vec<_> = requests
+        .iter()
+        .map(|(label, value, request)| (label.as_str(), value, request.paths.as_slice()))
+        .collect();
+    let ids = with_queue(|q| q.enqueue_all(&jobs)).ok_or("The export queue is not available.")?;
     HOLD.store(false, Ordering::SeqCst);
     notify(app);
     kick(app);

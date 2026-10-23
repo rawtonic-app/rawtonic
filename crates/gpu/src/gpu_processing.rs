@@ -898,6 +898,26 @@ pub enum RenderOutputPrecision {
     SixteenBit,
 }
 
+/// One output of an export render with several
+/// ([`process_and_get_dynamic_images`]): its precision and output colour
+/// space, as `GlobalAdjustments::output_space` and `output_matrix`.
+#[derive(Clone, Copy, Debug)]
+pub struct RenderOutput {
+    pub precision: RenderOutputPrecision,
+    pub output_space: [u32; 4],
+    pub output_matrix: crate::image_processing::GpuMat3,
+}
+
+/// Where a render's tiles go: the output tile read back for one output and,
+/// for deferred outputs, the encode pass that fills it.
+struct TileTarget<'a> {
+    texture: &'a wgpu::Texture,
+    bytes_per_pixel: u32,
+    pixels: RenderedPixels,
+    pending: Option<(PendingReadback, TilePlacement)>,
+    encode: Option<(&'a wgpu::ComputePipeline, wgpu::BindGroup, RenderOutput)>,
+}
+
 /// Shader family for a CPU-readback render.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ReadbackShader {
@@ -1921,6 +1941,27 @@ fn finish_texture_readback(
     pending: PendingReadback,
     pool: Option<&ReadbackPool>,
 ) -> Result<Vec<u8>, String> {
+    finish_texture_readback_with(device, pending, pool, |mapped, padded, unpadded| {
+        if padded == unpadded {
+            mapped.to_vec()
+        } else {
+            let mut pixels = Vec::with_capacity(mapped.len() / padded * unpadded);
+            for row in mapped.chunks_exact(padded) {
+                pixels.extend_from_slice(&row[..unpadded]);
+            }
+            pixels
+        }
+    })
+}
+
+/// Waits for a readback and hands its mapped bytes (rows of the padded
+/// length, then the unpadded length) to `consume`, without copying them.
+fn finish_texture_readback_with<R>(
+    device: &wgpu::Device,
+    pending: PendingReadback,
+    pool: Option<&ReadbackPool>,
+    consume: impl FnOnce(&[u8], usize, usize) -> R,
+) -> Result<R, String> {
     let PendingReadback {
         buffer,
         submission,
@@ -1948,15 +1989,12 @@ fn finish_texture_readback(
 
     let buffer_slice = buffer.slice(..);
     let mapped = buffer_slice.get_mapped_range();
-    let pixels = if padded_bytes_per_row == unpadded_bytes_per_row {
-        mapped.to_vec()
-    } else {
-        let mut pixels = Vec::with_capacity((unpadded_bytes_per_row * height) as usize);
-        for row in mapped.chunks_exact(padded_bytes_per_row as usize) {
-            pixels.extend_from_slice(&row[..unpadded_bytes_per_row as usize]);
-        }
-        pixels
-    };
+    let rows = (padded_bytes_per_row * height) as usize;
+    let pixels = consume(
+        &mapped[..rows],
+        padded_bytes_per_row as usize,
+        unpadded_bytes_per_row as usize,
+    );
     drop(mapped);
     buffer.unmap();
     if let Some(pool) = pool {
@@ -1975,44 +2013,35 @@ struct TilePlacement {
 }
 
 /// Copies a read-back tile (RGBA8 or RGBA32F rows) into the output pixels.
+/// Copies a read-back tile (`rows` of `stride` bytes) into its place in the
+/// output; 16-bit outputs come back as 32-bit floats.
 fn store_tile(
     final_pixels: &mut RenderedPixels,
     tile: TilePlacement,
     out_width: u32,
-    data: Vec<u8>,
+    rows: &[u8],
+    stride: usize,
 ) {
+    let samples = tile.width as usize * 4;
+    let rows = rows.chunks_exact(stride).take(tile.height as usize);
+    let destination = |row: usize| {
+        let start = ((tile.y as usize + row) * out_width as usize + tile.x as usize) * 4;
+        start..start + samples
+    };
     match final_pixels {
-        // One tile is the whole output (drag drafts, previews): take it.
-        RenderedPixels::U8(final_pixels)
-            if tile.x == 0
-                && tile.y == 0
-                && tile.width == out_width
-                && data.len() == final_pixels.len() =>
-        {
-            *final_pixels = data;
-        }
         RenderedPixels::U8(final_pixels) => {
-            for row in 0..tile.height {
-                let final_row_offset = ((tile.y + row) * out_width + tile.x) as usize * 4;
-                let source_row_offset = (row * tile.width) as usize * 4;
-                let copy_bytes = (tile.width * 4) as usize;
-                final_pixels[final_row_offset..final_row_offset + copy_bytes]
-                    .copy_from_slice(&data[source_row_offset..source_row_offset + copy_bytes]);
+            for (row, source) in rows.enumerate() {
+                final_pixels[destination(row)].copy_from_slice(&source[..samples]);
             }
         }
         RenderedPixels::U16(final_pixels) => {
-            for row in 0..tile.height {
-                let final_row_offset = ((tile.y + row) * out_width + tile.x) as usize * 4;
-                let source_pixel_offset = (row * tile.width) as usize;
-                for sample in 0..(tile.width as usize * 4) {
-                    let source_byte_offset = (source_pixel_offset * 4 + sample) * 4;
-                    let value = f32::from_ne_bytes([
-                        data[source_byte_offset],
-                        data[source_byte_offset + 1],
-                        data[source_byte_offset + 2],
-                        data[source_byte_offset + 3],
-                    ]);
-                    final_pixels[final_row_offset + sample] = if value.is_finite() {
+            for (row, source) in rows.enumerate() {
+                for (sample, value) in final_pixels[destination(row)]
+                    .iter_mut()
+                    .zip(source.as_chunks::<4>().0)
+                {
+                    let value = f32::from_ne_bytes(*value);
+                    *sample = if value.is_finite() {
                         (value.clamp(0.0, 1.0) * u16::MAX as f32).round() as u16
                     } else {
                         0
@@ -2387,16 +2416,17 @@ pub struct GpuProcessor {
     start_gate: Arc<StartGate>,
     /// The general pipelines (8-bit, high precision) with the luminance
     /// noise reduction's edge-preserving pass, compiled on first use.
-    edge_pipelines: [std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2],
+    edge_pipelines: [std::sync::OnceLock<Option<wgpu::ComputePipeline>>; MAIN_OUTPUTS],
     /// General pipelines with the luminance noise profile (recipes of the
-    /// multi-scale colour noise reduction), by [high precision][edge pass];
+    /// multi-scale colour noise reduction), by [`MainOutput`][edge pass];
     /// the others are compiled without it (`LUMA_PROFILE` false) so earlier
     /// recipes' exports stay bit-exact.
-    profile_pipelines: [[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2],
+    profile_pipelines: [[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; MAIN_OUTPUTS],
     /// General pipelines reading the global curves from their table
-    /// (`LONG_CURVES`, curves with more than 16 points), by [high
-    /// precision][luminance noise profile][edge pass].
-    long_curve_pipelines: [[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2],
+    /// (`LONG_CURVES`, curves with more than 16 points), by
+    /// [`MainOutput`][luminance noise profile][edge pass].
+    long_curve_pipelines:
+        [[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; MAIN_OUTPUTS],
     /// The global curve table in `curve_luts_buffer`'s first slot.
     curve_table_loaded: Mutex<Option<Arc<Vec<[f32; 4]>>>>,
     detail_bgl: wgpu::BindGroupLayout,
@@ -2422,6 +2452,15 @@ pub struct GpuProcessor {
     high_precision_bgl: wgpu::BindGroupLayout,
     high_precision_pipeline: BackgroundPipeline,
     high_precision_tile: std::sync::OnceLock<HighPrecisionTile>,
+    /// [`MainOutput::Deferred`]: specialized variants by features, the
+    /// general pipeline, and the tile the main pass writes.
+    deferred_export_pipelines:
+        [std::sync::OnceLock<Option<wgpu::ComputePipeline>>; PREVIEW_PIPELINE_COUNT],
+    deferred_pipeline: std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>,
+    deferred_tile: std::sync::OnceLock<HighPrecisionTile>,
+    /// `encode_deferred` into an 8-bit and a high-precision output tile.
+    encode_bgls: [wgpu::BindGroupLayout; 2],
+    encode_pipelines: [std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>; 2],
     tile_output_size: wgpu::Extent3d,
     adjustments_buffer: wgpu::Buffer,
     /// Count, then the tile-local regions of the current dispatch.
@@ -3530,6 +3569,65 @@ fn create_compute_pipeline(
     })
 }
 
+/// What the main pass writes: an 8-bit or a 16-bit (Rgba32Float) output, or
+/// for several outputs the colour before the output encoding
+/// (`DEFER_OUTPUT`, Rgba32Float), which `encode_deferred` encodes per output.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum MainOutput {
+    EightBit,
+    SixteenBit,
+    Deferred,
+}
+
+const MAIN_OUTPUTS: usize = 3;
+
+impl MainOutput {
+    fn index(self) -> usize {
+        self as usize
+    }
+
+    /// Whether it uses the high-precision shader and layout (Rgba32Float).
+    fn high_precision(self) -> bool {
+        self != Self::EightBit
+    }
+
+    fn constants(self) -> &'static [(&'static str, f64)] {
+        match self {
+            Self::EightBit => &[],
+            Self::SixteenBit => &[("HIGH_PRECISION_OUTPUT", 1.0)],
+            Self::Deferred => &[("HIGH_PRECISION_OUTPUT", 1.0), ("DEFER_OUTPUT", 1.0)],
+        }
+    }
+}
+
+/// `encode_deferred`'s bindings: the output tile of `main_entries` (8-bit or
+/// high precision), the adjustments, the regions and the deferred colours.
+fn encode_bind_group_layout(
+    device: &wgpu::Device,
+    main_entries: &[wgpu::BindGroupLayoutEntry],
+) -> wgpu::BindGroupLayout {
+    let mut entries: Vec<_> = main_entries
+        .iter()
+        .filter(|entry| matches!(entry.binding, 1 | 2 | 16))
+        .copied()
+        .collect();
+    entries.push(wgpu::BindGroupLayoutEntry {
+        binding: 25,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        count: None,
+    });
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("Encode Deferred BGL"),
+        entries: &entries,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 fn create_preview_pipeline(
     device: &wgpu::Device,
     shader_module: &wgpu::ShaderModule,
@@ -3538,9 +3636,26 @@ fn create_preview_pipeline(
     direct_curves: bool,
     prepared_layers: bool,
     layer_sums: bool,
+    deferred: bool,
 ) -> Result<wgpu::ComputePipeline, String> {
     // The variant in the label tells the slow-compile log lines apart.
     let label = format!("Specialized image processing {features}");
+    let mut constants = vec![
+        ("DIRECT_CURVES", u8::from(direct_curves) as f64),
+        ("PREPARED_LAYERS", u8::from(prepared_layers) as f64),
+        ("LAYER_SUMS", u8::from(layer_sums) as f64),
+        ("ENABLE_MASKS", ((features >> 3) & 1) as f64),
+        ("ENABLE_NOISE_REDUCTION", ((features >> 4) & 1) as f64),
+        ("ENABLE_SHARPEN", (features & 1) as f64),
+        ("ENABLE_HIGHLIGHTS", ((features >> 1) & 1) as f64),
+        ("ENABLE_CURVES", ((features >> 2) & 1) as f64),
+        ("ENABLE_TONE", ((features >> 5) & 1) as f64),
+        ("ENABLE_RELIGHT", ((features >> 6) & 1) as f64),
+        ("NR_REFINED", ((features >> 7) & 1) as f64),
+    ];
+    if deferred {
+        constants.push(("DEFER_OUTPUT", 1.0));
+    }
     create_compute_pipeline(
         device,
         &wgpu::ComputePipelineDescriptor {
@@ -3549,19 +3664,7 @@ fn create_preview_pipeline(
             module: shader_module,
             entry_point: Some("main"),
             compilation_options: wgpu::PipelineCompilationOptions {
-                constants: &[
-                    ("DIRECT_CURVES", u8::from(direct_curves) as f64),
-                    ("PREPARED_LAYERS", u8::from(prepared_layers) as f64),
-                    ("LAYER_SUMS", u8::from(layer_sums) as f64),
-                    ("ENABLE_MASKS", ((features >> 3) & 1) as f64),
-                    ("ENABLE_NOISE_REDUCTION", ((features >> 4) & 1) as f64),
-                    ("ENABLE_SHARPEN", (features & 1) as f64),
-                    ("ENABLE_HIGHLIGHTS", ((features >> 1) & 1) as f64),
-                    ("ENABLE_CURVES", ((features >> 2) & 1) as f64),
-                    ("ENABLE_TONE", ((features >> 5) & 1) as f64),
-                    ("ENABLE_RELIGHT", ((features >> 6) & 1) as f64),
-                    ("NR_REFINED", ((features >> 7) & 1) as f64),
-                ],
+                constants: &constants,
                 ..Default::default()
             },
             cache: None,
@@ -4150,6 +4253,7 @@ impl GpuProcessor {
             label: Some("Main BGL"),
             entries: &bind_group_layout_entries,
         });
+        let encode_bgl = encode_bind_group_layout(device, &bind_group_layout_entries);
         // The detail pass writes the cache that the main pass reads.
         let mut detail_entries = bind_group_layout_entries.clone();
         detail_entries.push(wgpu::BindGroupLayoutEntry {
@@ -4220,6 +4324,8 @@ impl GpuProcessor {
                 label: Some("High Precision Main BGL"),
                 entries: &bind_group_layout_entries,
             });
+        let high_precision_encode_bgl =
+            encode_bind_group_layout(device, &bind_group_layout_entries);
         let high_precision_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("High Precision Pipeline Layout"),
@@ -4412,6 +4518,11 @@ impl GpuProcessor {
             high_precision_bgl,
             high_precision_pipeline,
             high_precision_tile: std::sync::OnceLock::new(),
+            deferred_export_pipelines: std::array::from_fn(|_| std::sync::OnceLock::new()),
+            deferred_pipeline: std::sync::OnceLock::new(),
+            deferred_tile: std::sync::OnceLock::new(),
+            encode_bgls: [encode_bgl, high_precision_encode_bgl],
+            encode_pipelines: Default::default(),
             tile_output_size: clamped_tile_size,
             adjustments_buffer,
             render_regions_buffer,
@@ -5189,25 +5300,71 @@ impl GpuProcessor {
     }
 
     fn high_precision_tile(&self) -> &HighPrecisionTile {
-        self.high_precision_tile.get_or_init(|| {
-            let texture = self
-                .context
-                .device
-                .create_texture(&wgpu::TextureDescriptor {
-                    label: Some("High Precision Tile Output Texture"),
-                    size: self.tile_output_size,
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba32Float,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING
-                        | wgpu::TextureUsages::STORAGE_BINDING
-                        | wgpu::TextureUsages::COPY_SRC,
-                    view_formats: &[],
+        self.high_precision_tile
+            .get_or_init(|| self.float_tile("High Precision Tile Output Texture"))
+    }
+
+    /// The tile a deferred main pass writes (`DEFER_OUTPUT`).
+    fn deferred_tile(&self) -> &HighPrecisionTile {
+        self.deferred_tile
+            .get_or_init(|| self.float_tile("Deferred Tile Texture"))
+    }
+
+    /// `encode_deferred` into an 8-bit or a high-precision output tile.
+    fn encode_pipeline(&self, high_precision: bool) -> Result<&wgpu::ComputePipeline, String> {
+        self.encode_pipelines[usize::from(high_precision)]
+            .get_or_init(|| {
+                let device = &self.context.device;
+                let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Encode Deferred Pipeline Layout"),
+                    bind_group_layouts: &[Some(&self.encode_bgls[usize::from(high_precision)])],
+                    immediate_size: 0,
                 });
-            let view = texture.create_view(&Default::default());
-            HighPrecisionTile { texture, view }
-        })
+                let (shader, constants): (_, &[(&str, f64)]) = if high_precision {
+                    (
+                        &self.high_precision_shader,
+                        MainOutput::SixteenBit.constants(),
+                    )
+                } else {
+                    (&self.preview_shader, MainOutput::EightBit.constants())
+                };
+                create_compute_pipeline(
+                    device,
+                    &wgpu::ComputePipelineDescriptor {
+                        label: Some("Encode Deferred"),
+                        layout: Some(&layout),
+                        module: shader,
+                        entry_point: Some("encode_deferred"),
+                        compilation_options: wgpu::PipelineCompilationOptions {
+                            constants,
+                            ..Default::default()
+                        },
+                        cache: None,
+                    },
+                )
+            })
+            .as_ref()
+            .map_err(Clone::clone)
+    }
+
+    fn float_tile(&self, label: &str) -> HighPrecisionTile {
+        let texture = self
+            .context
+            .device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: self.tile_output_size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba32Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::STORAGE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            });
+        let view = texture.create_view(&Default::default());
+        HighPrecisionTile { texture, view }
     }
 
     /// Uploads a camera profile's colour tables (display and export), once
@@ -5347,7 +5504,7 @@ impl GpuProcessor {
                 return general;
             }
             if self.preview_failed[features].load(std::sync::atomic::Ordering::Acquire) {
-                return self.general_pipeline(adjustments, false);
+                return self.general_pipeline(adjustments, MainOutput::EightBit);
             }
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
@@ -5399,7 +5556,7 @@ impl GpuProcessor {
             let shader = self.preview_shader.clone();
             let layout = self.preview_layout.clone();
             std::thread::spawn(move || {
-                match create_preview_pipeline(&device, &shader, &layout, features, true, true, true)
+                match create_preview_pipeline(&device, &shader, &layout, features, true, true, true, false)
                 {
                     Ok(pipeline) => {
                         let _ = pipelines[features].set(pipeline);
@@ -5438,7 +5595,7 @@ impl GpuProcessor {
                 }
                 // The general pipeline was validated at construction and
                 // stays in use if this variant cannot be created.
-                match create_preview_pipeline(&device, &shader, &layout, features, true, true, false) {
+                match create_preview_pipeline(&device, &shader, &layout, features, true, true, false, false) {
                     Ok(pipeline) => {
                         let _ = pipelines[features].set(pipeline);
                     }
@@ -5498,7 +5655,7 @@ impl GpuProcessor {
     fn export_pipeline(
         &self,
         adjustments: &AllAdjustments,
-        high_precision: bool,
+        output: MainOutput,
     ) -> Result<&wgpu::ComputePipeline, String> {
         let features = export_features(adjustments);
         // Metal may reassociate active neighbourhood operations when unrelated
@@ -5508,26 +5665,14 @@ impl GpuProcessor {
         if features & ((1 << 0) | (1 << 1) | (1 << 4)) != 0
             || adjustments.global.region_curve_active[1] != 0
         {
-            return self.general_pipeline(adjustments, high_precision);
+            return self.general_pipeline(adjustments, output);
         }
-        let (pipelines, shader, layout) = if high_precision {
-            (
-                &self.high_precision_export_pipelines,
-                &self.high_precision_shader,
-                &self.high_precision_layout,
-            )
-        } else {
-            (
-                &self.export_pipelines,
-                &self.preview_shader,
-                &self.preview_layout,
-            )
+        let pipelines = match output {
+            MainOutput::EightBit => &self.export_pipelines,
+            MainOutput::SixteenBit => &self.high_precision_export_pipelines,
+            MainOutput::Deferred => &self.deferred_export_pipelines,
         };
-        let general = if high_precision {
-            &self.high_precision_pipeline
-        } else {
-            &self.main_pipeline
-        };
+        let (shader, layout) = self.main_module(output);
         match pipelines[features]
             .get_or_init(|| {
                 create_preview_pipeline(
@@ -5538,6 +5683,7 @@ impl GpuProcessor {
                     true,
                     false,
                     false,
+                    output == MainOutput::Deferred,
                 )
                     .inspect_err(|error| {
                         log::error!(
@@ -5549,8 +5695,66 @@ impl GpuProcessor {
             .as_ref()
         {
             Some(pipeline) => Ok(pipeline),
-            None => general.wait(),
+            None => self.plain_pipeline(output),
         }
+    }
+
+    /// The shader module and pipeline layout of `output`'s main pass.
+    fn main_module(&self, output: MainOutput) -> (&wgpu::ShaderModule, &wgpu::PipelineLayout) {
+        if output.high_precision() {
+            (&self.high_precision_shader, &self.high_precision_layout)
+        } else {
+            (&self.preview_shader, &self.preview_layout)
+        }
+    }
+
+    /// The general pipeline without the edge pass or the noise profile.
+    fn plain_pipeline(&self, output: MainOutput) -> Result<&wgpu::ComputePipeline, String> {
+        match output {
+            MainOutput::EightBit => self.main_pipeline.wait(),
+            MainOutput::SixteenBit => self.high_precision_pipeline.wait(),
+            MainOutput::Deferred => self
+                .deferred_pipeline
+                .get_or_init(|| {
+                    self.compile_general(
+                        "Compute Pipeline (deferred output)",
+                        output,
+                        &[("EDGE_NR", 0.0), ("LUMA_PROFILE", 0.0)],
+                    )
+                })
+                .as_ref()
+                .map_err(Clone::clone),
+        }
+    }
+
+    /// Compiles `main` for `output` with `constants` besides its own.
+    fn compile_general(
+        &self,
+        label: &str,
+        output: MainOutput,
+        constants: &[(&str, f64)],
+    ) -> Result<wgpu::ComputePipeline, String> {
+        let (shader, layout) = self.main_module(output);
+        let constants: Vec<(&str, f64)> = output
+            .constants()
+            .iter()
+            .copied()
+            .chain(constants.iter().copied())
+            .collect();
+        create_compute_pipeline(
+            &self.context.device,
+            &wgpu::ComputePipelineDescriptor {
+                label: Some(label),
+                layout: Some(layout),
+                module: shader,
+                entry_point: Some("main"),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: &constants,
+                    ..Default::default()
+                },
+                cache: None,
+            },
+        )
     }
 
     /// The general pipeline for `adjustments`: with the luminance noise
@@ -5559,55 +5763,27 @@ impl GpuProcessor {
     fn general_pipeline(
         &self,
         adjustments: &AllAdjustments,
-        high_precision: bool,
+        output: MainOutput,
     ) -> Result<&wgpu::ComputePipeline, String> {
-        let plain = if high_precision {
-            &self.high_precision_pipeline
-        } else {
-            &self.main_pipeline
-        };
         if adjustments.global.region_curve_active[1] != 0 {
-            return self.long_curve_pipeline(adjustments, high_precision);
+            return self.long_curve_pipeline(adjustments, output);
         }
         #[cfg(test)]
         if self
             .force_plain_noise_reduction
             .load(std::sync::atomic::Ordering::Relaxed)
         {
-            return plain.wait();
+            return self.plain_pipeline(output);
         }
         let edge = edge_noise_reduction(adjustments);
+        let edge_nr = if edge { 1.0 } else { 0.0 };
         if adjustments.global.luma_noise_profile[0][0] > 0.0 {
-            return match self.profile_pipelines[usize::from(high_precision)][usize::from(edge)]
+            return match self.profile_pipelines[output.index()][usize::from(edge)]
                 .get_or_init(|| {
-                    let (shader, layout) = if high_precision {
-                        (&self.high_precision_shader, &self.high_precision_layout)
-                    } else {
-                        (&self.preview_shader, &self.preview_layout)
-                    };
-                    let edge_nr = if edge { 1.0 } else { 0.0 };
-                    let constants: &[(&str, f64)] = if high_precision {
-                        &[
-                            ("HIGH_PRECISION_OUTPUT", 1.0),
-                            ("EDGE_NR", edge_nr),
-                            ("LUMA_PROFILE", 1.0),
-                        ]
-                    } else {
-                        &[("EDGE_NR", edge_nr), ("LUMA_PROFILE", 1.0)]
-                    };
-                    create_compute_pipeline(
-                        &self.context.device,
-                        &wgpu::ComputePipelineDescriptor {
-                            label: Some("Compute Pipeline (luminance noise profile)"),
-                            layout: Some(layout),
-                            module: shader,
-                            entry_point: Some("main"),
-                            compilation_options: wgpu::PipelineCompilationOptions {
-                                constants,
-                                ..Default::default()
-                            },
-                            cache: None,
-                        },
+                    self.compile_general(
+                        "Compute Pipeline (luminance noise profile)",
+                        output,
+                        &[("EDGE_NR", edge_nr), ("LUMA_PROFILE", 1.0)],
                     )
                     .inspect_err(|error| {
                         log::error!("Luminance noise profile pipeline unavailable: {error}")
@@ -5617,41 +5793,18 @@ impl GpuProcessor {
                 .as_ref()
             {
                 Some(pipeline) => Ok(pipeline),
-                None => plain.wait(),
+                None => self.plain_pipeline(output),
             };
         }
         if !edge {
-            return plain.wait();
+            return self.plain_pipeline(output);
         }
-        match self.edge_pipelines[usize::from(high_precision)]
+        match self.edge_pipelines[output.index()]
             .get_or_init(|| {
-                let (shader, layout) = if high_precision {
-                    (&self.high_precision_shader, &self.high_precision_layout)
-                } else {
-                    (&self.preview_shader, &self.preview_layout)
-                };
-                let constants: &[(&str, f64)] = if high_precision {
-                    &[
-                        ("HIGH_PRECISION_OUTPUT", 1.0),
-                        ("EDGE_NR", 1.0),
-                        ("LUMA_PROFILE", 0.0),
-                    ]
-                } else {
-                    &[("EDGE_NR", 1.0), ("LUMA_PROFILE", 0.0)]
-                };
-                create_compute_pipeline(
-                    &self.context.device,
-                    &wgpu::ComputePipelineDescriptor {
-                        label: Some("Compute Pipeline (edge-preserving noise reduction)"),
-                        layout: Some(layout),
-                        module: shader,
-                        entry_point: Some("main"),
-                        compilation_options: wgpu::PipelineCompilationOptions {
-                            constants,
-                            ..Default::default()
-                        },
-                        cache: None,
-                    },
+                self.compile_general(
+                    "Compute Pipeline (edge-preserving noise reduction)",
+                    output,
+                    &[("EDGE_NR", 1.0), ("LUMA_PROFILE", 0.0)],
                 )
                 .inspect_err(|error| {
                     log::error!("Edge-preserving noise reduction unavailable: {error}")
@@ -5661,55 +5814,36 @@ impl GpuProcessor {
             .as_ref()
         {
             Some(pipeline) => Ok(pipeline),
-            None => plain.wait(),
+            None => self.plain_pipeline(output),
         }
     }
 
     /// `general_pipeline` for recipes whose global curves come from their
     /// table (`LONG_CURVES`); separate pipelines, so the others' exports
     /// keep their bits.
-    fn long_curve_pipeline<'a>(
-        &'a self,
+    fn long_curve_pipeline(
+        &self,
         adjustments: &AllAdjustments,
-        high_precision: bool,
-    ) -> Result<&'a wgpu::ComputePipeline, String> {
+        output: MainOutput,
+    ) -> Result<&wgpu::ComputePipeline, String> {
         let edge = edge_noise_reduction(adjustments);
         let profile = adjustments.global.luma_noise_profile[0][0] > 0.0;
-        match self.long_curve_pipelines[usize::from(high_precision)][usize::from(profile)]
-            [usize::from(edge)]
-        .get_or_init(|| {
-            let (shader, layout) = if high_precision {
-                (&self.high_precision_shader, &self.high_precision_layout)
-            } else {
-                (&self.preview_shader, &self.preview_layout)
-            };
-            let on = |enabled: bool| if enabled { 1.0 } else { 0.0 };
-            let mut constants = vec![
-                ("EDGE_NR", on(edge)),
-                ("LUMA_PROFILE", on(profile)),
-                ("LONG_CURVES", 1.0),
-            ];
-            if high_precision {
-                constants.push(("HIGH_PRECISION_OUTPUT", 1.0));
-            }
-            create_compute_pipeline(
-                &self.context.device,
-                &wgpu::ComputePipelineDescriptor {
-                    label: Some("Compute Pipeline (curve table)"),
-                    layout: Some(layout),
-                    module: shader,
-                    entry_point: Some("main"),
-                    compilation_options: wgpu::PipelineCompilationOptions {
-                        constants: &constants,
-                        ..Default::default()
-                    },
-                    cache: None,
-                },
-            )
-            .inspect_err(|error| log::error!("Curve table pipeline unavailable: {error}"))
-            .ok()
-        })
-        .as_ref()
+        let on = |enabled: bool| if enabled { 1.0 } else { 0.0 };
+        match self.long_curve_pipelines[output.index()][usize::from(profile)][usize::from(edge)]
+            .get_or_init(|| {
+                self.compile_general(
+                    "Compute Pipeline (curve table)",
+                    output,
+                    &[
+                        ("EDGE_NR", on(edge)),
+                        ("LUMA_PROFILE", on(profile)),
+                        ("LONG_CURVES", 1.0),
+                    ],
+                )
+                .inspect_err(|error| log::error!("Curve table pipeline unavailable: {error}"))
+                .ok()
+            })
+            .as_ref()
         {
             Some(pipeline) => Ok(pipeline),
             // The plain pipeline would render only the first 16 points.
@@ -5813,6 +5947,43 @@ impl GpuProcessor {
         flare_samples: Option<&wgpu::TextureView>,
         uploaded_masks: Option<&UploadedMasks>,
     ) -> Result<(RenderedPixels, u32, u32, u32, u32), String> {
+        let (mut pixels, out_width, out_height, x, y) = self.render_window(
+            input_texture_view,
+            width,
+            height,
+            window,
+            request,
+            output_to_display,
+            output_precision,
+            readback_shader,
+            chroma,
+            flare_samples,
+            uploaded_masks,
+            &[],
+        )?;
+        Ok((pixels.remove(0), out_width, out_height, x, y))
+    }
+
+    /// [`Self::run_in_window`], or with `outputs` an export render that runs
+    /// the main pass once (`DEFER_OUTPUT`) and encodes it for each output
+    /// (`encode_deferred`); then `output_precision` and the request's output
+    /// space are not used. One rendering per output, in order.
+    #[allow(clippy::too_many_arguments)]
+    fn render_window(
+        &self,
+        input_texture_view: &wgpu::TextureView,
+        width: u32,
+        height: u32,
+        window: Roi,
+        request: RenderRequest,
+        output_to_display: bool,
+        output_precision: RenderOutputPrecision,
+        readback_shader: ReadbackShader,
+        chroma: Option<(&wgpu::TextureView, &wgpu::TextureView)>,
+        flare_samples: Option<&wgpu::TextureView>,
+        uploaded_masks: Option<&UploadedMasks>,
+        outputs: &[RenderOutput],
+    ) -> Result<(Vec<RenderedPixels>, u32, u32, u32, u32), String> {
         let mut request = request;
         if chroma.is_none() {
             // No chroma pyramid: the cross-bilateral colour noise reduction.
@@ -5878,23 +6049,38 @@ impl GpuProcessor {
             );
         }
 
-        let high_precision_tile = if output_precision == RenderOutputPrecision::SixteenBit {
-            Some(self.high_precision_tile())
-        } else {
-            None
-        };
+        let deferred = !outputs.is_empty();
+        if deferred && (output_to_display || readback_shader != ReadbackShader::Export) {
+            return Err("Several outputs of one render are only made for exports.".to_string());
+        }
+        let high_precision_tile = (!deferred
+            && output_precision == RenderOutputPrecision::SixteenBit)
+            .then(|| self.high_precision_tile());
         let (
             mut output_pipeline,
             output_bgl,
             output_tile_texture,
             output_tile_view,
             bytes_per_pixel,
-        ) = if let Some(high_precision_tile) = high_precision_tile {
+        ) = if deferred {
+            let tile = self.deferred_tile();
             (
                 if force_full_preparation || force_general_pipeline {
-                    self.general_pipeline(&request.adjustments, true)?
+                    self.general_pipeline(&request.adjustments, MainOutput::Deferred)?
                 } else {
-                    self.export_pipeline(&request.adjustments, true)?
+                    self.export_pipeline(&request.adjustments, MainOutput::Deferred)?
+                },
+                &self.high_precision_bgl,
+                &tile.texture,
+                &tile.view,
+                16,
+            )
+        } else if let Some(high_precision_tile) = high_precision_tile {
+            (
+                if force_full_preparation || force_general_pipeline {
+                    self.general_pipeline(&request.adjustments, MainOutput::SixteenBit)?
+                } else {
+                    self.export_pipeline(&request.adjustments, MainOutput::SixteenBit)?
                 },
                 &self.high_precision_bgl,
                 &high_precision_tile.texture,
@@ -5906,9 +6092,9 @@ impl GpuProcessor {
             let pipeline = if display_shader && !force_full_preparation && !force_general_pipeline {
                 self.preview_pipeline(&request.adjustments)?
             } else if !output_to_display && !force_full_preparation && !force_general_pipeline {
-                self.export_pipeline(&request.adjustments, false)?
+                self.export_pipeline(&request.adjustments, MainOutput::EightBit)?
             } else {
-                self.general_pipeline(&request.adjustments, false)?
+                self.general_pipeline(&request.adjustments, MainOutput::EightBit)?
             };
             (
                 pipeline,
@@ -6268,9 +6454,60 @@ impl GpuProcessor {
         } else {
             (out_width * out_height * 4) as usize
         };
-        let mut final_pixels = match output_precision {
+        let pixels_of = |precision| match precision {
             RenderOutputPrecision::EightBit => RenderedPixels::U8(vec![0u8; output_len]),
             RenderOutputPrecision::SixteenBit => RenderedPixels::U16(vec![0u16; output_len]),
+        };
+        let mut targets = if deferred {
+            outputs
+                .iter()
+                .map(|output| {
+                    let high_precision = output.precision == RenderOutputPrecision::SixteenBit;
+                    let (texture, view, bytes_per_pixel) = if high_precision {
+                        let tile = self.high_precision_tile();
+                        (&tile.texture, &tile.view, 16)
+                    } else {
+                        (&self.tile_output_texture, &self.tile_output_texture_view, 4)
+                    };
+                    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("Encode Deferred Bind Group"),
+                        layout: &self.encode_bgls[usize::from(high_precision)],
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::TextureView(view),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: self.adjustments_buffer.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 16,
+                                resource: self.render_regions_buffer.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 25,
+                                resource: wgpu::BindingResource::TextureView(output_tile_view),
+                            },
+                        ],
+                    });
+                    Ok(TileTarget {
+                        texture,
+                        bytes_per_pixel,
+                        pixels: pixels_of(output.precision),
+                        pending: None,
+                        encode: Some((self.encode_pipeline(high_precision)?, bind_group, *output)),
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?
+        } else {
+            vec![TileTarget {
+                texture: output_tile_texture,
+                bytes_per_pixel,
+                pixels: pixels_of(output_precision),
+                pending: None,
+                encode: None,
+            }]
         };
 
         let start_tile_x = bounds.x / TILE_SIZE;
@@ -6278,7 +6515,6 @@ impl GpuProcessor {
         let end_tile_x = (bounds.x + bounds.width).div_ceil(TILE_SIZE);
         let end_tile_y = (bounds.y + bounds.height).div_ceil(TILE_SIZE);
 
-        let mut pending_readback: Option<(PendingReadback, TilePlacement)> = None;
         // Blur rows beyond the ping-pong texture's (`BlurParams::blurred_rows`),
         // for the largest radius (Clarity's base 40).
         let mut tall_ping_pong: Option<wgpu::TextureView> = None;
@@ -6735,7 +6971,6 @@ impl GpuProcessor {
                     }
                     queue.submit(Some(encoder.finish()));
                 }
-
                 bind_group_entries.push(wgpu::BindGroupEntry {
                     binding: 14,
                     resource: wgpu::BindingResource::TextureView(
@@ -6847,51 +7082,98 @@ impl GpuProcessor {
                 queue.submit(Some(main_encoder.finish()));
 
                 if !output_to_display {
-                    // The copy of this tile is read back while the GPU
-                    // renders the next one (queue order keeps the shared
-                    // output texture intact).
-                    let next = begin_texture_readback(
-                        device,
-                        queue,
-                        output_tile_texture,
-                        wgpu::Origin3d {
-                            x: crop_x_start,
-                            y: crop_y_start,
-                            z: 0,
-                        },
-                        wgpu::Extent3d {
-                            width: tile_width,
-                            height: tile_height,
-                            depth_or_array_layers: 1,
-                        },
-                        bytes_per_pixel,
-                        Some(&self.readback_pool),
-                    );
+                    if deferred && regions.len() != 1 {
+                        return Err("A deferred render needs one region per tile.".to_string());
+                    }
                     let placement = TilePlacement {
                         x: x_start - bounds.x,
                         y: y_start - bounds.y,
                         width: tile_width,
                         height: tile_height,
                     };
-                    if let Some((previous, previous_placement)) =
-                        pending_readback.replace((next, placement))
-                    {
-                        #[cfg(feature = "performance-profiling")]
-                        let _readback_stage =
-                            crate::performance::PerformanceStage::new("gpu_tile_readback");
-                        let data =
-                            finish_texture_readback(device, previous, Some(&self.readback_pool))?;
-                        store_tile(&mut final_pixels, previous_placement, out_width, data);
+                    for target in &mut targets {
+                        if let Some((pipeline, bind_group, output)) = &target.encode {
+                            let mut encode_adjustments = tile_adjustments;
+                            encode_adjustments.global.output_space = output.output_space;
+                            encode_adjustments.global.output_matrix = output.output_matrix;
+                            queue.write_buffer(
+                                &self.adjustments_buffer,
+                                0,
+                                bytemuck::bytes_of(&encode_adjustments),
+                            );
+                            let mut encoder = device.create_command_encoder(&Default::default());
+                            {
+                                let mut pass = encoder.begin_compute_pass(&Default::default());
+                                pass.set_pipeline(pipeline);
+                                pass.set_bind_group(0, bind_group, &[]);
+                                pass.dispatch_workgroups(
+                                    regions[0][2].div_ceil(8),
+                                    regions[0][3].div_ceil(8),
+                                    1,
+                                );
+                            }
+                            queue.submit(Some(encoder.finish()));
+                        }
+                        // The copy of this tile is read back while the GPU
+                        // renders the next one (queue order keeps the shared
+                        // output texture intact).
+                        let next = begin_texture_readback(
+                            device,
+                            queue,
+                            target.texture,
+                            wgpu::Origin3d {
+                                x: crop_x_start,
+                                y: crop_y_start,
+                                z: 0,
+                            },
+                            wgpu::Extent3d {
+                                width: tile_width,
+                                height: tile_height,
+                                depth_or_array_layers: 1,
+                            },
+                            target.bytes_per_pixel,
+                            Some(&self.readback_pool),
+                        );
+                        if let Some((previous, previous_placement)) =
+                            target.pending.replace((next, placement))
+                        {
+                            #[cfg(feature = "performance-profiling")]
+                            let _readback_stage =
+                                crate::performance::PerformanceStage::new("gpu_tile_readback");
+                            finish_texture_readback_with(
+                                device,
+                                previous,
+                                Some(&self.readback_pool),
+                                |rows, stride, _| {
+                                    store_tile(
+                                        &mut target.pixels,
+                                        previous_placement,
+                                        out_width,
+                                        rows,
+                                        stride,
+                                    )
+                                },
+                            )?;
+                        }
                     }
                 }
             }
         }
 
-        if let Some((previous, placement)) = pending_readback.take() {
-            #[cfg(feature = "performance-profiling")]
-            let _readback_stage = crate::performance::PerformanceStage::new("gpu_tile_readback");
-            let data = finish_texture_readback(device, previous, Some(&self.readback_pool))?;
-            store_tile(&mut final_pixels, placement, out_width, data);
+        for target in &mut targets {
+            if let Some((previous, placement)) = target.pending.take() {
+                #[cfg(feature = "performance-profiling")]
+                let _readback_stage =
+                    crate::performance::PerformanceStage::new("gpu_tile_readback");
+                finish_texture_readback_with(
+                    device,
+                    previous,
+                    Some(&self.readback_pool),
+                    |rows, stride, _| {
+                        store_tile(&mut target.pixels, placement, out_width, rows, stride)
+                    },
+                )?;
+            }
         }
 
         if let Some(state) = display_state {
@@ -6900,7 +7182,13 @@ impl GpuProcessor {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner()) = Some(state);
         }
-        Ok((final_pixels, out_width, out_height, bounds.x, bounds.y))
+        Ok((
+            targets.into_iter().map(|target| target.pixels).collect(),
+            out_width,
+            out_height,
+            bounds.x,
+            bounds.y,
+        ))
     }
 }
 
@@ -7479,6 +7767,86 @@ pub fn process_and_get_dynamic_image_inner(
         return render();
     }
     gpu_scoped(&context.device, render).and_then(|image| image)
+}
+
+/// Renders a kept upload into several export outputs with one main pass
+/// (`DEFER_OUTPUT`), each encoded for its own precision and colour space:
+/// the same pixels as one export render per output
+/// ([`process_and_get_dynamic_image_inner`] with `ReadbackShader::Export`
+/// and the output's precision and space), in `outputs` order.
+pub fn process_and_get_dynamic_images(
+    context: &GpuContext,
+    processor_slot: &Mutex<Option<GpuProcessorState>>,
+    kept: &KeptUpload,
+    request: RenderRequest,
+    caller_id: &str,
+    outputs: &[RenderOutput],
+) -> Result<Vec<DynamicImage>, String> {
+    gpu_scoped(&context.device, || {
+        render_outputs(context, processor_slot, kept, request, caller_id, outputs)
+    })
+    .and_then(|images| images)
+}
+
+fn render_outputs(
+    context: &GpuContext,
+    processor_slot: &Mutex<Option<GpuProcessorState>>,
+    kept: &KeptUpload,
+    request: RenderRequest,
+    caller_id: &str,
+    outputs: &[RenderOutput],
+) -> Result<Vec<DynamicImage>, String> {
+    let start_time = Instant::now();
+    let processor_lock = lock_processor(context, processor_slot, kept.width, kept.height)?;
+    let processor = &processor_lock.as_ref().unwrap().processor;
+    let mut cache_lock = kept.cache.lock().unwrap_or_else(|e| e.into_inner());
+    let cache = cache_lock
+        .as_mut()
+        .ok_or("Missing source image for GPU upload.")?;
+    let mut request = request;
+    let adjustments = &mut request.adjustments;
+    // The pool's thread is outside this thread's error scopes.
+    let chroma = off_global_pool(|| {
+        gpu_scoped(&context.device, || {
+            prepare_color_noise(context, processor, cache, None, adjustments, false)
+        })
+    })?;
+
+    #[cfg(feature = "performance-profiling")]
+    let run_stage = crate::performance::PerformanceStage::new("gpu_run");
+    let (pixels, out_w, out_h, _, _) = processor.render_window(
+        &cache.texture_view,
+        cache.width,
+        cache.height,
+        Roi {
+            x: 0,
+            y: 0,
+            width: cache.width,
+            height: cache.height,
+        },
+        request,
+        false,
+        RenderOutputPrecision::EightBit,
+        ReadbackShader::Export,
+        chroma.as_ref().map(|(packed, energy)| (packed, energy)),
+        None,
+        kept.masks.as_deref(),
+        outputs,
+    )?;
+    #[cfg(feature = "performance-profiling")]
+    drop(run_stage);
+    log::info!(
+        "[{}] {}x{} processed into {} outputs on GPU in {:?}",
+        caller_id,
+        out_w,
+        out_h,
+        outputs.len(),
+        start_time.elapsed()
+    );
+    pixels
+        .into_iter()
+        .map(|pixels| rendered_image(pixels, out_w, out_h))
+        .collect()
 }
 
 /// Runs GPU work of a CPU-readback render (export, thumbnail) inside
