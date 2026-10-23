@@ -155,3 +155,82 @@ describe("emptied selection", () => {
     expect(useLibraryStore.getState().multiSelectedPaths).toEqual(["/s/a.NEF", "/s/c.NEF"]);
   });
 });
+
+describe("filmstrip wheel", () => {
+  function strip(film = true) {
+    const view = grid(vi.fn(), film);
+    Object.defineProperties(view.browser, {
+      scrollWidth: { value: 2400, configurable: true },
+      scrollHeight: { value: 500, configurable: true },
+    });
+    view.browser.scrollLeft = 200;
+    view.browser.style.lineHeight = "20px";
+    return view;
+  }
+  function wheel(target: Element, init: WheelEventInit = {}) {
+    const event = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 40, ...init });
+    fireEvent(target, event);
+    return event;
+  }
+
+  it.each([
+    [{ deltaY: 40 }, 240],
+    [{ deltaY: -30 }, 170],
+    [{ deltaY: 2.5, deltaX: 1 }, 202.5],
+    [{ deltaY: 3, deltaMode: 1 }, 260],
+    [{ deltaY: 1, deltaMode: 2 }, 1000],
+    [{ deltaY: -1000 }, 0],
+    [{ deltaY: 3000 }, 1600],
+  ])("maps vertical input to horizontal pixels: %j", (init, expected) => {
+    const { browser } = strip();
+    expect(wheel(browser.querySelector("button")!, init).defaultPrevented).toBe(true);
+    expect(browser.scrollLeft).toBe(expected);
+  });
+
+  it.each([
+    { deltaX: 50 }, { deltaX: 40 }, { deltaY: 0 },
+    { shiftKey: true }, { ctrlKey: true }, { metaKey: true }, { cancelable: false },
+  ])("preserves native gestures: %j", (init) => {
+    const { browser } = strip();
+    expect(wheel(browser, init).defaultPrevented).toBe(false);
+    expect(browser.scrollLeft).toBe(200);
+  });
+
+  it("leaves a vertically scrolling strip and a fitting strip native", () => {
+    const { browser } = strip();
+    Object.defineProperty(browser, "scrollHeight", { value: 600 });
+    expect(wheel(browser).defaultPrevented).toBe(false);
+    Object.defineProperty(browser, "scrollHeight", { value: 500 });
+    Object.defineProperty(browser, "scrollWidth", { value: 800 });
+    expect(wheel(browser).defaultPrevented).toBe(false);
+    expect(browser.scrollLeft).toBe(200);
+  });
+
+  it("does not intercept the Library grid or another panel", () => {
+    const { browser } = strip(false);
+    expect(wheel(browser).defaultPrevented).toBe(false);
+    expect(wheel(document.body).defaultPrevented).toBe(false);
+    expect(browser.scrollLeft).toBe(200);
+  });
+
+  it("keeps wheel events outside the mounted filmstrip native", () => {
+    const { browser } = strip();
+    expect(wheel(document.body).defaultPrevented).toBe(false);
+    expect(browser.scrollLeft).toBe(200);
+  });
+
+  it("uses the font size when line height is normal", () => {
+    const { browser } = strip();
+    browser.style.lineHeight = "normal";
+    browser.style.fontSize = "10px";
+    wheel(browser, { deltaY: 2, deltaMode: 1 });
+    expect(browser.scrollLeft).toBe(224);
+  });
+
+  it("removes the native listener when the filmstrip unmounts", () => {
+    const { browser, unmount } = strip();
+    unmount();
+    expect(wheel(browser).defaultPrevented).toBe(false);
+    expect(browser.scrollLeft).toBe(200);
+  });
+});
