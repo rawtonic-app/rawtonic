@@ -339,6 +339,13 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                 let token = cancel.1;
                 pool.install(|| prepare(app_handle, &path, cancel));
                 if worker.prefetch_gate.cancelled(token) {
+                    // When the cancelled decode gave the cores back (compare
+                    // with the pointer session's start).
+                    #[cfg(feature = "performance-profiling")]
+                    log::info!(
+                        "[PERF] {}",
+                        serde_json::json!({"stage": "preview_proxy_prefetch_cancelled", "epoch_ms": crate::performance::epoch_ms()})
+                    );
                     worker
                         .queue
                         .lock()

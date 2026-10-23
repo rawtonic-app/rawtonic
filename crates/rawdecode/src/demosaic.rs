@@ -23,6 +23,8 @@
 //! notes: reference/demosaicing.md). Work is split into overlapping tiles
 //! that run in parallel, so memory beyond the output stays small.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use rayon::prelude::*;
 
 /// A repeating colour filter pattern (0 = red, 1 = green, 2 = blue).
@@ -75,6 +77,14 @@ impl CfaPattern {
 }
 
 const TILE: usize = 512;
+
+/// Asked between tiles and bands whether the demosaic is still wanted
+/// (a prefetch gives way to the user's edits within a tile's time).
+pub type Cancel<'a> = &'a (dyn Fn() -> bool + Sync);
+
+/// A demosaic given up because its `Cancel` said so.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Cancelled;
 
 #[inline]
 fn encode(v: f32) -> f32 {
@@ -144,15 +154,32 @@ pub fn bin(
 /// Demosaics `mosaic` (row-major, `width` × `height`, colours by `cfa` at
 /// absolute positions) into RGB.
 pub fn demosaic(mosaic: &[f32], width: usize, height: usize, cfa: &CfaPattern) -> Vec<[f32; 3]> {
+    demosaic_unless(mosaic, width, height, cfa, &|| false).expect("never cancelled")
+}
+
+/// `demosaic`, given up as soon as `cancelled` says so (asked before each
+/// tile and band; the result does not depend on it otherwise).
+pub fn demosaic_unless(
+    mosaic: &[f32],
+    width: usize,
+    height: usize,
+    cfa: &CfaPattern,
+    cancelled: Cancel,
+) -> Result<Vec<[f32; 3]>, Cancelled> {
     assert_eq!(mosaic.len(), width * height);
     if cfa.is_bayer() {
-        run_tiled(mosaic, width, height, cfa, bayer_tile)
+        run_tiled(mosaic, width, height, cfa, cancelled, bayer_tile)
     } else {
         let tables = DirectionalTables::new(cfa);
-        let mut out = crate::gpu_demosaic::xtrans(mosaic, width, height, cfa, &tables)
-            .unwrap_or_else(|| xtrans_cpu(mosaic, width, height, cfa, &tables));
-        smooth_fine_grain(&mut out, width, height);
-        out
+        let mut out =
+            match crate::gpu_demosaic::xtrans(mosaic, width, height, cfa, &tables, cancelled) {
+                Some(out) => out?,
+                None => run_tiled(mosaic, width, height, cfa, cancelled, |tile| {
+                    directional_tile(tile, &tables)
+                })?,
+            };
+        smooth_fine_grain(&mut out, width, height, cancelled)?;
+        Ok(out)
     }
 }
 
@@ -164,9 +191,10 @@ pub fn xtrans_cpu(
     cfa: &CfaPattern,
     tables: &DirectionalTables,
 ) -> Vec<[f32; 3]> {
-    run_tiled(mosaic, width, height, cfa, |tile| {
+    run_tiled(mosaic, width, height, cfa, &|| false, |tile| {
         directional_tile(tile, tables)
     })
+    .expect("never cancelled")
 }
 
 /// Edge-aware smoothing of the finest luminance grain after X-Trans
@@ -176,11 +204,16 @@ pub fn xtrans_cpu(
 /// image's own pixel-scale noise brings that band to Camera Raw's level at
 /// ISO 640-4000 for 1-2 % of texture detail (notes: benchmark-results/
 /// xtrans-fine-grain.json). Colour ratios are kept.
-fn smooth_fine_grain(rgb: &mut [[f32; 3]], width: usize, height: usize) {
+fn smooth_fine_grain(
+    rgb: &mut [[f32; 3]],
+    width: usize,
+    height: usize,
+    cancelled: Cancel,
+) -> Result<(), Cancelled> {
     const SPATIAL_SIGMA: f32 = 0.8;
     const RANGE_NOISE: f32 = 2.0;
     if width < 8 || height < 8 {
-        return;
+        return Ok(());
     }
     let luma = |p: &[f32; 3]| encode((p[0] + 2.0 * p[1] + p[2]) * 0.25);
     let y: Vec<f32> = rgb.par_iter().map(luma).collect();
@@ -200,13 +233,13 @@ fn smooth_fine_grain(rgb: &mut [[f32; 3]], width: usize, height: usize) {
         })
         .collect();
     if deviations.is_empty() {
-        return;
+        return Ok(());
     }
     let mid = deviations.len() / 2;
     let (_, median, _) = deviations.select_nth_unstable_by(mid, f32::total_cmp);
     let sigma = 1.4826 * *median;
     if !sigma.is_finite() || sigma <= 1e-5 {
-        return;
+        return Ok(());
     }
     let range = RANGE_NOISE * sigma;
     let inv_range = -0.5 / (range * range);
@@ -224,9 +257,14 @@ fn smooth_fine_grain(rgb: &mut [[f32; 3]], width: usize, height: usize) {
         (d * d * inv_range).exp()
     };
     const BAND: usize = 64;
+    let given_up = AtomicBool::new(false);
     rgb.par_chunks_mut(width * BAND)
         .enumerate()
         .for_each(|(band, rows)| {
+            if given_up.load(Ordering::Relaxed) || cancelled() {
+                given_up.store(true, Ordering::Relaxed);
+                return;
+            }
             let r0 = band * BAND;
             let r1 = r0 + rows.len() / width;
             // Interior rows of this band.
@@ -298,6 +336,11 @@ fn smooth_fine_grain(rgb: &mut [[f32; 3]], width: usize, height: usize) {
                 }
             }
         });
+    if given_up.into_inner() {
+        Err(Cancelled)
+    } else {
+        Ok(())
+    }
 }
 
 /// One tile with its border, in buffer coordinates. Buffer pixel (0, 0) is
@@ -320,19 +363,25 @@ fn run_tiled<F>(
     width: usize,
     height: usize,
     cfa: &CfaPattern,
+    cancelled: Cancel,
     kernel: F,
-) -> Vec<[f32; 3]>
+) -> Result<Vec<[f32; 3]>, Cancelled>
 where
     F: Fn(&Tile) -> Vec<[f32; 3]> + Sync,
 {
     let mut out = vec![[0.0f32; 3]; width * height];
     if width == 0 || height == 0 {
-        return out;
+        return Ok(out);
     }
     let tiles_x = width.div_ceil(TILE);
     let tiles_y = height.div_ceil(TILE);
     let ptr = OutPtr(out.as_mut_ptr());
+    let given_up = AtomicBool::new(false);
     (0..tiles_x * tiles_y).into_par_iter().for_each(|index| {
+        if given_up.load(Ordering::Relaxed) || cancelled() {
+            given_up.store(true, Ordering::Relaxed);
+            return;
+        }
         let ty = index / tiles_x;
         let tx = index % tiles_x;
         let y0 = ty * TILE;
@@ -352,7 +401,11 @@ where
             }
         }
     });
-    out
+    if given_up.into_inner() {
+        Err(Cancelled)
+    } else {
+        Ok(out)
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1100,7 +1153,7 @@ mod tests {
             (vals.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / vals.len() as f32).sqrt()
         };
         let before = spread(&rgb);
-        super::smooth_fine_grain(&mut rgb, w, h);
+        super::smooth_fine_grain(&mut rgb, w, h, &|| false).unwrap();
         assert!(spread(&rgb) < 0.8 * before, "{} vs {before}", spread(&rgb));
         // The edge between the halves stays sharp.
         let left = rgb[32 * w + w / 2 - 1][1];
@@ -1186,6 +1239,44 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A cancel raised during the demosaic stops it within the tiles and
+    /// bands already started (a prefetch gives way to a slider drag).
+    #[test]
+    fn a_cancel_stops_the_demosaic_between_tiles() {
+        use std::sync::atomic::AtomicUsize;
+        for cfa in [bayer(), xtrans()] {
+            // 32 tiles, more than the threads that may be in flight.
+            let (w, h) = (8 * TILE, 4 * TILE);
+            let mosaic = mosaic_of(w, h, &cfa, |y, x| {
+                [
+                    0.1 + (x % 13) as f32 * 0.03,
+                    0.4,
+                    0.2 + (y % 7) as f32 * 0.05,
+                ]
+            });
+            let asked = AtomicUsize::new(0);
+            // Wanted for the first two tiles only.
+            let cancelled = || asked.fetch_add(1, Ordering::SeqCst) >= 2;
+            assert_eq!(
+                demosaic_unless(&mosaic, w, h, &cfa, &cancelled),
+                Err(Cancelled)
+            );
+            // Tiles skip without asking once one was told to stop; those
+            // asking meanwhile on other threads stop too.
+            let asked = asked.load(Ordering::SeqCst);
+            assert!(
+                asked <= 2 + rayon::current_num_threads(),
+                "asked {asked} times"
+            );
+        }
+        let (w, h) = (64, 3 * 64);
+        // Grain, so the smoothing has work to do.
+        let mut rgb: Vec<[f32; 3]> = (0..w * h)
+            .map(|i| [0.2, 0.3 + (i * 7919 % 101) as f32 * 1e-3, 0.4])
+            .collect();
+        assert_eq!(smooth_fine_grain(&mut rgb, w, h, &|| true), Err(Cancelled));
     }
 
     #[test]

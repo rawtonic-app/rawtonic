@@ -196,6 +196,7 @@ fn develop_internal(
         }
         Ok(())
     };
+    let cancelled = || check_cancel().is_err();
 
     check_cancel()?;
 
@@ -208,6 +209,7 @@ fn develop_internal(
         let _stage = crate::performance::PerformanceStage::new("raw_decode");
         decoder.raw_image(&source, &RawDecodeParams::default(), false)?
     };
+    check_cancel()?;
 
     let Prepared {
         orientation,
@@ -452,6 +454,7 @@ fn develop_internal(
     };
     let mut reconstructed = None;
 
+    check_cancel()?;
     // OpcodeList2 (lens shading per CFA colour, mostly phones) acts on the
     // normalised mosaic, as does the reconstruction. Scaling here leaves
     // black 0 and white 1, so rawler's own Rescale step becomes a no-op.
@@ -705,7 +708,7 @@ fn develop_internal(
         draft_developer
             .steps
             .retain(|&step| step != ProcessingStep::SRgb);
-        let developed = develop_rgb_mosaic(&mut draft_raw, rescale_factor, true)
+        let developed = develop_rgb_mosaic(&mut draft_raw, rescale_factor, true, &cancelled)
             .and_then(|own| match own {
                 Some(intermediate) => Ok(intermediate),
                 None => Ok(draft_developer.develop_intermediate(&draft_raw)?),
@@ -746,7 +749,7 @@ fn develop_internal(
         let own = if is_linear_format {
             None
         } else {
-            develop_rgb_mosaic(&mut raw_image, rescale_factor, fast_demosaic)?
+            develop_rgb_mosaic(&mut raw_image, rescale_factor, fast_demosaic, &cancelled)?
         };
         match own {
             Some(intermediate) => intermediate,
@@ -1606,6 +1609,7 @@ fn develop_rgb_mosaic(
     raw_image: &mut RawImage,
     rescale_factor: f32,
     draft: bool,
+    cancelled: crate::demosaic::Cancel,
 ) -> Result<Option<Intermediate>> {
     use rawler::imgop::matrix::{multiply, normalize, pseudo_inverse};
     use rawler::imgop::xyz::{Illuminant, SRGB_TO_XYZ_D65};
@@ -1682,7 +1686,8 @@ fn develop_rgb_mosaic(
     let mut rgb = if bin > 1 {
         crate::demosaic::bin(&mosaic, roi_w, roi_h, &pattern, bin)
     } else {
-        crate::demosaic::demosaic(&mosaic, roi_w, roi_h, &pattern)
+        crate::demosaic::demosaic_unless(&mosaic, roi_w, roi_h, &pattern, cancelled)
+            .map_err(|_| anyhow!("Load cancelled"))?
     };
     let (out_w, out_h) = (roi_w / bin, roi_h / bin);
     drop(mosaic);
