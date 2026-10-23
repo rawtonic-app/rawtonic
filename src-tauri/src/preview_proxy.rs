@@ -441,13 +441,23 @@ fn header_is_current(header: &Header, source: &Path, settings: &AppSettings) -> 
     let variant = crate::image_loader::stored_decode_variant(&source.to_string_lossy());
     let decoder_matches =
         header.key.engine == ENGINE_VERSION && header.key.decoder == decoder_key(settings, variant);
-    let Some(key) = current_key(source, settings, variant) else {
-        return header.key.engine == ENGINE_VERSION
+    let settings_match = || {
+        header.key.engine == ENGINE_VERSION
             && decoder_settings(&header.key.decoder)
-                == decoder_settings(&decoder_key(settings, variant));
+                == decoder_settings(&decoder_key(settings, variant))
+    };
+    let Some(key) = current_key(source, settings, variant) else {
+        return settings_match();
     };
     if header.key == key {
         return true;
+    }
+    // Offline with its metadata still there (a cloud placeholder, a file
+    // that cannot be opened): the same file's preview, any variant.
+    if !source_available(source) {
+        return settings_match()
+            && header.key.file_size == key.file_size
+            && header.key.modified_ns == key.modified_ns;
     }
     decoder_matches
         && header.key.file_size == key.file_size
@@ -1821,6 +1831,21 @@ mod tests {
         assert_eq!(read(&photo, &settings).unwrap().full_width, 80);
         assert!(has_full(&photo, &settings));
         assert!(read(&photo, &other).is_none());
+        // The same with the file there but unreadable (its metadata known;
+        // root reads it anyway, so the check only runs where it is not).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::rename(dir.path().join("elsewhere.RAF"), &photo).unwrap();
+            fs::set_permissions(&photo, fs::Permissions::from_mode(0o000)).unwrap();
+            if !source_available(&photo) {
+                assert_eq!(read(&photo, &settings).unwrap().full_width, 80);
+                assert!(has_full(&photo, &settings));
+                assert!(read(&photo, &other).is_none());
+            }
+            fs::set_permissions(&photo, fs::Permissions::from_mode(0o644)).unwrap();
+            fs::rename(&photo, dir.path().join("elsewhere.RAF")).unwrap();
+        }
         // Nothing can be written for it.
         assert!(write(&photo, &gradient(80, 60), 40, &settings, NEW_EDIT, None).is_err());
     }
