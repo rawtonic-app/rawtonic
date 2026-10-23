@@ -934,6 +934,7 @@ fn render(
     let src = ExportSource {
         pristine: Arc::new(DynamicImage::ImageRgb32F(img.clone())),
         patched: None,
+        measures: None,
     };
     process_image_for_export_pipeline(
         path,

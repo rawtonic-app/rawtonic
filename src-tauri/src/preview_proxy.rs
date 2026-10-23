@@ -44,6 +44,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::app_settings::AppSettings;
+use crate::image_loader::DecodeMeasures;
 use rawtonic_engine::proxy_codec::{self, Transfer};
 use rawtonic_engine::source_facts::{self, SourceFacts};
 use std::collections::HashMap;
@@ -503,15 +504,22 @@ struct SourceData {
 }
 
 impl SourceData {
-    /// Read from the RAW at `source` (it must be readable).
-    fn read(source: &Path) -> SourceData {
+    /// Read from the RAW at `source` (it must be readable); `measures`:
+    /// those of the decode the proxy is made from (the facts would otherwise
+    /// take the last full decode's, which may be of another recipe).
+    fn read(source: &Path, measures: Option<DecodeMeasures>) -> SourceData {
         let path = source.to_string_lossy();
         let exif = fs::read(source)
             .ok()
             .map(|bytes| crate::exif_processing::read_exif_data(&path, &bytes))
             .filter(|exif| !exif.is_empty());
+        let mut facts = source_facts::collect(&path);
+        if let Some(measures) = measures {
+            facts.noise_level = measures.noise_level;
+            facts.image_key = measures.image_key;
+        }
         SourceData {
-            facts: Some(source_facts::collect(&path)),
+            facts: Some(facts),
             exif,
         }
     }
@@ -868,13 +876,15 @@ pub fn has_full(source: &Path, settings: &AppSettings) -> bool {
 
 /// Writes the Standard proxy of `source` from its full decode, at `size` on
 /// the long edge, atomically (temporary file in the same folder, then rename).
-/// `multiscale`: the decode was made for the multi-scale colour noise filter.
+/// `multiscale`: the decode was made for the multi-scale colour noise filter;
+/// `measures`: the decode's (`image_loader::DecodeMeasures`).
 pub fn write(
     source: &Path,
     full: &DynamicImage,
     size: u32,
     settings: &AppSettings,
     multiscale: bool,
+    measures: Option<DecodeMeasures>,
 ) -> Result<Proxy, String> {
     let (full_width, full_height) = full.dimensions();
     let reduced = if full_width.max(full_height) > size {
@@ -889,6 +899,7 @@ pub fn write(
         (full_width, full_height),
         settings,
         multiscale,
+        measures,
     )?;
     Ok(Proxy {
         image: reduced,
@@ -905,6 +916,7 @@ pub fn write_full(
     full: &DynamicImage,
     settings: &AppSettings,
     multiscale: bool,
+    measures: Option<DecodeMeasures>,
 ) -> Result<(), String> {
     store(
         source,
@@ -913,6 +925,7 @@ pub fn write_full(
         full.dimensions(),
         settings,
         multiscale,
+        measures,
     )
     .map(|_| ())
 }
@@ -924,6 +937,7 @@ fn store(
     (full_width, full_height): (u32, u32),
     settings: &AppSettings,
     multiscale: bool,
+    measures: Option<DecodeMeasures>,
 ) -> Result<ProxyKey, String> {
     let path = proxy_path_of(source, kind).ok_or("No previews folder")?;
     let key = current_key(source, settings, multiscale).ok_or("Source file unavailable")?;
@@ -935,7 +949,7 @@ fn store(
         key.clone(),
         sample,
         Some(source_label(source)),
-        SourceData::read(source),
+        SourceData::read(source, measures),
     );
     fs::create_dir_all(path.parent().ok_or("No parent")?).map_err(|e| e.to_string())?;
     rawtonic_metadata::atomic_write(&path, bytes).map_err(|e| e.to_string())?;
@@ -1265,8 +1279,8 @@ mod tests {
         // ...but not current: the next decode or build writes format 3.
         assert_eq!(stored_size(&photo, &settings), None);
         assert!(!has_full(&photo, &settings));
-        write(&photo, &image, 80, &settings, true).unwrap();
-        write_full(&photo, &image, &settings, true).unwrap();
+        write(&photo, &image, 80, &settings, true, None).unwrap();
+        write_full(&photo, &image, &settings, true, None).unwrap();
         assert_eq!(stored_size(&photo, &settings), Some(80));
         assert!(has_full(&photo, &settings));
         let path = proxy_path(&photo).unwrap();
@@ -1331,8 +1345,8 @@ mod tests {
         // ...but not current: replaced by format 3 at the next decode.
         assert_eq!(stored_size(&photo, &settings), None);
         assert!(!has_full(&photo, &settings));
-        write(&photo, &image, 300, &settings, true).unwrap();
-        write_full(&photo, &image, &settings, true).unwrap();
+        write(&photo, &image, 300, &settings, true, None).unwrap();
+        write_full(&photo, &image, &settings, true, None).unwrap();
         assert_eq!(stored_size(&photo, &settings), Some(300));
         assert!(has_full(&photo, &settings));
         // A format 2 file carried over by a relink keeps its version and
@@ -1359,7 +1373,7 @@ mod tests {
         let photo = session_with_photo(dir.path(), b"raw bytes");
         let settings = AppSettings::default();
         let image = gradient(300, 280);
-        write(&photo, &image, 300, &settings, true).unwrap();
+        write(&photo, &image, 300, &settings, true, None).unwrap();
         let path = proxy_path(&photo).unwrap();
         let bytes = fs::read(&path).unwrap();
         let (mut header, _) = parse_header(&bytes).unwrap();
@@ -1391,7 +1405,7 @@ mod tests {
             }
         }
         assert_eq!(stored_size(&photo, &settings), None);
-        write(&photo, &image, 300, &settings, true).unwrap();
+        write(&photo, &image, 300, &settings, true, None).unwrap();
         let header = read_header(&path).unwrap();
         assert_eq!(header.transfer, Some(proxy_codec::TRANSFER));
         assert_eq!(stored_size(&photo, &settings), Some(300));
@@ -1453,10 +1467,10 @@ mod tests {
         let photo = session_with_photo(dir.path(), b"raw bytes");
         let settings = AppSettings::default();
         let full = gradient(400, 300);
-        write(&photo, &full, 200, &settings, true).unwrap();
+        write(&photo, &full, 200, &settings, true, None).unwrap();
         assert_eq!(stored_size(&photo, &settings), Some(200));
         assert!(!has_full(&photo, &settings));
-        write_full(&photo, &full, &settings, true).unwrap();
+        write_full(&photo, &full, &settings, true, None).unwrap();
         assert!(has_full(&photo, &settings));
         let standard = proxy_path_of(&photo, ProxyKind::Standard).unwrap();
         let one_to_one = proxy_path_of(&photo, ProxyKind::Full).unwrap();
@@ -1481,12 +1495,12 @@ mod tests {
         let settings = AppSettings::default();
         let full = gradient(80, 60);
         // Never edited: a RAW develops with the multi-scale filter.
-        write(&photo, &full, 40, &settings, false).unwrap();
-        write_full(&photo, &full, &settings, false).unwrap();
+        write(&photo, &full, 40, &settings, false, None).unwrap();
+        write_full(&photo, &full, &settings, false, None).unwrap();
         assert_eq!(stored_size(&photo, &settings), None);
         assert!(!has_full(&photo, &settings));
-        write(&photo, &full, 40, &settings, true).unwrap();
-        write_full(&photo, &full, &settings, true).unwrap();
+        write(&photo, &full, 40, &settings, true, None).unwrap();
+        write_full(&photo, &full, &settings, true, None).unwrap();
         assert_eq!(stored_size(&photo, &settings), Some(40));
         assert!(has_full(&photo, &settings));
         // An edit with the old filter makes them stale.
@@ -1498,7 +1512,7 @@ mod tests {
         fs::write(&sidecar, recipe.to_string()).unwrap();
         assert_eq!(stored_size(&photo, &settings), None);
         assert!(!has_full(&photo, &settings));
-        write(&photo, &full, 40, &settings, false).unwrap();
+        write(&photo, &full, 40, &settings, false, None).unwrap();
         assert_eq!(stored_size(&photo, &settings), Some(40));
     }
 
@@ -1509,7 +1523,7 @@ mod tests {
         let settings = AppSettings::default();
         // Three bands of 256 rows and a short fourth.
         let full = gradient(64, 900);
-        write_full(&photo, &full, &settings, true).unwrap();
+        write_full(&photo, &full, &settings, true, None).unwrap();
         let whole = read_kind(&photo, ProxyKind::Full, &settings)
             .unwrap()
             .image
@@ -1538,7 +1552,7 @@ mod tests {
         assert!(read_full_rows(&photo, &settings, (10, 10), (0, 64)).is_none());
         assert!(read_full_rows(&photo, &settings, (10, 20), (5, 65)).is_none());
         // A Standard proxy has no full-resolution rows.
-        write(&photo, &full, 300, &settings, true).unwrap();
+        write(&photo, &full, 300, &settings, true, None).unwrap();
         discard_source(&photo, &[ProxyKind::Full]);
         assert!(read_full_rows(&photo, &settings, (0, 10), (0, 64)).is_none());
         assert_eq!(full_size(&photo, &settings), None);
@@ -1549,7 +1563,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let photo = session_with_photo(dir.path(), &vec![7u8; 600 * 1024]);
         let settings = AppSettings::default();
-        write(&photo, &gradient(64, 48), 64, &settings, true).unwrap();
+        write(&photo, &gradient(64, 48), 64, &settings, true, None).unwrap();
         // Copied without its dates (cp without -p): same bytes, newer time.
         let later = SystemTime::now() + Duration::from_secs(3600);
         fs::File::options()
@@ -1588,8 +1602,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let photo = session_with_photo(dir.path(), b"raw bytes");
         let settings = AppSettings::default();
-        write(&photo, &gradient(80, 60), 40, &settings, true).unwrap();
-        write_full(&photo, &gradient(80, 60), &settings, true).unwrap();
+        write(&photo, &gradient(80, 60), 40, &settings, true, None).unwrap();
+        write_full(&photo, &gradient(80, 60), &settings, true, None).unwrap();
         assert!(stored_size(&photo, &settings).is_some());
         assert!(has_full(&photo, &settings));
         // Facts of an older version lack what newer readers use (version 3:
@@ -1616,8 +1630,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let photo = session_with_photo(dir.path(), b"raw bytes");
         let settings = AppSettings::default();
-        write(&photo, &gradient(80, 60), 40, &settings, true).unwrap();
-        write_full(&photo, &gradient(80, 60), &settings, true).unwrap();
+        write(&photo, &gradient(80, 60), 40, &settings, true, None).unwrap();
+        write_full(&photo, &gradient(80, 60), &settings, true, None).unwrap();
         let key = photo.to_string_lossy().into_owned();
         let header = read_header(&proxy_path(&photo).unwrap()).unwrap();
         let facts = header.facts.clone().expect("facts kept with the preview");
@@ -1660,8 +1674,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let photo = session_with_photo(dir.path(), b"raw bytes");
         let settings = AppSettings::default();
-        write(&photo, &gradient(80, 60), 40, &settings, true).unwrap();
-        write_full(&photo, &gradient(80, 60), &settings, true).unwrap();
+        write(&photo, &gradient(80, 60), 40, &settings, true, None).unwrap();
+        write_full(&photo, &gradient(80, 60), &settings, true, None).unwrap();
         assert!(source_available(&photo));
         // The volume went away (here: the file was moved out).
         fs::rename(&photo, dir.path().join("elsewhere.RAF")).unwrap();
@@ -1675,7 +1689,7 @@ mod tests {
         };
         assert!(read(&photo, &other).is_none());
         // Nothing can be written for it.
-        assert!(write(&photo, &gradient(80, 60), 40, &settings, true).is_err());
+        assert!(write(&photo, &gradient(80, 60), 40, &settings, true, None).is_err());
     }
 
     #[test]
@@ -1683,8 +1697,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let photo = session_with_photo(dir.path(), b"raw bytes");
         let settings = AppSettings::default();
-        write(&photo, &gradient(80, 60), 40, &settings, true).unwrap();
-        write_full(&photo, &gradient(80, 60), &settings, true).unwrap();
+        write(&photo, &gradient(80, 60), 40, &settings, true, None).unwrap();
+        write_full(&photo, &gradient(80, 60), &settings, true, None).unwrap();
         let moved = photo.with_file_name("Renamed.RAF");
         fs::rename(&photo, &moved).unwrap();
         assert!(read(&moved, &settings).is_none());
@@ -1695,7 +1709,7 @@ mod tests {
         // Never over previews already there.
         let other = photo.with_file_name("Other.RAF");
         fs::write(&other, b"other raw").unwrap();
-        write(&other, &gradient(8, 6), 4, &settings, true).unwrap();
+        write(&other, &gradient(8, 6), 4, &settings, true, None).unwrap();
         assert_eq!(
             carry_over(&moved, &other),
             1,
@@ -1703,6 +1717,31 @@ mod tests {
         );
         assert_eq!(read(&other, &settings).unwrap().full_width, 8);
         assert!(read(&moved, &settings).is_some(), "kept where it was");
+    }
+
+    /// A preview keeps the measures of the decode it was made from, not the
+    /// last full decode of the file (another recipe's decode may be newer).
+    #[test]
+    fn previews_keep_the_measures_of_their_own_decode() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let settings = AppSettings::default();
+        let path = photo.to_string_lossy().to_string();
+        rawtonic_rawdecode::noise_level::record(&path, 0.03);
+        rawtonic_rawdecode::image_key::record(&path, [0.2, 0.7]);
+        let own = DecodeMeasures {
+            noise_level: Some(0.01),
+            image_key: Some([0.1, 0.6]),
+        };
+        write(&photo, &gradient(80, 60), 40, &settings, true, Some(own)).unwrap();
+        let facts = read_header(&proxy_path(&photo).unwrap())
+            .unwrap()
+            .facts
+            .unwrap();
+        assert_eq!(
+            (facts.noise_level, facts.image_key),
+            (Some(0.01), Some([0.1, 0.6]))
+        );
     }
 
     /// The image part of a proxy file (everything after its header).
@@ -1717,8 +1756,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let photo = session_with_photo(dir.path(), b"raw bytes");
         let settings = AppSettings::default();
-        write(&photo, &gradient(80, 60), 40, &settings, true).unwrap();
-        write_full(&photo, &gradient(80, 60), &settings, true).unwrap();
+        write(&photo, &gradient(80, 60), 40, &settings, true, None).unwrap();
+        write_full(&photo, &gradient(80, 60), &settings, true, None).unwrap();
         let standard = proxy_path(&photo).unwrap();
         let long_ago = SystemTime::now() - Duration::from_secs(7200);
         mark_used_at(&standard, long_ago);
@@ -1758,7 +1797,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let photo = session_with_photo(dir.path(), b"raw bytes");
         let settings = AppSettings::default();
-        write(&photo, &gradient(80, 60), 40, &settings, true).unwrap();
+        write(&photo, &gradient(80, 60), 40, &settings, true, None).unwrap();
         let moved = photo.with_file_name("Renamed.RAF");
         fs::rename(&photo, &moved).unwrap();
         fs::rename(proxy_path(&photo).unwrap(), proxy_path(&moved).unwrap()).unwrap();
@@ -1767,7 +1806,7 @@ mod tests {
         // A photograph really offline keeps its preview.
         let offline = moved.with_file_name("Offline.RAF");
         fs::write(&offline, b"offline raw").unwrap();
-        write(&offline, &gradient(80, 60), 40, &settings, true).unwrap();
+        write(&offline, &gradient(80, 60), 40, &settings, true, None).unwrap();
         fs::remove_file(&offline).unwrap();
         let previews = previews_dir_for_folder(moved.parent().unwrap()).unwrap();
         assert_eq!(enforce_standard_limit(&previews, 1), 1);
@@ -1780,8 +1819,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let photo = session_with_photo(dir.path(), b"raw bytes");
         let settings = AppSettings::default();
-        write(&photo, &gradient(80, 60), 40, &settings, true).unwrap();
-        write_full(&photo, &gradient(80, 60), &settings, true).unwrap();
+        write(&photo, &gradient(80, 60), 40, &settings, true, None).unwrap();
+        write_full(&photo, &gradient(80, 60), &settings, true, None).unwrap();
         let previews = previews_dir_for_folder(photo.parent().unwrap()).unwrap();
         assert_eq!(
             Some(previews.clone()),
@@ -1822,7 +1861,7 @@ mod tests {
         assert!(!has_full(&photo, &settings));
         assert!(read(&photo, &settings).is_some());
         // Reading a 1:1 preview counts as a use.
-        write_full(&photo, &gradient(80, 60), &settings, true).unwrap();
+        write_full(&photo, &gradient(80, 60), &settings, true, None).unwrap();
         fs::File::options()
             .append(true)
             .open(&full)
@@ -1858,7 +1897,7 @@ mod tests {
             .map(|name| {
                 let photo = session.join(name);
                 fs::write(&photo, name.as_bytes()).unwrap();
-                write(&photo, &gradient(64, 48), 64, &settings, true).unwrap();
+                write(&photo, &gradient(64, 48), 64, &settings, true, None).unwrap();
                 photo
             })
             .collect();

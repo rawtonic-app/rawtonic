@@ -161,7 +161,7 @@ pub(crate) fn load_export_base_image(
     adjustments: &Value,
     settings: &crate::app_settings::AppSettings,
     denoise_progress: Option<rawtonic_rawdecode::mosaic_denoise::DenoiseProgress>,
-) -> Result<DynamicImage, String> {
+) -> Result<(DynamicImage, Option<crate::image_loader::DecodeMeasures>), String> {
     let ai = rawtonic_engine::image_loader::ai_denoise_settings(adjustments).filter(|_| is_raw);
     let denoise = if let Some(ai) = ai {
         let denoiser = state.ai_denoiser.lock().unwrap()[crate::ai_denoise::slot(ai.model())]
@@ -182,7 +182,7 @@ pub(crate) fn load_export_base_image(
         None
     };
     match read_file_mapped(Path::new(source_path)) {
-        Ok(mmap) => crate::image_loader::load_base_image_for_recipe(
+        Ok(mmap) => crate::image_loader::load_base_image_for_recipe_measured(
             &mmap,
             source_path,
             false,
@@ -194,7 +194,7 @@ pub(crate) fn load_export_base_image(
         .map_err(|e| format!("Failed to load from mmap: {}", e)),
         Err(_) => {
             let bytes = fs::read(source_path).map_err(|e| e.to_string())?;
-            crate::image_loader::load_base_image_for_recipe(
+            crate::image_loader::load_base_image_for_recipe_measured(
                 &bytes,
                 source_path,
                 false,
@@ -1079,13 +1079,13 @@ fn export_photo(
                             is_raw,
                         ))
                 })
-                .map(|loaded| Arc::clone(&loaded.image))
+                .map(|loaded| (Arc::clone(&loaded.image), loaded.measures))
         } else {
             None
         };
         #[cfg(feature = "performance-profiling")]
         let source_stage = crate::performance::PerformanceStage::new("export_load_source");
-        let pristine_source = if let Some(source) = cached_source {
+        let (pristine_source, measures) = if let Some(source) = cached_source {
             source
         } else {
             // AI Denoise takes up to a minute per photo without a
@@ -1095,7 +1095,7 @@ fn export_photo(
             {
                 let _ = app_handle.emit("export-denoising", image_path_str);
             }
-            Arc::new(load_export_base_image(
+            let (image, measures) = load_export_base_image(
                 &state,
                 &source_path_str,
                 is_raw,
@@ -1104,11 +1104,13 @@ fn export_photo(
                 (!trackings.is_empty()).then(|| {
                     crate::export_queue::denoise_progress(trackings.clone(), item.global_index)
                 }),
-            )?)
+            )?;
+            (Arc::new(image), measures)
         };
         #[cfg(feature = "performance-profiling")]
         drop(source_stage);
-        let source = prepare_export_source(&source_path_str, pristine_source, &js_adjustments)?;
+        let source =
+            prepare_export_source(&source_path_str, pristine_source, measures, &js_adjustments)?;
         ensure_export_not_cancelled(cancellation_token)?;
         Ok(source)
     })();
@@ -1604,7 +1606,11 @@ fn estimate_sizes(
         let tm_override = resolve_tonemapper_override_from_handle(&app_handle, is_raw);
         let mut all_adjustments =
             get_all_adjustments_from_json(&adjustments_clone, is_raw, tm_override);
-        crate::baseline_exposure::apply_base_look(&mut all_adjustments.global, &source_path_str);
+        crate::baseline_exposure::apply_base_look(
+            &mut all_adjustments.global,
+            &source_path_str,
+            loaded_image.measures.as_ref(),
+        );
         all_adjustments.global.detail_scale = scale;
         all_adjustments.global.show_clipping = 0;
 
@@ -1769,7 +1775,11 @@ fn estimate_sizes(
         let tm_override = resolve_tonemapper_override_from_handle(&app_handle, is_raw);
         let mut all_adjustments =
             get_all_adjustments_from_json(&js_adjustments, is_raw, tm_override);
-        crate::baseline_exposure::apply_base_look(&mut all_adjustments.global, &source_path_str);
+        crate::baseline_exposure::apply_base_look(
+            &mut all_adjustments.global,
+            &source_path_str,
+            None,
+        );
         all_adjustments.global.detail_scale = total_scale;
         all_adjustments.global.show_clipping = 0;
 

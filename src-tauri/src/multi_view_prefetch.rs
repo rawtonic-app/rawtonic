@@ -316,21 +316,21 @@ fn ready(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, u
         .decoded_image_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(&crate::image_loader::decoded_cache_key(
+        .get_measured(&crate::image_loader::decoded_cache_key(
             &source_str,
             None,
             multiscale,
         ))
-        .map(|(image, _)| image);
+        .map(|(image, _, measures)| (image, measures));
     let start = Instant::now();
-    let image = match cached {
-        Some(image) => image,
+    let (image, measures) = match cached {
+        Some(cached) => cached,
         None => {
             let Ok(bytes) = read_file_mapped(&source) else {
                 return Outcome::Skipped;
             };
             let (tracker, token) = (&cancel.0, cancel.1);
-            match crate::image_loader::load_base_image_from_bytes_for(
+            match crate::image_loader::load_base_image_measured_for(
                 &bytes,
                 &source_str,
                 false,
@@ -340,7 +340,7 @@ fn ready(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, u
                 None,
                 Some(multiscale),
             ) {
-                Ok(image) => Arc::new(image),
+                Ok((image, measures)) => (Arc::new(image), measures),
                 Err(_) if tracker.load(Ordering::SeqCst) != token => return Outcome::Cancelled,
                 Err(e) => {
                     log::warn!("[multi_view] 1:1 preview of {path}: decode failed: {e}");
@@ -354,7 +354,7 @@ fn ready(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, u
     }
     let decoded_ms = start.elapsed().as_secs_f64() * 1e3;
     if needs_standard {
-        match preview_proxy::write(&source, &image, standard, &settings, multiscale) {
+        match preview_proxy::write(&source, &image, standard, &settings, multiscale, measures) {
             // The thumbnail is then developed from it (as proxy_worker does).
             Ok(_) => crate::file_management::refresh_thumbnail(app_handle, path),
             Err(e) => log::warn!("[multi_view] Standard preview of {path} not written: {e}"),
@@ -368,7 +368,7 @@ fn ready(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, u
         );
         return Outcome::Ready;
     }
-    match preview_proxy::write_full(&source, &image, &settings, multiscale) {
+    match preview_proxy::write_full(&source, &image, &settings, multiscale, measures) {
         Ok(()) => {
             drop(image);
             crate::multi_view::measure_preview(

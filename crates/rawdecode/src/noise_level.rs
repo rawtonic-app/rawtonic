@@ -34,16 +34,13 @@ pub fn for_path(path: &str) -> Option<f32> {
         .copied()
 }
 
-/// Measures and remembers the level of a full-resolution decode.
-pub fn remember(path: &str, image: &DynamicImage) {
-    if let Some(level) = measure(image) {
-        let mut cache = cache().lock().unwrap_or_else(|e| e.into_inner());
-        if cache.len() > 8192 {
-            cache.clear();
-        }
-        cache.insert(path.to_string(), level);
-        log::info!("Noise level for '{path}': {level:.5}");
+/// Records `level`, measured on a full decode of `path`, as its last.
+pub fn record(path: &str, level: f32) {
+    let mut cache = cache().lock().unwrap_or_else(|e| e.into_inner());
+    if cache.len() > 8192 {
+        cache.clear();
     }
+    cache.insert(path.to_string(), level);
 }
 
 /// Noise level (σ of single-pixel luminance in square-root encoding).

@@ -277,10 +277,20 @@ pub fn calculate_full_job_hash(path: &str, adjustments: &serde_json::Value) -> u
 /// stays cached for quick back-and-forth while older ones are decoded again.
 const DECODED_CACHE_BYTES: usize = 768 * 1024 * 1024;
 
+/// A kept decode with its EXIF and its measures.
+pub type MeasuredDecode = (
+    Arc<DynamicImage>,
+    HashMap<String, String>,
+    Option<crate::image_loader::DecodeMeasures>,
+);
+
 pub struct DecodedImageCache {
     capacity: usize,
     byte_budget: usize,
     items: Vec<(String, Arc<DynamicImage>, HashMap<String, String>)>,
+    /// The measures of each kept decode (`image_loader::DecodeMeasures`),
+    /// by its key.
+    measures: HashMap<String, crate::image_loader::DecodeMeasures>,
 }
 
 impl DecodedImageCache {
@@ -290,6 +300,7 @@ impl DecodedImageCache {
             // Count alone permits several gigabytes of retained 32-bit RAW pixels.
             byte_budget: DECODED_CACHE_BYTES,
             items: Vec::with_capacity(capacity),
+            measures: HashMap::new(),
         }
     }
 
@@ -298,6 +309,7 @@ impl DecodedImageCache {
         while self.items.len() > self.capacity {
             self.items.remove(0);
         }
+        self.forget_dropped_measures();
     }
 
     pub fn get(&mut self, path: &str) -> Option<(Arc<DynamicImage>, HashMap<String, String>)> {
@@ -311,8 +323,22 @@ impl DecodedImageCache {
         }
     }
 
+    /// `get` with the measures of the decode kept (None when none were
+    /// measured: a fast development, a non-RAW).
+    pub fn get_measured(&mut self, path: &str) -> Option<MeasuredDecode> {
+        let (image, exif) = self.get(path)?;
+        Some((image, exif, self.measures.get(path).copied()))
+    }
+
     pub fn clear(&mut self) {
         self.items.clear();
+        self.measures.clear();
+    }
+
+    fn forget_dropped_measures(&mut self) {
+        let items = &self.items;
+        self.measures
+            .retain(|key, _| items.iter().any(|(path, _, _)| path == key));
     }
 
     /// Before decoding an uncached image, evict entries that could not stay
@@ -331,6 +357,7 @@ impl DecodedImageCache {
         while !self.items.is_empty() && retained + expected > self.byte_budget {
             retained -= self.items.remove(0).1.as_bytes().len();
         }
+        self.forget_dropped_measures();
     }
 
     pub fn insert(
@@ -338,14 +365,16 @@ impl DecodedImageCache {
         path: String,
         image: Arc<DynamicImage>,
         exif: HashMap<String, String>,
+        measures: Option<crate::image_loader::DecodeMeasures>,
     ) {
         if let Some(pos) = self.items.iter().position(|(p, _, _)| *p == path) {
             self.items.remove(pos);
         }
+        self.measures.remove(&path);
         let bytes = image.as_bytes().len();
         if self.capacity == 0 || bytes > self.byte_budget {
             // The new image stays open regardless, so nothing else fits beside it.
-            self.items.clear();
+            self.clear();
             return;
         }
         let mut retained_bytes: usize = self
@@ -356,7 +385,11 @@ impl DecodedImageCache {
         while self.items.len() >= self.capacity || retained_bytes + bytes > self.byte_budget {
             retained_bytes -= self.items.remove(0).1.as_bytes().len();
         }
+        if let Some(measures) = measures {
+            self.measures.insert(path.clone(), measures);
+        }
         self.items.push((path, image, exif));
+        self.forget_dropped_measures();
     }
 }
 
@@ -393,10 +426,10 @@ mod decoded_cache_tests {
         cache.byte_budget = 24;
         let image = Arc::new(DynamicImage::new_rgb8(2, 2)); // 12 bytes
         for key in ["a", "b"] {
-            cache.insert(key.into(), image.clone(), HashMap::new());
+            cache.insert(key.into(), image.clone(), HashMap::new(), None);
         }
         assert!(cache.get("a").is_some());
-        cache.insert("c".into(), image.clone(), HashMap::new());
+        cache.insert("c".into(), image.clone(), HashMap::new(), None);
         assert!(cache.get("b").is_none());
         assert!(cache.get("a").is_some());
         assert!(cache.get("c").is_some());
@@ -406,13 +439,57 @@ mod decoded_cache_tests {
             "large".into(),
             Arc::new(DynamicImage::new_rgb8(3, 3)),
             HashMap::new(),
+            None,
         );
         assert!(cache.get("large").is_none());
         assert!(cache.items.is_empty());
-        cache.insert("a".into(), image.clone(), HashMap::new());
+        cache.insert("a".into(), image.clone(), HashMap::new(), None);
         cache.set_capacity(0);
-        cache.insert("disabled".into(), image, HashMap::new());
+        cache.insert("disabled".into(), image, HashMap::new(), None);
         assert!(cache.items.is_empty());
+    }
+
+    #[test]
+    fn each_kept_decode_keeps_its_own_measures() {
+        use crate::image_loader::DecodeMeasures;
+        let mut cache = DecodedImageCache::new(2);
+        let image = Arc::new(DynamicImage::new_rgb8(2, 2));
+        let measures = |level| DecodeMeasures {
+            noise_level: Some(level),
+            image_key: Some([0.1, level]),
+        };
+        // Two decodes of one file for two recipes.
+        cache.insert(
+            "A.RAF".into(),
+            image.clone(),
+            HashMap::new(),
+            Some(measures(0.01)),
+        );
+        cache.insert(
+            "A.RAF\u{1}v".into(),
+            image.clone(),
+            HashMap::new(),
+            Some(measures(0.03)),
+        );
+        assert_eq!(cache.get_measured("A.RAF").unwrap().2, Some(measures(0.01)));
+        assert_eq!(
+            cache.get_measured("A.RAF\u{1}v").unwrap().2,
+            Some(measures(0.03))
+        );
+        // Replaced without measures (a non-RAW), evicted, cleared: none left.
+        cache.insert("A.RAF".into(), image.clone(), HashMap::new(), None);
+        assert_eq!(cache.get_measured("A.RAF").unwrap().2, None);
+        cache.insert(
+            "B.RAF".into(),
+            image.clone(),
+            HashMap::new(),
+            Some(measures(0.02)),
+        );
+        cache.insert("C.RAF".into(), image, HashMap::new(), Some(measures(0.04)));
+        assert!(cache.get_measured("A.RAF\u{1}v").is_none());
+        assert_eq!(cache.measures.len(), 2);
+        cache.clear();
+        assert!(cache.measures.is_empty());
     }
 
     #[test]
@@ -420,17 +497,17 @@ mod decoded_cache_tests {
         let mut cache = DecodedImageCache::new(5);
         // 24 MP and 33 MP RAWs at 12 bytes per pixel against the real budget.
         let megapixels = |mp: u32| Arc::new(DynamicImage::new_rgb32f(mp * 1000, 1000));
-        cache.insert("a7iii-1".into(), megapixels(24), HashMap::new());
-        cache.insert("a7iii-2".into(), megapixels(24), HashMap::new());
-        cache.insert("a7iv".into(), megapixels(33), HashMap::new());
+        cache.insert("a7iii-1".into(), megapixels(24), HashMap::new(), None);
+        cache.insert("a7iii-2".into(), megapixels(24), HashMap::new(), None);
+        cache.insert("a7iv".into(), megapixels(33), HashMap::new(), None);
         assert!(cache.get("a7iii-1").is_none(), "older RAW evicted");
         assert!(cache.get("a7iii-2").is_some(), "previous RAW kept");
         assert!(cache.get("a7iv").is_some(), "open RAW cached");
         // A 50 MP RAW alone fills the budget.
-        cache.insert("fc9313".into(), megapixels(50), HashMap::new());
+        cache.insert("fc9313".into(), megapixels(50), HashMap::new(), None);
         assert!(cache.get("fc9313").is_some());
         assert_eq!(cache.items.len(), 1);
-        cache.insert("fc9313-large".into(), megapixels(70), HashMap::new());
+        cache.insert("fc9313-large".into(), megapixels(70), HashMap::new(), None);
         assert!(cache.items.is_empty());
     }
 
@@ -441,18 +518,18 @@ mod decoded_cache_tests {
         cache.make_room_for_next();
         assert!(cache.items.is_empty());
         // A 24 MP photo can stay beside another 24 MP decode.
-        cache.insert("a7iii-1".into(), megapixels(24), HashMap::new());
+        cache.insert("a7iii-1".into(), megapixels(24), HashMap::new(), None);
         cache.make_room_for_next();
         assert!(cache.get("a7iii-1").is_some());
         // Three 12 MP photos and one more fit together.
         let mut small = DecodedImageCache::new(5);
         for key in ["a", "b", "c"] {
-            small.insert(key.into(), megapixels(12), HashMap::new());
+            small.insert(key.into(), megapixels(12), HashMap::new(), None);
         }
         small.make_room_for_next();
         assert_eq!(small.items.len(), 3);
         // A 50 MP photo cannot stay beside another 50 MP decode: free it first.
-        cache.insert("fc9313-1".into(), megapixels(50), HashMap::new());
+        cache.insert("fc9313-1".into(), megapixels(50), HashMap::new(), None);
         assert_eq!(cache.items.len(), 1);
         cache.make_room_for_next();
         assert!(cache.items.is_empty());
