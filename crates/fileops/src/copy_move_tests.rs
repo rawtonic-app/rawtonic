@@ -261,6 +261,15 @@ impl World {
 #[test]
 fn a_move_to_another_volume_copies_verifies_and_trashes_the_originals() {
     let world = World::new();
+    // An old time on an even second, which every file system keeps exactly
+    // (FAT in steps of 2 s): a copy that did not keep it has a new one.
+    let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
+    fs::File::options()
+        .write(true)
+        .open(world.source.join("A.RAF"))
+        .unwrap()
+        .set_modified(old)
+        .unwrap();
     eprintln!("two volumes: {}", world.two_volumes);
     let journal = world.journal();
     let op = journal
@@ -293,16 +302,8 @@ fn a_move_to_another_volume_copies_verifies_and_trashes_the_originals() {
         .into_iter()
         .find(|p| p.to_string_lossy().ends_with("A.RAF"))
         .unwrap();
-    // FAT keeps modification times in steps of 2 s.
-    let (moved, original) = (mtime(&world.target.join("A.RAF")), mtime(&original));
-    let apart = moved
-        .duration_since(original)
-        .or_else(|_| original.duration_since(moved))
-        .unwrap();
-    assert!(
-        apart < std::time::Duration::from_secs(2),
-        "the time travels: {moved:?} for {original:?}"
-    );
+    assert_eq!(mtime(&original), old);
+    assert_eq!(mtime(&world.target.join("A.RAF")), old, "the time travels");
 }
 
 #[test]
