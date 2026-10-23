@@ -1308,12 +1308,16 @@ pub(crate) fn process_preview_job(
     let fringe_draft =
         is_interactive && rawtonic_engine::edge_fringe::has_draft(&adjustments_clone);
     let interim = interim_source(&state, &loaded_image, source_scale);
+    // A lasting frame checks the whole preparation too (`serves_frame`): a
+    // recipe shown in place of the edit (a snapshot in the held peek, undo)
+    // can differ from the base's in inputs the transform hash takes by size.
     let base_valid = cached_preview_lock.as_ref().is_some_and(|c| {
-        c.serves(
+        c.serves_frame(
             &loaded_image.image,
             new_transform_hash,
             interim,
             is_interactive,
+            || preview_cache::preparation_key(&adjustments_clone),
         ) && (c.preview_dim == preview_dim || Some(c.preview_dim) == draft_dim)
     });
     let small_valid = base_valid

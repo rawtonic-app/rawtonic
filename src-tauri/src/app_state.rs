@@ -327,6 +327,22 @@ impl CachedPreview {
             && (interactive || !self.fringe_draft)
     }
 
+    /// Whether this base serves a preview frame with `transform_hash`: a
+    /// drag's frames by the transform hash (`serves`), lasting frames also by
+    /// the whole `preparation_key` (computed only then), since the transform
+    /// hash takes some inputs by size only (depth maps, patch payloads).
+    pub fn serves_frame(
+        &self,
+        source: &Arc<DynamicImage>,
+        transform_hash: u64,
+        interim: bool,
+        interactive: bool,
+        preparation_key: impl FnOnce() -> u64,
+    ) -> bool {
+        self.serves(source, transform_hash, interim, interactive)
+            && (interactive || self.preparation_key == preparation_key())
+    }
+
     /// Whether this base serves a lasting frame of another recipe with
     /// `(transform_hash, preparation_key)` (the split's before): the
     /// transform hash alone takes some inputs by size only (depth maps,
@@ -696,6 +712,13 @@ mod serves_recipe_tests {
         };
         assert!(cached.serves_recipe(&source, (transform(&edit), key(&edit)), false));
         assert!(!cached.serves_recipe(&source, (transform(&snapshot), key(&snapshot)), false));
+        // The held peek shows the snapshot as a preview frame of its own: a
+        // lasting frame takes the edit's base only with its preparation; a
+        // drag's frames keep the cheap check.
+        let hash = transform(&snapshot);
+        assert!(!cached.serves_frame(&source, hash, false, false, || key(&snapshot)));
+        assert!(cached.serves_frame(&source, hash, false, false, || key(&edit)));
+        assert!(cached.serves_frame(&source, hash, false, true, || unreachable!()));
     }
 }
 
