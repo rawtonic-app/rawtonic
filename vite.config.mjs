@@ -43,6 +43,9 @@ export default defineConfig(async () => ({
   resolve: process.env.VITE_RAWTONIC_PERF === '1'
     ? { alias: [{ find: /^react-dom\/client$/, replacement: 'react-dom/profiling' }] }
     : undefined,
+  // Profiling builds keep component names for the render census
+  // (utils/renderCensus.ts).
+  esbuild: process.env.VITE_RAWTONIC_PERF === '1' ? { keepNames: true } : undefined,
   build: {
     minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,

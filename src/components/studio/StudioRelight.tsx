@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useShallow } from "zustand/react/shallow";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Plus,
@@ -49,7 +50,21 @@ export default function StudioRelight({
   onInteraction(active: boolean): void;
 }) {
   const { t } = useTranslation();
-  const adjustments = useEditorStore((s) => s.adjustments);
+  // Only the values the tool shows: other edits (a slider drag's commits)
+  // do not re-render it.
+  const adjustments = useEditorStore(
+    useShallow((s) => ({
+      relightLights: s.adjustments.relightLights,
+      relightDepth: s.adjustments.relightDepth,
+      masks: s.adjustments.masks,
+      relightOriginalLight: s.adjustments.relightOriginalLight,
+      relightDepthAmount: s.adjustments.relightDepthAmount,
+      relightSkinReflections: s.adjustments.relightSkinReflections,
+      depthValid:
+        !!s.adjustments.relightDepth &&
+        matchesRelightGeometry(s.adjustments, s.adjustments.relightDepth.geometry),
+    })),
+  );
   const selectedImage = useEditorStore((s) => s.selectedImage);
   const { setAdjustments } = useEditorActions();
   const selected = useRelightStore((s) => s.selected);
@@ -73,8 +88,7 @@ export default function StudioRelight({
   const light = lights.find((l) => l.id === selected) ?? lights[0];
   const number = (l: RelightLight) => l.number ?? lights.indexOf(l) + 1;
   const depth = adjustments.relightDepth;
-  const depthValid =
-    !!depth && matchesRelightGeometry(adjustments, depth.geometry);
+  const depthValid = !!depth && adjustments.depthValid;
   const masks = adjustments.masks ?? [];
   const update = (patch: Partial<RelightLight>) =>
     setAdjustments((prev) => ({
@@ -86,19 +100,20 @@ export default function StudioRelight({
   const analyze = async () => {
     if (!selectedImage) return;
     const path = selectedImage.path;
+    const asked = useEditorStore.getState().adjustments;
     const id = ++request.current;
     setBusy(true);
     setError(null);
     try {
       const result = await invoke<RelightDepth>(Invokes.GenerateRelightDepth, {
-        jsAdjustments: adjustments,
+        jsAdjustments: asked,
       });
       const current = useEditorStore.getState();
       if (
         id !== request.current ||
         current.selectedImage?.path !== path ||
         !current.adjustments.relightLights?.length ||
-        current.adjustments.relightDepth !== adjustments.relightDepth
+        current.adjustments.relightDepth !== asked.relightDepth
       )
         return;
       if (!matchesRelightGeometry(current.adjustments, result.geometry)) return;

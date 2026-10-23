@@ -48,7 +48,7 @@ const isDrawnShape = (kind: MaskKind) => kind === "linear" || kind === "radial";
  * and the tool settings popover. */
 export function useStudioTools() {
   const {
-    adjustments,
+    masks,
     selectedImage,
     activeMaskContainerId,
     activeMaskId,
@@ -59,7 +59,8 @@ export function useStudioTools() {
     brushSettings,
   } = useEditorStore(
     useShallow((s) => ({
-      adjustments: s.adjustments,
+      // The layers only: the photo's own values change on every edit.
+      masks: s.adjustments.masks,
       selectedImage: s.selectedImage,
       activeMaskContainerId: s.activeMaskContainerId,
       activeMaskId: s.activeMaskId,
@@ -75,10 +76,10 @@ export function useStudioTools() {
   const radialDrawInside = useSettingsStore(
     (s) => s.appSettings?.radialDrawInside !== false,
   );
-  type Layer = (typeof adjustments.masks)[number];
+  type Layer = (typeof masks)[number];
   const layer =
     activePanel === Panel.Masks
-      ? adjustments.masks.find((m) => m.id === activeMaskContainerId)
+      ? masks.find((m) => m.id === activeMaskContainerId)
       : undefined;
   const activeSubMask = layer?.subMasks.find((m) => m.id === activeMaskId);
   const brushActive =

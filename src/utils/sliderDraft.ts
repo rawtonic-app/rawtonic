@@ -11,7 +11,9 @@ import type { Adjustments } from './adjustments';
  *
  * 250 ms (4 Hz): displays linked to the dragged value (colour-wheel puck,
  * region curve under the tone curve, refinement enable states) follow at
- * that rate, the photo and the dragged control itself on every move. At
+ * that rate, the photo and the dragged control itself on every move. Of
+ * Develop's tools only the dragged one re-renders on these commits, the
+ * others when the drag ends (ToolColumn in toolLayout.tsx). At
  * 100 ms these commits were nearly all of the ~95 ms React per 1 s drag on
  * Linux (user decision 2026-10-18, option B; notes: parity-gaps/G55).
  */

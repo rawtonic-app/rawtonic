@@ -3,7 +3,10 @@ import {
   Children,
   createContext,
   isValidElement,
+  memo,
   useContext,
+  useEffect,
+  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -13,6 +16,7 @@ import {
 import { ArrowDown, ArrowUp, ChevronsDownUp, ChevronsUpDown, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useSettingsStore } from "../../store/useSettingsStore";
+import { useEditorStore } from "../../store/useEditorStore";
 import { useContextMenu } from "../../context/ContextMenuContext";
 import { OPTION_SEPARATOR, type ToolLayout } from "../ui/AppProperties";
 import { createDragGhost } from "./dragGhost";
@@ -23,6 +27,40 @@ const ToolColumnContext = createContext<{
   scope: string;
   menu?(e: React.MouseEvent): void;
 }>({ scope: "tools" });
+
+/** The tool slot (`scope/id`) a press went down in, until it is released. */
+let pressedSlot: string | null = null;
+const releasePress = () => {
+  pressedSlot = null;
+};
+// Releases end the press wherever they happen, and a new press anywhere
+// forgets the last one first: a press outside any tool (the photo, a
+// shortcut) freezes nothing. One registration shared by all columns.
+const PRESS_EVENTS = ["pointerup", "pointercancel", "pointerdown"] as const;
+let pressWatchers = 0;
+function watchPresses() {
+  if (pressWatchers++ === 0)
+    for (const type of PRESS_EVENTS) window.addEventListener(type, releasePress, true);
+  return () => {
+    if (--pressWatchers === 0)
+      for (const type of PRESS_EVENTS) window.removeEventListener(type, releasePress, true);
+  };
+}
+
+/** A tool's content. While a slider drag that started in another tool is in
+ * progress it keeps its last render: the drag's commits (every 250 ms,
+ * utils/sliderDraft.ts) then reach only the dragged tool, which holds the
+ * displays linked to the dragged value. It renders again when the drag ends.
+ * Components that subscribe to the editor store themselves still render on
+ * their own; those in Develop's tools select only the values they show
+ * (lens correction, face retouch and the people mask still take the whole
+ * recipe). */
+const ToolSlotContent = memo(
+  function ToolSlotContent({ children }: { children: ReactNode; frozen: boolean }) {
+    return <>{children}</>;
+  },
+  (_, next) => next.frozen,
+);
 
 /** Pointer travel before a press on a tool header becomes a drag. */
 const DRAG_THRESHOLD = 5;
@@ -117,6 +155,10 @@ export function ToolColumn({
   const ref = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ id: string; before: string | null } | null>(null);
   const { showContextMenu } = useContextMenu();
+  const sliderDragging = useEditorStore((s) => s.isSliderDragging);
+  useEffect(watchPresses, []);
+  const frozen = (id: string) =>
+    sliderDragging && pressedSlot !== null && pressedSlot !== `${scope}/${id}`;
 
   const saveOrder = (next: string[] | null) =>
     saveLayout((layout) => {
@@ -246,13 +288,25 @@ export function ToolColumn({
         return rest;
       })()
     : order;
+  // One context value per column: a new one would re-render every tool,
+  // frozen ones included.
+  const menuRef = useRef(menu);
+  menuRef.current = menu;
+  const context = useMemo(
+    () => ({ scope, menu: (e: React.MouseEvent) => menuRef.current(e) }),
+    [scope],
+  );
   return (
-    <ToolColumnContext.Provider value={{ scope, menu }}>
+    <ToolColumnContext.Provider value={context}>
       <div
         ref={ref}
         className={`studio-tool-column ${className ?? ""} ${drag ? "is-sorting" : ""}`}
         data-tool-column={scope}
         onPointerDown={onPointerDown}
+        onPointerDownCapture={(e) => {
+          const id = slotOf(e.target as Element)?.dataset.toolSlot;
+          if (id) pressedSlot = `${scope}/${id}`;
+        }}
       >
         {shown.map((id) => (
           <div
@@ -260,7 +314,7 @@ export function ToolColumn({
             data-tool-slot={id}
             className={`studio-tool-slot ${drag?.id === id ? "is-dragged" : ""}`}
           >
-            {byId.get(id)}
+            <ToolSlotContent frozen={frozen(id)}>{byId.get(id)}</ToolSlotContent>
           </div>
         ))}
         {stored && (
