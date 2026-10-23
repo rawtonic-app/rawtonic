@@ -1688,6 +1688,7 @@ export default function StudioDevelop() {
                   "grainSize",
                   "grainRoughness",
                   "grainStructure",
+                  "grainVersion",
                   "glowAmount",
                   "halationAmount",
                   "flareAmount",

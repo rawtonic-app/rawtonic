@@ -202,6 +202,7 @@ pub fn all_available_adjustments() -> HashSet<String> {
         "vignetteStyle",
         "vignetteHighlights",
         "grainStructure",
+        "grainVersion",
         "relightLights",
         "relightDepthAmount",
         "relightSkinReflections",

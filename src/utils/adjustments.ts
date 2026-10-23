@@ -393,12 +393,25 @@ export const NEW_GRAIN_STRUCTURE: GrainStructure = 'clumped';
 export const effectiveGrainStructure = (adjustments: Partial<Adjustments>): GrainStructure =>
   adjustments.grainStructure ?? ((adjustments.grainAmount ?? 0) > 0 ? 'even' : NEW_GRAIN_STRUCTURE);
 
+/** The grain new edits get (`image_processing::GRAIN_VERSION`): 2 is the
+ * portable grain, the same on every GPU; 1 (missing key) the earlier one. */
+export const GRAIN_VERSION = 2;
+
 /** Writes Even into grain that has none (recipes and presets from before the
  * structure choice), so it keeps rendering Even when copied, pasted, saved as
  * a preset or turned off and on again. */
 export const withGrainStructure = <T extends Partial<Adjustments>>(adjustments: T): T =>
   adjustments.grainStructure === undefined && (adjustments.grainAmount ?? 0) > 0
     ? { ...adjustments, grainStructure: 'even' }
+    : adjustments;
+
+/** Writes grain version 1 into grain that has no version (recipes and
+ * presets from before the key), so it keeps its pattern. Not for settings
+ * chosen in the Copy/Sync picker: there the version is a processing version
+ * and the destination keeps its own unless it is chosen. */
+export const withLegacyGrainVersion = <T extends Partial<Adjustments>>(adjustments: T): T =>
+  adjustments.grainVersion == null && (adjustments.grainAmount ?? 0) > 0
+    ? { ...adjustments, grainVersion: 1 }
     : adjustments;
 
 /** AI Denoise's amount means what its version makes of it, so wherever an
@@ -434,11 +447,14 @@ export const withDiffractionVersion = <T extends Partial<Adjustments>>(
 };
 
 /** `next` after an edit of `previous`: grain turned on in a recipe without a
- * structure starts as Clumped. */
-export const withNewGrainStructure = <T extends Partial<Adjustments>>(previous: Partial<Adjustments>, next: T): T =>
-  next.grainStructure === undefined && (previous.grainAmount ?? 0) <= 0 && (next.grainAmount ?? 0) > 0
-    ? { ...next, grainStructure: NEW_GRAIN_STRUCTURE }
-    : next;
+ * structure starts as Clumped, without a grain version as the newest. */
+export const withNewGrainStructure = <T extends Partial<Adjustments>>(previous: Partial<Adjustments>, next: T): T => {
+  if ((previous.grainAmount ?? 0) > 0 || (next.grainAmount ?? 0) <= 0) return next;
+  let grain = next;
+  if (grain.grainStructure === undefined) grain = { ...grain, grainStructure: NEW_GRAIN_STRUCTURE };
+  if (grain.grainVersion == null) grain = { ...grain, grainVersion: GRAIN_VERSION };
+  return grain;
+};
 
 export interface Adjustments {
   [index: string]: unknown;
@@ -693,6 +709,8 @@ export interface Adjustments {
   vignetteStyle?: 'highlightPriority' | 'colorPriority' | 'paintOverlay';
   /** Grain structure; missing = 'even', the original grain (docs/RECIPE_SCHEMA.md). */
   grainStructure?: GrainStructure;
+  /** The grain a recipe renders (`GRAIN_VERSION`); missing = 1. */
+  grainVersion?: number;
   relightLights?: RelightLight[];
   relightDepth?: RelightDepth;
   relightDepthAmount?: number;
@@ -1279,6 +1297,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         lumaNoiseVersion: LUMA_NOISE_VERSION,
         aiDenoiseVersion: AI_DENOISE_VERSION,
         renderVersion: RENDER_VERSION,
+        grainVersion: GRAIN_VERSION,
       }
     : {
         ...INITIAL_ADJUSTMENTS,
@@ -1288,6 +1307,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         sharpenVersion: SHARPEN_VERSION,
         lumaNoiseVersion: LUMA_NOISE_VERSION,
         renderVersion: RENDER_VERSION,
+        grainVersion: GRAIN_VERSION,
       };
 
 /** Whether a saved recipe is new: empty (Library Reset saves `{}`; loading
@@ -1351,14 +1371,19 @@ export const pastedAdjustments = (
 ): Partial<Adjustments> => {
   const picked: Partial<Adjustments> = {};
   for (const key of includedAdjustments) {
-    if (key === 'sharpenVersion' || key === 'lumaNoiseVersion' || !Object.prototype.hasOwnProperty.call(copied, key)) {
+    if (
+      key === 'sharpenVersion' ||
+      key === 'lumaNoiseVersion' ||
+      key === 'grainVersion' ||
+      !Object.prototype.hasOwnProperty.call(copied, key)
+    ) {
       continue;
     }
     const value = copied[key as keyof Adjustments];
     if (mode === PasteMode.Merge && sameAdjustmentValue(value, INITIAL_ADJUSTMENTS[key as keyof Adjustments])) continue;
     (picked as Record<string, unknown>)[key] = value;
   }
-  return withLumaNoiseVersion(withSharpenVersion(picked, copied), copied);
+  return withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, copied), copied), copied);
 };
 
 /** Keys whose values mean what the sharpening response makes of them. */
@@ -1434,6 +1459,30 @@ export const withLumaNoiseVersion = <T extends Partial<Adjustments>>(
     return picked;
   }
   return { ...picked, lumaNoiseVersion: source?.lumaNoiseVersion ?? 1 };
+};
+
+/** Keys whose values render the pattern of the recipe's grain version. */
+const GRAIN_KEYS = ['grainAmount', 'grainSize', 'grainRoughness', 'grainStructure'] as const;
+
+/** As `withSharpenVersion` for the grain: wherever grain values are copied
+ * (paste, tool copy, Edit all selected, presets) its version goes along
+ * explicitly, so the copy renders the same grain pattern as the source — the
+ * source's version, else 1 for a source with grain from before the key and
+ * the newest for one without grain. */
+export const withGrainVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>,
+): T & Pick<Partial<Adjustments>, 'grainVersion'> => {
+  // A change back to a missing key (an undo to a recipe from before it)
+  // would vanish in JSON too: it is version 1.
+  if (Object.prototype.hasOwnProperty.call(picked, 'grainVersion') && picked.grainVersion == null) {
+    return { ...picked, grainVersion: 1 };
+  }
+  if (!GRAIN_KEYS.some((key) => picked[key] !== undefined) || picked.grainVersion != null) {
+    return picked;
+  }
+  const version = source?.grainVersion ?? ((source?.grainAmount ?? 0) > 0 ? 1 : GRAIN_VERSION);
+  return { ...picked, grainVersion: version };
 };
 
 /** The AI Denoise version of a saved recipe: its own; else the current one
@@ -1601,7 +1650,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     subMasks: normalizeSubMasks(patch.subMasks),
   }));
 
-  return withGrainStructure({
+  return withLegacyGrainVersion(withGrainStructure({
     ...initialAdjustmentsFor(isRaw),
     ...loadedAdjustments,
     guidedPerspective: {
@@ -1626,6 +1675,9 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     toneVersion: loadedToneVersion(loadedAdjustments),
     defringeVersion: loadedDefringeVersion(loadedAdjustments),
     sharpenVersion: loadedSharpenVersion(loadedAdjustments, isRaw),
+    // A saved recipe's own grain; without the key 1 where it has grain, else
+    // the newest (a new edit's, as `initialAdjustmentsFor`).
+    grainVersion: loadedAdjustments.grainVersion ?? ((loadedAdjustments.grainAmount ?? 0) > 0 ? 1 : GRAIN_VERSION),
     lumaNoiseVersion: loadedLumaNoiseVersion(loadedAdjustments, isRaw),
     aiDenoiseVersion: loadedAiDenoiseVersion(loadedAdjustments, isRaw),
     // Saved recipes keep rendering as they were made: no pass unless they
@@ -1697,7 +1749,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     sharpenRadius: loadedAdjustments.sharpenRadius ?? INITIAL_ADJUSTMENTS.sharpenRadius,
     sharpenDetail: loadedAdjustments.sharpenDetail ?? INITIAL_ADJUSTMENTS.sharpenDetail,
     sharpenMasking: loadedAdjustments.sharpenMasking ?? INITIAL_ADJUSTMENTS.sharpenMasking,
-  });
+  }));
 };
 
 export interface AdjustmentGroup {
@@ -1813,7 +1865,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
     },
     {
       label: 'modals.copyPaste.groups.grain',
-      keys: [Effect.GrainAmount, Effect.GrainRoughness, Effect.GrainSize, 'grainStructure'],
+      keys: [Effect.GrainAmount, Effect.GrainRoughness, Effect.GrainSize, 'grainStructure', 'grainVersion'],
     },
     {
       label: 'modals.copyPaste.groups.halationGlow',

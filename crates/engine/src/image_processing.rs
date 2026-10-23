@@ -3320,7 +3320,10 @@ pub struct GlobalAdjustments {
     /// nothing.
     pub luminance_curve: [Point; 16],
     pub luminance_curve_count: u32,
-    _pad_luminance: [u32; 3],
+    /// The recipe's grain (`grain_version`): 1 the float-hash grain, 2 the
+    /// portable grain.
+    pub grain_version: u32,
+    _pad_luminance: [u32; 2],
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -4366,7 +4369,8 @@ fn get_global_adjustments_from_json(
         relight_source: crate::relight::source_uniforms(js_adjustments),
         luminance_curve: convert_points_to_aligned(luminance_points.clone()),
         luminance_curve_count: luminance_points.len().min(16) as u32,
-        _pad_luminance: [0; 3],
+        grain_version: grain_version(js_adjustments) as u32,
+        _pad_luminance: [0; 2],
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()
@@ -6387,6 +6391,27 @@ pub fn auto_results_to_json(results: &AutoAdjustmentResults) -> serde_json::Valu
     })
 }
 
+/// The recipe key naming the grain a recipe was made with.
+pub const GRAIN_VERSION_KEY: &str = "grainVersion";
+/// The newest grain: 2 (2026-10-23) is version 1's gradient noise, structures,
+/// strength and tone masks with an integer hash on an exactly computed
+/// lattice, so the grain pattern is the same on every GPU (version 1's float
+/// hash turned one-ulp differences between GPUs into a different pattern on
+/// about 90 % of the pixels); statistically the same grain (notes:
+/// reference/grain.md "Portable grain"). Recipes without the key keep
+/// version 1.
+pub const GRAIN_VERSION: u64 = 2;
+
+/// The recipe's grain version, 1 when missing, never newer than this
+/// renderer knows.
+pub fn grain_version(adjustments: &serde_json::Value) -> u64 {
+    adjustments
+        .get(GRAIN_VERSION_KEY)
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1)
+        .clamp(1, GRAIN_VERSION)
+}
+
 /// Recipe `grainStructure` names as the shader's grain structure. Missing
 /// and unknown names use Even, the original grain, so older recipes render
 /// unchanged.
@@ -6709,6 +6734,22 @@ mod grain_structure_tests {
                 index
             );
         }
+    }
+
+    #[test]
+    fn recipes_without_a_grain_version_keep_the_first_grain() {
+        let version = |recipe| {
+            get_all_adjustments_from_json(&recipe, true, None)
+                .global
+                .grain_version
+        };
+        assert_eq!(version(json!({"grainAmount": 40})), 1);
+        assert_eq!(version(json!({"grainAmount": 40, "grainVersion": 0})), 1);
+        assert_eq!(version(json!({"grainAmount": 40, "grainVersion": 2})), 2);
+        assert_eq!(
+            version(json!({"grainAmount": 40, "grainVersion": 9})),
+            super::GRAIN_VERSION as u32
+        );
     }
 }
 

@@ -239,7 +239,9 @@ struct GlobalAdjustments {
     // nothing.
     luminance_curve: array<Point, 16>,
     luminance_curve_count: u32,
-    _pad_luminance1: u32,
+    // The recipe's grain (`grainVersion`): 1 the float-hash grain, 2 the
+    // portable grain (apply_portable_grain).
+    grain_version: u32,
     _pad_luminance2: u32,
     _pad_luminance3: u32,
 }
@@ -739,6 +741,134 @@ fn grain_tone_weight(structure: u32, luma: f32) -> f32 {
     let d = luma - 0.45;
     if (structure == GRAIN_SOFT) { return max(1.0 - 3.0 * d * d, 0.35); }
     return max(1.0 - 4.0 * d * d, 0.3);
+}
+
+// Portable grain (`grainVersion` 2, notes: reference/grain.md "Portable
+// grain"). Version 1 hashes float lattice coordinates (`hash`, fractions of
+// products of numbers in the thousands), so a one-ulp difference between
+// GPUs or drivers (a fused multiply-add, a division's rounding) gives an
+// unrelated gradient: its grain pattern differed on 90 % of the pixels
+// between an AMD and an NVIDIA GPU. Version 2 is the same gradient noise
+// with the same structures, but the lattice cell and the position in it are
+// computed exactly in integers (12 fractional bits) and the gradients come
+// from an integer hash, so only the smooth interpolation is in floats and
+// GPUs differ by rounding at most.
+const GRAIN_FRACTION_BITS: u32 = 12u;
+const GRAIN_ONE: u32 = 4096u;
+
+// The 3D PCG hash (Jarzynski and Olano, "Hash Functions for GPU Rendering",
+// JCGT 2020).
+fn pcg3d(v_in: vec3<u32>) -> vec3<u32> {
+    var v = v_in * 1664525u + 1013904223u;
+    v.x += v.y * v.z;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    v ^= v >> vec3<u32>(16u);
+    v.x += v.y * v.z;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    return v;
+}
+
+// Lattice cells per pixel in 12-bit fixed point, exactly: the version 1
+// frequency 1 / (size * scale) with scale = max(0.1, short side / 1080).
+// The size is clamped to 0.1 - 4 (Size slider 5 - 200) so the integer
+// steps cannot overflow.
+fn portable_grain_cells_per_px() -> u32 {
+    let size_q = u32(round(clamp(adjustments.global.grain_size, 0.1, 4.0) * f32(GRAIN_ONE)));
+    let dims = input_dims();
+    let den = size_q * max(min(dims.x, dims.y), 108u);
+    // round(1080 * 2^24 / den) by long division (no 64-bit integers).
+    var q = 0u;
+    var r = 1080u;
+    for (var b = 0u; b < 2u * GRAIN_FRACTION_BITS; b++) {
+        r = r << 1u;
+        q = q << 1u;
+        if (r >= den) {
+            r -= den;
+            q |= 1u;
+        }
+    }
+    return q + select(0u, 1u, 2u * r >= den);
+}
+
+// Gradient noise at pixel `coord` on a lattice of `cells` (fixed point) per
+// pixel scaled by `k` and shifted by `offset` (both fixed point); `seed`
+// keeps the layers of a structure independent.
+fn portable_noise(coord: vec2<u32>, cells: u32, k: u32, offset: vec2<u32>, seed: u32) -> f32 {
+    let step = (cells * k + GRAIN_ONE / 2u) >> GRAIN_FRACTION_BITS;
+    let low = coord * (step & (GRAIN_ONE - 1u)) + (offset & vec2<u32>(GRAIN_ONE - 1u));
+    let i = coord * (step >> GRAIN_FRACTION_BITS) + (offset >> vec2<u32>(GRAIN_FRACTION_BITS))
+        + (low >> vec2<u32>(GRAIN_FRACTION_BITS));
+    let f = vec2<f32>(low & vec2<u32>(GRAIN_ONE - 1u)) * (1.0 / f32(GRAIN_ONE));
+    let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    let ga = portable_gradient(i, seed);
+    let gb = portable_gradient(i + vec2<u32>(1u, 0u), seed);
+    let gc = portable_gradient(i + vec2<u32>(0u, 1u), seed);
+    let gd = portable_gradient(i + vec2<u32>(1u, 1u), seed);
+    let bottom = mix(dot(ga, f), dot(gb, f - vec2(1.0, 0.0)), u.x);
+    let top = mix(dot(gc, f - vec2(0.0, 1.0)), dot(gd, f - vec2(1.0, 1.0)), u.x);
+    return mix(bottom, top, u.y);
+}
+
+// A gradient with both components uniform in [-1, 1), as version 1's.
+fn portable_gradient(cell: vec2<u32>, seed: u32) -> vec2<f32> {
+    let h = pcg3d(vec3<u32>(cell, seed));
+    return vec2<f32>(h.xy >> vec2<u32>(8u)) * (1.0 / 8388608.0) - 1.0;
+}
+
+// Version 1's grain layers (gradient_noise / grain_noise at the frequency
+// times k plus an offset) with the same factors and offsets in fixed point.
+fn portable_grain_noise(structure: u32, coord: vec2<u32>, cells: u32, roughness: f32) -> f32 {
+    if (structure == GRAIN_SOFT) {
+        let n = portable_noise(coord, cells, 3277u, vec2<u32>(12698u, 31539u), 2u);
+        let c = portable_noise(coord, cells, 1229u, vec2<u32>(69632u, 36864u), 3u);
+        let w = 0.35 + 0.65 * roughness;
+        return 0.71 * (n + w * c) / sqrt(1.0 + w * w);
+    }
+    if (structure == GRAIN_CLUMPED) {
+        let fine = portable_noise(coord, cells, GRAIN_ONE, vec2<u32>(0u), 4u);
+        let c = 0.6 * portable_noise(coord, cells, 1638u, vec2<u32>(167936u, 12288u), 5u)
+            + 0.4 * portable_noise(coord, cells, 532u, vec2<u32>(53248u, 118784u), 6u);
+        let k = 1.6 * roughness;
+        return 0.71 * (fine * (1.0 + 0.8 * k * c) + 0.9 * k * c) / sqrt(1.0 + 0.43 * k * k);
+    }
+    if (structure == GRAIN_SPECKLED) {
+        let base = portable_noise(coord, cells, 3686u, vec2<u32>(6963u, 18022u), 7u);
+        let s = portable_noise(coord, cells, 2867u, vec2<u32>(94208u, 126976u), 8u);
+        let c = portable_noise(coord, cells, GRAIN_ONE / 4u, vec2<u32>(28672u, 8192u), 9u);
+        let speck = max(s - 0.12, 0.0) * (1.6 + 6.0 * roughness * max(c + 0.1, 0.0));
+        return 0.575 * (base + speck - (0.0418 + 0.0206 * roughness));
+    }
+    if (structure == GRAIN_GRITTY) {
+        let n = portable_noise(coord, cells, 2253u, vec2<u32>(9421u, 33178u), 10u)
+            + 0.45 * portable_noise(coord, cells, GRAIN_ONE, vec2<u32>(27034u, 7782u), 11u)
+            + (0.5 + 0.8 * roughness) * portable_noise(coord, cells, 819u, vec2<u32>(77824u, 20480u), 12u);
+        return 0.524 * tanh(1.5 * n);
+    }
+    // Even
+    let base = portable_noise(coord, cells, GRAIN_ONE, vec2<u32>(0u), 0u);
+    let rough = portable_noise(coord, cells, 2458u, vec2<u32>(21299u, 5325u), 1u);
+    return mix(base, rough, roughness);
+}
+
+// The grain of `grainVersion` 2: version 1's strength and tone masks (the
+// grain block in main, apply_grain_structure) with the portable noise.
+fn apply_portable_grain(rgb: vec3<f32>, coord: vec2<u32>) -> vec3<f32> {
+    let structure = adjustments.global.grain_structure;
+    var amount = adjustments.global.grain_amount * 0.5;
+    let luma = max(0.0, get_luma(rgb));
+    var luma_mask = smoothstep(0.0, 0.15, luma) * (1.0 - smoothstep(0.6, 1.0, luma));
+    if (adjustments.global.tonemapper_mode >= 2u) {
+        amount *= GRAIN_GAIN * (1.0 + GRAIN_FINE_BOOST * max(0.0, 1.0 - adjustments.global.grain_size * 2.0));
+        luma_mask = smoothstep(0.0, 0.03, luma) * (1.0 - smoothstep(0.97, 1.0, luma));
+    }
+    var tone = 1.0;
+    if (structure != GRAIN_EVEN) {
+        tone = grain_tone_weight(structure, luma);
+    }
+    let noise = portable_grain_noise(structure, coord, portable_grain_cells_per_px(), adjustments.global.grain_roughness);
+    return rgb + vec3<f32>(noise) * amount * luma_mask * tone;
 }
 
 fn dither(coords: vec2<u32>) -> f32 {
@@ -6945,7 +7075,7 @@ fn main(
         final_rgb = mix(final_rgb, lut_color, adjustments.global.lut_intensity);
     }
 
-    if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_structure == GRAIN_EVEN) {
+    if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_version < 2u && adjustments.global.grain_structure == GRAIN_EVEN) {
         let coord = vec2<f32>(absolute_coord_i);
         var amount = adjustments.global.grain_amount * 0.5;
         let grain_frequency = (1.0 / max(adjustments.global.grain_size, 0.1)) / scale;
@@ -6966,8 +7096,11 @@ fn main(
         let noise_val = mix(noise_base, noise_rough, roughness);
         final_rgb += vec3<f32>(noise_val) * amount * luma_mask;
     }
-    if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_structure != GRAIN_EVEN) {
+    if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_version < 2u && adjustments.global.grain_structure != GRAIN_EVEN) {
         final_rgb = apply_grain_structure(final_rgb, vec2<f32>(absolute_coord_i), scale);
+    }
+    if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_version >= 2u) {
+        final_rgb = apply_portable_grain(final_rgb, absolute_coord);
     }
 
     if (adjustments.global.show_clipping == 1u) {

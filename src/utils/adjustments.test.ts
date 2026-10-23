@@ -32,6 +32,9 @@ import {
   effectiveGrainStructure,
   withGrainStructure,
   withNewGrainStructure,
+  withGrainVersion,
+  withLegacyGrainVersion,
+  GRAIN_VERSION,
   type Adjustments,
 } from './adjustments';
 import settings from '../../src-tauri/src/app_settings.rs?raw';
@@ -464,5 +467,45 @@ describe('Grain structure defaults', () => {
       withNewGrainStructure(INITIAL_ADJUSTMENTS, { ...INITIAL_ADJUSTMENTS, grainAmount: 20, grainStructure: 'gritty' })
         .grainStructure,
     ).toBe('gritty');
+  });
+});
+
+describe('Grain version', () => {
+  const old = { ...INITIAL_ADJUSTMENTS, grainAmount: 40 } as Adjustments;
+
+  it('keeps grain from before the key on version 1 and gives new grain the portable one', () => {
+    expect(INITIAL_ADJUSTMENTS.grainVersion).toBeUndefined();
+    expect(normalizeLoadedAdjustments(old).grainVersion).toBe(1);
+    expect(normalizeLoadedAdjustments({ ...old, grainVersion: 2 }).grainVersion).toBe(2);
+    expect(normalizeLoadedAdjustments({ ...INITIAL_ADJUSTMENTS } as Adjustments).grainVersion).toBe(GRAIN_VERSION);
+    expect(initialAdjustmentsFor(true).grainVersion).toBe(GRAIN_VERSION);
+    expect(initialAdjustmentsFor(false).grainVersion).toBe(GRAIN_VERSION);
+    expect(withLegacyGrainVersion<Partial<Adjustments>>({ grainAmount: 30, grainStructure: 'soft' }).grainVersion).toBe(1);
+    expect(withLegacyGrainVersion({ grainAmount: 30, grainVersion: 2 }).grainVersion).toBe(2);
+    // Settings chosen in the Copy/Sync picker without the processing versions
+    // keep the destination's version: no stamp there.
+    expect('grainVersion' in withGrainStructure({ grainAmount: 30 })).toBe(false);
+    expect(withNewGrainStructure(INITIAL_ADJUSTMENTS, { ...INITIAL_ADJUSTMENTS, grainAmount: 20 }).grainVersion).toBe(
+      GRAIN_VERSION,
+    );
+    // Grain already on, or turned off and on again, keeps its version.
+    const loaded = normalizeLoadedAdjustments(old);
+    expect(withNewGrainStructure(loaded, { ...loaded, grainAmount: 60 }).grainVersion).toBe(1);
+    const off = { ...loaded, grainAmount: 0 };
+    expect(withNewGrainStructure(off, { ...off, grainAmount: 30 }).grainVersion).toBe(1);
+  });
+
+  it('goes along with copied grain values only', () => {
+    expect(withGrainVersion({ exposure: 1 }, { ...old, grainVersion: 2 })).toEqual({ exposure: 1 });
+    expect(withGrainVersion({ grainSize: 40 }, { ...old, grainVersion: 2 }).grainVersion).toBe(2);
+    expect(withGrainVersion({ grainSize: 40 }, old).grainVersion).toBe(1);
+    expect(withGrainVersion({ grainSize: 40 }, INITIAL_ADJUSTMENTS).grainVersion).toBe(GRAIN_VERSION);
+    expect(withGrainVersion({ grainAmount: 40, grainVersion: undefined }).grainVersion).toBe(1);
+    // A Merge paste of only the version (grain values at their defaults) leaves the target's grain alone.
+    const source = { ...INITIAL_ADJUSTMENTS, grainVersion: 2 } as Adjustments;
+    expect(pastedAdjustments(source, ['grainAmount', 'grainSize', 'grainVersion'], PasteMode.Merge)).toEqual({});
+    expect(
+      pastedAdjustments({ ...source, grainAmount: 30 }, ['grainAmount', 'grainVersion'], PasteMode.Merge),
+    ).toEqual({ grainAmount: 30, grainVersion: 2 });
   });
 });
