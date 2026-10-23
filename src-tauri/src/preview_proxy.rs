@@ -409,6 +409,12 @@ fn decoder_key(settings: &AppSettings, variant: DecodeVariant) -> String {
     }
 }
 
+/// The decoder settings part of a proxy key's `decoder` (without the decode
+/// variant `decoder_key` appends).
+fn decoder_settings(decoder: &str) -> &str {
+    decoder.split(";cnrms=").next().unwrap_or(decoder)
+}
+
 /// The decode variant a proxy key's `decoder` part was made for (the
 /// inverse of `decoder_key`'s variant fields).
 fn variant_of_key(decoder: &str) -> DecodeVariant {
@@ -426,14 +432,19 @@ fn variant_of_key(decoder: &str) -> DecodeVariant {
 /// must match; a copy with another modification time still matches when its
 /// size and content sample do. A source that cannot be read (offline) is
 /// taken as unchanged: a proxy made with the current decoder is the last
-/// known state of the photograph. The decode must also have been made for
-/// the decode variant of the photograph's stored (master) recipe.
+/// known state of the photograph, whatever decode variant it was made for
+/// (no decode can follow to replace it: previews made before a recipe reset
+/// or before never-edited photographs moved to a newer variant must still
+/// open). Online, the decode must also have been made for the decode
+/// variant of the photograph's stored (master) recipe.
 fn header_is_current(header: &Header, source: &Path, settings: &AppSettings) -> bool {
     let variant = crate::image_loader::stored_decode_variant(&source.to_string_lossy());
     let decoder_matches =
         header.key.engine == ENGINE_VERSION && header.key.decoder == decoder_key(settings, variant);
     let Some(key) = current_key(source, settings, variant) else {
-        return decoder_matches;
+        return header.key.engine == ENGINE_VERSION
+            && decoder_settings(&header.key.decoder)
+                == decoder_settings(&decoder_key(settings, variant));
     };
     if header.key == key {
         return true;
@@ -1786,6 +1797,29 @@ mod tests {
             raw_highlight_compression: Some(1.0),
             ..AppSettings::default()
         };
+        assert!(read(&photo, &other).is_none());
+        // Previews made for another decode variant (before the never-edited
+        // default moved on, or before a recipe reset) still open offline:
+        // no decode can replace them.
+        fs::rename(dir.path().join("elsewhere.RAF"), &photo).unwrap();
+        let before_upgrade = DecodeVariant {
+            multiscale: true,
+            dead_test: DeadTest::SameColour,
+        };
+        write(
+            &photo,
+            &gradient(80, 60),
+            40,
+            &settings,
+            before_upgrade,
+            None,
+        )
+        .unwrap();
+        write_full(&photo, &gradient(80, 60), &settings, before_upgrade, None).unwrap();
+        assert!(read(&photo, &settings).is_none(), "online: decoded anew");
+        fs::rename(&photo, dir.path().join("elsewhere.RAF")).unwrap();
+        assert_eq!(read(&photo, &settings).unwrap().full_width, 80);
+        assert!(has_full(&photo, &settings));
         assert!(read(&photo, &other).is_none());
         // Nothing can be written for it.
         assert!(write(&photo, &gradient(80, 60), 40, &settings, NEW_EDIT, None).is_err());
