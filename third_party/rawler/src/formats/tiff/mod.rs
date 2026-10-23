@@ -303,6 +303,74 @@ mod tests {
 
   use super::*;
 
+  /// RAWTONIC: a chain pointing back to an IFD read before ends there
+  /// when no chain limit is given (it was read forever).
+  #[test]
+  fn a_cyclic_ifd_chain_ends() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let mut bytes = b"II*\0".to_vec();
+    bytes.extend(8u32.to_le_bytes());
+    for ifd in [8u32, 26] {
+      bytes.extend(1u16.to_le_bytes());
+      bytes.extend(0x0112u16.to_le_bytes());
+      bytes.extend(3u16.to_le_bytes());
+      bytes.extend(1u32.to_le_bytes());
+      bytes.extend(1u32.to_le_bytes());
+      // 8 → 26 → 8
+      bytes.extend((if ifd == 8 { 26u32 } else { 8 }).to_le_bytes());
+    }
+    let reader = GenericTiffReader::new(&mut Cursor::new(&bytes), 0, 0, None, &[])?;
+    assert_eq!(reader.file().chain.len(), 2);
+    let root = IFD::new_root_with_correction(&mut Cursor::new(&bytes), 0, 0, 0, 0, &[])?;
+    assert_eq!(root.chain.len(), 1);
+    Ok(())
+  }
+
+  /// RAWTONIC: little-endian IFD entry (tag, type, count, value).
+  fn entry(tag: u16, typ: u16, count: u32, value: u32) -> Vec<u8> {
+    [&tag.to_le_bytes()[..], &typ.to_le_bytes(), &count.to_le_bytes(), &value.to_le_bytes()].concat()
+  }
+
+  /// RAWTONIC: a SubIFDs entry listing one IFD many times reads it once.
+  #[test]
+  fn a_repeated_sub_ifd_is_read_once() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let (array, child) = (64u32, 64u32 + 4 * 1000);
+    let mut bytes = b"II*\0".to_vec();
+    bytes.extend(8u32.to_le_bytes());
+    bytes.extend(1u16.to_le_bytes());
+    bytes.extend(entry(0x014a, 4, 1000, array));
+    bytes.extend(0u32.to_le_bytes());
+    bytes.resize(array as usize, 0);
+    bytes.extend((0..1000).flat_map(|_| child.to_le_bytes()));
+    bytes.extend(1u16.to_le_bytes());
+    bytes.extend(entry(0x0112, 3, 1, 1));
+    bytes.extend(0u32.to_le_bytes());
+    let reader = GenericTiffReader::new(&mut Cursor::new(&bytes), 0, 0, None, &[])?;
+    let subs = reader.root_ifd().get_sub_ifd_all(TiffCommonTag::SubIFDs).unwrap();
+    assert_eq!(subs.len(), 1);
+    Ok(())
+  }
+
+  /// RAWTONIC: an IFD whose entries each claim (nearly) the whole file
+  /// allocates at most twice the file for their values, its sub-IFDs'
+  /// included; a valid IFD's values are all read.
+  #[test]
+  fn the_values_of_an_ifd_stay_within_its_budget() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let len = 1u32 << 20;
+    let mut bytes = b"II*\0".to_vec();
+    bytes.extend(8u32.to_le_bytes());
+    let entries = 100u16;
+    bytes.extend(entries.to_le_bytes());
+    for tag in 0..entries {
+      bytes.extend(entry(0xc000 + tag, 1, len - 4096, 4096));
+    }
+    bytes.extend(0u32.to_le_bytes());
+    bytes.resize(len as usize, 0);
+    let root = IFD::new_root_with_correction(&mut Cursor::new(&bytes), 0, 0, 0, 0, &[])?;
+    let read: usize = root.entries().values().map(|entry| entry.count() as usize).sum();
+    assert!(read > 0 && read <= 2 * len as usize, "{read}");
+    Ok(())
+  }
+
   #[test]
   fn encode_tiff_test() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let mut buf = Cursor::new(Vec::new());

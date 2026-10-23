@@ -213,6 +213,7 @@ export enum Invokes {
   CatalogFolders = 'catalog_folders',
   SessionRenameAlbum = 'session_rename_album',
   SessionSearch = 'session_search',
+  SessionPathsAsListed = 'session_paths_as_listed',
   SessionFacets = 'session_facets',
   SessionCreateSmartAlbum = 'session_create_smart_album',
   SessionSetSmartAlbumRules = 'session_set_smart_album_rules',

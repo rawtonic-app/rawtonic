@@ -24,6 +24,8 @@ use std::{
     time::SystemTime,
 };
 
+mod late_ifds;
+
 /// How much of a file is read for its metadata, step by step: the first
 /// step holds the EXIF of nearly every format (it sits at the start of
 /// TIFF-based RAWs, CR3's `moov`, a RAF's embedded JPEG, a JPEG's APP1); a
@@ -110,6 +112,21 @@ fn read_header(
         capture = read;
         if done {
             break;
+        }
+    }
+    // A TIFF-based file whose metadata lies past what was read (a DNG that
+    // keeps its IFDs after its image data, as merges write them): its IFDs
+    // are followed wherever they are.
+    if capture.captured.is_none()
+        && (buffer.len() as u64) < len
+        && tiff_byte_order(&buffer).is_some()
+    {
+        match tiff_metadata(&mut file, len, &buffer) {
+            Err(error) => return (capture, Some(error)),
+            // What the whole IFDs give, a date or not (a superset of what
+            // the steps read: their bytes are among the pieces).
+            Ok(Some(read)) if has_facts(&read) => capture = read,
+            Ok(_) => {}
         }
     }
     // The rating of the file's own XMP packet (where its format keeps it,
@@ -318,6 +335,23 @@ fn tiff_byte_order(bytes: &[u8]) -> Option<bool> {
     }
 }
 
+/// The capture facts of a TIFF-based file from its IFDs wherever they are
+/// (`late_ifds`): the IFD chain, its sub-IFDs (SubIFDs, EXIF, GPS,
+/// interoperability) and each entry's value (a maker note, an XMP packet)
+/// are read with seeks, without the image data their offsets point to.
+/// `None` when nothing could be followed; an error when reading fails.
+fn tiff_metadata(
+    file: &mut (impl Read + Seek),
+    len: u64,
+    header: &[u8],
+) -> std::io::Result<Option<Capture>> {
+    let pieces = late_ifds::pieces(file, len, header)?;
+    if pieces.is_empty() {
+        return Ok(None);
+    }
+    Ok(sparse_capture(&pieces))
+}
+
 /// At most this much of an ISO BMFF file's boxes besides its image data
 /// is read for its metadata (a damaged file's sizes may claim anything).
 const BMFF_METADATA_LIMIT: u64 = 64 << 20;
@@ -344,13 +378,22 @@ fn sparse_file(pieces: &[(u64, Vec<u8>)]) -> Option<Vec<u8>> {
 }
 
 /// The capture facts of a file of which only `pieces` were read
-/// (`sparse_file`): the RAW decoder's, reading only what its metadata needs
-/// (it does not copy the buffer). `None` when they lie past `SPARSE_LIMIT`.
+/// (`sparse_file`): the RAW decoder's and, for a TIFF-based file, the EXIF
+/// reader's, each reading only what its metadata needs. `None` when they
+/// lie past `SPARSE_LIMIT`.
 fn sparse_capture(pieces: &[(u64, Vec<u8>)]) -> Option<Capture> {
-    let source = rawler::rawsource::RawSource::new_from_shared_vec(Arc::new(sparse_file(pieces)?));
+    let buffer = Arc::new(sparse_file(pieces)?);
+    let source = rawler::rawsource::RawSource::new_from_shared_vec(buffer.clone());
     let mut capture = Capture::default();
     if let Some(metadata) = raw_metadata(&source) {
         apply_raw(&mut capture, &metadata);
+    }
+    drop(source);
+    if tiff_byte_order(&buffer).is_some() {
+        let buffer = Arc::try_unwrap(buffer).unwrap_or_else(|shared| (*shared).clone());
+        if let Ok(exif) = exif::Reader::new().read_raw(buffer) {
+            apply_exif(&mut capture, &exif);
+        }
     }
     Some(capture)
 }
@@ -1270,6 +1313,212 @@ pub(crate) mod tests {
         assert!(matches!(found, Container::NoPacket));
     }
 
+    /// Metadata past what was read is kept without a capture date too (a
+    /// DNG whose camera wrote none).
+    #[test]
+    fn keeps_late_metadata_without_a_date() {
+        let mut metadata = rawler::decoders::RawMetadata {
+            make: "Testmaker".into(),
+            model: "RAW Two".into(),
+            ..Default::default()
+        };
+        metadata.exif.iso_speed_ratings = Some(400);
+        let mut seed = 0x9e37_79b9_u32;
+        let image = image::Rgb32FImage::from_fn(640, 640, |_, _| {
+            image::Rgb(std::array::from_fn(|_| {
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                (seed % 1000) as f32 / 1000.0
+            }))
+        });
+        let dng = rawtonic_merge::dng::encode_linear_dng(
+            &image,
+            &rawtonic_merge::dng::DngMeta {
+                color: None,
+                metadata: Some(&metadata),
+                keep_lens: true,
+                baseline_exposure: None,
+                preview: None,
+                software: "test",
+            },
+        )
+        .unwrap();
+        let len = dng.len() as u64;
+        let limit = 64 << 10;
+        assert!(len > 4 * limit, "{len}");
+        let (capture, _) = read_header(std::io::Cursor::new(&dng), len, limit);
+        assert_eq!(capture.captured, None);
+        assert_eq!(
+            (capture.model.as_deref(), capture.iso),
+            (Some("RAW Two"), Some(400))
+        );
+    }
+
+    /// An undated late IFD holding only the camera's EXIF rating keeps it.
+    #[test]
+    fn keeps_a_late_rating_without_other_facts() {
+        let ifd = 64u32 << 10;
+        let mut bytes = b"II*\0".to_vec();
+        bytes.extend(ifd.to_le_bytes());
+        bytes.resize(ifd as usize, 0);
+        bytes.extend(1u16.to_le_bytes());
+        for field in [
+            &0x4746u16.to_le_bytes()[..],
+            &3u16.to_le_bytes(),
+            &1u32.to_le_bytes(),
+            &4u32.to_le_bytes(),
+        ] {
+            bytes.extend(field);
+        }
+        bytes.extend(0u32.to_le_bytes());
+        let len = bytes.len() as u64;
+        let (capture, error) = read_header(std::io::Cursor::new(&bytes), len, 1024);
+        assert!(error.is_none());
+        assert_eq!(capture.rating, Some(4));
+    }
+
+    /// A DNG (as merges write it: image data first, its IFDs at the end)
+    /// larger than what is read of a file: its IFDs are followed where
+    /// they are, without reading its image data.
+    #[test]
+    fn follows_tiff_ifds_past_the_read_limit() {
+        let mut metadata = rawler::decoders::RawMetadata {
+            make: "Testmaker".into(),
+            model: "RAW One".into(),
+            ..Default::default()
+        };
+        metadata.exif.date_time_original = Some("2024:07:14 06:15:30".into());
+        metadata.exif.iso_speed_ratings = Some(200);
+        metadata.exif.lens_model = Some("85mm F1.4".into());
+        let mut seed = 0x2545_f491_u32;
+        let image = image::Rgb32FImage::from_fn(640, 640, |_, _| {
+            image::Rgb(std::array::from_fn(|_| {
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                (seed % 1000) as f32 / 1000.0
+            }))
+        });
+        let dng = rawtonic_merge::dng::encode_linear_dng(
+            &image,
+            &rawtonic_merge::dng::DngMeta {
+                color: None,
+                metadata: Some(&metadata),
+                keep_lens: true,
+                baseline_exposure: None,
+                preview: None,
+                software: "test",
+            },
+        )
+        .unwrap();
+        let len = dng.len() as u64;
+        let limit = 256 << 10;
+        assert!(len > 4 * limit, "{len}");
+        assert_eq!(from_bytes(&dng[..limit as usize]).captured, None);
+        let mut file = Counted(std::io::Cursor::new(&dng), 0);
+        let (capture, error) = read_header(&mut file, len, limit);
+        assert!(error.is_none());
+        assert_eq!(
+            capture.captured.map(|d| d.to_string()).as_deref(),
+            Some("2024-07-14 06:15:30")
+        );
+        assert_eq!(
+            (
+                capture.model.as_deref(),
+                capture.iso,
+                capture.lens.as_deref()
+            ),
+            (Some("RAW One"), Some(200), Some("85mm F1.4"))
+        );
+        assert!(file.1 < limit + (64 << 10), "{} bytes read", file.1);
+    }
+
+    /// A file served from a few parts laid into zeros, as long as it says:
+    /// a file of gigabytes without holding them.
+    struct Virtual {
+        len: u64,
+        parts: Vec<(u64, Vec<u8>)>,
+        at: u64,
+    }
+    impl Read for Virtual {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            let n = (out.len() as u64).min(self.len.saturating_sub(self.at)) as usize;
+            out[..n].fill(0);
+            for (start, bytes) in &self.parts {
+                let (from, to) = (
+                    self.at.max(*start),
+                    (self.at + n as u64).min(start + bytes.len() as u64),
+                );
+                if from < to {
+                    out[(from - self.at) as usize..(to - self.at) as usize]
+                        .copy_from_slice(&bytes[(from - start) as usize..(to - start) as usize]);
+                }
+            }
+            self.at += n as u64;
+            Ok(n)
+        }
+    }
+    impl Seek for Virtual {
+        fn seek(&mut self, to: SeekFrom) -> std::io::Result<u64> {
+            self.at = match to {
+                SeekFrom::Start(n) => n,
+                SeekFrom::End(n) => self.len.saturating_add_signed(n),
+                SeekFrom::Current(n) => self.at.saturating_add_signed(n),
+            };
+            Ok(self.at)
+        }
+    }
+
+    /// A DNG whose IFDs lie past 1 GiB (a large panorama merge) gets its
+    /// facts: what is walked is laid after its header, not at its offsets.
+    #[test]
+    fn follows_ifds_past_a_gigabyte() {
+        let le = |n: u32| n.to_le_bytes();
+        let entry = |tag: u16, kind: u16, count: u32, value: u32| {
+            [
+                &tag.to_le_bytes()[..],
+                &kind.to_le_bytes(),
+                &le(count),
+                &le(value),
+            ]
+            .concat()
+        };
+        let (root, exif, model, date) = (0x5000_0000u32, 0x5000_1000, 0x5000_2000, 0x5000_3000);
+        let mut table = 2u16.to_le_bytes().to_vec();
+        table.extend(entry(0x0110, 2, 9, model));
+        table.extend(entry(0x8769, 4, 1, exif));
+        table.extend(le(0));
+        let mut exif_table = 1u16.to_le_bytes().to_vec();
+        exif_table.extend(entry(0x9003, 2, 20, date));
+        exif_table.extend(le(0));
+        let mut header = b"II*\0".to_vec();
+        header.extend(le(root));
+        let len = u64::from(date) + 4096;
+        let file = Virtual {
+            len,
+            parts: vec![
+                (0, header),
+                (u64::from(root), table),
+                (u64::from(exif), exif_table),
+                (u64::from(model), b"RAW Huge\0".to_vec()),
+                (u64::from(date), b"2024:07:14 06:15:30\0".to_vec()),
+            ],
+            at: 0,
+        };
+        let mut file = Counted(file, 0);
+        let (capture, error) = read_header(&mut file, len, FACTS_LIMIT);
+        assert!(error.is_none());
+        assert_eq!(
+            (
+                capture.model.as_deref(),
+                capture.captured.map(|d| d.to_string()).as_deref()
+            ),
+            (Some("RAW Huge"), Some("2024-07-14 06:15:30"))
+        );
+        assert!(file.1 < FACTS_LIMIT + (64 << 10), "{} bytes read", file.1);
+    }
+
     /// A uuid box too small for its own uuid is a damaged box, not a
     /// packet (and no overflow).
     #[test]
@@ -1413,7 +1662,7 @@ pub(crate) mod tests {
     }
 
     /// A file reader that counts the bytes read.
-    struct Counted<R>(R, u64);
+    pub(crate) struct Counted<R>(pub(crate) R, pub(crate) u64);
     impl<R: Read> Read for Counted<R> {
         fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
             let n = self.0.read(out)?;
@@ -1473,12 +1722,14 @@ pub(crate) mod tests {
             assert_eq!(read, whole, "{}", path.display());
             if len > FACTS_LIMIT {
                 large += 1;
+                // The header steps, and a TIFF-based file's IFDs past them.
                 assert!(
-                    file.1 <= FACTS_LIMIT,
+                    file.1 <= FACTS_LIMIT + late_ifds::METADATA_LIMIT,
                     "{}: {} bytes read",
                     path.display(),
                     file.1
                 );
+                println!("{}: {} of {len} bytes read", path.display(), file.1);
             }
             most = most.max(file.1);
         }
