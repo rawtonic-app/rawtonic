@@ -490,6 +490,97 @@ const EXPORT_WORKER_GB: f64 = 2.0;
 /// Free memory a batch export leaves: no further photo starts below it.
 const EXPORT_MEMORY_RESERVE: u64 = 2 << 30;
 
+/// The thread pools an export's photos run in, one per export worker.
+///
+/// Exports ran their parallel work (decode, develop, encode) in the global
+/// pool at normal priority, beside the Develop view's own work there: during
+/// a batch export slider drags drew 1–2 frames a second (notes:
+/// parity-gaps/G44). Here the system runs the editor first and the export
+/// with the cores left over.
+///
+/// One pool per worker, never one shared: a pool thread holding the GPU
+/// processor that waits for its parallel work may meanwhile run other jobs
+/// of its pool, which would be another photo waiting for that processor.
+/// So no job of a worker's pool waits for it, and renders hand their work
+/// to other pools as before (`mark_private_pool_thread`).
+struct ExportLanes {
+    pools: Vec<rayon::ThreadPool>,
+    free: Mutex<Vec<usize>>,
+}
+
+/// An export worker's pool, given back when its photo is done.
+struct Lane {
+    lanes: Arc<ExportLanes>,
+    index: usize,
+}
+
+impl ExportLanes {
+    fn new(workers: usize, threads: usize) -> Arc<Self> {
+        let pools = (0..workers)
+            .map(|lane| {
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(threads)
+                    .thread_name(move |i| format!("export-{lane}-{i}"))
+                    .start_handler(|_| {
+                        lower_thread_priority();
+                        crate::gpu_processing::mark_private_pool_thread();
+                    })
+                    .build()
+                    .expect("export thread pool")
+            })
+            .collect();
+        Arc::new(Self {
+            free: Mutex::new((0..workers).rev().collect()),
+            pools,
+        })
+    }
+
+    /// A free pool; there is one for each worker that may run.
+    fn take(self: &Arc<Self>) -> Lane {
+        let index = self
+            .free
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .pop()
+            .expect("an export pool for every worker");
+        Lane {
+            lanes: Arc::clone(self),
+            index,
+        }
+    }
+}
+
+impl Lane {
+    fn install<R: Send>(&self, work: impl FnOnce() -> R + Send) -> R {
+        self.lanes.pools[self.index].install(work)
+    }
+}
+
+impl Drop for Lane {
+    fn drop(&mut self) {
+        self.lanes
+            .free
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(self.index);
+    }
+}
+
+/// Lowers the calling thread's scheduling priority below the editor's.
+/// Linux: nice 10, which an unprivileged thread cannot undo, so only for
+/// threads that do nothing else. macOS keeps the default: its lower classes
+/// move threads to the efficiency cores (see `proxy_worker`'s builds).
+#[cfg(target_os = "linux")]
+fn lower_thread_priority() {
+    // SAFETY: changes the calling thread's own nice value; no pointers.
+    unsafe {
+        libc::setpriority(libc::PRIO_PROCESS, libc::gettid() as libc::id_t, 10);
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn lower_thread_priority() {}
+
 /// One recipe of an export run: its settings, where its files go and the
 /// queued job that records its photos.
 #[derive(Clone)]
@@ -606,6 +697,7 @@ pub(crate) async fn export_images_impl(
         let export_items = rawtonic_export::sidecars::plan_export_items(paths);
 
         let used_paths = Arc::new(Mutex::new(std::collections::HashSet::new()));
+        let lanes = ExportLanes::new(num_threads, available_cores);
         let semaphore = Arc::new(tokio::sync::Semaphore::new(num_threads));
         let mut join_handles = Vec::new();
 
@@ -661,25 +753,29 @@ pub(crate) async fn export_images_impl(
             let cancellation_token_clone = Arc::clone(&cancellation_token);
             let adjustments_mode = adjustments_mode.clone();
             let used_paths_clone = Arc::clone(&used_paths);
+            let lane = lanes.take();
 
             let handle = tokio::task::spawn_blocking(move || {
-                let results = export_photo(
-                    &app_handle_clone,
-                    &context_clone,
-                    &settings,
-                    &targets,
-                    &wanted,
-                    &adjustments_mode,
-                    &used_paths_clone,
-                    &cancellation_token_clone,
-                    PhotoItem {
-                        global_index,
-                        image_path_str: &image_path_str,
-                        appearance_count,
-                        explicit_vc,
-                        total_paths,
-                    },
-                );
+                let results = lane.install(|| {
+                    export_photo(
+                        &app_handle_clone,
+                        &context_clone,
+                        &settings,
+                        &targets,
+                        &wanted,
+                        &adjustments_mode,
+                        &used_paths_clone,
+                        &cancellation_token_clone,
+                        PhotoItem {
+                            global_index,
+                            image_path_str: &image_path_str,
+                            appearance_count,
+                            explicit_vc,
+                            total_paths,
+                        },
+                    )
+                });
+                drop(lane);
 
                 let cancelled = cancellation_token_clone.load(Ordering::SeqCst);
                 if !cancelled {

@@ -10605,6 +10605,7 @@ fn multiscale_color_noise_latency_probe() {
                     Some(&image),
                     &mut adjustments,
                     interactive,
+                    None,
                 )
                 .unwrap();
                 context
@@ -10709,6 +10710,7 @@ fn multiscale_color_noise_rebuilds_alike_on_gpu_and_cpu() {
                 Some(&image),
                 &mut adjustments,
                 interactive,
+                None,
             )
             .unwrap();
             let (pixels, ..) = processor
@@ -10801,6 +10803,7 @@ fn multiscale_color_noise_version_switch_rebuilds_the_prepared_levels() {
             Some(&image),
             &mut adjustments,
             true,
+            None,
         )
         .unwrap();
         let (pixels, ..) = processor

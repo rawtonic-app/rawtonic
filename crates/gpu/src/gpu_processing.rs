@@ -23,6 +23,8 @@ mod preview_tests;
 pub mod multi_view;
 #[path = "preview_layers.rs"]
 mod preview_layers;
+#[path = "processor_turns.rs"]
+mod processor_turns;
 pub use multi_view::{CellExtent, CellLayer, CellZoom, MultiView, MultiViewCell};
 use multi_view::{DisplayBindings, DisplayPass, PrimaryDraw, encode_display_pass};
 use preview_layers::{
@@ -771,6 +773,51 @@ impl ChromaGpu {
     }
 }
 
+/// Level 1 of the colour noise pyramid rebuilt on the CPU for a set of
+/// thresholds, packed as [`ChromaGpu::rebuild_on_cpu`] writes it.
+struct RebuiltChroma {
+    key: ChromaKey,
+    texels: Vec<f16>,
+}
+
+/// The CPU reconstruction an export render of `cache` needs
+/// ([`prepare_color_noise`], not interactive), done before the render takes
+/// the GPU processor: it took about a quarter of an export's turn there,
+/// which the Develop view and the other photos waited for (notes:
+/// parity-gaps/G44). `None` when the render needs none or already has it.
+fn rebuild_color_noise_ahead(
+    cache: &GpuImageCache,
+    adjustments: &crate::image_processing::PreparedAdjustments,
+) -> Option<RebuiltChroma> {
+    // As `prepare_color_noise`, on a copy of the uniforms.
+    let mut global = adjustments.uniforms.global;
+    let luma_profile = luma_profile_wanted(&global);
+    let versioned = color_noise_tuning(&global);
+    let settings = color_noise_settings(&mut global)?;
+    let pyramid = cache.chroma.as_ref()?;
+    if luma_profile {
+        set_luma_profile(&mut global, pyramid);
+    }
+    let (thresholds, base_sigma, key) =
+        color_noise_thresholds(&mut global, settings, pyramid, &versioned);
+    if cache
+        .chroma_gpu
+        .as_ref()
+        .is_some_and(|chroma| chroma.key == Some(key))
+    {
+        return None;
+    }
+    #[cfg(feature = "performance-profiling")]
+    let _stage = crate::performance::PerformanceStage::new("color_noise_reconstruct");
+    let level1 = &pyramid.levels[0];
+    let rebuilt = pyramid.reconstruct(&thresholds, base_sigma, &versioned.1);
+    let window = [0, 0, level1.width as u32, level1.height as u32];
+    Some(RebuiltChroma {
+        key,
+        texels: pack_chroma(level1, &rebuilt, window),
+    })
+}
+
 /// Readies the multi-scale colour noise reduction of a whole-photo render:
 /// builds the source's chroma pyramid if needed (from `source`, the CPU
 /// pixels of the uploaded texture), rebuilds level 1 for the recipe's
@@ -778,7 +825,8 @@ impl ChromaGpu {
 /// [`GPU_RECONSTRUCTION_MAX_PIXELS`], else on the CPU) and sets the finest
 /// threshold in the uniforms. Without a pyramid, or at Color 0, the recipe
 /// falls back to the cross-bilateral filter (masks with colour noise
-/// reduction use it too).
+/// reduction use it too). `rebuilt` is level 1 rebuilt ahead
+/// ([`rebuild_color_noise_ahead`]), used when it is for these thresholds.
 fn prepare_color_noise(
     context: &GpuContext,
     processor: &GpuProcessor,
@@ -786,6 +834,7 @@ fn prepare_color_noise(
     source: Option<&DynamicImage>,
     adjustments: &mut crate::image_processing::PreparedAdjustments,
     interactive: bool,
+    rebuilt: Option<RebuiltChroma>,
 ) -> Option<(wgpu::TextureView, wgpu::TextureView)> {
     let global = &mut adjustments.uniforms.global;
     let luma_profile = luma_profile_wanted(global);
@@ -862,6 +911,12 @@ fn prepare_color_noise(
                 &thresholds,
                 base_sigma,
                 &tuning,
+            );
+        } else if let Some(rebuilt) = rebuilt.filter(|rebuilt| rebuilt.key == key) {
+            write_whole_texture(
+                context,
+                &chroma.packed,
+                bytemuck::cast_slice(&rebuilt.texels),
             );
         } else {
             chroma.rebuild_on_cpu(context, &pyramid, &thresholds, base_sigma, &tuning);
@@ -2116,12 +2171,35 @@ fn upload_pool() -> &'static rayon::ThreadPool {
     })
 }
 
+thread_local! {
+    /// Set on the threads of a pool none of whose jobs waits for the GPU
+    /// processor ([`mark_private_pool_thread`]).
+    static PRIVATE_POOL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Marks the calling thread as one of a rayon pool none of whose jobs waits
+/// for the GPU processor (an export worker's own pool, which runs one photo
+/// at a time): its renders hand work to other pools as callers outside rayon
+/// do. Call it from the pool's start handler.
+pub fn mark_private_pool_thread() {
+    PRIVATE_POOL.set(true);
+}
+
+/// Whether the calling thread is a worker of a pool whose other jobs may wait
+/// for the GPU processor (the global pool's thumbnail batches): while it
+/// waits for work handed to another pool, it may run one of them, which
+/// would then wait for a lock this thread holds.
+fn in_shared_pool() -> bool {
+    rayon::current_thread_index().is_some() && !PRIVATE_POOL.get()
+}
+
 /// Runs `work`, which holds the GPU processor lock and may use rayon (the
-/// colour noise pyramid), off the global pool for callers outside rayon: its
-/// threads may all be waiting for that lock (thumbnail batches), so its
-/// parallel work would never run. A rayon worker runs it in place, as before.
+/// colour noise pyramid), off the global pool for callers outside a shared
+/// pool: its threads may all be waiting for that lock (thumbnail batches),
+/// so its parallel work would never run. A worker of a shared pool runs it
+/// in place, as before.
 fn off_global_pool<R: Send>(work: impl FnOnce() -> R + Send) -> R {
-    if rayon::current_thread_index().is_some() {
+    if in_shared_pool() {
         work()
     } else {
         upload_pool().install(work)
@@ -2206,7 +2284,7 @@ fn create_window_texture(
                     rgba_f16_row(image, window_x, window_y + y + row as u32, texels)
                 });
         };
-        if rayon::current_thread_index().is_some() {
+        if in_shared_pool() {
             // A rayon worker (thumbnails, batch work) may hold the GPU
             // processor lock here: waiting for rayon jobs could run another
             // task of the pool on this thread that waits for the same lock.
@@ -7511,7 +7589,13 @@ fn render_in_windows(
     let plan = plan_render_windows(width, height, bounds, max_dim, margin)
         .ok_or_else(|| texture_limit_error(width, height, max_dim))?;
 
-    let processor_lock = lock_processor(context, processor_slot, max_dim, max_dim)?;
+    let processor_lock = lock_processor(
+        context,
+        processor_slot,
+        max_dim,
+        max_dim,
+        foreground_render(caller_id, false),
+    )?;
     let processor = &processor_lock.as_ref().unwrap().processor;
     // The multi-scale colour noise reduction measures and rebuilds the whole
     // photo; each window gets its part of level 1 (rebuilt on the CPU, as a
@@ -7659,16 +7743,24 @@ fn place_region(
     }
 }
 
+/// Renders the user watches as they happen: the Develop view's frames, its
+/// JPEG fallback (e.g. on Linux) and tone targets' samples of them.
+fn foreground_render(caller_id: &str, output_to_display: bool) -> bool {
+    output_to_display || matches!(caller_id, "apply_adjustments" | "sample_curve_input")
+}
+
 /// The caller's processor, created (or replaced by a larger one) for a
-/// `width` x `height` input texture.
+/// `width` x `height` input texture, taken in turn
+/// ([`processor_turns`]: foreground renders first).
 fn lock_processor<'a>(
     context: &GpuContext,
     processor_slot: &'a Mutex<Option<GpuProcessorState>>,
     width: u32,
     height: u32,
-) -> Result<std::sync::MutexGuard<'a, Option<GpuProcessorState>>, String> {
+    foreground: bool,
+) -> Result<processor_turns::TurnGuard<'a, Option<GpuProcessorState>>, String> {
     let max_dim = context.limits.max_texture_dimension_2d;
-    let mut processor_lock = match processor_slot.lock() {
+    let mut processor_lock = match processor_turns::TURNS.lock(processor_slot, foreground) {
         Ok(guard) => guard,
         Err(poisoned) => {
             log::warn!("GPU processor lock was poisoned. Resetting to self-heal.");
@@ -7804,18 +7896,20 @@ fn render_outputs(
     outputs: &[RenderOutput],
 ) -> Result<Vec<DynamicImage>, String> {
     let start_time = Instant::now();
-    let processor_lock = lock_processor(context, processor_slot, kept.width, kept.height)?;
-    let processor = &processor_lock.as_ref().unwrap().processor;
+    // The photo's own upload: no other render waits for it.
     let mut cache_lock = kept.cache.lock().unwrap_or_else(|e| e.into_inner());
     let cache = cache_lock
         .as_mut()
         .ok_or("Missing source image for GPU upload.")?;
+    let rebuilt = rebuild_color_noise_ahead(cache, &request.adjustments);
+    let processor_lock = lock_processor(context, processor_slot, kept.width, kept.height, false)?;
+    let processor = &processor_lock.as_ref().unwrap().processor;
     let mut request = request;
     let adjustments = &mut request.adjustments;
     // The pool's thread is outside this thread's error scopes.
     let chroma = off_global_pool(|| {
         gpu_scoped(&context.device, || {
-            prepare_color_noise(context, processor, cache, None, adjustments, false)
+            prepare_color_noise(context, processor, cache, None, adjustments, false, rebuilt)
         })
     })?;
 
@@ -7928,7 +8022,24 @@ fn render_dynamic_image(
         };
     }
 
-    let processor_lock = lock_processor(context, processor_slot, width, height)?;
+    let interactive = output_to_display || readback_shader != ReadbackShader::Export;
+    // A kept upload is the photo's own: no other render waits for it.
+    let rebuilt = match &source {
+        RenderSource::Kept(kept) if !interactive => kept
+            .cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(|cache| rebuild_color_noise_ahead(cache, &request.adjustments)),
+        _ => None,
+    };
+    let processor_lock = lock_processor(
+        context,
+        processor_slot,
+        width,
+        height,
+        foreground_render(caller_id, output_to_display),
+    )?;
     let processor_state = processor_lock.as_ref().unwrap();
     let processor = &processor_state.processor;
 
@@ -7954,12 +8065,9 @@ fn render_dynamic_image(
         .or_else(|| kept.and_then(|kept| kept.masks.as_deref()));
     let preuploaded = uploaded.is_some() || kept.is_some();
     let background_image_cache = Mutex::new(uploaded);
-    // The JPEG preview fallback (e.g. Linux) is also foreground work, and so
-    // are tone targets' samples of the shown preview's base.
-    let foreground = matches!(caller_id, "apply_adjustments" | "sample_curve_input");
     let image_cache = if let Some(kept) = kept {
         &kept.cache
-    } else if !preuploaded && (output_to_display || foreground) {
+    } else if !preuploaded && foreground_render(caller_id, output_to_display) {
         image_cache
     } else {
         &background_image_cache
@@ -8029,7 +8137,6 @@ fn render_dynamic_image(
     }
 
     let cache = cache_lock.as_mut().unwrap();
-    let interactive = output_to_display || readback_shader != ReadbackShader::Export;
     let adjustments = &mut request.adjustments;
     let prepare = || {
         prepare_color_noise(
@@ -8039,6 +8146,7 @@ fn render_dynamic_image(
             base_image,
             adjustments,
             interactive,
+            rebuilt,
         )
     };
     // The pool's thread is outside this thread's error scopes.
