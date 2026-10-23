@@ -5,13 +5,14 @@ import {
   cleanup,
   fireEvent,
   render,
+  renderHook,
   screen,
   within,
 } from "@testing-library/react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import StudioWorkspace from "./StudioWorkspace";
 import StudioToolBar from "./StudioToolBar";
-import { stepBrushSize } from "./useStudioTools";
+import { stepBrushSize, useStudioTools } from "./useStudioTools";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useUIStore } from "../../store/useUIStore";
 import { debouncedSetHistory } from "../../hooks/useEditorActions";
@@ -131,6 +132,36 @@ describe("brush size steps", () => {
     expect(stepBrushSize(2, -1)).toBe(1);
     expect(stepBrushSize(1, -1)).toBe(1);
     expect(stepBrushSize(5900, 1)).toBe(6000);
+  });
+});
+
+describe("tool state", () => {
+  it("re-renders its users for layer edits, not for the photograph's values", () => {
+    withLinearLayer();
+    let renders = 0;
+    const { result } = renderHook(() => {
+      renders++;
+      return useStudioTools();
+    });
+    const before = renders;
+    // A slider drag's commits change the photograph's values only.
+    act(() =>
+      useEditorStore.setState((state) => ({
+        adjustments: { ...state.adjustments, exposure: 1 },
+      })),
+    );
+    expect(renders).toBe(before);
+    act(() =>
+      useEditorStore.setState((state) => ({
+        adjustments: {
+          ...state.adjustments,
+          masks: state.adjustments.masks.map((m) => ({ ...m, invert: true })),
+        },
+      })),
+    );
+    expect(renders).toBe(before + 1);
+    expect(result.current.layer?.invert).toBe(true);
+    expect(result.current.activeTool).toBe("linear");
   });
 });
 
