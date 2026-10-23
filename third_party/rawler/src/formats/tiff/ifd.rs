@@ -21,6 +21,8 @@ use std::{
 };
 
 const MAX_IFD_ENTRIES: usize = 4096;
+/// RAWTONIC: at most this many sub-IFDs of one tag are read.
+const SUB_IFD_LIMIT: usize = 64;
 
 #[derive(Debug)]
 pub enum OffsetMode {
@@ -83,7 +85,10 @@ impl IFD {
     }
     next_ifd = root.next_ifd;
 
-    while next_ifd != 0 {
+    // RAWTONIC: without a chain limit, an IFD read before ends the chain:
+    // a damaged chain pointing back would otherwise be read forever.
+    let mut seen = std::collections::HashSet::from([root.offset]);
+    while next_ifd != 0 && (max_chain > 0 || seen.insert(apply_corr(next_ifd, corr))) {
       next_ifd = apply_corr(next_ifd, corr);
       let ifd = IFD::new(reader, next_ifd, base, corr, endian, &multi_sub_tags)?;
       if ifd.entries.is_empty() {
@@ -101,6 +106,14 @@ impl IFD {
   }
 
   pub fn new<R: Read + Seek>(reader: &mut R, offset: u32, base: u32, corr: i32, endian: Endian, sub_tags: &[u16]) -> Result<IFD> {
+    // RAWTONIC: the values of an IFD and its sub-IFDs together get at most
+    // twice the stream's length: a damaged IFD's entries may each claim the
+    // whole file (thousands of them, each allocated), and its sub-IFDs too.
+    let mut budget = EndianReader::new(reader, endian).stream_len()?.saturating_mul(2);
+    Self::new_within(reader, offset, base, corr, endian, sub_tags, &mut budget)
+  }
+
+  fn new_within<R: Read + Seek>(reader: &mut R, offset: u32, base: u32, corr: i32, endian: Endian, sub_tags: &[u16], budget: &mut u64) -> Result<IFD> {
     reader.seek(SeekFrom::Start((base + offset) as u64))?;
     let mut sub_ifd_offsets = HashMap::new();
     let mut reader = EndianReader::new(reader, endian);
@@ -144,8 +157,15 @@ impl IFD {
         }
       };
 
-      match Entry::parse(&mut reader, base, corr, tag) {
-        Ok(entry) => {
+      match Entry::parse_within(&mut reader, base, corr, tag, budget) {
+        Ok(None) => {
+          log::warn!(
+            "TIFF tag 0x{:X} (Index {}): its values exceed what is left of the IFD's budget; skipped",
+            tag,
+            i
+          );
+        }
+        Ok(Some(entry)) => {
           consecutive_errors = 0;
 
           if sub_tags.contains(&tag) {
@@ -201,8 +221,12 @@ impl IFD {
     let reader = reader.into_inner();
     for subs in sub_ifd_offsets {
       let mut ifds = Vec::new();
-      for offset in subs.1 {
-        match Self::new(reader, apply_corr(offset, corr), base, corr, endian, &[]) {
+      // RAWTONIC: an offset a tag repeats is read once, and at most
+      // SUB_IFD_LIMIT of them: a damaged entry may list one IFD thousands
+      // of times, each read and kept.
+      let mut seen = std::collections::HashSet::new();
+      for offset in subs.1.into_iter().filter(|offset| seen.insert(*offset)).take(SUB_IFD_LIMIT) {
+        match Self::new_within(reader, apply_corr(offset, corr), base, corr, endian, &[], budget) {
           Ok(ifd) => ifds.push(ifd),
           Err(err) => {
             log::warn!("Error while processing TIFF sub-IFD for tag 0x{:X}, ignoring it: {}", subs.0, err);

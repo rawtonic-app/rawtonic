@@ -730,6 +730,7 @@ fn a_schema_10_library_gets_its_keywords_search_and_albums_migrated() {
     drop(lib);
     let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
     db.execute_batch(concat!(
+        include_str!("undo_0014.sql"),
         include_str!("undo_0013.sql"),
         include_str!("undo_0012.sql"),
         include_str!("undo_0011.sql")
@@ -1259,7 +1260,11 @@ fn a_schema_12_library_reads_undated_and_unrated_facts_again() {
     assert_eq!(lib.facts_backlog().unwrap(), 0);
     drop(lib);
     let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
-    db.execute_batch(include_str!("undo_0013.sql")).unwrap();
+    db.execute_batch(concat!(
+        include_str!("undo_0014.sql"),
+        include_str!("undo_0013.sql")
+    ))
+    .unwrap();
     drop(db);
     let lib = Library::open(&d.path().join("Job")).unwrap();
     // The empty one, the one nobody rated and the rated undated one; not
@@ -1282,6 +1287,74 @@ fn a_schema_12_library_reads_undated_and_unrated_facts_again() {
     .unwrap();
     assert_eq!(lib.asset(&ids[3]).unwrap().rating, 2);
     assert_eq!(lib.facts(&ids[3]).unwrap().unwrap().0.iso, Some(800));
+}
+
+/// A schema 13 library (read before the reader followed TIFF-based files'
+/// late IFDs) reads its undated photographs again, also those someone
+/// rated or whose camera rating it took, and only those; their ratings
+/// stay.
+#[test]
+fn a_schema_13_library_reads_undated_facts_again() {
+    let d = tempfile::tempdir().unwrap();
+    let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+    let capture = lib.directory.join("Capture");
+    let mut ids = Vec::new();
+    for name in ["Merged.dng", "Dated.dng", "Rated.dng", "Scan.png"] {
+        fs::write(capture.join(name), name).unwrap();
+        ids.push(lib.add_asset(&capture.join(name)).unwrap().id);
+    }
+    for (id, captured) in [
+        (&ids[0], None),
+        (&ids[1], Some("2024-05-01 10:00:00")),
+        (&ids[2], None),
+        (&ids[3], None),
+    ] {
+        lib.record_facts(
+            id,
+            &CaptureFacts {
+                captured: captured.map(Into::into),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+    let mut meta = lib.metadata(&ids[2]).unwrap();
+    meta.rating = 3;
+    lib.set_metadata(&ids[2], &meta).unwrap();
+    assert_eq!(lib.facts_backlog().unwrap(), 0);
+    drop(lib);
+    let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
+    db.execute_batch(include_str!("undo_0014.sql")).unwrap();
+    drop(db);
+    let lib = Library::open(&d.path().join("Job")).unwrap();
+    assert_eq!(lib.facts_backlog().unwrap(), 3);
+    let read = |i: usize| lib.facts(&ids[i]).unwrap().unwrap().1;
+    assert_eq!(
+        [read(0), read(1), read(2), read(3)],
+        [false, true, false, false]
+    );
+    lib.fill_all_facts(&AtomicBool::new(false), &|path: &Path| {
+        Some(CaptureFacts {
+            captured: path
+                .to_string_lossy()
+                .ends_with(".dng")
+                .then(|| "2024-07-14 06:15:30".into()),
+            iso: Some(200),
+            ..Default::default()
+        })
+    })
+    .unwrap();
+    assert_eq!(lib.facts_backlog().unwrap(), 0);
+    let facts = lib.facts(&ids[0]).unwrap().unwrap().0;
+    assert_eq!(
+        (facts.captured.as_deref(), facts.iso),
+        (Some("2024-07-14 06:15:30"), Some(200))
+    );
+    assert_eq!(lib.asset(&ids[2]).unwrap().rating, 3);
+    // Read again and still undated, it is not read once more.
+    drop(lib);
+    let lib = Library::open(&d.path().join("Job")).unwrap();
+    assert_eq!(lib.facts_backlog().unwrap(), 0);
 }
 
 /// A metadata writer that reads a photograph's metadata, changes its label

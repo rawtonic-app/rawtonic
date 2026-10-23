@@ -161,7 +161,10 @@ pub trait TiffReader {
 
     next_ifd = apply_corr(next_ifd, self.file().corr);
     let mut chain = Vec::new();
-    while next_ifd != 0 {
+    // RAWTONIC: without a chain limit, an IFD read before ends the chain:
+    // a damaged chain pointing back would otherwise be read forever.
+    let mut seen = std::collections::HashSet::new();
+    while next_ifd != 0 && (max_chained.is_some() || seen.insert(next_ifd)) {
       // TODO: check if offset is in range
       let mut multi_sub_tags = self.wellknown_sub_ifd_tags();
       multi_sub_tags.extend_from_slice(sub_tags);

@@ -367,3 +367,18 @@ Converter 18.7 (white/black levels from the DNG's raw IFD, AsShotNeutral):
   damaged CR3 claiming 2^32 samples or a terabyte CMT box aborted the
   process with a failed allocation (the library's background facts pass
   parses every CR3 it holds). Valid files parse as before.
+- `src/formats/tiff/reader.rs` (`parse_file`), `src/formats/tiff/ifd.rs`
+  (`new_root_with_correction`): without a chain limit, an IFD chain that
+  points back to an IFD read before ends there. A damaged chain (or one
+  the library's capture-facts pass rebuilds from a file's IFDs) was read
+  forever, growing the chain until memory ran out. Chains that end, and
+  every chain read with a limit, are read as before.
+- `src/formats/tiff/ifd.rs` (`IFD::new`), `src/formats/tiff/entry.rs`
+  (`Entry::parse_within`): an offset a sub-IFD tag (SubIFDs, EXIF, GPS, …)
+  repeats is read once, at most 64 per tag, and the values an IFD and its
+  sub-IFDs store outside their entries get at most twice the stream's
+  length together (an entry past that is skipped, not allocated). A damaged
+  entry listing one sub-IFD thousands of times read and kept it each time,
+  and thousands of entries each claiming the whole file each allocated it
+  (both can exhaust memory, which aborts the process). Valid files are read
+  as before.

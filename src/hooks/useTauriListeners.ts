@@ -51,12 +51,9 @@ interface ImageMetadataLoadedPayload {
   tags: string[] | null;
 }
 
-/** A rating the facts pass took from the camera (`library_search`). */
-interface CameraRatingPayload {
-  path: string;
-  rating: number;
-  camera: true;
-}
+/** Ratings a batch of the facts pass took from the camera (`library_search`):
+ * (path, rating) pairs, paths as the catalog holds them. */
+type CameraRatingsPayload = [string, number][];
 
 interface PathProgressPayload {
   current: number;
@@ -350,20 +347,38 @@ export function useTauriListeners({
           scheduleFlush();
         }
       }),
-      listen<ImageMetadataLoadedPayload | CameraRatingPayload>('image-metadata-loaded', (event) => {
+      listen<CameraRatingsPayload>('library-camera-ratings', async (event) => {
         if (!isEffectActive) return;
-        if ('camera' in event.payload) {
-          // A camera's rating the background pass took applies only to a
-          // photograph still unrated here that this window has not written.
-          const { path, rating } = event.payload;
-          if (metadataWritten(path)) return;
-          useLibraryStore.getState().setLibrary((state) => {
-            const image = state.imageList[libraryImageIndex(state.imageList).get(path) ?? -1];
-            if ((state.imageRatings[path] ?? image?.rating ?? 0) !== 0) return state;
-            return { imageRatings: { ...state.imageRatings, [path]: rating } };
-          });
-          return;
+        let ratings = event.payload;
+        const { imageList, currentFolderPath } = useLibraryStore.getState();
+        const listed = libraryImageIndex(imageList);
+        if (currentFolderPath && ratings.some(([path]) => !listed.has(path))) {
+          // A folder browsed through a symlink lists its photographs in its
+          // own form.
+          const paths = await invoke<string[]>(Invokes.SessionPathsAsListed, {
+            paths: ratings.map(([path]) => path),
+            listed: currentFolderPath,
+          }).catch(() => null);
+          if (!isEffectActive) return;
+          if (paths?.length === ratings.length) ratings = ratings.map(([, rating], i) => [paths[i], rating]);
         }
+        // A camera's rating applies only to a photograph listed and still
+        // unrated here that this window has not written; one update a batch.
+        useLibraryStore.getState().setLibrary((state) => {
+          const index = libraryImageIndex(state.imageList);
+          let imageRatings: Record<string, number> | null = null;
+          for (const [path, rating] of ratings) {
+            const image = state.imageList[index.get(path) ?? -1];
+            if (!image || metadataWritten(path)) continue;
+            if (((imageRatings ?? state.imageRatings)[path] ?? image.rating ?? 0) !== 0) continue;
+            imageRatings ??= { ...state.imageRatings };
+            imageRatings[path] = rating;
+          }
+          return imageRatings ? { imageRatings } : state;
+        });
+      }),
+      listen<ImageMetadataLoadedPayload>('image-metadata-loaded', (event) => {
+        if (!isEffectActive) return;
         const { path, rating, is_edited, tags } = event.payload;
 
         useLibraryStore.getState().setLibrary((state) => {

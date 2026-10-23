@@ -29,22 +29,41 @@ pub async fn session_search(
     with_library(directory, false, move |lib| {
         start_facts_pass_if_needed(lib);
         let paths = lib.search(&rule).map_err(|e| e.to_string())?;
-        Ok(match listed.map(PathBuf::from) {
-            Some(listed) => match listed.canonicalize() {
-                Ok(real) if real != listed => paths
-                    .into_iter()
-                    .map(|path| match path.strip_prefix(&real) {
-                        Ok(rest) => listed.join(rest),
-                        Err(_) => path,
-                    })
-                    .collect(),
-                _ => paths,
-            },
+        Ok(match listed {
+            Some(listed) => as_listed(paths, Path::new(&listed)),
             None => paths,
         })
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// `paths` as the catalog holds them (real paths) in the form of `listed`,
+/// the folder the grid lists (perhaps through a symlink); those outside it
+/// as they are.
+fn as_listed(paths: Vec<PathBuf>, listed: &Path) -> Vec<PathBuf> {
+    match listed.canonicalize() {
+        Ok(real) if real != listed => paths
+            .into_iter()
+            .map(|path| match path.strip_prefix(&real) {
+                Ok(rest) => listed.join(rest),
+                Err(_) => path,
+            })
+            .collect(),
+        _ => paths,
+    }
+}
+
+/// `paths` the catalog announced (real paths, `CAMERA_RATINGS`) in the
+/// form the grid lists them in when it lists `listed`.
+#[tauri::command]
+pub async fn session_paths_as_listed(
+    paths: Vec<PathBuf>,
+    listed: String,
+) -> Result<Vec<PathBuf>, String> {
+    tauri::async_runtime::spawn_blocking(move || as_listed(paths, Path::new(&listed)))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// One value list the Library filter shows: the values of `field` among
@@ -124,6 +143,10 @@ static FACTS_ANNOUNCED: OnceLock<tauri::AppHandle> = OnceLock::new();
 /// Emitted with the library's directory after the pass recorded facts, so
 /// the Library searches, counts its lists and smart albums again.
 pub const FACTS_RECORDED: &str = "library-facts-recorded";
+
+/// Emitted with the (path, rating) pairs of a batch of photographs that
+/// took their camera's rating, paths as the catalog holds them.
+pub const CAMERA_RATINGS: &str = "library-camera-ratings";
 
 /// The app hears of facts the background pass records from now on.
 pub fn announce_facts_to(app: tauri::AppHandle) {
@@ -209,15 +232,12 @@ pub fn start_facts_pass(directory: PathBuf) {
             std::thread::sleep(PASS_DELAY);
             let announce = |_: usize, rated: &Rated| {
                 if let Some(app) = FACTS_ANNOUNCED.get() {
-                    // A rating taken from the camera shows in the grid as one
-                    // read from a sidecar does; marked as the camera's, so
-                    // the grid does not take it over a rating set since
-                    // (the batch is announced after it was read).
-                    for (path, rating) in rated {
-                        let _ = app.emit(
-                            "image-metadata-loaded",
-                            serde_json::json!({ "path": path, "rating": rating, "camera": true }),
-                        );
+                    // Ratings taken from the camera show in the grid as ones
+                    // read from a sidecar do, one event per batch; the
+                    // camera's, so the grid does not take one over a rating
+                    // set since (the batch is announced after it was read).
+                    if !rated.is_empty() {
+                        let _ = app.emit(CAMERA_RATINGS, rated);
                     }
                     let _ = app.emit(FACTS_RECORDED, &directory);
                 }
@@ -418,6 +438,29 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(found, [alias.join("A.ARW")]);
+    }
+
+    /// Paths the pass announces (real ones) come back in the form of a
+    /// folder listed through a symlink; others as they are.
+    #[cfg(unix)]
+    #[test]
+    fn announced_paths_take_the_listed_form() {
+        let temp = tempfile::tempdir().unwrap();
+        let real = temp.path().join("real");
+        std::fs::create_dir_all(real.join("Day 2")).unwrap();
+        let alias = temp.path().join("alias");
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+        let real = real.canonicalize().unwrap();
+        let other = temp.path().join("other/B.ARW");
+        let mapped = block_on(session_paths_as_listed(
+            vec![real.join("A.ARW"), real.join("Day 2/C.ARW"), other.clone()],
+            alias.to_string_lossy().into_owned(),
+        ))
+        .unwrap();
+        assert_eq!(
+            mapped,
+            [alias.join("A.ARW"), alias.join("Day 2/C.ARW"), other]
+        );
     }
 
     /// The catalog's file types say RAW exactly where the grid does.

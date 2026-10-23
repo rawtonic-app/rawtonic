@@ -80,6 +80,15 @@ impl Entry {
   }
 
   pub fn parse<R: Read + Seek>(reader: &mut EndianReader<R>, base: u32, corr: i32, tag: u16) -> Result<Entry> {
+    let mut unlimited = u64::MAX;
+    Ok(Self::parse_within(reader, base, corr, tag, &mut unlimited)?.expect("an unlimited budget"))
+  }
+
+  /// RAWTONIC: `parse` taking the bytes of a value stored outside its entry
+  /// from `budget` (`IFD::new`); `None` for a value larger than what is
+  /// left, refused before its buffer is allocated (the reader is left at
+  /// the next entry).
+  pub fn parse_within<R: Read + Seek>(reader: &mut EndianReader<R>, base: u32, corr: i32, tag: u16, budget: &mut u64) -> Result<Option<Entry>> {
     let pos = reader.position()? - 2; // TODO -2 because tag is already read
 
     let typ = reader.read_u16()?;
@@ -127,6 +136,13 @@ impl Entry {
         "Tag 0x{:X}: {} values at offset {} run past the end of the file",
         tag, count, offset
       )));
+    }
+    if bytesize > 4 {
+      if bytesize as u64 > *budget {
+        reader.goto(pos + 12)?;
+        return Ok(None);
+      }
+      *budget -= bytesize as u64;
     }
     reader.goto(base + offset)?;
     let entry = match typ {
@@ -259,7 +275,7 @@ impl Entry {
       }
     };
     reader.goto(pos + 12)?; // Size of IFD entry
-    Ok(entry)
+    Ok(Some(entry))
   }
 
   pub fn type_name(&self) -> String {

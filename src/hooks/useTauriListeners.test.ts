@@ -207,7 +207,7 @@ it("does not re-query the library when selecting a photo with unchanged metadata
 it("takes a camera's rating from the facts pass only for photographs unrated and unwritten here", async () => {
   const { invokeInOrder } = await import("../utils/catalogWrites");
   const images = ["/a.RW2", "/b.RW2", "/c.RW2"].map((path) => ({ path, rating: 0, is_edited: false, tags: [] })) as unknown as ImageFile[];
-  useLibraryStore.getState().setLibrary({ imageList: images, imageRatings: { "/b.RW2": 5 } });
+  useLibraryStore.getState().setLibrary({ imageList: images, imageRatings: { "/b.RW2": 5 }, currentFolderPath: null });
   renderHook(() =>
     useTauriListeners({
       refreshAllFolderTrees: vi.fn(),
@@ -219,10 +219,48 @@ it("takes a camera's rating from the facts pass only for photographs unrated and
   // C was rated and set back to none in this window (its write may follow
   // the pass's read of it).
   await invokeInOrder("set_rating_for_paths", { paths: ["/c.RW2"], rating: 0 }).catch(() => {});
-  for (const path of ["/a.RW2", "/b.RW2", "/c.RW2"])
-    act(() => callbacks.get("image-metadata-loaded")!({ payload: { path, rating: 3, camera: true } }));
+  const before = useLibraryStore.getState();
+  await act(() =>
+    callbacks.get("library-camera-ratings")!({
+      payload: [["/a.RW2", 3], ["/b.RW2", 3], ["/c.RW2", 3], ["/elsewhere/d.RW2", 3]],
+    }),
+  );
   const { imageRatings } = useLibraryStore.getState();
   expect([imageRatings["/a.RW2"], imageRatings["/b.RW2"], imageRatings["/c.RW2"]]).toEqual([3, 5, undefined]);
+  // Photographs not listed here are not kept.
+  expect(Object.keys(imageRatings).sort()).toEqual(["/a.RW2", "/b.RW2"]);
+  // One update for the batch; nothing to take, nothing changes.
+  const after = useLibraryStore.getState();
+  expect(after.imageRatings).not.toBe(before.imageRatings);
+  await act(() => callbacks.get("library-camera-ratings")!({ payload: [["/a.RW2", 4]] }));
+  expect(useLibraryStore.getState()).toBe(after);
+});
+
+it("finds a camera's rating for a photograph listed through a symlinked folder", async () => {
+  const { invoke } = await import("@tauri-apps/api/core");
+  const images = ["/alias/a.RW2", "/alias/day/b.RW2"].map((path) => ({ path, rating: 0, is_edited: false, tags: [] })) as unknown as ImageFile[];
+  useLibraryStore.getState().setLibrary({ imageList: images, imageRatings: {}, currentFolderPath: "/alias" });
+  const original = vi.mocked(invoke).getMockImplementation()!;
+  const asked: unknown[] = [];
+  vi.mocked(invoke).mockImplementation((command: string, args?: unknown) => {
+    if (command !== "session_paths_as_listed") return original(command, args as never);
+    asked.push(args);
+    return Promise.resolve(["/alias/a.RW2", "/alias/day/b.RW2"]);
+  });
+  renderHook(() =>
+    useTauriListeners({
+      refreshAllFolderTrees: vi.fn(),
+      handleSelectSubfolder: vi.fn(),
+      refreshImageList: vi.fn(),
+      markGenerated: vi.fn(),
+    }),
+  );
+  await act(() =>
+    callbacks.get("library-camera-ratings")!({ payload: [["/real/a.RW2", 2], ["/real/day/b.RW2", 4]] }),
+  );
+  vi.mocked(invoke).mockImplementation(original);
+  expect(asked).toEqual([{ paths: ["/real/a.RW2", "/real/day/b.RW2"], listed: "/alias" }]);
+  expect(useLibraryStore.getState().imageRatings).toEqual({ "/alias/a.RW2": 2, "/alias/day/b.RW2": 4 });
 });
 
 it("loads the export queue at start and points to interrupted exports", async () => {
