@@ -42,6 +42,9 @@ pub struct LoadImageResult {
     /// The source was developed for the multi-scale colour noise filter
     /// (without the decode-time chroma clean-up); None for preview data.
     pub color_noise_multiscale: Option<bool>,
+    /// The source was developed with `DeadTest::Adjacent` (`renderVersion`
+    /// 3); None for preview data.
+    pub dead_pixel_adjacent: Option<bool>,
 }
 
 pub fn load_and_composite(
@@ -163,8 +166,7 @@ pub fn load_base_image_for_recipe_measured(
     denoise: Option<rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
     adjustments: &Value,
 ) -> Result<(DynamicImage, Option<DecodeMeasures>)> {
-    let multiscale =
-        rawtonic_engine::color_noise::multiscale(adjustments, is_raw_file(path_for_ext_check));
+    let variant = decode_variant(adjustments, is_raw_file(path_for_ext_check));
     load_base_image_measured_for(
         bytes,
         path_for_ext_check,
@@ -173,24 +175,23 @@ pub fn load_base_image_for_recipe_measured(
         cancel_token,
         denoise,
         None,
-        Some(multiscale),
+        Some(variant),
     )
 }
 
-/// Whether the photograph at `path` (a source or a virtual copy's path)
-/// develops colour noise with the multi-scale filter
-/// (`color_noise::multiscale`), by its stored recipe; a never-edited RAW
-/// does. A source path decides by its master recipe.
-pub fn stored_multiscale(path: &str) -> bool {
+/// What the stored recipe of the photograph at `path` (a source or a
+/// virtual copy's path) asks of its decode (`decode_variant`): a
+/// never-edited RAW renders as a new edit. A source path decides by its
+/// master recipe.
+pub fn stored_decode_variant(path: &str) -> DecodeVariant {
     let (source, sidecar) = parse_virtual_path(path);
     let metadata = exif_processing::load_sidecar(&sidecar);
-    rawtonic_engine::color_noise::multiscale(&metadata.adjustments, is_raw_file(&source))
+    decode_variant(&metadata.adjustments, is_raw_file(&source))
 }
 
 /// The base image options of the app's preferences for a photograph whose
-/// recipe develops colour noise with `multiscale`
-/// (`BaseImageOptions::for_color_noise`).
-pub fn base_options(settings: &AppSettings, multiscale: bool) -> BaseImageOptions {
+/// recipe asks for `variant` (`BaseImageOptions::for_variant`).
+pub fn base_options(settings: &AppSettings, variant: DecodeVariant) -> BaseImageOptions {
     BaseImageOptions::from_preferences(
         settings.raw_highlight_compression,
         settings.linear_raw_mode.clone(),
@@ -198,14 +199,15 @@ pub fn base_options(settings: &AppSettings, multiscale: bool) -> BaseImageOption
         settings.raw_preprocessing_sharpening,
         settings.apply_preprocessing_to_non_raws,
     )
-    .for_color_noise(multiscale)
+    .for_variant(variant)
 }
 
 /// `load_base_image_from_bytes_with_draft` for a recipe whose colour noise
-/// filter is known: `multiscale` (`color_noise::multiscale` of the recipe
-/// rendered) skips the decode-time chroma clean-up; None decides by the
-/// photograph's stored master recipe (`stored_multiscale`). Fast
-/// developments never run the clean-up, so they do not read the recipe.
+/// filter and dead-photosite test are known: `variant` (`decode_variant`
+/// of the recipe rendered); None decides by the photograph's stored master
+/// recipe (`stored_decode_variant`). Fast developments never run the
+/// clean-up; they keep the recipe's dead-photosite test (it runs before
+/// their demosaicing too).
 #[allow(clippy::too_many_arguments)]
 pub fn load_base_image_from_bytes_for(
     bytes: &[u8],
@@ -215,7 +217,7 @@ pub fn load_base_image_from_bytes_for(
     cancel_token: Option<(Arc<AtomicUsize>, usize)>,
     denoise: Option<rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
     draft: Option<Arc<rawtonic_rawdecode::raw_processing::DraftSink>>,
-    multiscale: Option<bool>,
+    variant: Option<DecodeVariant>,
 ) -> Result<DynamicImage> {
     load_base_image_measured_for(
         bytes,
@@ -225,7 +227,7 @@ pub fn load_base_image_from_bytes_for(
         cancel_token,
         denoise,
         draft,
-        multiscale,
+        variant,
     )
     .map(|(image, _)| image)
 }
@@ -242,11 +244,14 @@ pub fn load_base_image_measured_for(
     cancel_token: Option<(Arc<AtomicUsize>, usize)>,
     denoise: Option<rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
     draft: Option<Arc<rawtonic_rawdecode::raw_processing::DraftSink>>,
-    multiscale: Option<bool>,
+    variant: Option<DecodeVariant>,
 ) -> Result<(DynamicImage, Option<DecodeMeasures>)> {
-    let multiscale =
-        !use_fast_raw_dev && multiscale.unwrap_or_else(|| stored_multiscale(path_for_ext_check));
-    let mut options = base_options(settings, multiscale);
+    let variant = variant.unwrap_or_else(|| stored_decode_variant(path_for_ext_check));
+    let variant = DecodeVariant {
+        multiscale: variant.multiscale && !use_fast_raw_dev,
+        ..variant
+    };
+    let mut options = base_options(settings, variant);
     options.mosaic_denoise = denoise;
     options.draft = draft;
 
@@ -452,7 +457,7 @@ pub async fn load_image_proxy(
         .current_source
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = path.clone();
-    let decoded_key = decoded_cache_key(&source_path_str, None, stored_multiscale(&path));
+    let decoded_key = decoded_cache_key(&source_path_str, None, stored_decode_variant(&path));
     if state
         .decoded_image_cache
         .lock()
@@ -462,11 +467,17 @@ pub async fn load_image_proxy(
     {
         return Ok(None);
     }
+    // Only previews made for this photograph's decode variant (a virtual
+    // copy's may differ from its master's) stand in until the decode.
+    let wanted = stored_decode_variant(&path);
+    if wanted != stored_decode_variant(&source_path_str) {
+        return Ok(None);
+    }
     let remembered = state
         .proxy_memory
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(&path);
+        .get(&path, wanted);
     let settings = load_settings(app_handle).unwrap_or_default();
     let loaded = if let Some(loaded) = remembered {
         Some(loaded)
@@ -557,17 +568,22 @@ fn decode_for_proxy(
     decode.upgrade()
 }
 
+/// An offline virtual copy whose recipe develops the RAW differently from
+/// the photograph's previews (`preview_proxy::stands_for`).
+const OTHER_VARIANT_OFFLINE: &str = "This copy develops the RAW differently from the photograph's stored previews (another colour noise filter or render version); reconnect the RAW to open it";
+
 const NOT_BAYER: &str = "AI Denoise works on Bayer sensors only; this photograph's sensor (X-Trans, Foveon or a linear DNG) is not supported";
 
 /// The decoded-image cache key of a full decode of the source at `path`:
-/// the path, plus the AI Denoise amount and a mark for a base developed for
-/// the multi-scale colour noise filter (no decode-time chroma clean-up), so
-/// bases for the old and the new filter never stand for each other. A base
-/// for the old filter without AI Denoise keeps the plain path.
+/// the path, plus the AI Denoise amount and marks for a base developed for
+/// the multi-scale colour noise filter (no decode-time chroma clean-up) and
+/// for the second dead-photosite test, so bases of different variants never
+/// stand for each other. A base of the default variant without AI Denoise
+/// keeps the plain path.
 pub fn decoded_cache_key(
     path: &str,
     denoise: Option<&rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
-    multiscale: bool,
+    variant: DecodeVariant,
 ) -> String {
     let mut key = path.to_string();
     if let Some(d) = denoise {
@@ -578,8 +594,11 @@ pub fn decoded_cache_key(
         }
         key.push_str(&format!(" {:p}", Arc::as_ptr(&d.denoiser) as *const ()));
     }
-    if multiscale {
+    if variant.multiscale {
         key.push_str("\u{1}cnr-ms");
+    }
+    if variant.dead_test == DeadTest::Adjacent {
+        key.push_str("\u{1}dead-adjacent");
     }
     key
 }
@@ -642,8 +661,11 @@ fn clear_derived_caches(state: &AppState) {
 }
 
 /// Develops the open photograph again with AI Denoise at `amount` (0 … 100)
-/// of `version` (`aiDenoiseVersion`, None: 1) and for the colour noise filter of its recipe (`multiscale`, see
-/// `load_base_image_from_bytes_for`; None: its stored recipe's), and makes
+/// of `version` (`aiDenoiseVersion`, None: 1), for the colour noise filter
+/// of its recipe (`multiscale`, see `load_base_image_from_bytes_for`; None:
+/// its stored recipe's) and for its dead-photosite test
+/// (`dead_pixel_adjacent`: `DeadTest::Adjacent`; None: its stored
+/// recipe's), and makes
 /// that the source; returns the AI Denoise amount it was developed with.
 /// The editor calls it when the recipe's AI Denoise amount or colour noise
 /// filter differs from the source's (src/utils/aiDenoise.ts).
@@ -653,6 +675,7 @@ pub async fn apply_ai_denoise(
     amount: f32,
     version: Option<u8>,
     multiscale: Option<bool>,
+    dead_pixel_adjacent: Option<bool>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<f32, String> {
@@ -661,7 +684,15 @@ pub async fn apply_ai_denoise(
     if !is_raw_file(&source) {
         return Err("AI Denoise works on RAW files only".to_string());
     }
-    let multiscale = multiscale.unwrap_or_else(|| stored_multiscale(&path));
+    let stored = stored_decode_variant(&path);
+    let variant = DecodeVariant {
+        multiscale: multiscale.unwrap_or(stored.multiscale),
+        dead_test: match dead_pixel_adjacent {
+            Some(true) => DeadTest::Adjacent,
+            Some(false) => DeadTest::SameColour,
+            None => stored.dead_test,
+        },
+    };
     let recipe =
         serde_json::json!({ "aiDenoise": amount, "aiDenoiseVersion": version.unwrap_or(1) });
     let denoise = crate::ai_denoise::option_for(&app_handle, &recipe).await?;
@@ -672,7 +703,7 @@ pub async fn apply_ai_denoise(
     };
     let my_generation = state.load_image_generation.fetch_add(1, Ordering::SeqCst) + 1;
     let tracker = state.load_image_generation.clone();
-    let key = decoded_cache_key(&source, denoise.as_ref(), multiscale);
+    let key = decoded_cache_key(&source, denoise.as_ref(), variant);
     let cached = state
         .decoded_image_cache
         .lock()
@@ -694,7 +725,7 @@ pub async fn apply_ai_denoise(
                     cancel_token,
                     denoise.clone(),
                     None,
-                    Some(multiscale),
+                    Some(variant),
                 )
                 .map_err(|e| e.to_string())?;
                 if denoise.as_ref().is_some_and(|d| !d.was_applied()) {
@@ -731,7 +762,7 @@ pub async fn apply_ai_denoise(
             path,
             image,
             is_raw: true,
-            multiscale: Some(multiscale),
+            decode: Some(variant),
             measures,
         },
     )?;
@@ -796,6 +827,8 @@ fn draft_sink(
                     full_width,
                     full_height,
                     is_raw: true,
+                    made_for: None,
+                    measures: None,
                 });
             }
             #[cfg(feature = "performance-profiling")]
@@ -898,12 +931,9 @@ pub async fn load_image(
         rawtonic_engine::image_loader::ai_denoise_settings(&metadata.adjustments)
             .filter(|_| denoise.is_some())
             .map_or(1, |ai| ai.version);
-    // The opened recipe's colour noise filter decides the decode-time chroma
-    // clean-up (a virtual copy's own recipe).
-    let multiscale = rawtonic_engine::color_noise::multiscale(
-        &metadata.adjustments,
-        is_raw_file(&source_path_str),
-    );
+    // The opened recipe decides the decode-time chroma clean-up and the
+    // dead-photosite test (a virtual copy's own recipe).
+    let variant = decode_variant(&metadata.adjustments, is_raw_file(&source_path_str));
     // A photograph shown on nothing developed yet (no stored proxy) gets a
     // draft from its decode.
     let draft = (is_raw_file(&source_path_str)
@@ -914,7 +944,7 @@ pub async fn load_image(
             .as_ref()
             .is_none_or(|p| p.path != path))
     .then(|| draft_sink(&app_handle, &path, my_generation));
-    let mut cache_key = decoded_cache_key(&source_path_str, denoise.as_ref(), multiscale);
+    let mut cache_key = decoded_cache_key(&source_path_str, denoise.as_ref(), variant);
     let decode_denoise = denoise.clone();
 
     let cached_data = {
@@ -990,7 +1020,7 @@ pub async fn load_image(
                             cancel_token.clone(),
                             decode_denoise.clone(),
                             draft.clone(),
-                            Some(multiscale),
+                            Some(variant),
                         )
                         .map_err(|e| e.to_string())?;
                         let exif = {
@@ -1023,7 +1053,7 @@ pub async fn load_image(
                             cancel_token.clone(),
                             decode_denoise.clone(),
                             draft.clone(),
-                            Some(multiscale),
+                            Some(variant),
                         )
                         .map_err(|e| e.to_string())?;
                         let exif = {
@@ -1045,7 +1075,7 @@ pub async fn load_image(
         if denoise.as_ref().is_some_and(|d| !d.was_applied()) {
             ai_denoise = 0.0;
             ai_denoise_error = Some(NOT_BAYER.to_string());
-            cache_key = decoded_cache_key(&source_path_str, None, multiscale);
+            cache_key = decoded_cache_key(&source_path_str, None, variant);
         }
 
         state
@@ -1082,7 +1112,7 @@ pub async fn load_image(
             path: path.clone(),
             image: pristine_arc,
             is_raw,
-            multiscale: Some(multiscale),
+            decode: Some(variant),
             measures,
         },
     )?;
@@ -1091,9 +1121,9 @@ pub async fn load_image(
     // decode only: the proxy stands for the photograph without AI Denoise).
     *state.proxy_image.lock().unwrap_or_else(|e| e.into_inner()) = None;
     state.source_signal.changed();
-    // Proxies stand for the master recipe's colour noise filter: a virtual
-    // copy developed for the other one leaves them as they are.
-    if is_raw && denoise.is_none() && multiscale == stored_multiscale(&source_path_str) {
+    // Proxies stand for the master recipe's decode variant: a virtual copy
+    // developed for another one leaves them as they are.
+    if is_raw && denoise.is_none() && variant == stored_decode_variant(&source_path_str) {
         let settings = proxy_settings;
         let size = crate::preview_proxy::standard_size(
             state.last_preview_dim.load(Ordering::Relaxed),
@@ -1132,7 +1162,7 @@ pub async fn load_image(
                 &proxy_source,
                 size,
                 &settings,
-                multiscale,
+                variant,
                 measures,
             ) {
                 Ok(proxy) => {
@@ -1167,7 +1197,8 @@ pub async fn load_image(
         ai_denoise_version,
         ai_denoise_error,
         offline: None,
-        color_noise_multiscale: Some(multiscale),
+        color_noise_multiscale: Some(variant.multiscale),
+        dead_pixel_adjacent: Some(variant.dead_test == DeadTest::Adjacent),
     })
 }
 
@@ -1201,6 +1232,12 @@ async fn open_offline(
     stored_exif: Option<HashMap<String, String>>,
     settings: &AppSettings,
 ) -> Result<Option<LoadImageResult>, String> {
+    // The previews stand for the master recipe's decode variant: a virtual
+    // copy of another one cannot be shown from them.
+    let wanted = stored_decode_variant(path);
+    if wanted != stored_decode_variant(&source.to_string_lossy()) {
+        return Err(OTHER_VARIANT_OFFLINE.to_string());
+    }
     let exif = crate::exif_processing::read_rrexif_sidecar(source)
         .or(stored_exif)
         .unwrap_or_default();
@@ -1233,8 +1270,8 @@ async fn open_offline(
                 path: path.to_string(),
                 image: Arc::new(full.image),
                 is_raw: true,
-                multiscale: None,
-                measures: None,
+                decode: None,
+                measures: full.measures,
             },
         )
         .inspect_err(|_| state.source_signal.changed())?;
@@ -1249,13 +1286,14 @@ async fn open_offline(
             ai_denoise_error: None,
             offline: Some("full"),
             color_noise_multiscale: None,
+            dead_pixel_adjacent: None,
         }));
     }
     let remembered = state
         .proxy_memory
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(path);
+        .get(path, wanted);
     let standard = match remembered {
         Some(proxy) => Some(proxy),
         None => {
@@ -1299,6 +1337,7 @@ async fn open_offline(
         ai_denoise_error: None,
         offline: Some("standard"),
         color_noise_multiscale: None,
+        dead_pixel_adjacent: None,
     }))
 }
 
@@ -1312,7 +1351,7 @@ mod activation_tests {
             path: "a.raf".into(),
             image: Arc::new(DynamicImage::new_rgb8(2, 1)),
             is_raw: true,
-            multiscale: None,
+            decode: None,
             measures: None,
         };
         // Marked offline, its 1:1 preview not published yet.
@@ -1341,7 +1380,7 @@ mod activation_tests {
             path: "a.raf".into(),
             image: Arc::new(DynamicImage::new_rgb8(2, 1)),
             is_raw: true,
-            multiscale: None,
+            decode: None,
             measures: None,
         };
         publish_loaded_image(
@@ -1372,7 +1411,7 @@ mod activation_tests {
             path: path.to_owned(),
             image: Arc::new(DynamicImage::new_rgb8(2, 1)),
             is_raw: true,
-            multiscale: None,
+            decode: None,
             measures: None,
         };
         publish_loaded_image(&original, &signal, &generation, 1, loaded("first.raf")).unwrap();
@@ -1389,14 +1428,28 @@ mod activation_tests {
     }
 
     #[test]
-    fn bases_for_the_two_colour_noise_filters_never_share_a_cache_entry() {
-        let plain = decoded_cache_key("/p/A.NEF", None, false);
-        let multiscale = decoded_cache_key("/p/A.NEF", None, true);
-        // The old filter's base keeps the key it always had.
+    fn bases_of_different_decode_variants_never_share_a_cache_entry() {
+        let ms = |multiscale, dead_test| DecodeVariant {
+            multiscale,
+            dead_test,
+        };
+        let plain = decoded_cache_key("/p/A.NEF", None, DecodeVariant::default());
+        let multiscale = decoded_cache_key("/p/A.NEF", None, ms(true, DeadTest::SameColour));
+        let adjacent = decoded_cache_key("/p/A.NEF", None, ms(true, DeadTest::Adjacent));
+        // The default variant's base keeps the key it always had, the
+        // multi-scale one too.
         assert_eq!(plain, "/p/A.NEF");
-        assert_ne!(plain, multiscale);
-        assert!(multiscale.starts_with("/p/A.NEF\u{1}"));
-        assert_ne!(decoded_cache_key("/p/B.NEF", None, true), multiscale);
+        assert_eq!(multiscale, "/p/A.NEF\u{1}cnr-ms");
+        assert_ne!(adjacent, multiscale);
+        assert_ne!(
+            decoded_cache_key("/p/A.NEF", None, ms(false, DeadTest::Adjacent)),
+            plain
+        );
+        assert!(adjacent.starts_with("/p/A.NEF\u{1}"));
+        assert_ne!(
+            decoded_cache_key("/p/B.NEF", None, ms(true, DeadTest::SameColour)),
+            multiscale
+        );
     }
 
     #[test]
@@ -1405,8 +1458,15 @@ mod activation_tests {
         let raw = dir.path().join("A.NEF");
         std::fs::write(&raw, b"raw").unwrap();
         let raw_str = raw.to_string_lossy().to_string();
-        // Never edited: the multi-scale filter, no clean-up.
-        assert!(stored_multiscale(&raw_str));
+        // Never edited: the multi-scale filter, no clean-up, and the
+        // second dead test (a new edit's render version).
+        assert_eq!(
+            stored_decode_variant(&raw_str),
+            DecodeVariant {
+                multiscale: true,
+                dead_test: DeadTest::Adjacent
+            }
+        );
         let settings = AppSettings::default();
         let today = BaseImageOptions::from_preferences(
             settings.raw_highlight_compression,
@@ -1416,13 +1476,17 @@ mod activation_tests {
             settings.apply_preprocessing_to_non_raws,
         );
         assert!(today.color_nr_amount > 0.0);
-        assert_eq!(base_options(&settings, true).color_nr_amount, 0.0);
+        let variant = |multiscale| DecodeVariant {
+            multiscale,
+            dead_test: DeadTest::SameColour,
+        };
+        assert_eq!(base_options(&settings, variant(true)).color_nr_amount, 0.0);
         assert_eq!(
-            base_options(&settings, true).sharpening_amount,
+            base_options(&settings, variant(true)).sharpening_amount,
             today.sharpening_amount
         );
         assert_eq!(
-            base_options(&settings, false).color_nr_amount,
+            base_options(&settings, variant(false)).color_nr_amount,
             today.color_nr_amount
         );
         let write = |path: &std::path::Path, adjustments: serde_json::Value| {
@@ -1440,8 +1504,22 @@ mod activation_tests {
             &dir.path().join("A.NEF.c1.rrdata"),
             serde_json::json!({ "colorNoiseReduction": 25, "colorNoiseVersion": 2 }),
         );
-        assert!(!stored_multiscale(&raw_str));
-        assert!(stored_multiscale(&format!("{raw_str}?vc=c1")));
+        assert!(!stored_decode_variant(&raw_str).multiscale);
+        assert!(stored_decode_variant(&format!("{raw_str}?vc=c1")).multiscale);
+        // Saved edits keep the first dead test until their render version
+        // is 3.
+        assert_eq!(
+            stored_decode_variant(&raw_str).dead_test,
+            DeadTest::SameColour
+        );
+        write(
+            &dir.path().join("A.NEF.c2.rrdata"),
+            serde_json::json!({ "colorNoiseReduction": 25, "renderVersion": 3 }),
+        );
+        assert_eq!(
+            stored_decode_variant(&format!("{raw_str}?vc=c2")).dead_test,
+            DeadTest::Adjacent
+        );
     }
 
     #[test]

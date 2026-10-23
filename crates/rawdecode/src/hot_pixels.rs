@@ -9,6 +9,15 @@
 //! photosite is not. Defective samples take the median of their same-colour
 //! neighbours. Measured on an ILCE-7M4 copy with 550 injected defects
 //! (notes: reference/hot-pixels.md).
+//!
+//! The first dead test compared a sample with its own colour only, so the
+//! red and blue samples on a thin dark line (slats, mesh, wires against the
+//! sky) were "repaired" to the brighter samples beside the line: magenta and
+//! green stripes on X-Trans files, whose same-colour neighbours lie off a
+//! 1–3 px line. `DeadTest::Adjacent` (`renderVersion` 3) also asks the
+//! adjacent samples of the other colours, as the hot test does: a dark line
+//! darkens them too, a dead photosite does not (notes:
+//! reference/xtrans-fine-patterns.md).
 
 use rawler::CFA;
 use rayon::prelude::*;
@@ -17,12 +26,27 @@ use rayon::prelude::*;
 /// and than this many times the brightest adjacent other colour.
 const HOT_RATIO: f32 = 2.0;
 const HOT_NEIGHBOUR_RATIO: f32 = 1.6;
-/// Dead: darker than this share of the darkest same-colour neighbour.
+/// Dead: darker than this share of the darkest same-colour neighbour
+/// and (`DeadTest::Adjacent`) than this share of the darkest adjacent
+/// other colour.
 const DEAD_RATIO: f32 = 0.4;
+const DEAD_NEIGHBOUR_RATIO: f32 = 0.6;
 /// Margins in units of the sensor range (black 0, white 1).
 const HOT_MARGIN: f32 = 0.01;
 const DEAD_MARGIN: f32 = 0.005;
 const DEAD_FLOOR: f32 = 0.02;
+
+/// Which test finds dead photosites.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum DeadTest {
+    /// Darker than every same-colour sample within two pixels (saved edits
+    /// before `renderVersion` 3).
+    #[default]
+    SameColour,
+    /// Also darker than every adjacent sample of the other colours
+    /// (white-balanced), so thin dark lines keep their colour.
+    Adjacent,
+}
 
 /// Same-colour offsets within two pixels and adjacent other-colour offsets,
 /// per phase of the CFA pattern.
@@ -86,6 +110,7 @@ pub fn suppress<T: Copy + Send + Sync>(
     active: (usize, usize, usize, usize),
     cfa: &CFA,
     wb: [f32; 4],
+    dead_test: DeadTest,
     level: impl Fn(T) -> f32 + Sync,
     store: impl Fn(f32) -> T + Sync,
 ) -> usize {
@@ -127,20 +152,24 @@ pub fn suppress<T: Copy + Send + Sync>(
                     lo = lo.min(n);
                     hi = hi.max(n);
                 }
-                let hot = v > HOT_RATIO * hi.max(0.0) + HOT_MARGIN && {
-                    let adjacent = neighbours.other[phase]
-                        .iter()
-                        .map(|(dy, dx, c)| {
-                            level(
-                                source[(row as isize + dy) as usize * width
-                                    + (col as isize + dx) as usize],
-                            ) * wb[*c]
-                                / wb[colour]
-                        })
-                        .fold(0.0f32, f32::max);
-                    v > HOT_NEIGHBOUR_RATIO * adjacent + HOT_MARGIN
+                // Adjacent samples of the other colours, white-balanced.
+                let adjacent = || {
+                    neighbours.other[phase].iter().map(|(dy, dx, c)| {
+                        level(
+                            source[(row as isize + dy) as usize * width
+                                + (col as isize + dx) as usize],
+                        ) * wb[*c]
+                            / wb[colour]
+                    })
                 };
-                let dead = !hot && lo > DEAD_FLOOR && v < DEAD_RATIO * lo - DEAD_MARGIN;
+                let hot = v > HOT_RATIO * hi.max(0.0) + HOT_MARGIN
+                    && v > HOT_NEIGHBOUR_RATIO * adjacent().fold(0.0f32, f32::max) + HOT_MARGIN;
+                let dead = !hot
+                    && lo > DEAD_FLOOR
+                    && v < DEAD_RATIO * lo - DEAD_MARGIN
+                    && (dead_test == DeadTest::SameColour
+                        || v < DEAD_NEIGHBOUR_RATIO * adjacent().fold(f32::INFINITY, f32::min)
+                            - DEAD_MARGIN);
                 if hot || dead {
                     let n = same.len();
                     let slice = &mut values[..n];
@@ -179,7 +208,16 @@ mod tests {
                 data[(30 + dy) * w + 30 + dx] = 0.95;
             }
         }
-        let fixed = suppress(&mut data, w, (0, 0, w, h), &bayer(), [1.0; 4], |v| v, |v| v);
+        let fixed = suppress(
+            &mut data,
+            w,
+            (0, 0, w, h),
+            &bayer(),
+            [1.0; 4],
+            DeadTest::Adjacent,
+            |v| v,
+            |v| v,
+        );
         assert_eq!(fixed, 2);
         assert!((data[10 * w + 10] - 0.3).abs() < 1e-6);
         assert!((data[20 * w + 21] - 0.3).abs() < 1e-6);
@@ -200,11 +238,74 @@ mod tests {
                 (0, 0, w, h),
                 &bayer(),
                 [2.0, 1.0, 1.5, 1.0],
+                DeadTest::Adjacent,
                 |v| v,
                 |v| v
             ),
             0
         );
         assert_eq!(data, before);
+    }
+
+    /// A thin dark line keeps its samples: on X-Trans the red and blue
+    /// samples on a one-pixel line have no same-colour neighbour on it
+    /// within two pixels, so the same-colour test alone took them for dead
+    /// photosites and lifted them to the bright samples beside the line.
+    #[test]
+    fn thin_dark_lines_are_not_dead_photosites() {
+        let xtrans = CFA::new("GGRGGBGGBGGRBRGRBGGGBGGRGGRGGBRBGBRG");
+        let (w, h) = (48, 48);
+        // A dark vertical line one photosite wide in column 20, white
+        // balance as a daylight X-Trans file.
+        let wb = [1.9, 1.0, 1.9, 1.0];
+        let mosaic: Vec<f32> = (0..w * h)
+            .map(|i| {
+                let level = if i % w == 20 { 0.02 } else { 0.25 };
+                level / wb[xtrans.color_at(i / w, i % w)]
+            })
+            .collect();
+        let mut data = mosaic.clone();
+        let fixed = suppress(
+            &mut data,
+            w,
+            (0, 0, w, h),
+            &xtrans,
+            wb,
+            DeadTest::Adjacent,
+            |v| v,
+            |v| v,
+        );
+        assert_eq!(fixed, 0);
+        assert_eq!(data, mosaic);
+        // The same-colour test (saved edits) still changes the line.
+        assert!(
+            suppress(
+                &mut data,
+                w,
+                (0, 0, w, h),
+                &xtrans,
+                wb,
+                DeadTest::SameColour,
+                |v| v,
+                |v| v
+            ) > 0
+        );
+        // A dead photosite beside the line is still found.
+        let mut data = mosaic.clone();
+        data[24 * w + 30] = 0.0;
+        assert_eq!(
+            suppress(
+                &mut data,
+                w,
+                (0, 0, w, h),
+                &xtrans,
+                wb,
+                DeadTest::Adjacent,
+                |v| v,
+                |v| v
+            ),
+            1
+        );
+        assert!(data[24 * w + 30] > 0.1);
     }
 }

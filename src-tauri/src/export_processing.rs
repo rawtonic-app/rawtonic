@@ -1071,13 +1071,10 @@ fn export_photo(
                 .as_ref()
                 .filter(|loaded| parse_virtual_path(&loaded.path).0 == source_path)
                 .filter(|loaded| offline_source.as_deref() != Some(loaded.path.as_str()))
-                // Developed for the colour noise filter exported.
+                // Developed for the decode variant exported.
                 .filter(|loaded| {
-                    loaded.multiscale
-                        == Some(rawtonic_engine::color_noise::multiscale(
-                            &js_adjustments,
-                            is_raw,
-                        ))
+                    loaded.decode
+                        == Some(crate::image_loader::decode_variant(&js_adjustments, is_raw))
                 })
                 .map(|loaded| (Arc::clone(&loaded.image), loaded.measures))
         } else {

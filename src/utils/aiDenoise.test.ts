@@ -103,4 +103,29 @@ describe('sourceDevelopToApply', () => {
       multiscale: undefined,
     });
   });
+
+  it('develops again when the dead-photosite test flips with the render version', () => {
+    const firstTest = { ...multiscaleBase, deadPixelAdjacent: false };
+    const secondTest = { ...multiscaleBase, deadPixelAdjacent: true };
+    // Saved edits before render version 3 keep the first test.
+    expect(sourceDevelopToApply(firstTest, { ...v2, renderVersion: 2 }, false)).toBeNull();
+    expect(sourceDevelopToApply(firstTest, v2, false)).toBeNull();
+    expect(sourceDevelopToApply(secondTest, { ...v2, renderVersion: 3 }, false)).toBeNull();
+    // Reset of an older edit (render version 3), and undo back.
+    expect(sourceDevelopToApply(firstTest, { ...v2, renderVersion: 3 }, false)).toEqual({
+      aiDenoise: 0,
+      multiscale: true,
+      deadPixelAdjacent: true,
+    });
+    expect(sourceDevelopToApply(secondTest, { ...v2, renderVersion: 2 }, false)).toEqual({
+      aiDenoise: 0,
+      multiscale: true,
+      deadPixelAdjacent: false,
+    });
+    // A test that failed before is not retried; unknown (preview data) waits.
+    expect(
+      sourceDevelopToApply({ ...firstTest, deadPixelAdjacentFailed: true }, { ...v2, renderVersion: 3 }, false),
+    ).toBeNull();
+    expect(sourceDevelopToApply(multiscaleBase, { ...v2, renderVersion: 3 }, false)).toBeNull();
+  });
 });

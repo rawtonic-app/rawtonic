@@ -233,11 +233,9 @@ pub async fn snapshot_thumbnail(
         let state = app_handle.state::<crate::app_state::AppState>();
         let gpu = crate::gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
         let (source, _) = parse_virtual_path(&path);
-        // Snapshots of one colour noise filter share a decoded base.
-        let multiscale = rawtonic_engine::color_noise::multiscale(
-            &adjustments,
-            crate::formats::is_raw_file(&source),
-        );
+        // Snapshots of one decode variant share a decoded base.
+        let variant =
+            crate::image_loader::decode_variant(&adjustments, crate::formats::is_raw_file(&source));
         let mut adjustments = adjustments;
         let _ =
             rawtonic_export::exif_processing::resolve_unresolved_lens(&mut adjustments, &source);
@@ -247,9 +245,8 @@ pub async fn snapshot_thumbnail(
         };
         let image = crate::file_management::develop_thumbnail(
             &path,
-            &format!("{path}\0snapshot\0{multiscale}"),
+            &format!("{path}\0snapshot\0{variant:?}"),
             Some(metadata),
-            true,
             gpu.as_ref(),
             None,
             &app_handle,

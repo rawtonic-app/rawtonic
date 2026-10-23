@@ -8,6 +8,7 @@ use base64::{Engine as _, engine::general_purpose};
 use exif::{Reader as ExifReader, Tag};
 use image::{DynamicImage, GenericImageView, ImageReader, imageops};
 use rawler::Orientation;
+pub use rawtonic_rawdecode::hot_pixels::DeadTest;
 use rayon::prelude::*;
 use serde::Deserialize;
 use serde_json::Value;
@@ -157,6 +158,42 @@ pub struct BaseImageOptions {
     /// (raw_processing::develop_raw_image_with_draft); set per photo by the
     /// editor for a photograph without a stored preview.
     pub draft: Option<Arc<rawtonic_rawdecode::raw_processing::DraftSink>>,
+    /// The test for dead photosites (`DecodeVariant::dead_test`).
+    pub dead_test: DeadTest,
+}
+
+/// What a recipe asks of the RAW decode beyond the app's preferences. Bases
+/// decoded for different variants never stand in for each other.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct DecodeVariant {
+    /// The multi-scale colour noise filter (`color_noise::multiscale`): no
+    /// decode-time chroma clean-up.
+    pub multiscale: bool,
+    /// How dead photosites are found (hot_pixels.rs): `DeadTest::Adjacent`
+    /// from `renderVersion` 3, so thin dark lines keep their colour.
+    pub dead_test: DeadTest,
+}
+
+/// The render version from which dead photosites must also be darker than
+/// their adjacent samples of the other colours (`DeadTest::Adjacent`).
+pub const DEAD_TEST_RENDER_VERSION: u64 = 3;
+
+/// The decode variant of the recipe rendered (a never-edited one renders
+/// as a new edit, `image_processing::apply_render_default`).
+pub fn decode_variant(adjustments: &Value, is_raw: bool) -> DecodeVariant {
+    let render_version = if crate::image_processing::is_new_recipe(adjustments) {
+        crate::image_processing::RENDER_VERSION
+    } else {
+        crate::image_processing::render_version(adjustments)
+    };
+    DecodeVariant {
+        multiscale: crate::color_noise::multiscale(adjustments, is_raw),
+        dead_test: if render_version >= DEAD_TEST_RENDER_VERSION {
+            DeadTest::Adjacent
+        } else {
+            DeadTest::SameColour
+        },
+    }
 }
 
 impl BaseImageOptions {
@@ -188,6 +225,7 @@ impl BaseImageOptions {
             apply_to_non_raws,
             mosaic_denoise: None,
             draft: None,
+            dead_test: DeadTest::SameColour,
         }
     }
 
@@ -203,9 +241,16 @@ impl BaseImageOptions {
         self
     }
 
-    /// `for_color_noise` with the decision taken from the recipe rendered.
+    /// The options for a photo whose recipe asks for `variant`: its colour
+    /// noise filter (`for_color_noise`) and its test for dead photosites.
+    pub fn for_variant(mut self, variant: DecodeVariant) -> Self {
+        self.dead_test = variant.dead_test;
+        self.for_color_noise(variant.multiscale)
+    }
+
+    /// `for_variant` with the decisions taken from the recipe rendered.
     pub fn for_recipe(self, adjustments: &Value, is_raw: bool) -> Self {
-        self.for_color_noise(crate::color_noise::multiscale(adjustments, is_raw))
+        self.for_variant(decode_variant(adjustments, is_raw))
     }
 }
 
@@ -293,6 +338,7 @@ pub fn load_base_image_measured(
         apply_to_non_raws,
         mosaic_denoise,
         draft,
+        dead_test,
     } = options.clone();
     if is_raw_file(path_for_ext_check) {
         // The denoiser is only read; a panic leaves nothing half-updated.
@@ -305,6 +351,7 @@ pub fn load_base_image_measured(
                 cancel_token,
                 mosaic_denoise.as_ref().filter(|_| !use_fast_raw_dev),
                 draft.as_deref(),
+                dead_test,
             )
         })) {
             Ok(Ok(mut image)) => {
@@ -2017,5 +2064,27 @@ mod color_noise_option_tests {
         assert_eq!(amount(&json!({}), true), 0.0);
         // Non-RAW files without a version keep the old filter.
         assert_eq!(amount(&json!({}), false), today);
+    }
+}
+
+#[cfg(test)]
+mod decode_variant_tests {
+    use super::{DeadTest, decode_variant};
+    use serde_json::json;
+
+    #[test]
+    fn the_render_version_decides_the_dead_photosite_test() {
+        let test = |recipe| decode_variant(&recipe, true).dead_test;
+        // Saved edits before render version 3 keep the first test.
+        assert_eq!(test(json!({ "exposure": 1 })), DeadTest::SameColour);
+        assert_eq!(test(json!({ "renderVersion": 2 })), DeadTest::SameColour);
+        assert_eq!(test(json!({ "renderVersion": 3 })), DeadTest::Adjacent);
+        assert_eq!(test(json!({ "renderVersion": 9 })), DeadTest::Adjacent);
+        // A never-edited photo renders as a new edit.
+        assert_eq!(test(serde_json::Value::Null), DeadTest::Adjacent);
+        assert_eq!(test(json!({})), DeadTest::Adjacent);
+        // The colour noise filter is decided as before.
+        assert!(decode_variant(&json!({}), true).multiscale);
+        assert!(!decode_variant(&json!({ "colorNoiseReduction": 25 }), true).multiscale);
     }
 }
