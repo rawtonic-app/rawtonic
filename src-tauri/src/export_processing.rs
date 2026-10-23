@@ -476,7 +476,8 @@ fn export_adjustments_as_lut(
 /// Export workers at most. The GPU renders one photo at a time and is the
 /// slowest stage; four keep it busy while they load, upload and encode the
 /// other photos. Measured on 20 RAWs with two recipes (M5 Pro): 4 workers
-/// 23.5 s, 6 23.7 s, 8 26.1 s (notes: parity-gaps/G43, F10).
+/// 23.5 s, 6 23.7 s, 8 26.1 s; with one render for both recipes 4 workers
+/// 16.4 s, 6 18.6 s, 8 19.1 s (notes: parity-gaps/G43, F10).
 const MAX_EXPORT_WORKERS: usize = 4;
 /// Memory an export worker takes, measured: four workers on 24–45 MP RAWs
 /// with two recipes peaked 7.8 GB above the app's footprint before the
@@ -886,8 +887,9 @@ fn export_in_turn(
 
 /// Exports one photo with the recipes `wanted` (indices into `targets`):
 /// the source is loaded once and developed once per kind of main file (with
-/// or without its mask layers), then each recipe renders and writes its
-/// file. Returns each recipe's result.
+/// or without its mask layers), the recipes of each kind render together
+/// (one main pass, encoded per recipe), then each recipe sizes, sharpens
+/// and writes its file. Returns each recipe's result.
 #[allow(clippy::too_many_arguments)]
 fn export_photo(
     app_handle: &tauri::AppHandle,
@@ -1096,6 +1098,39 @@ fn export_photo(
             ));
         }
     }
+    // Recipes of one develop render together: one main pass, encoded for
+    // each recipe's colour space and precision (notes: parity-gaps/G43).
+    // A file the user named takes its precision from its own extension,
+    // known only once it is planned: it renders on its own. Groups are
+    // consecutive in the order the recipes are saved and render right
+    // before their first recipe is saved: a photo keeps at most one group
+    // (`render_groups`, `GroupRenders`).
+    let alone = |target: usize| targets[target].is_explicit_file_path && item.total_paths == 1;
+    let precision = |target: usize| {
+        render_output_precision(
+            &targets[target].output_format,
+            &targets[target].export_settings,
+        )
+    };
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for run in
+        images.chunk_by(|&a, &b| with_mask_files(a) == with_mask_files(b) && !alone(a) && !alone(b))
+    {
+        let Some(Ok(prepared)) = &prepared[with_mask_files(run[0]) as usize] else {
+            continue;
+        };
+        if alone(run[0]) {
+            continue;
+        }
+        let precisions: Vec<_> = run.iter().map(|&target| precision(target)).collect();
+        groups.extend(
+            render_groups(prepared.size(), &precisions)
+                .into_iter()
+                .filter(|group| group.len() > 1)
+                .map(|group| run[group].to_vec()),
+        );
+    }
+    let mut rendered = GroupRenders::new(groups);
     // Only separate mask files need source pixels after rendering.
     let mask_source = images
         .iter()
@@ -1114,21 +1149,47 @@ fn export_photo(
                 .as_ref()
                 .map_err(Clone::clone)?;
             ensure_export_not_cancelled(cancellation_token)?;
-            render_prepared_and_save(
-                &source_path_str,
-                prepared,
-                &js_adjustments,
-                export_settings,
-                &env,
-                &ExportOutput {
-                    path: output_path,
-                    format: targets[target].output_format.as_str(),
-                    exif_sidecar: &exif_sidecar,
-                    catalog: &catalog,
-                    write: &write_export_bytes,
-                },
-                &|| ensure_export_not_cancelled(cancellation_token),
-            )?;
+            let output = ExportOutput {
+                path: output_path,
+                format: targets[target].output_format.as_str(),
+                exif_sidecar: &exif_sidecar,
+                catalog: &catalog,
+                write: &write_export_bytes,
+            };
+            let cancelled = || ensure_export_not_cancelled(cancellation_token);
+            let render = rendered.take(target, |group| {
+                let outputs: Vec<_> = group
+                    .iter()
+                    .map(|&target| {
+                        (
+                            precision(target),
+                            targets[target].export_settings.color_space,
+                        )
+                    })
+                    .collect();
+                #[cfg(feature = "performance-profiling")]
+                let _stage = crate::performance::PerformanceStage::new("export_render");
+                render_prepared_exports(prepared, &env, "process_image_for_export", &outputs)
+            });
+            match render {
+                Some(processed) => save_rendered_export(
+                    processed?,
+                    &source_path_str,
+                    &js_adjustments,
+                    export_settings,
+                    &output,
+                    &cancelled,
+                )?,
+                None => render_prepared_and_save(
+                    &source_path_str,
+                    prepared,
+                    &js_adjustments,
+                    export_settings,
+                    &env,
+                    &output,
+                    &cancelled,
+                )?,
+            }
 
             // The photo's file is published: its other outputs are
             // finished too, cancelled or not, so the photo is either

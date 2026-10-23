@@ -551,11 +551,15 @@ fn failed_export_variant_uses_the_general_pipeline() {
         .set(None)
         .unwrap();
     assert!(std::ptr::eq(
-        processor.export_pipeline(&adjustments, false).unwrap(),
+        processor
+            .export_pipeline(&adjustments, MainOutput::EightBit)
+            .unwrap(),
         processor.main_pipeline.wait().unwrap()
     ));
     assert!(std::ptr::eq(
-        processor.export_pipeline(&adjustments, true).unwrap(),
+        processor
+            .export_pipeline(&adjustments, MainOutput::SixteenBit)
+            .unwrap(),
         processor.high_precision_pipeline.wait().unwrap()
     ));
 }
@@ -1785,6 +1789,7 @@ fn prepare_preview_pipeline(processor: &GpuProcessor, features: usize) {
             true,
             true,
             false,
+            false,
         )
         .unwrap()
     });
@@ -1800,6 +1805,7 @@ fn prepare_layer_sum_pipeline(processor: &GpuProcessor, features: usize) {
             true,
             true,
             true,
+            false,
         )
         .unwrap()
     });
@@ -1812,6 +1818,7 @@ fn prepare_legacy_curve_pipeline(processor: &GpuProcessor, features: usize) {
             &processor.preview_shader,
             &processor.preview_layout,
             features,
+            false,
             false,
             false,
             false,
@@ -1828,6 +1835,7 @@ fn prepare_unprepared_layer_pipeline(processor: &GpuProcessor, features: usize) 
             &processor.preview_layout,
             features,
             true,
+            false,
             false,
             false,
         )
@@ -6375,6 +6383,7 @@ fn pipeline_compilation_probe() {
             true,
             true,
             false,
+            false,
         )
         .unwrap();
         println!(
@@ -9282,6 +9291,7 @@ fn renders_from_a_kept_upload_match_fresh_uploads() {
         (OutputColorSpace::Srgb, RenderOutputPrecision::EightBit),
     ];
     let kept = upload().keep();
+    let mut expected = Vec::new();
     for (space, precision) in recipes {
         let fresh = render(RenderSource::Uploaded(upload()), space, precision);
         let from_kept = render(RenderSource::Kept(&kept), space, precision);
@@ -9289,7 +9299,171 @@ fn renders_from_a_kept_upload_match_fresh_uploads() {
             fresh.as_bytes() == from_kept.as_bytes(),
             "{space:?} {precision:?} differs from a fresh upload"
         );
+        expected.push(fresh);
     }
+    // All of them from one render, from a fresh kept upload (whose colour
+    // noise textures that render builds).
+    let outputs: Vec<RenderOutput> = recipes
+        .iter()
+        .map(|&(space, precision)| {
+            let global = adjustments(space).global;
+            RenderOutput {
+                precision,
+                output_space: global.output_space,
+                output_matrix: global.output_matrix,
+            }
+        })
+        .collect();
+    let together = process_and_get_dynamic_images(
+        &context,
+        &processor,
+        &upload().keep(),
+        RenderRequest {
+            adjustments: adjustments(OutputColorSpace::Srgb),
+            mask_bitmaps: &[],
+            lut: None,
+            roi: None,
+        },
+        "kept_upload_test",
+        &outputs,
+    )
+    .expect("renders");
+    assert_eq!(together.len(), recipes.len());
+    for ((space, precision), (together, expected)) in
+        recipes.iter().zip(together.iter().zip(&expected))
+    {
+        assert!(
+            together.as_bytes() == expected.as_bytes(),
+            "{space:?} {precision:?} of one render differs from its own render"
+        );
+    }
+}
+
+/// One render for several outputs (an export's recipes, `DEFER_OUTPUT` and
+/// `encode_deferred`) gives each output the bytes of its own render: 8- and
+/// 16-bit, every output space, over two tiles, with the specialized export
+/// variant, the general pipeline, mask layers and colours beyond the
+/// output gamut (the input reaches 2.0).
+#[test]
+#[ignore = "requires a native GPU"]
+fn one_render_for_several_outputs_matches_their_own_renders() {
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), 2304, 512).unwrap();
+    let (width, height) = (2200u32, 300u32);
+    let view = input(&context, width, height, 29);
+    let outputs = [
+        (OutputColorSpace::Srgb, RenderOutputPrecision::EightBit),
+        (
+            OutputColorSpace::AdobeRgb,
+            RenderOutputPrecision::SixteenBit,
+        ),
+        (OutputColorSpace::DisplayP3, RenderOutputPrecision::EightBit),
+        (
+            OutputColorSpace::ProPhoto,
+            RenderOutputPrecision::SixteenBit,
+        ),
+        (OutputColorSpace::Srgb, RenderOutputPrecision::SixteenBit),
+    ];
+    let with_space = |mut all: crate::image_processing::PreparedAdjustments,
+                      space: OutputColorSpace| {
+        all.global.output_space = [space.shader_code(), 0, 0, 0];
+        all.global.output_matrix =
+            crate::image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+        all
+    };
+    let masks = upload_test_masks(width, height, 3);
+    let recipes = [
+        (json!({}), false),
+        (json!({"exposure":0.3,"contrast":20,"saturation":15}), false),
+        (
+            json!({"exposure":0.4,"contrast":15,"sharpness":40,"lumaNoiseReduction":20,
+                "clarity":30,"structure":20,"vignetteAmount":-30,"grainAmount":20}),
+            false,
+        ),
+        (layer_sums_profile(0.2, 0.5), true),
+    ];
+    let mut checked = 0;
+    for (recipe, with_masks) in &recipes {
+        let base = get_all_adjustments_from_json(recipe, true, Some(2));
+        let uploaded = with_masks.then(|| {
+            let mut uploader = MaskUploader::new(&context, width, height, masks.len(), false);
+            for (index, mask) in masks.iter().enumerate() {
+                uploader.push_at(&context, index, mask).unwrap();
+            }
+            uploader.finish(&context).unwrap()
+        });
+        let whole = Roi {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        };
+        let request = |adjustments| RenderRequest {
+            adjustments,
+            mask_bitmaps: &[],
+            lut: None,
+            roi: None,
+        };
+        let expected: Vec<RenderedPixels> = outputs
+            .iter()
+            .map(|&(space, precision)| {
+                processor
+                    .run_in_window(
+                        &view,
+                        width,
+                        height,
+                        whole,
+                        request(with_space(base.clone(), space)),
+                        false,
+                        precision,
+                        ReadbackShader::Export,
+                        None,
+                        None,
+                        uploaded.as_ref(),
+                    )
+                    .unwrap()
+                    .0
+            })
+            .collect();
+        let render_outputs: Vec<RenderOutput> = outputs
+            .iter()
+            .map(|&(space, precision)| {
+                let global = with_space(base.clone(), space).global;
+                RenderOutput {
+                    precision,
+                    output_space: global.output_space,
+                    output_matrix: global.output_matrix,
+                }
+            })
+            .collect();
+        let (together, ..) = processor
+            .render_window(
+                &view,
+                width,
+                height,
+                whole,
+                request(base.clone()),
+                false,
+                RenderOutputPrecision::EightBit,
+                ReadbackShader::Export,
+                None,
+                None,
+                uploaded.as_ref(),
+                &render_outputs,
+            )
+            .unwrap();
+        for (index, (together, expected)) in together.iter().zip(&expected).enumerate() {
+            let same = match (together, expected) {
+                (RenderedPixels::U8(a), RenderedPixels::U8(b)) => a == b,
+                (RenderedPixels::U16(a), RenderedPixels::U16(b)) => a == b,
+                _ => false,
+            };
+            assert!(same, "recipe {recipe} output {:?} differs", outputs[index]);
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, recipes.len() * outputs.len());
 }
 
 /// A CPU-readback render the GPU fails (here: a source texture destroyed,
@@ -11501,7 +11675,9 @@ fn general_display_frame_has_the_noise_passes_of_the_variants() {
     };
     let variant = render(false);
     // An export compiled the general pipeline with the pass.
-    let edge = processor.general_pipeline(&adjustments, false).unwrap();
+    let edge = processor
+        .general_pipeline(&adjustments, MainOutput::EightBit)
+        .unwrap();
     assert!(std::ptr::eq(
         processor
             .compiled_general_pipeline(&adjustments)

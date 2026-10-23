@@ -388,6 +388,11 @@ fn load_input(coord: vec2<i32>) -> vec4<f32> {
 
 override HIGH_PRECISION_OUTPUT: u32 = 0u;
 
+// Several outputs of one render (an export's recipes): `main` stores the
+// colour before `encode_output` into an Rgba32Float texture and
+// `encode_deferred` encodes it for each output space and precision.
+override DEFER_OUTPUT: bool = false;
+
 const LUMA_COEFF = vec3<f32>(0.2126, 0.7152, 0.0722);
 
 fn get_luma(c: vec3<f32>) -> f32 {
@@ -6799,6 +6804,11 @@ fn main(
         final_rgb = mix(grey * 0.6 + 0.2, final_rgb, range_view);
     }
 
+    if (DEFER_OUTPUT) {
+        textureStore(output_texture, id.xy, vec4<f32>(final_rgb, original_alpha));
+        return;
+    }
+
     final_rgb = encode_output(final_rgb);
 
     if (HIGH_PRECISION_OUTPUT == 0u) {
@@ -6807,4 +6817,25 @@ fn main(
     }
 
     textureStore(output_texture, id.xy, vec4<f32>(clamp(final_rgb, vec3<f32>(0.0), vec3<f32>(1.0)), original_alpha));
+}
+
+// The colours `main` stored with DEFER_OUTPUT, addressed like output_texture.
+@group(0) @binding(25) var deferred_texture: texture_2d<f32>;
+
+// The end of `main` for one output (DEFER_OUTPUT): the same code on the same
+// values, so each output matches its own render. One region (render_regions).
+@compute @workgroup_size(8, 8, 1)
+fn encode_deferred(@builtin(global_invocation_id) invocation: vec3<u32>) {
+    let region = render_regions[1];
+    if (invocation.x >= region.z || invocation.y >= region.w) { return; }
+    let id = vec3<u32>(invocation.xy + region.xy, 0u);
+    let deferred = textureLoad(deferred_texture, id.xy, 0);
+    var final_rgb = encode_output(deferred.rgb);
+
+    if (HIGH_PRECISION_OUTPUT == 0u) {
+        let dither_amount = 1.0 / 255.0;
+        final_rgb += dither(id.xy) * dither_amount;
+    }
+
+    textureStore(output_texture, id.xy, vec4<f32>(clamp(final_rgb, vec3<f32>(0.0), vec3<f32>(1.0)), deferred.a));
 }

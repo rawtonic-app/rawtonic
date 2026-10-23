@@ -17,9 +17,9 @@ use serde_json::Value;
 use crate::adjustment_utils::apply_all_transformations;
 use crate::cache_utils::calculate_full_job_hash;
 use crate::gpu_processing::{
-    GpuContext, GpuImageCache, GpuProcessorState, MaskUploader, ReadbackShader,
+    GpuContext, GpuImageCache, GpuProcessorState, MaskUploader, ReadbackShader, RenderOutput,
     RenderOutputPrecision, RenderRequest, RenderSource, process_and_get_dynamic_image_inner,
-    upload_render_source,
+    process_and_get_dynamic_images, upload_render_source,
 };
 use crate::image_processing::{
     AllAdjustments, MAX_MASKS, PreparedAdjustments, get_all_adjustments_with_masks,
@@ -1144,10 +1144,35 @@ pub fn render_prepared_and_save(
         render_output_precision(actual_output_format, export_settings),
         export_settings.color_space,
     )?;
+    #[cfg(feature = "performance-profiling")]
+    drop(render_stage);
+    save_rendered_export(
+        processed,
+        source_path_str,
+        js_adjustments,
+        export_settings,
+        output,
+        cancelled,
+    )
+}
+
+/// Resizes, sharpens, watermarks and saves one recipe's render (from
+/// [`render_prepared_export`] or [`render_prepared_exports`]). `cancelled`
+/// runs before the write.
+pub fn save_rendered_export(
+    processed: DynamicImage,
+    source_path_str: &str,
+    js_adjustments: &Value,
+    export_settings: &ExportSettings,
+    output: &ExportOutput,
+    cancelled: &dyn Fn() -> Result<(), String>,
+) -> Result<(), String> {
+    #[cfg(feature = "performance-profiling")]
+    let geometry_stage = crate::performance::PerformanceStage::new("export_geometry");
     let final_image =
         apply_export_geometry_and_watermark(processed, export_settings).map(|(image, _)| image)?;
     #[cfg(feature = "performance-profiling")]
-    drop(render_stage);
+    drop(geometry_stage);
     cancelled()?;
     let generated = rawtonic_engine::image_loader::has_generated_areas(js_adjustments);
     save_export_image(
@@ -1405,6 +1430,151 @@ pub fn render_prepared_export(
         None,
         None,
         ReadbackShader::Export,
+    )
+}
+
+impl PreparedExport {
+    /// Width and height of its renders.
+    pub fn size(&self) -> (u32, u32) {
+        match &self.target {
+            PreparedTarget::Gpu(kept) => kept.size(),
+            PreparedTarget::Windows { image, .. } => image.dimensions(),
+        }
+    }
+}
+
+/// Full-size rendered pixels an export keeps at once when several recipes
+/// render together ([`render_groups`]). Two recipes (8 and 16 bit) of a
+/// 61 MP photo fit (0.72 GB); more or larger ones render in groups, a
+/// recipe whose render alone is larger on its own, as every recipe did
+/// before they rendered together.
+pub const RENDER_GROUP_BYTES: u64 = 768 << 20;
+
+/// Splits renders of `size` in `precisions` into consecutive groups that
+/// render together ([`render_prepared_exports`]): their RGBA pixels (4 bytes
+/// a pixel at 8 bit, 8 at 16 bit) take at most [`RENDER_GROUP_BYTES`]
+/// together, or a group is one render.
+pub fn render_groups(
+    (width, height): (u32, u32),
+    precisions: &[RenderOutputPrecision],
+) -> Vec<std::ops::Range<usize>> {
+    let pixels = u64::from(width) * u64::from(height);
+    let mut groups: Vec<std::ops::Range<usize>> = Vec::new();
+    let mut bytes = 0;
+    for (index, precision) in precisions.iter().enumerate() {
+        let render = pixels
+            * match precision {
+                RenderOutputPrecision::EightBit => 4,
+                RenderOutputPrecision::SixteenBit => 8,
+            };
+        match groups.last_mut() {
+            Some(group) if bytes + render <= RENDER_GROUP_BYTES => {
+                group.end = index + 1;
+                bytes += render;
+            }
+            _ => {
+                groups.push(index..index + 1);
+                bytes = render;
+            }
+        }
+    }
+    groups
+}
+
+/// The renders of one photo's recipe groups (`groups`, recipes in the
+/// order they are saved, from [`render_groups`]): a group renders when its
+/// first recipe is saved and keeps its renders until each is taken.
+pub struct GroupRenders<T> {
+    groups: Vec<Vec<usize>>,
+    kept: std::collections::HashMap<usize, Result<T, String>>,
+}
+
+impl<T> GroupRenders<T> {
+    pub fn new(groups: Vec<Vec<usize>>) -> Self {
+        Self {
+            groups,
+            kept: Default::default(),
+        }
+    }
+
+    /// `target`'s render, its group rendered by `render` if `target` is
+    /// the first of it; `None` for a recipe that renders alone. Renders
+    /// still kept for recipes passed over (their file could not be
+    /// planned) are dropped first, so at most one group is kept.
+    pub fn take(
+        &mut self,
+        target: usize,
+        render: impl FnOnce(&[usize]) -> Result<Vec<T>, String>,
+    ) -> Option<Result<T, String>> {
+        if !self.kept.contains_key(&target) {
+            self.kept.clear();
+            if let Some(index) = self.groups.iter().position(|group| group.contains(&target)) {
+                let group = self.groups.remove(index);
+                match render(&group) {
+                    Ok(renders) => self
+                        .kept
+                        .extend(group.into_iter().zip(renders.into_iter().map(Ok))),
+                    Err(e) => self
+                        .kept
+                        .extend(group.into_iter().map(|target| (target, Err(e.clone())))),
+                }
+            }
+        }
+        self.kept.remove(&target)
+    }
+
+    /// Renders kept for recipes still to be saved.
+    pub fn kept(&self) -> usize {
+        self.kept.len()
+    }
+}
+
+/// Renders a prepared photo into each `(precision, colour space)` of
+/// `outputs`: on the GPU with one main pass for all of them (the same pixels
+/// as one [`render_prepared_export`] each), in windows one by one. All
+/// renders are kept until returned: bound `outputs` with [`render_groups`].
+pub fn render_prepared_exports(
+    prepared: &PreparedExport,
+    env: &RenderEnv,
+    debug_tag: &str,
+    outputs: &[(RenderOutputPrecision, OutputColorSpace)],
+) -> Result<Vec<DynamicImage>, String> {
+    let PreparedTarget::Gpu(kept) = &prepared.target else {
+        return outputs
+            .iter()
+            .map(|&(precision, space)| {
+                render_prepared_export(prepared, env, debug_tag, precision, space)
+            })
+            .collect();
+    };
+    if let [(precision, space)] = outputs {
+        return render_prepared_export(prepared, env, debug_tag, *precision, *space)
+            .map(|image| vec![image]);
+    }
+    let render_outputs: Vec<RenderOutput> = outputs
+        .iter()
+        .map(|&(precision, space)| {
+            let mut adjustments = prepared.adjustments.clone();
+            set_output_color_space(&mut adjustments, space);
+            RenderOutput {
+                precision,
+                output_space: adjustments.global.output_space,
+                output_matrix: adjustments.global.output_matrix,
+            }
+        })
+        .collect();
+    process_and_get_dynamic_images(
+        env.context,
+        env.processor,
+        kept,
+        RenderRequest {
+            adjustments: prepared.adjustments.clone(),
+            mask_bitmaps: &[],
+            lut: prepared.lut.clone(),
+            roi: None,
+        },
+        debug_tag,
+        &render_outputs,
     )
 }
 
@@ -2520,5 +2690,66 @@ mod detection_tests {
             layer(json!({"maskDataBase64": "data:image/png;base64,AAAA", "detectPending": true}));
         assert!(prepare_export_source("/qa/a.jpg", image.clone(), &detected).is_ok());
         assert!(prepare_export_source("/qa/a.jpg", image, &json!({"exposure": 1})).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod render_group_tests {
+    use super::*;
+    use RenderOutputPrecision::{EightBit, SixteenBit};
+
+    #[test]
+    fn renders_of_recipes_passed_over_are_not_kept() {
+        let mut renders = GroupRenders::new(vec![vec![0, 1], vec![3, 4]]);
+        let render = |group: &[usize]| Ok(group.iter().map(|&t| t * 10).collect());
+        assert_eq!(renders.take(0, render), Some(Ok(0)));
+        assert_eq!(renders.kept(), 1);
+        // Recipe 1's file could not be planned: recipe 2 renders alone
+        // without recipe 1's render kept beside it.
+        assert_eq!(renders.take(2, |_| panic!("renders alone")), None);
+        assert_eq!(renders.kept(), 0);
+        let failed = |_: &[usize]| Err("no GPU".to_string());
+        assert_eq!(renders.take(3, failed), Some(Err("no GPU".into())));
+        assert_eq!(
+            renders.take(4, |_| panic!("rendered")),
+            Some(Err("no GPU".into()))
+        );
+        assert_eq!(renders.kept(), 0);
+    }
+
+    #[test]
+    fn renders_kept_together_stay_within_the_budget() {
+        // A 45 MP web JPEG and print TIFF render together.
+        assert_eq!(
+            render_groups((8256, 5504), &[EightBit, SixteenBit]),
+            vec![0..2]
+        );
+        // 24 MP: three 8-bit and two 16-bit (0.67 GB) fit, a third 16-bit
+        // starts the next group.
+        let five = [EightBit, EightBit, EightBit, SixteenBit, SixteenBit];
+        assert_eq!(render_groups((6000, 4000), &five), vec![0..5]);
+        let six = [&five[..], &[SixteenBit]].concat();
+        assert_eq!(render_groups((6000, 4000), &six), [0..5, 5..6]);
+        // 100 MP at 16 bit: each render alone is over the budget.
+        assert_eq!(
+            render_groups((11648, 8736), &[SixteenBit; 8]),
+            (0..8).map(|i| i..i + 1).collect::<Vec<_>>()
+        );
+        for (size, precisions) in [
+            (
+                (8256, 5504),
+                &[SixteenBit, SixteenBit, EightBit, SixteenBit][..],
+            ),
+            ((6000, 4000), &six[..]),
+        ] {
+            let pixels = u64::from(size.0) * u64::from(size.1);
+            for group in render_groups(size, precisions) {
+                let bytes: u64 = precisions[group.clone()]
+                    .iter()
+                    .map(|p| pixels * if *p == SixteenBit { 8 } else { 4 })
+                    .sum();
+                assert!(group.len() == 1 || bytes <= RENDER_GROUP_BYTES, "{group:?}");
+            }
+        }
     }
 }
