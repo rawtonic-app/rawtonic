@@ -209,6 +209,28 @@ export default function StudioBrowser({
 }) {
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!film || !el) return;
+    const onWheel = (event: WheelEvent) => {
+      if (event.defaultPrevented || !event.cancelable || event.shiftKey || event.ctrlKey || event.metaKey
+        || Math.abs(event.deltaY) <= Math.abs(event.deltaX)
+        || el.scrollHeight > el.clientHeight || el.scrollWidth <= el.clientWidth) return;
+      let unit = 1;
+      if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+        const style = getComputedStyle(el);
+        // CSS "normal" has no pixel value; approximate it from the font size.
+        unit = parseFloat(style.lineHeight) || (parseFloat(style.fontSize) || 16) * 1.2;
+      } else if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+        unit = el.clientWidth;
+      }
+      event.preventDefault();
+      el.scrollLeft = Math.max(0, Math.min(el.scrollWidth - el.clientWidth, el.scrollLeft + event.deltaY * unit));
+    };
+    // React's delegated wheel listener is passive; cancellation belongs here.
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [film]);
   const [box, setBox] = useState({ width: 800, height: 500 });
   const [offset, setOffset] = useState(0);
   const selected = useLibraryStore((s) => s.multiSelectedPaths);
