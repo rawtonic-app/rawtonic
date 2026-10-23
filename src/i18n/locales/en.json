@@ -2601,6 +2601,7 @@
           "tiff": "TIFF"
         },
         "focalValue": "{{value}} mm",
+        "hideMonths": "Hide the months of {{year}}",
         "isoValue": "ISO {{value}}",
         "label": "Metadata filter",
         "none": {
@@ -2613,6 +2614,8 @@
           "keyword": "No keyword",
           "lens": "Unknown lens"
         },
+        "rangeHint": "Click to choose a value, Shift-click to choose every value from the last one clicked",
+        "showMonths": "Show the months of {{year}}",
         "toggle": "Show or hide the metadata lists (capture date, camera, lens, keyword, file type, ISO, focal length, aperture)"
       },
       "navigator": {

@@ -2601,6 +2601,7 @@
           "tiff": "TIFF"
         },
         "focalValue": "{{value}} mm",
+        "hideMonths": "Monate von {{year}} ausblenden",
         "isoValue": "ISO {{value}}",
         "label": "Metadatenfilter",
         "none": {
@@ -2613,6 +2614,8 @@
           "keyword": "Kein Stichwort",
           "lens": "Unbekanntes Objektiv"
         },
+        "rangeHint": "Klicken wählt einen Wert, Umschalt-Klick jeden Wert ab dem zuletzt geklickten",
+        "showMonths": "Monate von {{year}} zeigen",
         "toggle": "Metadatenlisten ein- oder ausblenden (Aufnahmedatum, Kamera, Objektiv, Stichwort, Dateityp, ISO, Brennweite, Blende)"
       },
       "navigator": {

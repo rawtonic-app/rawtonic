@@ -38,6 +38,9 @@ describe('library search rules', () => {
     expect(selectionRules({ captureDate: ['2024-02'] })).toEqual([
       { field: 'captureDate', op: 'between', value: ['2024-02-01', '2024-02-29'] },
     ]);
+    expect(selectionRules({ captureDate: ['2024'] })).toEqual([
+      { field: 'captureDate', op: 'between', value: ['2024-01-01', '2024-12-31'] },
+    ]);
     expect(selectionRules({ captureDate: ['2023-12'] })).toEqual([
       { field: 'captureDate', op: 'between', value: ['2023-12-01', '2023-12-31'] },
     ]);

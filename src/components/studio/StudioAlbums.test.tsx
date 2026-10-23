@@ -523,24 +523,30 @@ describe("Smart albums in the Albums tool", () => {
       useLibraryStore.setState({ activeAlbumId: "session-album:s" });
       const select = await renderTool();
       albums = albums.map((a) => (a.id === "s" ? { ...a, count: 3 } : a));
+      // The count follows a write at once, without waiting for a pause.
+      await act(async () => catalogChanged());
+      expect(screen.getByText("Five stars").closest("button")!.textContent).toContain("3");
+      expect(select).toHaveBeenCalledTimes(1);
+      expect(select).toHaveBeenCalledWith("session-album:s", "Five stars", expect.any(Array), true);
+      // Writes while a count runs: one more count after it, not one each.
+      select.mockClear();
       act(() => {
+        catalogChanged();
         catalogChanged();
         catalogChanged();
       });
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(400);
+        await vi.advanceTimersByTimeAsync(0);
       });
-      expect(screen.getByText("Five stars").closest("button")!.textContent).toContain("3");
-      // Two writes in a row: one refresh.
-      expect(select).toHaveBeenCalledTimes(1);
-      expect(select).toHaveBeenCalledWith("session-album:s", "Five stars", expect.any(Array), true);
+      expect(select).toHaveBeenCalledTimes(2);
+      select.mockClear();
       // A plain album shown is not reloaded on every write.
       useLibraryStore.setState({ activeAlbumId: "session-album:p" });
       act(() => catalogChanged());
       await act(async () => {
         await vi.advanceTimersByTimeAsync(400);
       });
-      expect(select).toHaveBeenCalledTimes(1);
+      expect(select).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

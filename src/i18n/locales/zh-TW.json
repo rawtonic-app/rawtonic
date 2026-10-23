@@ -2541,6 +2541,7 @@
           "tiff": "TIFF"
         },
         "focalValue": "{{value}} mm",
+        "hideMonths": "隱藏 {{year}} 年的月份",
         "isoValue": "ISO {{value}}",
         "label": "後設資料篩選",
         "none": {
@@ -2553,6 +2554,8 @@
           "keyword": "無關鍵字",
           "lens": "未知鏡頭"
         },
+        "rangeHint": "按一下選擇一個值，Shift 按一下選擇從上次按下的值起的所有值",
+        "showMonths": "顯示 {{year}} 年的月份",
         "toggle": "顯示或隱藏後設資料清單（拍攝日期、相機、鏡頭、關鍵字、檔案類型、ISO、焦距、光圈）"
       },
       "navigator": {

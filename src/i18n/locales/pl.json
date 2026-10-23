@@ -2763,6 +2763,7 @@
           "tiff": "TIFF"
         },
         "focalValue": "{{value}} mm",
+        "hideMonths": "Ukryj miesiące roku {{year}}",
         "isoValue": "ISO {{value}}",
         "label": "Filtr metadanych",
         "none": {
@@ -2775,6 +2776,8 @@
           "keyword": "Brak słowa kluczowego",
           "lens": "Nieznany obiektyw"
         },
+        "rangeHint": "Kliknięcie wybiera wartość, Shift+kliknięcie wybiera wszystkie wartości od ostatnio klikniętej",
+        "showMonths": "Pokaż miesiące roku {{year}}",
         "toggle": "Pokaż lub ukryj listy metadanych (data wykonania, aparat, obiektyw, słowo kluczowe, typ pliku, ISO, ogniskowa, przysłona)"
       },
       "navigator": {

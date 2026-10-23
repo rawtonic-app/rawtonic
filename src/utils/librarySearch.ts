@@ -67,7 +67,8 @@ export const isGroup = (rule: Rule): rule is Group => 'combine' in rule;
  * columns, Capture One's Filters tool). */
 export const FACET_FIELDS = ['captureDate', 'camera', 'lens', 'keyword', 'fileType', 'iso', 'focalLength', 'aperture'] as const;
 export type FacetField = (typeof FACET_FIELDS)[number];
-/** Values chosen per list ("" = no value: no keyword, unknown camera, …). */
+/** Values chosen per list ("" = no value: no keyword, unknown camera, …;
+ * a capture date is a month `YYYY-MM` or a whole year `YYYY`). */
 export type MetadataSelection = Partial<Record<FacetField, string[]>>;
 export interface FacetValue {
   value: string;
@@ -89,6 +90,7 @@ function monthEnd(month: string): string {
 /** One chosen value of a list as a condition. */
 function valueRule(field: FacetField, value: string): Rule {
   if (value === '') return { field, op: 'empty' };
+  if (field === 'captureDate' && /^\d{4}$/.test(value)) return { field, op: 'between', value: [`${value}-01-01`, `${value}-12-31`] };
   if (field === 'captureDate') return { field, op: 'between', value: [`${value}-01`, monthEnd(value)] };
   if (field === 'fileType') return { field, op: 'is', value };
   if (NUMERIC.has(field)) return { field, op: 'is', value: Number(value) };

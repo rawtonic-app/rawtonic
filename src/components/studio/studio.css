@@ -4293,6 +4293,23 @@ img.relight-pattern-preview { object-fit: cover; }
   color: var(--studio-muted);
   font-variant-numeric: tabular-nums;
 }
+.studio-metadata-row {
+  display: flex;
+  min-width: 0;
+}
+.studio-metadata-row > button:not(.studio-metadata-disclosure) {
+  flex: 1;
+  min-width: 0;
+}
+.studio-metadata-values button.studio-metadata-disclosure {
+  flex: none;
+  width: 18px;
+  padding: 2px 0 2px 6px;
+  color: var(--studio-muted);
+}
+.studio-metadata-row.is-month > button {
+  padding-left: 26px;
+}
 .studio-metadata-values button.is-none span {
   font-style: italic;
 }
