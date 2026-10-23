@@ -59,6 +59,10 @@ pub enum Target {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CopyState {
+    /// The first source's Unix permission bits, kept across undo/redo.
+    /// None for old journals and file systems that synthesize these bits.
+    #[serde(default)]
+    pub original_mode: Option<u32>,
     /// Where this direction's copy is staged, recorded before it is made.
     #[serde(default)]
     pub staged: Option<PathBuf>,
@@ -402,6 +406,12 @@ impl Journal {
     ) -> Result<Operation> {
         ensure!(!steps.is_empty(), "Nothing to do");
         validate(&steps)?;
+        #[cfg(unix)]
+        for step in &mut steps {
+            if let Target::OtherVolume { copy, .. } = &mut step.to {
+                copy.original_mode = volume::unix_mode(&step.from)?;
+            }
+        }
         check_copies(&copy_pairs(&steps, Direction::Forward))?;
         let created_dirs = create_target_parents(&steps)?;
         let staging_dirs = plan_staging(&mut steps, Direction::Forward)?;
@@ -529,7 +539,8 @@ impl Journal {
                 Direction::Forward => step.from.clone(),
                 Direction::Back => path.clone(),
             };
-            let (stamp, copy_stamp) = copy_verified(&source, &staged, &mut tally)?;
+            let (stamp, copy_stamp) =
+                copy_verified(&source, &staged, copy.original_mode, &mut tally)?;
             if let Target::OtherVolume { copy, .. } = &mut payload.steps[index].to {
                 copy.copied = true;
                 copy.stamp = Some(stamp);
@@ -871,6 +882,7 @@ impl Journal {
                         && file(&from)
                         && same_content(&from, path, false, None).unwrap_or(false);
                     *copy = CopyState {
+                        original_mode: copy.original_mode,
                         present,
                         ..CopyState::default()
                     };
