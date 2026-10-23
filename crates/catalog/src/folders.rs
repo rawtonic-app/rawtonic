@@ -192,6 +192,14 @@ fn shown(volume: &Volume, probe: &dyn Probe) -> (String, PathBuf) {
     (volume.name.clone(), volume.mount_point.clone())
 }
 
+/// The name the Library shows for the drive `path` is on (macOS's data
+/// volume under the startup disk's name), or `None` if unknown.
+pub fn shown_volume_name(path: &Path) -> Option<String> {
+    let probe = SystemProbe;
+    let volume = probe.volume_of(path)?;
+    Some(shown(&volume, &probe).0).filter(|name| !name.is_empty())
+}
+
 /// The group of a folder registered on the volume `id`: the volume as
 /// mounted now, else as it was registered (disconnected).
 fn known_volume(
@@ -342,6 +350,17 @@ mod tests {
             volume_name: volume.map(|v| v.name.clone()),
             volume_path: volume.map(|v| v.mount_point.clone()),
         }
+    }
+
+    /// The user's folders on macOS live on the data volume; the drive is
+    /// named as the startup disk, as in Finder.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_data_volume_is_named_as_the_startup_disk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = volume::volume_of(Path::new("/")).unwrap().name;
+        assert!(!root.is_empty());
+        assert_eq!(shown_volume_name(tmp.path()), Some(root));
     }
 
     #[test]

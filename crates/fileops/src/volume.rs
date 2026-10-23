@@ -254,8 +254,7 @@ pub fn probe_exclusive_rename(folder: &Path) -> Result<()> {
     result.map_err(|e| {
         anyhow::anyhow!(
             "The drive of {} cannot rename files without risking replacing one ({e}); \
-             moving photos to it is not supported (exFAT and FAT drives on macOS, \
-             network drives)",
+             moving photos to it is not supported (such as exFAT drives on macOS)",
             folder.display()
         )
     })
@@ -473,10 +472,11 @@ pub(crate) fn c_path(path: &Path) -> io::Result<std::ffi::CString> {
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Path contains a NUL byte"))
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn mount_escapes_are_read() {
         assert_eq!(
@@ -487,6 +487,7 @@ mod tests {
         assert_eq!(unescape_mount("/plain"), "/plain");
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_root_volume_is_found_and_local() {
         let info = volume_info(Path::new("/proc/self")).unwrap();
@@ -500,6 +501,19 @@ mod tests {
                 .unwrap()
                 .starts_with(&info.mount_point)
         );
+        assert!(info.free_bytes > 0);
+    }
+
+    #[cfg(target_vendor = "apple")]
+    #[test]
+    fn the_temporary_folders_volume_is_found_and_local() {
+        // The temporary folder is on the data volume, mounted at
+        // /System/Volumes/Data but reached through /private (firmlinks).
+        let tmp = tempfile::tempdir().unwrap();
+        let info = volume_info(&tmp.path().join("not/yet/there")).unwrap();
+        assert!(info.mount_point.is_dir(), "{info:?}");
+        assert_eq!(info.file_system, "apfs");
+        assert!(!info.network);
         assert!(info.free_bytes > 0);
     }
 

@@ -1,10 +1,12 @@
 //! Moves to another volume (ADR 0016): copy, verify, publish, trash; undo
 //! and redo; a simulated crash at every journal step.
 //!
-//! The target lives on a second file system where the machine has one at
-//! `/dev/shm` (Linux, CI included) on another device than the temporary
-//! folder; elsewhere both are on one volume and the copy move is asked for
-//! explicitly (`Step::other_volume`), which runs the same code.
+//! The target lives on a second file system: the folder named by
+//! `RAWTONIC_TEST_OTHER_VOLUME` (e.g. an attached disk image on macOS:
+//! APFS, FAT), else `/dev/shm` where it exists on another device than the
+//! temporary folder (Linux, CI included; macOS has none); elsewhere both are on one volume
+//! and the copy move is asked for explicitly (`Step::other_volume`), which
+//! runs the same code.
 use super::*;
 use std::cell::{Cell, RefCell};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -36,7 +38,7 @@ impl FakeTrash {
             .dirs
             .borrow()
             .iter()
-            .flat_map(|dir| fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()))
+            .flat_map(|dir| World::names(dir).into_iter().map(|n| dir.join(n)))
             .collect();
         items.sort();
         items
@@ -106,8 +108,15 @@ const FILES: [(&str, usize); 3] = [
 impl World {
     fn new() -> Self {
         let source_dir = tempfile::tempdir().unwrap();
+        let named = std::env::var_os("RAWTONIC_TEST_OTHER_VOLUME").map(PathBuf::from);
         let shm = Path::new("/dev/shm");
-        let target_dir = if same_volume(source_dir.path(), &shm.join("x")).unwrap_or(true) {
+        let target_dir = if let Some(other) = &named {
+            assert!(
+                !same_volume(source_dir.path(), &other.join("x")).unwrap(),
+                "RAWTONIC_TEST_OTHER_VOLUME is on the temporary folder's volume"
+            );
+            tempfile::tempdir_in(other).unwrap()
+        } else if !shm.is_dir() || same_volume(source_dir.path(), &shm.join("x")).unwrap_or(true) {
             tempfile::tempdir().unwrap()
         } else {
             tempfile::tempdir_in(shm).unwrap()
@@ -150,10 +159,22 @@ impl World {
             })
             .collect()
     }
+    /// The entries of `dir`, without the AppleDouble companions macOS
+    /// keeps beside files with extended attributes on FAT and exFAT
+    /// (`._A.RAF` for `A.RAF`; the system renames and removes them with
+    /// their file). A companion without its file is listed.
     fn names(dir: &Path) -> Vec<String> {
-        let mut names: Vec<String> = fs::read_dir(dir)
+        let all: Vec<String> = fs::read_dir(dir)
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        let mut names: Vec<String> = all
+            .iter()
+            .filter(|n| {
+                n.strip_prefix("._")
+                    .is_none_or(|of| !all.iter().any(|m| m == of))
+            })
+            .cloned()
             .collect();
         names.sort();
         names
@@ -272,10 +293,15 @@ fn a_move_to_another_volume_copies_verifies_and_trashes_the_originals() {
         .into_iter()
         .find(|p| p.to_string_lossy().ends_with("A.RAF"))
         .unwrap();
-    assert_eq!(
-        mtime(&world.target.join("A.RAF")),
-        mtime(&original),
-        "the time travels"
+    // FAT keeps modification times in steps of 2 s.
+    let (moved, original) = (mtime(&world.target.join("A.RAF")), mtime(&original));
+    let apart = moved
+        .duration_since(original)
+        .or_else(|_| original.duration_since(moved))
+        .unwrap();
+    assert!(
+        apart < std::time::Duration::from_secs(2),
+        "the time travels: {moved:?} for {original:?}"
     );
 }
 
@@ -750,8 +776,11 @@ fn staging_cleanup_never_removes_anything_outside_its_folder() {
     assert_eq!(fs::read(&precious).unwrap(), b"original");
 }
 
-/// A real exFAT volume (Linux exfat driver: exclusive rename works), when
-/// the environment names a folder on one: `RAWTONIC_TEST_EXFAT_DIR`.
+/// A real exFAT volume, when the environment names a folder on one:
+/// `RAWTONIC_TEST_EXFAT_DIR`. Where it renames exclusively (the Linux
+/// exfat driver) a move and its undo go through; where it cannot (macOS
+/// answers ENOTSUP), the move is refused before anything is copied and
+/// leaves nothing behind.
 #[test]
 fn a_move_to_an_exfat_volume_when_one_is_given() {
     let Some(dir) = std::env::var_os("RAWTONIC_TEST_EXFAT_DIR") else {
@@ -763,15 +792,31 @@ fn a_move_to_an_exfat_volume_when_one_is_given() {
     assert_eq!(info.file_system, "exfat");
     let world = World::new();
     let to = target.path().join("A.RAF");
-    let op = world
-        .journal()
-        .execute(
-            "move",
-            "Move",
-            vec![Step::moving(world.source.join("A.RAF"), &to).unwrap()],
-            &world.trash,
-        )
-        .unwrap();
+    let result = world.journal().execute(
+        "move",
+        "Move",
+        vec![Step::moving(world.source.join("A.RAF"), &to).unwrap()],
+        &world.trash,
+    );
+    let probe = target.path().join("probe");
+    fs::create_dir(&probe).unwrap();
+    if let Err(refused) = probe_exclusive_rename(&probe) {
+        eprintln!("exclusive rename refused: {refused:#}");
+        let error = result.unwrap_err();
+        assert!(
+            format!("{error:#}").contains("cannot rename files without risking"),
+            "{error:#}"
+        );
+        assert_eq!(
+            fs::read(world.source.join("A.RAF")).unwrap(),
+            content("A.RAF", FILES[0].1)
+        );
+        assert!(world.trash.items().is_empty());
+        assert_eq!(World::names(target.path()), ["probe"]);
+        assert!(World::names(&probe).is_empty());
+        return;
+    }
+    let op = result.unwrap();
     assert_eq!(op.state, State::Done);
     assert_eq!(fs::read(&to).unwrap(), content("A.RAF", FILES[0].1));
     assert!(!exists(&world.source.join("A.RAF")));

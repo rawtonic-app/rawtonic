@@ -1733,10 +1733,15 @@ mod tests {
     }
 
     /// Uses the real system Trash (and puts the file back): run by hand.
+    /// `RAWTONIC_TEST_TRASH_DIR` names a folder on another drive (e.g. an
+    /// attached disk image), whose own Trash must take the item.
     #[test]
     #[ignore]
     fn platform_trash_round_trip() {
-        let tmp = tempfile::tempdir().unwrap();
+        let tmp = match std::env::var_os("RAWTONIC_TEST_TRASH_DIR") {
+            Some(dir) => tempfile::tempdir_in(dir).unwrap(),
+            None => tempfile::tempdir().unwrap(),
+        };
         let file = tmp
             .path()
             .canonicalize()
@@ -1746,6 +1751,16 @@ mod tests {
         let item = PlatformTrash.trash(&file).unwrap();
         assert!(!file.exists());
         assert!(PlatformTrash.contains(&item), "{item}");
+        #[cfg(unix)]
+        if std::env::var_os("RAWTONIC_TEST_TRASH_DIR").is_some() {
+            use std::os::unix::fs::MetadataExt;
+            let dev = |p: &Path| fs::metadata(p).unwrap().dev();
+            assert_eq!(
+                dev(Path::new(&item)),
+                dev(tmp.path()),
+                "{item}: another drive's Trash"
+            );
+        }
         PlatformTrash.restore(&item, &file).unwrap();
         assert_eq!(fs::read_to_string(&file).unwrap(), "x");
         assert!(!PlatformTrash.contains(&item));
