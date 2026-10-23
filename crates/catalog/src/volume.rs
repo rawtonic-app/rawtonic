@@ -43,11 +43,52 @@ impl Volume {
         }
         #[cfg(target_os = "macos")]
         if self.kind == VolumeKind::Network && uuid_id(saved) {
-            return imp::uuid_volume(&self.mount_point, self.kind)
-                .is_some_and(|volume| volume.id.eq_ignore_ascii_case(saved));
+            static BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            let mount = self.mount_point.clone();
+            let kind = self.kind;
+            return bounded_uuid_lookup(
+                move || imp::uuid_volume(&mount, kind).map(|volume| volume.id),
+                std::time::Duration::from_millis(100),
+                &BUSY,
+            )
+            .is_some_and(|uuid| uuid.eq_ignore_ascii_case(saved));
         }
         false
     }
+}
+
+/// One legacy query may be in flight. A stuck server must neither hold up
+/// folder listings nor create another stuck thread on every refresh.
+#[cfg(any(target_os = "macos", test))]
+fn bounded_uuid_lookup(
+    lookup: impl FnOnce() -> Option<String> + Send + 'static,
+    timeout: std::time::Duration,
+    busy: &'static std::sync::atomic::AtomicBool,
+) -> Option<String> {
+    use std::sync::atomic::Ordering;
+    if busy
+        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        return None;
+    }
+    struct Release(&'static std::sync::atomic::AtomicBool);
+    impl Drop for Release {
+        fn drop(&mut self) {
+            self.0.store(false, Ordering::Release);
+        }
+    }
+    let release = Release(busy);
+    let (send, receive) = std::sync::mpsc::sync_channel(1);
+    std::thread::Builder::new()
+        .name("legacy-volume-uuid".into())
+        .spawn(move || {
+            let value = lookup();
+            drop(release);
+            let _ = send.send(value);
+        })
+        .ok()?;
+    receive.recv_timeout(timeout).ok().flatten()
 }
 
 #[cfg(target_os = "macos")]
@@ -555,6 +596,11 @@ fn linux_storage_mount(entry: &LinuxMount) -> bool {
             | "aufs"
             | "fuse.portal"
             | "nsfs"
+            | "fusectl"
+            | "binfmt_misc"
+            | "bpf"
+            | "selinuxfs"
+            | "smackfs"
     ) {
         return false;
     }
@@ -817,6 +863,89 @@ mod imp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stalled_legacy_lookup_leaves_folders_offline_and_is_cached() {
+        use crate::folders::{Probe, by_volume};
+        use std::sync::{
+            Mutex,
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        };
+        static BUSY: AtomicBool = AtomicBool::new(false);
+        struct Slow {
+            wait: Mutex<Option<mpsc::Receiver<()>>>,
+            finished: mpsc::SyncSender<()>,
+            calls: std::cell::Cell<usize>,
+        }
+        impl Probe for Slow {
+            fn mounted(&self) -> Vec<Volume> {
+                vec![Volume {
+                    kind: VolumeKind::Network,
+                    id: "mount:share".into(),
+                    name: "Photos".into(),
+                    mount_point: "/Volumes/Photos".into(),
+                }]
+            }
+            fn volume_of(&self, _: &Path) -> Option<Volume> {
+                None
+            }
+            fn is_dir(&self, _: &Path) -> bool {
+                false
+            }
+            fn space(&self, _: &Path) -> Option<(u64, u64)> {
+                None
+            }
+            fn matches_id(&self, _: &Volume, saved: &str) -> bool {
+                self.calls.set(self.calls.get() + 1);
+                let wait = self.wait.lock().unwrap().take().unwrap();
+                let finished = self.finished.clone();
+                bounded_uuid_lookup(
+                    move || {
+                        wait.recv().unwrap();
+                        finished.send(()).unwrap();
+                        Some("12345678-1234-1234-1234-123456789ABC".into())
+                    },
+                    std::time::Duration::from_millis(10),
+                    &BUSY,
+                )
+                .is_some_and(|id| id == saved)
+            }
+        }
+        let (release, wait) = mpsc::sync_channel(1);
+        let (finished, done) = mpsc::sync_channel(1);
+        let probe = Slow {
+            wait: Mutex::new(Some(wait)),
+            finished,
+            calls: Default::default(),
+        };
+        let root = PathBuf::from("/Volumes/Photos/Jobs");
+        let record = crate::FolderRecord {
+            path: root.clone(),
+            photos: 1,
+            missing: 1,
+            volume_id: Some("12345678-1234-1234-1234-123456789ABC".into()),
+            volume_name: Some("Photos".into()),
+            volume_path: Some("/Volumes/Photos".into()),
+            volume_kind: None,
+        };
+        let groups = by_volume(&[record], &[root], &probe);
+        assert_eq!(groups.len(), 1);
+        assert!(!groups[0].online, "a timeout gives no verified identity");
+        assert_eq!(probe.calls.get(), 1, "folder and root share one lookup");
+        assert!(BUSY.load(Ordering::Acquire));
+        assert_eq!(
+            bounded_uuid_lookup(
+                || panic!("must not start a second query"),
+                std::time::Duration::from_millis(10),
+                &BUSY
+            ),
+            None
+        );
+        release.send(()).unwrap();
+        done.recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap();
+    }
 
     #[cfg(target_os = "macos")]
     #[test]

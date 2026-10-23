@@ -64,6 +64,44 @@ pub trait Probe {
     fn space(&self, mount: &Path) -> Option<(u64, u64)>;
 }
 
+/// Share lookups (including timeouts) are asked only once per listing.
+struct CachedProbe<'a> {
+    inner: &'a dyn Probe,
+    matches: std::cell::RefCell<HashMap<(String, String), bool>>,
+}
+impl<'a> CachedProbe<'a> {
+    fn new(inner: &'a dyn Probe) -> Self {
+        Self {
+            inner,
+            matches: Default::default(),
+        }
+    }
+}
+impl Probe for CachedProbe<'_> {
+    fn mounted(&self) -> Vec<Volume> {
+        self.inner.mounted()
+    }
+    fn volume_of(&self, path: &Path) -> Option<Volume> {
+        self.inner.volume_of(path)
+    }
+    fn is_dir(&self, path: &Path) -> bool {
+        self.inner.is_dir(path)
+    }
+    fn populated(&self, path: &Path) -> bool {
+        self.inner.populated(path)
+    }
+    fn space(&self, path: &Path) -> Option<(u64, u64)> {
+        self.inner.space(path)
+    }
+    fn matches_id(&self, volume: &Volume, saved: &str) -> bool {
+        *self
+            .matches
+            .borrow_mut()
+            .entry((volume.id.clone(), saved.into()))
+            .or_insert_with(|| self.inner.matches_id(volume, saved))
+    }
+}
+
 /// The real disks.
 pub struct SystemProbe;
 
@@ -91,6 +129,8 @@ impl Library {
         roots: &[PathBuf],
         probe: &dyn Probe,
     ) -> anyhow::Result<Vec<VolumeFolders>> {
+        let cached = CachedProbe::new(probe);
+        let probe: &dyn Probe = &cached;
         let mut records = self.folders()?;
         // Migrate only verified legacy identities, never a path/name match.
         // Persist the current ID so the next listing needs no legacy query.
@@ -100,9 +140,13 @@ impl Library {
             let Some(id) = &record.volume_id else {
                 continue;
             };
-            let current = matched
-                .entry(id.clone())
-                .or_insert_with(|| mounted.iter().find(|v| probe.matches_id(v, id)).cloned());
+            let current = matched.entry(id.clone()).or_insert_with(|| {
+                mounted
+                    .iter()
+                    .find(|v| v.id == *id)
+                    .or_else(|| mounted.iter().find(|v| probe.matches_id(v, id)))
+                    .cloned()
+            });
             if let Some(current) = current
                 && current.id != *id
             {
@@ -206,6 +250,8 @@ pub fn by_volume(
     roots: &[PathBuf],
     probe: &dyn Probe,
 ) -> Vec<VolumeFolders> {
+    let cached = CachedProbe::new(probe);
+    let probe: &dyn Probe = &cached;
     let mounted = probe.mounted();
     let mut groups: Vec<VolumeFolders> = Vec::new();
     let mut index: HashMap<String, usize> = HashMap::new();
@@ -355,7 +401,11 @@ fn known_volume(
     mounted: &[Volume],
     probe: &dyn Probe,
 ) -> VolumeFolders {
-    if let Some(volume) = mounted.iter().find(|v| probe.matches_id(v, id)) {
+    if let Some(volume) = mounted
+        .iter()
+        .find(|v| v.id == id)
+        .or_else(|| mounted.iter().find(|v| probe.matches_id(v, id)))
+    {
         return volume_group(volume, true, probe);
     }
     let volume = Volume {
