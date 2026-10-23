@@ -21,8 +21,9 @@
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{Emitter, Manager};
@@ -211,10 +212,37 @@ struct Worker {
     cancel: Arc<AtomicUsize>,
     /// Long edge of the Develop view the frontend expects (Standard size).
     viewer_dim: AtomicU32,
-    /// Raised to cancel the prefetch decode under way (an edit).
-    prefetch_cancel: Arc<AtomicUsize>,
-    /// A prefetch decode is under way.
-    prefetching: AtomicBool,
+    /// Cancels the prefetch decode under way on an edit.
+    prefetch_gate: PrefetchGate,
+}
+
+/// Interactive frames counted for the prefetch: a decode started before
+/// one gives up at its next cancel check.
+#[derive(Default)]
+struct PrefetchGate(Arc<AtomicUsize>);
+
+impl PrefetchGate {
+    /// Called after the frame was recorded as activity (`since_activity`).
+    fn interaction(&self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// The cancel token of a decode that may start now, None while the app
+    /// is not quiet. The token is taken before the quiet time is read: an
+    /// interactive frame after it cancels the decode, one before it is seen
+    /// as activity.
+    fn start(
+        &self,
+        since_activity: impl FnOnce() -> Duration,
+    ) -> Option<(Arc<AtomicUsize>, usize)> {
+        let token = self.0.load(Ordering::SeqCst);
+        (since_activity() >= crate::multi_view_prefetch::QUIET)
+            .then(|| (Arc::clone(&self.0), token))
+    }
+
+    fn cancelled(&self, token: usize) -> bool {
+        self.0.load(Ordering::SeqCst) != token
+    }
 }
 
 static WORKER: OnceLock<Arc<Worker>> = OnceLock::new();
@@ -238,8 +266,7 @@ fn worker(app_handle: &tauri::AppHandle) -> Arc<Worker> {
                 wake: Condvar::new(),
                 cancel: Arc::new(AtomicUsize::new(0)),
                 viewer_dim: AtomicU32::new(0),
-                prefetch_cancel: Arc::new(AtomicUsize::new(0)),
-                prefetching: AtomicBool::new(false),
+                prefetch_gate: PrefetchGate::default(),
             });
             let shared = Arc::clone(&worker);
             let app_handle = app_handle.clone();
@@ -256,11 +283,8 @@ fn worker(app_handle: &tauri::AppHandle) -> Arc<Worker> {
 /// interactive one cancels the prefetch decode under way (the quiet time
 /// itself is `multi_view_prefetch`'s, which this frame restarts).
 pub(crate) fn note_preview(interactive: bool) {
-    if interactive
-        && let Some(worker) = WORKER.get()
-        && worker.prefetching.load(Ordering::Relaxed)
-    {
-        worker.prefetch_cancel.fetch_add(1, Ordering::SeqCst);
+    if interactive && let Some(worker) = WORKER.get() {
+        worker.prefetch_gate.interaction();
     }
 }
 
@@ -288,17 +312,18 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
         let job = {
             let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
             loop {
-                let since = crate::multi_view_prefetch::since_activity();
-                let quiet = since >= crate::multi_view_prefetch::QUIET;
-                if let Some(job) = queue.next(quiet) {
-                    break (job, queue.prefetch_generation);
+                let start = worker
+                    .prefetch_gate
+                    .start(crate::multi_view_prefetch::since_activity);
+                if let Some(job) = queue.next(start.is_some()) {
+                    break (job, queue.prefetch_generation, start);
                 }
                 queue = if queue.prefetch.is_empty() {
                     worker.wake.wait(queue).unwrap_or_else(|e| e.into_inner())
                 } else {
                     let wait = crate::multi_view_prefetch::QUIET
-                        .saturating_sub(since)
-                        .max(std::time::Duration::from_millis(100));
+                        .saturating_sub(crate::multi_view_prefetch::since_activity())
+                        .max(Duration::from_millis(100));
                     worker
                         .wake
                         .wait_timeout(queue, wait)
@@ -307,15 +332,13 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                 };
             }
         };
-        let (job, prefetch_generation) = job;
+        let (job, prefetch_generation, start) = job;
         match job {
             Job::Prefetch(path) => {
-                worker.prefetching.store(true, Ordering::SeqCst);
-                let token = worker.prefetch_cancel.load(Ordering::SeqCst);
-                let cancel = (Arc::clone(&worker.prefetch_cancel), token);
+                let cancel = start.expect("prefetching only starts when quiet");
+                let token = cancel.1;
                 pool.install(|| prepare(app_handle, &path, cancel));
-                worker.prefetching.store(false, Ordering::SeqCst);
-                if worker.prefetch_cancel.load(Ordering::SeqCst) != token {
+                if worker.prefetch_gate.cancelled(token) {
                     worker
                         .queue
                         .lock()
@@ -829,6 +852,27 @@ mod tests {
             queue.next(true),
             Some(Job::Prefetch("/s/Capture/N.RAF".into()))
         );
+    }
+
+    #[test]
+    fn an_interactive_frame_while_a_prefetch_starts_is_never_lost() {
+        let gate = PrefetchGate::default();
+        // Recorded as activity before the quiet time is read: no start.
+        assert!(gate.start(|| Duration::ZERO).is_none());
+        // Lands after the token was taken, before its activity is seen:
+        // the decode starts but is already cancelled.
+        let (_, token) = gate
+            .start(|| {
+                gate.interaction();
+                Duration::MAX
+            })
+            .expect("quiet");
+        assert!(gate.cancelled(token));
+        // Quiet and no frame since: the decode runs.
+        let (_, token) = gate.start(|| Duration::MAX).expect("quiet");
+        assert!(!gate.cancelled(token));
+        gate.interaction();
+        assert!(gate.cancelled(token));
     }
 
     #[test]
