@@ -942,6 +942,8 @@ pub fn run() {
                     startup::flush_logs();
                     let exit_code = if app_quit::is_restart(code) {
                         app_quit::start_new_instance(app_handle);
+                        // A failed restart logs its error; write it out too.
+                        startup::flush_logs();
                         0
                     } else {
                         code.unwrap_or(0)
