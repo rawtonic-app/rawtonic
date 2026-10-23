@@ -252,10 +252,6 @@ impl From<&Operation> for OperationSummary {
             match &step.to {
                 Target::SystemTrash { .. } => summary.system_trash += 1,
                 Target::Path { path } | Target::OtherVolume { path, .. } => {
-                    if step.stayed() {
-                        // A move to another drive that left it in place.
-                        continue;
-                    }
                     if op.kind == "trash" {
                         summary.session_trash += 1;
                     }

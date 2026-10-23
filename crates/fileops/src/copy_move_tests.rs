@@ -813,9 +813,10 @@ fn copy_move_timing() {
 
 /// A crash after the copies were published, then the target drive changed
 /// before the next start (a copy gone, another replaced): recovery trashes
-/// only originals whose copy is still there with the same bytes.
+/// no original and rolls the move back; the changed file there is not
+/// taken for a copy.
 #[test]
-fn recovery_keeps_an_original_whose_copy_is_gone_or_changed() {
+fn recovery_rolls_a_move_back_when_a_copy_is_gone_or_changed() {
     let world = World::new();
     crash::arm_at("finishing");
     let run = catch_unwind(AssertUnwindSafe(|| {
@@ -826,36 +827,16 @@ fn recovery_keeps_an_original_whose_copy_is_gone_or_changed() {
     assert!(!crash::disarm() && run.is_err());
     fs::remove_file(world.target.join("A.RAF")).unwrap();
     let xmp = world.target.join("A.xmp");
-    let mut bytes = fs::read(&xmp).unwrap();
-    bytes[0] ^= 1;
-    fs::write(&xmp, bytes).unwrap();
+    let mut changed = fs::read(&xmp).unwrap();
+    changed[0] ^= 1;
+    fs::write(&xmp, &changed).unwrap();
     let journal = world.journal();
-    journal.recover(&world.trash).unwrap();
+    let pending = journal.recover(&world.trash).unwrap();
     let op = journal.history(1).unwrap().remove(0);
-    assert_eq!(op.state, State::Done);
-    for (name, len) in [FILES[0], FILES[2]] {
-        assert_eq!(
-            fs::read(world.source.join(name)).unwrap(),
-            content(name, len),
-            "{name} kept"
-        );
-        assert!(op.note.as_deref().unwrap().contains(name), "{:?}", op.note);
-    }
-    assert!(
-        !exists(&world.source.join("A.RAF.rrdata")),
-        "an intact copy's original goes"
-    );
-    assert_eq!(world.trash.items().len(), 1);
-    // The records follow only the file that moved.
-    assert_eq!(
-        op.renames(),
-        [(
-            world.source.join("A.RAF.rrdata"),
-            world.target.join("A.RAF.rrdata")
-        )]
-    );
-    // Undo brings that one back and leaves the others.
-    journal.undo(&op.id, &world.trash).unwrap();
+    assert_eq!(op.state, State::RolledBack);
+    assert!(pending.is_empty());
+    let note = op.note.unwrap();
+    assert!(note.contains("A.RAF is gone"), "{note}");
     for (name, len) in FILES {
         assert_eq!(
             fs::read(world.source.join(name)).unwrap(),
@@ -863,47 +844,85 @@ fn recovery_keeps_an_original_whose_copy_is_gone_or_changed() {
             "{name}"
         );
     }
-    assert!(!exists(&world.target.join("A.RAF.rrdata")));
-    assert!(
-        exists(&world.target.join("A.xmp")),
-        "the changed file there is not ours to trash"
-    );
+    assert!(world.trash.items().is_empty());
+    assert_eq!(World::names(&world.target), ["A.xmp"]);
+    assert_eq!(fs::read(&xmp).unwrap(), changed);
 }
 
-/// The same for an undo: a copy back gone before recovery keeps the copy
-/// at the target.
+/// A photo's files never end up in two places: a crash after its RAW went
+/// to the Trash, then a sidecar's copy gone before the next start: the RAW
+/// comes back from the Trash and the move is rolled back as a whole.
 #[test]
-fn recovery_of_an_undo_keeps_a_copy_whose_copy_back_is_gone() {
+fn recovery_keeps_a_photos_files_together() {
     let world = World::new();
+    crash::arm_at("trash recorded");
+    let run = catch_unwind(AssertUnwindSafe(|| {
+        world
+            .journal()
+            .execute("move", "Move", world.steps(), &world.trash)
+    }));
+    assert!(!crash::disarm() && run.is_err());
+    assert!(!exists(&world.source.join("A.RAF")), "the RAW was trashed");
+    fs::remove_file(world.target.join("A.RAF.rrdata")).unwrap();
     let journal = world.journal();
-    let op = journal
+    journal.recover(&world.trash).unwrap();
+    assert_eq!(journal.history(1).unwrap()[0].state, State::RolledBack);
+    world.assert_at(&world.source, &world.target);
+    assert!(world.trash.items().is_empty());
+}
+
+/// The same for an undo: a copy back gone before recovery puts the trashed
+/// copies back at the target and the move stays done.
+#[test]
+fn recovery_of_an_undo_keeps_a_photos_files_together() {
+    let world = World::new();
+    let op = world
+        .journal()
         .execute("move", "Move", world.steps(), &world.trash)
         .unwrap();
-    drop(journal);
-    crash::arm_at("finishing");
+    let trashed_by_move = world.trash.items().len();
+    crash::arm_at("trash recorded");
     let run = catch_unwind(AssertUnwindSafe(|| {
         world.journal().undo(&op.id, &world.trash)
     }));
     assert!(!crash::disarm() && run.is_err());
-    fs::remove_file(world.source.join("A.RAF")).unwrap();
+    assert!(
+        !exists(&world.target.join("A.RAF")),
+        "the copy went to the Trash"
+    );
+    fs::remove_file(world.source.join("A.xmp")).unwrap();
     let journal = world.journal();
     journal.recover(&world.trash).unwrap();
-    assert_eq!(journal.operation(&op.id).unwrap().state, State::Undone);
-    assert_eq!(
-        fs::read(world.target.join("A.RAF")).unwrap(),
-        content("A.RAF", FILES[0].1),
-        "the only copy left stays"
-    );
-    assert!(!exists(&world.target.join("A.xmp")));
-    // Undone, the records go back for the others; this one stays there.
-    let undone = journal.operation(&op.id).unwrap();
-    assert!(
-        undone
-            .renames()
-            .iter()
-            .all(|(from, _)| !from.ends_with("A.RAF"))
-    );
-    assert_eq!(undone.renames().len(), FILES.len() - 1);
+    let now = journal.operation(&op.id).unwrap();
+    assert_eq!(now.state, State::Done);
+    world.assert_at(&world.target, &world.source);
+    assert_eq!(world.trash.items().len(), trashed_by_move);
+    // And the undo works after all.
+    journal.undo(&op.id, &world.trash).unwrap();
+    world.assert_at(&world.source, &world.target);
+}
+
+/// A file name at the file system's limit moves (its staging name is short).
+#[test]
+fn a_name_at_the_length_limit_moves() {
+    let world = World::new();
+    let name = format!("{}.RAF", "L".repeat(251));
+    assert_eq!(name.len(), 255);
+    fs::write(world.source.join(&name), b"long").unwrap();
+    let op = world
+        .journal()
+        .execute(
+            "move",
+            "Move",
+            vec![Step::other_volume(
+                world.source.join(&name),
+                world.target.join(&name),
+            )],
+            &world.trash,
+        )
+        .unwrap();
+    assert_eq!(op.state, State::Done);
+    assert_eq!(fs::read(world.target.join(&name)).unwrap(), b"long");
 }
 
 /// A publish whose rename worked but whose folder could not be synced (a
