@@ -11947,12 +11947,12 @@ fn portable_grain_is_the_same_on_every_gpu() {
         .into_iter()
         .enumerate()
     {
-        // 25.006103515625 / 50 * 4096 = 2048.5: a halfway case of the rounding.
+        // Size 2048.5 * 50 / 4096 (exact): a halfway case of the rounding.
         for (size, roughness) in [
             (25.0f32, 50.0f32),
             (80.0, 0.0),
             (10.0, 100.0),
-            (25.006103515625, 50.0),
+            (2048.5 * 50.0 / 4096.0, 50.0),
         ] {
             let recipe = json!({"grainAmount": 30, "grainSize": size, "grainRoughness": roughness,
                 "grainStructure": name, "grainVersion": 2});
