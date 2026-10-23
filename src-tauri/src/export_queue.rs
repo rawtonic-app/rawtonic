@@ -91,23 +91,51 @@ pub struct Tracking {
     app: AppHandle,
 }
 
-/// Photos of a job in progress, and whether the job was settled.
+/// Photos of a job in progress, and whether the job was settled. One lock
+/// for both, so a photo is admitted only into a job that has not settled,
+/// and a job never settles while a photo admitted into it is still to come.
 #[derive(Default)]
-struct RunCount {
-    in_flight: std::sync::atomic::AtomicUsize,
-    settled: AtomicBool,
+struct RunCount(Mutex<RunState>);
+
+#[derive(Default)]
+struct RunState {
+    in_flight: usize,
+    settled: bool,
+}
+
+impl RunCount {
+    fn state(&self) -> std::sync::MutexGuard<'_, RunState> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+    /// Reserves a photo for a job that goes on and has not settled.
+    fn admit(&self, paused: &AtomicBool, cancelled: &AtomicBool) -> bool {
+        let mut state = self.state();
+        if state.settled || paused.load(Ordering::SeqCst) || cancelled.load(Ordering::SeqCst) {
+            return false;
+        }
+        state.in_flight += 1;
+        true
+    }
+    /// An admitted photo is done.
+    fn release(&self) {
+        let mut state = self.state();
+        state.in_flight = state.in_flight.saturating_sub(1);
+    }
+    /// Marks the job settled; false if it was already.
+    fn claim_settlement(&self) -> bool {
+        !std::mem::replace(&mut self.state().settled, true)
+    }
 }
 
 /// How a job stopped on its own ends, once its last photo in progress is
 /// done; `None` while it goes on, has photos in progress or was settled.
 fn settle_now(paused: &AtomicBool, cancelled: &AtomicBool, run: &RunCount) -> Option<RunEnd> {
+    let mut state = run.state();
     let cancelled = cancelled.load(Ordering::SeqCst);
-    if !(cancelled || paused.load(Ordering::SeqCst))
-        || run.in_flight.load(Ordering::SeqCst) != 0
-        || run.settled.swap(true, Ordering::SeqCst)
-    {
+    if !(cancelled || paused.load(Ordering::SeqCst)) || state.in_flight != 0 || state.settled {
         return None;
     }
+    state.settled = true;
     Some(if cancelled {
         RunEnd::Cancelled
     } else {
@@ -140,9 +168,14 @@ impl Tracking {
     pub fn is_paused(&self) -> bool {
         self.paused.load(Ordering::SeqCst)
     }
-    /// A photo's attempt begins: its source is read next.
+    /// Reserves photo export for this job: false once it is paused,
+    /// cancelled on its own or settled. An admitted photo must end with
+    /// `finished` (or with the run being cancelled as a whole).
+    pub fn admit(&self) -> bool {
+        self.run.admit(&self.paused, &self.cancelled)
+    }
+    /// An admitted photo's attempt begins: its source is read next.
     pub fn began(&self, index: usize) {
-        self.run.in_flight.fetch_add(1, Ordering::SeqCst);
         with_queue(|q| q.item_began(&self.job, index));
         self.report(index, Some(Stage::Loading), None);
     }
@@ -160,10 +193,7 @@ impl Tracking {
             Err(e) => with_queue(|q| q.item_failed(&self.job, index, e)),
         };
         self.report(index, None, None);
-        let _ = self
-            .run
-            .in_flight
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
+        self.run.release();
         settle(
             &self.app,
             &self.job,
@@ -583,7 +613,7 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
     // in the queue panel lets it go on.)
     for (_, tracking) in &trackings {
         // Settled already: stopped on its own while the others went on.
-        if tracking.run.settled.swap(true, Ordering::SeqCst) {
+        if !tracking.run.claim_settlement() {
             continue;
         }
         let end = if tracking.cancelled.load(Ordering::SeqCst) {
@@ -711,7 +741,7 @@ mod tests {
             AtomicBool::new(false),
             RunCount::default(),
         );
-        run.in_flight.store(1, Ordering::SeqCst);
+        assert!(run.admit(&paused, &cancelled));
         assert_eq!(settle_now(&paused, &cancelled, &run), None, "it goes on");
         paused.store(true, Ordering::SeqCst);
         assert_eq!(
@@ -719,7 +749,7 @@ mod tests {
             None,
             "a photo in progress"
         );
-        run.in_flight.store(0, Ordering::SeqCst);
+        run.release();
         assert_eq!(settle_now(&paused, &cancelled, &run), Some(RunEnd::Paused));
         assert_eq!(settle_now(&paused, &cancelled, &run), None, "settled once");
         let run = RunCount::default();
@@ -728,6 +758,30 @@ mod tests {
             settle_now(&paused, &cancelled, &run),
             Some(RunEnd::Cancelled),
             "cancel wins"
+        );
+    }
+
+    #[test]
+    fn a_job_settles_not_between_a_photos_admission_and_its_start() {
+        let (paused, cancelled, run) = (
+            AtomicBool::new(false),
+            AtomicBool::new(false),
+            RunCount::default(),
+        );
+        // A worker is admitted, then held up before its photo begins; the
+        // job is paused meanwhile.
+        assert!(run.admit(&paused, &cancelled));
+        paused.store(true, Ordering::SeqCst);
+        assert_eq!(
+            settle_now(&paused, &cancelled, &run),
+            None,
+            "the admitted photo is still to come"
+        );
+        run.release();
+        assert_eq!(settle_now(&paused, &cancelled, &run), Some(RunEnd::Paused));
+        assert!(
+            !run.admit(&paused, &cancelled),
+            "a settled job admits no photo"
         );
     }
 }

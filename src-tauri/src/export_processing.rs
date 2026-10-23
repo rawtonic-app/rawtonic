@@ -641,9 +641,11 @@ pub(crate) async fn export_images_impl(
                 drop(permit);
                 break;
             }
-            // A job paused or cancelled while this photo waited starts it not.
-            let wanted = still_wanted(wanted, |i| {
-                targets[i].tracking.as_ref().is_none_or(|t| t.goes_on())
+            // Admitted only into jobs still going on (one paused or
+            // cancelled while this photo waited starts it not), reserved
+            // atomically so such a job cannot settle before it is done.
+            let wanted = admitted(wanted, |i| {
+                targets[i].tracking.as_ref().is_none_or(|t| t.admit())
             });
             if wanted.is_empty() {
                 drop(permit);
@@ -796,9 +798,9 @@ pub(crate) async fn export_images_impl(
     Ok(())
 }
 
-/// The recipes of `wanted` whose jobs still take further photos.
-fn still_wanted(wanted: Vec<usize>, goes_on: impl Fn(usize) -> bool) -> Vec<usize> {
-    wanted.into_iter().filter(|&i| goes_on(i)).collect()
+/// The recipes of `wanted` whose jobs admit the photo.
+fn admitted(wanted: Vec<usize>, mut admit: impl FnMut(usize) -> bool) -> Vec<usize> {
+    wanted.into_iter().filter(|&i| admit(i)).collect()
 }
 
 /// Whether a run ended short of its photos without being cancelled as a
@@ -1770,8 +1772,8 @@ mod tests {
         // Recipes 0 and 2 were wanted when the photo began to wait; job 2
         // was paused meanwhile.
         let going_on = [true, true, false];
-        assert_eq!(super::still_wanted(vec![0, 2], |i| going_on[i]), vec![0]);
-        assert!(super::still_wanted(vec![2], |i| going_on[i]).is_empty());
+        assert_eq!(super::admitted(vec![0, 2], |i| going_on[i]), vec![0]);
+        assert!(super::admitted(vec![2], |i| going_on[i]).is_empty());
     }
 
     #[test]
