@@ -3,11 +3,10 @@ import { useShallow } from "zustand/react/shallow";
 import { Loader2, TriangleAlert } from "lucide-react";
 import { useEditorStore } from "../../../store/useEditorStore";
 import { useSettingsStore } from "../../../store/useSettingsStore";
+import { useSnapshotStore } from "../../../store/useSnapshotStore";
+import { beforeAdjustments } from "../../../utils/beforeSnapshot";
 import { useBrowserViewPreview } from "../../../hooks/useBrowserViewPreview";
-import {
-  originalPreviewAdjustments,
-  browserSplitWidth,
-} from "../../../utils/beforeAfter";
+import { browserSplitWidth } from "../../../utils/beforeAfter";
 import type { RenderSize } from "../../../hooks/useImageRenderSize";
 import type { Adjustments } from "../../../utils/adjustments";
 
@@ -41,8 +40,11 @@ export default function BrowserSplitImage({
   );
   const id = useId();
   const active = linux && enabled && split;
+  // A snapshot compared with is the before; its list read again re-reads it.
+  useEditorStore((s) => s.beforeSnapshot);
+  useSnapshotStore((s) => s.snapshots);
   const recipe = JSON.stringify({
-    ...originalPreviewAdjustments(adjustments),
+    ...beforeAdjustments(adjustments),
     ...view,
   });
   const resolution = Math.min(

@@ -7,6 +7,7 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useRelightStore } from '../store/useRelightStore';
+import { useSnapshotStore } from '../store/useSnapshotStore';
 import { stripSentRelightData } from '../utils/relight';
 import { Adjustments, AiPatch, MaskContainer } from '../utils/adjustments';
 import { Invokes, Panel, canRenderSource } from '../components/ui/AppProperties';
@@ -17,7 +18,7 @@ import { globalImageCache } from '../utils/ImageLRUCache';
 import { epochOf, latestPointerDispatchTime, latestPointerInputTime, performanceDiagnosticsEnabled, reportPerformance, notePointerSessionFrame, registerDiagnosticQueue, noteBrowserPreview } from './usePerformanceDiagnostics';
 import { LatestPreviewQueue } from '../utils/latestPreviewQueue';
 import { sourceDevelopToApply } from '../utils/aiDenoise';
-import { originalPreviewAdjustments } from '../utils/beforeAfter';
+import { beforeAdjustments, beforeSnapshot } from '../utils/beforeSnapshot';
 import { toastAiError } from '../utils/aiErrors';
 
 // Matches PREVIEW_RENDER_FAILED in src-tauri/src/lib.rs.
@@ -215,47 +216,7 @@ export function useImageProcessing(
           payload.rotation = 0;
         }
 
-        const processSubMasks = (subMasks: SubMask[]) => {
-          if (!Array.isArray(subMasks)) return;
-          subMasks.forEach((sm: SubMask) => {
-            if (sm.id && sm.parameters) {
-              const keys = ['mask_data_base64', 'maskDataBase64'];
-              let foundMaskData = false;
-
-              for (const key of keys) {
-                if (sm.parameters[key] !== undefined && sm.parameters[key] !== null) {
-                  foundMaskData = true;
-                  if (patchesSentToBackend.has(sm.id)) {
-                    sm.parameters[key] = null;
-                  }
-                }
-              }
-              if (foundMaskData && !patchesSentToBackend.has(sm.id)) {
-                newlySentPatches.add(sm.id);
-              }
-            }
-          });
-        };
-
-        if (payload.aiPatches && Array.isArray(payload.aiPatches)) {
-          payload.aiPatches.forEach((p: AiPatch) => {
-            if (p.id && p.patchData && !p.isLoading) {
-              if (patchesSentToBackend.has(p.id)) {
-                p.patchData = null;
-              } else {
-                newlySentPatches.add(p.id);
-              }
-            }
-            if (p.subMasks) processSubMasks(p.subMasks);
-          });
-        }
-
-        if (payload.masks && Array.isArray(payload.masks)) {
-          payload.masks.forEach((container: MaskContainer) => {
-            if (container.subMasks) processSubMasks(container.subMasks);
-          });
-        }
-        stripSentRelightData(payload, patchesSentToBackend).forEach((name) => newlySentPatches.add(name));
+        stripSentBitmaps(payload, patchesSentToBackend).forEach((id) => newlySentPatches.add(id));
       }
 
       const jobId = ++previewJobIdRef.current;
@@ -561,6 +522,10 @@ export function useImageProcessing(
         if (editor.selectedImage?.path !== path) return settleBusy();
         settleBusy();
         editor.setEditor({
+          // The source developed again cleared the native side's bitmaps
+          // (patch cache): send them again. A new set, so requests still
+          // under way acknowledge theirs into the old one.
+          patchesSentToBackend: new Set<string>(),
           selectedImage: {
             ...editor.selectedImage,
             aiDenoise: Math.round(applied),
@@ -822,13 +787,16 @@ export function useImageProcessing(
     isWaveformVisible,
   ]);
 
-  // Turning the split on renders its before beside the frame on screen.
+  // Turning the split on or comparing with another snapshot (or one
+  // updated) renders its before beside the frame on screen.
   const splitView = useEditorStore((state) => state.splitView);
+  const comparedWith = useEditorStore((state) => state.beforeSnapshot?.id);
+  const snapshots = useSnapshotStore((state) => state.snapshots);
   useEffect(() => {
     if (!splitView || !nativeDisplayRef.current) return;
     requestSplitBefore(currentResRef.current || calculateTargetRes());
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only turning the split on triggers; the resolution is read now
-  }, [splitView]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only these trigger; the resolution is read now
+  }, [splitView, comparedWith, comparedWith ? snapshots : null]);
 
   // Entering or leaving crop changes which frame the display needs.
   const isCropping = activeView === 'editor' && activePanel === Panel.Crop;
@@ -868,13 +836,67 @@ export function withViewStates(adjustments: Adjustments): Adjustments {
   return payload;
 }
 
+/**
+ * Leaves out of `payload` (sent to the native side, which hydrates them from
+ * its patch cache) the AI bitmaps and relight data already `sent` under
+ * their ids; returns the ids it carries for the first time, to be added to
+ * `sent` once the request went through.
+ */
+function stripSentBitmaps(payload: Adjustments, sent: Set<string>): Set<string> {
+  const newlySent = new Set<string>();
+  const processSubMasks = (subMasks: SubMask[]) => {
+    if (!Array.isArray(subMasks)) return;
+    subMasks.forEach((sm: SubMask) => {
+      if (sm.id && sm.parameters) {
+        const keys = ['mask_data_base64', 'maskDataBase64'];
+        let foundMaskData = false;
+
+        for (const key of keys) {
+          if (sm.parameters[key] !== undefined && sm.parameters[key] !== null) {
+            foundMaskData = true;
+            if (sent.has(sm.id)) {
+              sm.parameters[key] = null;
+            }
+          }
+        }
+        if (foundMaskData && !sent.has(sm.id)) {
+          newlySent.add(sm.id);
+        }
+      }
+    });
+  };
+
+  if (payload.aiPatches && Array.isArray(payload.aiPatches)) {
+    payload.aiPatches.forEach((p: AiPatch) => {
+      if (p.id && p.patchData && !p.isLoading) {
+        if (sent.has(p.id)) {
+          p.patchData = null;
+        } else {
+          newlySent.add(p.id);
+        }
+      }
+      if (p.subMasks) processSubMasks(p.subMasks);
+    });
+  }
+
+  if (payload.masks && Array.isArray(payload.masks)) {
+    payload.masks.forEach((container: MaskContainer) => {
+      if (container.subMasks) processSubMasks(container.subMasks);
+    });
+  }
+  stripSentRelightData(payload, sent).forEach((name) => newlySent.add(name));
+  return newlySent;
+}
+
 let splitBeforeInFlight = false;
 let splitBeforeQueued: number | null = null;
 
 /**
  * Asks the native display for the split view's before side (the unedited
- * recipe with the edit's framing) at `targetRes`. One request at a time;
- * while one runs, only the newest further request is kept.
+ * recipe with the edit's framing, or the snapshot compared with) at
+ * `targetRes`; once it is in place, `splitBeforeShows` names the snapshot
+ * it shows. One request at a time; while one runs, only the newest further
+ * request is kept.
  */
 export function requestSplitBefore(targetRes: number) {
   if (splitBeforeInFlight) {
@@ -891,12 +913,26 @@ export function requestSplitBefore(targetRes: number) {
   ) {
     return;
   }
+  const compared = beforeSnapshot()?.id ?? null;
+  // A snapshot's bitmaps go once; the native side keeps them by their ids.
+  const payload = withViewStates(beforeAdjustments(editor.adjustments));
+  const sent = editor.patchesSentToBackend;
+  const sending = stripSentBitmaps(payload, sent);
   splitBeforeInFlight = true;
   invoke<boolean>(Invokes.RenderSplitBefore, {
     path: image.path,
-    jsAdjustments: withViewStates(originalPreviewAdjustments(editor.adjustments)),
+    jsAdjustments: payload,
     targetResolution: targetRes || null,
   })
+    .then((placed) => {
+      if (!placed) return;
+      sending.forEach((id) => sent.add(id));
+      // The before of an earlier request can arrive after another snapshot
+      // was chosen: the label names the one on screen.
+      if (useEditorStore.getState().splitBeforeShows !== compared) {
+        useEditorStore.getState().setEditor({ splitBeforeShows: compared });
+      }
+    })
     .catch((err) => {
       if (typeof err === 'string' && err.startsWith(PREVIEW_RENDER_FAILED)) {
         toast.error(err, { toastId: PREVIEW_RENDER_FAILED });

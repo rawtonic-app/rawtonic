@@ -308,7 +308,7 @@ fn mask_thumbnails(
 }
 
 pub fn resolve_warped_image_for_masks(
-    state: &tauri::State<AppState>,
+    state: &AppState,
     source: &Arc<DynamicImage>,
     is_raw: bool,
     source_scale: f32,
@@ -338,7 +338,7 @@ pub fn resolve_warped_image_for_masks(
 
 #[allow(clippy::too_many_arguments)]
 pub fn get_cached_or_generate_mask(
-    state: &tauri::State<AppState>,
+    state: &AppState,
     def: &MaskDefinition,
     width: u32,
     height: u32,

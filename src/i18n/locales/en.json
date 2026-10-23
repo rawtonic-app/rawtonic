@@ -1981,6 +1981,10 @@
         "whites": "Whites"
       },
       "snapshots": {
+        "compare": "Compare {{name}} with the current edit (Before/After's before)",
+        "compareAiDenoise": "{{name}} uses AI Denoise, which the split cannot show on this system yet: restore it to compare",
+        "compareDiffers": "{{name}} is framed or developed differently (crop, geometry, AI Denoise or noise reduction version): restore it to compare",
+        "compareEnd": "Compare with the unedited photograph again instead of {{name}}",
         "create": "New snapshot of the current edit",
         "delete": "Delete snapshot {{name}}",
         "empty": "No snapshots yet: + keeps the current edit under a name, the camera in History keeps any step.",
@@ -3516,6 +3520,7 @@
         "showPanels": "Show panels",
         "splitAfter": "After",
         "splitBefore": "Before",
+        "splitBeforeSnapshot": "Before: {{name}}",
         "splitDivider": "Before/after divider",
         "togglePanels": "Toggle panels",
         "undo": "Undo",

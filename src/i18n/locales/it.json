@@ -2039,6 +2039,10 @@
         "whites": "Bianchi"
       },
       "snapshots": {
+        "compare": "Confronta {{name}} con la modifica attuale (il prima di Prima/Dopo)",
+        "compareAiDenoise": "{{name}} usa la riduzione rumore IA, che la vista divisa non può ancora mostrare su questo sistema: ripristinalo per confrontare",
+        "compareDiffers": "{{name}} ha un'inquadratura o uno sviluppo diversi (ritaglio, geometria, riduzione rumore IA o versione della riduzione rumore): ripristinalo per confrontare",
+        "compareEnd": "Confronta di nuovo con la foto non modificata invece di {{name}}",
         "create": "Nuova istantanea della modifica attuale",
         "delete": "Elimina l’istantanea {{name}}",
         "empty": "Ancora nessuna istantanea: + conserva la modifica attuale con un nome, la fotocamera nella cronologia conserva qualsiasi passaggio.",
@@ -3620,6 +3624,7 @@
         "showPanels": "Mostra i pannelli",
         "splitAfter": "Dopo",
         "splitBefore": "Prima",
+        "splitBeforeSnapshot": "Prima: {{name}}",
         "splitDivider": "Divisore prima/dopo",
         "togglePanels": "Mostra/nascondi i pannelli",
         "undo": "Annulla",

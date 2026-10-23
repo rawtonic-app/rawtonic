@@ -2,6 +2,9 @@ import { useRef, type KeyboardEvent, type PointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEditorStore } from '../../../store/useEditorStore';
+import { useSnapshotStore } from '../../../store/useSnapshotStore';
+import { useSettingsStore } from '../../../store/useSettingsStore';
+import { beforeSnapshot } from '../../../utils/beforeSnapshot';
 import { DEFAULT_SPLIT_POSITION, nudgeSplitPosition, splitPositionAt } from '../../../utils/beforeAfter';
 
 /**
@@ -17,6 +20,15 @@ export default function SplitViewOverlay() {
   const position = useEditorStore((state) => state.splitPosition);
   // While \ is held the whole photograph shows before: no divider, no labels.
   const peeking = useEditorStore((state) => state.showOriginal);
+  // The snapshot shown names the before side: on the native display the one
+  // whose before is in place (an earlier request's can still be), in the
+  // browser split the one compared with (its frame waits for its recipe).
+  useEditorStore((state) => state.beforeSnapshot);
+  const shownId = useEditorStore((state) => state.splitBeforeShows);
+  const browser = useSettingsStore((state) => state.osPlatform === 'linux');
+  const snapshots = useSnapshotStore((state) => state.snapshots);
+  const chosen = beforeSnapshot();
+  const compared = browser ? chosen : (snapshots.find((snapshot) => snapshot.id === shownId) ?? null);
   const rootRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
 
@@ -60,7 +72,11 @@ export default function SplitViewOverlay() {
 
   return (
     <div ref={rootRef} className="absolute inset-0 pointer-events-none z-[60]" data-testid="split-view-overlay">
-      <span className={`${label} left-2`}>{t('studio.workspace.viewer.splitBefore')}</span>
+      <span className={`${label} left-2`}>
+        {compared
+          ? t('studio.workspace.viewer.splitBeforeSnapshot', { name: compared.name })
+          : t('studio.workspace.viewer.splitBefore')}
+      </span>
       <span className={`${label} right-2`}>{t('studio.workspace.viewer.splitAfter')}</span>
       <div
         role="slider"

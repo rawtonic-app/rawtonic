@@ -1981,6 +1981,10 @@
         "whites": "Weiß"
       },
       "snapshots": {
+        "compare": "{{name}} mit der aktuellen Bearbeitung vergleichen (Vorher von Vorher/Nachher)",
+        "compareAiDenoise": "{{name}} nutzt KI-Entrauschen, das die geteilte Ansicht auf diesem System noch nicht zeigen kann: zum Vergleichen wiederherstellen",
+        "compareDiffers": "{{name}} ist anders gerahmt oder entwickelt (Zuschnitt, Geometrie, KI-Entrauschen oder Version der Rauschreduzierung): zum Vergleichen wiederherstellen",
+        "compareEnd": "Statt mit {{name}} wieder mit dem unbearbeiteten Foto vergleichen",
         "create": "Neuer Schnappschuss der aktuellen Bearbeitung",
         "delete": "Schnappschuss {{name}} löschen",
         "empty": "Noch keine Schnappschüsse: + hält die aktuelle Bearbeitung unter einem Namen fest, die Kamera im Protokoll jeden Schritt.",
@@ -3516,6 +3520,7 @@
         "showPanels": "Bedienfelder einblenden",
         "splitAfter": "Nachher",
         "splitBefore": "Vorher",
+        "splitBeforeSnapshot": "Vorher: {{name}}",
         "splitDivider": "Vorher/Nachher-Trennlinie",
         "togglePanels": "Bedienfelder ein-/ausblenden",
         "undo": "Rückgängig",

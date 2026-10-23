@@ -2039,6 +2039,10 @@
         "whites": "Blancs"
       },
       "snapshots": {
+        "compare": "Comparer {{name}} à la retouche actuelle (l'avant d'Avant/Après)",
+        "compareAiDenoise": "{{name}} utilise le débruitage IA, que la vue partagée ne peut pas encore afficher sur ce système : restaurez-le pour comparer",
+        "compareDiffers": "{{name}} est cadré ou développé autrement (recadrage, géométrie, débruitage IA ou version de la réduction du bruit) : restaurez-le pour comparer",
+        "compareEnd": "Comparer de nouveau à la photo non retouchée au lieu de {{name}}",
         "create": "Nouvel instantané de la retouche actuelle",
         "delete": "Supprimer l’instantané {{name}}",
         "empty": "Aucun instantané : + conserve la retouche actuelle sous un nom, l’appareil photo de l’historique conserve n’importe quelle étape.",
@@ -3620,6 +3624,7 @@
         "showPanels": "Afficher les panneaux",
         "splitAfter": "Après",
         "splitBefore": "Avant",
+        "splitBeforeSnapshot": "Avant : {{name}}",
         "splitDivider": "Séparateur avant/après",
         "togglePanels": "Afficher/masquer les panneaux",
         "undo": "Annuler",

@@ -1944,6 +1944,10 @@
         "whites": "흰색 계열"
       },
       "snapshots": {
+        "compare": "{{name}}을(를) 현재 편집과 비교 (전/후 보기의 전)",
+        "compareAiDenoise": "{{name}}은(는) AI 노이즈 제거를 사용하며, 이 시스템의 분할 보기에서는 아직 표시할 수 없습니다. 비교하려면 복원하세요",
+        "compareDiffers": "{{name}}은(는) 구도나 현상이 다릅니다(자르기, 기하, AI 노이즈 제거 또는 노이즈 감소 버전). 비교하려면 복원하세요",
+        "compareEnd": "{{name}} 대신 다시 편집 전 사진과 비교",
         "create": "현재 편집의 새 스냅샷",
         "delete": "스냅샷 {{name}} 삭제",
         "empty": "아직 스냅샷이 없습니다. +는 현재 편집을 이름으로 보관하고, 기록의 카메라는 모든 단계를 보관합니다.",
@@ -3433,6 +3437,7 @@
         "showPanels": "패널 표시",
         "splitAfter": "후",
         "splitBefore": "전",
+        "splitBeforeSnapshot": "전: {{name}}",
         "splitDivider": "전/후 구분선",
         "togglePanels": "패널 표시/숨기기",
         "undo": "실행 취소",

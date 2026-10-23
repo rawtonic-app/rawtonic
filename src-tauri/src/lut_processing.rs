@@ -198,7 +198,7 @@ impl LutCache {
     }
 }
 
-pub fn get_or_load_lut(state: &State<AppState>, path: &str) -> Result<Arc<Lut>, String> {
+pub fn get_or_load_lut(state: &AppState, path: &str) -> Result<Arc<Lut>, String> {
     state.lut_cache.lock().unwrap().get_or_load(path)
 }
 

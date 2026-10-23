@@ -26,7 +26,8 @@ import {
 import { calculateCenteredCrop, reframingInputs } from '../utils/cropUtils';
 import { cropGestures } from '../utils/cropGesture';
 import { autoWhiteBalance } from '../utils/whiteBalance';
-import { originalPreviewAdjustments, splitViewAvailable } from '../utils/beforeAfter';
+import { splitViewAvailable } from '../utils/beforeAfter';
+import { beforeAdjustments } from '../utils/beforeSnapshot';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
 import {
   RESPONSES_CHOSEN,
@@ -356,15 +357,16 @@ export function updateAdjustments(value: AdjustmentsUpdate) {
 
 /**
  * Starts the held before peek (Lightroom's \ held down): the whole
- * photograph unedited, framed like the edit, until endBeforePeek. With the
- * split on it covers both sides; the split comes back on release.
+ * photograph unedited (or as the snapshot compared with), framed like the
+ * edit, until endBeforePeek. With the split on it covers both sides; the
+ * split comes back on release.
  */
 export function startBeforePeek(): boolean {
   let started = false;
   useEditorStore.getState().setEditor((state) => {
     if (!state.selectedImage?.isReady || state.showOriginal) return state;
     started = true;
-    return { showOriginal: true, previewOverride: originalPreviewAdjustments(state.adjustments) };
+    return { showOriginal: true, previewOverride: beforeAdjustments(state.adjustments) };
   });
   return started;
 }

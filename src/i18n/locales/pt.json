@@ -2039,6 +2039,10 @@
         "whites": "Brancos"
       },
       "snapshots": {
+        "compare": "Comparar {{name}} com a edição atual (o antes de Antes/Depois)",
+        "compareAiDenoise": "{{name}} usa a redução de ruído com IA, que a vista dividida ainda não consegue mostrar neste sistema: restaure-o para comparar",
+        "compareDiffers": "{{name}} tem outro enquadramento ou revelação (recorte, geometria, redução de ruído com IA ou versão da redução de ruído): restaure-o para comparar",
+        "compareEnd": "Comparar de novo com a foto sem edição em vez de {{name}}",
         "create": "Novo instantâneo da edição atual",
         "delete": "Eliminar o instantâneo {{name}}",
         "empty": "Ainda não há instantâneos: + guarda a edição atual com um nome, a câmara no histórico guarda qualquer passo.",
@@ -3620,6 +3624,7 @@
         "showPanels": "Mostrar painéis",
         "splitAfter": "Depois",
         "splitBefore": "Antes",
+        "splitBeforeSnapshot": "Antes: {{name}}",
         "splitDivider": "Divisor antes/depois",
         "togglePanels": "Mostrar/ocultar painéis",
         "undo": "Desfazer",

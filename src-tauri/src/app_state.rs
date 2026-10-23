@@ -303,6 +303,10 @@ pub struct CachedPreview {
     /// Built while a control was dragged, without the edge-fringe pass's
     /// chromatic-aberration stage (`edge_fringe::DRAFT_KEY`).
     pub fringe_draft: bool,
+    /// The full preparation key of the recipe it was built for
+    /// (`preview_cache::preparation_key`, draft keys included): checked where
+    /// another recipe would take it (`serves_recipe`).
+    pub preparation_key: u64,
 }
 
 impl CachedPreview {
@@ -321,6 +325,36 @@ impl CachedPreview {
             && self.transform_hash == transform_hash
             && self.interim == interim
             && (interactive || !self.fringe_draft)
+    }
+
+    /// Whether this base serves a preview frame with `transform_hash`: a
+    /// drag's frames by the transform hash (`serves`), lasting frames also by
+    /// the whole `preparation_key` (computed only then), since the transform
+    /// hash takes some inputs by size only (depth maps, patch payloads).
+    pub fn serves_frame(
+        &self,
+        source: &Arc<DynamicImage>,
+        transform_hash: u64,
+        interim: bool,
+        interactive: bool,
+        preparation_key: impl FnOnce() -> u64,
+    ) -> bool {
+        self.serves(source, transform_hash, interim, interactive)
+            && (interactive || self.preparation_key == preparation_key())
+    }
+
+    /// Whether this base serves a lasting frame of another recipe with
+    /// `(transform_hash, preparation_key)` (the split's before): the
+    /// transform hash alone takes some inputs by size only (depth maps,
+    /// patch payloads), so the whole preparation key must match too.
+    pub fn serves_recipe(
+        &self,
+        source: &Arc<DynamicImage>,
+        (transform_hash, preparation_key): (u64, u64),
+        interim: bool,
+    ) -> bool {
+        self.serves(source, transform_hash, interim, false)
+            && self.preparation_key == preparation_key
     }
 }
 
@@ -509,6 +543,67 @@ pub struct AppState {
     pub disks_cache_refreshing: AtomicBool,
 }
 
+/// The state the app starts with: no photograph, empty caches.
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            window_setup_complete: AtomicBool::new(false),
+            gpu_crash_flag_path: Mutex::new(None),
+            original_image: Mutex::new(None),
+            proxy_image: Mutex::new(None),
+            proxy_memory: Mutex::new(Default::default()),
+            offline_source: Mutex::new(None),
+            source_signal: Default::default(),
+            rendered_source: Default::default(),
+            current_source: Mutex::new(String::new()),
+            last_preview_dim: std::sync::atomic::AtomicU32::new(0),
+            cached_preview: Mutex::new(None),
+            reusable_previews: Mutex::new(Default::default()),
+            gpu_context: Mutex::new(None),
+            gpu_image_cache: Mutex::new(None),
+            gpu_processor: Mutex::new(None),
+            ai_state: Mutex::new(None),
+            ai_init_lock: TokioMutex::new(()),
+            ai_denoiser: Mutex::new([None, None]),
+            faces: Mutex::new(Default::default()),
+            active_ai_tasks: Mutex::new(HashMap::new()),
+            export_task_token: Arc::new(Mutex::new(None)),
+            merge_result: Arc::new(Mutex::new(None)),
+            indexing_task_handle: Mutex::new(None),
+            lut_cache: Mutex::new(Default::default()),
+            initial_file_path: Mutex::new(None),
+            pending_edit_session: Mutex::new(None),
+            thumbnail_cancellation_token: Arc::new(AtomicBool::new(false)),
+            thumbnail_progress: Mutex::new(ThumbnailProgressTracker {
+                total: 0,
+                completed: 0,
+            }),
+            preview_jobs: Default::default(),
+            live_stroke: Default::default(),
+            analytics_worker_tx: Mutex::new(None),
+            mask_cache: Mutex::new(Default::default()),
+            mask_thumbnail_cache: Mutex::new(Default::default()),
+            patch_cache: Mutex::new(HashMap::new()),
+            geometry_cache: Mutex::new(HashMap::new()),
+            thumbnail_geometry_cache: Mutex::new(HashMap::new()),
+            lens_db: Mutex::new(None),
+            load_image_generation: Arc::new(AtomicUsize::new(0)),
+            preview_generation: AtomicUsize::new(0),
+            full_warped_cache: Mutex::new(None),
+            full_warped_build: Default::default(),
+            mask_source_wanted: Mutex::new(None),
+            mask_source_recipe: Mutex::new(None),
+            patched_warped_cache: Mutex::new(None),
+            full_transformed_cache: Mutex::new(None),
+            decoded_image_cache: Mutex::new(DecodedImageCache::new(5)),
+            thumbnail_manager: ThumbnailManager::new(),
+            metadata_manager: MetadataManager::new(),
+            disks_cache: Mutex::new(None),
+            disks_cache_refreshing: AtomicBool::new(false),
+        }
+    }
+}
+
 #[cfg(test)]
 mod preview_job_order_tests {
     use super::{preview_job_is_stale, supersedes};
@@ -548,6 +643,7 @@ mod cached_preview_tests {
             interactive_divisor: 1.0,
             interim: true,
             fringe_draft: false,
+            preparation_key: 0,
         };
         assert!(cached.serves(&proxy, 7, true, false));
         assert!(!cached.serves(&proxy, 7, false, false));
@@ -569,6 +665,7 @@ mod cached_preview_tests {
             interactive_divisor: 1.0,
             interim: false,
             fringe_draft: true,
+            preparation_key: 0,
         };
         assert!(cached.serves(&source, 7, false, true));
         assert!(!cached.serves(&source, 7, false, false));
@@ -578,6 +675,50 @@ mod cached_preview_tests {
         };
         assert!(finished.serves(&source, 7, false, true));
         assert!(finished.serves(&source, 7, false, false));
+    }
+}
+
+#[cfg(test)]
+mod serves_recipe_tests {
+    use super::CachedPreview;
+    use image::DynamicImage;
+    use serde_json::json;
+    use std::sync::Arc;
+
+    /// A snapshot compared with whose lens blur depth map differs from the
+    /// edit's by its pixels only (the same length): the transform hash takes
+    /// it by size, so the edit's blurred base must not serve the before.
+    #[test]
+    fn an_edit_base_serves_another_recipe_only_with_its_whole_preparation() {
+        let depth = |pixels: &str| json!({"lensBlurEnabled": true, "lensBlurAmount": 40, "lensBlurDepthMap": format!("data:image/png;base64,{pixels}")});
+        let (edit, snapshot) = (depth("AAAA"), depth("BBBB"));
+        let transform = rawtonic_engine::cache_utils::calculate_transform_hash;
+        assert_eq!(transform(&edit), transform(&snapshot));
+        let key = crate::preview_cache::preparation_key;
+        assert_ne!(key(&edit), key(&snapshot));
+        let source = Arc::new(DynamicImage::new_rgb32f(4, 4));
+        let cached = CachedPreview {
+            source: Arc::downgrade(&source),
+            image: Arc::new(DynamicImage::new_rgb32f(2, 2)),
+            small_image: None,
+            transform_hash: transform(&edit),
+            scale: 0.5,
+            unscaled_crop_offset: (0.0, 0.0),
+            preview_dim: 2,
+            interactive_divisor: 1.0,
+            interim: false,
+            fringe_draft: false,
+            preparation_key: key(&edit),
+        };
+        assert!(cached.serves_recipe(&source, (transform(&edit), key(&edit)), false));
+        assert!(!cached.serves_recipe(&source, (transform(&snapshot), key(&snapshot)), false));
+        // The held peek shows the snapshot as a preview frame of its own: a
+        // lasting frame takes the edit's base only with its preparation; a
+        // drag's frames keep the cheap check.
+        let hash = transform(&snapshot);
+        assert!(!cached.serves_frame(&source, hash, false, false, || key(&snapshot)));
+        assert!(cached.serves_frame(&source, hash, false, false, || key(&edit)));
+        assert!(cached.serves_frame(&source, hash, false, true, || unreachable!()));
     }
 }
 

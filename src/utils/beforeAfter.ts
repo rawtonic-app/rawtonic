@@ -39,14 +39,35 @@ export const BEFORE_FRAMING_KEYS: Array<keyof Adjustments> = [
   'guidedPerspective',
 ];
 
-/** The unedited recipe shown as "before": the defaults with the edit's framing. */
-export function originalPreviewAdjustments(adjustments: Adjustments): Adjustments {
-  const original: Adjustments = { ...INITIAL_ADJUSTMENTS };
+/** Stable JSON of a value: object keys sorted, undefined as null. */
+const stable = (value: unknown): string =>
+  JSON.stringify(value ?? null, (_, v) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, v[k] ?? null]))
+      : (v ?? null),
+  );
+
+/** How a recipe frames the photograph (its `BEFORE_FRAMING_KEYS`), as a
+ * string: equal for recipes that place it alike. */
+export function framingSignature(adjustments: Partial<Adjustments>): string {
+  const record = adjustments as Record<string, unknown>;
+  return stable(BEFORE_FRAMING_KEYS.map((key) => record[key]));
+}
+
+/**
+ * The recipe shown as "before": the defaults with the edit's framing, so
+ * both sides show the same part of the photograph, or a snapshot compared
+ * with (`snapshot`, framed like the edit: `beforeSnapshot`; its AI bitmaps
+ * under ids of their own: `beforeSnapshotAdjustments`).
+ */
+export function originalPreviewAdjustments(adjustments: Adjustments, snapshot?: Adjustments | null): Adjustments {
+  const original: Adjustments = { ...(snapshot ?? INITIAL_ADJUSTMENTS) };
   const target = original as unknown as Record<string, unknown>;
   for (const key of BEFORE_FRAMING_KEYS) target[key] = adjustments[key];
-  // The photo's render pipeline (warps keep wide-gamut colour from 2), so
-  // before and after differ by the edit only.
-  original.renderVersion = adjustments.renderVersion;
+  // The unedited photograph through the photo's render pipeline (warps keep
+  // wide-gamut colour from 2), so before and after differ by the edit only;
+  // a snapshot keeps its own, as it looked.
+  if (!snapshot) original.renderVersion = adjustments.renderVersion;
   return original;
 }
 

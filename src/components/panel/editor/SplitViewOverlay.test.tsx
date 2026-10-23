@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import SplitViewOverlay from './SplitViewOverlay';
 import { useEditorStore } from '../../../store/useEditorStore';
@@ -80,4 +80,40 @@ it('moves with the arrow keys and returns to the middle on double-click', () => 
   expect(useEditorStore.getState().splitPosition).toBeCloseTo(0.59);
   fireEvent.doubleClick(divider);
   expect(useEditorStore.getState().splitPosition).toBe(0.5);
+});
+
+it('names the snapshot whose before is shown on the before side', async () => {
+  const { useSnapshotStore } = await import('../../../store/useSnapshotStore');
+  const { useSettingsStore } = await import('../../../store/useSettingsStore');
+  const { INITIAL_ADJUSTMENTS } = await import('../../../utils/adjustments');
+  useSnapshotStore.setState({
+    path: '/p.dng',
+    snapshots: [{ id: 'a', name: 'Bright', createdAt: '2026-10-21T08:00:00Z', adjustments: INITIAL_ADJUSTMENTS }],
+  });
+  useEditorStore.setState({
+    selectedImage: { path: '/p.dng', isReady: true, isRaw: true } as never,
+    // Framed and developed as the snapshot (beforeSnapshot).
+    adjustments: INITIAL_ADJUSTMENTS,
+    beforeSnapshot: { path: '/p.dng', id: 'a' },
+    splitBeforeShows: null,
+  });
+  // The native display: named once its before is in place.
+  useSettingsStore.setState({ osPlatform: 'macos' });
+  render(<SplitViewOverlay />);
+  expect(screen.getByText('studio.workspace.viewer.splitBefore')).toBeTruthy();
+  act(() => useEditorStore.setState({ splitBeforeShows: 'a' }));
+  expect(screen.getByText('studio.workspace.viewer.splitBeforeSnapshot')).toBeTruthy();
+  // The browser split (Linux) waits for the chosen one's frame: named at once.
+  cleanup();
+  useEditorStore.setState({ splitBeforeShows: null });
+  useSettingsStore.setState({ osPlatform: 'linux' });
+  render(<SplitViewOverlay />);
+  expect(screen.getByText('studio.workspace.viewer.splitBeforeSnapshot')).toBeTruthy();
+  // Another photograph shown: the unedited before again.
+  cleanup();
+  useEditorStore.setState({ selectedImage: { path: '/q.dng', isReady: true } as never });
+  render(<SplitViewOverlay />);
+  expect(screen.getByText('studio.workspace.viewer.splitBefore')).toBeTruthy();
+  useSettingsStore.setState({ osPlatform: null as never });
+  useEditorStore.setState({ beforeSnapshot: null, selectedImage: null });
 });

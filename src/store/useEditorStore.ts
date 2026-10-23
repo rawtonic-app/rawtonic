@@ -46,6 +46,10 @@ interface EditorState {
   splitView: boolean;
   /** The split's divider as a share (0–1) of the viewer's width; kept for the session. */
   splitPosition: number;
+  /** The snapshot Before/After compares with (`utils/beforeSnapshot`); null: the unedited photograph. */
+  beforeSnapshot: { path: string; id: string } | null;
+  /** The snapshot (id) whose before the native split shows now; null: the unedited photograph. */
+  splitBeforeShows: string | null;
 
   // Analytics
   histogram: HistogramData | null;
@@ -208,6 +212,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   showOriginal: false,
   splitView: false,
   splitPosition: DEFAULT_SPLIT_POSITION,
+  beforeSnapshot: null,
+  splitBeforeShows: null,
   histogram: null,
   waveform: null,
   isWaveformVisible: false,
