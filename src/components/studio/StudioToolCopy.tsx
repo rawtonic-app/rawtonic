@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { usePopoverFocus } from "./usePopoverFocus";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { ArrowLeftRight } from "lucide-react";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
+import { usePopoverFocus } from "./usePopoverFocus";
 import { withLumaNoiseVersion, withSharpenVersion, type Adjustments } from "../../utils/adjustments";
 
 /** A tool's parameters: recipe key and (translated) label. */

@@ -7,8 +7,10 @@ export function usePopoverFocus(ref: RefObject<HTMLDivElement | null>) {
     const panel = ref.current;
     if (!panel) return;
     const trigger = document.activeElement;
+    // Skip buttons so Enter cannot activate Reset on opening. If there
+    // are no fields, focus the panel itself.
     const first = panel.querySelector<HTMLElement>(
-      'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]',
+      'input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), [role="slider"][tabindex="0"]',
     );
     (first ?? panel).focus({ preventScroll: true });
     return () => {
