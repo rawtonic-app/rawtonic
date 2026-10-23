@@ -7225,6 +7225,13 @@ pub struct KeptUpload {
     masks: Option<Box<UploadedMasks>>,
 }
 
+impl KeptUpload {
+    /// Width and height of the uploaded photo and of its renders.
+    pub fn size(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+}
+
 /// Uploads a CPU-readback source for [`process_and_get_dynamic_image_inner`].
 /// `None` means the image exceeds the GPU's texture limits; render it from
 /// [`RenderSource::Image`] instead, which renders it in windows.

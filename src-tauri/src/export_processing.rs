@@ -1101,41 +1101,37 @@ fn export_photo(
     // Recipes of one develop render together: one main pass, encoded for
     // each recipe's colour space and precision (notes: parity-gaps/G43).
     // A file the user named takes its precision from its own extension,
-    // known only once it is planned: it renders on its own.
-    let mut rendered: std::collections::HashMap<usize, Result<DynamicImage, String>> =
-        std::collections::HashMap::new();
-    for masks in [false, true] {
-        let group: Vec<usize> = images
-            .iter()
-            .copied()
-            .filter(|&target| with_mask_files(target) == masks)
-            .filter(|&target| !(targets[target].is_explicit_file_path && item.total_paths == 1))
-            .collect();
-        let Some(Ok(prepared)) = &prepared[masks as usize] else {
+    // known only once it is planned: it renders on its own. Groups are
+    // consecutive in the order the recipes are saved, render right before
+    // their first recipe is saved and keep their renders until each is
+    // saved, so a photo holds at most one group (`render_groups`).
+    let alone = |target: usize| targets[target].is_explicit_file_path && item.total_paths == 1;
+    let precision = |target: usize| {
+        render_output_precision(
+            &targets[target].output_format,
+            &targets[target].export_settings,
+        )
+    };
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for run in
+        images.chunk_by(|&a, &b| with_mask_files(a) == with_mask_files(b) && !alone(a) && !alone(b))
+    {
+        let Some(Ok(prepared)) = &prepared[with_mask_files(run[0]) as usize] else {
             continue;
         };
-        if group.len() < 2 || ensure_export_not_cancelled(cancellation_token).is_err() {
+        if alone(run[0]) {
             continue;
         }
-        let outputs: Vec<_> = group
-            .iter()
-            .map(|&target| {
-                let target = &targets[target];
-                (
-                    render_output_precision(&target.output_format, &target.export_settings),
-                    target.export_settings.color_space,
-                )
-            })
-            .collect();
-        #[cfg(feature = "performance-profiling")]
-        let render_stage = crate::performance::PerformanceStage::new("export_render");
-        match render_prepared_exports(prepared, &env, "process_image_for_export", &outputs) {
-            Ok(images) => rendered.extend(group.into_iter().zip(images.into_iter().map(Ok))),
-            Err(e) => rendered.extend(group.into_iter().map(|target| (target, Err(e.clone())))),
-        }
-        #[cfg(feature = "performance-profiling")]
-        drop(render_stage);
+        let precisions: Vec<_> = run.iter().map(|&target| precision(target)).collect();
+        groups.extend(
+            render_groups(prepared.size(), &precisions)
+                .into_iter()
+                .filter(|group| group.len() > 1)
+                .map(|group| run[group].to_vec()),
+        );
     }
+    let mut rendered: std::collections::HashMap<usize, Result<DynamicImage, String>> =
+        std::collections::HashMap::new();
     // Only separate mask files need source pixels after rendering.
     let mask_source = images
         .iter()
@@ -1162,6 +1158,34 @@ fn export_photo(
                 write: &write_export_bytes,
             };
             let cancelled = || ensure_export_not_cancelled(cancellation_token);
+            if let Some(index) = groups.iter().position(|group| group.contains(&target)) {
+                let group = groups.remove(index);
+                // Renders left over belong to recipes whose file could not
+                // be planned.
+                rendered.clear();
+                let outputs: Vec<_> = group
+                    .iter()
+                    .map(|&target| {
+                        (
+                            precision(target),
+                            targets[target].export_settings.color_space,
+                        )
+                    })
+                    .collect();
+                #[cfg(feature = "performance-profiling")]
+                let render_stage = crate::performance::PerformanceStage::new("export_render");
+                match render_prepared_exports(prepared, &env, "process_image_for_export", &outputs)
+                {
+                    Ok(images) => {
+                        rendered.extend(group.into_iter().zip(images.into_iter().map(Ok)))
+                    }
+                    Err(e) => {
+                        rendered.extend(group.into_iter().map(|target| (target, Err(e.clone()))))
+                    }
+                }
+                #[cfg(feature = "performance-profiling")]
+                drop(render_stage);
+            }
             match rendered.remove(&target) {
                 Some(processed) => save_rendered_export(
                     processed?,

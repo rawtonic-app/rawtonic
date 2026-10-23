@@ -1433,9 +1433,58 @@ pub fn render_prepared_export(
     )
 }
 
+impl PreparedExport {
+    /// Width and height of its renders.
+    pub fn size(&self) -> (u32, u32) {
+        match &self.target {
+            PreparedTarget::Gpu(kept) => kept.size(),
+            PreparedTarget::Windows { image, .. } => image.dimensions(),
+        }
+    }
+}
+
+/// Full-size rendered pixels an export keeps at once when several recipes
+/// render together ([`render_groups`]). Two recipes (8 and 16 bit) of a
+/// 61 MP photo fit (0.72 GB); more or larger ones render in groups, a
+/// recipe whose render alone is larger on its own, as every recipe did
+/// before they rendered together.
+pub const RENDER_GROUP_BYTES: u64 = 768 << 20;
+
+/// Splits renders of `size` in `precisions` into consecutive groups that
+/// render together ([`render_prepared_exports`]): their RGBA pixels (4 bytes
+/// a pixel at 8 bit, 8 at 16 bit) take at most [`RENDER_GROUP_BYTES`]
+/// together, or a group is one render.
+pub fn render_groups(
+    (width, height): (u32, u32),
+    precisions: &[RenderOutputPrecision],
+) -> Vec<std::ops::Range<usize>> {
+    let pixels = u64::from(width) * u64::from(height);
+    let mut groups: Vec<std::ops::Range<usize>> = Vec::new();
+    let mut bytes = 0;
+    for (index, precision) in precisions.iter().enumerate() {
+        let render = pixels
+            * match precision {
+                RenderOutputPrecision::EightBit => 4,
+                RenderOutputPrecision::SixteenBit => 8,
+            };
+        match groups.last_mut() {
+            Some(group) if bytes + render <= RENDER_GROUP_BYTES => {
+                group.end = index + 1;
+                bytes += render;
+            }
+            _ => {
+                groups.push(index..index + 1);
+                bytes = render;
+            }
+        }
+    }
+    groups
+}
+
 /// Renders a prepared photo into each `(precision, colour space)` of
 /// `outputs`: on the GPU with one main pass for all of them (the same pixels
-/// as one [`render_prepared_export`] each), in windows one by one.
+/// as one [`render_prepared_export`] each), in windows one by one. All
+/// renders are kept until returned: bound `outputs` with [`render_groups`].
 pub fn render_prepared_exports(
     prepared: &PreparedExport,
     env: &RenderEnv,
@@ -2593,5 +2642,47 @@ mod detection_tests {
             layer(json!({"maskDataBase64": "data:image/png;base64,AAAA", "detectPending": true}));
         assert!(prepare_export_source("/qa/a.jpg", image.clone(), &detected).is_ok());
         assert!(prepare_export_source("/qa/a.jpg", image, &json!({"exposure": 1})).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod render_group_tests {
+    use super::*;
+    use RenderOutputPrecision::{EightBit, SixteenBit};
+
+    #[test]
+    fn renders_kept_together_stay_within_the_budget() {
+        // A 45 MP web JPEG and print TIFF render together.
+        assert_eq!(
+            render_groups((8256, 5504), &[EightBit, SixteenBit]),
+            vec![0..2]
+        );
+        // 24 MP: three 8-bit and two 16-bit (0.67 GB) fit, a third 16-bit
+        // starts the next group.
+        let five = [EightBit, EightBit, EightBit, SixteenBit, SixteenBit];
+        assert_eq!(render_groups((6000, 4000), &five), vec![0..5]);
+        let six = [&five[..], &[SixteenBit]].concat();
+        assert_eq!(render_groups((6000, 4000), &six), [0..5, 5..6]);
+        // 100 MP at 16 bit: each render alone is over the budget.
+        assert_eq!(
+            render_groups((11648, 8736), &[SixteenBit; 8]),
+            (0..8).map(|i| i..i + 1).collect::<Vec<_>>()
+        );
+        for (size, precisions) in [
+            (
+                (8256, 5504),
+                &[SixteenBit, SixteenBit, EightBit, SixteenBit][..],
+            ),
+            ((6000, 4000), &six[..]),
+        ] {
+            let pixels = u64::from(size.0) * u64::from(size.1);
+            for group in render_groups(size, precisions) {
+                let bytes: u64 = precisions[group.clone()]
+                    .iter()
+                    .map(|p| pixels * if *p == SixteenBit { 8 } else { 4 })
+                    .sum();
+                assert!(group.len() == 1 || bytes <= RENDER_GROUP_BYTES, "{group:?}");
+            }
+        }
     }
 }
