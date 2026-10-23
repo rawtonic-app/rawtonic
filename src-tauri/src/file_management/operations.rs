@@ -483,10 +483,14 @@ fn plan_move_files_blocking(
         files: pairs.len(),
         ..MovePlan::default()
     };
+    // Drives by the names the Library's folder list shows.
+    let drive_name = |path: &Path, fallback: String| {
+        rawtonic_catalog::folders::shown_volume_name(path).unwrap_or(fallback)
+    };
     let mut drives = BTreeSet::new();
     for (source, _) in &pairs {
         if let Ok(info) = rawtonic_fileops::volume_info(source) {
-            drives.insert(info.name);
+            drives.insert(drive_name(source, info.name));
         }
     }
     plan.source_drives = drives.into_iter().collect();
@@ -494,7 +498,7 @@ fn plan_move_files_blocking(
         Ok(needs) => {
             if let Some(need) = needs.first() {
                 plan.bytes = need.bytes;
-                plan.drive = need.volume.name.clone();
+                plan.drive = drive_name(&need.volume.mount_point, need.volume.name.clone());
                 plan.free_bytes = need.volume.free_bytes;
                 if need.volume.free_bytes
                     < need.bytes.saturating_add(rawtonic_fileops::SPACE_RESERVE)
@@ -502,7 +506,7 @@ fn plan_move_files_blocking(
                     plan.refusal = Some(format!(
                         "{} to copy do not fit on {}: {} free there, and {} are kept free.",
                         rawtonic_fileops::format_bytes(need.bytes),
-                        need.volume.name,
+                        plan.drive,
                         rawtonic_fileops::format_bytes(need.volume.free_bytes),
                         rawtonic_fileops::format_bytes(rawtonic_fileops::SPACE_RESERVE)
                     ));

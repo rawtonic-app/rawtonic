@@ -122,6 +122,19 @@ ship: merged PR #95 as 1a2b3c4 (https://github.com/…/pull/95); worktree kept a
 
 Other outcomes: `ship: opened PR #N (…); not merged (--no-merge)`, `ship: dry run OK; …` (`--dry-run` checks the preconditions and prints the plan without pushing, opening, merging or deleting anything) and `ship: FAILED during <step> (exit N)` with a non-zero exit code. Only an open pull request of the branch is reused (a merged one of the same branch name gets a new pull request). The merge holds a lock in the clone (`rawtonic-ship.lock` in the common git directory), so ships from its worktrees take turns on the shared main checkout; it stops when that checkout has commits that are not on `origin/main`, and undoes its local merge when the push of main is refused. Once main is pushed, a failed clean-up step only warns. `scripts/ship_test.sh` (part of `check.sh`) tests these paths against a throwaway repository with a local bare origin and a stubbed `gh`; `check.sh` also runs `shellcheck` on the scripts when it is installed.
 
+### Moves between drives (manual on macOS)
+
+The copy-move tests of `rawtonic-fileops` (ADR 0016) run on two file systems where the machine has a second one at `/dev/shm` (Linux, CI). On macOS, attach disk images (no root needed) and name a folder on one:
+
+```sh
+hdiutil create -size 512m -fs "MS-DOS FAT32" -volname FAT -layout GPTSPUD fat.dmg   # also -fs APFS, -fs ExFAT
+hdiutil attach -nobrowse -mountpoint /path/mnt/fat fat.dmg
+RAWTONIC_TEST_OTHER_VOLUME=/path/mnt/fat cargo test -p rawtonic-fileops --locked --lib copy_move
+RAWTONIC_TEST_EXFAT_DIR=/path/mnt/exfat cargo test -p rawtonic-fileops --locked --lib exfat
+RAWTONIC_TEST_TRASH_DIR=/path/mnt/fat cargo test -p rawtonic-app --locked --lib platform_trash_round_trip -- --ignored
+hdiutil detach /path/mnt/fat
+```
+
 ### GPU tests (manual)
 
 The renderer's GPU tests need a GPU adapter, so they are `#[ignore]`d: neither `scripts/check.sh` nor CI runs them. Run them by hand on a machine with a GPU before merging any change to the shaders (`crates/gpu/src/shaders/`), the GPU pipeline or the tone, colour and look code they render:
