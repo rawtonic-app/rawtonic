@@ -64,26 +64,14 @@ import {
   type RelinkReport,
   ThumbnailSize,
   ThumbnailAspectRatio,
-  TransformState,
 } from './components/ui/AppProperties';
 import type { Adjustments } from './utils/adjustments';
 import type { globalImageCache } from './utils/ImageLRUCache';
 
 import ImageProcessingManager from './components/managers/ImageProcessingManager';
 import ImageLoaderManager from './components/managers/ImageLoaderManager';
-
 // Imperative zoom/pan handle that Editor exposes on transformWrapperRef via useImperativeHandle.
-interface TransformWrapperHandle {
-  zoomIn(factor: number, time?: number): void;
-  zoomOut(factor: number, time?: number): void;
-  resetTransform(time?: number): void;
-  setTransform(x: number, y: number, scale: number, time?: number): void;
-  instance: {
-    wrapperComponent: HTMLDivElement | null;
-    contentComponent: HTMLDivElement | null;
-    readonly transformState: TransformState;
-  };
-}
+import type { TransformWrapperHandle } from './components/panel/Editor';
 
 type ImageCacheEntry = Parameters<typeof globalImageCache.set>[1];
 

@@ -112,7 +112,8 @@ export function useImageProcessing(
 
   const calculateROI = useCallback(() => {
     if (!transformWrapperRef.current) return null;
-    const state = transformWrapperRef.current.instance.transformState;
+    // An animated zoom: the frame is shown where it ends.
+    const state = transformWrapperRef.current.instance.targetTransformState;
     if (!state) return null;
 
     if (!baseRenderSize) return null;

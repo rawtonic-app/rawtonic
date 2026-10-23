@@ -111,6 +111,9 @@ export interface TransformWrapperHandle {
     wrapperComponent: HTMLDivElement | null;
     contentComponent: HTMLDivElement | null;
     readonly transformState: TransformState;
+    /** Where an animated zoom or pan is going (the transform it ends at), else
+     * the current one: what a frame requested now will be shown at. */
+    readonly targetTransformState: TransformState;
   };
 }
 
@@ -205,6 +208,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   const focalPointRef = useRef({ x: 0.5, y: 0.5 });
   const isTransitioningRef = useRef(false);
   const animationFrameId = useRef<number | null>(null);
+  /** The transform the animation under way ends at; null when none runs. */
+  const animationTargetRef = useRef<TransformState | null>(null);
   const physicsFrameId = useRef<number | null>(null);
   const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map());
   const lastPanPos = useRef<{ x: number; y: number } | null>(null);
@@ -419,6 +424,23 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   const imageRenderSize = useImageRenderSize(imageContainerRef, croppedDimensions, proofMargin);
   const imageRenderSizeRef = useRef(imageRenderSize);
   imageRenderSizeRef.current = imageRenderSize;
+  /** Tells the preview the size the photograph is shown at with `scale`. */
+  const reportDisplaySize = useCallback(
+    (scale: number) => {
+      const size = imageRenderSizeRef.current;
+      if (size.width <= 0) return;
+      handleDisplaySizeChange({
+        width: size.width * scale,
+        height: size.height * scale,
+        scale,
+        offsetX: size.offsetX,
+        offsetY: size.offsetY,
+        containerWidth: imageContainerRef.current?.clientWidth || 0,
+        containerHeight: imageContainerRef.current?.clientHeight || 0,
+      });
+    },
+    [handleDisplaySizeChange],
+  );
 
   const transformConfig = useMemo(() => {
     if (!selectedImage || !imageRenderSize.scale || !originalSize) {
@@ -494,7 +516,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   );
 
   const applyTransform = useCallback(
-    (x: number, y: number, scale: number) => {
+    (x: number, y: number, scale: number, animating = false) => {
+      // Any other transform (a wheel, a pan, a reset) ends the animation.
+      if (!animating) animationTargetRef.current = null;
       transformStateRef.current = { positionX: x, positionY: y, scale };
       setTransformState({ scale, positionX: x, positionY: y });
 
@@ -534,6 +558,12 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       const startY = transformStateRef.current.positionY;
       const startScale = transformStateRef.current.scale;
       const boundedTarget = clampToBounds(targetX, targetY, targetScale);
+      const target = { positionX: boundedTarget.x, positionY: boundedTarget.y, scale: boundedTarget.scale };
+      animationTargetRef.current = target;
+      // The frame for the zoom it ends at is developed during the animation
+      // instead of after it has settled (about 0.35 s later: the animation,
+      // the display size's settle and the request's debounce).
+      reportDisplaySize(boundedTarget.scale);
 
       const startTime = performance.now();
 
@@ -546,7 +576,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         const currY = startY + (boundedTarget.y - startY) * easeProgress;
         const currScale = startScale + (boundedTarget.scale - startScale) * easeProgress;
 
-        applyTransform(currX, currY, currScale);
+        // An animation another transform replaced draws nothing more.
+        if (animationTargetRef.current !== target) return;
+        applyTransform(currX, currY, currScale, progress < 1);
 
         if (progress < 1) {
           animationFrameId.current = requestAnimationFrame(step);
@@ -556,7 +588,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
       animationFrameId.current = requestAnimationFrame(step);
     },
-    [applyTransform, clampToBounds],
+    [applyTransform, clampToBounds, reportDisplaySize],
   );
 
   const startPhysicsLoop = useCallback(
@@ -679,6 +711,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         contentComponent: contentRef.current,
         get transformState() {
           return transformStateRef.current;
+        },
+        get targetTransformState() {
+          return animationTargetRef.current ?? transformStateRef.current;
         },
       },
     }),
@@ -1302,22 +1337,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   }, [isFullScreen, imageRenderSize, isInstantTransition, applyTransform]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (handleDisplaySizeChange && imageRenderSize.width > 0) {
-        const currentDisplaySize = {
-          width: imageRenderSize.width * transformState.scale,
-          height: imageRenderSize.height * transformState.scale,
-          scale: transformState.scale,
-          offsetX: imageRenderSize.offsetX,
-          offsetY: imageRenderSize.offsetY,
-          containerWidth: imageContainerRef.current?.clientWidth || 0,
-          containerHeight: imageContainerRef.current?.clientHeight || 0,
-        };
-        handleDisplaySizeChange(currentDisplaySize);
-      }
-    }, 100);
+    const timer = setTimeout(() => reportDisplaySize(transformState.scale), 100);
     return () => clearTimeout(timer);
-  }, [imageRenderSize, transformState.scale, handleDisplaySizeChange]);
+  }, [imageRenderSize, transformState.scale, reportDisplaySize]);
 
   const maskDisplay = useSettingsStore((state) => maskDisplayOf(state.appSettings));
   const maskColor = useSettingsStore((state) => maskColorOf(state.appSettings));
