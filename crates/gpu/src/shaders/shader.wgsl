@@ -2848,6 +2848,10 @@ fn apply_sharpen(
     // controls at their defaults, where it equals the default path below;
     // response 3 at every amount (its lightness weight differs there too).
     let response = adjustments.global.sharpen_falloff.w;
+    // Response 4 differs from 3 only below Radius 1 or with Masking.
+    if (response >= 4.0 && (adjustments.global.sharpen_radius_offset < 0.0 || adjustments.global.sharpen_masking > 0.0)) {
+        return apply_sharpen_v4(color, coords_i, amount, threshold, is_raw);
+    }
     if (response >= 3.0 || (response >= 2.0 && (extended || abs(amount - 0.8) > 1e-6))) {
         return apply_sharpen_v2(color, coords_i, amount, threshold, is_raw);
     }
@@ -3176,6 +3180,186 @@ fn apply_sharpen_v2(
         weighted *= smoothstep(SHARPEN_V3_SHADOW_LO, SHARPEN_V3_SHADOW_HI, l)
             * (1.0 + SHARPEN_V3_HIGHLIGHT_LIFT * smoothstep(SHARPEN_V3_HIGHLIGHT_LO, SHARPEN_V3_HIGHLIGHT_HI, l));
     }
+    let l_sharp = max(l + weighted, l * 0.4);
+    let shadow_floor_lr = select(0.03, 0.10, is_raw == 1u);
+    let protect = smoothstep(0.0, shadow_floor_lr, l) * (1.0 - smoothstep(0.92, 1.0, l));
+    let l_out = max(mix(l, l_sharp, protect), 0.0);
+    let ratio_lr = l_out / max(l, 1e-4);
+    if (is_raw == 1u) {
+        return color * (ratio_lr * ratio_lr);
+    }
+    return srgb_to_linear(max(color_enc * ratio_lr, vec3<f32>(0.0)));
+}
+
+// Response 4 (`sharpenVersion` 4, notes: reference/detail.md "Sharpening
+// response 4"): response 3 with Radius and Masking after Camera Raw's, in
+// its own function so that responses 1-3 compile and render as before
+// (GPU fast-math reorders shared code); from Radius 1 up without Masking
+// `apply_sharpen` takes response 3's path.
+// - Below Radius 1 the σ blur is nearly the pixel itself, so the unsharp
+//   difference is a fraction of Radius 1's (σ 0.42 px: 0.36 of it) and the
+//   Threshold gate, set for Radius 1, shut out low-contrast texture (fine
+//   band 42–57 % low on the R5/R6 frames at Amount 40). The gate now reads
+//   the difference rescaled to Radius 1's kernel (its high-pass share, one
+//   minus the centre weight), and the gain rises by that ratio^0.15.
+// - Masking measures the neighbourhood's spread over a 3 px Gaussian
+//   instead of the σ window, where noise and texture look alike, and ramps
+//   in from no spread with a threshold 1.75 times as high:
+//   low-contrast texture keeps some sharpening (Camera Raw: a fifth on the
+//   R5 frame at Masking 50, response 3 none) while flat noise stays at or
+//   below Camera Raw's.
+const SHARPEN_V4_GAIN_KERNEL: f32 = 0.15;
+const SHARPEN_V4_MASK_SIGMA: f32 = 3.0;
+const SHARPEN_V4_MASK_SCALE: f32 = 1.75;
+
+fn apply_sharpen_v4(
+    color: vec3<f32>,
+    coords_i: vec2<i32>,
+    amount: f32,
+    threshold: f32,
+    is_raw: u32
+) -> vec3<f32> {
+    var color_enc = color;
+    if (is_raw == 0u) {
+        color_enc = linear_to_srgb_extended(color);
+    }
+    let l = select(get_luma(color_enc), sqrt(max(get_luma(color), 0.0)), is_raw == 1u);
+
+    let radius = 1.0 + adjustments.global.sharpen_radius_offset;
+    let detail = adjustments.global.sharpen_detail_offset / 25.0;
+    let masking = adjustments.global.sharpen_masking;
+    let detail_scale = select(1.0, adjustments.global.detail_scale, adjustments.global.detail_scale > 0.0);
+    let radius_shape = select(sqrt(radius), radius, radius >= 1.0);
+    let radius_gain = select(pow(radius, -0.75), pow(radius, -0.85), radius >= 1.0);
+    let sigma = max(SHARPEN_RADIUS * detail_scale * radius_shape, 0.25);
+    let r = amount / 0.8;
+    let detail_up = clamp(detail / 3.0, 0.0, 1.0);
+    // Below Radius 1 the σ blur is nearly the pixel itself and the band
+    // outweighs the signal: the tilts towards the fine band fall to half by
+    // Radius 0.5.
+    let tilt_radius = 0.5 + 0.5 * clamp(2.0 * radius - 1.0, 0.0, 1.0);
+    let tilt = select(
+        SHARPEN_DETAIL_TILT_LOW * detail,
+        SHARPEN_DETAIL_TILT * pow(max(detail, 1e-6), SHARPEN_DETAIL_TILT_EXPONENT)
+            * pow(min(r, SHARPEN_V2_TILT_AMOUNT_CAP), SHARPEN_DETAIL_TILT_AMOUNT) * tilt_radius,
+        detail > 0.0,
+    ) + select(0.0, SHARPEN_V2_TILT_FROM_AMOUNT * max(r - 1.0, 0.0) * (1.0 - detail_up) * tilt_radius, detail >= 0.0);
+    let reach = select(
+        select(2, 3, tilt != 0.0),
+        min(i32(ceil(select(2.5, 5.0, tilt != 0.0) * sigma)), 6),
+        radius > 1.0,
+    );
+
+    let dims_s = vec2<i32>(input_dims()) - vec2<i32>(1);
+    var blur_sum = 0.0;
+    var blur_sq = 0.0;
+    var blur_w = 0.0;
+    var wide_sum = 0.0;
+    var wide_w = 0.0;
+    // Masking's neighbourhood: every pixel of the loop below, and beyond
+    // it a sparse grid (see the masking step).
+    let mask_sigma = max(SHARPEN_V4_MASK_SIGMA * detail_scale, 0.5);
+    var m_sum = 0.0;
+    var m_sq = 0.0;
+    var m_w = 0.0;
+    for (var sy = -reach; sy <= reach; sy = sy + 1) {
+        for (var sx = -reach; sx <= reach; sx = sx + 1) {
+            let w = exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma));
+            let c = clamp(coords_i + vec2<i32>(sx, sy), vec2<i32>(0), dims_s);
+            let p = sharpen_perc(load_input(c).rgb, is_raw);
+            blur_sum += p * w;
+            blur_sq += p * p * w;
+            blur_w += w;
+            if (tilt != 0.0) {
+                let w2 = exp(-f32(sx * sx + sy * sy) / (8.0 * sigma * sigma));
+                wide_sum += p * w2;
+                wide_w += w2;
+            }
+            if (masking > 0.0) {
+                let wm = exp(-f32(sx * sx + sy * sy) / (2.0 * mask_sigma * mask_sigma));
+                m_sum += p * wm;
+                m_sq += p * p * wm;
+                m_w += wm;
+            }
+        }
+    }
+    let mean = blur_sum / blur_w;
+    var d = sharpen_detail(l, mean, is_raw);
+    if (tilt != 0.0) {
+        let band = (mean - wide_sum / wide_w) * select(1.0, nr_fine_keep, nr_active);
+        d -= tilt * band;
+    }
+    // Response 4: Radius 1's kernel high-pass share over this one's (1 at
+    // and above Radius 1).
+    var kernel_ratio = 1.0;
+    if (radius < 1.0) {
+        let sigma_1 = max(SHARPEN_RADIUS * detail_scale, 0.25);
+        var w_1 = 0.0;
+        for (var ky = -2; ky <= 2; ky = ky + 1) {
+            for (var kx = -2; kx <= 2; kx = kx + 1) {
+                w_1 += exp(-f32(kx * kx + ky * ky) / (2.0 * sigma_1 * sigma_1));
+            }
+        }
+        kernel_ratio = max((1.0 - 1.0 / w_1) / max(1.0 - 1.0 / blur_w, 1e-3), 1.0);
+    }
+    let t_gate = max(threshold * SHARPEN_THRESHOLD_SCALE, 1e-4) / kernel_ratio;
+    var gate = smoothstep(t_gate * 0.2, t_gate, abs(d));
+    let spread = sqrt(max(blur_sq / blur_w - mean * mean, 0.0));
+    if (masking > 0.0) {
+        // Outside the dense core, from σ 2 px on: every other point of the
+        // even grid (alternating by row), each weighted for the 8 pixels it
+        // stands for. The dense core keeps patterns at the grid's own
+        // period (2 or 4 px) from vanishing in the samples.
+        let step = select(1, 2, mask_sigma >= 2.0);
+        let mask_reach = min(i32(ceil(2.0 * mask_sigma / f32(step))) * step, 6);
+        let stride = select(1, 2 * step, step > 1);
+        let area = f32(stride * step);
+        for (var my = -mask_reach; my <= mask_reach; my = my + step) {
+            let shift = select(0, step, step > 1 && ((my / step) & 1) != 0);
+            for (var mx = -mask_reach + shift; mx <= mask_reach; mx = mx + stride) {
+                if (max(abs(mx), abs(my)) <= reach) {
+                    continue;
+                }
+                let w = area * exp(-f32(mx * mx + my * my) / (2.0 * mask_sigma * mask_sigma));
+                let c = clamp(coords_i + vec2<i32>(mx, my), vec2<i32>(0), dims_s);
+                let p = sharpen_perc(load_input(c).rgb, is_raw);
+                m_sum += p * w;
+                m_sq += p * p * w;
+                m_w += w;
+            }
+        }
+        let m_mean = m_sum / m_w;
+        let mask_spread = sqrt(max(m_sq / m_w - m_mean * m_mean, 0.0));
+        let t_mask = masking * sqrt(masking / 50.0) * SHARPEN_MASK_SCALE * SHARPEN_V4_MASK_SCALE;
+        gate *= smoothstep(0.0, 1.5 * t_mask, mask_spread);
+    }
+    if (detail > 0.0) {
+        let excess = max(spread / SHARPEN_EDGE_SPREAD - 1.0, 0.0);
+        gate /= 1.0 + SHARPEN_EDGE_DAMP * detail / 3.0 * pow(r, SHARPEN_V2_EDGE_AMOUNT) * excess;
+    }
+    let progression = select(
+        SHARPEN_V2_GAIN_PROGRESSION + SHARPEN_V2_GAIN_PROGRESSION_LOW * detail,
+        SHARPEN_V2_GAIN_PROGRESSION,
+        detail > 0.0,
+    );
+    let detail_gain = select(
+        exp2(SHARPEN_DETAIL_GAIN_LOW * detail),
+        pow(1.0 + detail, SHARPEN_DETAIL_GAIN_HIGH * (1.0 - SHARPEN_V2_DETAIL_CONCAVE * (1.0 - detail_up))),
+        detail > 0.0,
+    );
+    let scale = detail_gain * radius_gain * pow(1.0 + max(detail, 0.0), SHARPEN_DETAIL_FINE);
+    var gain = SHARPEN_V2_GAIN_40 * pow(r, progression) * scale;
+    // Below Radius 1 the gain rises to keep the fine band; the halo
+    // ceiling does not.
+    let ceiling = SHARPEN_V2_HALO_40 * pow(r, SHARPEN_V2_HALO_AMOUNT) * scale / max(radius_gain, 1.0)
+        * exp2(select(0.0, SHARPEN_DETAIL_HALO_HIGH, detail > 0.0) * detail);
+    gain *= pow(kernel_ratio, SHARPEN_V4_GAIN_KERNEL);
+    let knee = 1.0 + (SHARPEN_DETAIL_KNEE - 1.0) * detail_up;
+    let x = gain * d;
+    let delta = x / pow(1.0 + pow(abs(x) / ceiling, knee), 1.0 / knee);
+    var weighted = delta * gate;
+    weighted *= smoothstep(SHARPEN_V3_SHADOW_LO, SHARPEN_V3_SHADOW_HI, l)
+        * (1.0 + SHARPEN_V3_HIGHLIGHT_LIFT * smoothstep(SHARPEN_V3_HIGHLIGHT_LO, SHARPEN_V3_HIGHLIGHT_HI, l));
     let l_sharp = max(l + weighted, l * 0.4);
     let shadow_floor_lr = select(0.03, 0.10, is_raw == 1u);
     let protect = smoothstep(0.0, shadow_floor_lr, l) * (1.0 - smoothstep(0.92, 1.0, l));

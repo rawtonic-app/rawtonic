@@ -254,6 +254,7 @@ describe('RAW detail defaults', () => {
     expect(load({ sharpness: 80, sharpenVersion: 2 })).toBe(2);
     expect(load({ sharpness: 40, sharpenVersion: 2 })).toBe(2);
     expect(load({ sharpness: 80, sharpenVersion: 3 })).toBe(3);
+    expect(load({ sharpness: 80, sharpenVersion: 4 })).toBe(4);
   });
 
   it('keep the luminance noise reduction a saved recipe rendered with', () => {

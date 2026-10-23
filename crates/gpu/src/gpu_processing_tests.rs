@@ -1328,6 +1328,120 @@ fn sharpen_version_3_spares_the_shadows() {
     }
 }
 
+#[test]
+#[ignore = "requires a native GPU; compares sharpening responses 3 and 4"]
+fn sharpen_version_4_keeps_low_contrast_texture_at_radius_and_masking() {
+    // Low-contrast grey texture at a mid-tone level, where response 3's
+    // Threshold gate shut Radius 0.5 out (fine grain, ±3 %) and Masking 50
+    // removed all sharpening (a 6 px pattern, ±8 %).
+    let (width, height) = (256u32, 128u32);
+    let grain: Vec<f16> = (0..width * height)
+        .flat_map(|i| {
+            let v = f16::from_f32(0.15 * (0.97 + 0.06 * ((i * 7919 + 13) % 101) as f32 / 100.0));
+            [v, v, v, f16::ONE]
+        })
+        .collect();
+    let pattern: Vec<f16> = (0..width * height)
+        .flat_map(|i| {
+            let phase = |c: u32| (c as f32 * std::f32::consts::TAU / 6.0).sin();
+            let v = f16::from_f32(0.15 * (1.0 + 0.08 * phase(i % width) * phase(i / width)));
+            [v, v, v, f16::ONE]
+        })
+        .collect();
+    // Strong fine patterns at the 2 and 4 px periods of a sparse sample grid
+    // (diagonal and vertical stripes, ±60 %): Masking must see their spread.
+    let stripes = |period: f32, diagonal: bool| -> Vec<f16> {
+        (0..width * height)
+            .flat_map(|i| {
+                let (x, y) = ((i % width) as f32, (i / width) as f32);
+                let t = if diagonal { x + y } else { x };
+                let v =
+                    f16::from_f32(0.15 * (1.0 + 0.6 * (t * std::f32::consts::TAU / period).cos()));
+                [v, v, v, f16::ONE]
+            })
+            .collect()
+    };
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let render = |data: &[f16], extra: serde_json::Value, version: u64| {
+        let view = input_from(&context, width, height, data);
+        let mut profile = json!({"sharpness": 40, "lumaNoiseReduction": 0, "colorNoiseReduction": 0,
+            "sharpenVersion": version});
+        for (key, value) in extra.as_object().unwrap() {
+            profile[key] = value.clone();
+        }
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels,
+            _ => unreachable!(),
+        }
+    };
+    // Mean absolute change of the first channel against the unsharpened
+    // render, away from the image edges.
+    let change = |data: &[f16], extra: serde_json::Value, version: u64| {
+        let flat = render(data, json!({"sharpness": 0}), version);
+        let pixels = render(data, extra, version);
+        let (mut sum, mut n) = (0.0f64, 0.0f64);
+        for y in 8..height - 8 {
+            for x in 8..width - 8 {
+                let i = ((y * width + x) * 4) as usize;
+                sum += (pixels[i] as f64 - flat[i] as f64).abs();
+                n += 1.0;
+            }
+        }
+        sum / n
+    };
+    // From Radius 1 up without Masking: the same path, bit for bit.
+    for (amount, radius) in [(40, 1.0), (80, 1.0), (80, 2.0)] {
+        let recipe = json!({"sharpness": amount, "sharpenDetail": 50, "sharpenRadius": radius});
+        assert_eq!(render(&grain, recipe.clone(), 4), render(&grain, recipe, 3));
+    }
+    let radius_1 = change(&grain, json!({}), 4);
+    let (half_3, half_4) = (
+        change(&grain, json!({"sharpenRadius": 0.5}), 3),
+        change(&grain, json!({"sharpenRadius": 0.5}), 4),
+    );
+    assert!(
+        half_4 > 1.5 * half_3 && half_4 > 0.5 * radius_1,
+        "Radius 0.5: {half_4} against response 3's {half_3} and Radius 1's {radius_1}"
+    );
+    let unmasked = change(&pattern, json!({}), 4);
+    let (masked_3, masked_4) = (
+        change(&pattern, json!({"sharpenMasking": 50}), 3),
+        change(&pattern, json!({"sharpenMasking": 50}), 4),
+    );
+    assert!(
+        masked_4 > 0.03 * unmasked && masked_4 > 2.0 * masked_3 && masked_4 < unmasked,
+        "Masking 50: {masked_4} against response 3's {masked_3} and no masking's {unmasked}"
+    );
+    for (period, diagonal) in [(2.0, false), (4.0, false), (4.0, true)] {
+        let data = stripes(period, diagonal);
+        let (masked, unmasked) = (
+            change(&data, json!({"sharpenMasking": 50}), 4),
+            change(&data, json!({}), 4),
+        );
+        assert!(
+            masked > 0.8 * unmasked,
+            "Masking 50 on {period} px stripes (diagonal {diagonal}): {masked} of {unmasked}"
+        );
+    }
+}
+
 fn context() -> GpuContext {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter =
@@ -1972,6 +2086,13 @@ fn sharpen_version_timing_probe() {
                 json!({"sharpness":120,"sharpenDetail":100,"sharpenRadius":2.0}),
             ),
             ("a120d25r0.5", json!({"sharpness":120,"sharpenRadius":0.5})),
+            ("a40d25r0.5", json!({"sharpness":40,"sharpenRadius":0.5})),
+            ("a80d25r2", json!({"sharpness":80,"sharpenRadius":2.0})),
+            ("a40d25m50", json!({"sharpness":40,"sharpenMasking":50})),
+            (
+                "a80d100m80",
+                json!({"sharpness":80,"sharpenDetail":100,"sharpenMasking":80}),
+            ),
         ] {
             let mut times = [Vec::new(), Vec::new()];
             for frame in 0..frames + 2 {
