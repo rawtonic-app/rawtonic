@@ -1481,6 +1481,54 @@ pub fn render_groups(
     groups
 }
 
+/// The renders of one photo's recipe groups (`groups`, recipes in the
+/// order they are saved, from [`render_groups`]): a group renders when its
+/// first recipe is saved and keeps its renders until each is taken.
+pub struct GroupRenders<T> {
+    groups: Vec<Vec<usize>>,
+    kept: std::collections::HashMap<usize, Result<T, String>>,
+}
+
+impl<T> GroupRenders<T> {
+    pub fn new(groups: Vec<Vec<usize>>) -> Self {
+        Self {
+            groups,
+            kept: Default::default(),
+        }
+    }
+
+    /// `target`'s render, its group rendered by `render` if `target` is
+    /// the first of it; `None` for a recipe that renders alone. Renders
+    /// still kept for recipes passed over (their file could not be
+    /// planned) are dropped first, so at most one group is kept.
+    pub fn take(
+        &mut self,
+        target: usize,
+        render: impl FnOnce(&[usize]) -> Result<Vec<T>, String>,
+    ) -> Option<Result<T, String>> {
+        if !self.kept.contains_key(&target) {
+            self.kept.clear();
+            if let Some(index) = self.groups.iter().position(|group| group.contains(&target)) {
+                let group = self.groups.remove(index);
+                match render(&group) {
+                    Ok(renders) => self
+                        .kept
+                        .extend(group.into_iter().zip(renders.into_iter().map(Ok))),
+                    Err(e) => self
+                        .kept
+                        .extend(group.into_iter().map(|target| (target, Err(e.clone())))),
+                }
+            }
+        }
+        self.kept.remove(&target)
+    }
+
+    /// Renders kept for recipes still to be saved.
+    pub fn kept(&self) -> usize {
+        self.kept.len()
+    }
+}
+
 /// Renders a prepared photo into each `(precision, colour space)` of
 /// `outputs`: on the GPU with one main pass for all of them (the same pixels
 /// as one [`render_prepared_export`] each), in windows one by one. All
@@ -2649,6 +2697,25 @@ mod detection_tests {
 mod render_group_tests {
     use super::*;
     use RenderOutputPrecision::{EightBit, SixteenBit};
+
+    #[test]
+    fn renders_of_recipes_passed_over_are_not_kept() {
+        let mut renders = GroupRenders::new(vec![vec![0, 1], vec![3, 4]]);
+        let render = |group: &[usize]| Ok(group.iter().map(|&t| t * 10).collect());
+        assert_eq!(renders.take(0, render), Some(Ok(0)));
+        assert_eq!(renders.kept(), 1);
+        // Recipe 1's file could not be planned: recipe 2 renders alone
+        // without recipe 1's render kept beside it.
+        assert_eq!(renders.take(2, |_| panic!("renders alone")), None);
+        assert_eq!(renders.kept(), 0);
+        let failed = |_: &[usize]| Err("no GPU".to_string());
+        assert_eq!(renders.take(3, failed), Some(Err("no GPU".into())));
+        assert_eq!(
+            renders.take(4, |_| panic!("rendered")),
+            Some(Err("no GPU".into()))
+        );
+        assert_eq!(renders.kept(), 0);
+    }
 
     #[test]
     fn renders_kept_together_stay_within_the_budget() {

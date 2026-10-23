@@ -1102,9 +1102,9 @@ fn export_photo(
     // each recipe's colour space and precision (notes: parity-gaps/G43).
     // A file the user named takes its precision from its own extension,
     // known only once it is planned: it renders on its own. Groups are
-    // consecutive in the order the recipes are saved, render right before
-    // their first recipe is saved and keep their renders until each is
-    // saved, so a photo holds at most one group (`render_groups`).
+    // consecutive in the order the recipes are saved and render right
+    // before their first recipe is saved: a photo keeps at most one group
+    // (`render_groups`, `GroupRenders`).
     let alone = |target: usize| targets[target].is_explicit_file_path && item.total_paths == 1;
     let precision = |target: usize| {
         render_output_precision(
@@ -1130,8 +1130,7 @@ fn export_photo(
                 .map(|group| run[group].to_vec()),
         );
     }
-    let mut rendered: std::collections::HashMap<usize, Result<DynamicImage, String>> =
-        std::collections::HashMap::new();
+    let mut rendered = GroupRenders::new(groups);
     // Only separate mask files need source pixels after rendering.
     let mask_source = images
         .iter()
@@ -1158,11 +1157,7 @@ fn export_photo(
                 write: &write_export_bytes,
             };
             let cancelled = || ensure_export_not_cancelled(cancellation_token);
-            if let Some(index) = groups.iter().position(|group| group.contains(&target)) {
-                let group = groups.remove(index);
-                // Renders left over belong to recipes whose file could not
-                // be planned.
-                rendered.clear();
+            let render = rendered.take(target, |group| {
                 let outputs: Vec<_> = group
                     .iter()
                     .map(|&target| {
@@ -1173,20 +1168,10 @@ fn export_photo(
                     })
                     .collect();
                 #[cfg(feature = "performance-profiling")]
-                let render_stage = crate::performance::PerformanceStage::new("export_render");
-                match render_prepared_exports(prepared, &env, "process_image_for_export", &outputs)
-                {
-                    Ok(images) => {
-                        rendered.extend(group.into_iter().zip(images.into_iter().map(Ok)))
-                    }
-                    Err(e) => {
-                        rendered.extend(group.into_iter().map(|target| (target, Err(e.clone()))))
-                    }
-                }
-                #[cfg(feature = "performance-profiling")]
-                drop(render_stage);
-            }
-            match rendered.remove(&target) {
+                let _stage = crate::performance::PerformanceStage::new("export_render");
+                render_prepared_exports(prepared, &env, "process_image_for_export", &outputs)
+            });
+            match render {
                 Some(processed) => save_rendered_export(
                     processed?,
                     &source_path_str,
