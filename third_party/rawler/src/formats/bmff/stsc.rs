@@ -42,7 +42,7 @@ impl<R: Read + Seek> ReadBox<&mut R> for StscBox {
     let (version, flags) = read_box_header_ext(reader)?;
 
     let entry_count = reader.read_u32::<BigEndian>()?;
-    let mut entries = Vec::with_capacity(entry_count as usize);
+    let mut entries = Vec::with_capacity(super::claimed_capacity(entry_count));
 
     // Reader for a single stsc entry
     let mut read_entry = || -> Result<StscEntry> {

@@ -11,12 +11,14 @@
 //! EXIF reader the app shows metadata with (kamadak-exif). The capture
 //! date falls back as `rawtonic_naming::DateSource` documents: EXIF
 //! DateTimeOriginal → DateTimeDigitized → the EXIF file date → the file's
-//! modification time → the time of the import.
+//! modification time → the time of the import. A rating the camera wrote
+//! into the file (its XMP packet, or the EXIF Rating tag) is the rating
+//! when no sidecar gives one.
 use rawtonic_naming::{Capture, DateSource};
 use std::{
     collections::HashMap,
     fs,
-    io::Read,
+    io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::{Arc, LazyLock, Mutex},
     time::SystemTime,
@@ -26,7 +28,8 @@ use std::{
 /// step holds the EXIF of nearly every format (it sits at the start of
 /// TIFF-based RAWs, CR3's `moov`, a RAF's embedded JPEG, a JPEG's APP1); a
 /// file whose step holds no capture date is read further, at most
-/// `WHOLE_FILE_LIMIT` bytes in all.
+/// `WHOLE_FILE_LIMIT` bytes in all. An ISO BMFF RAW (CR3) is read box by
+/// box instead (`bmff_metadata`): its metadata is not all in its header.
 const READ_STEPS: [u64; 2] = [1 << 20, 16 << 20];
 const WHOLE_FILE_LIMIT: u64 = 512 << 20;
 
@@ -65,20 +68,40 @@ fn read_capture_within(path: &Path, most: u64) -> Capture {
 }
 
 /// The capture facts in the first `most` bytes of `file` (`len` long), read
-/// step by step until a capture date is found. A read error gives what was
-/// read before it with the error: the caller decides whether a part will do.
-fn read_header(mut file: impl Read, len: u64, most: u64) -> (Capture, Option<std::io::Error>) {
+/// step by step until a capture date is found; an ISO BMFF file's from its
+/// metadata boxes wherever they are (`bmff_metadata`). A read error gives
+/// what was read before it with the error: the caller decides whether a
+/// part will do.
+fn read_header(
+    mut file: impl Read + Seek,
+    len: u64,
+    most: u64,
+) -> (Capture, Option<std::io::Error>) {
     let mut capture = Capture::default();
     let mut buffer = Vec::new();
+    if let Err(error) = (&mut file).take(12.min(most)).read_to_end(&mut buffer) {
+        return (capture, Some(error));
+    }
+    let mut done = false;
+    if buffer.get(4..8) == Some(b"ftyp") {
+        match bmff_metadata(&mut file, len) {
+            Err(error) => return (capture, Some(error)),
+            Ok(Some(read)) if has_facts(&read) => (capture, done) = (read, true),
+            Ok(_) => {}
+        }
+        if let Err(error) = file.seek(SeekFrom::Start(buffer.len() as u64)) {
+            return (capture, Some(error));
+        }
+    }
     for limit in READ_STEPS
         .into_iter()
         .chain([WHOLE_FILE_LIMIT])
         .map(|step| step.min(most).min(len))
     {
-        if limit <= buffer.len() as u64 && !buffer.is_empty() {
+        if done || (limit <= buffer.len() as u64 && !buffer.is_empty()) {
             continue;
         }
-        let wanted = limit - buffer.len() as u64;
+        let wanted = limit.saturating_sub(buffer.len() as u64);
         if let Err(error) = (&mut file).take(wanted).read_to_end(&mut buffer) {
             return (capture, Some(error));
         }
@@ -89,11 +112,375 @@ fn read_header(mut file: impl Read, len: u64, most: u64) -> (Capture, Option<std
             break;
         }
     }
+    // The rating of the file's own XMP packet (where its format keeps it,
+    // wherever in the file that is), over the EXIF Rating tag; packets of
+    // embedded previews do not count. Formats this does not know: the
+    // first packet with a rating in what was read.
+    match container_xmp(&mut file, len, &buffer) {
+        Err(error) => return (capture, Some(error)),
+        Ok(Container::Packet(packet)) => {
+            // Located by the container: parsed as XML whatever its prefixes,
+            // without the NUL bytes cameras end or pad it with (RW2).
+            let rating = std::str::from_utf8(&packet)
+                .ok()
+                .map(|text| text.trim_end_matches(['\0', ' ', '\t', '\r', '\n']))
+                .and_then(packet_rating);
+            capture.rating = rating.or(capture.rating);
+        }
+        Ok(Container::NoPacket) => {}
+        Ok(Container::Unknown) => capture.rating = xmp_rating(&buffer).or(capture.rating),
+    }
     (capture, None)
 }
 
+/// Whether `capture` holds anything the file's metadata said.
+fn has_facts(capture: &Capture) -> bool {
+    capture.captured.is_some()
+        || capture.make.is_some()
+        || capture.model.is_some()
+        || capture.lens.is_some()
+        || capture.iso.is_some()
+        || capture.exposure.is_some()
+        || capture.focal_length.is_some()
+        || capture.aperture.is_some()
+        || capture.rating.is_some()
+}
+
+/// Where a file keeps its own XMP packet (`container_xmp`).
+enum Container {
+    /// Its packet.
+    Packet(Vec<u8>),
+    /// A format with a place for one, without one.
+    NoPacket,
+    /// A format whose place for it is not known here.
+    Unknown,
+}
+
+/// The ISO BMFF box (`uuid`) a CR3 keeps its XMP packet in.
+const BMFF_XMP_UUID: [u8; 16] = [
+    0xbe, 0x7a, 0xcf, 0xcb, 0x97, 0xa9, 0x42, 0xe8, 0x9c, 0x71, 0x99, 0x94, 0x91, 0xe3, 0xaf, 0xac,
+];
+
+/// A file's own XMP packet: a JPEG's APP1 segment, IFD0's XMP tag (700) of
+/// a TIFF-based file, a CR3's XMP box — wherever in the file it is.
+fn container_xmp(
+    file: &mut (impl Read + Seek),
+    len: u64,
+    header: &[u8],
+) -> std::io::Result<Container> {
+    const XMP_HEADER: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
+    let packet = |bytes: Option<Vec<u8>>| bytes.map_or(Container::NoPacket, Container::Packet);
+    if header.get(4..8) == Some(b"ftyp") {
+        // Top-level boxes: size, type, a uuid box's uuid.
+        let mut at = 0;
+        for _ in 0..BMFF_BOX_LIMIT {
+            let Some(head) = bytes_at(file, len, header, at, 8)? else {
+                break;
+            };
+            let mut size = u64::from(u32::from_be_bytes([head[0], head[1], head[2], head[3]]));
+            let mut start = at + 8;
+            if size == 1 {
+                let Some(large) = bytes_at(file, len, header, at + 8, 8)? else {
+                    break;
+                };
+                size = u64::from_be_bytes(large.try_into().unwrap_or_default());
+                start += 8;
+            }
+            // A box smaller than its header or ending past the file: damaged.
+            if size < start - at || at.checked_add(size).is_none_or(|end| end > len) {
+                break;
+            }
+            if &head[4..8] == b"uuid"
+                && bytes_at(file, len, header, start, 16)?.as_deref() == Some(&BMFF_XMP_UUID)
+            {
+                // A size too small for its own uuid: a damaged box.
+                let Some(size) = size.checked_sub(start + 16 - at) else {
+                    return Ok(Container::NoPacket);
+                };
+                return Ok(packet(if size <= XMP_LIMIT {
+                    bytes_at(file, len, header, start + 16, size)?
+                } else {
+                    None
+                }));
+            }
+            at += size;
+        }
+        return Ok(Container::NoPacket);
+    }
+    if header.starts_with(&[0xFF, 0xD8]) {
+        let mut at = 2;
+        for _ in 0..JPEG_SEGMENT_LIMIT {
+            let Some(marker) = bytes_at(file, len, header, at, 4)? else {
+                break;
+            };
+            // Image data (start of scan) or the end: no metadata after.
+            if marker[0] != 0xFF || matches!(marker[1], 0xDA | 0xD9) {
+                break;
+            }
+            let size = u64::from(u16::from_be_bytes([marker[2], marker[3]]));
+            if marker[1] == 0xE1 && size > 2 + XMP_HEADER.len() as u64 {
+                let start = bytes_at(file, len, header, at + 4, XMP_HEADER.len() as u64)?;
+                if start.as_deref() == Some(XMP_HEADER) {
+                    let start = at + 4 + XMP_HEADER.len() as u64;
+                    let rest = size - 2 - XMP_HEADER.len() as u64;
+                    return Ok(packet(bytes_at(file, len, header, start, rest)?));
+                }
+            }
+            at += 2 + size;
+        }
+        return Ok(Container::NoPacket);
+    }
+    let Some(little) = tiff_byte_order(header) else {
+        return Ok(Container::Unknown);
+    };
+    let u16_of = |b: &[u8]| {
+        let b = [b[0], b[1]];
+        if little {
+            u16::from_le_bytes(b)
+        } else {
+            u16::from_be_bytes(b)
+        }
+    };
+    let u32_of = |b: &[u8]| {
+        let b = [b[0], b[1], b[2], b[3]];
+        if little {
+            u32::from_le_bytes(b)
+        } else {
+            u32::from_be_bytes(b)
+        }
+    };
+    let Some(ifd) = bytes_at(file, len, header, 4, 4)?.map(|b| u64::from(u32_of(&b))) else {
+        return Ok(Container::NoPacket);
+    };
+    let Some(count) = bytes_at(file, len, header, ifd, 2)?.map(|b| u64::from(u16_of(&b))) else {
+        return Ok(Container::NoPacket);
+    };
+    let Some(table) = bytes_at(file, len, header, ifd + 2, 12 * count)? else {
+        return Ok(Container::NoPacket);
+    };
+    for entry in table.as_chunks::<12>().0 {
+        let (tag, kind, number) = (
+            u16_of(&entry[..2]),
+            u16_of(&entry[2..4]),
+            u32_of(&entry[4..8]),
+        );
+        if tag == 700 && matches!(kind, 1 | 7) && u64::from(number) <= XMP_LIMIT {
+            return Ok(packet(if number <= 4 {
+                Some(entry[8..8 + number as usize].to_vec())
+            } else {
+                bytes_at(
+                    file,
+                    len,
+                    header,
+                    u64::from(u32_of(&entry[8..12])),
+                    u64::from(number),
+                )?
+            }));
+        }
+    }
+    Ok(Container::NoPacket)
+}
+
+/// At most this many JPEG segments or top-level ISO BMFF boxes are walked,
+/// and an XMP packet this large read, looking for a file's own packet.
+const JPEG_SEGMENT_LIMIT: usize = 4096;
+const BMFF_BOX_LIMIT: usize = 4096;
+const XMP_LIMIT: u64 = 16 << 20;
+
+/// `size` bytes at `offset` of a file whose first bytes are `header`:
+/// from `header` when it holds them, else read; `None` past the end.
+fn bytes_at(
+    file: &mut (impl Read + Seek),
+    len: u64,
+    header: &[u8],
+    offset: u64,
+    size: u64,
+) -> std::io::Result<Option<Vec<u8>>> {
+    let Some(end) = offset.checked_add(size).filter(|end| *end <= len) else {
+        return Ok(None);
+    };
+    if end <= header.len() as u64 {
+        return Ok(Some(header[offset as usize..end as usize].to_vec()));
+    }
+    file.seek(SeekFrom::Start(offset))?;
+    let mut bytes = vec![0; size as usize];
+    file.read_exact(&mut bytes)?;
+    Ok(Some(bytes))
+}
+
+/// Whether a TIFF-based file (TIFF, DNG and the RAWs built on it, whatever
+/// their magic number: RW2's, ORF's) starts `bytes`, little-endian or not.
+fn tiff_byte_order(bytes: &[u8]) -> Option<bool> {
+    match bytes.get(..2)? {
+        b"II" => Some(true),
+        b"MM" => Some(false),
+        _ => None,
+    }
+}
+
+/// At most this much of an ISO BMFF file's boxes besides its image data
+/// is read for its metadata (a damaged file's sizes may claim anything).
+const BMFF_METADATA_LIMIT: u64 = 64 << 20;
+
+/// Metadata read past this offset is not looked at through a sparse
+/// buffer (`sparse_capture`): its untouched pages cost no memory where
+/// the system allocates lazily, but its address space is still reserved.
+const SPARSE_LIMIT: u64 = 1 << 30;
+
+/// `pieces` (offset, bytes) of a file laid at their offsets, each over
+/// those before it, into an otherwise empty buffer that stands for the file; `None` past
+/// `SPARSE_LIMIT`. Its untouched pages are the system's zero pages.
+fn sparse_file(pieces: &[(u64, Vec<u8>)]) -> Option<Vec<u8>> {
+    let end = pieces
+        .iter()
+        .map(|(at, bytes)| at + bytes.len() as u64)
+        .max()
+        .filter(|end| *end <= SPARSE_LIMIT)?;
+    let mut buffer = vec![0u8; usize::try_from(end).ok()?];
+    for (at, bytes) in pieces {
+        buffer[*at as usize..*at as usize + bytes.len()].copy_from_slice(bytes);
+    }
+    Some(buffer)
+}
+
+/// The capture facts of a file of which only `pieces` were read
+/// (`sparse_file`): the RAW decoder's, reading only what its metadata needs
+/// (it does not copy the buffer). `None` when they lie past `SPARSE_LIMIT`.
+fn sparse_capture(pieces: &[(u64, Vec<u8>)]) -> Option<Capture> {
+    let source = rawler::rawsource::RawSource::new_from_shared_vec(Arc::new(sparse_file(pieces)?));
+    let mut capture = Capture::default();
+    if let Some(metadata) = raw_metadata(&source) {
+        apply_raw(&mut capture, &metadata);
+    }
+    Some(capture)
+}
+
+/// The capture facts of an ISO BMFF RAW (Canon CR3, CRM) without reading
+/// its image data: its box tree is walked with seeks, then every top-level
+/// box but `mdat` (its header only) and the CTMD record the decoder takes
+/// the rest of its metadata from (stored in `mdat`, after the image, often
+/// tens of MB into the file) are read into an otherwise empty buffer at
+/// their own offsets, which the RAW decoder reads as the file. `None` when
+/// it is no BMFF file the decoder reads; an error when reading fails.
+fn bmff_metadata(file: &mut (impl Read + Seek), len: u64) -> std::io::Result<Option<Capture>> {
+    bmff_metadata_within(file, len, BMFF_METADATA_LIMIT)
+}
+
+/// A reader that reads at most `left` bytes in all, then fails with
+/// `InvalidData` (a damaged file's sizes claiming more than metadata).
+struct Budgeted<R> {
+    inner: R,
+    left: u64,
+}
+
+impl<R: Read> Read for Budgeted<R> {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        if self.left == 0 && !out.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "more metadata than a file of this kind holds",
+            ));
+        }
+        let most = out
+            .len()
+            .min(usize::try_from(self.left).unwrap_or(usize::MAX));
+        let n = self.inner.read(&mut out[..most])?;
+        self.left -= n as u64;
+        Ok(n)
+    }
+}
+
+impl<R: Seek> Seek for Budgeted<R> {
+    fn seek(&mut self, to: SeekFrom) -> std::io::Result<u64> {
+        self.inner.seek(to)
+    }
+}
+
+/// `bmff_metadata` reading at most `budget` bytes while the box tree is
+/// parsed (its parser reads box payloads and sample tables as their sizes
+/// and counts say; a damaged file's may claim the whole image).
+fn bmff_metadata_within(
+    file: &mut (impl Read + Seek),
+    len: u64,
+    budget: u64,
+) -> std::io::Result<Option<Capture>> {
+    use rawler::formats::bmff::FileBox;
+    file.seek(SeekFrom::Start(0))?;
+    let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let reader = Budgeted {
+            inner: &mut *file,
+            left: budget,
+        };
+        let filebox = FileBox::parse(std::io::BufReader::new(reader))?;
+        let mut ranges = vec![
+            (filebox.ftyp.header.offset, filebox.ftyp.header.size),
+            (filebox.moov.header.offset, filebox.moov.header.size),
+            (filebox.mdat.header.offset, filebox.mdat.header.header_len),
+        ];
+        ranges.extend(
+            filebox
+                .vendor
+                .iter()
+                .map(|b| (b.header.offset, b.header.size)),
+        );
+        ranges.extend(
+            filebox
+                .cr3xpacket
+                .iter()
+                .map(|b| (b.header.offset, b.header.size)),
+        );
+        // The decoder reads the first sample of the CTMD track.
+        ranges.extend(
+            filebox
+                .moov
+                .traks
+                .iter()
+                .filter(|trak| trak.mdia.minf.stbl.stsd.ctmd.is_some())
+                .filter_map(|trak| trak.mdia.minf.stbl.get_sample_offset(1))
+                .map(|(offset, size)| (offset as u64, size as u64)),
+        );
+        Ok::<_, rawler::formats::bmff::BmffError>(ranges)
+    }));
+    let ranges = match parsed {
+        Ok(Ok(ranges)) => ranges,
+        // A box running past the end or past the budget is a damaged
+        // file, not a failed read.
+        Ok(Err(rawler::formats::bmff::BmffError::Io(error)))
+            if !matches!(
+                error.kind(),
+                std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::InvalidData
+            ) =>
+        {
+            return Err(error);
+        }
+        _ => return Ok(None),
+    };
+    let ranges: Vec<(u64, u64)> = ranges
+        .into_iter()
+        .filter(|&(offset, size)| offset.checked_add(size).is_some_and(|end| end <= len))
+        .collect();
+    if ranges.iter().map(|(_, size)| size).sum::<u64>() > BMFF_METADATA_LIMIT {
+        return Ok(None);
+    }
+    if ranges
+        .iter()
+        .any(|(offset, size)| offset + size > SPARSE_LIMIT)
+    {
+        return Ok(None);
+    }
+    let mut pieces = Vec::with_capacity(ranges.len());
+    for (offset, size) in ranges {
+        file.seek(SeekFrom::Start(offset))?;
+        let mut bytes = vec![0; size as usize];
+        file.read_exact(&mut bytes)?;
+        pieces.push((offset, bytes));
+    }
+    Ok(sparse_capture(&pieces))
+}
+
 /// What `path`'s EXIF says for the library's search (`rawtonic_catalog::
-/// CaptureFacts`), from at most its first 16 MiB; `None` when the file
+/// CaptureFacts`), from at most its first 16 MiB (an ISO BMFF RAW's from its
+/// metadata boxes, wherever they are); `None` when the file
 /// cannot be read now (gone, its drive disconnected, a read error), so it
 /// is tried again later. A capture time only from the file's own metadata,
 /// never its modification time.
@@ -123,6 +510,7 @@ fn facts_of(capture: Capture) -> Option<rawtonic_catalog::CaptureFacts> {
         aperture: capture.aperture,
         iso: capture.iso,
         exposure: capture.exposure.map(|(n, d)| f64::from(n) / f64::from(d)),
+        camera_rating: capture.rating.filter(|rating| (1..=5).contains(rating)),
     })
 }
 
@@ -190,8 +578,9 @@ fn best_date(capture: &mut Capture, candidates: impl IntoIterator<Item = DateCan
 /// Capture facts of a file's first bytes (`bytes` may be a prefix); dates
 /// only from its metadata (`captured` stays empty without one).
 pub fn from_bytes(bytes: &[u8]) -> Capture {
+    let source = rawler::rawsource::RawSource::new_from_slice(bytes);
     let mut capture = Capture::default();
-    if let Some(metadata) = raw_metadata(bytes) {
+    if let Some(metadata) = raw_metadata(&source) {
         apply_raw(&mut capture, &metadata);
     }
     if let Ok(exif) = exif::Reader::new().read_from_container(&mut std::io::Cursor::new(bytes)) {
@@ -204,6 +593,49 @@ pub fn from_bytes(bytes: &[u8]) -> Capture {
         capture.date_source = DateSource::Original;
     }
     capture
+}
+
+/// The rating of the first XMP packet in `bytes` that has one (the
+/// packet a camera writes into its RAWs, found by scanning as the XMP
+/// specification provides for files whose format is not parsed): 1–5, or
+/// 0 for one cleared or rejected (0, -1), which no other rating replaces.
+/// `None` when no packet has a rating.
+fn xmp_rating(bytes: &[u8]) -> Option<u8> {
+    const START: &[u8] = b"<x:xmpmeta";
+    const END: &[u8] = b"</x:xmpmeta>";
+    let mut rest = bytes;
+    while let Some(start) = memchr::memmem::find(rest, START) {
+        rest = &rest[start..];
+        let end = memchr::memmem::find(rest, END)? + END.len();
+        if let Some(rating) = std::str::from_utf8(&rest[..end])
+            .ok()
+            .and_then(packet_rating)
+        {
+            return Some(rating);
+        }
+        rest = &rest[end..];
+    }
+    None
+}
+
+/// The `xmp:Rating` of one XMP packet (an attribute or an element), 0 for
+/// a rejected one; `None` without one or for a packet that is no XML.
+fn packet_rating(text: &str) -> Option<u8> {
+    const XMP: &str = "http://ns.adobe.com/xap/1.0/";
+    let doc = roxmltree::Document::parse(text).ok()?;
+    let value = doc
+        .descendants()
+        .filter(|n| n.is_element())
+        .find_map(|node| {
+            node.attribute((XMP, "Rating")).or_else(|| {
+                node.has_tag_name((XMP, "Rating"))
+                    .then(|| node.text().unwrap_or(""))
+            })
+        })?;
+    let rating: f64 = value.trim().parse().ok()?;
+    rating
+        .is_finite()
+        .then(|| rating.round().clamp(0.0, 5.0) as u8)
 }
 
 /// A Canon CRW's capture time, which it keeps outside EXIF: the CIFF
@@ -265,12 +697,11 @@ fn ciff_find(bytes: &[u8], offset: usize, length: usize, wanted: u16, depth: u32
 
 /// The RAW decoder's metadata; `None` for files it does not read, and
 /// when it panics on a damaged or cut-off file.
-fn raw_metadata(bytes: &[u8]) -> Option<rawler::decoders::RawMetadata> {
+fn raw_metadata(source: &rawler::rawsource::RawSource) -> Option<rawler::decoders::RawMetadata> {
     std::panic::catch_unwind(|| {
-        let source = rawler::rawsource::RawSource::new_from_slice(bytes);
-        let decoder = rawler::get_decoder(&source).ok()?;
+        let decoder = rawler::get_decoder(source).ok()?;
         decoder
-            .raw_metadata(&source, &rawler::decoders::RawDecodeParams::default())
+            .raw_metadata(source, &rawler::decoders::RawDecodeParams::default())
             .ok()
     })
     .ok()
@@ -414,6 +845,13 @@ fn apply_exif(capture: &mut Capture, exif: &exif::Exif) {
         .exposure
         .or_else(|| exif_rational(exif, Tag::ExposureTime));
     capture.creator = capture.creator.take().or_else(|| ascii(exif, Tag::Artist));
+    // The rating tag Windows and some cameras write (0x4746, 0–5).
+    capture.rating = capture.rating.or_else(|| {
+        exif.get_field(Tag(exif::Context::Tiff, 0x4746), exif::In::PRIMARY)
+            .and_then(|f| f.value.get_uint(0))
+            .filter(|rating| (1..=5).contains(rating))
+            .map(|rating| rating as u8)
+    });
     capture.copyright = capture
         .copyright
         .take()
@@ -637,6 +1075,7 @@ pub(crate) mod tests {
                 (0x0110, V::Ascii("Model One")),
                 (0x0132, V::Ascii("2026:01:02 03:04:05")),
                 (0x013b, V::Ascii("A. Photographer")),
+                (0x4746, V::Short(4)),
                 (0x8769, V::Long(exif_at)),
             ]
         };
@@ -694,6 +1133,182 @@ pub(crate) mod tests {
         assert_eq!(capture.aperture, Some(2.8));
         assert_eq!(capture.exposure, Some((1, 250)));
         assert_eq!(capture.creator.as_deref(), Some("A. Photographer"));
+        assert_eq!(capture.rating, Some(4), "the EXIF Rating tag");
+    }
+
+    /// A JPEG whose APP1 segments are `tiff`'s EXIF, then an XMP packet.
+    fn jpeg_with_xmp(tiff: &[u8], xmp: &str) -> Vec<u8> {
+        let mut out = jpeg_with_exif(tiff);
+        out.truncate(out.len() - 2);
+        let mut segment = b"http://ns.adobe.com/xap/1.0/\0".to_vec();
+        segment.extend(xmp.as_bytes());
+        out.extend([0xFF, 0xE1]);
+        out.extend(((segment.len() + 2) as u16).to_be_bytes());
+        out.extend(segment);
+        out.extend([0xFF, 0xD9]);
+        out
+    }
+
+    fn camera_xmp(rating: &str) -> String {
+        format!(
+            r#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/">{rating}</rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end="w"?>"#
+        )
+    }
+
+    /// The rating a camera writes into its file's XMP packet (as an element
+    /// or an attribute) is read, over the EXIF Rating tag; none (0, a
+    /// reject) is no rating.
+    #[test]
+    fn reads_the_camera_rating_from_the_files_xmp() {
+        let exif = tiff_exif("2025:12:24 18:30:15");
+        let rated = |xmp: &str| {
+            let bytes = jpeg_with_xmp(&exif, xmp);
+            let len = bytes.len() as u64;
+            read_header(std::io::Cursor::new(bytes), len, FACTS_LIMIT)
+                .0
+                .rating
+        };
+        assert_eq!(rated(&camera_xmp("<xmp:Rating>3</xmp:Rating>")), Some(3));
+        let attribute = camera_xmp("").replace(r#"rdf:about="""#, r#"rdf:about="" xmp:Rating="2""#);
+        assert_eq!(rated(&attribute), Some(2));
+        // Cleared (0) or rejected (-1) in the XMP: none, over the EXIF's 4.
+        assert_eq!(rated(&camera_xmp("<xmp:Rating>0</xmp:Rating>")), Some(0));
+        assert_eq!(rated(&camera_xmp("<xmp:Rating>-1</xmp:Rating>")), Some(0));
+        assert_eq!(rated(&camera_xmp("")), Some(4), "no XMP rating: the EXIF's");
+        // Another prefix for the same namespaces: still the file's packet.
+        let prefixed = camera_xmp("<xmp:Rating>0</xmp:Rating>")
+            .replace("x:xmpmeta", "m:xmpmeta")
+            .replace("xmlns:x=", "xmlns:m=");
+        assert_eq!(rated(&prefixed), Some(0), "a clear over the EXIF's 4");
+        // A packet without a rating, then one with: the one with.
+        let two = format!(
+            "{}{}",
+            camera_xmp(""),
+            camera_xmp("<xmp:Rating>5</xmp:Rating>")
+        );
+        assert_eq!(xmp_rating(two.as_bytes()), Some(5));
+        assert_eq!(xmp_rating(b"<x:xmpmeta never closed"), None);
+
+        let d = tempfile::tempdir().unwrap();
+        let photo = d.path().join("rated.jpg");
+        let xmp = camera_xmp("<xmp:Rating>3</xmp:Rating>");
+        fs::write(&photo, jpeg_with_xmp(&exif, &xmp)).unwrap();
+        assert_eq!(capture_facts(&photo).unwrap().camera_rating, Some(3));
+        let cleared = d.path().join("cleared.jpg");
+        let xmp = camera_xmp("<xmp:Rating>0</xmp:Rating>");
+        fs::write(&cleared, jpeg_with_xmp(&exif, &xmp)).unwrap();
+        assert_eq!(capture_facts(&cleared).unwrap().camera_rating, None);
+    }
+
+    /// A TIFF-based RAW's own packet (IFD0's XMP tag) counts, not one of an
+    /// embedded preview that comes first in the file.
+    #[test]
+    fn the_files_own_xmp_packet_wins_over_a_previews() {
+        let preview = camera_xmp("<xmp:Rating>1</xmp:Rating>");
+        // NUL-terminated, as a Panasonic RW2's tag 700 holds it.
+        let own = camera_xmp("<xmp:Rating>4</xmp:Rating>") + "\0";
+        let mut bytes = b"II*\0".to_vec();
+        let ifd = 8 + preview.len() + own.len();
+        bytes.extend((ifd as u32).to_le_bytes());
+        bytes.extend(preview.as_bytes());
+        let own_at = bytes.len() as u32;
+        bytes.extend(own.as_bytes());
+        bytes.extend(1u16.to_le_bytes());
+        bytes.extend(700u16.to_le_bytes());
+        bytes.extend(7u16.to_le_bytes());
+        bytes.extend((own.len() as u32).to_le_bytes());
+        bytes.extend(own_at.to_le_bytes());
+        bytes.extend(0u32.to_le_bytes());
+        let len = bytes.len() as u64;
+        assert_eq!(xmp_rating(&bytes), Some(1), "scanning finds the preview's");
+        let read = read_header(std::io::Cursor::new(bytes), len, FACTS_LIMIT).0;
+        assert_eq!(read.rating, Some(4));
+    }
+
+    /// A damaged CR3 whose metadata box claims more than metadata holds is
+    /// parsed within the budget, not read (and held) as far as it claims.
+    #[test]
+    fn a_damaged_bmff_box_is_read_within_the_budget() {
+        let boxed = |kind: &[u8], body: &[u8]| {
+            let mut out = ((8 + body.len()) as u32).to_be_bytes().to_vec();
+            out.extend(kind);
+            out.extend(body);
+            out
+        };
+        let cmt1 = boxed(b"CMT1", &vec![0u8; 1 << 20]);
+        let mut uuid = rawler::formats::bmff::ext_cr3::cr3desc::Cr3DescBox::UUID.to_vec();
+        uuid.extend(&cmt1);
+        let moov = boxed(b"moov", &boxed(b"uuid", &uuid));
+        let mut bytes = boxed(b"ftyp", b"crx \0\0\0\x01crx ");
+        bytes.extend(moov);
+        bytes.extend(boxed(b"mdat", &[0u8; 64]));
+        let len = bytes.len() as u64;
+        let mut file = Counted(std::io::Cursor::new(&bytes), 0);
+        let budget = 64 << 10;
+        assert!(
+            bmff_metadata_within(&mut file, len, budget)
+                .unwrap()
+                .is_none()
+        );
+        // Within the budget and one buffer of the reader above it.
+        assert!(file.1 <= budget + (8 << 10), "{} bytes read", file.1);
+    }
+
+    /// A box whose extended size runs past the file ends the walk (and
+    /// does not overflow the offset).
+    #[test]
+    fn a_bmff_box_past_the_end_ends_the_walk() {
+        let mut bytes = 16u32.to_be_bytes().to_vec();
+        bytes.extend(b"ftypcrx \0\0\0\x01");
+        bytes.extend(1u32.to_be_bytes());
+        bytes.extend(b"free");
+        bytes.extend(u64::MAX.to_be_bytes());
+        bytes.extend([0u8; 64]);
+        let len = bytes.len() as u64;
+        let header = bytes.clone();
+        let found = container_xmp(&mut std::io::Cursor::new(&bytes), len, &header).unwrap();
+        assert!(matches!(found, Container::NoPacket));
+    }
+
+    /// A uuid box too small for its own uuid is a damaged box, not a
+    /// packet (and no overflow).
+    #[test]
+    fn a_uuid_box_smaller_than_its_uuid_is_no_packet() {
+        let mut bytes = 16u32.to_be_bytes().to_vec();
+        bytes.extend(b"ftypcrx \0\0\0\x01");
+        bytes.extend(8u32.to_be_bytes());
+        bytes.extend(b"uuid");
+        bytes.extend(BMFF_XMP_UUID);
+        bytes.extend([0u8; 64]);
+        let len = bytes.len() as u64;
+        let header = bytes.clone();
+        let found = container_xmp(&mut std::io::Cursor::new(&bytes), len, &header).unwrap();
+        assert!(matches!(found, Container::NoPacket));
+    }
+
+    /// An XMP packet past what is read for the date (after more than the
+    /// first read step of other segments) is still found for the rating.
+    #[test]
+    fn reads_a_rating_past_the_date() {
+        let exif = tiff_exif("2025:12:24 18:30:15");
+        let early = jpeg_with_exif(&exif);
+        let mut bytes = early[..early.len() - 2].to_vec();
+        for _ in 0..40 {
+            bytes.extend([0xFF, 0xE2]);
+            bytes.extend(60_000u16.to_be_bytes());
+            bytes.extend(vec![0u8; 59_998]);
+        }
+        let late = jpeg_with_xmp(&[], &camera_xmp("<xmp:Rating>2</xmp:Rating>"));
+        // Its XMP segment only (after its empty EXIF segment).
+        let exif_segment = 2 + 2 + 6;
+        bytes.extend(&late[2 + exif_segment..]);
+        assert!(bytes.len() > 2 << 20);
+        let d = tempfile::tempdir().unwrap();
+        let photo = d.path().join("late-xmp.jpg");
+        fs::write(&photo, &bytes).unwrap();
+        let facts = capture_facts(&photo).unwrap();
+        assert_eq!(facts.captured.as_deref(), Some("2025-12-24 18:30:15"));
+        assert_eq!(facts.camera_rating, Some(2));
     }
 
     /// Without DateTimeOriginal the camera's file date is next; without
@@ -784,11 +1399,91 @@ pub(crate) mod tests {
                 Ok(n)
             }
         }
+        impl Seek for Breaks {
+            fn seek(&mut self, _: SeekFrom) -> std::io::Result<u64> {
+                Err(std::io::Error::other("device gone"))
+            }
+        }
         assert!(read_header(Breaks(4096), 8 << 20, FACTS_LIMIT).1.is_some());
-        assert!(read_header(&b"short file"[..], 10, FACTS_LIMIT).1.is_none());
+        let short = std::io::Cursor::new(&b"short file"[..]);
+        assert!(read_header(short, 10, FACTS_LIMIT).1.is_none());
         let d = tempfile::tempdir().unwrap();
         assert_eq!(capture_facts(d.path()), None);
         assert_eq!(capture_facts(&d.path().join("gone.ARW")), None);
+    }
+
+    /// A file reader that counts the bytes read.
+    struct Counted<R>(R, u64);
+    impl<R: Read> Read for Counted<R> {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            let n = self.0.read(out)?;
+            self.1 += n as u64;
+            Ok(n)
+        }
+    }
+    impl<R: Seek> Seek for Counted<R> {
+        fn seek(&mut self, to: SeekFrom) -> std::io::Result<u64> {
+            self.0.seek(to)
+        }
+    }
+
+    /// Real RAWs (local fixtures, never in the repository): the library's
+    /// facts of every file are what the whole file gives, however large it
+    /// is (a CR3 keeps part of its metadata after its image data, tens of
+    /// MB in), and a large file is not read whole for them.
+    #[test]
+    #[ignore = "requires RAWTONIC_RAW_FIXTURES pointing to a local sample directory"]
+    fn capture_facts_of_real_raws_are_those_of_the_whole_file() {
+        let dir = std::env::var("RAWTONIC_RAW_FIXTURES").expect("local fixture directory");
+        let (mut large, mut most) = (0, 0);
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if !path.is_file() || path.file_name().unwrap().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            let whole = from_bytes(&fs::read(&path).unwrap());
+            if whole.captured.is_none() {
+                continue;
+            }
+            let len = fs::metadata(&path).unwrap().len();
+            let mut file = Counted(fs::File::open(&path).unwrap(), 0);
+            let (read, error) = read_header(&mut file, len, FACTS_LIMIT);
+            assert!(error.is_none(), "{}", path.display());
+            // Facts as a whole-file read gives them; the rating comes
+            // from the file's own packet (`container_xmp`), not the decoders.
+            let (mut read, whole) = (facts_of(read).unwrap(), facts_of(whole).unwrap());
+            let rating = read.camera_rating.take();
+            if let Some(rating) = rating {
+                println!("{}: rated {rating}", path.display());
+            }
+            // The file's own packet, wherever it is, gives the rating its
+            // text holds (it parses as XML).
+            let bytes = fs::read(&path).unwrap();
+            let header = &bytes[..bytes.len().min(1 << 16)];
+            if let Container::Packet(packet) =
+                container_xmp(&mut std::io::Cursor::new(&bytes), len, header).unwrap()
+            {
+                let held = xmp_rating(&packet).filter(|r| (1..=5).contains(r));
+                assert_eq!(rating, held, "{}", path.display());
+            }
+            let whole = rawtonic_catalog::CaptureFacts {
+                camera_rating: None,
+                ..whole
+            };
+            assert_eq!(read, whole, "{}", path.display());
+            if len > FACTS_LIMIT {
+                large += 1;
+                assert!(
+                    file.1 <= FACTS_LIMIT,
+                    "{}: {} bytes read",
+                    path.display(),
+                    file.1
+                );
+            }
+            most = most.max(file.1);
+        }
+        assert!(large > 0, "no fixture larger than {FACTS_LIMIT} bytes");
+        println!("{large} files over {FACTS_LIMIT} bytes; at most {most} bytes read of one file");
     }
 
     /// A CIFF heap with one TimeStamp record: the CRW's capture time.

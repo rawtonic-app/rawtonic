@@ -279,6 +279,7 @@ fn an_older_database_is_migrated_with_its_photographs() {
     let conn = rusqlite::Connection::open(&db).unwrap();
     // Back to schema 2 (no volume columns, no import batches).
     conn.execute_batch(concat!(
+        include_str!("undo_0013.sql"),
         include_str!("undo_0012.sql"),
         include_str!("undo_0011.sql")
     ))

@@ -144,7 +144,7 @@ impl Contents {
 
 pub(crate) fn untouched(conn: &rusqlite::Connection, id: &str) -> Result<bool> {
     Ok(conn.query_row(
-        "SELECT m.data='{}' AND (p.payload IS NULL OR json_type(p.payload,'$.editor_state') IS NULL)
+        "SELECT (m.data='{}' OR m.from_camera=1) AND (p.payload IS NULL OR json_type(p.payload,'$.editor_state') IS NULL)
          FROM metadata m JOIN versions v ON v.asset_id=m.asset_id AND v.is_primary=1
          LEFT JOIN recipes p ON p.id=v.head WHERE m.asset_id=?",
         [id],
@@ -790,6 +790,7 @@ mod tests {
         // Back to schema 5: batches limited to ingest, add and sync.
         lib.conn
             .execute_batch(concat!(
+                include_str!("../tests/undo_0013.sql"),
                 include_str!("../tests/undo_0012.sql"),
                 include_str!("../tests/undo_0011.sql")
             ))

@@ -4,13 +4,13 @@
 //! except the capture-facts pass, which reads each one's header (at most
 //! its first 16 MiB) once.
 use crate::session_bridge::with_library;
-use rawtonic_catalog::{Collection, Field, Library, Rule, query::FacetValue};
+use rawtonic_catalog::{Collection, Field, Library, Rated, Rule, query::FacetValue};
 use serde::Deserialize;
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
     sync::{
-        Arc, Mutex, OnceLock,
+        Arc, Mutex, MutexGuard, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
@@ -140,34 +140,49 @@ const PASS_BATCH: usize = 256;
 /// Reads the capture facts of every photograph of the library at
 /// `directory` not read yet (`rawtonic_ingest::capture::capture_facts`, the
 /// header of each file, once), `PASS_BATCH` at a time, calling `recorded`
-/// after each batch that recorded any, until done or `cancel` is set.
-/// Returns how many were recorded.
+/// after each batch that recorded any (with the photographs that took
+/// their camera's rating), until done or `cancel` is set. Returns how many
+/// were recorded.
 fn read_facts(
     directory: &Path,
     pause: Duration,
     cancel: &AtomicBool,
-    recorded: &dyn Fn(usize),
+    recorded: &dyn Fn(usize, &Rated),
 ) -> anyhow::Result<usize> {
     let mut cursor = 0;
     let mut total = 0;
     while !cancel.load(Ordering::Acquire) {
         let lib = Library::open(directory)?;
-        let (looked, done) = lib.fill_facts(
+        let (looked, done, rated) = lib.fill_facts(
             &mut cursor,
             PASS_BATCH,
             pause,
             cancel,
             &rawtonic_ingest::capture::capture_facts,
+            &metadata_turn,
         )?;
         if done > 0 {
             total += done;
-            recorded(done);
+            recorded(done, &rated);
         }
         if looked == 0 {
             break;
         }
     }
     Ok(total)
+}
+
+/// A camera's rating is taken in the turn of the app's metadata writers:
+/// the rating, label, keyword and recipe edits that read a photograph's
+/// metadata, change it and write it back (`sidecar_field_edit`), and the
+/// catalog commands (`session_bridge::write_turn`), in that order as they
+/// take them. None of them then writes back metadata read before the
+/// camera's rating was taken.
+fn metadata_turn() -> (MutexGuard<'static, ()>, MutexGuard<'static, ()>) {
+    (
+        crate::file_management::sidecar_field_edit(),
+        crate::session_bridge::write_turn(),
+    )
 }
 
 /// Starts `read_facts` for the library at `directory` in the background,
@@ -192,8 +207,18 @@ pub fn start_facts_pass(directory: PathBuf) {
         .spawn(move || {
             let started = Instant::now();
             std::thread::sleep(PASS_DELAY);
-            let announce = |_: usize| {
+            let announce = |_: usize, rated: &Rated| {
                 if let Some(app) = FACTS_ANNOUNCED.get() {
+                    // A rating taken from the camera shows in the grid as one
+                    // read from a sidecar does; marked as the camera's, so
+                    // the grid does not take it over a rating set since
+                    // (the batch is announced after it was read).
+                    for (path, rating) in rated {
+                        let _ = app.emit(
+                            "image-metadata-loaded",
+                            serde_json::json!({ "path": path, "rating": rating, "camera": true }),
+                        );
+                    }
                     let _ = app.emit(FACTS_RECORDED, &directory);
                 }
             };
@@ -326,7 +351,7 @@ mod tests {
             &lib.directory,
             Duration::ZERO,
             &AtomicBool::new(false),
-            &|n| announced.lock().unwrap().push(n),
+            &|n, _| announced.lock().unwrap().push(n),
         )
         .unwrap();
         assert_eq!(recorded, PASS_BATCH + 3);
@@ -337,7 +362,7 @@ mod tests {
             &lib.directory,
             Duration::ZERO,
             &AtomicBool::new(false),
-            &|_| panic!("nothing to say"),
+            &|_, _| panic!("nothing to say"),
         )
         .unwrap();
     }

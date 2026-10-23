@@ -328,7 +328,11 @@ fn a_schema_11_library_migrates_and_keeps_its_edits() {
         .unwrap();
     drop(lib);
     let db = rusqlite::Connection::open(tmp.path().join("session.sqlite")).unwrap();
-    db.execute_batch(include_str!("undo_0012.sql")).unwrap();
+    db.execute_batch(concat!(
+        include_str!("undo_0013.sql"),
+        include_str!("undo_0012.sql")
+    ))
+    .unwrap();
     drop(db);
 
     let lib = Library::open(tmp.path()).unwrap();

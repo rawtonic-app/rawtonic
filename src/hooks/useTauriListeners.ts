@@ -21,6 +21,7 @@ import { confirmQuitWithUnsaved, handleQuitRequest } from '../utils/quit';
 import { recountAfterFileOperation } from '../utils/offline';
 import { throttleAsync } from '../utils/throttle';
 import { IMPORTS_CHANGED } from '../utils/folderSync';
+import { metadataWritten } from '../utils/catalogWrites';
 
 type EditorState = ReturnType<typeof useEditorStore.getState>;
 
@@ -48,6 +49,13 @@ interface ImageMetadataLoadedPayload {
   rating: number;
   is_edited: boolean;
   tags: string[] | null;
+}
+
+/** A rating the facts pass took from the camera (`library_search`). */
+interface CameraRatingPayload {
+  path: string;
+  rating: number;
+  camera: true;
 }
 
 interface PathProgressPayload {
@@ -342,8 +350,20 @@ export function useTauriListeners({
           scheduleFlush();
         }
       }),
-      listen<ImageMetadataLoadedPayload>('image-metadata-loaded', (event) => {
+      listen<ImageMetadataLoadedPayload | CameraRatingPayload>('image-metadata-loaded', (event) => {
         if (!isEffectActive) return;
+        if ('camera' in event.payload) {
+          // A camera's rating the background pass took applies only to a
+          // photograph still unrated here that this window has not written.
+          const { path, rating } = event.payload;
+          if (metadataWritten(path)) return;
+          useLibraryStore.getState().setLibrary((state) => {
+            const image = state.imageList[libraryImageIndex(state.imageList).get(path) ?? -1];
+            if ((state.imageRatings[path] ?? image?.rating ?? 0) !== 0) return state;
+            return { imageRatings: { ...state.imageRatings, [path]: rating } };
+          });
+          return;
+        }
         const { path, rating, is_edited, tags } = event.payload;
 
         useLibraryStore.getState().setLibrary((state) => {

@@ -33,6 +33,11 @@ pub struct CaptureFacts {
     pub iso: Option<u32>,
     /// Seconds.
     pub exposure: Option<f64>,
+    /// The rating the camera wrote into the file (1–5): the photograph's
+    /// rating while nobody has set its metadata (`write_facts`). Not kept
+    /// with the facts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub camera_rating: Option<u8>,
 }
 
 impl CaptureFacts {
@@ -64,14 +69,25 @@ impl CaptureFacts {
             aperture: positive(self.aperture),
             iso: self.iso.filter(|n| *n > 0),
             exposure: positive(self.exposure),
+            camera_rating: self.camera_rating.filter(|r| (1..=5).contains(r)),
         }
     }
 }
 
-/// Stores `facts` as asset `id`'s and marks its file read.
-pub(crate) fn write_facts(conn: &Connection, id: &str, facts: &CaptureFacts) -> Result<bool> {
+/// Stores `facts` as asset `id`'s and marks its file read. The camera's
+/// rating becomes the photograph's only while its metadata was never set
+/// (no sidecar adopted, nobody rated, tagged or edited it): a rating anyone
+/// gave is never replaced. Marked as the camera's (`from_camera`), the
+/// photograph still counts as untouched, so a sidecar found later is
+/// adopted over it. Returns whether the asset exists and the camera's
+/// rating if it was taken.
+pub(crate) fn write_facts(
+    conn: &Connection,
+    id: &str,
+    facts: &CaptureFacts,
+) -> Result<(bool, Option<u8>)> {
     let facts = facts.sanitized();
-    Ok(conn.execute(
+    let written = conn.execute(
         "UPDATE assets SET capture_time=?,make=?,camera=?,lens=?,focal_length=?,aperture=?,iso=?,
                 exposure=?,facts_read=1 WHERE id=?",
         params![
@@ -85,14 +101,30 @@ pub(crate) fn write_facts(conn: &Connection, id: &str, facts: &CaptureFacts) -> 
             facts.exposure,
             id
         ],
-    )? == 1)
+    )? == 1;
+    if written
+        && let Some(rating) = facts.camera_rating
+        && crate::add::untouched(conn, id)?
+    {
+        let metadata = rawtonic_metadata::Metadata {
+            rating,
+            ..Default::default()
+        };
+        crate::write_metadata(conn, id, &metadata)?;
+        conn.execute("UPDATE metadata SET from_camera=1 WHERE asset_id=?", [id])?;
+        return Ok((true, Some(rating)));
+    }
+    Ok((written, None))
 }
+
+/// Photographs that took their camera's rating, with it (`fill_facts`).
+pub type Rated = Vec<(PathBuf, u8)>;
 
 impl Library {
     /// Records what asset `id`'s file says about its capture. Returns
     /// whether the asset exists.
     pub fn record_facts(&self, id: &str, facts: &CaptureFacts) -> Result<bool> {
-        write_facts(&self.conn, id, facts)
+        Ok(write_facts(&self.conn, id, facts)?.0)
     }
 
     /// Asset `id`'s capture facts, and whether its file was read for them.
@@ -117,6 +149,7 @@ impl Library {
                             aperture: r.get(5)?,
                             iso: r.get(6)?,
                             exposure: r.get(7)?,
+                            camera_rating: None,
                         },
                         r.get(8)?,
                     ))
@@ -140,15 +173,21 @@ impl Library {
     /// with `pause` between files, until `cancel` is set. `read` returns
     /// `None` when the file cannot be read (it is tried again by a later
     /// pass) and the facts otherwise (empty for a file without EXIF).
-    /// Returns how many were looked at and how many recorded.
-    pub fn fill_facts(
+    /// Facts with a camera rating are recorded while holding what `turn`
+    /// returns: the caller's turn among metadata writers that read a
+    /// photograph's metadata, change it and write it back, so none of them
+    /// writes back what it read before the camera's rating was taken.
+    /// Returns how many were looked at and how many recorded, and the
+    /// photographs that took their camera's rating (`write_facts`) with it.
+    pub fn fill_facts<T>(
         &self,
         cursor: &mut i64,
         limit: usize,
         pause: Duration,
         cancel: &AtomicBool,
         read: &dyn Fn(&Path) -> Option<CaptureFacts>,
-    ) -> Result<(usize, usize)> {
+        turn: &dyn Fn() -> T,
+    ) -> Result<(usize, usize, Rated)> {
         let rows: Vec<(i64, String, String, String, bool)> = self
             .conn
             .prepare(
@@ -159,7 +198,7 @@ impl Library {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
             })?
             .collect::<rusqlite::Result<_>>()?;
-        let (mut looked, mut recorded) = (0, 0);
+        let (mut looked, mut recorded, mut rated) = (0, 0, Vec::new());
         for (rowid, id, relative, root, external) in rows {
             if cancel.load(Ordering::Relaxed) {
                 break;
@@ -170,6 +209,7 @@ impl Library {
             let Some(facts) = read(&path) else {
                 continue;
             };
+            let _turn = facts.camera_rating.is_some().then(turn);
             // Only while it is still unread: a newer record (an ingest's)
             // is never replaced by the pass.
             let tx = self.conn.unchecked_transaction()?;
@@ -179,19 +219,23 @@ impl Library {
                 })
                 .optional()?
                 .unwrap_or(false);
-            if unread && write_facts(&tx, &id, &facts)? {
-                recorded += 1;
+            if unread {
+                let (written, rating) = write_facts(&tx, &id, &facts)?;
+                recorded += usize::from(written);
+                if let Some(rating) = rating {
+                    rated.push((path, rating));
+                }
             }
             tx.commit()?;
             if !pause.is_zero() {
                 std::thread::sleep(pause);
             }
         }
-        Ok((looked, recorded))
+        Ok((looked, recorded, rated))
     }
 
     /// Reads every present photograph not read yet, at once (tests, the
-    /// CLI). Returns how many were recorded.
+    /// CLI: no other metadata writer runs). Returns how many were recorded.
     pub fn fill_all_facts(
         &self,
         cancel: &AtomicBool,
@@ -200,7 +244,8 @@ impl Library {
         let mut cursor = 0;
         let mut recorded = 0;
         loop {
-            let (looked, done) = self.fill_facts(&mut cursor, 256, Duration::ZERO, cancel, read)?;
+            let (looked, done, _) =
+                self.fill_facts(&mut cursor, 256, Duration::ZERO, cancel, read, &|| ())?;
             recorded += done;
             if looked == 0 || cancel.load(Ordering::Relaxed) {
                 return Ok(recorded);

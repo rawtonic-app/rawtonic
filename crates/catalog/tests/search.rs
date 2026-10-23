@@ -42,6 +42,7 @@ fn facts(
         aperture: Some(aperture),
         iso: Some(iso),
         exposure: Some(exposure),
+        camera_rating: None,
     }
 }
 
@@ -729,6 +730,7 @@ fn a_schema_10_library_gets_its_keywords_search_and_albums_migrated() {
     drop(lib);
     let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
     db.execute_batch(concat!(
+        include_str!("undo_0013.sql"),
         include_str!("undo_0012.sql"),
         include_str!("undo_0011.sql")
     ))
@@ -1151,4 +1153,233 @@ fn folder_names_are_taken_verbatim() {
     };
     assert_eq!(in_folder("Day"), ["3.jpg"]);
     assert_eq!(in_folder("Day "), ["4.jpg"]);
+}
+
+/// The rating the camera wrote into a file becomes the photograph's while
+/// nobody has set its metadata, and never replaces a rating anyone gave,
+/// a sidecar's or one set before the file was read.
+#[test]
+fn the_camera_rating_is_taken_only_while_nobody_set_the_metadata() {
+    let d = tempfile::tempdir().unwrap();
+    let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+    let capture = lib.directory.join("Capture");
+    for name in ["A.RW2", "B.RW2", "C.RW2", "D.RW2"] {
+        fs::write(capture.join(name), name).unwrap();
+    }
+    // C has an XMP sidecar with no rating: what the photographer kept.
+    fs::write(
+        capture.join("C.xmp"),
+        r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:subject><rdf:Bag><rdf:li>pier</rdf:li></rdf:Bag></dc:subject></rdf:Description></rdf:RDF></x:xmpmeta>"#,
+    )
+    .unwrap();
+    let id = |name: &str| {
+        let path = capture.join(name);
+        let planned = lib
+            .plan_add(
+                &path,
+                rawtonic_catalog::Contents::read_sidecars(&path).unwrap(),
+            )
+            .unwrap();
+        lib.insert_planned(vec![planned]).unwrap().remove(0).0
+    };
+    let (a, b, c, dd) = (id("A.RW2"), id("B.RW2"), id("C.RW2"), id("D.RW2"));
+    // B was rated 1 and D rated, then set back to none, before the pass.
+    for (asset, rating) in [(&b, 1), (&dd, 2), (&dd, 0)] {
+        let mut meta = lib.metadata(asset).unwrap();
+        meta.rating = rating;
+        lib.set_metadata(asset, &meta).unwrap();
+    }
+    let camera = |_: &Path| {
+        Some(CaptureFacts {
+            model: Some("DC-S5M2".into()),
+            camera_rating: Some(3),
+            ..Default::default()
+        })
+    };
+    assert_eq!(
+        lib.fill_all_facts(&AtomicBool::new(false), &camera)
+            .unwrap(),
+        4
+    );
+    let rating = |asset: &str| lib.asset(asset).unwrap().rating;
+    assert_eq!(
+        [rating(&a), rating(&b), rating(&c), rating(&dd)],
+        [3, 1, 0, 0]
+    );
+    assert_eq!(lib.metadata(&a).unwrap().rating, 3);
+    assert_eq!(
+        found(&lib, json!({"field":"rating","op":"ge","value":3})),
+        ["A.RW2"]
+    );
+    // Facts recorded again (an ingest's) do not replace a later rating.
+    let mut meta = lib.metadata(&a).unwrap();
+    meta.rating = 5;
+    lib.set_metadata(&a, &meta).unwrap();
+    lib.record_facts(&a, &camera(Path::new("A.RW2")).unwrap())
+        .unwrap();
+    assert_eq!(rating(&a), 5);
+}
+
+/// A library read before the reader found larger CR3s' metadata, late
+/// TIFF IFDs and the camera's rating reads again the photographs that may
+/// gain from it: those read without a capture date, whatever their
+/// metadata (a partly read file someone rated), and those whose metadata
+/// nobody set.
+#[test]
+fn a_schema_12_library_reads_undated_and_unrated_facts_again() {
+    let d = tempfile::tempdir().unwrap();
+    let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+    let capture = lib.directory.join("Capture");
+    let mut ids = Vec::new();
+    for name in ["Empty.CR3", "Read.ARW", "Rated.ARW", "Partial.TIF"] {
+        fs::write(capture.join(name), name).unwrap();
+        ids.push(lib.add_asset(&capture.join(name)).unwrap().id);
+    }
+    lib.record_facts(&ids[0], &CaptureFacts::default()).unwrap();
+    for (id, captured) in [
+        (&ids[1], Some("2024-05-01 10:00:00")),
+        (&ids[2], Some("2024-05-01 10:00:00")),
+        (&ids[3], None),
+    ] {
+        lib.record_facts(
+            id,
+            &CaptureFacts {
+                captured: captured.map(Into::into),
+                model: Some("ILCE-7M4".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+    for id in &ids[2..] {
+        let mut meta = lib.metadata(id).unwrap();
+        meta.rating = 2;
+        lib.set_metadata(id, &meta).unwrap();
+    }
+    assert_eq!(lib.facts_backlog().unwrap(), 0);
+    drop(lib);
+    let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
+    db.execute_batch(include_str!("undo_0013.sql")).unwrap();
+    drop(db);
+    let lib = Library::open(&d.path().join("Job")).unwrap();
+    // The empty one, the one nobody rated and the rated undated one; not
+    // the rated one with its date.
+    assert_eq!(lib.facts_backlog().unwrap(), 3);
+    let read = |i: usize| lib.facts(&ids[i]).unwrap().unwrap().1;
+    assert_eq!(
+        [read(0), read(1), read(2), read(3)],
+        [false, false, true, false]
+    );
+    // Read again, the rated one keeps its rating.
+    lib.fill_all_facts(&AtomicBool::new(false), &|_: &Path| {
+        Some(CaptureFacts {
+            captured: Some("2024-05-02 11:00:00".into()),
+            iso: Some(800),
+            camera_rating: Some(4),
+            ..Default::default()
+        })
+    })
+    .unwrap();
+    assert_eq!(lib.asset(&ids[3]).unwrap().rating, 2);
+    assert_eq!(lib.facts(&ids[3]).unwrap().unwrap().0.iso, Some(800));
+}
+
+/// A metadata writer that reads a photograph's metadata, changes its label
+/// and writes it back takes turns with the pass: the camera's rating is not
+/// taken between its read and its write (which would put back the rating it
+/// read), so what the pass announces is what the catalog holds.
+#[test]
+fn the_camera_rating_waits_for_a_metadata_write_in_progress() {
+    static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let d = tempfile::tempdir().unwrap();
+    let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+    let photo = lib.directory.join("Capture/A.RW2");
+    fs::write(&photo, "A").unwrap();
+    let id = lib.add_asset(&photo).unwrap().id;
+    let (has_read, read) = std::sync::mpsc::channel();
+    let writer = {
+        let (directory, id) = (lib.directory.clone(), id.clone());
+        std::thread::spawn(move || {
+            let lib = Library::open(&directory).unwrap();
+            let _turn = TURN.lock().unwrap();
+            let mut meta = lib.metadata(&id).unwrap();
+            has_read.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            meta.label = "red".into();
+            lib.set_metadata(&id, &meta).unwrap();
+        })
+    };
+    read.recv().unwrap();
+    let camera = |_: &Path| {
+        Some(CaptureFacts {
+            camera_rating: Some(3),
+            ..Default::default()
+        })
+    };
+    let (_, recorded, rated) = lib
+        .fill_facts(
+            &mut 0,
+            16,
+            std::time::Duration::ZERO,
+            &AtomicBool::new(false),
+            &camera,
+            &|| TURN.lock().unwrap(),
+        )
+        .unwrap();
+    writer.join().unwrap();
+    assert_eq!(recorded, 1);
+    // Labelled first, the photograph is no longer untouched.
+    let meta = lib.metadata(&id).unwrap();
+    assert_eq!((meta.rating, meta.label.as_str()), (0, "red"));
+    assert!(rated.is_empty(), "announced {rated:?}, the catalog holds 0");
+}
+
+/// A photograph whose only metadata is its camera's rating is still
+/// untouched: an XMP sidecar that appears later (written by another
+/// program) is adopted over the camera's rating.
+#[test]
+fn a_sidecar_found_after_the_camera_rating_is_adopted() {
+    let d = tempfile::tempdir().unwrap();
+    let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+    let photo = lib.directory.join("Capture/E.RW2");
+    fs::write(&photo, "E").unwrap();
+    let id = lib.add_asset(&photo).unwrap().id;
+    let camera = |_: &Path| {
+        Some(CaptureFacts {
+            camera_rating: Some(3),
+            ..Default::default()
+        })
+    };
+    lib.fill_all_facts(&AtomicBool::new(false), &camera)
+        .unwrap();
+    assert_eq!(lib.asset(&id).unwrap().rating, 3);
+    assert!(lib.is_untouched(&id).unwrap());
+    fs::write(
+        photo.with_extension("xmp"),
+        r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="2"/></rdf:RDF></x:xmpmeta>"#,
+    )
+    .unwrap();
+    let contents = rawtonic_catalog::Contents::read_sidecars(&photo).unwrap();
+    assert!(lib.adopt_contents(&id, &contents).unwrap());
+    assert_eq!(lib.asset(&id).unwrap().rating, 2);
+    // Adopted metadata is the library's: no longer untouched.
+    assert!(!lib.is_untouched(&id).unwrap());
+
+    // A pick flag set after the camera's rating is the user's: a sidecar
+    // found later does not replace it.
+    let photo = lib.directory.join("Capture/F.RW2");
+    fs::write(&photo, "F").unwrap();
+    let id = lib.add_asset(&photo).unwrap().id;
+    lib.fill_all_facts(&AtomicBool::new(false), &camera)
+        .unwrap();
+    lib.set_flags(std::slice::from_ref(&id), 1).unwrap();
+    assert!(!lib.is_untouched(&id).unwrap());
+    fs::copy(capture_xmp(&lib, "E"), photo.with_extension("xmp")).unwrap();
+    let contents = rawtonic_catalog::Contents::read_sidecars(&photo).unwrap();
+    assert!(!lib.adopt_contents(&id, &contents).unwrap());
+    assert_eq!(lib.asset(&id).unwrap().flag, 1);
+}
+
+fn capture_xmp(lib: &Library, stem: &str) -> PathBuf {
+    lib.directory.join(format!("Capture/{stem}.xmp"))
 }

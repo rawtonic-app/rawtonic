@@ -144,6 +144,7 @@ fn photograph(i: u32, numbers: &mut Numbers, words: &[String]) -> (String, Captu
         aperture: Some(APERTURES[numbers.below(APERTURES.len())]),
         iso: Some(ISOS[numbers.below(ISOS.len())]),
         exposure: Some(f64::from(n) / f64::from(d)),
+        camera_rating: None,
     };
     let metadata = Metadata {
         rating: [0, 0, 0, 1, 2, 3, 3, 4, 5][numbers.below(9)],
