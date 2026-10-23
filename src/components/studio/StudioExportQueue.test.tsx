@@ -152,6 +152,13 @@ it("reveals a finished job's files and closes with Escape", async () => {
   render(<ExportQueuePanel onClose={onClose} />);
   fireEvent.click(screen.getByRole("button", { name: "Show" }));
   await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("show_in_finder", { path: "/out/1.jpg" }));
-  fireEvent.keyDown(screen.getByRole("button", { name: "Show" }), { key: "Escape" });
+  // The app's shortcuts (Escape reverts a crop or leaves Develop) listen on
+  // the window and skip handled keys.
+  const reachedShortcuts = vi.fn();
+  const shortcuts = (e: KeyboardEvent) => reachedShortcuts(e.defaultPrevented);
+  window.addEventListener("keydown", shortcuts);
+  fireEvent.keyDown(screen.getByRole("button", { name: "Show" }), { key: "Escape", code: "Escape" });
+  window.removeEventListener("keydown", shortcuts);
   expect(onClose).toHaveBeenCalled();
+  expect(reachedShortcuts).toHaveBeenCalledWith(true);
 });

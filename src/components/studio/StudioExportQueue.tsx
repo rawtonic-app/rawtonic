@@ -299,7 +299,11 @@ export function ExportQueuePanel({ onClose }: { onClose: () => void }) {
       className="studio-export-queue-panel"
       aria-labelledby="studio-export-queue-title"
       onKeyDown={(e) => {
-        if (e.key === "Escape") onClose();
+        if (e.key !== "Escape") return;
+        // Handled here: the app's shortcuts would also revert a crop or
+        // leave Develop.
+        e.preventDefault();
+        onClose();
       }}
     >
       <header>
