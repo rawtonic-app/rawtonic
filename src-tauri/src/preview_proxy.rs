@@ -557,6 +557,7 @@ pub fn encode(image: &DynamicImage, full_width: u32, full_height: u32, key: Prox
         None,
         None,
         SourceData::default(),
+        &|| {},
     )
 }
 
@@ -589,6 +590,7 @@ impl SourceData {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn encode_with_sample(
     image: &DynamicImage,
     full_width: u32,
@@ -597,6 +599,7 @@ fn encode_with_sample(
     sample: Option<String>,
     source: Option<String>,
     data: SourceData,
+    before_band: &(dyn Fn() + Sync),
 ) -> Vec<u8> {
     // Decodes are float RGB already: no copy of the whole frame (half a
     // gigabyte at 45 MP) for a 1:1 preview.
@@ -617,6 +620,7 @@ fn encode_with_sample(
         .as_raw()
         .par_chunks(band_len)
         .map(|band| {
+            before_band();
             proxy_codec::encode(band, width as usize, proxy_codec::DISTANCE, transfer)
                 .expect("a whole number of rows")
         })
@@ -968,6 +972,7 @@ pub fn write(
         settings,
         variant,
         measures,
+        &|| {},
     )?;
     Ok(Proxy {
         image: reduced,
@@ -987,6 +992,20 @@ pub fn write_full(
     variant: DecodeVariant,
     measures: Option<DecodeMeasures>,
 ) -> Result<(), String> {
+    write_full_with(source, full, settings, variant, measures, &|| {})
+}
+
+/// `write_full`, calling `before_band` before each band is encoded (from
+/// the encoding threads): it may wait, holding the encode back while more
+/// urgent work runs.
+pub fn write_full_with(
+    source: &Path,
+    full: &DynamicImage,
+    settings: &AppSettings,
+    variant: DecodeVariant,
+    measures: Option<DecodeMeasures>,
+    before_band: &(dyn Fn() + Sync),
+) -> Result<(), String> {
     store(
         source,
         ProxyKind::Full,
@@ -995,10 +1014,12 @@ pub fn write_full(
         settings,
         variant,
         measures,
+        before_band,
     )
     .map(|_| ())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn store(
     source: &Path,
     kind: ProxyKind,
@@ -1007,6 +1028,7 @@ fn store(
     settings: &AppSettings,
     variant: DecodeVariant,
     measures: Option<DecodeMeasures>,
+    before_band: &(dyn Fn() + Sync),
 ) -> Result<ProxyKey, String> {
     let path = proxy_path_of(source, kind).ok_or("No previews folder")?;
     let key = current_key(source, settings, variant).ok_or("Source file unavailable")?;
@@ -1019,6 +1041,7 @@ fn store(
         sample,
         Some(source_label(source)),
         SourceData::read(source, measures),
+        before_band,
     );
     fs::create_dir_all(path.parent().ok_or("No parent")?).map_err(|e| e.to_string())?;
     rawtonic_metadata::atomic_write(&path, bytes).map_err(|e| e.to_string())?;
@@ -1574,6 +1597,28 @@ mod tests {
             read(&photo, &settings).unwrap().image.dimensions(),
             (200, 150)
         );
+    }
+
+    /// The multi view's background work holds a 1:1 preview's encode back
+    /// band by band while a zoom runs: the hook runs before every band and
+    /// the file is the one written without it.
+    #[test]
+    fn a_full_preview_waits_band_by_band_and_is_written_alike() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let settings = AppSettings::default();
+        let full = gradient(300, 2 * JXL_ROWS_PER_BAND + 10);
+        write_full(&photo, &full, &settings, NEW_EDIT, None).unwrap();
+        let path = proxy_path_of(&photo, ProxyKind::Full).unwrap();
+        let plain = fs::read(&path).unwrap();
+        fs::remove_file(&path).unwrap();
+        let bands = std::sync::atomic::AtomicUsize::new(0);
+        let before_band = || {
+            bands.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        };
+        write_full_with(&photo, &full, &settings, NEW_EDIT, None, &before_band).unwrap();
+        assert_eq!(bands.into_inner(), 3);
+        assert_eq!(fs::read(&path).unwrap(), plain);
     }
 
     /// A proxy stands only for a decode made for the colour noise filter of

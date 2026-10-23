@@ -1781,7 +1781,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             let warm = draft_warmup_of(&job);
             let interactive = job.is_interactive;
             let responder = job.responder;
-            crate::multi_view_prefetch::note_preview(job.is_interactive);
+            let frame = crate::multi_view_prefetch::PreviewFrame::start(job.is_interactive);
             crate::proxy_worker::note_preview(job.is_interactive);
             #[cfg(feature = "performance-profiling")]
             let (job_start_epoch, job_interactive, job_sequence) = (
@@ -1821,6 +1821,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             }
             let rendered = result.is_ok();
             let _ = responder.send(result);
+            drop(frame);
             if let Some(warm) = warm.filter(|_| rendered && !crate::multi_view::live_pending()) {
                 // A request within the pause goes first; the warm-up waits
                 // for the next final frame then.
