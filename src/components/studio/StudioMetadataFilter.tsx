@@ -60,13 +60,37 @@ function yearRows(values: FacetValue[]): Row[] {
   for (const month of values) {
     const year = month.value.slice(0, 4);
     const last = rows.at(-1);
-    if (month.value !== "" && last?.months && last.value === year) {
+    // A chosen year no photograph has any more (kept at 0): a year of no months.
+    if (isYear(month.value)) rows.push({ value: month.value, count: month.count, months: [] });
+    else if (month.value !== "" && last?.months && last.value === year) {
       last.count += month.count;
       last.months.push(month);
     } else if (month.value !== "") rows.push({ value: year, count: month.count, months: [month] });
     else rows.push(month);
   }
   return rows;
+}
+
+/** Lists whose values come in order (the catalog's: numbers ascending,
+ * months newest first), so a Shift-click range is a range of values. */
+const ORDERED: Partial<Record<FacetField, (a: string, b: string) => number>> = {
+  captureDate: (a, b) => b.localeCompare(a),
+  iso: (a, b) => Number(a) - Number(b),
+  focalLength: (a, b) => Number(a) - Number(b),
+  aperture: (a, b) => Number(a) - Number(b),
+};
+
+/** A list's values with the chosen ones no photograph has any more (at 0,
+ * so they can be taken back): in their place in an ordered list, else last;
+ * "no value" stays last. */
+function withKept(field: FacetField, values: FacetValue[], kept: string[]): FacetValue[] {
+  const listed = [...values, ...kept.map((value) => ({ value, count: 0 }))];
+  const order = ORDERED[field];
+  if (!order) return listed;
+  return [
+    ...listed.filter((v) => v.value !== "").sort((a, b) => order(a.value, b.value)),
+    ...listed.filter((v) => v.value === ""),
+  ];
 }
 
 /** A list value as the Library shows it ("" is the photographs without one). */
@@ -206,9 +230,9 @@ export default function StudioMetadataFilter() {
         // so it can be taken back.
         const gone = chosen
           .filter((c) => !values.some((v) => v.value === c))
-          .filter((c) => !(field === "captureDate" && isYear(c) && values.some((v) => v.value.startsWith(`${c}-`))))
-          .map((value) => ({ value, count: 0 }));
-        const listed: Row[] = field === "captureDate" ? [...yearRows(values), ...gone] : [...values, ...gone];
+          .filter((c) => !(field === "captureDate" && isYear(c) && values.some((v) => v.value.startsWith(`${c}-`))));
+        const kept = withKept(field, values, gone);
+        const listed: Row[] = field === "captureDate" ? yearRows(kept) : kept;
         // Rows as shown: a year's months below it while it is open.
         const shown: Row[] = listed.flatMap((row) =>
           row.months && open[row.value] ? [row, ...row.months] : [row],
@@ -231,7 +255,7 @@ export default function StudioMetadataFilter() {
                 const label = facetLabel(field, value, t, i18n.language);
                 return (
                   <div key={value} className={`studio-metadata-row${month ? " is-month" : ""}`}>
-                    {months && (
+                    {months && months.length > 0 && (
                       <button
                         className="studio-metadata-disclosure"
                         aria-expanded={Boolean(open[value])}

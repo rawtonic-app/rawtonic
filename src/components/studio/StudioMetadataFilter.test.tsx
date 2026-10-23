@@ -184,3 +184,41 @@ it("takes \"no value\" as either end of a range of years or of months", () => {
   expect(rangeOf(rows, "2025-03", "")).toEqual(["2025-03", ""]);
   expect(rangeOf(rows, "2025", "2025-03")).toBeNull();
 });
+
+it("keeps a chosen value no photograph has any more in its place, so a range still follows the order", async () => {
+  mockInvoke.mockResolvedValue({ iso: [{ value: "800", count: 2 }, { value: "1600", count: 4 }] });
+  render(<StudioMetadataFilter />);
+  await counted();
+  fireEvent.click(within(screen.getByRole("group", { name: "ISO" })).getByText("ISO 800"));
+  // The lists change (another choice, a write) and no photograph has ISO
+  // 800 any more: it stays listed at 0, between 400 and 1600.
+  mockInvoke.mockResolvedValue({
+    iso: ["400", "1600", "3200", "6400"].map((value) => ({ value, count: 1 })),
+  });
+  act(() => catalogChanged());
+  await counted();
+  const iso = within(screen.getByRole("group", { name: "ISO" }));
+  expect(iso.getAllByText(/^ISO \d+$/).map((label) => label.textContent)).toEqual([
+    "ISO 400",
+    "ISO 800",
+    "ISO 1600",
+    "ISO 3200",
+    "ISO 6400",
+  ]);
+  fireEvent.click(iso.getByText("ISO 3200"), { shiftKey: true });
+  expect(useLibraryStore.getState().filterCriteria.metadata?.iso).toEqual(["800", "1600", "3200"]);
+});
+
+it("keeps a chosen year no photograph has any more among the years, a range across it", async () => {
+  mockInvoke.mockResolvedValue({ captureDate: ["2024-05", "2023-02", "2022-01"].map((value) => ({ value, count: 1 })) });
+  render(<StudioMetadataFilter />);
+  await counted();
+  fireEvent.click(within(screen.getByRole("group", { name: "Capture date" })).getByText("2023"));
+  mockInvoke.mockResolvedValue({ captureDate: ["2024-05", "2022-01"].map((value) => ({ value, count: 1 })) });
+  act(() => catalogChanged());
+  await counted();
+  const dates = within(screen.getByRole("group", { name: "Capture date" }));
+  expect(dates.getAllByText(/^\d{4}$/).map((label) => label.textContent)).toEqual(["2024", "2023", "2022"]);
+  fireEvent.click(dates.getByText("2022"), { shiftKey: true });
+  expect(useLibraryStore.getState().filterCriteria.metadata?.captureDate).toEqual(["2023", "2022"]);
+});
