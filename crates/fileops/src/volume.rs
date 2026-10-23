@@ -318,16 +318,27 @@ pub(crate) struct Tally<'a> {
     pub total: u64,
 }
 
-/// FAT-family volumes synthesize Unix modes from mount options; those
+/// FAT-family and NTFS volumes synthesize Unix modes from mount options; those
 /// bits cannot tell us which permissions the file had on a POSIX volume.
 #[cfg(unix)]
 pub(crate) fn unix_mode(path: &Path) -> Result<Option<u32>> {
     use std::os::unix::fs::PermissionsExt;
     let fs = volume_info(path)?.file_system;
-    if matches!(fs.as_str(), "msdos" | "msdosfs" | "vfat" | "exfat") {
+    if matches!(
+        fs.as_str(),
+        "msdos" | "msdosfs" | "vfat" | "exfat" | "fuseblk" | "ntfs" | "ntfs3"
+    ) {
         return Ok(None);
     }
     Ok(Some(fs::metadata(path)?.permissions().mode() & 0o7777))
+}
+
+/// A recorded first mode is a ceiling, as is a live POSIX source's mode.
+/// Synthesized source modes impose no ceiling; without a recorded mode,
+/// creation with this mode also lets the OS apply the current umask.
+#[cfg(unix)]
+fn safe_copy_mode(recorded: Option<u32>, live: Option<u32>) -> u32 {
+    recorded.unwrap_or(0o644) & live.unwrap_or(0o666) & 0o666
 }
 
 pub(crate) const BLOCK: usize = 1 << 20;
@@ -351,10 +362,16 @@ pub(crate) fn copy_verified(
     ensure!(meta.is_file(), "{} is not a file", source.display());
     let before = Stamp::from_meta(&meta);
     #[cfg(unix)]
+    let mode = {
+        use std::os::unix::fs::PermissionsExt;
+        let live = unix_mode(source)?.map(|_| meta.permissions().mode());
+        safe_copy_mode(original_mode, live)
+    };
+    #[cfg(unix)]
     let restore_mode = if original_mode.is_some()
         && unix_mode(staged.parent().context("The copy has no folder")?)?.is_some()
     {
-        original_mode
+        Some(mode)
     } else {
         None
     };
@@ -363,7 +380,7 @@ pub(crate) fn copy_verified(
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.mode(original_mode.unwrap_or(0o644) & 0o666);
+        options.mode(mode);
     }
     let mut output = options
         .open(staged)
@@ -551,6 +568,22 @@ mod tests {
         }
         for name in ["ext4", "btrfs", "exfat", "vfat", "fuseblk", "tmpfs"] {
             assert!(!is_network_fs(name), "{name}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_permissions_obey_both_recorded_and_live_ceilings() {
+        for (recorded, live, expected) in [
+            (None, None, 0o644),
+            (Some(0o640), None, 0o640),
+            (None, Some(0o600), 0o600),
+            (Some(0o640), Some(0o600), 0o600),
+            (Some(0o600), Some(0o644), 0o600),
+            (Some(0o6751), Some(0o777), 0o640),
+            (Some(0o640), Some(0o700), 0o600),
+        ] {
+            assert_eq!(safe_copy_mode(recorded, live), expected);
         }
     }
 

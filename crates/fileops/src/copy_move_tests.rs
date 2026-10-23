@@ -1257,14 +1257,17 @@ fn recovery_never_takes_back_a_copy_whose_source_is_a_link_to_it() {
     assert!(op.note.unwrap().contains("not a file of its own"));
     assert_eq!(fs::read(&copy).unwrap(), content("A.RAF", FILES[0].1));
 }
+
 /// A FAT-like target can synthesize execute bits and lose each file's
-/// original mode. Undo and redo must retain the per-file journal modes.
+/// original mode. Undo and redo retain the per-file journal modes while
+/// respecting any tighter live modes on a POSIX source.
 #[cfg(unix)]
 #[test]
-fn a_round_trip_restores_each_files_original_permissions() {
+fn a_round_trip_retains_recorded_permissions_without_widening_live_modes() {
     use std::os::unix::fs::PermissionsExt;
     let world = World::new();
     let modes = [0o640, 0o600, 0o6751];
+    let synthesized = volume::unix_mode(&world.target).unwrap().is_none();
     for ((name, _), mode) in FILES.iter().zip(modes) {
         fs::set_permissions(world.source.join(name), fs::Permissions::from_mode(mode)).unwrap();
     }
@@ -1290,16 +1293,37 @@ fn a_round_trip_restores_each_files_original_permissions() {
                     .permissions()
                     .mode()
                     & 0o7777,
-                mode & 0o666,
+                if synthesized {
+                    mode & 0o666
+                } else {
+                    mode & 0o600
+                },
                 "{name}"
             );
         }
-        journal.redo(&op.id, &world.trash).unwrap();
+        let redone = journal.redo(&op.id, &world.trash).unwrap();
+        for (((name, _), mode), step) in FILES.iter().zip(modes).zip(redone.steps) {
+            let Target::OtherVolume { copy, .. } = step.to else {
+                unreachable!()
+            };
+            assert_eq!(copy.original_mode, Some(mode));
+            if !synthesized {
+                assert_eq!(
+                    fs::metadata(world.target.join(name))
+                        .unwrap()
+                        .permissions()
+                        .mode()
+                        & 0o7777,
+                    mode & 0o600
+                );
+            }
+        }
     }
 }
 
 /// Old journals have no mode to restore: the OS applies the current umask
-/// to 0644, rather than copying FAT's synthesized execute bits.
+/// to 0644 (also bounded by any live POSIX mode), rather than copying
+/// synthesized execute bits.
 #[cfg(unix)]
 #[test]
 fn an_unrecorded_mode_uses_default_permissions_and_umask() {
@@ -1365,7 +1389,11 @@ fn an_unrecorded_mode_uses_default_permissions_and_umask() {
                 .permissions()
                 .mode()
                 & 0o7777,
-            expected,
+            if volume::unix_mode(&world.target).unwrap().is_none() {
+                expected
+            } else {
+                expected & 0o600
+            },
             "{name}"
         );
     }
@@ -1414,6 +1442,80 @@ fn a_move_from_fat_uses_default_permissions() {
                 .mode()
                 & 0o7777,
             expected
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn an_old_journal_never_widens_a_private_posix_source() {
+    use std::os::unix::fs::PermissionsExt;
+    let world = World::new();
+    if volume::unix_mode(&world.target).unwrap().is_none() {
+        return;
+    }
+    let journal = world.journal();
+    let op = journal
+        .execute("move", "Move", world.steps(), &world.trash)
+        .unwrap();
+    let mut payload = serde_json::to_value(journal.payload(&op.id).unwrap()).unwrap();
+    for step in payload["steps"].as_array_mut().unwrap() {
+        step["to"]["copy"]
+            .as_object_mut()
+            .unwrap()
+            .remove("originalMode");
+    }
+    journal
+        .conn
+        .execute(
+            "UPDATE operations SET payload=? WHERE id=?",
+            params![serde_json::to_string(&payload).unwrap(), op.id],
+        )
+        .unwrap();
+    for (name, _) in FILES {
+        fs::set_permissions(world.target.join(name), fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    journal.undo(&op.id, &world.trash).unwrap();
+    for (name, _) in FILES {
+        assert_eq!(
+            fs::metadata(world.source.join(name))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o7777,
+            0o600
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn redo_never_widens_a_source_tightened_since_undo() {
+    use std::os::unix::fs::PermissionsExt;
+    let world = World::new();
+    if volume::unix_mode(&world.target).unwrap().is_none() {
+        return;
+    }
+    for (name, _) in FILES {
+        fs::set_permissions(world.source.join(name), fs::Permissions::from_mode(0o644)).unwrap();
+    }
+    let journal = world.journal();
+    let op = journal
+        .execute("move", "Move", world.steps(), &world.trash)
+        .unwrap();
+    journal.undo(&op.id, &world.trash).unwrap();
+    for (name, _) in FILES {
+        fs::set_permissions(world.source.join(name), fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    journal.redo(&op.id, &world.trash).unwrap();
+    for (name, _) in FILES {
+        assert_eq!(
+            fs::metadata(world.target.join(name))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o7777,
+            0o600
         );
     }
 }
