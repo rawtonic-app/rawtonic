@@ -1782,6 +1782,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             let interactive = job.is_interactive;
             let responder = job.responder;
             crate::multi_view_prefetch::note_preview(job.is_interactive);
+            crate::proxy_worker::note_preview(job.is_interactive);
             #[cfg(feature = "performance-profiling")]
             let (job_start_epoch, job_interactive, job_sequence) = (
                 crate::performance::epoch_ms(),
