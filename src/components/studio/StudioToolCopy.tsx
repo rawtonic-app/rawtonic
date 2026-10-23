@@ -6,7 +6,7 @@ import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
 import { usePopoverFocus } from "./usePopoverFocus";
-import { withLumaNoiseVersion, withSharpenVersion, type Adjustments } from "../../utils/adjustments";
+import { withGrainVersion, withLumaNoiseVersion, withSharpenVersion, type Adjustments } from "../../utils/adjustments";
 
 /** A tool's parameters: recipe key and (translated) label. */
 export type ToolParams = [keyof Adjustments & string, string][];
@@ -39,6 +39,11 @@ const COPIED_ALONG: Partial<Record<string, string[]>> = {
   sharpnessFalloff: ["sharpenVersion"],
   // AI Denoise means what the recipe's AI Denoise version makes of it.
   aiDenoise: ["aiDenoiseVersion"],
+  // The grain is the pattern of the recipe's grain version.
+  grainAmount: ["grainVersion"],
+  grainSize: ["grainVersion"],
+  grainRoughness: ["grainVersion"],
+  grainStructure: ["grainVersion"],
 };
 
 function pick(values: Adjustments, keys: string[]): Partial<Adjustments> {
@@ -47,7 +52,7 @@ function pick(values: Adjustments, keys: string[]): Partial<Adjustments> {
     [...all].map((key) => [key, structuredClone(values[key as keyof Adjustments])]),
   ) as Partial<Adjustments>;
   // A missing response key would vanish on the way: say it explicitly.
-  return withLumaNoiseVersion(withSharpenVersion(picked, values), values);
+  return withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, values), values), values);
 }
 
 /** Capture One's copy/apply for one tool: a press opens a list of the tool's

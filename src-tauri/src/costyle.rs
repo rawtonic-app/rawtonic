@@ -516,6 +516,10 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
                 _ => "even",
             };
             adjustments.insert("grainStructure".into(), json!(structure));
+            adjustments.insert(
+                rawtonic_engine::image_processing::GRAIN_VERSION_KEY.into(),
+                json!(rawtonic_engine::image_processing::GRAIN_VERSION),
+            );
         }
     }
     if let Some(v) = num("UsmAmount") {
@@ -1021,6 +1025,10 @@ mod tests {
         assert_eq!(a["vignetteAmount"], json!(-25.0));
         assert_eq!(a["moireAmount"], json!(20.0));
         assert_eq!(a["grainStructure"], json!("even"));
+        assert_eq!(
+            a["grainVersion"],
+            json!(rawtonic_engine::image_processing::GRAIN_VERSION)
+        );
     }
 
     #[test]

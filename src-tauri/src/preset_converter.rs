@@ -443,13 +443,18 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
 
     // Lightroom's grain gathers into clumps as Roughness rises; Clumped is
     // the structure that does the same (notes: reference/grain.md), and the
-    // one new edits start with (user decision 2026-10-12).
+    // one new edits start with (user decision 2026-10-12), with the newest
+    // grain as new edits.
     if adjustments
         .get("grainAmount")
         .and_then(Value::as_f64)
         .is_some_and(|amount| amount > 0.0)
     {
         adjustments.insert("grainStructure".to_string(), json!("clumped"));
+        adjustments.insert(
+            rawtonic_engine::image_processing::GRAIN_VERSION_KEY.to_string(),
+            json!(rawtonic_engine::image_processing::GRAIN_VERSION),
+        );
     }
 
     // Shadows is calibrated to Lightroom's response (notes: reference), so the
@@ -1887,10 +1892,15 @@ mod tests {
         assert_eq!(adjustments["grainAmount"], 35);
         assert_eq!(adjustments["grainRoughness"], 60);
         assert_eq!(adjustments["grainStructure"], "clumped");
+        assert_eq!(
+            adjustments["grainVersion"],
+            rawtonic_engine::image_processing::GRAIN_VERSION
+        );
         let none =
             r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:GrainAmount="0"/></rdf:RDF></x:xmpmeta>"#;
         let adjustments = convert_xmp_to_preset(none).unwrap().adjustments;
         assert!(adjustments.get("grainStructure").is_none());
+        assert!(adjustments.get("grainVersion").is_none());
     }
 
     #[test]

@@ -11816,3 +11816,177 @@ fn general_display_frame_has_the_noise_passes_of_the_variants() {
     // The same tolerance as between display variants and the general shader.
     assert!(max_delta <= 1, "general first frame delta {max_delta}");
 }
+
+/// The portable grain (`grainVersion` 2) evaluated on the CPU from its
+/// definition: the integer lattice and PCG hash of `portable_noise`, the
+/// layers of `portable_grain_noise`, interpolation in f32.
+mod portable_grain_reference {
+    const ONE: u32 = 4096;
+
+    fn pcg3d(v: [u32; 3]) -> [u32; 3] {
+        let mut v = v.map(|c| c.wrapping_mul(1664525).wrapping_add(1013904223));
+        for round in 0..2 {
+            v[0] = v[0].wrapping_add(v[1].wrapping_mul(v[2]));
+            v[1] = v[1].wrapping_add(v[2].wrapping_mul(v[0]));
+            v[2] = v[2].wrapping_add(v[0].wrapping_mul(v[1]));
+            if round == 0 {
+                v = v.map(|c| c ^ (c >> 16));
+            }
+        }
+        v
+    }
+
+    fn gradient(x: u32, y: u32, seed: u32) -> [f32; 2] {
+        let h = pcg3d([x, y, seed]);
+        [0, 1].map(|i| (h[i] >> 8) as f32 / 8388608.0 - 1.0)
+    }
+
+    /// Lattice cells per pixel, 12 fractional bits, for a grain size and
+    /// image dimensions.
+    pub fn cells_per_px(size: f32, width: u32, height: u32) -> u32 {
+        let size_q = (size.clamp(0.1, 4.0) * ONE as f32).round() as u64;
+        let den = size_q * u64::from(width.min(height).max(108));
+        ((1080u64 << 24) + den / 2).div_euclid(den) as u32
+    }
+
+    fn noise(x: u32, y: u32, cells: u32, k: u32, offset: [u32; 2], seed: u32) -> f32 {
+        let step = (u64::from(cells) * u64::from(k) + u64::from(ONE / 2)) >> 12;
+        let axis = |c: u32, o: u32| {
+            let pos = u64::from(c) * step + u64::from(o);
+            (
+                (pos >> 12) as u32,
+                (pos & u64::from(ONE - 1)) as f32 / ONE as f32,
+            )
+        };
+        let ((ix, fx), (iy, fy)) = (axis(x, offset[0]), axis(y, offset[1]));
+        let fade = |f: f32| f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+        let corner = |dx: u32, dy: u32| {
+            let g = gradient(ix.wrapping_add(dx), iy.wrapping_add(dy), seed);
+            g[0] * (fx - dx as f32) + g[1] * (fy - dy as f32)
+        };
+        let mix = |a: f32, b: f32, t: f32| a + (b - a) * t;
+        let bottom = mix(corner(0, 0), corner(1, 0), fade(fx));
+        let top = mix(corner(0, 1), corner(1, 1), fade(fx));
+        mix(bottom, top, fade(fy))
+    }
+
+    /// `portable_grain_noise` for a structure index.
+    pub fn grain(structure: u32, x: u32, y: u32, cells: u32, roughness: f32) -> f32 {
+        let n = |k: u32, ox: u32, oy: u32, seed: u32| noise(x, y, cells, k, [ox, oy], seed);
+        match structure {
+            1 => {
+                let (a, c) = (n(3277, 12698, 31539, 2), n(1229, 69632, 36864, 3));
+                let w = 0.35 + 0.65 * roughness;
+                0.71 * (a + w * c) / (1.0 + w * w).sqrt()
+            }
+            2 => {
+                let fine = n(ONE, 0, 0, 4);
+                let c = 0.6 * n(1638, 167936, 12288, 5) + 0.4 * n(532, 53248, 118784, 6);
+                let k = 1.6 * roughness;
+                0.71 * (fine * (1.0 + 0.8 * k * c) + 0.9 * k * c) / (1.0 + 0.43 * k * k).sqrt()
+            }
+            3 => {
+                let base = n(3686, 6963, 18022, 7);
+                let s = n(2867, 94208, 126976, 8);
+                let c = n(ONE / 4, 28672, 8192, 9);
+                let speck = (s - 0.12).max(0.0) * (1.6 + 6.0 * roughness * (c + 0.1).max(0.0));
+                0.575 * (base + speck - (0.0418 + 0.0206 * roughness))
+            }
+            4 => {
+                let v = n(2253, 9421, 33178, 10)
+                    + 0.45 * n(ONE, 27034, 7782, 11)
+                    + (0.5 + 0.8 * roughness) * n(819, 77824, 20480, 12);
+                0.524 * (1.5 * v).tanh()
+            }
+            _ => {
+                let base = n(ONE, 0, 0, 0);
+                base + (n(2458, 21299, 5325, 1) - base) * roughness
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; compares the portable grain with its CPU evaluation"]
+fn portable_grain_is_the_same_on_every_gpu() {
+    // A flat mid-grey: the grain is the only change, with one strength
+    // everywhere, so render − render without grain = gain × noise.
+    let (width, height) = (320u32, 192u32);
+    let grey = f16::from_f32(0.18);
+    let data: Vec<f16> = (0..width * height)
+        .flat_map(|_| [grey, grey, grey, f16::ONE])
+        .collect();
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input_from(&context, width, height, &data);
+    let render = |profile: serde_json::Value| {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels,
+            _ => unreachable!(),
+        }
+    };
+    let flat = render(json!({}));
+    for (structure, name) in ["even", "soft", "clumped", "speckled", "gritty"]
+        .into_iter()
+        .enumerate()
+    {
+        for (size, roughness) in [(25.0f32, 50.0f32), (80.0, 0.0), (10.0, 100.0)] {
+            let recipe = json!({"grainAmount": 30, "grainSize": size, "grainRoughness": roughness,
+                "grainStructure": name, "grainVersion": 2});
+            let pixels = render(recipe);
+            let cells = portable_grain_reference::cells_per_px(size / 50.0, width, height);
+            let expected: Vec<f64> = (0..width * height)
+                .map(|i| {
+                    portable_grain_reference::grain(
+                        structure as u32,
+                        i % width,
+                        i / width,
+                        cells,
+                        roughness / 100.0,
+                    ) as f64
+                })
+                .collect();
+            let change: Vec<f64> = (0..(width * height) as usize)
+                .map(|i| pixels[i * 4] as f64 - flat[i * 4] as f64)
+                .collect();
+            let gain = change
+                .iter()
+                .zip(&expected)
+                .map(|(c, e)| c * e)
+                .sum::<f64>()
+                / expected.iter().map(|e| e * e).sum::<f64>();
+            let worst = change
+                .iter()
+                .zip(&expected)
+                .map(|(c, e)| (c - gain * e).abs())
+                .fold(0.0, f64::max);
+            let spread = (change.iter().map(|c| c * c).sum::<f64>() / change.len() as f64).sqrt();
+            assert!(
+                spread > 300.0,
+                "{name} {size}/{roughness}: grain of {spread:.0} codes"
+            );
+            // Rounding of the 16-bit output and of the float interpolation;
+            // version 1's float hash gives an unrelated pattern.
+            assert!(
+                worst <= 2.0,
+                "{name} {size}/{roughness}: {worst:.1} codes from the CPU evaluation (grain {spread:.0})"
+            );
+        }
+    }
+}
