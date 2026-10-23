@@ -469,6 +469,10 @@ impl Journal {
                 #[cfg(test)]
                 crash::point("applied");
             }
+            // Stop is honoured until the originals start going to the Trash.
+            if observer.cancelled() {
+                bail!(io::Error::new(io::ErrorKind::Interrupted, "Stopped"));
+            }
             Ok(())
         })();
         let Err(error) = result else {
@@ -767,21 +771,25 @@ impl Journal {
             return Err(error.context("Nothing was undone"));
         }
         let total = payload.steps.len();
-        for undone in 0..total {
-            let step = &payload.steps[total - 1 - undone];
+        // One more round after the last step: Stop is honoured until the
+        // copies left behind start going to the Trash.
+        for undone in 0..=total {
+            let step = (undone < total).then(|| &payload.steps[total - 1 - undone]);
             let reversed = if observer.cancelled() {
                 Err(anyhow::Error::new(io::Error::new(
                     io::ErrorKind::Interrupted,
                     "Stopped",
                 )))
-            } else {
+            } else if let Some(step) = step {
                 reverse_for_undo(step, trash)
+            } else {
+                break;
             };
             if let Err(error) = reversed {
                 // Put back what was already undone: the operation stays
                 // done. A copy's publish back may fail after its rename;
                 // taking it back checks the file system, so it is included.
-                let from = if matches!(step.to, Target::OtherVolume { .. }) {
+                let from = if step.is_some_and(|s| matches!(s.to, Target::OtherVolume { .. })) {
                     total - 1 - undone
                 } else {
                     total - undone
@@ -896,6 +904,7 @@ impl Journal {
             if let Some(note) = &mut payload.note {
                 *note = format!("Redo failed: {note}");
             }
+            keep_present_copies(&mut payload);
             self.store_keeping_sync(id, State::Undone, &payload)?;
             return Err(error.context("Nothing was redone"));
         }
@@ -1140,6 +1149,7 @@ impl Journal {
                 State::Redoing => {
                     // Back to undone: the records follow it as far as they
                     // did before the redo began.
+                    keep_present_copies(&mut payload);
                     self.store_keeping_sync(&id, State::Undone, &payload)?;
                 }
                 _ => {
@@ -1615,6 +1625,18 @@ fn copy_ends(step: &Step, direction: Direction) -> Option<(PathBuf, PathBuf)> {
         Direction::Forward => (step.from.clone(), path.clone()),
         Direction::Back => (path.clone(), step.from.clone()),
     })
+}
+
+/// A redo rolled back: the copies it was to take over are copies its undo
+/// kept again, so the next redo takes them over too.
+fn keep_present_copies(payload: &mut Payload) {
+    for step in &mut payload.steps {
+        if let Target::OtherVolume { copy, .. } = &mut step.to
+            && copy.present
+        {
+            copy.kept = true;
+        }
+    }
 }
 
 /// Adds what the user should know to the payload's note.

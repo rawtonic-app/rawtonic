@@ -1114,3 +1114,67 @@ fn a_trash_that_loses_its_item_still_allows_undo() {
     journal.undo(&op.id, &world.trash).unwrap();
     world.assert_at(&world.source, &world.target);
 }
+
+/// A redo over copies its undo kept that is interrupted (here a crash at
+/// each point) can be redone again afterwards.
+#[test]
+fn an_interrupted_redo_over_kept_copies_can_be_redone() {
+    for n in 0.. {
+        let world = World::new();
+        let journal = world.journal();
+        let op = journal
+            .execute("move", "Move", world.steps(), &world.trash)
+            .unwrap();
+        world.trash.refuse.set(true);
+        journal.undo(&op.id, &world.trash).unwrap();
+        world.trash.refuse.set(false);
+        drop(journal);
+        crash::arm(n);
+        let run = catch_unwind(AssertUnwindSafe(|| {
+            world.journal().redo(&op.id, &world.trash)
+        }));
+        if crash::disarm() {
+            run.expect("no crash").unwrap();
+            break;
+        }
+        let journal = world.journal();
+        journal.recover(&world.trash).unwrap();
+        if journal.operation(&op.id).unwrap().state == State::Undone {
+            journal.redo(&op.id, &world.trash).unwrap();
+        }
+        assert_eq!(
+            journal.operation(&op.id).unwrap().state,
+            State::Done,
+            "crash point {n}"
+        );
+        world.assert_moved(&world.target, &world.source);
+    }
+}
+
+/// Stop pressed during the last publish of a one-file move stops it.
+#[test]
+fn stop_during_the_last_publish_rolls_back() {
+    struct StopOncePublished(PathBuf);
+    impl CopyObserver for StopOncePublished {
+        fn cancelled(&self) -> bool {
+            exists(&self.0)
+        }
+    }
+    let world = World::new();
+    let journal = world.journal();
+    let error = journal
+        .execute_with(
+            "move",
+            "Move",
+            vec![Step::other_volume(
+                world.source.join("A.xmp"),
+                world.target.join("A.xmp"),
+            )],
+            &world.trash,
+            &StopOncePublished(world.target.join("A.xmp")),
+        )
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("Stopped"), "{error:#}");
+    assert!(exists(&world.source.join("A.xmp")));
+    assert!(World::names(&world.target).is_empty());
+}
