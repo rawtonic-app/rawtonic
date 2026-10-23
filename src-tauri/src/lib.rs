@@ -938,9 +938,14 @@ pub fn run() {
                 // saved its pending edits (app_quit.rs).
                 tauri::RunEvent::ExitRequested { api, code, .. } => {
                     api.prevent_exit();
-                    let exit_code = code.unwrap_or(0);
                     window_state::flush();
                     startup::flush_logs();
+                    let exit_code = if app_quit::is_restart(code) {
+                        app_quit::start_new_instance(app_handle);
+                        0
+                    } else {
+                        code.unwrap_or(0)
+                    };
 
                     // libc exit handlers can tear down the GPU driver while
                     // its resources are still being dropped on worker threads.
