@@ -1615,6 +1615,7 @@ mod exif_and_sidecar_tests {
                 aperture: Some(2.8),
                 iso: Some(800),
                 exposure: Some(0.004),
+                camera_rating: None,
             }
         );
         assert_eq!(lib.facts_backlog().unwrap(), 0);

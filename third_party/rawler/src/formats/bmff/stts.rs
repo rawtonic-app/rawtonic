@@ -30,7 +30,7 @@ impl<R: Read + Seek> ReadBox<&mut R> for SttsBox {
     let (version, flags) = read_box_header_ext(reader)?;
 
     let entry_count = reader.read_u32::<BigEndian>()?;
-    let mut entries = Vec::with_capacity(entry_count as usize);
+    let mut entries = Vec::with_capacity(super::claimed_capacity(entry_count));
     for _i in 0..entry_count {
       let entry = SttsEntry {
         sample_count: reader.read_u32::<BigEndian>()?,

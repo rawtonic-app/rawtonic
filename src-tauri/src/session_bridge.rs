@@ -20,6 +20,13 @@ static ACTIVE_LIBRARY: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
 fn active() -> &'static Mutex<Option<PathBuf>> {
     ACTIVE_LIBRARY.get_or_init(|| Mutex::new(None))
 }
+/// The turn of a catalog metadata write outside the commands that already
+/// take it (the capture-facts pass taking a camera's rating).
+pub(crate) fn write_turn() -> std::sync::MutexGuard<'static, ()> {
+    WRITE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 fn io_error(e: impl std::fmt::Display) -> io::Error {
     io::Error::other(e.to_string())
 }

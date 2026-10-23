@@ -105,6 +105,28 @@ impl BoxHeader {
   }
 }
 
+/// Rawtonic patch: room reserved up front for `count` entries a box claims
+/// (sample tables, CTMD records). A damaged file's counts may claim
+/// billions; the vector grows as entries are actually read instead, and a
+/// short file ends the read with an error.
+pub(crate) fn claimed_capacity(count: u32) -> usize {
+  (count as usize).min(4096)
+}
+
+/// Rawtonic patch: the `len` payload bytes of a box, allocated only as they
+/// are read, so a damaged size cannot allocate more than the file holds.
+pub(crate) fn read_payload<R: Read>(reader: &mut R, len: u64) -> Result<Vec<u8>> {
+  let mut data = Vec::new();
+  reader.take(len).read_to_end(&mut data)?;
+  if (data.len() as u64) < len {
+    return Err(BmffError::Io(io::Error::new(
+      io::ErrorKind::UnexpectedEof,
+      "box payload past the end of the file",
+    )));
+  }
+  Ok(data)
+}
+
 pub trait BmffBox: Sized {
   fn size(&self) -> u64;
 
@@ -323,5 +345,45 @@ impl Bmff {
 
   pub fn compatible_brand(&self, _brand: &str) -> bool {
     true // FIXME
+  }
+}
+
+#[cfg(test)]
+mod claimed_size_tests {
+  use super::*;
+  use crate::formats::bmff::{ext_cr3::cmt1::Cmt1Box, stsz::StszBox};
+
+  /// Rawtonic patch: a box claiming billions of entries, or a payload far
+  /// past the end of the file, ends in an error instead of an allocation
+  /// of that size (which would abort the process).
+  #[test]
+  fn damaged_counts_and_sizes_do_not_allocate_what_they_claim() {
+    // stsz: version/flags, sample size 0, then u32::MAX sample sizes claimed.
+    let mut stsz = vec![0u8; 4];
+    stsz.extend(0u32.to_be_bytes());
+    stsz.extend(u32::MAX.to_be_bytes());
+    stsz.extend([0u8; 8]);
+    let header = BoxHeader {
+      size: 8 + stsz.len() as u64,
+      typ: StszBox::TYP,
+      uuid: None,
+      offset: 0,
+      header_len: 8,
+    };
+    let mut reader = Cursor::new([vec![0u8; 8], stsz].concat());
+    reader.set_position(8);
+    assert!(StszBox::read_box(&mut reader, header).is_err());
+
+    // CMT1 claiming a terabyte of TIFF data in a 16-byte file.
+    let header = BoxHeader {
+      size: 1 << 40,
+      typ: Cmt1Box::TYP,
+      uuid: None,
+      offset: 0,
+      header_len: 8,
+    };
+    let mut reader = Cursor::new(vec![0u8; 16]);
+    reader.set_position(8);
+    assert!(Cmt1Box::read_box(&mut reader, header).is_err());
   }
 }

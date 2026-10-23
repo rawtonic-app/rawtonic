@@ -359,3 +359,11 @@ Converter 18.7 (white/black levels from the DNG's raw IFD, AsShotNeutral):
   18.7 writes them for the sample; rawler's existing Pro70 unpacking. The
   4-colour 8 x 2 demosaic leaves horizontal line artefacts (also on Adobe's
   DNG of the file).
+- `src/formats/bmff/mod.rs` (`claimed_capacity`, `read_payload`), `stsz.rs`,
+  `stts.rs`, `stsc.rs`, `co64.rs`, `ext_cr3/ctmd.rs`, `ext_cr3/cmt1.rs`–`cmt4.rs`,
+  `ext_cr3/cnop.rs`: an ISO BMFF (CR3) box's entry counts and payload sizes
+  no longer allocate what they claim up front: vectors grow as entries are
+  read, payloads as bytes arrive, and a short file ends in an error. A
+  damaged CR3 claiming 2^32 samples or a terabyte CMT box aborted the
+  process with a failed allocation (the library's background facts pass
+  parses every CR3 it holds). Valid files parse as before.

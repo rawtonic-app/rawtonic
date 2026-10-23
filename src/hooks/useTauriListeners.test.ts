@@ -204,6 +204,27 @@ it("does not re-query the library when selecting a photo with unchanged metadata
   expect(useLibraryStore.getState().imageList[20000].tags).toEqual([]);
 });
 
+it("takes a camera's rating from the facts pass only for photographs unrated and unwritten here", async () => {
+  const { invokeInOrder } = await import("../utils/catalogWrites");
+  const images = ["/a.RW2", "/b.RW2", "/c.RW2"].map((path) => ({ path, rating: 0, is_edited: false, tags: [] })) as unknown as ImageFile[];
+  useLibraryStore.getState().setLibrary({ imageList: images, imageRatings: { "/b.RW2": 5 } });
+  renderHook(() =>
+    useTauriListeners({
+      refreshAllFolderTrees: vi.fn(),
+      handleSelectSubfolder: vi.fn(),
+      refreshImageList: vi.fn(),
+      markGenerated: vi.fn(),
+    }),
+  );
+  // C was rated and set back to none in this window (its write may follow
+  // the pass's read of it).
+  await invokeInOrder("set_rating_for_paths", { paths: ["/c.RW2"], rating: 0 }).catch(() => {});
+  for (const path of ["/a.RW2", "/b.RW2", "/c.RW2"])
+    act(() => callbacks.get("image-metadata-loaded")!({ payload: { path, rating: 3, camera: true } }));
+  const { imageRatings } = useLibraryStore.getState();
+  expect([imageRatings["/a.RW2"], imageRatings["/b.RW2"], imageRatings["/c.RW2"]]).toEqual([3, 5, undefined]);
+});
+
 it("loads the export queue at start and points to interrupted exports", async () => {
   vi.useRealTimers();
   const { toast } = await import("react-toastify");

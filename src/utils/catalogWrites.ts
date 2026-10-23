@@ -3,6 +3,17 @@ import { IMPORTS_CHANGED } from './folderSync';
 import { OFFLINE_CHANGED } from './offline';
 
 let last: Promise<unknown> = Promise.resolve();
+/** Photographs this window rated, with how many of those writes did not
+ * fail (yet). Labels and keywords keep the stored rating; a failed write
+ * changed nothing. */
+const rated = new Map<string, number>();
+
+/** Whether this window rated `path` (`invokeInOrder`): an announcement
+ * from the background (a camera's rating the facts pass took) may be
+ * older than that rating and must not replace it. */
+export function metadataWritten(path: string): boolean {
+  return (rated.get(path) ?? 0) > 0;
+}
 
 /**
  * Invokes a rating, colour label or keyword write after the ones given
@@ -12,7 +23,24 @@ let last: Promise<unknown> = Promise.resolve();
  * last. A failed write does not stop the ones after it.
  */
 export function invokeInOrder<T>(command: string, args: InvokeArgs): Promise<T> {
+  const paths = (args as { paths?: unknown }).paths;
+  const ratedPaths =
+    command === 'set_rating_for_paths' && Array.isArray(paths)
+      ? paths.filter((path): path is string => typeof path === 'string')
+      : [];
+  for (const path of ratedPaths) rated.set(path, (rated.get(path) ?? 0) + 1);
   const run = last.then(() => invoke<T>(command, args));
+  run.catch((error: unknown) => {
+    // A save that failed for some photographs names them; the others were
+    // rated.
+    const failed = (error as { failed?: unknown } | null)?.failed;
+    const undone = Array.isArray(failed) ? ratedPaths.filter((path) => failed.includes(path)) : ratedPaths;
+    for (const path of undone) {
+      const left = (rated.get(path) ?? 1) - 1;
+      if (left > 0) rated.set(path, left);
+      else rated.delete(path);
+    }
+  });
   last = run.catch(() => undefined);
   void run.finally(catalogChanged).catch(() => undefined);
   return run;

@@ -26,7 +26,7 @@ pub mod query;
 pub mod snapshots;
 pub mod volume;
 pub use add::{AddReport, Contents, ImportBatchInfo, ImportKind, PlannedAsset};
-pub use facts::CaptureFacts;
+pub use facts::{CaptureFacts, Rated};
 pub use hot_folder::{HotFolderConfig, HotFolderFile};
 pub use query::{Combine, Field, Op, Rule};
 pub use snapshots::Snapshot;
@@ -35,7 +35,7 @@ pub use volume::Volume;
 /// Version of the session/catalog manifest (`session.json`).
 pub const SCHEMA_VERSION: u32 = 1;
 /// Version of the SQLite schema; older databases are migrated when opened.
-pub const DB_SCHEMA_VERSION: u32 = 12;
+pub const DB_SCHEMA_VERSION: u32 = 13;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -251,6 +251,7 @@ impl Library {
         conn.execute_batch(include_str!("../migrations/0010.sql"))?;
         conn.execute_batch(include_str!("../migrations/0011.sql"))?;
         conn.execute_batch(include_str!("../migrations/0012.sql"))?;
+        conn.execute_batch(include_str!("../migrations/0013.sql"))?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],
@@ -365,6 +366,9 @@ impl Library {
         }
         if version < 12 {
             tx.execute_batch(include_str!("../migrations/0012.sql"))?;
+        }
+        if version < 13 {
+            tx.execute_batch(include_str!("../migrations/0013.sql"))?;
         }
         tx.commit()?;
         Ok(())
@@ -508,7 +512,7 @@ impl Library {
     pub fn index_entries(&self) -> Result<HashMap<PathBuf, AssetIndexEntry>> {
         let mut query = self.conn.prepare(
             "SELECT a.id,a.rel_path,r.path,r.external,
-                    CASE WHEN m.data != '{}' THEN 0
+                    CASE WHEN m.data != '{}' AND m.from_camera=0 THEN 0
                          ELSE p.payload IS NULL OR json_type(p.payload,'$.editor_state') IS NULL END
              FROM assets a JOIN roots r ON r.id=a.root_id
              JOIN metadata m ON m.asset_id=a.id
@@ -565,7 +569,7 @@ impl Library {
             let mut metadata = self.metadata(id)?;
             metadata.flag = flag;
             tx.execute(
-                "UPDATE metadata SET flag=?,data=?,xmp_status='pending' WHERE asset_id=?",
+                "UPDATE metadata SET flag=?,data=?,xmp_status='pending',from_camera=0 WHERE asset_id=?",
                 params![flag, serde_json::to_string(&metadata)?, id],
             )?;
         }
@@ -2074,7 +2078,7 @@ pub(crate) fn prune_blobs(tx: &Connection) -> Result<()> {
 fn write_metadata(tx: &Connection, id: &str, metadata: &Metadata) -> Result<()> {
     ensure!(
         tx.execute(
-            "UPDATE metadata SET rating=?,label=?,flag=?,data=?,xmp_status='pending' WHERE asset_id=?",
+            "UPDATE metadata SET rating=?,label=?,flag=?,data=?,xmp_status='pending',from_camera=0 WHERE asset_id=?",
             params![
                 metadata.rating,
                 metadata.label,

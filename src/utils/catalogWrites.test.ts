@@ -42,3 +42,23 @@ it('tells searches and smart albums after each write settled, also a failed one'
   await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(2));
   window.removeEventListener(CATALOG_CHANGED, changed);
 });
+
+it('remembers the photographs this window rated, not failed ratings nor labels', async () => {
+  const { metadataWritten } = await import('./catalogWrites');
+  vi.mocked(invoke).mockImplementation(async (command: string, args?: unknown) => {
+    if ((args as { rating?: number }).rating === 9) throw new Error('refused');
+    return undefined;
+  });
+  await invokeInOrder('set_rating_for_paths', { paths: ['/r'], rating: 2 });
+  await invokeInOrder('set_color_label_for_paths', { paths: ['/l'], color: 'red' });
+  await invokeInOrder('set_rating_for_paths', { paths: ['/f'], rating: 9 }).catch(() => {});
+  await vi.waitFor(() => expect(metadataWritten('/f')).toBe(false));
+  expect([metadataWritten('/r'), metadataWritten('/l')]).toEqual([true, false]);
+  // Saved for one, failed for the other: the saved one stays protected.
+  vi.mocked(invoke).mockImplementation(async () => {
+    throw { message: 'one failed', failed: ['/y'] };
+  });
+  await invokeInOrder('set_rating_for_paths', { paths: ['/x', '/y'], rating: 0 }).catch(() => {});
+  await vi.waitFor(() => expect(metadataWritten('/y')).toBe(false));
+  expect(metadataWritten('/x')).toBe(true);
+});
