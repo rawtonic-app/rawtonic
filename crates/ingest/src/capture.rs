@@ -1434,6 +1434,91 @@ pub(crate) mod tests {
         assert!(file.1 < limit + (64 << 10), "{} bytes read", file.1);
     }
 
+    /// A file served from a few parts laid into zeros, as long as it says:
+    /// a file of gigabytes without holding them.
+    struct Virtual {
+        len: u64,
+        parts: Vec<(u64, Vec<u8>)>,
+        at: u64,
+    }
+    impl Read for Virtual {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            let n = (out.len() as u64).min(self.len.saturating_sub(self.at)) as usize;
+            out[..n].fill(0);
+            for (start, bytes) in &self.parts {
+                let (from, to) = (
+                    self.at.max(*start),
+                    (self.at + n as u64).min(start + bytes.len() as u64),
+                );
+                if from < to {
+                    out[(from - self.at) as usize..(to - self.at) as usize]
+                        .copy_from_slice(&bytes[(from - start) as usize..(to - start) as usize]);
+                }
+            }
+            self.at += n as u64;
+            Ok(n)
+        }
+    }
+    impl Seek for Virtual {
+        fn seek(&mut self, to: SeekFrom) -> std::io::Result<u64> {
+            self.at = match to {
+                SeekFrom::Start(n) => n,
+                SeekFrom::End(n) => self.len.saturating_add_signed(n),
+                SeekFrom::Current(n) => self.at.saturating_add_signed(n),
+            };
+            Ok(self.at)
+        }
+    }
+
+    /// A DNG whose IFDs lie past 1 GiB (a large panorama merge) gets its
+    /// facts: what is walked is laid after its header, not at its offsets.
+    #[test]
+    fn follows_ifds_past_a_gigabyte() {
+        let le = |n: u32| n.to_le_bytes();
+        let entry = |tag: u16, kind: u16, count: u32, value: u32| {
+            [
+                &tag.to_le_bytes()[..],
+                &kind.to_le_bytes(),
+                &le(count),
+                &le(value),
+            ]
+            .concat()
+        };
+        let (root, exif, model, date) = (0x5000_0000u32, 0x5000_1000, 0x5000_2000, 0x5000_3000);
+        let mut table = 2u16.to_le_bytes().to_vec();
+        table.extend(entry(0x0110, 2, 9, model));
+        table.extend(entry(0x8769, 4, 1, exif));
+        table.extend(le(0));
+        let mut exif_table = 1u16.to_le_bytes().to_vec();
+        exif_table.extend(entry(0x9003, 2, 20, date));
+        exif_table.extend(le(0));
+        let mut header = b"II*\0".to_vec();
+        header.extend(le(root));
+        let len = u64::from(date) + 4096;
+        let file = Virtual {
+            len,
+            parts: vec![
+                (0, header),
+                (u64::from(root), table),
+                (u64::from(exif), exif_table),
+                (u64::from(model), b"RAW Huge\0".to_vec()),
+                (u64::from(date), b"2024:07:14 06:15:30\0".to_vec()),
+            ],
+            at: 0,
+        };
+        let mut file = Counted(file, 0);
+        let (capture, error) = read_header(&mut file, len, FACTS_LIMIT);
+        assert!(error.is_none());
+        assert_eq!(
+            (
+                capture.model.as_deref(),
+                capture.captured.map(|d| d.to_string()).as_deref()
+            ),
+            (Some("RAW Huge"), Some("2024-07-14 06:15:30"))
+        );
+        assert!(file.1 < FACTS_LIMIT + (64 << 10), "{} bytes read", file.1);
+    }
+
     /// A uuid box too small for its own uuid is a damaged box, not a
     /// packet (and no overflow).
     #[test]

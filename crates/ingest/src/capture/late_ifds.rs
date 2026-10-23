@@ -13,8 +13,12 @@
 //! the empty space where such a value lies for it; the IFDs and the pointer
 //! arrays written anew lie over every other piece and overlap none, so no
 //! value read brings back what was cut.
+//!
+//! What lies past the header is laid right after it, every pointer kept
+//! rewritten to its new place: the pieces stay as small as what was read,
+//! whatever the file's offsets (an IFD past 1 GiB of a large panorama).
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     io::{Read, Seek, SeekFrom},
 };
 
@@ -52,6 +56,14 @@ struct Table {
     next: u32,
 }
 
+/// A pointer entry kept (`Walk::pointers`).
+struct Pointer {
+    table: usize,
+    entry: usize,
+    at: u64,
+    to: Vec<u32>,
+}
+
 /// A value read for an entry: where it lies, its bytes, and its entry.
 struct Value {
     at: u64,
@@ -70,8 +82,9 @@ struct Walk<'f, F> {
     /// The root chain's tables, in order.
     chain: Vec<usize>,
     values: Vec<Value>,
-    /// Pointer arrays written anew (fewer pointers than the file's).
-    arrays: Vec<(u64, Vec<u8>)>,
+    /// The pointer entries kept: table, entry, where their array lies
+    /// (more than one), the IFDs they point to.
+    pointers: Vec<Pointer>,
     /// What is written anew (tables, pointer arrays): no two overlap, and
     /// no value laid under them overlaps one.
     claimed: Vec<(u64, u64)>,
@@ -101,7 +114,7 @@ pub(super) fn pieces(
         tables: Vec::new(),
         chain: Vec::new(),
         values: Vec::new(),
-        arrays: Vec::new(),
+        pointers: Vec::new(),
         claimed: Vec::new(),
     };
     let first = u64::from(walk.u32_of(first));
@@ -324,33 +337,30 @@ impl<F: Read + Seek> Walk<'_, F> {
                 kept.push(offset);
             }
         }
-        let count = self.u32_bytes(kept.len() as u32);
-        match kept[..] {
-            [] => self.tables[t].entries[i].1 = false,
-            // One pointer: inline.
-            [one] => {
-                let value = self.u32_bytes(one);
-                let entry = &mut self.tables[t].entries[i].0;
-                entry[4..8].copy_from_slice(&count);
-                entry[8..12].copy_from_slice(&value);
-            }
-            _ => {
-                self.tables[t].entries[i].0[4..8].copy_from_slice(&count);
-                let array = kept.iter().flat_map(|&o| self.u32_bytes(o)).collect();
-                self.arrays.push((at, array));
-            }
+        if kept.is_empty() {
+            self.tables[t].entries[i].1 = false;
+        } else {
+            let count = self.u32_bytes(kept.len() as u32);
+            self.tables[t].entries[i].0[4..8].copy_from_slice(&count);
+            self.pointers.push(Pointer {
+                table: t,
+                entry: i,
+                at,
+                to: kept,
+            });
         }
         Ok(())
     }
 
     /// The pieces: `header`, the values that overlap nothing claimed (an
-    /// entry whose value does is removed), the arrays, then the tables
-    /// written anew. The chain ends before an IFD left without entries (the
-    /// decoder refuses a chain holding one).
+    /// entry whose value does is removed), the pointer arrays, then the
+    /// tables written anew; what lies past `header` laid after it, in that
+    /// order (`Layout`). The chain ends before an IFD left without entries
+    /// (the decoder refuses a chain holding one).
     fn finish(mut self, header: &[u8]) -> Vec<(u64, Vec<u8>)> {
         let mut claimed = std::mem::take(&mut self.claimed);
         claimed.sort_unstable();
-        let mut pieces = vec![(0, header.to_vec())];
+        let mut values = Vec::new();
         for value in std::mem::take(&mut self.values) {
             let end = value.at + value.bytes.len() as u64;
             // The first claimed range ending after the value's start (they
@@ -359,7 +369,7 @@ impl<F: Read + Seek> Walk<'_, F> {
             if claimed.get(first).is_some_and(|&(s, _)| s < end) {
                 self.tables[value.table].entries[value.entry].1 = false;
             } else {
-                pieces.push((value.at, value.bytes));
+                values.push(value);
             }
         }
         let kept = |table: &Table| table.entries.iter().any(|(_, kept)| *kept);
@@ -370,7 +380,57 @@ impl<F: Read + Seek> Walk<'_, F> {
             let last = self.chain[empty - 1];
             self.tables[last].next = 0;
         }
-        pieces.append(&mut self.arrays);
+        let mut layout = Layout {
+            header: header.len() as u64,
+            end: header.len() as u64,
+            shared: HashMap::new(),
+        };
+        let mut pieces = Vec::new();
+        for value in values {
+            let at = layout.place(value.at, value.bytes.len() as u64);
+            let at_bytes = self.u32_bytes(at);
+            self.tables[value.table].entries[value.entry].0[8..12].copy_from_slice(&at_bytes);
+            pieces.push((u64::from(at), value.bytes));
+        }
+        // The tables' new places first: pointers are rewritten to them.
+        let sizes: Vec<u64> = self
+            .tables
+            .iter()
+            .map(|table| 2 + 12 * table.entries.iter().filter(|(_, k)| *k).count() as u64 + 4)
+            .collect();
+        let arrays: Vec<u32> = self
+            .pointers
+            .iter()
+            .map(|pointer| match pointer.to.len() {
+                1 => 0,
+                n => layout.place(pointer.at, 4 * n as u64),
+            })
+            .collect();
+        let places: HashMap<u64, u32> = self
+            .tables
+            .iter()
+            .zip(&sizes)
+            .map(|(table, &size)| (table.offset, layout.place(table.offset, size)))
+            .collect();
+        let moved = |offset: u32| places[&u64::from(offset)];
+        for (pointer, &array) in std::mem::take(&mut self.pointers).iter().zip(&arrays) {
+            let to: Vec<u32> = pointer.to.iter().map(|&o| moved(o)).collect();
+            let value = match to[..] {
+                // One pointer: inline.
+                [one] => one,
+                _ => {
+                    let bytes = to.iter().flat_map(|&o| self.u32_bytes(o)).collect();
+                    pieces.push((u64::from(array), bytes));
+                    array
+                }
+            };
+            let value = self.u32_bytes(value);
+            self.tables[pointer.table].entries[pointer.entry].0[8..12].copy_from_slice(&value);
+        }
+        let mut header = header.to_vec();
+        let root = self.tables[self.chain[0]].offset as u32;
+        header[4..8].copy_from_slice(&self.u32_bytes(moved(root)));
+        pieces.insert(0, (0, header));
         for table in &self.tables {
             let entries: Vec<&[u8; 12]> = table
                 .entries
@@ -380,10 +440,38 @@ impl<F: Read + Seek> Walk<'_, F> {
                 .collect();
             let mut bytes = self.u16_bytes(entries.len() as u16).to_vec();
             bytes.extend(entries.into_iter().flatten());
-            bytes.extend(self.u32_bytes(table.next));
-            pieces.push((table.offset, bytes));
+            let next = if table.next == 0 {
+                0
+            } else {
+                moved(table.next)
+            };
+            bytes.extend(self.u32_bytes(next));
+            pieces.push((u64::from(places[&table.offset]), bytes));
         }
         pieces
+    }
+}
+
+/// Where the pieces go: those within the header where they are, the
+/// others one after another past it (a range read for several entries
+/// once), at even offsets as TIFF lays them. All of it within what was
+/// read, far below 4 GiB.
+struct Layout {
+    header: u64,
+    end: u64,
+    shared: HashMap<(u64, u64), u32>,
+}
+
+impl Layout {
+    fn place(&mut self, at: u64, size: u64) -> u32 {
+        if at + size <= self.header {
+            return at as u32;
+        }
+        *self.shared.entry((at, size)).or_insert_with(|| {
+            let place = self.end.next_multiple_of(2);
+            self.end = place + size;
+            place as u32
+        })
     }
 }
 
@@ -430,11 +518,18 @@ mod tests {
         entry(0x0112, 3, 1, 1)
     }
 
-    /// The pieces of `bytes` (its first 8 bytes read as the header), laid
-    /// into the buffer the decoders read, with the bytes read for them.
+    /// The pieces of `bytes` laid into the buffer the decoders read, with
+    /// the bytes read for them; all of `bytes` read as the header, so what
+    /// was walked stays where it lies in `bytes`.
     fn sparse(bytes: &[u8]) -> (Vec<u8>, u64) {
+        sparse_within(bytes, bytes.len())
+    }
+
+    /// `sparse` with the first `header` bytes read as the header: what lies
+    /// past them is laid after them.
+    fn sparse_within(bytes: &[u8], header: usize) -> (Vec<u8>, u64) {
         let mut reader = super::super::tests::Counted(Cursor::new(bytes), 0);
-        let pieces = pieces(&mut reader, bytes.len() as u64, &bytes[..8]).unwrap();
+        let pieces = pieces(&mut reader, bytes.len() as u64, &bytes[..header]).unwrap();
         let read = reader.1;
         (super::super::sparse_file(&pieces).unwrap_or_default(), read)
     }
@@ -718,6 +813,39 @@ mod tests {
         assert_eq!(model.as_deref(), Some("RAW Six"));
     }
 
+    /// What lies past the header is laid right after it, every pointer
+    /// leading to the same IFDs and values.
+    #[test]
+    fn what_lies_past_the_header_is_laid_after_it() {
+        let (root, array, a, b, value) = (
+            64u32 << 10,
+            96u32 << 10,
+            128u32 << 10,
+            160u32 << 10,
+            192u32 << 10,
+        );
+        let bytes = file(
+            root,
+            &[
+                (
+                    root,
+                    ifd(&[entry(0x0110, 2, 8, value), entry(0x014a, 4, 2, array)], b),
+                ),
+                (array, [a, b].iter().flat_map(|p| p.to_le_bytes()).collect()),
+                (a, ifd(&[entry(0x0110, 2, 8, value)], 0)),
+                (b, ifd(&[orientation()], 0)),
+                (value, b"RAW Ten\0".to_vec()),
+            ],
+        );
+        let (laid, _) = sparse_within(&bytes, 8);
+        let reached = replay(&laid);
+        assert_eq!(reached.len(), 3);
+        assert!(laid.len() < 256, "{} bytes laid", laid.len());
+        let pieces = pieces(&mut Cursor::new(&bytes), bytes.len() as u64, &bytes[..8]).unwrap();
+        let model = super::super::sparse_capture(&pieces).unwrap().model;
+        assert_eq!(model.as_deref(), Some("RAW Ten"));
+    }
+
     /// Random damage to a real DNG's IFDs (as merges write them, at the
     /// end): whatever the bytes say, the walk ends within its budget, what
     /// it lays down leads the decoders to each IFD once, and both read it
@@ -779,11 +907,26 @@ mod tests {
                 };
                 bytes[at..at + 4].copy_from_slice(&word.to_le_bytes());
             }
-            let (laid, read) = sparse(&bytes);
+            let (laid, read) = sparse_within(&bytes, 8);
             assert!(read <= METADATA_LIMIT + (1 << 20), "{read} bytes read");
-            if !laid.is_empty() && replay(&laid).len() > 1 {
+            let reached = if laid.is_empty() {
+                0
+            } else {
+                replay(&laid).len()
+            };
+            if reached > 1 {
                 walked += 1;
             }
+            // Laid where it lies or after the header, the same IFDs.
+            let (laid, _) = sparse(&bytes);
+            assert_eq!(
+                if laid.is_empty() {
+                    0
+                } else {
+                    replay(&laid).len()
+                },
+                reached
+            );
             decoders_end(&bytes);
         }
         // Most damage leaves more than the root to walk.
