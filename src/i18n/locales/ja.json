@@ -922,7 +922,7 @@
       "title": "写真を取り込む",
       "truncated": "最初の {{n}} 枚のみ表示しています。残りは別途読み込んでください。",
       "useCapture": "代わりに {{folder}} を使用",
-      "viewLargeHint": "ダブルクリックまたはスペースキーで拡大表示"
+      "viewLargeHint": "ダブルクリックまたはEnterキーで拡大表示"
     },
     "menu": {
       "importFrom": "Lightroom または Capture One から読み込む…",

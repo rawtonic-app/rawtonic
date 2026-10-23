@@ -882,8 +882,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         // keys (arrows, Space; Escape leaves the large view, not the
         // dialog). Global shortcuts ignore keys while a dialog is open.
         if (target?.closest?.(".session-ingest-preview")) return;
-        e.stopImmediatePropagation();
         if (e.key === "Escape") {
+          e.stopImmediatePropagation();
           e.preventDefault();
           if (!busy) setForm(null);
         }

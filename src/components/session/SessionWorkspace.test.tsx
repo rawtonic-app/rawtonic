@@ -537,3 +537,18 @@ it("suspends a hot folder resumed for a library that was left meanwhile", async 
   await waitFor(() => expect(invoke).toHaveBeenCalledWith("hot_folder_suspend", { directory: "/jobs/Acme" }));
   expect(screen.queryByRole("button", { name: /Hot folder ·/ })).toBeNull();
 });
+
+
+it("lets form controls receive keys that the dialog does not handle", async () => {
+  const user = userEvent.setup();
+  render(<SessionWorkspace onNavigate={vi.fn()} />);
+  await user.click(screen.getByRole("button", { name: "Create a project" }));
+  const field = screen.getByLabelText("Project name");
+  const handler = vi.fn();
+  field.addEventListener("keydown", handler);
+  await user.keyboard("a{ArrowLeft}");
+  expect(handler.mock.calls.map(([event]) => event.key)).toEqual(["a", "ArrowLeft"]);
+  await user.keyboard("{Escape}");
+  expect(handler).toHaveBeenCalledTimes(2);
+  expect(document.querySelector("dialog[open]")).toBeNull();
+});

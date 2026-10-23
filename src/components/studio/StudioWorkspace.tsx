@@ -227,7 +227,15 @@ export default function StudioWorkspace(props: Props) {
   const onViewerContextMenu = (event: MouseEvent) => {
     if (toolPopoverApplies(tools)) {
       event.preventDefault();
-      setToolPopover({ x: event.clientX, y: event.clientY });
+      const focused = document.activeElement;
+      const trigger = focused instanceof HTMLElement && event.currentTarget.contains(focused)
+        ? focused : event.currentTarget;
+      const rect = trigger.getBoundingClientRect();
+      setToolPopover(
+        event.clientX === 0 && event.clientY === 0
+          ? { x: rect.left, y: rect.bottom }
+          : { x: event.clientX, y: event.clientY },
+      );
     } else onEditorContextMenu(event);
   };
   const {
@@ -737,7 +745,11 @@ export default function StudioWorkspace(props: Props) {
                   setWidth((v) =>
                     Math.max(
                       270,
-                      Math.min(390, v + (e.key === "ArrowRight" ? 10 : -10)),
+                      Math.min(
+                        390,
+                        v + (e.key === "ArrowRight" ? 10 : -10) *
+                          (develop && layout === "split-tools" ? -1 : 1),
+                      ),
                     ),
                   );
                 }

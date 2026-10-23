@@ -55,7 +55,7 @@ const shownName = () => document.querySelector(".session-ingest-loupe-title stro
 const loupe = () => screen.queryByRole("region", { name: "Large view" });
 
 describe("Import dialog large view", () => {
-  it("opens on double-click and on Space, shows the large preview and capture info, and closes back to the grid", async () => {
+  it("opens on double-click and on Enter, shows the large preview and capture info, and closes back to the grid", async () => {
     const user = userEvent.setup();
     render(<Harness list={files(5)} />);
     await user.dblClick(screen.getByRole("checkbox", { name: "DSC00002.ARW" }));
@@ -77,7 +77,7 @@ describe("Import dialog large view", () => {
     expect(loupe()).toBeNull();
     await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("DSC00002.ARW"));
 
-    await user.keyboard(" ");
+    await user.keyboard("{Enter}");
     expect(shownName()).toBe("DSC00002.ARW");
     await user.dblClick(document.querySelector(".session-ingest-loupe-image")!);
     expect(loupe()).toBeNull();
@@ -104,15 +104,15 @@ describe("Import dialog large view", () => {
     await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("DSC00001.ARW"));
   });
 
-  it("moves the focus through the grid with the arrow keys and opens the focused photograph with Space", async () => {
+  it("moves the focus through the grid with the arrow keys and opens the focused photograph with Enter", async () => {
     const user = userEvent.setup();
     render(<Harness list={files(8)} />);
     screen.getByRole("checkbox", { name: "DSC00000.ARW" }).focus();
     await user.keyboard("{ArrowRight}{ArrowRight}");
     expect(document.activeElement?.getAttribute("aria-label")).toBe("DSC00002.ARW");
-    await user.keyboard(" ");
+    await user.keyboard("{Enter}");
     expect(shownName()).toBe("DSC00002.ARW");
-    // Space opened the view; it did not uncheck the tile.
+    // Enter opened the view; it did not uncheck the tile.
     expect(screen.getByRole("checkbox", { name: "DSC00002.ARW" }).getAttribute("aria-checked")).toBe("true");
   });
 

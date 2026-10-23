@@ -65,7 +65,10 @@ function NewPresetForm({
       }}
       onKeyDown={(e) => {
         e.stopPropagation();
-        if (e.key === "Escape") onCancel();
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onCancel();
+        }
       }}
     >
       <input
@@ -138,6 +141,8 @@ export default function StudioPresets() {
     sortAllPresetsAlphabetically,
     isLoading,
   } = usePresets(currentAdjustments, Boolean(selectedImage?.isRaw), selectedImage?.width, selectedImage?.height);
+  const newPresetButton = useRef<HTMLButtonElement>(null);
+  const newFolderButton = useRef<HTMLButtonElement>(null);
   // Lightroom's and Capture One's preview: hovering a preset shows the open
   // photo with it in the viewer, without applying it.
   const hoverTimer = useRef<number | null>(null);
@@ -350,6 +355,7 @@ export default function StudioPresets() {
             type="button"
             title={t("studio.presets.newFolderTitle")}
             aria-label={t("studio.presets.newFolder")}
+            ref={newFolderButton}
             onClick={(e) => {
               e.preventDefault();
               const details = e.currentTarget.closest("details");
@@ -375,6 +381,7 @@ export default function StudioPresets() {
             type="button"
             title={t("studio.presets.newPresetTitle")}
             aria-label={t("studio.presets.newPreset")}
+            ref={newPresetButton}
             disabled={!panelsReady}
             onClick={(e) => {
               e.preventDefault();
@@ -391,7 +398,10 @@ export default function StudioPresets() {
       {creating && (
         <NewPresetForm
           folders={folders}
-          onCancel={() => setCreating(false)}
+          onCancel={() => {
+            setCreating(false);
+            newPresetButton.current?.focus();
+          }}
           onSave={({ name, folderId, style, crop, masks }) => {
             addPreset(name, folderId, masks, crop, style ? "style" : "tool");
             setCreating(false);
@@ -410,7 +420,11 @@ export default function StudioPresets() {
               const name = e.currentTarget.value.trim();
               if (name) addFolder(name);
               setFolderNaming(false);
-            } else if (e.key === "Escape") setFolderNaming(false);
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              setFolderNaming(false);
+              newFolderButton.current?.focus();
+            }
           }}
           onBlur={() => setFolderNaming(false)}
         />

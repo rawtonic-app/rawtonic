@@ -945,7 +945,7 @@
       "title": "Bring your photographs in",
       "truncated": "Only the first {{n}} photographs are listed; import the rest in another pass.",
       "useCapture": "Use {{folder}} instead",
-      "viewLargeHint": "Double-click or press Space to view large"
+      "viewLargeHint": "Double-click or press Enter to view large"
     },
     "menu": {
       "importFrom": "Import from Lightroom or Capture One…",

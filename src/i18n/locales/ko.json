@@ -922,7 +922,7 @@
       "title": "사진 가져오기",
       "truncated": "처음 {{n}}장만 표시됩니다. 나머지는 다시 가져오세요.",
       "useCapture": "대신 {{folder}} 사용",
-      "viewLargeHint": "두 번 클릭하거나 스페이스 키를 눌러 크게 보기"
+      "viewLargeHint": "두 번 클릭하거나 Enter 키를 눌러 크게 보기"
     },
     "menu": {
       "importFrom": "Lightroom 또는 Capture One에서 가져오기…",
