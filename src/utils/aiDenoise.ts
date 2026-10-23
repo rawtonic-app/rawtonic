@@ -4,7 +4,7 @@ import { colorNoiseMultiscale, deadPixelAdjacent, type Adjustments } from './adj
 /** A recipe's AI Denoise amount (0 … 100) as the backend reads it
  * (`ai_denoise_amount`): off with Detail or its Noise reduction tool
  * switched off. */
-function aiDenoiseAmount(
+export function aiDenoiseAmount(
   adjustments: Pick<Adjustments, 'aiDenoise'> & { sectionVisibility?: Record<string, boolean | undefined> },
 ): number {
   const visibility = adjustments.sectionVisibility ?? {};

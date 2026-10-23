@@ -1945,6 +1945,7 @@
       },
       "snapshots": {
         "compare": "将 {{name}} 与当前编辑比较（前后对比中的“之前”）",
+        "compareAiDenoise": "{{name}} 使用了 AI 降噪，此系统上的分屏视图暂不能显示：恢复后再比较",
         "compareDiffers": "{{name}} 的构图或显影不同（裁剪、几何、AI 降噪或降噪版本）：恢复后再比较",
         "compareEnd": "改回与未编辑的照片比较，而不是 {{name}}",
         "create": "当前编辑的新快照",

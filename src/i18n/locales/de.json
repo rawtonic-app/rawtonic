@@ -1982,6 +1982,7 @@
       },
       "snapshots": {
         "compare": "{{name}} mit der aktuellen Bearbeitung vergleichen (Vorher von Vorher/Nachher)",
+        "compareAiDenoise": "{{name}} nutzt KI-Entrauschen, das die geteilte Ansicht auf diesem System noch nicht zeigen kann: zum Vergleichen wiederherstellen",
         "compareDiffers": "{{name}} ist anders gerahmt oder entwickelt (Zuschnitt, Geometrie, KI-Entrauschen oder Version der Rauschreduzierung): zum Vergleichen wiederherstellen",
         "compareEnd": "Statt mit {{name}} wieder mit dem unbearbeiteten Foto vergleichen",
         "create": "Neuer Schnappschuss der aktuellen Bearbeitung",

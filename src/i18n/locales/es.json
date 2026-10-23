@@ -2040,6 +2040,7 @@
       },
       "snapshots": {
         "compare": "Comparar {{name}} con la edición actual (el antes de Antes/Después)",
+        "compareAiDenoise": "{{name}} usa la reducción de ruido con IA, que la vista dividida aún no puede mostrar en este sistema: restáuralo para comparar",
         "compareDiffers": "{{name}} tiene otro encuadre o revelado (recorte, geometría, reducción de ruido con IA o versión de la reducción de ruido): restáuralo para comparar",
         "compareEnd": "Volver a comparar con la foto sin editar en lugar de {{name}}",
         "create": "Nueva instantánea de la edición actual",

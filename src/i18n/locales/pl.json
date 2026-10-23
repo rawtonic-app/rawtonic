@@ -2098,6 +2098,7 @@
       },
       "snapshots": {
         "compare": "Porównaj {{name}} z bieżącą edycją (przed w Przed/Po)",
+        "compareAiDenoise": "{{name}} używa odszumiania AI, którego widok dzielony nie potrafi jeszcze pokazać w tym systemie: przywróć go, aby porównać",
         "compareDiffers": "{{name}} ma inny kadr lub wywołanie (kadrowanie, geometria, odszumianie AI lub wersja redukcji szumu): przywróć go, aby porównać",
         "compareEnd": "Porównuj znów z nieedytowanym zdjęciem zamiast {{name}}",
         "create": "Nowa migawka bieżącej edycji",

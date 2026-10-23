@@ -3,7 +3,8 @@ import { useSnapshotStore, type Snapshot } from '../store/useSnapshotStore';
 import { normalizeLoadedAdjustments, type Adjustments } from './adjustments';
 import { withOwnBitmapIds } from './bitmapIds';
 import { framingSignature, originalPreviewAdjustments } from './beforeAfter';
-import { developmentSignature } from './aiDenoise';
+import { aiDenoiseAmount, developmentSignature } from './aiDenoise';
+import { useSettingsStore } from '../store/useSettingsStore';
 
 const loaded = new WeakMap<Snapshot, { isRaw: boolean; adjustments: Adjustments; comparable: string }>();
 
@@ -41,12 +42,31 @@ export function comparableWithEdit(snapshot: Snapshot, signature: string, isRaw:
 }
 
 /**
+ * Why `snapshot` cannot be Before beside the edit now, or null when it can:
+ * `differs` (`comparableWithEdit`), or `aiDenoise` for a RAW snapshot with AI
+ * Denoise on Linux, whose browser split decodes without it
+ * (`multi_view.rs`). `signature`: the edit's `comparisonSignature`.
+ */
+export function compareBlocker(
+  snapshot: Snapshot,
+  signature: string,
+  isRaw: boolean,
+  osPlatform: string | null | undefined,
+): 'differs' | 'aiDenoise' | null {
+  if (!comparableWithEdit(snapshot, signature, isRaw)) return 'differs';
+  if (osPlatform === 'linux' && isRaw && aiDenoiseAmount(loadedSnapshot(snapshot, isRaw).adjustments) > 0) {
+    return 'aiDenoise';
+  }
+  return null;
+}
+
+/**
  * The snapshot the open photograph is compared with: Before/After's before
  * (the split, the held \ peek) shows it instead of the unedited photograph,
  * as Lightroom's snapshot settings copied to Before. Null when none is
  * chosen, the chosen one belongs to another photograph or is gone, or it
- * cannot be compared with the edit as it is now (`comparableWithEdit`; it
- * comes back when it can).
+ * cannot be compared with the edit as it is now (`compareBlocker`; it comes
+ * back when it can).
  */
 export function beforeSnapshot(): Snapshot | null {
   const { beforeSnapshot: chosen, selectedImage, adjustments } = useEditorStore.getState();
@@ -54,7 +74,8 @@ export function beforeSnapshot(): Snapshot | null {
   if (!chosen || !selectedImage || chosen.path !== selectedImage.path || snapshots.path !== chosen.path) return null;
   const snapshot = snapshots.snapshots.find((candidate) => candidate.id === chosen.id);
   const signature = comparisonSignature(adjustments, selectedImage.isRaw);
-  if (!snapshot || !comparableWithEdit(snapshot, signature, selectedImage.isRaw)) return null;
+  const { osPlatform } = useSettingsStore.getState();
+  if (!snapshot || compareBlocker(snapshot, signature, selectedImage.isRaw, osPlatform)) return null;
   return snapshot;
 }
 

@@ -140,3 +140,12 @@ it('sends the snapshot bitmaps with the first split request only', async () => {
   // The snapshot as compared keeps its bitmap for the next photograph load.
   expect(beforeSnapshotAdjustments()!.masks[0].subMasks[0].parameters.maskDataBase64).toBe('old');
 });
+
+it('is no before on Linux for a snapshot with AI Denoise, whose browser split decodes without it', () => {
+  const denoised: Snapshot = { ...snapshot, adjustments: { ...snapshot.adjustments, aiDenoise: 40 } };
+  useSnapshotStore.setState({ snapshots: [denoised] });
+  useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, aiDenoise: 40 } as never });
+  expect(beforeSnapshot()?.id).toBe('s');
+  useSettingsStore.setState({ osPlatform: 'linux' });
+  expect(beforeSnapshot()).toBeNull();
+});

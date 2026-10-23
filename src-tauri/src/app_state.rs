@@ -303,6 +303,10 @@ pub struct CachedPreview {
     /// Built while a control was dragged, without the edge-fringe pass's
     /// chromatic-aberration stage (`edge_fringe::DRAFT_KEY`).
     pub fringe_draft: bool,
+    /// The full preparation key of the recipe it was built for
+    /// (`preview_cache::preparation_key`, draft keys included): checked where
+    /// another recipe would take it (`serves_recipe`).
+    pub preparation_key: u64,
 }
 
 impl CachedPreview {
@@ -321,6 +325,20 @@ impl CachedPreview {
             && self.transform_hash == transform_hash
             && self.interim == interim
             && (interactive || !self.fringe_draft)
+    }
+
+    /// Whether this base serves a lasting frame of another recipe with
+    /// `(transform_hash, preparation_key)` (the split's before): the
+    /// transform hash alone takes some inputs by size only (depth maps,
+    /// patch payloads), so the whole preparation key must match too.
+    pub fn serves_recipe(
+        &self,
+        source: &Arc<DynamicImage>,
+        (transform_hash, preparation_key): (u64, u64),
+        interim: bool,
+    ) -> bool {
+        self.serves(source, transform_hash, interim, false)
+            && self.preparation_key == preparation_key
     }
 }
 
@@ -609,6 +627,7 @@ mod cached_preview_tests {
             interactive_divisor: 1.0,
             interim: true,
             fringe_draft: false,
+            preparation_key: 0,
         };
         assert!(cached.serves(&proxy, 7, true, false));
         assert!(!cached.serves(&proxy, 7, false, false));
@@ -630,6 +649,7 @@ mod cached_preview_tests {
             interactive_divisor: 1.0,
             interim: false,
             fringe_draft: true,
+            preparation_key: 0,
         };
         assert!(cached.serves(&source, 7, false, true));
         assert!(!cached.serves(&source, 7, false, false));
@@ -639,6 +659,43 @@ mod cached_preview_tests {
         };
         assert!(finished.serves(&source, 7, false, true));
         assert!(finished.serves(&source, 7, false, false));
+    }
+}
+
+#[cfg(test)]
+mod serves_recipe_tests {
+    use super::CachedPreview;
+    use image::DynamicImage;
+    use serde_json::json;
+    use std::sync::Arc;
+
+    /// A snapshot compared with whose lens blur depth map differs from the
+    /// edit's by its pixels only (the same length): the transform hash takes
+    /// it by size, so the edit's blurred base must not serve the before.
+    #[test]
+    fn an_edit_base_serves_another_recipe_only_with_its_whole_preparation() {
+        let depth = |pixels: &str| json!({"lensBlurEnabled": true, "lensBlurAmount": 40, "lensBlurDepthMap": format!("data:image/png;base64,{pixels}")});
+        let (edit, snapshot) = (depth("AAAA"), depth("BBBB"));
+        let transform = rawtonic_engine::cache_utils::calculate_transform_hash;
+        assert_eq!(transform(&edit), transform(&snapshot));
+        let key = crate::preview_cache::preparation_key;
+        assert_ne!(key(&edit), key(&snapshot));
+        let source = Arc::new(DynamicImage::new_rgb32f(4, 4));
+        let cached = CachedPreview {
+            source: Arc::downgrade(&source),
+            image: Arc::new(DynamicImage::new_rgb32f(2, 2)),
+            small_image: None,
+            transform_hash: transform(&edit),
+            scale: 0.5,
+            unscaled_crop_offset: (0.0, 0.0),
+            preview_dim: 2,
+            interactive_divisor: 1.0,
+            interim: false,
+            fringe_draft: false,
+            preparation_key: key(&edit),
+        };
+        assert!(cached.serves_recipe(&source, (transform(&edit), key(&edit)), false));
+        assert!(!cached.serves_recipe(&source, (transform(&snapshot), key(&snapshot)), false));
     }
 }
 

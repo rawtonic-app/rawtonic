@@ -1321,62 +1321,70 @@ pub(crate) fn process_preview_job(
             c.interactive_divisor == interactive_divisor && c.small_image.is_some()
         });
 
-    let (final_preview_base, scale_for_gpu, unscaled_crop_offset, base_dim, base_fringe_draft) =
-        if base_valid {
-            let cached = cached_preview_lock.as_ref().unwrap();
-            (
-                Arc::clone(&cached.image),
-                cached.scale,
-                cached.unscaled_crop_offset,
-                cached.preview_dim,
-                cached.fringe_draft,
-            )
-        } else {
-            *state
-                .gpu_image_cache
-                .lock()
-                .unwrap_or_else(|e| e.into_inner()) = None;
+    let (
+        final_preview_base,
+        scale_for_gpu,
+        unscaled_crop_offset,
+        base_dim,
+        base_fringe_draft,
+        base_preparation_key,
+    ) = if base_valid {
+        let cached = cached_preview_lock.as_ref().unwrap();
+        (
+            Arc::clone(&cached.image),
+            cached.scale,
+            cached.unscaled_crop_offset,
+            cached.preview_dim,
+            cached.fringe_draft,
+            cached.preparation_key,
+        )
+    } else {
+        *state
+            .gpu_image_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
 
-            let preparation_key = preview_cache::preparation_key(&adjustments_clone);
-            let preparation_key = if fringe_draft {
-                preview_cache::fringe_draft_key(preparation_key)
-            } else {
-                preparation_key
-            };
-            // The quick preview heals crowded blemishes once (draft), and
-            // leaves out the fringe pass's chromatic-aberration stage.
-            let draft_adjustments;
-            let base_adjustments = if draft_dim.is_some() || fringe_draft {
-                let mut draft = adjustments_clone.clone();
-                if draft_dim.is_some() {
-                    draft["faceRetouch"]["draft"] = serde_json::json!(true);
-                }
-                if fringe_draft {
-                    draft[rawtonic_engine::edge_fringe::DRAFT_KEY] = serde_json::json!(true);
-                }
-                draft_adjustments = draft;
-                &draft_adjustments
-            } else {
-                &adjustments_clone
-            };
-            let preview = preview_base(
-                &state,
-                &loaded_image,
-                source_scale,
-                full_dims,
-                &adjustments_clone,
-                base_adjustments,
-                build_dim,
-                preparation_key,
-            )?;
-            (
-                preview.image,
-                preview.scale,
-                preview.unscaled_crop_offset,
-                build_dim,
-                fringe_draft,
-            )
+        let preparation_key = preview_cache::preparation_key(&adjustments_clone);
+        let preparation_key = if fringe_draft {
+            preview_cache::fringe_draft_key(preparation_key)
+        } else {
+            preparation_key
         };
+        // The quick preview heals crowded blemishes once (draft), and
+        // leaves out the fringe pass's chromatic-aberration stage.
+        let draft_adjustments;
+        let base_adjustments = if draft_dim.is_some() || fringe_draft {
+            let mut draft = adjustments_clone.clone();
+            if draft_dim.is_some() {
+                draft["faceRetouch"]["draft"] = serde_json::json!(true);
+            }
+            if fringe_draft {
+                draft[rawtonic_engine::edge_fringe::DRAFT_KEY] = serde_json::json!(true);
+            }
+            draft_adjustments = draft;
+            &draft_adjustments
+        } else {
+            &adjustments_clone
+        };
+        let preview = preview_base(
+            &state,
+            &loaded_image,
+            source_scale,
+            full_dims,
+            &adjustments_clone,
+            base_adjustments,
+            build_dim,
+            preparation_key,
+        )?;
+        (
+            preview.image,
+            preview.scale,
+            preview.unscaled_crop_offset,
+            build_dim,
+            fringe_draft,
+            preparation_key,
+        )
+    };
 
     let small_preview_base = prepare_interactive_preview(
         &final_preview_base,
@@ -1400,6 +1408,7 @@ pub(crate) fn process_preview_job(
         interactive_divisor,
         interim,
         fringe_draft: base_fringe_draft,
+        preparation_key: base_preparation_key,
     });
 
     drop(cached_preview_lock);
@@ -2192,17 +2201,21 @@ fn develop_split_before(
     interim: bool,
     tm_override: Option<u32>,
 ) -> Result<image::RgbaImage, String> {
-    // The edit's preview base when the before shares it (no retouch, same
-    // framing); else its own, without touching the edit's caches.
+    // The edit's preview base when the before shares it (same framing and
+    // retouch); else its own, without touching the edit's caches.
     let transform_hash = calculate_transform_hash(adjustments);
+    let preparation_key = preview_cache::preparation_key(adjustments);
     let cached = state
         .cached_preview
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .filter(|c| {
-            c.serves(&loaded_image.image, transform_hash, interim, false)
-                && c.preview_dim == preview_dim
+            c.serves_recipe(
+                &loaded_image.image,
+                (transform_hash, preparation_key),
+                interim,
+            ) && c.preview_dim == preview_dim
         })
         .map(|c| (Arc::clone(&c.image), c.scale, c.unscaled_crop_offset));
     let (base, scale, unscaled_crop_offset) = match cached {
@@ -2216,7 +2229,7 @@ fn develop_split_before(
                 adjustments,
                 adjustments,
                 preview_dim,
-                preview_cache::preparation_key(adjustments),
+                preparation_key,
             )?;
             (preview.image, preview.scale, preview.unscaled_crop_offset)
         }

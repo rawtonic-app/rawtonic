@@ -9,7 +9,7 @@ import { useEditorActions } from "../../hooks/useEditorActions";
 import { splitViewAvailable } from "../../utils/beforeAfter";
 import {
   beforeSnapshot,
-  comparableWithEdit,
+  compareBlocker,
   compareWithSnapshot,
   comparisonSignature,
 } from "../../utils/beforeSnapshot";
@@ -38,6 +38,7 @@ export default function StudioSnapshots() {
   useEditorStore((s) => s.beforeSnapshot);
   const signature = useEditorStore((s) => comparisonSignature(s.adjustments, s.selectedImage?.isRaw ?? false));
   const compared = beforeSnapshot();
+  const osPlatform = useSettingsStore((s) => s.osPlatform);
   const splitAvailable = useSettingsStore((s) =>
     splitViewAvailable(s.appSettings?.useWgpuRenderer, s.osPlatform),
   );
@@ -102,7 +103,7 @@ export default function StudioSnapshots() {
               onEdit={(on) => setEditing(on ? snapshot.id : null)}
               compared={compared?.id === snapshot.id}
               canCompare={splitAvailable}
-              comparable={!image || comparableWithEdit(snapshot, signature, image.isRaw)}
+              blocker={image ? compareBlocker(snapshot, signature, image.isRaw, osPlatform) : null}
               onCompare={() => compare(snapshot)}
             />
           ))}
@@ -125,7 +126,7 @@ function SnapshotRow({
   onEdit,
   compared,
   canCompare,
-  comparable,
+  blocker,
   onCompare,
 }: {
   snapshot: Snapshot;
@@ -139,8 +140,8 @@ function SnapshotRow({
   compared: boolean;
   /** The split can show (`splitViewAvailable`). */
   canCompare: boolean;
-  /** It can be Before beside the edit (`comparableWithEdit`). */
-  comparable: boolean;
+  /** Why it cannot be Before beside the edit now (`compareBlocker`). */
+  blocker: "differs" | "aiDenoise" | null;
   onCompare(): void;
 }) {
   const { t, i18n } = useTranslation();
@@ -217,14 +218,16 @@ function SnapshotRow({
       <button
         type="button"
         className="studio-snapshot-compare"
-        disabled={disabled || !canCompare || !comparable}
+        disabled={disabled || !canCompare || blocker !== null}
         aria-pressed={compared}
         title={t(
-          !comparable
-            ? "studio.develop.snapshots.compareDiffers"
-            : compared
-              ? "studio.develop.snapshots.compareEnd"
-              : "studio.develop.snapshots.compare",
+          blocker === "aiDenoise"
+            ? "studio.develop.snapshots.compareAiDenoise"
+            : blocker === "differs"
+              ? "studio.develop.snapshots.compareDiffers"
+              : compared
+                ? "studio.develop.snapshots.compareEnd"
+                : "studio.develop.snapshots.compare",
           { name: snapshot.name },
         )}
         aria-label={t("studio.develop.snapshots.compare", { name: snapshot.name })}
