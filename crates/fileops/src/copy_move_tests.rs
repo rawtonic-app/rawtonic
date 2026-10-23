@@ -12,9 +12,11 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 /// The system Trash for tests: a `.trash` folder beside the file's folder
 /// (so on its volume). `refuse` plays a volume without a Trash; `on_trash`
 /// runs before each trashing.
+type TrashHook = Box<dyn FnMut(&Path)>;
+
 struct FakeTrash {
     refuse: Cell<bool>,
-    on_trash: RefCell<Option<Box<dyn FnMut(&Path)>>>,
+    on_trash: RefCell<Option<TrashHook>>,
     dirs: RefCell<Vec<PathBuf>>,
 }
 
