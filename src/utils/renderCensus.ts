@@ -16,10 +16,13 @@ interface Fiber {
   return: Fiber | null;
 }
 
-// react-reconciler's PerformedWork flag and the fiber tags of user components
-// (function, class, forwardRef, memo, simple memo).
+// react-reconciler's PerformedWork flag and the fiber tags of components
+// that run user code (function, class, forwardRef, simple memo). A memo with
+// a comparison (tag 14) renders through its inner component's own fiber,
+// which is counted instead; it still names an anonymous inner component.
 const PERFORMED_WORK = 1;
-const COMPONENT_TAGS = new Set([0, 1, 11, 14, 15]);
+const COMPONENT_TAGS = new Set([0, 1, 11, 15]);
+const MEMO_TAG = 14;
 
 let counting: Record<string, number> | null = null;
 
@@ -55,7 +58,8 @@ function nameOf(fiber: Fiber): string {
   const own = ownName(fiber);
   if (own) return own;
   for (let parent = fiber.return; parent; parent = parent.return) {
-    const name = COMPONENT_TAGS.has(parent.tag) ? ownName(parent) : undefined;
+    const name =
+      COMPONENT_TAGS.has(parent.tag) || parent.tag === MEMO_TAG ? ownName(parent) : undefined;
     if (name) return `(anonymous in ${name})`;
   }
   return "(anonymous)";
@@ -74,8 +78,10 @@ function visit(fiber: Fiber | null, counts: Record<string, number>) {
   }
 }
 
-if (import.meta.env.VITE_RAWTONIC_PERF === "1" && typeof window !== "undefined") {
-  const target = window as unknown as { __REACT_DEVTOOLS_GLOBAL_HOOK__?: object };
+/** Installs the counting hook on `host` (the window) unless another hook is
+ * there; it must run before react-dom loads. */
+export function installRenderCensus(host: object) {
+  const target = host as { __REACT_DEVTOOLS_GLOBAL_HOOK__?: object };
   target.__REACT_DEVTOOLS_GLOBAL_HOOK__ ??= {
     supportsFiber: true,
     renderers: new Map(),
@@ -91,3 +97,5 @@ if (import.meta.env.VITE_RAWTONIC_PERF === "1" && typeof window !== "undefined")
     },
   };
 }
+
+if (import.meta.env.VITE_RAWTONIC_PERF === "1" && typeof window !== "undefined") installRenderCensus(window);
