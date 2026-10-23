@@ -161,6 +161,9 @@ fn has_facts(capture: &Capture) -> bool {
         || capture.focal_length.is_some()
         || capture.aperture.is_some()
         || capture.rating.is_some()
+        || capture.creator.is_some()
+        || capture.copyright.is_some()
+        || capture.serial.is_some()
 }
 
 /// Where a file keeps its own XMP packet (`container_xmp`).
@@ -1376,6 +1379,45 @@ pub(crate) mod tests {
         let (capture, error) = read_header(std::io::Cursor::new(&bytes), len, 1024);
         assert!(error.is_none());
         assert_eq!(capture.rating, Some(4));
+    }
+
+    /// Descriptive metadata alone must survive the late-IFD read too.
+    #[test]
+    fn keeps_late_creator_copyright_and_serial_without_other_facts() {
+        for tag in [0x013bu16, 0x8298, 0xa431] {
+            let ifd = 64u32 << 10;
+            let value = b"Test value\0";
+            let mut bytes = b"II*\0".to_vec();
+            bytes.extend(ifd.to_le_bytes());
+            bytes.resize(ifd as usize, 0);
+            if tag == 0xa431 {
+                // BodySerialNumber belongs to the EXIF sub-IFD.
+                bytes.extend(1u16.to_le_bytes());
+                bytes.extend(0x8769u16.to_le_bytes());
+                bytes.extend(4u16.to_le_bytes());
+                bytes.extend(1u32.to_le_bytes());
+                bytes.extend((ifd + 18).to_le_bytes());
+                bytes.extend(0u32.to_le_bytes());
+            }
+            let table = bytes.len() as u32;
+            bytes.extend(1u16.to_le_bytes());
+            bytes.extend(tag.to_le_bytes());
+            bytes.extend(2u16.to_le_bytes());
+            bytes.extend((value.len() as u32).to_le_bytes());
+            bytes.extend((table + 18).to_le_bytes());
+            bytes.extend(0u32.to_le_bytes());
+            bytes.extend(value);
+            let len = bytes.len() as u64;
+            let (capture, error) = read_header(std::io::Cursor::new(&bytes), len, 1024);
+            assert!(error.is_none());
+            assert_eq!(capture.captured, None);
+            let found = match tag {
+                0x013b => capture.creator,
+                0x8298 => capture.copyright,
+                _ => capture.serial,
+            };
+            assert_eq!(found.as_deref(), Some("Test value"), "tag {tag:04x}");
+        }
     }
 
     /// A DNG (as merges write it: image data first, its IFDs at the end)
