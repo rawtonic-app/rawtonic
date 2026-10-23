@@ -42,11 +42,14 @@ export function rangeOf(rows: Row[], anchor: string, clicked: string): string[] 
   const from = rows.findIndex((row) => row.value === anchor);
   const to = rows.findIndex((row) => row.value === clicked);
   const kind = (value: string) => rows.find((row) => row.value === value)?.months !== undefined;
-  if (from < 0 || to < 0 || kind(anchor) !== kind(clicked)) return null;
+  if (from < 0 || to < 0) return null;
+  // "No value" is of either kind: the range takes the other end's.
+  const years = clicked === "" ? kind(anchor) : kind(clicked);
+  if (anchor !== "" && clicked !== "" && kind(anchor) !== years) return null;
   const [low, high] = from < to ? [from, to] : [to, from];
   return rows
     .slice(low, high + 1)
-    .filter((row) => row.value === anchor || row.value === clicked || (row.value !== "" && (row.months !== undefined) === kind(clicked)))
+    .filter((row) => row.value === anchor || row.value === clicked || (row.value !== "" && (row.months !== undefined) === years))
     .map((row) => row.value);
 }
 

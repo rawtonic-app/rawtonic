@@ -2,7 +2,7 @@ import "../../i18n";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
-import StudioMetadataFilter, { facetLabel } from "./StudioMetadataFilter";
+import StudioMetadataFilter, { facetLabel, rangeOf } from "./StudioMetadataFilter";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { LibraryViewMode, RawStatus } from "../ui/AppProperties";
@@ -168,4 +168,19 @@ it("lists capture dates by year, a year chosen in one click, its months on deman
   fireEvent.click(dates.getByText("2025"));
   fireEvent.click(dates.getByText("2023"), { shiftKey: true });
   expect(useLibraryStore.getState().filterCriteria.metadata).toEqual({ captureDate: ["2025", "2024", "2023"] });
+});
+
+it("takes \"no value\" as either end of a range of years or of months", () => {
+  const month = (value: string) => ({ value, count: 1 });
+  const rows = [
+    { value: "2025", count: 1, months: [month("2025-03")] },
+    month("2025-03"),
+    { value: "2024", count: 1, months: [month("2024-05")] },
+    { value: "2023", count: 1, months: [month("2023-01")] },
+    month(""),
+  ];
+  expect(rangeOf(rows, "2025", "")).toEqual(["2025", "2024", "2023", ""]);
+  expect(rangeOf(rows, "", "2024")).toEqual(["2024", "2023", ""]);
+  expect(rangeOf(rows, "2025-03", "")).toEqual(["2025-03", ""]);
+  expect(rangeOf(rows, "2025", "2025-03")).toBeNull();
 });
