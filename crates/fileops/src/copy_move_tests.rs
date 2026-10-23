@@ -745,9 +745,17 @@ fn folders_links_existing_targets_and_full_volumes_are_refused_before_copying() 
         )],
         "already exists",
     );
-    // A sparse file larger than any free space here.
+    // A sparse file larger than any free space here, as large as the file
+    // system allows (ext4 caps a file at 16 TiB, btrfs/APFS take 1 PiB).
     let huge = world.source.join("HUGE.RAF");
-    fs::File::create(&huge).unwrap().set_len(1 << 50).unwrap();
+    let file = fs::File::create(&huge).unwrap();
+    assert!(
+        [50, 46, 43, 40]
+            .into_iter()
+            .any(|shift| file.set_len(1 << shift).is_ok()),
+        "no sparse size was accepted"
+    );
+    drop(file);
     refused(
         vec![Step::other_volume(&huge, world.target.join("HUGE.RAF"))],
         "do not fit",
