@@ -418,10 +418,20 @@ fn prepare(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>,
     }
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("preview_proxy_prefetch");
-    let Some((image, variant, measures)) = decode(app_handle, &source, &settings, Some(cancel))
-    else {
+    let (raised, token) = cancel;
+    let Some((image, variant, measures)) = decode(
+        app_handle,
+        &source,
+        &settings,
+        Some((Arc::clone(&raised), token)),
+    ) else {
         return;
     };
+    // An edit during the decode's last steps: no downscale and write
+    // beside it either (done again later).
+    if raised.load(Ordering::SeqCst) != token {
+        return;
+    }
     match preview_proxy::write(&source, &image, size, &settings, variant, measures) {
         // The thumbnail is now developed from the proxy.
         Ok(proxy) => {
