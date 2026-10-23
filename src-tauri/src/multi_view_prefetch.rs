@@ -105,7 +105,7 @@ fn now_ms() -> u64 {
     epoch().elapsed().as_millis() as u64 + 1
 }
 
-fn since_activity() -> Duration {
+pub(crate) fn since_activity() -> Duration {
     let last = LAST_ACTIVITY.load(Ordering::Relaxed);
     if last == 0 {
         return Duration::MAX;

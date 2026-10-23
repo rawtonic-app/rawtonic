@@ -4,7 +4,14 @@
 //! - Prefetch: the photographs the user is likely to open next, such as the
 //!   filmstrip neighbours of the open one, at utility priority on a small
 //!   thread pool, so the interactive work keeps the other cores. The newest
-//!   request replaces the queue, and it goes before builds.
+//!   request replaces the queue, and it goes before builds. It yields to
+//!   edits of the open photograph as the multi view's prefetch does: an
+//!   interactive preview frame (a slider or brush drag) cancels the decode
+//!   under way, which is done again later, and none starts until the app
+//!   was quiet for `multi_view_prefetch::QUIET`. On a six-core laptop with
+//!   an integrated GPU the decodes slowed a drag's GPU work by ~70 % (the
+//!   shared memory and power budget, not CPU time: a lower thread priority
+//!   did not help).
 //! - Builds: Standard or 1:1 previews the user asked for (Lightroom's Build
 //!   Previews, Capture One's preview files for a whole session), at full
 //!   speed, with progress, a Stop and the reasons for what could not be
@@ -14,7 +21,7 @@
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 
 use serde::Serialize;
@@ -89,6 +96,8 @@ fn source_of(path: &str) -> String {
 #[derive(Default)]
 struct Queue {
     prefetch: VecDeque<String>,
+    /// Raised by each prefetch request (it replaces the queue).
+    prefetch_generation: usize,
     builds: VecDeque<BuildItem>,
     /// The build being worked on.
     building: Option<BuildItem>,
@@ -131,9 +140,24 @@ impl Queue {
         self.progress.running = self.building.is_some() || !self.builds.is_empty();
     }
 
-    /// The next job: prefetching first (the user waits for it), then builds.
-    fn next(&mut self) -> Option<Job> {
-        if let Some(path) = self.prefetch.pop_front() {
+    /// Replaces what waits to be prefetched.
+    fn set_prefetch(&mut self, paths: Vec<String>) {
+        self.prefetch = paths.into();
+        self.prefetch_generation += 1;
+    }
+
+    /// A prefetch cancelled by an edit is done again first, unless a newer
+    /// request replaced the queue since `generation`.
+    fn retry_prefetch(&mut self, path: String, generation: usize) {
+        if generation == self.prefetch_generation && !self.prefetch.contains(&path) {
+            self.prefetch.push_front(path);
+        }
+    }
+
+    /// The next job: prefetching first (the user waits for it) once the app
+    /// is `quiet`, then builds (they run while the user edits).
+    fn next(&mut self, quiet: bool) -> Option<Job> {
+        if quiet && let Some(path) = self.prefetch.pop_front() {
             return Some(Job::Prefetch(path));
         }
         let item = self.builds.pop_front()?;
@@ -187,6 +211,10 @@ struct Worker {
     cancel: Arc<AtomicUsize>,
     /// Long edge of the Develop view the frontend expects (Standard size).
     viewer_dim: AtomicU32,
+    /// Raised to cancel the prefetch decode under way (an edit).
+    prefetch_cancel: Arc<AtomicUsize>,
+    /// A prefetch decode is under way.
+    prefetching: AtomicBool,
 }
 
 static WORKER: OnceLock<Arc<Worker>> = OnceLock::new();
@@ -210,6 +238,8 @@ fn worker(app_handle: &tauri::AppHandle) -> Arc<Worker> {
                 wake: Condvar::new(),
                 cancel: Arc::new(AtomicUsize::new(0)),
                 viewer_dim: AtomicU32::new(0),
+                prefetch_cancel: Arc::new(AtomicUsize::new(0)),
+                prefetching: AtomicBool::new(false),
             });
             let shared = Arc::clone(&worker);
             let app_handle = app_handle.clone();
@@ -220,6 +250,18 @@ fn worker(app_handle: &tauri::AppHandle) -> Arc<Worker> {
             worker
         })
         .clone()
+}
+
+/// The preview worker develops a frame of the open photograph: an
+/// interactive one cancels the prefetch decode under way (the quiet time
+/// itself is `multi_view_prefetch`'s, which this frame restarts).
+pub(crate) fn note_preview(interactive: bool) {
+    if interactive
+        && let Some(worker) = WORKER.get()
+        && worker.prefetching.load(Ordering::Relaxed)
+    {
+        worker.prefetch_cancel.fetch_add(1, Ordering::SeqCst);
+    }
 }
 
 fn emit_progress(app_handle: &tauri::AppHandle, progress: &BuildProgress) {
@@ -246,14 +288,41 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
         let job = {
             let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
             loop {
-                if let Some(job) = queue.next() {
-                    break job;
+                let since = crate::multi_view_prefetch::since_activity();
+                let quiet = since >= crate::multi_view_prefetch::QUIET;
+                if let Some(job) = queue.next(quiet) {
+                    break (job, queue.prefetch_generation);
                 }
-                queue = worker.wake.wait(queue).unwrap_or_else(|e| e.into_inner());
+                queue = if queue.prefetch.is_empty() {
+                    worker.wake.wait(queue).unwrap_or_else(|e| e.into_inner())
+                } else {
+                    let wait = crate::multi_view_prefetch::QUIET
+                        .saturating_sub(since)
+                        .max(std::time::Duration::from_millis(100));
+                    worker
+                        .wake
+                        .wait_timeout(queue, wait)
+                        .unwrap_or_else(|e| e.into_inner())
+                        .0
+                };
             }
         };
+        let (job, prefetch_generation) = job;
         match job {
-            Job::Prefetch(path) => pool.install(|| prepare(app_handle, &path)),
+            Job::Prefetch(path) => {
+                worker.prefetching.store(true, Ordering::SeqCst);
+                let token = worker.prefetch_cancel.load(Ordering::SeqCst);
+                let cancel = (Arc::clone(&worker.prefetch_cancel), token);
+                pool.install(|| prepare(app_handle, &path, cancel));
+                worker.prefetching.store(false, Ordering::SeqCst);
+                if worker.prefetch_cancel.load(Ordering::SeqCst) != token {
+                    worker
+                        .queue
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .retry_prefetch(path, prefetch_generation);
+                }
+            }
             Job::Build(item) => {
                 let outcome = build_pool.install(|| build(app_handle, worker, &item));
                 let (progress, finished) = {
@@ -281,7 +350,7 @@ fn wanted_size(app_handle: &tauri::AppHandle, viewer_dim: u32) -> u32 {
     preview_proxy::standard_size(if dim > 0 { dim } else { viewer_dim }, &settings)
 }
 
-fn prepare(app_handle: &tauri::AppHandle, path: &str) {
+fn prepare(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, usize)) {
     let state = app_handle.state::<AppState>();
     // The open photograph's own decode writes its proxy.
     if *state
@@ -326,7 +395,8 @@ fn prepare(app_handle: &tauri::AppHandle, path: &str) {
     }
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("preview_proxy_prefetch");
-    let Some((image, variant, measures)) = decode(app_handle, &source, &settings, None) else {
+    let Some((image, variant, measures)) = decode(app_handle, &source, &settings, Some(cancel))
+    else {
         return;
     };
     match preview_proxy::write(&source, &image, size, &settings, variant, measures) {
@@ -374,6 +444,9 @@ fn decode(
     if let Some((image, _, measures)) = cached {
         return Some((image, variant, measures));
     }
+    let cancelled = cancel
+        .clone()
+        .map(|(raised, value)| move || raised.load(Ordering::SeqCst) != value);
     let bytes = crate::file_management::read_file_mapped(source).ok()?;
     match crate::image_loader::load_base_image_measured_for(
         &bytes,
@@ -386,6 +459,7 @@ fn decode(
         Some(variant),
     ) {
         Ok((image, measures)) => Some((Arc::new(image), variant, measures)),
+        Err(_) if cancelled.is_some_and(|cancelled| cancelled()) => None,
         Err(e) => {
             log::warn!(
                 "Preview proxy for {}: decode failed: {}",
@@ -463,7 +537,7 @@ pub fn prepare_preview_proxies(paths: Vec<String>, app_handle: tauri::AppHandle)
     }
     let worker = worker(&app_handle);
     let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
-    queue.prefetch = paths.into_iter().collect();
+    queue.set_prefetch(paths);
     worker.wake.notify_one();
 }
 
@@ -716,18 +790,21 @@ mod tests {
     fn prefetching_goes_before_builds_and_builds_keep_their_order() {
         let mut queue = Queue::default();
         queue.add_builds(paths(&["A.RAF", "B.RAF"]), false);
-        queue.prefetch = ["/s/Capture/N.RAF".to_string()].into();
-        assert_eq!(queue.next(), Some(Job::Prefetch("/s/Capture/N.RAF".into())));
-        let Some(Job::Build(first)) = queue.next() else {
+        queue.set_prefetch(vec!["/s/Capture/N.RAF".to_string()]);
+        assert_eq!(
+            queue.next(true),
+            Some(Job::Prefetch("/s/Capture/N.RAF".into()))
+        );
+        let Some(Job::Build(first)) = queue.next(true) else {
             panic!("a build")
         };
         assert_eq!(first.path, "/s/Capture/A.RAF");
         queue.finish(&first, Outcome::Built);
-        let Some(Job::Build(second)) = queue.next() else {
+        let Some(Job::Build(second)) = queue.next(true) else {
             panic!("a build")
         };
         queue.finish(&second, Outcome::Current);
-        assert_eq!(queue.next(), None);
+        assert_eq!(queue.next(true), None);
         assert_eq!(
             queue.progress,
             BuildProgress {
@@ -739,12 +816,47 @@ mod tests {
     }
 
     #[test]
+    fn prefetching_waits_while_the_user_edits_and_builds_go_on() {
+        let mut queue = Queue::default();
+        queue.set_prefetch(paths(&["N.RAF"]));
+        assert_eq!(queue.next(false), None);
+        queue.add_builds(paths(&["A.RAF"]), false);
+        let Some(Job::Build(build)) = queue.next(false) else {
+            panic!("a build")
+        };
+        queue.finish(&build, Outcome::Built);
+        assert_eq!(
+            queue.next(true),
+            Some(Job::Prefetch("/s/Capture/N.RAF".into()))
+        );
+    }
+
+    #[test]
+    fn a_cancelled_prefetch_is_done_again_unless_a_newer_request_replaced_it() {
+        let mut queue = Queue::default();
+        queue.set_prefetch(paths(&["N.RAF", "P.RAF"]));
+        let generation = queue.prefetch_generation;
+        let Some(Job::Prefetch(first)) = queue.next(true) else {
+            panic!("a prefetch")
+        };
+        queue.retry_prefetch(first.clone(), generation);
+        assert_eq!(queue.next(true), Some(Job::Prefetch(first.clone())));
+        queue.set_prefetch(paths(&["Q.RAF"]));
+        queue.retry_prefetch(first, generation);
+        assert_eq!(
+            queue.next(true),
+            Some(Job::Prefetch("/s/Capture/Q.RAF".into()))
+        );
+        assert_eq!(queue.next(true), None);
+    }
+
+    #[test]
     fn a_photograph_asked_for_twice_is_built_once_with_both_kinds() {
         let mut queue = Queue::default();
         queue.add_builds(paths(&["A.RAF", "B.RAF"]), false);
         queue.add_builds(vec!["/s/Capture/A.RAF?vc=1a2b3c".into()], true);
         assert_eq!(queue.progress.total, 2);
-        let Some(Job::Build(first)) = queue.next() else {
+        let Some(Job::Build(first)) = queue.next(true) else {
             panic!("a build")
         };
         assert!(first.full);
@@ -752,7 +864,7 @@ mod tests {
         queue.add_builds(paths(&["A.RAF"]), false);
         assert_eq!(queue.progress.total, 2);
         // Asked for its 1:1 preview while only its Standard one is built.
-        let Some(Job::Build(second)) = queue.next() else {
+        let Some(Job::Build(second)) = queue.next(true) else {
             panic!("a build")
         };
         assert!(!second.full);
@@ -769,7 +881,7 @@ mod tests {
             Outcome::Skipped,
             Outcome::Built,
         ] {
-            let Some(Job::Build(item)) = queue.next() else {
+            let Some(Job::Build(item)) = queue.next(true) else {
                 panic!("a build")
             };
             assert!(queue.progress.running);
@@ -795,11 +907,11 @@ mod tests {
     fn stopping_drops_what_waits_and_the_photograph_in_work() {
         let mut queue = Queue::default();
         queue.add_builds(paths(&["A.RAF", "B.RAF", "C.RAF"]), true);
-        let Some(Job::Build(first)) = queue.next() else {
+        let Some(Job::Build(first)) = queue.next(true) else {
             panic!("a build")
         };
         queue.finish(&first, Outcome::Built);
-        let Some(Job::Build(second)) = queue.next() else {
+        let Some(Job::Build(second)) = queue.next(true) else {
             panic!("a build")
         };
         queue.stop();
@@ -808,10 +920,10 @@ mod tests {
         // The abandoned photograph reports back after the Stop: not counted.
         queue.finish(&second, Outcome::Cancelled);
         assert_eq!((queue.progress.done, queue.progress.total), (1, 1));
-        assert_eq!(queue.next(), None);
+        assert_eq!(queue.next(true), None);
         // The next build starts afresh and is not stopped.
         queue.add_builds(paths(&["B.RAF"]), false);
-        let Some(Job::Build(again)) = queue.next() else {
+        let Some(Job::Build(again)) = queue.next(true) else {
             panic!("a build")
         };
         assert_eq!(again.generation, queue.generation);
