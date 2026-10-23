@@ -605,4 +605,39 @@ describe("workspace keyboard accessibility", () => {
     fireEvent.keyDown(separator, { key: "ArrowLeft" });
     expect(Number(separator.getAttribute("aria-valuenow"))).toBe(before);
   });
+
+it("opens tool settings without focusing Reset", () => {
+  withLinearLayer();
+  const brush = createSubMask(Mask.Brush, image);
+  useEditorStore.setState((state) => ({
+    adjustments: { ...state.adjustments, masks: state.adjustments.masks.map((mask) => ({ ...mask, subMasks: [brush] })) },
+    activeMaskId: brush.id,
+  }));
+  workspace();
+  fireEvent.contextMenu(screen.getByTestId("photo"), { clientX: 400, clientY: 300 });
+  const panel = screen.getByRole("dialog", { name: "Brush settings" });
+  expect(panel.contains(document.activeElement)).toBe(true);
+  expect(document.activeElement?.getAttribute("aria-label")).not.toBe("Reset brush");
+  expect(document.activeElement?.classList.contains("studio-tool-popover-reset")).toBe(false);
+});
+
+it.each(["ContextMenu", "F10"])("opens brush settings from the existing viewer with %s", (key) => {
+  withLinearLayer();
+  const brush = createSubMask(Mask.Brush, image);
+  useEditorStore.setState((state) => ({
+    adjustments: { ...state.adjustments, masks: state.adjustments.masks.map((mask) => ({ ...mask, subMasks: [brush] })) },
+    activeMaskId: brush.id,
+  }));
+  workspace();
+  const viewer = screen.getByRole("group", { name: "Image viewer" });
+  viewer.focus();
+  vi.spyOn(viewer, "getBoundingClientRect").mockReturnValue({ left: 400, bottom: 300 } as DOMRect);
+  fireEvent.keyDown(viewer, { key, shiftKey: key === "F10" });
+  const panel = screen.getByRole("dialog", { name: "Brush settings" });
+  expect(parseFloat(panel.style.left)).toBeGreaterThan(300);
+  expect(panel.contains(document.activeElement)).toBe(true);
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  expect(document.activeElement).toBe(viewer);
+});
+
 });

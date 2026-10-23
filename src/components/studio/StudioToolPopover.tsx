@@ -1,5 +1,4 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { usePopoverFocus } from "./usePopoverFocus";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import StudioLayerControls from "./StudioLayerControls";
@@ -9,6 +8,7 @@ import { RotateCcw } from "lucide-react";
 import { useStudioTools, type StudioTool } from "./useStudioTools";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
+import { usePopoverFocus } from "./usePopoverFocus";
 import { DEFAULT_BRUSH_SIZE } from "../../utils/brushSize";
 
 /** Horizontal distance of the pointer from the panel's left edge on opening. */

@@ -748,7 +748,7 @@ export default function StudioWorkspace(props: Props) {
                       Math.min(
                         390,
                         v + (e.key === "ArrowRight" ? 10 : -10) *
-                          (develop && layout === "split-tools" ? -1 : 1),
+                          (toolsSide === "right" ? -1 : 1),
                       ),
                     ),
                   );
@@ -767,7 +767,7 @@ export default function StudioWorkspace(props: Props) {
                       390,
                       v +
                         e.movementX *
-                          (develop && layout === "split-tools" ? -1 : 1),
+                          (toolsSide === "right" ? -1 : 1),
                     ),
                   ),
                 );
@@ -890,6 +890,14 @@ export default function StudioWorkspace(props: Props) {
                 data-panel-shortcut="true"
                 role="group"
                 aria-label={t("studio.workspace.viewer.imageViewer")}
+                onKeyDown={(e) => {
+                  if (e.target !== e.currentTarget || !toolPopoverApplies(tools)) return;
+                  if (e.key !== "ContextMenu" && !(e.key === "F10" && e.shiftKey)) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setToolPopover({ x: rect.left, y: rect.bottom });
+                }}
                 onPointerDownCapture={(e) => {
                   if (!(
                     e.target instanceof Element &&
