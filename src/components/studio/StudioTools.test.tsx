@@ -575,3 +575,34 @@ it("puts the cursor into the Library search field on its shortcut", () => {
   act(() => useUIStore.getState().requestSearchFocus());
   expect(document.activeElement).toBe(search);
 });
+
+
+describe("workspace keyboard accessibility", () => {
+  it("anchors keyboard tool settings at the viewer and returns focus on Escape", () => {
+    workspace();
+    act(() => useUIStore.setState({ activePanel: Panel.Crop }));
+    const photo = screen.getByTestId("photo");
+    photo.tabIndex = 0;
+    photo.focus();
+    vi.spyOn(photo, "getBoundingClientRect").mockReturnValue({ left: 400, bottom: 300 } as DOMRect);
+    expect(pressed("Crop")).toBe("true");
+    fireEvent.contextMenu(photo, { clientX: 0, clientY: 0 });
+    const panel = screen.getByRole("dialog");
+    expect(parseFloat(panel.style.left)).toBeGreaterThan(300);
+    expect(panel.contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(photo);
+  });
+
+  it.each(["split-tools", "tools-left"] as const)("moves the separator in the arrow direction in %s", (layout) => {
+    useUIStore.getState().setStudioToolLayout(layout);
+    workspace();
+    const separator = screen.getByRole("separator", { name: "Tool panel width" });
+    const before = Number(separator.getAttribute("aria-valuenow"));
+    fireEvent.keyDown(separator, { key: "ArrowRight" });
+    expect(Number(separator.getAttribute("aria-valuenow"))).toBe(before + (layout === "split-tools" ? -10 : 10));
+    fireEvent.keyDown(separator, { key: "ArrowLeft" });
+    expect(Number(separator.getAttribute("aria-valuenow"))).toBe(before);
+  });
+});

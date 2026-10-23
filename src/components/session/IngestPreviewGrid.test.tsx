@@ -112,3 +112,16 @@ describe("thumbnail queue", () => {
     expect(done).toEqual(["blob:a", "blob:b", "blob:d"]);
   });
 });
+
+
+it("toggles an import checkbox with Space without opening the loupe", async () => {
+  const user = userEvent.setup();
+  render(<Harness list={files(1)} load={async () => null} />);
+  const checkbox = screen.getByRole("checkbox");
+  checkbox.focus();
+  await user.keyboard(" ");
+  expect(checkbox.getAttribute("aria-checked")).toBe("false");
+  expect(screen.queryByRole("region", { name: "Large view" })).toBeNull();
+  await user.keyboard(" ");
+  expect(checkbox.getAttribute("aria-checked")).toBe("true");
+});

@@ -1027,7 +1027,7 @@
       "title": "Zaimportuj zdjęcia",
       "truncated": "Wyświetlono tylko pierwsze {{n}} zdjęć; resztę zaimportuj w kolejnym przebiegu.",
       "useCapture": "Użyj zamiast tego {{folder}}",
-      "viewLargeHint": "Kliknij dwukrotnie lub naciśnij Spację, aby zobaczyć w dużym rozmiarze"
+      "viewLargeHint": "Kliknij dwukrotnie lub naciśnij Enter, aby zobaczyć w dużym rozmiarze"
     },
     "menu": {
       "importFrom": "Importuj z Lightroom lub Capture One…",

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { usePopoverFocus } from "./usePopoverFocus";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import StudioLayerControls from "./StudioLayerControls";
@@ -51,6 +52,7 @@ export default function StudioToolPopover({
   const tools = useStudioTools();
   const { setAdjustments } = useEditorActions();
   const ref = useRef<HTMLDivElement>(null);
+  usePopoverFocus(ref);
   const [position, setPosition] = useState({ left: x, top: y });
   const open = toolPopoverApplies(tools);
 
@@ -165,6 +167,7 @@ export default function StudioToolPopover({
   return createPortal(
     <div
       ref={ref}
+      tabIndex={-1}
       className="studio-tool-popover"
       role="dialog"
       aria-label={t("studio.tools.popover.settings", { tool: title })}

@@ -986,7 +986,7 @@
       "title": "Importa les teves fotos",
       "truncated": "Només es mostren les primeres {{n}} fotografies; importa la resta en una altra passada.",
       "useCapture": "Utilitza {{folder}}",
-      "viewLargeHint": "Feu doble clic o premeu Espai per veure-la en gran"
+      "viewLargeHint": "Feu doble clic o premeu Retorn per veure-la en gran"
     },
     "menu": {
       "importFrom": "Importa del Lightroom o del Capture One…",

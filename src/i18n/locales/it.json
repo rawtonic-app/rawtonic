@@ -986,7 +986,7 @@
       "title": "Importa le tue foto",
       "truncated": "Sono elencate solo le prime {{n}} foto; importa le altre in un secondo passaggio.",
       "useCapture": "Usa invece {{folder}}",
-      "viewLargeHint": "Fai doppio clic o premi Spazio per vederla in grande"
+      "viewLargeHint": "Fai doppio clic o premi Invio per vederla in grande"
     },
     "menu": {
       "importFrom": "Importa da Lightroom o Capture One…",

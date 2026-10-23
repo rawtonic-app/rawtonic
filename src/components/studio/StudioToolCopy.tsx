@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { usePopoverFocus } from "./usePopoverFocus";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { ArrowLeftRight } from "lucide-react";
@@ -107,7 +108,9 @@ export default function StudioToolCopy({
             const values = copy(keys);
             if (values) applyToOthers(values);
           } else {
-            setAnchor({ x: e.clientX, y: e.clientY });
+            e.currentTarget.focus({ preventScroll: true });
+            const rect = e.currentTarget.getBoundingClientRect();
+            setAnchor(e.detail === 0 ? { x: rect.left, y: rect.bottom } : { x: e.clientX, y: e.clientY });
           }
         }}
       >
@@ -167,6 +170,7 @@ function CopyPopover({
 }) {
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
+  usePopoverFocus(ref);
   const [chosen, setChosen] = useState(() => new Set(params.map(([k]) => k)));
   const [position, setPosition] = useState({ left: anchor.x, top: anchor.y });
   useLayoutEffect(() => {
@@ -199,6 +203,7 @@ function CopyPopover({
   return createPortal(
     <div
       ref={ref}
+      tabIndex={-1}
       className="studio-tool-popover studio-copy-popover"
       role="dialog"
       aria-label={t("studio.tools.copy.aria", { tool })}

@@ -1158,3 +1158,17 @@ describe("tool tabs", () => {
     expect(seen.get("Lens correction")).toBe("Crop, geometry & lens");
   });
 });
+
+
+it("anchors keyboard copy at its trigger and restores focus after closing", () => {
+  mount();
+  const trigger = screen.getByRole("button", { name: "Copy and apply Exposure" });
+  trigger.focus();
+  vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue({ left: 400, bottom: 300 } as DOMRect);
+  fireEvent.click(trigger, { detail: 0 });
+  const panel = screen.getByRole("dialog", { name: "Copy and apply Exposure" });
+  expect(panel.style.left).toBe("400px");
+  expect(panel.contains(document.activeElement)).toBe(true);
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  expect(document.activeElement).toBe(trigger);
+});

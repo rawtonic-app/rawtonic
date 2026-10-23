@@ -986,7 +986,7 @@
       "title": "Importez vos photos",
       "truncated": "Seules les {{n}} premières photos sont listées ; importez le reste en une autre fois.",
       "useCapture": "Utiliser {{folder}} à la place",
-      "viewLargeHint": "Double-cliquez ou appuyez sur Espace pour l’afficher en grand"
+      "viewLargeHint": "Double-cliquez ou appuyez sur Entrée pour l’afficher en grand"
     },
     "menu": {
       "importFrom": "Importer depuis Lightroom ou Capture One…",

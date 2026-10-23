@@ -91,7 +91,7 @@ const storedTileSize = () => {
 /** The import dialog's source photographs as a grid of previews with
  * checkboxes (Lightroom's and Capture One's import grid): select all or
  * none, Shift-click for a range; only checked photographs are imported.
- * Arrow keys move between photographs; a double-click or Space opens the
+ * Arrow keys move between photographs; a double-click or Enter opens the
  * focused one large (`IngestLoupe`). Only the visible rows are drawn, so
  * hundreds of files stay light. */
 export default function IngestPreviewGrid({
@@ -266,7 +266,7 @@ export default function IngestPreviewGrid({
           const tile = (e.target as HTMLElement).closest<HTMLElement>("[data-index]");
           if (!tile || e.metaKey || e.ctrlKey || e.altKey) return;
           const index = Number(tile.dataset.index);
-          if (e.key === " ") {
+          if (e.key === "Enter") {
             e.preventDefault();
             setLoupe(index);
             return;
@@ -278,10 +278,6 @@ export default function IngestPreviewGrid({
           e.preventDefault();
           const next = index + by;
           if (next >= 0 && next < files.length) focusTile(next);
-        }}
-        onKeyUp={(e) => {
-          // Space opens the large view rather than clicking the checkbox.
-          if (e.key === " ") e.preventDefault();
         }}
         onScroll={(e) => {
           const top = e.currentTarget.scrollTop;

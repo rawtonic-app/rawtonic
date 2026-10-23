@@ -274,3 +274,16 @@ describe("preview and folders (Lightroom, Capture One)", () => {
     expect(screen.queryByText("Black & white")).toBeNull();
   });
 });
+
+
+it.each([["New preset", "Preset name"], ["New preset folder", "Folder name"]])("returns focus after Escape from %s", async (button, field) => {
+  await renderTool();
+  const trigger = screen.getByRole("button", { name: button });
+  trigger.focus();
+  fireEvent.click(trigger);
+  const input = screen.getByRole("textbox", { name: field });
+  expect(document.activeElement).toBe(input);
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(screen.queryByRole("textbox", { name: field })).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+});

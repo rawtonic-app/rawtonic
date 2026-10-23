@@ -922,7 +922,7 @@
       "title": "导入你的照片",
       "truncated": "仅列出前 {{n}} 张照片；其余请另行导入。",
       "useCapture": "改用 {{folder}}",
-      "viewLargeHint": "双击或按空格键查看大图"
+      "viewLargeHint": "双击或按回车键查看大图"
     },
     "menu": {
       "importFrom": "从 Lightroom 或 Capture One 导入…",

@@ -945,7 +945,7 @@
       "title": "Fotos importieren",
       "truncated": "Nur die ersten {{n}} Fotos sind aufgelistet; importiere den Rest in einem weiteren Durchgang.",
       "useCapture": "Stattdessen {{folder}} verwenden",
-      "viewLargeHint": "Doppelklicken oder Leertaste drücken für die große Ansicht"
+      "viewLargeHint": "Doppelklicken oder Eingabetaste drücken für die große Ansicht"
     },
     "menu": {
       "importFrom": "Aus Lightroom oder Capture One importieren…",
