@@ -8,17 +8,24 @@
 //! One's session Trash); elsewhere, and from that folder, they go to the
 //! system Trash. Undone operations can be redone until a new one runs.
 //! The only deletion is the user's explicit Empty Trash of a session's
-//! `Trash/` folder (`empty_session_trash`, journaled, not undoable).
+//! `Trash/` folder (`empty_session_trash`, journaled, not undoable). A move
+//! to another drive copies, verifies and then trashes the originals (ADR
+//! 0016); its progress goes to the Library, which can stop it.
 use crate::file_management::{AlbumItem, add_to_album, get_albums, sync_album_path_changes};
 use crate::formats::is_supported_image_file;
 use rawtonic_catalog::{Library, session_for};
-use rawtonic_fileops::{Journal, Operation, State, Step, SystemTrash, Target};
+use rawtonic_fileops::{CopyObserver, Journal, Operation, State, Step, SystemTrash, Target};
 use serde::Serialize;
 use std::{
+    cell::Cell,
     collections::{BTreeSet, HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{
+        Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -89,6 +96,132 @@ impl SystemTrash for PlatformTrash {
 
 static JOURNAL: Mutex<Option<Journal>> = Mutex::new(None);
 
+/// Stop for the file operation that is running: each run gets a number
+/// (sent with its progress), and Stop names the run it is for, so a Stop
+/// button left from a finished operation never stops the next one.
+struct StopSwitch {
+    running: AtomicU64,
+    next: AtomicU64,
+    /// The run Stop was pressed for: one value, so no interleaving of
+    /// Stop and a new run can stop that new run.
+    stopped: AtomicU64,
+}
+
+impl StopSwitch {
+    const fn new() -> Self {
+        Self {
+            running: AtomicU64::new(0),
+            next: AtomicU64::new(1),
+            stopped: AtomicU64::new(0),
+        }
+    }
+    /// A run begins (holding the journal's lock); returns its number.
+    fn begin(&self) -> u64 {
+        let run = self.next.fetch_add(1, Ordering::SeqCst);
+        self.running.store(run, Ordering::SeqCst);
+        run
+    }
+    /// The run is over: a Stop for it does nothing any more.
+    fn end(&self, run: u64) {
+        let _ = self
+            .running
+            .compare_exchange(run, 0, Ordering::SeqCst, Ordering::SeqCst);
+    }
+    fn stop(&self, run: u64) {
+        if run != 0 && self.running.load(Ordering::SeqCst) == run {
+            self.stopped.store(run, Ordering::SeqCst);
+        }
+    }
+    fn stopped(&self, run: u64) -> bool {
+        run != 0 && self.stopped.load(Ordering::SeqCst) == run
+    }
+}
+
+static STOP: StopSwitch = StopSwitch::new();
+
+/// The event with the bytes copied so far by a move to another drive (or
+/// its undo or redo).
+pub const FILE_OPERATION_PROGRESS: &str = "file-operation-progress";
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CopyProgress {
+    /// The run, for Stop.
+    run: u64,
+    label: String,
+    done: u64,
+    total: u64,
+}
+
+/// Sends the copy progress to the frontend (at most ten times a second)
+/// and passes Stop on. File operations run one at a time (the journal's
+/// lock): `start` begins this run there and the run ends when it is
+/// dropped, so Stop pressed for one operation never reaches another.
+struct ProgressEvents<'a> {
+    app: &'a AppHandle,
+    label: String,
+    last: Cell<Option<Instant>>,
+    run: Cell<u64>,
+}
+
+impl<'a> ProgressEvents<'a> {
+    fn new(app: &'a AppHandle, label: &str) -> Self {
+        Self {
+            app,
+            label: label.to_string(),
+            last: Cell::new(None),
+            run: Cell::new(0),
+        }
+    }
+}
+
+impl ProgressEvents<'_> {
+    fn start(&self) {
+        self.run.set(STOP.begin());
+    }
+}
+
+impl Drop for ProgressEvents<'_> {
+    fn drop(&mut self) {
+        STOP.end(self.run.get());
+    }
+}
+
+impl CopyObserver for ProgressEvents<'_> {
+    fn copied(&self, done: u64, total: u64) {
+        let now = Instant::now();
+        if done < total
+            && self
+                .last
+                .get()
+                .is_some_and(|last| now - last < Duration::from_millis(100))
+        {
+            return;
+        }
+        self.last.set(Some(now));
+        let _ = self.app.emit(
+            FILE_OPERATION_PROGRESS,
+            CopyProgress {
+                run: self.run.get(),
+                label: self.label.clone(),
+                done,
+                total,
+            },
+        );
+    }
+    fn cancelled(&self) -> bool {
+        STOP.stopped(self.run.get())
+    }
+}
+
+/// Stops the copying of the move to another drive (or its undo or redo)
+/// numbered `run` in its progress: what was copied is removed and nothing
+/// is moved. Does nothing once that run is over.
+#[tauri::command]
+pub fn stop_file_operation(run: u64) {
+    STOP.stop(run);
+}
+
 fn with_journal<T>(
     app: &AppHandle,
     f: impl FnOnce(&Journal) -> anyhow::Result<T>,
@@ -126,6 +259,9 @@ pub struct OperationSummary {
     /// them. Sidecars and virtual copies are not listed: copies follow
     /// their photo.
     pub moves: Vec<PathMove>,
+    /// What the user should know, e.g. originals a move to another drive
+    /// kept in place.
+    pub note: Option<String>,
 }
 
 /// A photo or folder that moved from `from` to `to`.
@@ -147,6 +283,7 @@ impl From<&Operation> for OperationSummary {
             system_trash: 0,
             new_paths: Vec::new(),
             moves: Vec::new(),
+            note: op.note.clone(),
         };
         // Done: from → to; undone: back from to → from; otherwise (rolled
         // back, interrupted) nothing is anywhere new.
@@ -166,7 +303,7 @@ impl From<&Operation> for OperationSummary {
             summary.items += 1;
             match &step.to {
                 Target::SystemTrash { .. } => summary.system_trash += 1,
-                Target::Path { path } => {
+                Target::Path { path } | Target::OtherVolume { path, .. } => {
                     if op.kind == "trash" {
                         summary.session_trash += 1;
                     }
@@ -332,8 +469,10 @@ pub fn run(
         .filter_map(|s| item_key(&s.from))
         .collect();
     let memberships = album_memberships(app, &trashed);
+    let progress = ProgressEvents::new(app, label);
     let op = with_journal(app, |journal| {
-        let op = journal.execute(kind, label, steps, &PlatformTrash)?;
+        progress.start();
+        let op = journal.execute_with(kind, label, steps, &PlatformTrash, &progress)?;
         if !memberships.is_empty() {
             journal.set_context(&op.id, serde_json::json!({ "albums": memberships }))?;
         }
@@ -348,7 +487,11 @@ pub fn undo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
     let Some(last) = with_journal(app, |journal| journal.last_undoable())? else {
         return Ok(None);
     };
-    let op = with_journal(app, |journal| journal.undo(&last.id, &PlatformTrash))?;
+    let progress = ProgressEvents::new(app, &last.label);
+    let op = with_journal(app, |journal| {
+        progress.start();
+        journal.undo_with(&last.id, &PlatformTrash, &progress)
+    })?;
     sync_pending(app, Some(&op.id));
     Ok(Some(op))
 }
@@ -360,7 +503,11 @@ pub fn redo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
     let Some(next) = with_journal(app, |journal| journal.last_redoable())? else {
         return Ok(None);
     };
-    let op = with_journal(app, |journal| journal.redo(&next.id, &PlatformTrash))?;
+    let progress = ProgressEvents::new(app, &next.label);
+    let op = with_journal(app, |journal| {
+        progress.start();
+        journal.redo_with(&next.id, &PlatformTrash, &progress)
+    })?;
     sync_pending(app, Some(&op.id));
     Ok(Some(op))
 }
@@ -430,10 +577,7 @@ fn touched(op: &Operation) -> Vec<PathBuf> {
     op.steps
         .iter()
         .flat_map(|step| {
-            let to = match &step.to {
-                Target::Path { path } => Some(path.clone()),
-                Target::SystemTrash { .. } => None,
-            };
+            let to = step.target().map(Path::to_path_buf);
             std::iter::once(step.from.clone()).chain(to)
         })
         .collect()
@@ -973,6 +1117,29 @@ mod tests {
         let dir = root.join("Job");
         rawtonic_catalog::Library::create(&dir, "Job", rawtonic_catalog::Mode::Session).unwrap();
         dir.canonicalize().unwrap()
+    }
+
+    /// Stop reaches only the run it names, and only while it runs.
+    #[test]
+    fn stop_reaches_only_the_run_it_names() {
+        let switch = StopSwitch::new();
+        let a = switch.begin();
+        switch.stop(a);
+        assert!(switch.stopped(a));
+        switch.end(a);
+        let b = switch.begin();
+        assert!(!switch.stopped(b), "a new run starts unstopped");
+        switch.stop(a);
+        assert!(!switch.stopped(b), "a Stop left from the last run");
+        // A Stop for A that read A as running, then landed after B began.
+        switch.stopped.store(a, Ordering::SeqCst);
+        assert!(!switch.stopped(b), "a late Stop for the last run");
+        switch.stop(b);
+        assert!(switch.stopped(b));
+        switch.end(b);
+        switch.stop(b);
+        let c = switch.begin();
+        assert!(!switch.stopped(c));
     }
 
     #[test]

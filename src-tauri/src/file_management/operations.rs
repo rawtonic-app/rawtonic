@@ -5,6 +5,8 @@ use super::generate_filename_from_template;
 use super::parse_virtual_path;
 use crate::exif_processing;
 use crate::image_processing::ImageMetadata;
+use serde::Serialize;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
@@ -378,12 +380,14 @@ pub async fn move_files(
     .await?
 }
 
-fn move_files_blocking(
-    source_paths: Vec<String>,
-    destination_folder: String,
-    app_handle: AppHandle,
-) -> Result<crate::file_operations::OperationSummary, String> {
-    let dest_path = Path::new(&destination_folder);
+/// The steps and label of moving the photos `source_paths` (with their
+/// sidecars, virtual copies and companions) into `destination_folder`: a
+/// rename on the same drive, a copy move to another (ADR 0016).
+fn plan_move(
+    source_paths: &[String],
+    destination_folder: &str,
+) -> Result<(Vec<rawtonic_fileops::Step>, Vec<PathBuf>, String), String> {
+    let dest_path = Path::new(destination_folder);
     if !dest_path.is_dir() {
         return Err(format!(
             "Destination is not a folder: {}",
@@ -392,7 +396,7 @@ fn move_files_blocking(
     }
 
     let mut images: Vec<PathBuf> = Vec::new();
-    for path in &source_paths {
+    for path in source_paths {
         let image = parse_virtual_path(path).0;
         if !images.contains(&image) {
             images.push(image);
@@ -407,17 +411,112 @@ fn move_files_blocking(
         .into_iter()
         .map(|file| {
             let target = dest_path.join(file.file_name().unwrap_or_default());
-            rawtonic_fileops::Step::rename(file, target)
+            rawtonic_fileops::Step::moving(file, target).map_err(|e| format!("{e:#}"))
         })
-        .collect();
+        .collect::<Result<_, _>>()?;
     let folder = dest_path.file_name().unwrap_or_default().to_string_lossy();
     let label = if images.len() == 1 {
         format!("Move 1 photo to {folder}")
     } else {
         format!("Move {} photos to {folder}", images.len())
     };
+    Ok((steps, images, label))
+}
+
+fn move_files_blocking(
+    source_paths: Vec<String>,
+    destination_folder: String,
+    app_handle: AppHandle,
+) -> Result<crate::file_operations::OperationSummary, String> {
+    let (steps, _, label) = plan_move(&source_paths, &destination_folder)?;
     let op = crate::file_operations::run(&app_handle, "move", &label, steps)?;
     Ok((&op).into())
+}
+
+/// What moving photos to a folder involves, for the Library to ask first
+/// when they go to another drive.
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MovePlan {
+    /// Some files are copied to another drive (and their originals trashed).
+    pub cross_volume: bool,
+    pub photos: usize,
+    /// Files copied to the other drive (sidecars included).
+    pub files: usize,
+    pub bytes: u64,
+    /// The destination drive's name and its free space.
+    pub drive: String,
+    pub free_bytes: u64,
+    /// The drives the originals are on.
+    pub source_drives: Vec<String>,
+    /// Why the move cannot be done (nothing is changed then).
+    pub refusal: Option<String>,
+}
+
+#[tauri::command]
+pub async fn plan_move_files(
+    source_paths: Vec<String>,
+    destination_folder: String,
+) -> Result<MovePlan, String> {
+    crate::file_management::blocking(move || {
+        plan_move_files_blocking(&source_paths, &destination_folder)
+    })
+    .await?
+}
+
+fn plan_move_files_blocking(
+    source_paths: &[String],
+    destination_folder: &str,
+) -> Result<MovePlan, String> {
+    let (steps, images, _) = plan_move(source_paths, destination_folder)?;
+    let pairs: Vec<(PathBuf, PathBuf)> = steps
+        .iter()
+        .filter(|step| matches!(step.to, rawtonic_fileops::Target::OtherVolume { .. }))
+        .filter_map(|step| Some((step.from.clone(), step.target()?.to_path_buf())))
+        .collect();
+    if pairs.is_empty() {
+        return Ok(MovePlan::default());
+    }
+    let mut plan = MovePlan {
+        cross_volume: true,
+        photos: images.len(),
+        files: pairs.len(),
+        ..MovePlan::default()
+    };
+    let mut drives = BTreeSet::new();
+    for (source, _) in &pairs {
+        if let Ok(info) = rawtonic_fileops::volume_info(source) {
+            drives.insert(info.name);
+        }
+    }
+    plan.source_drives = drives.into_iter().collect();
+    match rawtonic_fileops::copy_needs(&pairs) {
+        Ok(needs) => {
+            if let Some(need) = needs.first() {
+                plan.bytes = need.bytes;
+                plan.drive = need.volume.name.clone();
+                plan.free_bytes = need.volume.free_bytes;
+                if need.volume.free_bytes
+                    < need.bytes.saturating_add(rawtonic_fileops::SPACE_RESERVE)
+                {
+                    plan.refusal = Some(format!(
+                        "{} to copy do not fit on {}: {} free there, and {} are kept free.",
+                        rawtonic_fileops::format_bytes(need.bytes),
+                        need.volume.name,
+                        rawtonic_fileops::format_bytes(need.volume.free_bytes),
+                        rawtonic_fileops::format_bytes(rawtonic_fileops::SPACE_RESERVE)
+                    ));
+                }
+            }
+        }
+        Err(e) => plan.refusal = Some(format!("{e:#}")),
+    }
+    if plan.refusal.is_none()
+        && let Err(e) = rawtonic_fileops::probe_folder(Path::new(destination_folder))
+    {
+        plan.refusal = Some(format!("{e:#}"));
+    }
+    Ok(plan)
 }
 
 #[tauri::command]

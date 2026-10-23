@@ -12,17 +12,29 @@
 //! caller names (a session's own `Trash/`), listed by [`plan_purge`] without
 //! following links. Everything else is renames: "Trash" is either a rename
 //! into such a folder or the system Trash through a [`SystemTrash`] the
-//! caller provides, which must be able to put items back. Moving between
-//! volumes would need a copy and a delete and is refused.
+//! caller provides, which must be able to put items back. A move to
+//! another volume ([`Target::OtherVolume`], ADR 0016) is a verified copy
+//! published by an exclusive rename, after which the original goes to the
+//! system Trash; its staging copies are the only other files this crate
+//! removes.
 use anyhow::{Context, Result, bail, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     fs, io,
     path::{Path, PathBuf},
     time::Duration,
 };
+
+#[cfg(test)]
+mod copy_move_tests;
+mod volume;
+pub use volume::{
+    CopyObserver, SPACE_RESERVE, Stamp, Unobserved, VolumeInfo, probe_exclusive_rename,
+    rename_exclusive, volume_info,
+};
+use volume::{Tally, copy_verified, same_content, sync_folder};
 
 /// Where a step puts its file or folder.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,6 +44,50 @@ pub enum Target {
     Path { path: PathBuf },
     /// The system Trash; `item` identifies the trashed file once it is there.
     SystemTrash { item: Option<String> },
+    /// A file moved to another volume (ADR 0016): copied into a staging
+    /// folder next to `path`, verified byte for byte, renamed to `path`
+    /// without replacing anything, then the source goes to the system Trash.
+    OtherVolume {
+        path: PathBuf,
+        #[serde(default)]
+        copy: CopyState,
+    },
+}
+
+/// The progress of a [`Target::OtherVolume`] step, in the direction being
+/// carried out (an undo copies back from `path` to `from`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyState {
+    /// Where this direction's copy is staged, recorded before it is made.
+    #[serde(default)]
+    pub staged: Option<PathBuf>,
+    /// The staged copy was verified against its source (and may since
+    /// have been published).
+    #[serde(default)]
+    pub copied: bool,
+    /// The source's size and modification time when its copy was verified:
+    /// a source that changed after that is kept, not trashed.
+    #[serde(default)]
+    pub stamp: Option<Stamp>,
+    /// The verified copy's own size and modification time: the source goes
+    /// to the Trash only while its copy is still there unchanged.
+    #[serde(default)]
+    pub copy_stamp: Option<Stamp>,
+    /// The Trash item of the source this direction trashed.
+    #[serde(default)]
+    pub trashed: Option<String>,
+    /// The last finished direction kept its source (it changed, its copy
+    /// was not there unchanged, its volume has no Trash, or the direction
+    /// was interrupted before it went): both copies exist. A move's undo
+    /// needs it; a redo takes a copy its undo kept as the copy again.
+    #[serde(default)]
+    pub kept: bool,
+    /// A redo found at the destination the copy its undo kept, still a
+    /// file with the source's very bytes: it is taken as the copy, nothing
+    /// is copied, and only the source goes to the Trash.
+    #[serde(default)]
+    pub present: bool,
 }
 
 /// One file or folder of an operation.
@@ -53,6 +109,32 @@ impl Step {
         Self {
             from: from.into(),
             to: Target::SystemTrash { item: None },
+        }
+    }
+    /// A copy move (ADR 0016), also on one volume.
+    pub fn other_volume(from: impl Into<PathBuf>, to: impl Into<PathBuf>) -> Self {
+        Self {
+            from: from.into(),
+            to: Target::OtherVolume {
+                path: to.into(),
+                copy: CopyState::default(),
+            },
+        }
+    }
+    /// A move: a rename on the same volume, otherwise a copy move.
+    pub fn moving(from: impl Into<PathBuf>, to: impl Into<PathBuf>) -> Result<Self> {
+        let (from, to) = (from.into(), to.into());
+        Ok(if same_volume(&from, &to)? {
+            Self::rename(from, to)
+        } else {
+            Self::other_volume(from, to)
+        })
+    }
+    /// Where the step puts its file, unless it goes to the system Trash.
+    pub fn target(&self) -> Option<&Path> {
+        match &self.to {
+            Target::Path { path } | Target::OtherVolume { path, .. } => Some(path),
+            Target::SystemTrash { .. } => None,
         }
     }
 }
@@ -80,6 +162,12 @@ pub enum State {
     /// Emptied for good. Not undoable, and the end of Undo for every
     /// operation before it.
     Purged,
+    /// Every copy to another volume is in place; the sources are going to
+    /// the system Trash. A crash finishes that at the next start.
+    Finishing,
+    /// An undo's copies back are in place; the copies it moved away from
+    /// are going to the system Trash. A crash finishes that at the next start.
+    UndoFinishing,
 }
 
 impl State {
@@ -94,6 +182,8 @@ impl State {
             State::Purging => "purging",
             State::PurgeCommitted => "purgeCommitted",
             State::Purged => "purged",
+            State::Finishing => "finishing",
+            State::UndoFinishing => "undoFinishing",
         }
     }
     fn parse(text: &str) -> Result<Self> {
@@ -107,6 +197,8 @@ impl State {
             "purging" => State::Purging,
             "purgeCommitted" => State::PurgeCommitted,
             "purged" => State::Purged,
+            "finishing" => State::Finishing,
+            "undoFinishing" => State::UndoFinishing,
             other => bail!("Unknown file operation state {other}"),
         })
     }
@@ -130,6 +222,17 @@ struct Payload {
     /// A purge: every file (and link) it deletes, at its place before.
     #[serde(default)]
     removed: Vec<PathBuf>,
+    /// The staging folders of the copies being made (ADR 0016).
+    #[serde(default)]
+    staging_dirs: Vec<PathBuf>,
+}
+
+impl Payload {
+    fn has_copies(&self) -> bool {
+        self.steps
+            .iter()
+            .any(|s| matches!(s.to, Target::OtherVolume { .. }))
+    }
 }
 
 /// A journaled operation.
@@ -162,10 +265,7 @@ impl Operation {
     pub fn renames(&self) -> Vec<(PathBuf, PathBuf)> {
         self.steps
             .iter()
-            .filter_map(|step| match &step.to {
-                Target::Path { path } => Some((step.from.clone(), path.clone())),
-                Target::SystemTrash { .. } => None,
-            })
+            .filter_map(|step| Some((step.from.clone(), step.target()?.to_path_buf())))
             .collect()
     }
     /// A purge's top-level entries of the emptied folder, at their place
@@ -287,41 +387,296 @@ impl Journal {
         steps: Vec<Step>,
         trash: &dyn SystemTrash,
     ) -> Result<Operation> {
+        self.execute_with(kind, label, steps, trash, &Unobserved)
+    }
+
+    /// [`Journal::execute`] with an observer of the copies to other volumes
+    /// (bytes copied; Stop while copying rolls back like a failure).
+    pub fn execute_with(
+        &self,
+        kind: &str,
+        label: &str,
+        mut steps: Vec<Step>,
+        trash: &dyn SystemTrash,
+        observer: &dyn CopyObserver,
+    ) -> Result<Operation> {
         ensure!(!steps.is_empty(), "Nothing to do");
         validate(&steps)?;
+        check_copies(&copy_pairs(&steps, Direction::Forward))?;
         let created_dirs = create_target_parents(&steps)?;
+        let staging_dirs = plan_staging(&mut steps, Direction::Forward)?;
         let mut payload = Payload {
             steps,
             created_dirs,
+            staging_dirs,
             ..Payload::default()
         };
         let id = uuid::Uuid::new_v4().to_string();
         self.insert(&id, kind, label, State::Applying, &payload)?;
-        for index in 0..payload.steps.len() {
-            let result = apply(&mut payload.steps[index], trash);
-            if let Err(error) = result {
-                let reversed = reverse_steps(&payload.steps[..index], trash);
-                remove_created_dirs(&payload.created_dirs);
-                payload.note = Some(match reversed {
-                    Ok(()) => format!("{error:#}"),
-                    Err(e) => format!("{error:#}; could not reverse every step: {e:#}"),
-                });
-                self.store(&id, State::RolledBack, &payload)?;
-                return Err(error.context("Nothing was changed"));
-            }
-            if matches!(payload.steps[index].to, Target::SystemTrash { .. }) {
-                // The only state the file system cannot tell later.
-                self.store(&id, State::Applying, &payload)?;
-            }
+        #[cfg(test)]
+        crash::point("journaled");
+        if let Err(error) = self.run_forward(&id, State::Applying, &mut payload, trash, observer) {
+            self.store(&id, State::RolledBack, &payload)?;
+            return Err(error.context("Nothing was changed"));
         }
-        self.store_clearing_redo(&id, State::Done, &payload)?;
+        if payload.has_copies() {
+            self.store_clearing_redo(&id, State::Finishing, &payload)?;
+            self.finish_copies(
+                &id,
+                State::Finishing,
+                &mut payload,
+                Direction::Forward,
+                trash,
+            )?;
+            self.store(&id, State::Done, &payload)?;
+        } else {
+            self.store_clearing_redo(&id, State::Done, &payload)?;
+        }
         self.operation(&id)
+    }
+
+    /// Copies (phase 1) and applies every step in order (phase 2); on
+    /// failure reverses what it applied, removes the staging folders and
+    /// the created folders, and leaves the reason in the payload's note.
+    fn run_forward(
+        &self,
+        id: &str,
+        state: State,
+        payload: &mut Payload,
+        trash: &dyn SystemTrash,
+        observer: &dyn CopyObserver,
+    ) -> Result<()> {
+        // The steps that may have changed the file system.
+        let mut applied = 0;
+        let result = (|| -> Result<()> {
+            self.stage_copies(id, state, payload, Direction::Forward, observer)?;
+            for index in 0..payload.steps.len() {
+                if observer.cancelled() {
+                    bail!(io::Error::new(io::ErrorKind::Interrupted, "Stopped"));
+                }
+                if matches!(payload.steps[index].to, Target::OtherVolume { .. }) {
+                    // A publish can fail after its rename (syncing the
+                    // folder); taking a copy back checks the file system,
+                    // so it is safe to reverse either way.
+                    applied = index + 1;
+                }
+                apply(&mut payload.steps[index], trash)?;
+                applied = index + 1;
+                if matches!(payload.steps[index].to, Target::SystemTrash { .. }) {
+                    // The only state the file system cannot tell later.
+                    self.store_keeping_sync(id, state, payload)?;
+                }
+                #[cfg(test)]
+                crash::point("applied");
+            }
+            // Stop is honoured until the originals start going to the Trash.
+            if observer.cancelled() {
+                bail!(io::Error::new(io::ErrorKind::Interrupted, "Stopped"));
+            }
+            Ok(())
+        })();
+        let Err(error) = result else {
+            return Ok(());
+        };
+        let reversed = reverse_steps(&payload.steps[..applied], trash);
+        let cleaned = remove_staging(payload);
+        remove_created_dirs(&payload.created_dirs);
+        let mut note = format!("{error:#}");
+        if let Err(e) = reversed {
+            note.push_str(&format!("; could not reverse every step: {e:#}"));
+        }
+        if let Err(e) = cleaned {
+            note.push_str(&format!("; {e:#}"));
+        }
+        payload.note = Some(note);
+        Err(error)
+    }
+
+    /// Phase 1 of a direction: makes the staging folders, checks their
+    /// volumes rename exclusively and copies every file there, verified,
+    /// journaling each verified copy. Nothing visible changes.
+    fn stage_copies(
+        &self,
+        id: &str,
+        state: State,
+        payload: &mut Payload,
+        direction: Direction,
+        observer: &dyn CopyObserver,
+    ) -> Result<()> {
+        for dir in &payload.staging_dirs {
+            fs::create_dir(dir)
+                .with_context(|| format!("Cannot create the folder {}", dir.display()))?;
+            probe_exclusive_rename(dir)?;
+        }
+        let total = copy_pairs(&payload.steps, direction)
+            .iter()
+            .map(|(source, _)| fs::metadata(source).map(|m| m.len()).unwrap_or(0))
+            .sum();
+        let mut tally = Tally {
+            observer,
+            done: 0,
+            total,
+        };
+        for index in 0..payload.steps.len() {
+            let step = &payload.steps[index];
+            let Target::OtherVolume { path, copy } = &step.to else {
+                continue;
+            };
+            let Some(staged) = copy.staged.clone() else {
+                continue;
+            };
+            let source = match direction {
+                Direction::Forward => step.from.clone(),
+                Direction::Back => path.clone(),
+            };
+            let (stamp, copy_stamp) = copy_verified(&source, &staged, &mut tally)?;
+            if let Target::OtherVolume { copy, .. } = &mut payload.steps[index].to {
+                copy.copied = true;
+                copy.stamp = Some(stamp);
+                copy.copy_stamp = Some(copy_stamp);
+            }
+            self.store_keeping_sync(id, state, payload)?;
+            #[cfg(test)]
+            crash::point("copy recorded");
+        }
+        // Stop pressed during the last verification still stops the move.
+        if observer.cancelled() {
+            bail!(io::Error::new(io::ErrorKind::Interrupted, "Stopped"));
+        }
+        Ok(())
+    }
+
+    /// Phase 3 of a direction: the copies are in place and are the photos
+    /// now; each source goes to the system Trash, checked just before:
+    /// only while it is unchanged since its copy was verified and its copy
+    /// is still there unchanged (by size and modification time; for an
+    /// original an undo leaves in place, by its bytes). Otherwise, or when
+    /// its volume has no Trash, it is kept and the note says so. Never
+    /// rolls back. Journals each trashed item, removes the staging folders.
+    fn finish_copies(
+        &self,
+        id: &str,
+        state: State,
+        payload: &mut Payload,
+        direction: Direction,
+        trash: &dyn SystemTrash,
+    ) -> Result<()> {
+        #[cfg(test)]
+        crash::point("finishing");
+        let mut kept = Vec::new();
+        let forward = direction == Direction::Forward;
+        for index in 0..payload.steps.len() {
+            let step = &mut payload.steps[index];
+            let Some((source, destination)) = copy_ends(step, direction) else {
+                continue;
+            };
+            let Target::OtherVolume { copy, .. } = &mut step.to else {
+                continue;
+            };
+            if !forward {
+                // From here `kept` tells what the undo kept (see below).
+                copy.kept = false;
+            }
+            if copy.trashed.is_some() || (forward && copy.kept) || !exists(&source) {
+                continue;
+            }
+            let copy_there = fs::symlink_metadata(&destination).is_ok_and(|m| m.is_file())
+                && if copy.staged.is_none() {
+                    same_content(&source, &destination, false, None).unwrap_or(false)
+                } else {
+                    Stamp::of(&destination).ok() == copy.copy_stamp
+                };
+            if !copy_there {
+                copy.kept = true;
+                kept.push(format!(
+                    "{} was kept: its copy at {} is not there unchanged",
+                    source.display(),
+                    destination.display()
+                ));
+            } else if Stamp::of(&source).ok() != copy.stamp {
+                copy.kept = true;
+                kept.push(format!(
+                    "{} changed while it was moved and was kept",
+                    source.display()
+                ));
+            } else {
+                match trash.trash(&source) {
+                    Ok(item) => copy.trashed = Some(item),
+                    // The Trash took it but could not say where.
+                    Err(e) if !exists(&source) => kept.push(format!(
+                        "{} went to the Trash, which did not say where ({e:#}); \
+                         put it back from there to undo",
+                        source.display()
+                    )),
+                    Err(e) => {
+                        copy.kept = true;
+                        kept.push(format!(
+                            "{} was kept: it cannot go to the Trash ({e:#})",
+                            source.display()
+                        ));
+                    }
+                }
+            }
+            #[cfg(test)]
+            crash::point("trashed");
+            self.store_keeping_sync(id, state, payload)?;
+            #[cfg(test)]
+            crash::point("trash recorded");
+        }
+        if let Err(e) = remove_staging(payload) {
+            kept.push(format!("{e:#}"));
+        }
+        add_note(payload, kept);
+        Ok(())
+    }
+
+    /// Recovery of an interrupted phase 3: nothing more goes to the Trash.
+    /// The sources still there are kept (both copies exist; the copies are
+    /// the photos), the note says so, the staging folders go.
+    fn keep_remaining_sources(payload: &mut Payload, direction: Direction) {
+        let mut kept = Vec::new();
+        let forward = direction == Direction::Forward;
+        for step in &mut payload.steps {
+            let Some((source, _)) = copy_ends(step, direction) else {
+                continue;
+            };
+            let Target::OtherVolume { copy, .. } = &mut step.to else {
+                continue;
+            };
+            if copy.trashed.is_some() || (forward && copy.kept) || !exists(&source) {
+                if !forward {
+                    copy.kept = false;
+                }
+                continue;
+            }
+            copy.kept = true;
+            kept.push(format!(
+                "{} was kept: the move was interrupted before it went to the Trash",
+                source.display()
+            ));
+        }
+        if let Err(e) = remove_staging(payload) {
+            kept.push(format!("{e:#}"));
+        }
+        add_note(payload, kept);
     }
 
     /// Undoes a finished operation. Refuses, changing nothing, when any file
     /// has moved on since or something now occupies an original location.
     /// An undone operation goes onto the redo stack.
     pub fn undo(&self, id: &str, trash: &dyn SystemTrash) -> Result<Operation> {
+        self.undo_with(id, trash, &Unobserved)
+    }
+
+    /// [`Journal::undo`] with an observer of the copies back to other
+    /// volumes: an undo of a move to another volume is a copy move back
+    /// (ADR 0016); the copies it leaves go to the system Trash.
+    pub fn undo_with(
+        &self,
+        id: &str,
+        trash: &dyn SystemTrash,
+        observer: &dyn CopyObserver,
+    ) -> Result<Operation> {
         let op = self.operation(id)?;
         ensure!(
             op.state == State::Done,
@@ -358,32 +713,118 @@ impl Journal {
                         step.from.display()
                     );
                 }
+                Target::OtherVolume { path, copy } => {
+                    ensure!(
+                        fs::symlink_metadata(path).is_ok_and(|m| m.is_file()),
+                        "{} is no longer there; nothing was undone",
+                        path.display()
+                    );
+                    if copy.kept {
+                        // Both copies stayed: only the moved one goes.
+                        ensure!(
+                            exists(&step.from) && same_content(&step.from, path, false, None)?,
+                            "{} and {} differ now; nothing was undone",
+                            step.from.display(),
+                            path.display()
+                        );
+                    } else {
+                        ensure!(
+                            !exists(&step.from),
+                            "{} exists again; nothing was undone",
+                            step.from.display()
+                        );
+                    }
+                }
+            }
+        }
+        let mut steps = op.steps.clone();
+        check_copies(&copy_pairs(&steps, Direction::Back)).context("Nothing was undone")?;
+        let staging_dirs = plan_staging(&mut steps, Direction::Back)?;
+        for step in &mut steps {
+            // A kept original is not copied back: only the moved copy goes,
+            // if it does not change meanwhile.
+            if let Target::OtherVolume { path, copy } = &mut step.to
+                && copy.staged.is_none()
+            {
+                copy.stamp = Some(Stamp::of(path)?);
             }
         }
         let mut payload = Payload {
-            steps: op.steps.clone(),
+            steps,
             created_dirs: op.created_dirs.clone(),
             context: op.context.clone(),
+            staging_dirs,
             ..Payload::default()
         };
         self.store(id, State::Undoing, &payload)?;
+        #[cfg(test)]
+        crash::point("undo journaled");
+        if let Err(error) =
+            self.stage_copies(id, State::Undoing, &mut payload, Direction::Back, observer)
+        {
+            let cleaned = remove_staging(&payload);
+            payload.note = Some(match cleaned {
+                Ok(()) => format!("Undo failed: {error:#}"),
+                Err(e) => format!("Undo failed: {error:#}; {e:#}"),
+            });
+            self.store(id, State::Done, &payload)?;
+            return Err(error.context("Nothing was undone"));
+        }
         let total = payload.steps.len();
-        for undone in 0..total {
-            let step = &payload.steps[total - 1 - undone];
-            if let Err(error) = reverse(step, trash) {
-                // Put back what was already undone: the operation stays done.
-                let redo = payload.steps[total - undone..]
+        // One more round after the last step: Stop is honoured until the
+        // copies left behind start going to the Trash.
+        for undone in 0..=total {
+            let step = (undone < total).then(|| &payload.steps[total - 1 - undone]);
+            let reversed = if observer.cancelled() {
+                Err(anyhow::Error::new(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "Stopped",
+                )))
+            } else if let Some(step) = step {
+                reverse_for_undo(step, trash)
+            } else {
+                break;
+            };
+            if let Err(error) = reversed {
+                // Put back what was already undone: the operation stays
+                // done. A copy's publish back may fail after its rename;
+                // taking it back checks the file system, so it is included.
+                let from = if step.is_some_and(|s| matches!(s.to, Target::OtherVolume { .. })) {
+                    total - 1 - undone
+                } else {
+                    total - undone
+                };
+                let redo = payload.steps[from..]
                     .iter_mut()
-                    .try_for_each(|step| apply(step, trash));
-                payload.note = Some(match redo {
-                    Ok(()) => format!("Undo failed: {error:#}"),
-                    Err(e) => format!("Undo failed: {error:#}; could not restore: {e:#}"),
-                });
+                    .try_for_each(|step| reapply_after_undo(step, trash));
+                let cleaned = remove_staging(&payload);
+                let mut note = format!("Undo failed: {error:#}");
+                if let Err(e) = redo {
+                    note.push_str(&format!("; could not restore: {e:#}"));
+                }
+                if let Err(e) = cleaned {
+                    note.push_str(&format!("; {e:#}"));
+                }
+                payload.note = Some(note);
                 self.store(id, State::Done, &payload)?;
                 return Err(error.context("Nothing was undone"));
             }
+            #[cfg(test)]
+            crash::point("reversed");
+        }
+        if payload.has_copies() {
+            self.store_keeping_sync(id, State::UndoFinishing, &payload)?;
+            self.finish_copies(
+                id,
+                State::UndoFinishing,
+                &mut payload,
+                Direction::Back,
+                trash,
+            )?;
         }
         remove_created_dirs(&payload.created_dirs);
+        #[cfg(test)]
+        crash::point("before undone");
         let tx = self.conn.unchecked_transaction()?;
         self.store(id, State::Undone, &payload)?;
         self.set_redoable(id, true)?;
@@ -393,11 +834,21 @@ impl Journal {
 
     /// Redoes an undone operation on the redo stack: its plan is validated
     /// again as if new (every source back in place, no target taken, same
-    /// volume), journaled and carried out one no-clobber rename at a time.
+    /// volume for renames), journaled and carried out like the original.
     /// Refuses, changing nothing, when the world changed since the undo; a
     /// failing step rolls the applied ones back and the operation stays
     /// undone (and redoable); a crash is rolled back by [`Journal::recover`].
     pub fn redo(&self, id: &str, trash: &dyn SystemTrash) -> Result<Operation> {
+        self.redo_with(id, trash, &Unobserved)
+    }
+
+    /// [`Journal::redo`] with an observer of the copies to other volumes.
+    pub fn redo_with(
+        &self,
+        id: &str,
+        trash: &dyn SystemTrash,
+        observer: &dyn CopyObserver,
+    ) -> Result<Operation> {
         let op = self.operation(id)?;
         ensure!(
             op.state == State::Undone && self.redoable(id)?,
@@ -405,37 +856,70 @@ impl Journal {
         );
         let mut steps = op.steps.clone();
         for step in &mut steps {
-            // The item of the first trashing was put back by the undo.
-            if let Target::SystemTrash { item } = &mut step.to {
-                *item = None;
+            let from = step.from.clone();
+            match &mut step.to {
+                // The item of the first trashing was put back by the undo.
+                Target::SystemTrash { item } => *item = None,
+                Target::OtherVolume { path, copy } => {
+                    // A copy the undo kept (its trashing was interrupted or
+                    // refused) is the copy again, if it is still a file
+                    // with the original's bytes; anything else at the
+                    // destination is refused below as an existing file.
+                    let file = |p: &Path| fs::symlink_metadata(p).is_ok_and(|m| m.is_file());
+                    let present = copy.kept
+                        && file(path)
+                        && file(&from)
+                        && same_content(&from, path, false, None).unwrap_or(false);
+                    *copy = CopyState {
+                        present,
+                        ..CopyState::default()
+                    };
+                }
+                Target::Path { .. } => {}
             }
         }
         validate(&steps).context("Nothing was redone")?;
+        check_copies(&copy_pairs(&steps, Direction::Forward)).context("Nothing was redone")?;
         let created_dirs = create_target_parents(&steps).context("Nothing was redone")?;
+        let staging_dirs = plan_staging(&mut steps, Direction::Forward)?;
+        for step in &mut steps {
+            if let Target::OtherVolume { copy, .. } = &mut step.to
+                && copy.present
+            {
+                copy.stamp = Some(Stamp::of(&step.from)?);
+            }
+        }
         let mut payload = Payload {
             steps,
             created_dirs,
+            staging_dirs,
             context: op.context.clone(),
             ..Payload::default()
         };
         // The caller's records still follow the undone state until it is done.
         self.store_keeping_sync(id, State::Redoing, &payload)?;
-        for index in 0..payload.steps.len() {
-            if let Err(error) = apply(&mut payload.steps[index], trash) {
-                let reversed = reverse_steps(&payload.steps[..index], trash);
-                remove_created_dirs(&payload.created_dirs);
-                payload.note = Some(match reversed {
-                    Ok(()) => format!("Redo failed: {error:#}"),
-                    Err(e) => {
-                        format!("Redo failed: {error:#}; could not reverse every step: {e:#}")
-                    }
-                });
-                self.store_keeping_sync(id, State::Undone, &payload)?;
-                return Err(error.context("Nothing was redone"));
+        #[cfg(test)]
+        crash::point("redo journaled");
+        if let Err(error) = self.run_forward(id, State::Redoing, &mut payload, trash, observer) {
+            if let Some(note) = &mut payload.note {
+                *note = format!("Redo failed: {note}");
             }
-            if matches!(payload.steps[index].to, Target::SystemTrash { .. }) {
-                self.store_keeping_sync(id, State::Redoing, &payload)?;
-            }
+            keep_present_copies(&mut payload);
+            self.store_keeping_sync(id, State::Undone, &payload)?;
+            return Err(error.context("Nothing was redone"));
+        }
+        if payload.has_copies() {
+            let tx = self.conn.unchecked_transaction()?;
+            self.store(id, State::Finishing, &payload)?;
+            self.set_redoable(id, false)?;
+            tx.commit()?;
+            self.finish_copies(
+                id,
+                State::Finishing,
+                &mut payload,
+                Direction::Forward,
+                trash,
+            )?;
         }
         let tx = self.conn.unchecked_transaction()?;
         self.store(id, State::Done, &payload)?;
@@ -585,14 +1069,16 @@ impl Journal {
     }
 
     /// Rolls back operations a crash interrupted (an interrupted redo goes
-    /// back to undone), finishes the deletion of a committed purge and
-    /// returns every operation whose caller records still need to follow it
-    /// (including those).
+    /// back to undone; an interrupted undo of a copy move back to done),
+    /// finishes what was committed (the deletion of a purge, the trashing
+    /// of the sources of copies in place) and returns every operation whose
+    /// caller records still need to follow it (including those).
     pub fn recover(&self, trash: &dyn SystemTrash) -> Result<Vec<Operation>> {
         let ids: Vec<String> = {
             let mut q = self.conn.prepare(
                 "SELECT id FROM operations
-                 WHERE state IN ('applying','undoing','redoing','purging','purgeCommitted')
+                 WHERE state IN ('applying','undoing','redoing','purging','purgeCommitted',
+                                 'finishing','undoFinishing')
                  ORDER BY seq",
             )?;
             q.query_map([], |r| r.get(0))?
@@ -601,22 +1087,58 @@ impl Journal {
         for id in ids {
             let state = self.operation(&id)?.state;
             let mut payload = self.payload(&id)?;
-            if state == State::PurgeCommitted {
-                self.finish_purge(&id, payload)?;
-                continue;
+            match state {
+                State::PurgeCommitted => {
+                    self.finish_purge(&id, payload)?;
+                    continue;
+                }
+                State::Finishing => {
+                    // The copies are the photos: the move is done; the
+                    // sources not yet in the Trash are kept.
+                    Self::keep_remaining_sources(&mut payload, Direction::Forward);
+                    self.store(&id, State::Done, &payload)?;
+                    continue;
+                }
+                State::UndoFinishing => {
+                    Self::keep_remaining_sources(&mut payload, Direction::Back);
+                    remove_created_dirs(&payload.created_dirs);
+                    self.store(&id, State::Undone, &payload)?;
+                    self.set_redoable(&id, true)?;
+                    continue;
+                }
+                _ => {}
             }
             payload.note = None;
             let mut problems = Vec::new();
-            for step in payload.steps.iter().rev() {
-                if let Err(e) = restore_if_moved(step, trash) {
-                    problems.push(format!("{e:#}"));
+            if state == State::Undoing && payload.has_copies() {
+                // An undo copying back is rolled back: the move stays done.
+                for step in &payload.steps {
+                    if let Err(e) = reapply_after_undo_if_reversed(step, trash) {
+                        problems.push(format!("{e:#}"));
+                    }
+                }
+            } else {
+                for step in payload.steps.iter().rev() {
+                    if let Err(e) = restore_if_moved(step, trash) {
+                        problems.push(format!("{e:#}"));
+                    }
                 }
             }
-            remove_created_dirs(&payload.created_dirs);
+            if let Err(e) = remove_staging(&payload) {
+                problems.push(format!("{e:#}"));
+            }
+            if !(state == State::Undoing && payload.has_copies()) {
+                remove_created_dirs(&payload.created_dirs);
+            }
             if !problems.is_empty() {
                 payload.note = Some(format!("Recovery: {}", problems.join("; ")));
             }
             match state {
+                State::Undoing if payload.has_copies() => {
+                    // The records may have followed nothing of the undo,
+                    // but syncing done again is harmless.
+                    self.store(&id, State::Done, &payload)?;
+                }
                 State::Undoing => {
                     self.store(&id, State::Undone, &payload)?;
                     self.set_redoable(&id, true)?;
@@ -627,6 +1149,7 @@ impl Journal {
                 State::Redoing => {
                     // Back to undone: the records follow it as far as they
                     // did before the redo began.
+                    keep_present_copies(&mut payload);
                     self.store_keeping_sync(&id, State::Undone, &payload)?;
                 }
                 _ => {
@@ -943,34 +1466,42 @@ fn validate(steps: &[Step]) -> Result<()> {
             step.from.display()
         );
         ensure!(exists(&step.from), "{} was not found", step.from.display());
-        if let Target::Path { path } = &step.to {
+        if let Some(path) = step.target() {
             ensure!(
                 path.is_absolute(),
                 "{} is not an absolute path",
                 path.display()
             );
             ensure!(
-                targets.insert(path.clone()),
+                targets.insert(path.to_path_buf()),
                 "Two files would be named {}",
                 path.display()
             );
-            ensure!(path != &step.from, "{} would not move", path.display());
+            ensure!(path != step.from, "{} would not move", path.display());
             ensure!(
                 !path.starts_with(&step.from),
                 "{} cannot be moved into itself",
                 step.from.display()
             );
-            ensure!(
-                !exists(path) || same_file(&step.from, path),
-                "{} already exists",
-                path.display()
-            );
-            ensure!(
-                same_volume(&step.from, path)?,
-                "{} is on another volume than {}; moving between volumes is not supported yet",
-                path.display(),
-                step.from.display()
-            );
+            match &step.to {
+                Target::OtherVolume { copy, .. } if copy.present => {}
+                Target::OtherVolume { .. } => {
+                    ensure!(!exists(path), "{} already exists", path.display())
+                }
+                _ => ensure!(
+                    !exists(path) || same_file(&step.from, path),
+                    "{} already exists",
+                    path.display()
+                ),
+            }
+            if let Target::Path { .. } = step.to {
+                ensure!(
+                    same_volume(&step.from, path)?,
+                    "{} is on another volume than {}; a rename cannot move it there",
+                    path.display(),
+                    step.from.display()
+                );
+            }
         }
     }
     // A target that is another step's source would depend on step order.
@@ -988,7 +1519,7 @@ fn validate(steps: &[Step]) -> Result<()> {
 fn create_target_parents(steps: &[Step]) -> Result<Vec<PathBuf>> {
     let mut created = Vec::new();
     for step in steps {
-        let Target::Path { path } = &step.to else {
+        let Some(path) = step.target() else {
             continue;
         };
         let Some(parent) = path.parent() else {
@@ -1023,6 +1554,7 @@ fn apply(step: &mut Step, trash: &dyn SystemTrash) -> Result<()> {
                 })?);
             Ok(())
         }
+        Target::OtherVolume { .. } => publish(step, Direction::Forward),
     }
 }
 
@@ -1044,6 +1576,7 @@ fn reverse(step: &Step, trash: &dyn SystemTrash) -> Result<()> {
                 .restore(item, &step.from)
                 .with_context(|| format!("Cannot put {} back from the Trash", step.from.display()))
         }
+        Target::OtherVolume { .. } => unpublish(step, Direction::Forward),
     }
 }
 
@@ -1059,6 +1592,11 @@ fn reverse_steps(steps: &[Step], trash: &dyn SystemTrash) -> Result<()> {
 
 /// Recovery: reverses a step only where the file system shows it applied.
 fn restore_if_moved(step: &Step, trash: &dyn SystemTrash) -> Result<()> {
+    if let Target::OtherVolume { .. } = step.to {
+        // The source stays until the operation finishes; only a published
+        // copy is taken back.
+        return unpublish(step, Direction::Forward);
+    }
     if exists(&step.from) {
         return Ok(());
     }
@@ -1074,6 +1612,359 @@ fn restore_if_moved(step: &Step, trash: &dyn SystemTrash) -> Result<()> {
             "{} may be in the system Trash; put it back from there",
             step.from.display()
         ),
+        Target::OtherVolume { .. } => unreachable!("handled above"),
+    }
+}
+
+/// (source, destination) of a copy move's step in a direction.
+fn copy_ends(step: &Step, direction: Direction) -> Option<(PathBuf, PathBuf)> {
+    let Target::OtherVolume { path, .. } = &step.to else {
+        return None;
+    };
+    Some(match direction {
+        Direction::Forward => (step.from.clone(), path.clone()),
+        Direction::Back => (path.clone(), step.from.clone()),
+    })
+}
+
+/// A redo rolled back: the copies it was to take over are copies its undo
+/// kept again, so the next redo takes them over too.
+fn keep_present_copies(payload: &mut Payload) {
+    for step in &mut payload.steps {
+        if let Target::OtherVolume { copy, .. } = &mut step.to
+            && copy.present
+        {
+            copy.kept = true;
+        }
+    }
+}
+
+/// Adds what the user should know to the payload's note.
+fn add_note(payload: &mut Payload, lines: Vec<String>) {
+    if lines.is_empty() {
+        return;
+    }
+    let mut note = payload.note.take().map(|n| vec![n]).unwrap_or_default();
+    note.extend(lines);
+    payload.note = Some(note.join("; "));
+}
+
+/// Which way a copy move runs: the move itself, or its undo (copying back
+/// from the target to the original place).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Direction {
+    Forward,
+    Back,
+}
+
+/// The folder next to a target that a copy move stages its copies in
+/// (followed by a fresh id).
+const MOVE_STAGING_PREFIX: &str = ".rawtonic-moving-";
+
+/// (source, destination) of every file a direction copies: an undo copies
+/// back only what the move did not keep in place.
+fn copy_pairs(steps: &[Step], direction: Direction) -> Vec<(PathBuf, PathBuf)> {
+    steps
+        .iter()
+        .filter_map(|step| match (&step.to, direction) {
+            (Target::OtherVolume { path, copy }, Direction::Forward) if !copy.present => {
+                Some((step.from.clone(), path.clone()))
+            }
+            (Target::OtherVolume { path, copy }, Direction::Back) if !copy.kept => {
+                Some((path.clone(), step.from.clone()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// What a set of copies needs: per destination volume, the bytes to copy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyNeed {
+    pub volume: VolumeInfo,
+    pub bytes: u64,
+    pub files: usize,
+}
+
+/// The volumes a set of (source, destination) copies writes to and what
+/// each needs, refusing what a copy move does not support: a source that
+/// is not a regular file (a folder or a link), and sources or destinations
+/// on network drives.
+pub fn copy_needs(pairs: &[(PathBuf, PathBuf)]) -> Result<Vec<CopyNeed>> {
+    let mut needs: BTreeMap<PathBuf, CopyNeed> = BTreeMap::new();
+    for (source, destination) in pairs {
+        let meta = fs::symlink_metadata(source)
+            .with_context(|| format!("{} was not found", source.display()))?;
+        ensure!(
+            !meta.is_dir(),
+            "{} is a folder; moving folders to another drive is not supported yet",
+            source.display()
+        );
+        ensure!(
+            meta.is_file(),
+            "{} is a link or special file; only files can be moved to another drive",
+            source.display()
+        );
+        let from = volume_info(source)?;
+        ensure!(
+            !from.network,
+            "{} is on a network drive ({}); moving photos from network drives is not supported yet",
+            source.display(),
+            from.name
+        );
+        let to = volume_info(destination)?;
+        ensure!(
+            !to.network,
+            "{} is a network drive; moving photos to network drives is not supported yet",
+            to.name
+        );
+        let need = needs
+            .entry(to.mount_point.clone())
+            .or_insert_with(|| CopyNeed {
+                volume: to,
+                bytes: 0,
+                files: 0,
+            });
+        need.bytes += meta.len();
+        need.files += 1;
+    }
+    Ok(needs.into_values().collect())
+}
+
+/// [`copy_needs`], refusing when a volume has too little free space (the
+/// bytes plus [`SPACE_RESERVE`]).
+fn check_copies(pairs: &[(PathBuf, PathBuf)]) -> Result<()> {
+    for need in copy_needs(pairs)? {
+        ensure!(
+            need.volume.free_bytes >= need.bytes.saturating_add(SPACE_RESERVE),
+            "{} to copy do not fit on {}: {} free there, and {} are kept free",
+            format_bytes(need.bytes),
+            need.volume.name,
+            format_bytes(need.volume.free_bytes),
+            format_bytes(SPACE_RESERVE)
+        );
+    }
+    Ok(())
+}
+
+/// Bytes for a message, in decimal units as file browsers show them.
+pub fn format_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["bytes", "KB", "MB", "GB", "TB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1000.0 && unit + 1 < UNITS.len() {
+        value /= 1000.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} bytes")
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
+    }
+}
+
+/// Plans where a direction stages its copies: one new staging folder per
+/// destination folder, each file named by its step's number in it. Returns the staging
+/// folders (not made yet). The progress of the direction starts over; an
+/// undo keeps what the move recorded about the originals.
+fn plan_staging(steps: &mut [Step], direction: Direction) -> Result<Vec<PathBuf>> {
+    let mut folders: BTreeMap<PathBuf, PathBuf> = BTreeMap::new();
+    for (index, step) in steps.iter_mut().enumerate() {
+        let from = step.from.clone();
+        let Target::OtherVolume { path, copy } = &mut step.to else {
+            continue;
+        };
+        copy.copied = false;
+        copy.stamp = None;
+        copy.copy_stamp = None;
+        copy.staged = None;
+        copy.trashed = None;
+        let destination = match direction {
+            Direction::Forward if copy.present => continue,
+            Direction::Forward => path.clone(),
+            Direction::Back if copy.kept => continue,
+            Direction::Back => from,
+        };
+        let Some(parent) = destination.parent() else {
+            bail!("{} has no folder", destination.display());
+        };
+        let staging = folders.entry(parent.to_path_buf()).or_insert_with(|| {
+            parent.join(format!("{MOVE_STAGING_PREFIX}{}", uuid::Uuid::new_v4()))
+        });
+        // The step's number alone: a name of any length fits.
+        copy.staged = Some(staging.join(index.to_string()));
+    }
+    Ok(folders.into_values().collect())
+}
+
+/// Whether copies can be put in `folder` without risking replacing a file
+/// (ADR 0016): makes a staging folder there, probes an exclusive rename in
+/// it and removes it again.
+pub fn probe_folder(folder: &Path) -> Result<()> {
+    let dir = folder.join(format!("{MOVE_STAGING_PREFIX}{}", uuid::Uuid::new_v4()));
+    fs::create_dir(&dir).with_context(|| format!("Cannot write in {}", folder.display()))?;
+    let result = probe_exclusive_rename(&dir);
+    volume::remove_probe(&dir);
+    let _ = fs::remove_dir(&dir);
+    result
+}
+
+/// Whether `dir` is a staging folder of a copy move.
+fn is_staging_dir(dir: &Path) -> bool {
+    dir.file_name()
+        .is_some_and(|n| n.to_string_lossy().starts_with(MOVE_STAGING_PREFIX))
+}
+
+/// Removes the staging folders of the payload: only the staged names the
+/// journal recorded directly in them (files, never following a link) and
+/// the probe files, then each folder if it is empty. A folder that is not
+/// a staging folder is never touched.
+fn remove_staging(payload: &Payload) -> Result<()> {
+    let mut problems = Vec::new();
+    for dir in &payload.staging_dirs {
+        // A real folder of that name, never one put in its place by a link.
+        let real = fs::symlink_metadata(dir).map(|m| m.is_dir() && !m.file_type().is_symlink());
+        match real {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+            Ok(true) if is_staging_dir(dir) => {}
+            _ => {
+                problems.push(format!(
+                    "{} is not a staging folder; it was left",
+                    dir.display()
+                ));
+                continue;
+            }
+        }
+        for step in &payload.steps {
+            let Target::OtherVolume { copy, .. } = &step.to else {
+                continue;
+            };
+            let Some(staged) = copy.staged.as_deref().filter(|s| directly_in(s, dir)) else {
+                continue;
+            };
+            match fs::symlink_metadata(staged) {
+                Ok(meta) if meta.is_file() => {
+                    if let Err(e) = fs::remove_file(staged) {
+                        problems.push(format!("Cannot remove {}: {e}", staged.display()));
+                    }
+                }
+                Ok(_) => problems.push(format!("{} is not a copy; it was left", staged.display())),
+                Err(_) => {}
+            }
+        }
+        volume::remove_probe(dir);
+        match fs::remove_dir(dir) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => problems.push(format!("Cannot remove the folder {}: {e}", dir.display())),
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        bail!(problems.join("; "))
+    }
+}
+
+/// Puts a verified staged copy at its destination with an exclusive rename.
+fn publish(step: &Step, direction: Direction) -> Result<()> {
+    let Target::OtherVolume { path, copy } = &step.to else {
+        bail!("Not a copy move");
+    };
+    let destination = match direction {
+        Direction::Forward => path.as_path(),
+        Direction::Back => step.from.as_path(),
+    };
+    let Some(staged) = copy.staged.as_deref() else {
+        // An undo leaves a kept original where it is.
+        return Ok(());
+    };
+    ensure!(copy.copied, "{} was not copied", staged.display());
+    rename_exclusive(staged, destination).with_context(|| {
+        format!(
+            "Cannot put the copy of {} at {}",
+            step.from.display(),
+            destination.display()
+        )
+    })?;
+    if let Some(parent) = destination.parent() {
+        sync_folder(parent)?;
+    }
+    #[cfg(test)]
+    crash::point("published");
+    Ok(())
+}
+
+/// Takes a published copy back into its staging folder (to be removed with
+/// it), where the file system shows it was published and it still holds
+/// its source's bytes. A copy that differs from its source, or whose
+/// source is gone, stays where it is: both are never lost.
+fn unpublish(step: &Step, direction: Direction) -> Result<()> {
+    let Target::OtherVolume { path, copy } = &step.to else {
+        bail!("Not a copy move");
+    };
+    let (source, destination) = match direction {
+        Direction::Forward => (step.from.as_path(), path.as_path()),
+        Direction::Back => (path.as_path(), step.from.as_path()),
+    };
+    let Some(staged) = copy.staged.as_deref() else {
+        return Ok(());
+    };
+    if !copy.copied || exists(staged) || !exists(destination) {
+        // Never published (a file there now is someone else's).
+        return Ok(());
+    }
+    // The source must be a file of its own: not gone, not a link (or a
+    // hard link) to the copy, which would then be the only one left.
+    ensure!(
+        fs::symlink_metadata(source).is_ok_and(|m| m.is_file()) && !same_file(source, destination),
+        "{} is gone or not a file of its own; its copy stays at {}",
+        source.display(),
+        destination.display()
+    );
+    ensure!(
+        same_content(source, destination, false, None)?,
+        "{} differs from {} now; both were kept",
+        destination.display(),
+        source.display()
+    );
+    rename_exclusive(destination, staged)
+        .with_context(|| format!("Cannot take the copy at {} back", destination.display()))
+}
+
+/// Undo of one step: renames back, puts back from the Trash, publishes a
+/// copy back.
+fn reverse_for_undo(step: &Step, trash: &dyn SystemTrash) -> Result<()> {
+    match step.to {
+        Target::OtherVolume { .. } => publish(step, Direction::Back),
+        _ => reverse(step, trash),
+    }
+}
+
+/// Re-applies a step an undo had reversed, when the undo fails.
+fn reapply_after_undo(step: &mut Step, trash: &dyn SystemTrash) -> Result<()> {
+    match step.to {
+        Target::OtherVolume { .. } => unpublish(step, Direction::Back),
+        _ => apply(step, trash),
+    }
+}
+
+/// Recovery of an undo of a copy move: re-applies each step the file
+/// system shows reversed, so the operation is done again.
+fn reapply_after_undo_if_reversed(step: &Step, trash: &dyn SystemTrash) -> Result<()> {
+    match &step.to {
+        Target::OtherVolume { .. } => unpublish(step, Direction::Back),
+        Target::Path { path } if exists(&step.from) && !exists(path) => {
+            rename_no_clobber(&step.from, path).with_context(|| {
+                format!("Cannot move {} to {}", step.from.display(), path.display())
+            })
+        }
+        Target::SystemTrash { .. } if exists(&step.from) => trash
+            .trash(&step.from)
+            .map(drop)
+            .with_context(|| format!("Cannot move {} to the Trash", step.from.display())),
+        _ => Ok(()),
     }
 }
 
@@ -1172,6 +2063,43 @@ fn c_path(path: &Path) -> io::Result<std::ffi::CString> {
     use std::os::unix::ffi::OsStrExt;
     std::ffi::CString::new(path.as_os_str().as_bytes())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Path contains a NUL byte"))
+}
+
+/// Simulated crashes for the tests: an armed point panics, leaving the
+/// journal and the files as a power cut would.
+#[cfg(test)]
+pub(crate) mod crash {
+    use std::cell::Cell;
+    thread_local! {
+        static COUNTDOWN: Cell<Option<usize>> = const { Cell::new(None) };
+        static AT_LABEL: Cell<Option<&'static str>> = const { Cell::new(None) };
+    }
+    /// Crash at the `n`-th point reached from now (0 = the next).
+    pub fn arm(n: usize) {
+        COUNTDOWN.set(Some(n));
+    }
+    /// Crash at the first point named `label`.
+    pub fn arm_at(label: &'static str) {
+        AT_LABEL.set(Some(label));
+    }
+    /// Whether the armed crash has not happened (and disarms it).
+    pub fn disarm() -> bool {
+        AT_LABEL.take().is_some() | COUNTDOWN.take().is_some()
+    }
+    pub fn point(label: &str) {
+        if AT_LABEL.get() == Some(label) {
+            AT_LABEL.set(None);
+            panic!("simulated crash at {label}");
+        }
+        match COUNTDOWN.get() {
+            Some(0) => {
+                COUNTDOWN.set(None);
+                panic!("simulated crash at {label}");
+            }
+            Some(n) => COUNTDOWN.set(Some(n - 1)),
+            None => {}
+        }
+    }
 }
 
 #[cfg(test)]
