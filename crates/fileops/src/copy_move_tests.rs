@@ -16,6 +16,8 @@ type TrashHook = Box<dyn FnMut(&Path)>;
 
 struct FakeTrash {
     refuse: Cell<bool>,
+    /// Moves the file, then fails (a Trash that cannot tell its item).
+    lose_item: Cell<bool>,
     on_trash: RefCell<Option<TrashHook>>,
     dirs: RefCell<Vec<PathBuf>>,
 }
@@ -24,6 +26,7 @@ impl FakeTrash {
     fn new() -> Self {
         Self {
             refuse: Cell::new(false),
+            lose_item: Cell::new(false),
             on_trash: RefCell::new(None),
             dirs: RefCell::new(Vec::new()),
         }
@@ -57,6 +60,10 @@ impl SystemTrash for FakeTrash {
             path.file_name().unwrap().to_string_lossy()
         ));
         fs::rename(path, &item)?;
+        ensure!(
+            !self.lose_item.get(),
+            "the trashed item was not found in the Trash"
+        );
         Ok(item.to_string_lossy().into_owned())
     }
     fn restore(&self, item: &str, original: &Path) -> Result<()> {
@@ -1062,4 +1069,48 @@ fn redo_takes_back_copies_an_undo_kept() {
         fs::read(world.target.join("A.xmp")).unwrap(),
         b"edited there"
     );
+}
+
+/// Redo takes over only a copy its undo kept, never another file that
+/// happens to hold the same bytes (here a link to the original).
+#[cfg(unix)]
+#[test]
+fn redo_never_takes_a_link_or_another_file_for_a_copy() {
+    let world = World::new();
+    let journal = world.journal();
+    let op = journal
+        .execute("move", "Move", world.steps(), &world.trash)
+        .unwrap();
+    journal.undo(&op.id, &world.trash).unwrap();
+    std::os::unix::fs::symlink(world.source.join("A.RAF"), world.target.join("A.RAF")).unwrap();
+    let error = journal.redo(&op.id, &world.trash).unwrap_err();
+    assert!(format!("{error:#}").contains("already exists"), "{error:#}");
+    assert!(
+        fs::symlink_metadata(world.target.join("A.RAF"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    for (name, len) in FILES {
+        assert_eq!(
+            fs::read(world.source.join(name)).unwrap(),
+            content(name, len)
+        );
+    }
+}
+
+/// A Trash that takes the file and then fails to say where: the original
+/// is not reported as kept, and undo copies the photo back.
+#[test]
+fn a_trash_that_loses_its_item_still_allows_undo() {
+    let world = World::new();
+    world.trash.lose_item.set(true);
+    let journal = world.journal();
+    let op = journal
+        .execute("move", "Move", world.steps(), &world.trash)
+        .unwrap();
+    assert!(op.note.unwrap().contains("did not say where"));
+    world.trash.lose_item.set(false);
+    journal.undo(&op.id, &world.trash).unwrap();
+    world.assert_at(&world.source, &world.target);
 }

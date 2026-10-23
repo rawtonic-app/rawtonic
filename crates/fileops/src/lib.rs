@@ -77,13 +77,15 @@ pub struct CopyState {
     /// The Trash item of the source this direction trashed.
     #[serde(default)]
     pub trashed: Option<String>,
-    /// The last finished direction kept its source (it changed, or its
-    /// volume has no Trash): both copies exist.
+    /// The last finished direction kept its source (it changed, its copy
+    /// was not there unchanged, its volume has no Trash, or the direction
+    /// was interrupted before it went): both copies exist. A move's undo
+    /// needs it; a redo takes a copy its undo kept as the copy again.
     #[serde(default)]
     pub kept: bool,
-    /// A redo found the destination holding the source's very bytes (a
-    /// copy its undo kept): it is taken as the copy, nothing is copied,
-    /// and only the source goes to the Trash.
+    /// A redo found at the destination the copy its undo kept, still a
+    /// file with the source's very bytes: it is taken as the copy, nothing
+    /// is copied, and only the source goes to the Trash.
     #[serde(default)]
     pub present: bool,
 }
@@ -567,6 +569,10 @@ impl Journal {
             let Target::OtherVolume { copy, .. } = &mut step.to else {
                 continue;
             };
+            if !forward {
+                // From here `kept` tells what the undo kept (see below).
+                copy.kept = false;
+            }
             if copy.trashed.is_some() || (forward && copy.kept) || !exists(&source) {
                 continue;
             }
@@ -577,14 +583,14 @@ impl Journal {
                     Stamp::of(&destination).ok() == copy.copy_stamp
                 };
             if !copy_there {
-                copy.kept |= forward;
+                copy.kept = true;
                 kept.push(format!(
                     "{} was kept: its copy at {} is not there unchanged",
                     source.display(),
                     destination.display()
                 ));
             } else if Stamp::of(&source).ok() != copy.stamp {
-                copy.kept |= forward;
+                copy.kept = true;
                 kept.push(format!(
                     "{} changed while it was moved and was kept",
                     source.display()
@@ -592,8 +598,14 @@ impl Journal {
             } else {
                 match trash.trash(&source) {
                     Ok(item) => copy.trashed = Some(item),
+                    // The Trash took it but could not say where.
+                    Err(e) if !exists(&source) => kept.push(format!(
+                        "{} went to the Trash, which did not say where ({e:#}); \
+                         put it back from there to undo",
+                        source.display()
+                    )),
                     Err(e) => {
-                        copy.kept |= forward;
+                        copy.kept = true;
                         kept.push(format!(
                             "{} was kept: it cannot go to the Trash ({e:#})",
                             source.display()
@@ -628,9 +640,12 @@ impl Journal {
                 continue;
             };
             if copy.trashed.is_some() || (forward && copy.kept) || !exists(&source) {
+                if !forward {
+                    copy.kept = false;
+                }
                 continue;
             }
-            copy.kept |= forward;
+            copy.kept = true;
             kept.push(format!(
                 "{} was kept: the move was interrupted before it went to the Trash",
                 source.display()
@@ -838,10 +853,14 @@ impl Journal {
                 // The item of the first trashing was put back by the undo.
                 Target::SystemTrash { item } => *item = None,
                 Target::OtherVolume { path, copy } => {
-                    // A copy the undo kept (its original was interrupted
-                    // or could not go to the Trash) is the copy again.
-                    let present = exists(path)
-                        && exists(&from)
+                    // A copy the undo kept (its trashing was interrupted or
+                    // refused) is the copy again, if it is still a file
+                    // with the original's bytes; anything else at the
+                    // destination is refused below as an existing file.
+                    let file = |p: &Path| fs::symlink_metadata(p).is_ok_and(|m| m.is_file());
+                    let present = copy.kept
+                        && file(path)
+                        && file(&from)
                         && same_content(&from, path, false, None).unwrap_or(false);
                     *copy = CopyState {
                         present,

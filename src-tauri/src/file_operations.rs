@@ -102,7 +102,9 @@ static JOURNAL: Mutex<Option<Journal>> = Mutex::new(None);
 struct StopSwitch {
     running: AtomicU64,
     next: AtomicU64,
-    stopped: AtomicBool,
+    /// The run Stop was pressed for: one value, so no interleaving of
+    /// Stop and a new run can stop that new run.
+    stopped: AtomicU64,
 }
 
 impl StopSwitch {
@@ -110,13 +112,12 @@ impl StopSwitch {
         Self {
             running: AtomicU64::new(0),
             next: AtomicU64::new(1),
-            stopped: AtomicBool::new(false),
+            stopped: AtomicU64::new(0),
         }
     }
     /// A run begins (holding the journal's lock); returns its number.
     fn begin(&self) -> u64 {
         let run = self.next.fetch_add(1, Ordering::SeqCst);
-        self.stopped.store(false, Ordering::SeqCst);
         self.running.store(run, Ordering::SeqCst);
         run
     }
@@ -128,11 +129,11 @@ impl StopSwitch {
     }
     fn stop(&self, run: u64) {
         if run != 0 && self.running.load(Ordering::SeqCst) == run {
-            self.stopped.store(true, Ordering::SeqCst);
+            self.stopped.store(run, Ordering::SeqCst);
         }
     }
     fn stopped(&self, run: u64) -> bool {
-        self.stopped.load(Ordering::SeqCst) && self.running.load(Ordering::SeqCst) == run
+        run != 0 && self.stopped.load(Ordering::SeqCst) == run
     }
 }
 
@@ -1130,6 +1131,9 @@ mod tests {
         assert!(!switch.stopped(b), "a new run starts unstopped");
         switch.stop(a);
         assert!(!switch.stopped(b), "a Stop left from the last run");
+        // A Stop for A that read A as running, then landed after B began.
+        switch.stopped.store(a, Ordering::SeqCst);
+        assert!(!switch.stopped(b), "a late Stop for the last run");
         switch.stop(b);
         assert!(switch.stopped(b));
         switch.end(b);
