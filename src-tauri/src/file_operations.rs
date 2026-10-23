@@ -8,17 +8,24 @@
 //! One's session Trash); elsewhere, and from that folder, they go to the
 //! system Trash. Undone operations can be redone until a new one runs.
 //! The only deletion is the user's explicit Empty Trash of a session's
-//! `Trash/` folder (`empty_session_trash`, journaled, not undoable).
+//! `Trash/` folder (`empty_session_trash`, journaled, not undoable). A move
+//! to another drive copies, verifies and then trashes the originals (ADR
+//! 0016); its progress goes to the Library, which can stop it.
 use crate::file_management::{AlbumItem, add_to_album, get_albums, sync_album_path_changes};
 use crate::formats::is_supported_image_file;
 use rawtonic_catalog::{Library, session_for};
-use rawtonic_fileops::{Journal, Operation, State, Step, SystemTrash, Target};
+use rawtonic_fileops::{CopyObserver, Journal, Operation, State, Step, SystemTrash, Target};
 use serde::Serialize;
 use std::{
+    cell::Cell,
     collections::{BTreeSet, HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -89,6 +96,73 @@ impl SystemTrash for PlatformTrash {
 
 static JOURNAL: Mutex<Option<Journal>> = Mutex::new(None);
 
+/// Set by Stop while files are copied to another drive.
+static STOP_COPYING: AtomicBool = AtomicBool::new(false);
+
+/// The event with the bytes copied so far by a move to another drive (or
+/// its undo or redo).
+pub const FILE_OPERATION_PROGRESS: &str = "file-operation-progress";
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CopyProgress {
+    label: String,
+    done: u64,
+    total: u64,
+}
+
+/// Sends the copy progress to the frontend (at most ten times a second)
+/// and passes Stop on.
+struct ProgressEvents<'a> {
+    app: &'a AppHandle,
+    label: String,
+    last: Cell<Option<Instant>>,
+}
+
+impl<'a> ProgressEvents<'a> {
+    fn new(app: &'a AppHandle, label: &str) -> Self {
+        STOP_COPYING.store(false, Ordering::SeqCst);
+        Self {
+            app,
+            label: label.to_string(),
+            last: Cell::new(None),
+        }
+    }
+}
+
+impl CopyObserver for ProgressEvents<'_> {
+    fn copied(&self, done: u64, total: u64) {
+        let now = Instant::now();
+        if done < total
+            && self
+                .last
+                .get()
+                .is_some_and(|last| now - last < Duration::from_millis(100))
+        {
+            return;
+        }
+        self.last.set(Some(now));
+        let _ = self.app.emit(
+            FILE_OPERATION_PROGRESS,
+            CopyProgress {
+                label: self.label.clone(),
+                done,
+                total,
+            },
+        );
+    }
+    fn cancelled(&self) -> bool {
+        STOP_COPYING.load(Ordering::SeqCst)
+    }
+}
+
+/// Stops the copying of a move to another drive (or its undo or redo):
+/// what was copied is removed and nothing is moved.
+#[tauri::command]
+pub fn stop_file_operation() {
+    STOP_COPYING.store(true, Ordering::SeqCst);
+}
+
 fn with_journal<T>(
     app: &AppHandle,
     f: impl FnOnce(&Journal) -> anyhow::Result<T>,
@@ -126,6 +200,9 @@ pub struct OperationSummary {
     /// them. Sidecars and virtual copies are not listed: copies follow
     /// their photo.
     pub moves: Vec<PathMove>,
+    /// What the user should know, e.g. originals a move to another drive
+    /// kept in place.
+    pub note: Option<String>,
 }
 
 /// A photo or folder that moved from `from` to `to`.
@@ -147,6 +224,7 @@ impl From<&Operation> for OperationSummary {
             system_trash: 0,
             new_paths: Vec::new(),
             moves: Vec::new(),
+            note: op.note.clone(),
         };
         // Done: from → to; undone: back from to → from; otherwise (rolled
         // back, interrupted) nothing is anywhere new.
@@ -166,7 +244,7 @@ impl From<&Operation> for OperationSummary {
             summary.items += 1;
             match &step.to {
                 Target::SystemTrash { .. } => summary.system_trash += 1,
-                Target::Path { path } => {
+                Target::Path { path } | Target::OtherVolume { path, .. } => {
                     if op.kind == "trash" {
                         summary.session_trash += 1;
                     }
@@ -332,8 +410,9 @@ pub fn run(
         .filter_map(|s| item_key(&s.from))
         .collect();
     let memberships = album_memberships(app, &trashed);
+    let progress = ProgressEvents::new(app, label);
     let op = with_journal(app, |journal| {
-        let op = journal.execute(kind, label, steps, &PlatformTrash)?;
+        let op = journal.execute_with(kind, label, steps, &PlatformTrash, &progress)?;
         if !memberships.is_empty() {
             journal.set_context(&op.id, serde_json::json!({ "albums": memberships }))?;
         }
@@ -348,7 +427,10 @@ pub fn undo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
     let Some(last) = with_journal(app, |journal| journal.last_undoable())? else {
         return Ok(None);
     };
-    let op = with_journal(app, |journal| journal.undo(&last.id, &PlatformTrash))?;
+    let progress = ProgressEvents::new(app, &last.label);
+    let op = with_journal(app, |journal| {
+        journal.undo_with(&last.id, &PlatformTrash, &progress)
+    })?;
     sync_pending(app, Some(&op.id));
     Ok(Some(op))
 }
@@ -360,7 +442,10 @@ pub fn redo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
     let Some(next) = with_journal(app, |journal| journal.last_redoable())? else {
         return Ok(None);
     };
-    let op = with_journal(app, |journal| journal.redo(&next.id, &PlatformTrash))?;
+    let progress = ProgressEvents::new(app, &next.label);
+    let op = with_journal(app, |journal| {
+        journal.redo_with(&next.id, &PlatformTrash, &progress)
+    })?;
     sync_pending(app, Some(&op.id));
     Ok(Some(op))
 }
@@ -430,10 +515,7 @@ fn touched(op: &Operation) -> Vec<PathBuf> {
     op.steps
         .iter()
         .flat_map(|step| {
-            let to = match &step.to {
-                Target::Path { path } => Some(path.clone()),
-                Target::SystemTrash { .. } => None,
-            };
+            let to = step.target().map(Path::to_path_buf);
             std::iter::once(step.from.clone()).chain(to)
         })
         .collect()

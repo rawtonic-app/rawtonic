@@ -4,9 +4,12 @@ import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'react-toastify';
 import '../i18n';
 import {
+  describeCrossVolumeMove,
   describeEmptyTrash,
   describeFileOperation,
   FileOperationSummary,
+  formatBytes,
+  type MovePlan,
   undoHint,
   type TrashContents,
   useFileOperations,
@@ -22,7 +25,10 @@ import { debouncedSave } from './useEditorActions';
 import { INITIAL_ADJUSTMENTS } from '../utils/adjustments';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warn: vi.fn() } }));
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
+vi.mock('react-toastify', () => ({
+  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warn: vi.fn(), update: vi.fn(), dismiss: vi.fn() },
+}));
 
 const summary = (part: Partial<FileOperationSummary>): FileOperationSummary => ({
   id: 'op',
@@ -413,5 +419,81 @@ describe('moving to the Trash', () => {
     hook().handleTrashFolder('C:\\job\\Day 1');
     await useUIStore.getState().confirmModalState.onConfirm?.();
     expect(useLibraryStore.getState().currentFolderPath).toBeNull();
+  });
+});
+
+describe('moving photos to another drive', () => {
+  const plan = (part: Partial<MovePlan>): MovePlan => ({
+    crossVolume: true,
+    photos: 2,
+    files: 5,
+    bytes: 123_400_000,
+    drive: 'Archive SSD',
+    freeBytes: 1_900_000_000_000,
+    sourceDrives: ['Macintosh HD'],
+    refusal: null,
+    ...part,
+  });
+  const moved = summary({ kind: 'move', label: 'Move 2 photos to 2026', newPaths: ['/Volumes/Archive SSD/2026/A.RAF'] });
+  const hook = () => renderHook(() => useFileOperations(vi.fn(), vi.fn(), vi.fn(), vi.fn(), []));
+
+  beforeEach(() => {
+    vi.mocked(invoke).mockReset();
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    vi.mocked(toast.error).mockClear();
+    vi.mocked(toast.warn).mockClear();
+    useUIStore.setState({ confirmModalState: { isOpen: false } });
+  });
+
+  it('formats sizes as file browsers do', () => {
+    expect(formatBytes(512)).toBe('512 bytes');
+    expect(formatBytes(123_400_000)).toBe('123.4 MB');
+    expect(formatBytes(1_900_000_000_000)).toBe('1.9 TB');
+  });
+
+  it('asks first, naming the drive, the bytes to copy, the free space and where the originals go', async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(plan({})).mockResolvedValueOnce(moved);
+    const { result } = hook();
+    await result.current.handleMoveToFolder(['/Users/a/A.RAF', '/Users/a/B.RAF'], '/Volumes/Archive SSD/2026');
+    expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.PlanMoveFiles, {
+      sourcePaths: ['/Users/a/A.RAF', '/Users/a/B.RAF'],
+      destinationFolder: '/Volumes/Archive SSD/2026',
+    });
+    const asked = useUIStore.getState().confirmModalState;
+    expect(asked.title).toBe('Move to Archive SSD?');
+    expect(asked.message).toBe(describeCrossVolumeMove(plan({})));
+    expect(asked.message).toContain('5 files, 123.4 MB');
+    expect(asked.message).toContain('which has 1.9 TB free');
+    expect(asked.message).toContain('the Trash of Macintosh HD');
+    asked.onConfirm?.();
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.MoveFiles, {
+        sourcePaths: ['/Users/a/A.RAF', '/Users/a/B.RAF'],
+        destinationFolder: '/Volumes/Archive SSD/2026',
+      }),
+    );
+  });
+
+  it('says why a move cannot go to that drive and moves nothing', async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(plan({ refusal: 'Archive SSD is a network drive' }));
+    const { result } = hook();
+    await result.current.handleMoveToFolder(['/Users/a/A.RAF'], '/Volumes/Archive SSD');
+    expect(toast.error).toHaveBeenCalledWith('Could not move: Archive SSD is a network drive');
+    expect(useUIStore.getState().confirmModalState.isOpen).toBe(false);
+    expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(Invokes.MoveFiles, expect.anything());
+  });
+
+  it('moves on one drive without asking, and tells about originals a move kept', async () => {
+    vi.mocked(invoke)
+      .mockResolvedValueOnce(plan({ crossVolume: false }))
+      .mockResolvedValueOnce({ ...moved, note: '/Users/a/A.xmp changed while it was moved and was kept' });
+    const { result } = hook();
+    await result.current.handleMoveToFolder(['/Users/a/A.RAF'], '/Users/a/Selects');
+    expect(useUIStore.getState().confirmModalState.isOpen).toBe(false);
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.MoveFiles, expect.anything());
+    expect(toast.warn).toHaveBeenCalledWith('/Users/a/A.xmp changed while it was moved and was kept', {
+      autoClose: false,
+    });
   });
 });

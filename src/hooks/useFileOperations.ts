@@ -1,6 +1,7 @@
-import { useCallback } from 'react';
+import { createElement, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { toast } from 'react-toastify';
+import { listen } from '@tauri-apps/api/event';
+import { toast, type Id } from 'react-toastify';
 import i18next from 'i18next';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useEditorStore } from '../store/useEditorStore';
@@ -25,6 +26,95 @@ export interface FileOperationSummary {
   /** Photos and folders now elsewhere, in the direction just applied (an
    * undo reverses its operation). */
   moves: PathMove[];
+  /** What the user should know, e.g. originals a move to another drive kept. */
+  note?: string | null;
+}
+
+/** Mirrors `MovePlan` in src-tauri/src/file_management/operations.rs. */
+export interface MovePlan {
+  /** Some files are copied to another drive and their originals trashed. */
+  crossVolume: boolean;
+  photos: number;
+  files: number;
+  bytes: number;
+  drive: string;
+  freeBytes: number;
+  sourceDrives: string[];
+  refusal?: string | null;
+}
+
+/** Bytes in decimal units, as file browsers show them. */
+export function formatBytes(bytes: number): string {
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  if (bytes < 1000) return `${bytes} bytes`;
+  let value = bytes;
+  let unit = -1;
+  while (value >= 1000 && unit + 1 < units.length) {
+    value /= 1000;
+    unit += 1;
+  }
+  return `${value.toFixed(1)} ${units[unit]}`;
+}
+
+/** The question before photos are copied to another drive: which drive,
+ * how much is copied and how much is free there, where the originals go. */
+export function describeCrossVolumeMove(plan: MovePlan): string {
+  return i18next.t('studio.library.fileOperations.otherDriveMessage', {
+    count: plan.photos,
+    files: plan.files,
+    size: formatBytes(plan.bytes),
+    drive: plan.drive,
+    free: formatBytes(plan.freeBytes),
+    sources: plan.sourceDrives.join(', '),
+  });
+}
+
+/** Mirrors `CopyProgress` in src-tauri/src/file_operations.rs. */
+interface CopyProgress {
+  label: string;
+  done: number;
+  total: number;
+}
+
+/** Runs a file operation; while it copies files to another drive a toast
+ * shows how far it is, with Stop (what was copied is removed, nothing moves). */
+async function withCopyProgress<T>(run: () => Promise<T>): Promise<T> {
+  let shown: Id | null = null;
+  const stop = createElement(
+    'button',
+    { className: 'ml-3 underline', onClick: () => void invoke(Invokes.StopFileOperation) },
+    i18next.t('studio.library.fileOperations.stopCopying'),
+  );
+  const unlisten = await listen<CopyProgress>('file-operation-progress', ({ payload }) => {
+    const render = createElement(
+      'span',
+      null,
+      i18next.t('studio.library.fileOperations.copying', {
+        label: payload.label,
+        done: formatBytes(payload.done),
+        total: formatBytes(payload.total),
+      }),
+      stop,
+    );
+    // Below 1: a full bar would close the toast before the move is done.
+    const progress = payload.total > 0 ? Math.min(payload.done / payload.total, 0.99) : 0;
+    if (shown === null) {
+      shown = toast.info(render, { autoClose: false, closeButton: false, closeOnClick: false, progress });
+    } else {
+      toast.update(shown, { render, progress });
+    }
+  });
+  try {
+    return await run();
+  } finally {
+    unlisten();
+    if (shown !== null) toast.dismiss(shown);
+  }
+}
+
+/** Tells what a finished operation left for the user to know (originals kept). */
+function warnAboutNote(summary: FileOperationSummary | null | undefined) {
+  if (summary?.note) toast.warn(summary.note, { autoClose: false });
 }
 
 /** Before files change place: the open photograph's recipe is written to
@@ -142,6 +232,41 @@ export function describeFileOperation(summary: FileOperationSummary, hint = undo
     return `${opsCount('movedTo', summary.newPaths.length, { folder })} ${hint}`;
   }
   return `${summary.label}. ${hint}`;
+}
+
+/** Runs `move` at once when the photos stay on their drive; when files go
+ * to another drive, asks first (naming the drive, the bytes to copy and
+ * the free space there) or says why they cannot go. */
+async function askBeforeOtherDrive(
+  paths: string[],
+  destination: string,
+  move: () => Promise<void>,
+  failed: 'moveFailed' | 'moveFilesFailed',
+) {
+  let plan: MovePlan;
+  try {
+    plan = await invoke<MovePlan>(Invokes.PlanMoveFiles, { sourcePaths: paths, destinationFolder: destination });
+  } catch (err) {
+    toast.error(ops(failed, { error: String(err) }));
+    return;
+  }
+  if (!plan?.crossVolume) {
+    await move();
+    return;
+  }
+  if (plan.refusal) {
+    toast.error(ops(failed, { error: plan.refusal }));
+    return;
+  }
+  useUIStore.getState().setUI({
+    confirmModalState: {
+      isOpen: true,
+      title: i18next.t('studio.library.fileOperations.otherDriveTitle', { drive: plan.drive }),
+      message: describeCrossVolumeMove(plan),
+      confirmText: i18next.t('studio.library.fileOperations.otherDriveConfirm'),
+      onConfirm: () => void move(),
+    },
+  });
 }
 
 export function useFileOperations(
@@ -262,11 +387,12 @@ export function useFileOperations(
   const handleUndoFileOperation = useCallback(async () => {
     try {
       await saveEditsFirst();
-      const summary = await invoke<FileOperationSummary | null>(Invokes.UndoFileOperation);
+      const summary = await withCopyProgress(() => invoke<FileOperationSummary | null>(Invokes.UndoFileOperation));
       if (!summary) {
         toast.info(ops('nothingToUndo'));
         return;
       }
+      warnAboutNote(summary);
       // Renamed and moved photographs and folders are back at their old
       // places: the selection, the open photograph, picks and thumbnails
       // go with them, as after a rename.
@@ -286,11 +412,12 @@ export function useFileOperations(
   const handleRedoFileOperation = useCallback(async () => {
     try {
       await saveEditsFirst();
-      const summary = await invoke<FileOperationSummary | null>(Invokes.RedoFileOperation);
+      const summary = await withCopyProgress(() => invoke<FileOperationSummary | null>(Invokes.RedoFileOperation));
       if (!summary) {
         toast.info(i18next.t('studio.library.fileOperations.nothingToRedo'));
         return;
       }
+      warnAboutNote(summary);
       // As after the operation itself: path-keyed state follows the moves.
       const reopen = followMoves(summary.moves ?? []);
       toast.success(i18next.t('studio.library.fileOperations.redone', { label: summary.label, key: undoKey() }));
@@ -373,32 +500,39 @@ export function useFileOperations(
     });
   }, [refreshImageList, refreshAllFolderTrees, handleBackToLibrary]);
 
-  /** Moves photos (with their sidecars and virtual copies) into `destination`. */
+  /** Moves photos (with their sidecars and virtual copies) into `destination`;
+   * to another drive only after the user agreed (`askBeforeOtherDrive`). */
   const handleMoveToFolder = useCallback(
     async (paths: Array<string>, destination: string) => {
       if (paths.length === 0) return;
-      try {
-        if (!(await saveEditsFirst(paths))) return;
-        const summary = await invoke<FileOperationSummary>(Invokes.MoveFiles, {
-          sourcePaths: paths,
-          destinationFolder: destination,
-        });
-        if (summary) toast.success(describeFileOperation(summary));
-        const { selectedImage } = useEditorStore.getState();
-        if (selectedImage && paths.some((p) => p.split('?vc=')[0] === selectedImage.path.split('?vc=')[0])) {
-          if (useUIStore.getState().activeView === 'editor') handleBackToLibrary();
-          useEditorStore.getState().setEditor({ selectedImage: null });
+      const move = async () => {
+        try {
+          if (!(await saveEditsFirst(paths))) return;
+          const summary = await withCopyProgress(() =>
+            invoke<FileOperationSummary>(Invokes.MoveFiles, {
+              sourcePaths: paths,
+              destinationFolder: destination,
+            }),
+          );
+          if (summary) toast.success(describeFileOperation(summary));
+          warnAboutNote(summary);
+          const { selectedImage } = useEditorStore.getState();
+          if (selectedImage && paths.some((p) => p.split('?vc=')[0] === selectedImage.path.split('?vc=')[0])) {
+            if (useUIStore.getState().activeView === 'editor') handleBackToLibrary();
+            useEditorStore.getState().setEditor({ selectedImage: null });
+          }
+          // They left the shown folder: nothing stays selected; picks,
+          // ratings and thumbnails go with them.
+          useLibraryStore.getState().setLibrary({ multiSelectedPaths: [], libraryActivePath: null });
+          followMoves(summary?.moves ?? []);
+          await refreshImageList();
+          await refreshAllFolderTrees();
+          void recountAfterFileOperation();
+        } catch (err) {
+          toast.error(ops('moveFailed', { error: String(err) }));
         }
-        // They left the shown folder: nothing stays selected; picks,
-        // ratings and thumbnails go with them.
-        useLibraryStore.getState().setLibrary({ multiSelectedPaths: [], libraryActivePath: null });
-        followMoves(summary?.moves ?? []);
-        await refreshImageList();
-        await refreshAllFolderTrees();
-        void recountAfterFileOperation();
-      } catch (err) {
-        toast.error(ops('moveFailed', { error: String(err) }));
-      }
+      };
+      await askBeforeOtherDrive(paths, destination, move, 'moveFailed');
     },
     [refreshImageList, refreshAllFolderTrees, handleBackToLibrary, followMoves],
   );
@@ -612,19 +746,29 @@ export function useFileOperations(
           await invoke(Invokes.CopyFiles, { sourcePaths: copiedFilePaths, destinationFolder: target });
           if (target !== currentFolderPath) await refreshAllFolderTrees();
         } else {
-          if (!(await saveEditsFirst(copiedFilePaths))) return;
-          const summary = await invoke<FileOperationSummary>(Invokes.MoveFiles, {
-            sourcePaths: copiedFilePaths,
-            destinationFolder: target,
-          });
-          if (summary) toast.success(describeFileOperation(summary));
-          setProcess({ copiedFilePaths: [] });
-          setLibrary({ multiSelectedPaths: [] });
-          const reopen = followMoves(summary?.moves ?? []);
-          await refreshAllFolderTrees();
-          await refreshImageList();
-          reopen();
-          void recountAfterFileOperation();
+          const move = async () => {
+            try {
+              if (!(await saveEditsFirst(copiedFilePaths))) return;
+              const summary = await withCopyProgress(() =>
+                invoke<FileOperationSummary>(Invokes.MoveFiles, {
+                  sourcePaths: copiedFilePaths,
+                  destinationFolder: target,
+                }),
+              );
+              if (summary) toast.success(describeFileOperation(summary));
+              warnAboutNote(summary);
+              setProcess({ copiedFilePaths: [] });
+              setLibrary({ multiSelectedPaths: [] });
+              const reopen = followMoves(summary?.moves ?? []);
+              await refreshAllFolderTrees();
+              await refreshImageList();
+              reopen();
+              void recountAfterFileOperation();
+            } catch (err) {
+              toast.error(ops('moveFilesFailed', { error: String(err) }));
+            }
+          };
+          await askBeforeOtherDrive(copiedFilePaths, target, move, 'moveFilesFailed');
           return;
         }
         await refreshImageList();
