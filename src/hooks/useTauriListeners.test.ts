@@ -15,7 +15,9 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string) => `asset://${path}`,
-  invoke: vi.fn(() => Promise.resolve(exportQueue)),
+  invoke: vi.fn((command: string) =>
+    Promise.resolve(command === "export_queue_jobs" ? { jobs: exportQueue, held: false } : exportQueue),
+  ),
 }));
 let exportQueue: unknown[] = [];
 afterEach(() => {
@@ -212,7 +214,7 @@ it("loads the export queue at start and points to interrupted exports", async ()
     refreshImageList: vi.fn(), markGenerated: vi.fn(),
   }));
   await vi.waitFor(() => expect(useProcessStore.getState().exportQueue).toHaveLength(1));
-  expect(info).toHaveBeenCalledWith("An export was interrupted (1 of 3 done). Resume it in Export.");
+  expect(info).toHaveBeenCalledWith("An export was interrupted (1 of 3 done). Resume it in the export queue.");
   exportQueue = [];
 });
 
@@ -235,6 +237,72 @@ it("names AI Denoise on the export progress while a photo waits for it", async (
   send("export-denoising", "/c.RAF");
   send("export-job-started", { current: 0, total: 1 });
   expect(useProcessStore.getState().exportState.denoising).toEqual([]);
+});
+
+it("follows the running job's photos and the queue's hold for the queue panel", async () => {
+  const { invoke } = await import("@tauri-apps/api/core");
+  const photo = (index: number, state: string) => ({
+    index, path: `/p/${index}.RAF`, state, output: null, error: null, attempts: 0, startedMs: null, finishedMs: null,
+  });
+  renderHook(() => useTauriListeners({
+    refreshAllFolderTrees: vi.fn(), handleSelectSubfolder: vi.fn(),
+    refreshImageList: vi.fn(), markGenerated: vi.fn(),
+  }));
+  await vi.waitFor(() => expect(callbacks.has("export-item-progress")).toBe(true));
+  const send = (name: string, payload: unknown) => act(() => callbacks.get(name)!({ payload }));
+  const job = { id: "j", label: "2 photos as JPG", createdAt: "", total: 2, done: 0, failed: 0, failures: [] };
+  // Photos of a job nobody read are not followed.
+  send("export-item-progress", { job: "j", item: photo(0, "running"), stage: "loading", fraction: null });
+  expect(useProcessStore.getState().exportItems.j).toBeUndefined();
+  exportQueue = [photo(0, "pending"), photo(1, "pending")];
+  send("export-job-started", { id: "j", ids: ["j", "j2"], current: 0, total: 4 });
+  await vi.waitFor(() => expect(useProcessStore.getState().exportItems.j).toHaveLength(2));
+  expect(invoke).toHaveBeenCalledWith("export_queue_items", { job: "j" });
+  // A recipe running with it in the same develop is read too.
+  expect(invoke).toHaveBeenCalledWith("export_queue_items", { job: "j2" });
+  send("export-item-progress", { job: "j", item: photo(0, "running"), stage: "denoising", fraction: 0.25 });
+  expect(useProcessStore.getState().exportItems.j[0]).toMatchObject({ state: "running", stage: "denoising", fraction: 0.25 });
+  send("export-queue-changed", { jobs: [{ ...job, state: "running" }], held: true });
+  send("export-job-pausing", "j");
+  expect(useProcessStore.getState().exportPausing).toEqual(["j"]);
+  expect(useProcessStore.getState().exportQueueHeld).toBe(true);
+  // The run ended: the photos are read again and the pause is over.
+  exportQueue = [photo(0, "done"), photo(1, "pending")];
+  send("export-queue-changed", { jobs: [{ ...job, state: "paused", done: 1 }], held: false });
+  expect(useProcessStore.getState().exportPausing).toEqual([]);
+  await vi.waitFor(() => expect(useProcessStore.getState().exportItems.j[0].state).toBe("done"));
+  // A pause that comes after the job ended is not shown.
+  send("export-job-pausing", "j");
+  expect(useProcessStore.getState().exportPausing).toEqual([]);
+  // A removed job drops its photos.
+  send("export-queue-changed", { jobs: [], held: false });
+  expect(useProcessStore.getState().exportItems.j).toBeUndefined();
+  exportQueue = [];
+});
+
+it("reads a job's photos again when it ends while its first read is still on its way", async () => {
+  const { invoke } = await import("@tauri-apps/api/core");
+  const photo = (index: number, state: string) => ({
+    index, path: `/p/${index}.RAF`, state, output: null, error: null, attempts: 0, startedMs: null, finishedMs: null,
+  });
+  renderHook(() => useTauriListeners({
+    refreshAllFolderTrees: vi.fn(), handleSelectSubfolder: vi.fn(),
+    refreshImageList: vi.fn(), markGenerated: vi.fn(),
+  }));
+  await vi.waitFor(() => expect(callbacks.has("export-item-progress")).toBe(true));
+  const send = (name: string, payload: unknown) => act(() => callbacks.get(name)!({ payload }));
+  const job = { id: "k", label: "1 photo as JPG", createdAt: "", total: 1, done: 0, failed: 0, failures: [] };
+  let answerFirst: (items: unknown) => void = () => {};
+  vi.mocked(invoke).mockImplementationOnce(() => new Promise((resolve) => { answerFirst = resolve; }));
+  send("export-job-started", { id: "k", current: 0, total: 1 });
+  send("export-queue-changed", { jobs: [{ ...job, state: "running" }], held: false });
+  // Cancelled before the first read answers: the queue put the photo back.
+  exportQueue = [photo(0, "pending")];
+  send("export-queue-changed", { jobs: [{ ...job, state: "cancelled" }], held: false });
+  await vi.waitFor(() => expect(useProcessStore.getState().exportItems.k?.[0].state).toBe("pending"));
+  await act(async () => answerFirst([photo(0, "running")]));
+  expect(useProcessStore.getState().exportItems.k[0].state).toBe("pending");
+  exportQueue = [];
 });
 
 it("reads the list again and recounts offline photographs when the catalog caught up on a failed sync", async () => {

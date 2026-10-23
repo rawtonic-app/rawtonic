@@ -137,6 +137,18 @@ impl MosaicDenoiser for MatchFilter {
         pattern: [u8; 4],
         noise_scale: f32,
     ) -> Result<Vec<f32>> {
+        self.denoise_reporting(mosaic, width, height, pattern, noise_scale, &|_, _| {})
+    }
+
+    fn denoise_reporting(
+        &self,
+        mosaic: &[f32],
+        width: usize,
+        height: usize,
+        pattern: [u8; 4],
+        noise_scale: f32,
+        progress: &(dyn Fn(usize, usize) + Sync),
+    ) -> Result<Vec<f32>> {
         ensure!(
             noise_scale.is_finite() && noise_scale > 0.0,
             "noise scale {noise_scale}"
@@ -156,7 +168,13 @@ impl MosaicDenoiser for MatchFilter {
         let started = std::time::Instant::now();
         let planes = tiles::pack(mosaic, width, height, pattern);
         let profile = noise::estimate(&planes)?;
-        let denoised = tiles::run(&planes, &profile, self.backend.as_ref(), noise_scale)?;
+        let denoised = tiles::run(
+            &planes,
+            &profile,
+            self.backend.as_ref(),
+            noise_scale,
+            progress,
+        )?;
         let mut out = tiles::unpack(&denoised, width, height, pattern);
         for v in &mut out {
             *v = half::f16::from_f32(v.clamp(0.0, 1.0)).to_f32();
@@ -392,6 +410,28 @@ mod tests {
             assert_eq!(out, again, "the cached result equals the fresh one");
         }
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 4);
+    }
+
+    #[test]
+    fn progress_is_reported_once_per_tile_and_changes_nothing() {
+        let (w, h) = (700, 530);
+        let mosaic = noisy_mosaic(w, h);
+        let filter = MatchFilter::new(Box::new(Identity), None);
+        let heard = std::sync::Mutex::new(Vec::new());
+        let reported = filter
+            .denoise_reporting(&mosaic, w, h, [0, 1, 1, 2], 1.0, &|done, total| {
+                heard.lock().unwrap().push((done, total))
+            })
+            .unwrap();
+        assert_eq!(
+            reported,
+            filter.denoise(&mosaic, w, h, [0, 1, 1, 2]).unwrap()
+        );
+        let heard = heard.into_inner().unwrap();
+        // 350 × 265 planes in 240 px tile cores: 2 × 2 tiles.
+        let core = TILE - 2 * HALO;
+        let tiles = 265usize.div_ceil(core) * 350usize.div_ceil(core);
+        assert_eq!(heard, (1..=tiles).map(|i| (i, tiles)).collect::<Vec<_>>());
     }
 
     /// `Identity` on 400 px tiles.

@@ -40,6 +40,7 @@ import {
   FlagOff,
   History,
   RefreshCw,
+  ListChecks,
 } from "lucide-react";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
@@ -49,6 +50,7 @@ import { useEditorActions } from "../../hooks/useEditorActions";
 import { type ImageFile, Invokes, Panel, SortDirection } from "../ui/AppProperties";
 import Editor from "../panel/Editor";
 import StudioExport from "./StudioExport";
+import { ExportQueuePanel } from "./StudioExportQueue";
 import PreviewBuildStatus from "./PreviewBuildStatus";
 import PreferencesDialog from "./PreferencesDialog";
 import { ProofMarginButton, ViewerCaptureInfo, ZoomPresetOptions } from "./ViewerControls";
@@ -342,6 +344,8 @@ export default function StudioWorkspace(props: Props) {
   const { togglePanels, showPanels } = useUIStore.getState();
   const [size, setSize] = useState(205);
   const [drawer, setDrawer] = useState<Panel | null>(null);
+  // The export queue stays beside the work (not modal): edit on while it runs.
+  const [queueOpen, setQueueOpen] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const beforeDrawerPanel = useRef<Panel | null>(Panel.Adjustments);
   useEffect(
@@ -522,9 +526,10 @@ export default function StudioWorkspace(props: Props) {
   const flag = selectedImage ? (imageFlags[selectedImage.path] ?? 0) : 0;
   const exporting = exportState.status === "exporting";
   // Interrupted or waiting exports keep the Export dialog reachable.
-  const queuedExports = useProcessStore((s) =>
-    s.exportQueue.some((job) => job.state !== "done"),
+  const activeExports = useProcessStore(
+    (s) => s.exportQueue.filter((job) => job.state !== "done").length,
   );
+  const queuedExports = activeExports > 0;
   const modules = (
     <nav className="studio-modules" aria-label={t("studio.workspace.modules.workspace")}>
       <button
@@ -549,6 +554,20 @@ export default function StudioWorkspace(props: Props) {
   const barActions = (
     <>
       <PreviewBuildStatus />
+      <button
+        className="studio-export-queue-button"
+        aria-pressed={queueOpen}
+        aria-label={
+          activeExports
+            ? t("studio.export.queue.buttonActive", { count: activeExports })
+            : t("studio.export.queue.button")
+        }
+        title={t("studio.export.queue.title")}
+        onClick={() => setQueueOpen(!queueOpen)}
+      >
+        <ListChecks size={13} />
+        {activeExports > 0 && <span>{activeExports}</span>}
+      </button>
       <button
         className="studio-export-button"
         disabled={!exporting && !multiSelectedPaths.length && !selectedImage && !queuedExports}
@@ -1228,6 +1247,11 @@ export default function StudioWorkspace(props: Props) {
           </ErrorBoundary>
         </div>
       </dialog>
+      {queueOpen && (
+        <ErrorBoundary name={t("studio.export.queue.title")}>
+          <ExportQueuePanel onClose={() => setQueueOpen(false)} />
+        </ErrorBoundary>
+      )}
       {isSettingsOpen && <PreferencesDialog>{props.settings}</PreferencesDialog>}
     </div>
   );

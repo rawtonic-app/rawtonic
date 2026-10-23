@@ -7,8 +7,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { currentEditForExport, useEditorStore } from "../../store/useEditorStore";
-import { useProcessStore, type ExportJob } from "../../store/useProcessStore";
+import { useProcessStore } from "../../store/useProcessStore";
 import { renderErrorMessage } from "../../utils/renderErrors";
+import { ExportQueueJobs } from "./StudioExportQueue";
 import { toast } from "react-toastify";
 import { Invokes } from "../ui/AppProperties";
 import {
@@ -1253,7 +1254,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
       {state.status === Status.Success && (
         <p role="status">{t("studio.export.progress.complete")}</p>
       )}
-      <ExportQueueList />
+      <ExportQueueJobs />
       </div>
       </div>
       <footer>
@@ -1311,96 +1312,4 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
   );
 }
 
-/** What a queued job's state means for the photographer. */
-export function describeExportJob(job: ExportJob): string {
-  const counts = { done: job.done, total: job.total };
-  switch (job.state) {
-    case "queued":
-      return job.done
-        ? i18n.t("studio.export.queue.waitingProgress", counts)
-        : i18n.t("studio.export.queue.waiting");
-    case "running":
-      return i18n.t("studio.export.queue.running", counts);
-    case "interrupted":
-      return i18n.t("studio.export.queue.interrupted", counts);
-    case "cancelled":
-      return i18n.t("studio.export.queue.cancelled", counts);
-    case "failed":
-      return i18n.t("studio.export.queue.failed", {
-        failed: job.failed,
-        total: job.total,
-      });
-    default:
-      return i18n.t("studio.export.queue.done");
-  }
-}
-
-/** The file name of an export source (a virtual copy's path ends in `?vc=…`). */
-function exportFileName(path: string): string {
-  const file = path.split("?vc=")[0];
-  return file.slice(Math.max(file.lastIndexOf("/"), file.lastIndexOf("\\")) + 1);
-}
-
-/** Waiting, interrupted, cancelled and failed exports (the persistent queue). */
-function ExportQueueList() {
-  // Re-renders the list (and describeExportJob) when the language changes.
-  const { t } = useTranslation();
-  const jobs = useProcessStore((s) => s.exportQueue).filter(
-    (job) => job.state !== "done" && job.state !== "running",
-  );
-  const status = useProcessStore((s) => s.exportState.status);
-  // Waiting jobs stay held after a cancel until started again.
-  const idle = status !== Status.Exporting && status !== Status.Cancelling;
-  if (!jobs.length) return null;
-  const act = (command: Invokes, job: ExportJob) =>
-    invoke(command, { job: job.id }).catch((error) =>
-      toast.error(String(error)),
-    );
-  return (
-    <section className="studio-export-queue" aria-label={t("studio.export.queue.title")}
-    >
-      <h4>{t("studio.export.queue.title")}</h4>
-      <ul>
-        {jobs.map((job) => (
-          <li key={job.id}>
-            <span>
-              {job.label}
-              <small>{describeExportJob(job)}</small>
-              {job.failures.length > 0 && (
-                <ul
-                  className="studio-export-failures"
-                  aria-label={t("studio.export.queue.failures")}
-                >
-                  {job.failures.map((failure, index) => (
-                    <li key={index}>
-                      <strong>{exportFileName(failure.path)}</strong>
-                      {renderErrorMessage(failure.error)}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </span>
-            {(job.state !== "queued" || idle) && (
-              <button
-                type="button"
-                onClick={() => void act(Invokes.ExportQueueResume, job)}
-              >
-                {job.state === "failed"
-                  ? t("studio.export.queue.retry")
-                  : job.state === "queued"
-                    ? t("studio.export.queue.start")
-                    : t("studio.export.queue.resume")}
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => void act(Invokes.ExportQueueRemove, job)}
-            >
-              {t("studio.export.queue.remove")}
-            </button>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
+export { describeExportJob } from "./StudioExportQueue";

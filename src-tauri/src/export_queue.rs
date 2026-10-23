@@ -2,13 +2,14 @@
 //! `export-queue.sqlite` (`rawtonic_export::queue`), run one after another.
 //! An export started while another runs waits behind it; a job the app quit
 //! or crashed in is offered for resuming; failed photos can be retried.
-//! Cancelling stops the running job and holds the queue until the next
-//! export or resume.
+//! Cancel in the Export dialog stops the running export and holds the queue
+//! until the next export or resume; the queue panel pauses, cancels and
+//! resumes single jobs and follows each photo (`export-item-progress`).
 use crate::app_state::AppState;
 use crate::export_processing::{
     ExportAdjustmentsMode, ExportSettings, ExportTarget, export_images_impl,
 };
-use rawtonic_export::queue::{ExportQueue, ItemState, Job, JobState};
+use rawtonic_export::queue::{ExportQueue, Item, ItemState, Job, JobState, RunEnd};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -20,6 +21,41 @@ use std::{
     },
 };
 use tauri::{AppHandle, Emitter, Manager};
+
+/// What a photo in progress is doing, for the queue panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Stage {
+    /// Reading and developing the RAW.
+    Loading,
+    /// AI Denoise (reports how many of its tiles are done).
+    Denoising,
+    /// Rendering, encoding and writing the file.
+    Rendering,
+    /// Writing the photo's separate mask files.
+    Masks,
+}
+
+/// One photo's change, sent as `export-item-progress`.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ItemProgress<'a> {
+    job: &'a str,
+    item: Item,
+    stage: Option<Stage>,
+    /// How far the stage is (0 … 1), when it can tell.
+    fraction: Option<f32>,
+}
+
+/// The queue for the interface: its jobs and whether it is held.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Snapshot {
+    pub jobs: Vec<Job>,
+    /// Waiting jobs do not start (after Cancel in the Export dialog or
+    /// Hold queue) until an export, a resume or Start queue.
+    pub held: bool,
+}
 
 /// Finished jobs kept for the queue list.
 const KEEP_DONE: usize = 20;
@@ -45,23 +81,189 @@ pub struct Tracking {
     /// Indices still to export; the others finished in an earlier run.
     pub pending: Arc<HashSet<usize>>,
     pub already_done: usize,
-    /// Set when the run ended by cancellation.
+    /// Set when the job was cancelled (on its own, or with its run).
     pub cancelled: Arc<AtomicBool>,
+    /// Set by Pause: no further photo starts, those in progress finish.
+    pub paused: Arc<AtomicBool>,
+    /// Its photos in progress, so a job stopped on its own settles once
+    /// they are done while the other jobs of its run go on.
+    run: Arc<RunCount>,
+    app: AppHandle,
+}
+
+/// Photos of a job in progress, and whether the job was settled. One lock
+/// for both, so a photo is admitted only into a job that has not settled,
+/// and a job never settles while a photo admitted into it is still to come.
+#[derive(Default)]
+struct RunCount(Mutex<RunState>);
+
+#[derive(Default)]
+struct RunState {
+    in_flight: usize,
+    settled: bool,
+}
+
+impl RunCount {
+    fn state(&self) -> std::sync::MutexGuard<'_, RunState> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+    /// Reserves a photo for a job that goes on and has not settled.
+    fn admit(&self, paused: &AtomicBool, cancelled: &AtomicBool) -> bool {
+        let mut state = self.state();
+        if state.settled || paused.load(Ordering::SeqCst) || cancelled.load(Ordering::SeqCst) {
+            return false;
+        }
+        state.in_flight += 1;
+        true
+    }
+    /// An admitted photo is done.
+    fn release(&self) {
+        let mut state = self.state();
+        state.in_flight = state.in_flight.saturating_sub(1);
+    }
+    /// Marks the job settled; false if it was already.
+    fn claim_settlement(&self) -> bool {
+        !std::mem::replace(&mut self.state().settled, true)
+    }
+}
+
+/// How a job stopped on its own ends, once its last photo in progress is
+/// done; `None` while it goes on, has photos in progress or was settled.
+fn settle_now(paused: &AtomicBool, cancelled: &AtomicBool, run: &RunCount) -> Option<RunEnd> {
+    let mut state = run.state();
+    let cancelled = cancelled.load(Ordering::SeqCst);
+    if !(cancelled || paused.load(Ordering::SeqCst)) || state.in_flight != 0 || state.settled {
+        return None;
+    }
+    state.settled = true;
+    Some(if cancelled {
+        RunEnd::Cancelled
+    } else {
+        RunEnd::Paused
+    })
+}
+
+/// Ends a job stopped on its own (see `settle_now`): it leaves the running
+/// jobs and can be resumed while the others of its run go on.
+fn settle(app: &AppHandle, job: &str, paused: &AtomicBool, cancelled: &AtomicBool, run: &RunCount) {
+    if let Some(end) = settle_now(paused, cancelled, run) {
+        with_queue(|q| q.finish(job, end));
+        CURRENT
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|running| running.id != job);
+        notify(app);
+    }
 }
 
 impl Tracking {
     pub fn wants(&self, index: usize) -> bool {
         self.pending.contains(&index)
     }
+    /// Whether further photos are exported for this job (not paused or
+    /// cancelled on its own while other jobs of its run go on).
+    pub fn goes_on(&self) -> bool {
+        !self.paused.load(Ordering::SeqCst) && !self.cancelled.load(Ordering::SeqCst)
+    }
+    pub fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::SeqCst)
+    }
+    /// Reserves photo export for this job: false once it is paused,
+    /// cancelled on its own or settled. An admitted photo must end with
+    /// `finished` (or with the run being cancelled as a whole).
+    pub fn admit(&self) -> bool {
+        self.run.admit(&self.paused, &self.cancelled)
+    }
+    /// An admitted photo's attempt begins: its source is read next.
+    pub fn began(&self, index: usize) {
+        with_queue(|q| q.item_began(&self.job, index));
+        self.report(index, Some(Stage::Loading), None);
+    }
     pub fn started(&self, index: usize, output: &Path) {
         with_queue(|q| q.item_started(&self.job, index, output));
+        self.report(index, Some(Stage::Rendering), None);
+    }
+    /// A photo in progress moved on to `stage`.
+    pub fn stage(&self, index: usize, stage: Stage, fraction: Option<f32>) {
+        self.report(index, Some(stage), fraction);
     }
     pub fn finished(&self, index: usize, result: &Result<(), String>) {
         match result {
             Ok(()) => with_queue(|q| q.item_done(&self.job, index)),
             Err(e) => with_queue(|q| q.item_failed(&self.job, index, e)),
         };
+        self.report(index, None, None);
+        self.run.release();
+        settle(
+            &self.app,
+            &self.job,
+            &self.paused,
+            &self.cancelled,
+            &self.run,
+        );
     }
+    fn report(&self, index: usize, stage: Option<Stage>, fraction: Option<f32>) {
+        if let Some(item) = with_queue(|q| q.item(&self.job, index)) {
+            let _ = self.app.emit(
+                "export-item-progress",
+                ItemProgress {
+                    job: &self.job,
+                    item,
+                    stage,
+                    fraction,
+                },
+            );
+        }
+    }
+}
+
+/// AI Denoise progress of photo `index` for every job exporting it, sent
+/// when the whole percent changes (a photo has a few hundred tiles at most).
+pub fn denoise_progress(
+    trackings: Vec<Tracking>,
+    index: usize,
+) -> rawtonic_rawdecode::mosaic_denoise::DenoiseProgress {
+    let last = Mutex::new(None);
+    Arc::new(move |done, total| {
+        let percent = done * 100 / total.max(1);
+        let mut last = last.lock().unwrap_or_else(|e| e.into_inner());
+        if *last != Some(percent) {
+            *last = Some(percent);
+            for tracking in &trackings {
+                tracking.stage(
+                    index,
+                    Stage::Denoising,
+                    Some(done as f32 / total.max(1) as f32),
+                );
+            }
+        }
+    })
+}
+
+/// A job of the running export and its switches.
+struct RunningJob {
+    id: String,
+    paused: Arc<AtomicBool>,
+    cancelled: Arc<AtomicBool>,
+    run: Arc<RunCount>,
+}
+
+/// The jobs of the running export. The runner sets them before their export
+/// task starts and clears them after it ended, both under this lock, so
+/// while it names a job the active export task is that job's.
+type Running = Mutex<Vec<RunningJob>>;
+static CURRENT: Running = Mutex::new(Vec::new());
+
+/// Runs `act` with `job`'s switches and whether it runs alone, if it is
+/// running, holding `running` throughout so the runner cannot move on.
+fn with_running<T>(
+    running: &Running,
+    job: &str,
+    act: impl FnOnce(&RunningJob, bool) -> T,
+) -> Option<T> {
+    let current = running.lock().unwrap_or_else(|e| e.into_inner());
+    let alone = current.len() == 1;
+    current.iter().find(|j| j.id == job).map(|j| act(j, alone))
 }
 
 static QUEUE: Mutex<Option<ExportQueue>> = Mutex::new(None);
@@ -105,6 +307,14 @@ pub fn open(app: &AppHandle) {
                     }
                 }
                 Err(e) => log::error!("Export queue recovery failed: {e:#}"),
+            }
+            // Exports left waiting do not start by themselves after a
+            // restart: the queue comes up held and offers Start.
+            if queue
+                .jobs()
+                .is_ok_and(|jobs| jobs.iter().any(|j| j.state == JobState::Queued))
+            {
+                hold();
             }
             if let Ok(mut guard) = QUEUE.lock() {
                 *guard = Some(queue);
@@ -165,14 +375,18 @@ fn same_photos(a: &Value, b: &Value) -> bool {
         .all(|key| a.get(key) == b.get(key))
 }
 
-/// Requeues what a failed, cancelled or interrupted job did not export.
-/// A waiting job held by a cancel just starts the queue again.
+/// Requeues what a failed, cancelled or interrupted job did not export; a
+/// paused job continues in its place. A waiting job held by a cancel just
+/// starts the queue again.
 pub fn resume(app: &AppHandle, job: &str) -> Result<usize, String> {
-    let waiting = with_queue(|q| q.job(job)).is_some_and(|j| j.state == JobState::Queued);
-    let count = if waiting {
-        0
-    } else {
-        with_queue(|q| q.retry(job)).ok_or("This export cannot be resumed.")?
+    let state = with_queue(|q| q.job(job)).map(|j| j.state);
+    let count = match state {
+        Some(JobState::Queued) => 0,
+        Some(JobState::Paused) => {
+            with_queue(|q| q.unpause(job)).ok_or("This export cannot be continued.")?;
+            0
+        }
+        _ => with_queue(|q| q.retry(job)).ok_or("This export cannot be resumed.")?,
     };
     HOLD.store(false, Ordering::SeqCst);
     notify(app);
@@ -186,17 +400,86 @@ pub fn remove(app: &AppHandle, job: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Pauses a job: a running one after its photos in progress (the queue
+/// then goes on), a waiting one at once.
+pub fn pause(app: &AppHandle, job: &str) -> Result<(), String> {
+    // Told under the lock: the job's last queue snapshot cannot come first.
+    let pausing = with_running(&CURRENT, job, |running, _| {
+        running.paused.store(true, Ordering::SeqCst);
+        let _ = app.emit("export-job-pausing", job);
+        (
+            Arc::clone(&running.paused),
+            Arc::clone(&running.cancelled),
+            Arc::clone(&running.run),
+        )
+    });
+    if let Some((paused, cancelled, run)) = pausing {
+        // No photo of it in progress: it ends now (outside the lock).
+        settle(app, job, &paused, &cancelled, &run);
+        return Ok(());
+    }
+    with_queue(|q| q.pause(job)).ok_or("This export cannot be paused.")?;
+    notify(app);
+    Ok(())
+}
+
+/// Cancels one job and lets the queue go on. A running job that runs alone
+/// stops at the next checkpoint; one sharing its photos' develop with other
+/// recipes starts no further photo. A waiting or paused job is cancelled at
+/// once. Its photos that did not export stay for a resume.
+pub fn cancel(app: &AppHandle, job: &str) -> Result<(), String> {
+    // Under the lock: the runner cannot move on to another export
+    // meanwhile, which the cancel would otherwise stop.
+    let cancelled = with_running(&CURRENT, job, |running, alone| {
+        // Recorded first: also a run that stops before its first photo
+        // ends the job as cancelled.
+        running.cancelled.store(true, Ordering::SeqCst);
+        let switches = (
+            Arc::clone(&running.paused),
+            Arc::clone(&running.cancelled),
+            Arc::clone(&running.run),
+        );
+        if alone {
+            crate::export_processing::cancel_running_export(app).map(|()| None)
+        } else {
+            Ok(Some(switches))
+        }
+    });
+    if let Some(result) = cancelled {
+        if let Some((paused, cancelled, run)) = result? {
+            settle(app, job, &paused, &cancelled, &run);
+        }
+        return Ok(());
+    }
+    with_queue(|q| q.cancel(job)).ok_or("This export cannot be cancelled.")?;
+    notify(app);
+    Ok(())
+}
+
 /// Called by Cancel: the queue waits until the next export or resume.
 pub fn hold() {
     HOLD.store(true, Ordering::SeqCst);
 }
 
-pub fn jobs() -> Vec<Job> {
-    with_queue(|q| q.jobs()).unwrap_or_default()
+/// Hold queue / Start queue: whether waiting jobs start; running ones are
+/// left alone.
+pub fn set_held(app: &AppHandle, held: bool) {
+    HOLD.store(held, Ordering::SeqCst);
+    notify(app);
+    if !held {
+        kick(app);
+    }
+}
+
+pub fn snapshot() -> Snapshot {
+    Snapshot {
+        jobs: with_queue(|q| q.jobs()).unwrap_or_default(),
+        held: HOLD.load(Ordering::SeqCst),
+    }
 }
 
 fn notify(app: &AppHandle) {
-    let _ = app.emit("export-queue-changed", jobs());
+    let _ = app.emit("export-queue-changed", snapshot());
 }
 
 /// Starts the runner unless it is already working through the queue.
@@ -245,7 +528,7 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
                 for index in 0..job.total {
                     with_queue(|q| q.item_failed(&job.id, index, "Unreadable export request"));
                 }
-                with_queue(|q| q.finish(&job.id, false));
+                with_queue(|q| q.finish(&job.id, RunEnd::Completed));
                 continue;
             }
         };
@@ -260,6 +543,9 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
             already_done: items.len() - pending.len(),
             pending: Arc::new(pending),
             cancelled: Arc::new(AtomicBool::new(false)),
+            paused: Arc::new(AtomicBool::new(false)),
+            run: Arc::default(),
+            app: app.clone(),
         };
         trackings.push((&job.label, tracking.clone()));
         targets.push(ExportTarget {
@@ -275,15 +561,26 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
     let Some(request) = first else {
         return;
     };
+    *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = trackings
+        .iter()
+        .map(|(_, t)| RunningJob {
+            id: t.job.clone(),
+            paused: Arc::clone(&t.paused),
+            cancelled: Arc::clone(&t.cancelled),
+            run: Arc::clone(&t.run),
+        })
+        .collect();
     let _ = app.emit(
         "export-job-started",
         serde_json::json!({
             "id": jobs[0].id,
+            "ids": trackings.iter().map(|(_, t)| &t.job).collect::<Vec<_>>(),
             "label": jobs[0].label,
             "current": trackings.iter().map(|(_, t)| t.already_done).sum::<usize>(),
             "total": request.paths.len() * trackings.len(),
         }),
     );
+    notify(app);
     let (tx, rx) = tokio::sync::oneshot::channel();
     let state = app.state::<AppState>();
     let started = export_images_impl(
@@ -310,18 +607,49 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
     } else {
         let _ = rx.await;
     }
+    CURRENT.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    // (Cancel in the Export dialog holds the queue itself; a job cancelled
+    // in the queue panel lets it go on.)
     for (_, tracking) in &trackings {
-        let cancelled = tracking.cancelled.load(Ordering::SeqCst);
-        if cancelled {
-            hold();
+        // Settled already: stopped on its own while the others went on.
+        if !tracking.run.claim_settlement() {
+            continue;
         }
-        with_queue(|q| q.finish(&tracking.job, cancelled));
+        let end = if tracking.cancelled.load(Ordering::SeqCst) {
+            RunEnd::Cancelled
+        } else if tracking.is_paused() {
+            RunEnd::Paused
+        } else {
+            RunEnd::Completed
+        };
+        with_queue(|q| q.finish(&tracking.job, end));
     }
 }
 
 #[tauri::command]
-pub fn export_queue_jobs() -> Vec<Job> {
-    jobs()
+pub fn export_queue_jobs() -> Snapshot {
+    snapshot()
+}
+
+/// The photos of a job with their state, output, error and timing.
+#[tauri::command]
+pub fn export_queue_items(job: String) -> Result<Vec<Item>, String> {
+    with_queue(|q| q.items(&job)).ok_or_else(|| "This export is no longer in the queue.".into())
+}
+
+#[tauri::command]
+pub fn export_queue_pause(job: String, app: AppHandle) -> Result<(), String> {
+    pause(&app, &job)
+}
+
+#[tauri::command]
+pub fn export_queue_cancel(job: String, app: AppHandle) -> Result<(), String> {
+    cancel(&app, &job)
+}
+
+#[tauri::command]
+pub fn export_queue_hold(held: bool, app: AppHandle) {
+    set_held(&app, held);
 }
 
 #[tauri::command]
@@ -336,8 +664,56 @@ pub fn export_queue_remove(job: String, app: AppHandle) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::same_photos;
+    use super::*;
     use serde_json::json;
+    use std::{sync::mpsc, thread, time::Duration};
+
+    fn running(jobs: &[&str]) -> Arc<Running> {
+        Arc::new(Mutex::new(
+            jobs.iter()
+                .map(|id| RunningJob {
+                    id: id.to_string(),
+                    paused: Arc::default(),
+                    cancelled: Arc::default(),
+                    run: Arc::default(),
+                })
+                .collect(),
+        ))
+    }
+
+    #[test]
+    fn only_running_jobs_are_acted_on_and_know_whether_they_run_alone() {
+        let current = running(&["a"]);
+        assert_eq!(with_running(&current, "b", |_, alone| alone), None);
+        assert_eq!(with_running(&current, "a", |_, alone| alone), Some(true));
+        let group = running(&["a", "b"]);
+        assert_eq!(with_running(&group, "b", |_, alone| alone), Some(false));
+        current.lock().unwrap().clear();
+        assert_eq!(with_running(&current, "a", |_, alone| alone), None);
+    }
+
+    #[test]
+    fn the_runner_cannot_switch_jobs_while_a_cancel_acts() {
+        let current = running(&["a"]);
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let (acting, started) = mpsc::channel();
+        let canceller = {
+            let (current, order) = (Arc::clone(&current), Arc::clone(&order));
+            thread::spawn(move || {
+                with_running(&current, "a", |_, _| {
+                    acting.send(()).unwrap();
+                    thread::sleep(Duration::from_millis(100));
+                    order.lock().unwrap().push("cancel a");
+                })
+            })
+        };
+        started.recv().unwrap();
+        // The runner finishing job a and starting job b.
+        *current.lock().unwrap() = running(&["b"]).lock().unwrap().drain(..).collect();
+        order.lock().unwrap().push("switch to b");
+        assert!(canceller.join().unwrap().is_some());
+        assert_eq!(*order.lock().unwrap(), ["cancel a", "switch to b"]);
+    }
 
     #[test]
     fn only_exports_of_the_same_photos_and_edits_share_a_develop() {
@@ -354,6 +730,57 @@ mod tests {
         assert!(
             !same_photos(&web, &edited),
             "the open photo's unsaved edit differs"
+        );
+    }
+
+    #[test]
+    fn a_job_stopped_on_its_own_settles_once_its_photos_in_progress_are_done() {
+        let (paused, cancelled, run) = (
+            AtomicBool::new(false),
+            AtomicBool::new(false),
+            RunCount::default(),
+        );
+        assert!(run.admit(&paused, &cancelled));
+        assert_eq!(settle_now(&paused, &cancelled, &run), None, "it goes on");
+        paused.store(true, Ordering::SeqCst);
+        assert_eq!(
+            settle_now(&paused, &cancelled, &run),
+            None,
+            "a photo in progress"
+        );
+        run.release();
+        assert_eq!(settle_now(&paused, &cancelled, &run), Some(RunEnd::Paused));
+        assert_eq!(settle_now(&paused, &cancelled, &run), None, "settled once");
+        let run = RunCount::default();
+        cancelled.store(true, Ordering::SeqCst);
+        assert_eq!(
+            settle_now(&paused, &cancelled, &run),
+            Some(RunEnd::Cancelled),
+            "cancel wins"
+        );
+    }
+
+    #[test]
+    fn a_job_settles_not_between_a_photos_admission_and_its_start() {
+        let (paused, cancelled, run) = (
+            AtomicBool::new(false),
+            AtomicBool::new(false),
+            RunCount::default(),
+        );
+        // A worker is admitted, then held up before its photo begins; the
+        // job is paused meanwhile.
+        assert!(run.admit(&paused, &cancelled));
+        paused.store(true, Ordering::SeqCst);
+        assert_eq!(
+            settle_now(&paused, &cancelled, &run),
+            None,
+            "the admitted photo is still to come"
+        );
+        run.release();
+        assert_eq!(settle_now(&paused, &cancelled, &run), Some(RunEnd::Paused));
+        assert!(
+            !run.admit(&paused, &cancelled),
+            "a settled job admits no photo"
         );
     }
 }

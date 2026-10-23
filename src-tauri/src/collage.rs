@@ -137,6 +137,7 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
             is_raw,
             &adjustments,
             &settings,
+            None,
         )
         .map_err(|e| format!("Failed to load {}: {e}", source))?;
         let export_source = prepare_export_source(&source, Arc::new(pristine), &adjustments)?;

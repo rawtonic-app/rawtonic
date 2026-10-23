@@ -35,6 +35,7 @@ use crate::adjustment_utils::{apply_all_transformations, hydrate_adjustments};
 use crate::app_settings::load_settings;
 use crate::cache_utils::{calculate_full_job_hash, calculate_transform_hash};
 use crate::editor_preview::generate_transformed_preview;
+use crate::export_queue::Stage;
 use crate::mask_generation::{get_cached_or_generate_mask, resolve_warped_image_for_masks};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,6 +160,7 @@ pub(crate) fn load_export_base_image(
     is_raw: bool,
     adjustments: &Value,
     settings: &crate::app_settings::AppSettings,
+    denoise_progress: Option<rawtonic_rawdecode::mosaic_denoise::DenoiseProgress>,
 ) -> Result<DynamicImage, String> {
     let ai = rawtonic_engine::image_loader::ai_denoise_settings(adjustments).filter(|_| is_raw);
     let denoise = if let Some(ai) = ai {
@@ -170,10 +172,12 @@ pub(crate) fn load_export_base_image(
                     source_path
                 )
             })?;
-        Some(
-            rawtonic_rawdecode::mosaic_denoise::MosaicDenoise::new(denoiser, ai.blend)
-                .with_noise_scale(ai.noise_scale),
-        )
+        let denoise = rawtonic_rawdecode::mosaic_denoise::MosaicDenoise::new(denoiser, ai.blend)
+            .with_noise_scale(ai.noise_scale);
+        Some(match denoise_progress {
+            Some(progress) => denoise.with_progress(progress),
+            None => denoise,
+        })
     } else {
         None
     };
@@ -609,13 +613,14 @@ pub(crate) async fn export_images_impl(
             if cancellation_token.load(Ordering::SeqCst) {
                 break;
             }
-            // The recipes still to export this photo.
+            // The recipes still to export this photo (a paused job, or one
+            // cancelled on its own, starts no further photo).
             let wanted: Vec<usize> = (0..targets.len())
                 .filter(|&i| {
                     targets[i]
                         .tracking
                         .as_ref()
-                        .is_none_or(|t| t.wants(global_index))
+                        .is_none_or(|t| t.wants(global_index) && t.goes_on())
                 })
                 .collect();
             if wanted.is_empty() {
@@ -636,6 +641,16 @@ pub(crate) async fn export_images_impl(
             if cancellation_token.load(Ordering::SeqCst) {
                 drop(permit);
                 break;
+            }
+            // Admitted only into jobs still going on (one paused or
+            // cancelled while this photo waited starts it not), reserved
+            // atomically so such a job cannot settle before it is done.
+            let wanted = admitted(wanted, |i| {
+                targets[i].tracking.as_ref().is_none_or(|t| t.admit())
+            });
+            if wanted.is_empty() {
+                drop(permit);
+                continue;
             }
 
             let app_handle_clone = app_handle.clone();
@@ -722,6 +737,14 @@ pub(crate) async fn export_images_impl(
                 tracking.cancelled.store(true, Ordering::SeqCst);
             }
         }
+        // A job paused or cancelled on its own leaves photos unexported:
+        // the run did not complete.
+        let paused = stopped_short(
+            targets
+                .iter()
+                .filter_map(|target| target.tracking.as_ref())
+                .map(|t| t.goes_on()),
+        );
         let export_state = app_handle.state::<AppState>();
         let finalized = finish_export_task(
             &export_state.export_task_token,
@@ -730,6 +753,11 @@ pub(crate) async fn export_images_impl(
                 if cancelled {
                     log::info!("Batch export cancelled and worker cleanup completed");
                     let _ = app_handle.emit("export-cancelled", ());
+                    return;
+                }
+                // The queue panel lists the failures of a paused job.
+                if paused {
+                    let _ = app_handle.emit("export-paused", ());
                     return;
                 }
 
@@ -769,6 +797,17 @@ pub(crate) async fn export_images_impl(
     });
 
     Ok(())
+}
+
+/// The recipes of `wanted` whose jobs admit the photo.
+fn admitted(wanted: Vec<usize>, mut admit: impl FnMut(usize) -> bool) -> Vec<usize> {
+    wanted.into_iter().filter(|&i| admit(i)).collect()
+}
+
+/// Whether a run ended short of its photos without being cancelled as a
+/// whole: some job was paused or cancelled on its own (not "complete").
+fn stopped_short(jobs_going_on: impl IntoIterator<Item = bool>) -> bool {
+    jobs_going_on.into_iter().any(|goes_on| !goes_on)
 }
 
 /// A photo of an export run and its place in it.
@@ -910,6 +949,13 @@ fn export_photo(
     };
     if let Err(e) = ensure_export_not_cancelled(cancellation_token) {
         return fail_all(e);
+    }
+    let trackings: Vec<_> = wanted
+        .iter()
+        .filter_map(|&target| targets[target].tracking.clone())
+        .collect();
+    for tracking in &trackings {
+        tracking.began(item.global_index);
     }
 
     let state = app_handle.state::<AppState>();
@@ -1055,6 +1101,9 @@ fn export_photo(
                 is_raw,
                 &js_adjustments,
                 settings,
+                (!trackings.is_empty()).then(|| {
+                    crate::export_queue::denoise_progress(trackings.clone(), item.global_index)
+                }),
             )?)
         };
         #[cfg(feature = "performance-profiling")]
@@ -1203,6 +1252,9 @@ fn export_photo(
             if export_settings.export_masks
                 && let Some(source) = mask_source.as_ref()
             {
+                if let Some(tracking) = &targets[target].tracking {
+                    tracking.stage(item.global_index, Stage::Masks, None);
+                }
                 export_masks_for_image(
                     source.base(),
                     &source.pristine,
@@ -1389,12 +1441,15 @@ pub async fn run_headless_export(
 }
 
 #[tauri::command]
-pub fn cancel_export(
-    state: tauri::State<AppState>,
-    app_handle: tauri::AppHandle,
-) -> Result<(), String> {
+pub fn cancel_export(app_handle: tauri::AppHandle) -> Result<(), String> {
     // The queue waits after a cancel until the next export or resume.
     crate::export_queue::hold();
+    cancel_running_export(&app_handle)
+}
+
+/// Stops the running export at the next checkpoint (the queue goes on).
+pub(crate) fn cancel_running_export(app_handle: &tauri::AppHandle) -> Result<(), String> {
+    let state = app_handle.state::<AppState>();
     match request_export_cancellation(&state.export_task_token, || {
         let _ = app_handle.emit("export-cancelling", ());
     }) {
@@ -1772,6 +1827,25 @@ fn estimate_sizes(
 #[cfg(test)]
 mod tests {
     use super::{ExportTarget, PhotoItem, export_in_turn, is_open_edit, plan_output_path};
+
+    #[test]
+    fn a_job_paused_or_cancelled_while_its_photo_waited_does_not_start_it() {
+        // Recipes 0 and 2 were wanted when the photo began to wait; job 2
+        // was paused meanwhile.
+        let going_on = [true, true, false];
+        assert_eq!(super::admitted(vec![0, 2], |i| going_on[i]), vec![0]);
+        assert!(super::admitted(vec![2], |i| going_on[i]).is_empty());
+    }
+
+    #[test]
+    fn a_run_with_a_job_stopped_on_its_own_is_not_complete() {
+        assert!(!super::stopped_short([true, true]));
+        assert!(
+            super::stopped_short([true, false]),
+            "one recipe cancelled alone"
+        );
+        assert!(!super::stopped_short([]));
+    }
     use std::path::Path;
 
     /// A later recipe of the same photo names its file after the earlier

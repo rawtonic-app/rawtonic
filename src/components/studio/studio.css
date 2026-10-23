@@ -203,6 +203,7 @@
 }
 .studio-modules button,
 .studio-app .session-bar .studio-bar-icon,
+.studio-app .session-bar .studio-export-queue-button,
 .studio-app .session-bar .studio-export-button {
   display: inline-flex;
   align-items: center;
@@ -2664,6 +2665,141 @@
   margin-right: 6px;
   color: #d6d8db;
   font-weight: 600;
+}
+/* The export queue panel: beside the work, not modal. */
+.studio-app .session-bar .studio-export-queue-button {
+  padding: 5px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.studio-app .session-bar .studio-export-queue-button[aria-pressed="true"],
+.studio-app .session-bar .studio-export-queue-button:hover {
+  background: #ffffff10;
+  color: #fff;
+}
+.studio-export-queue-panel {
+  position: fixed;
+  top: 48px;
+  right: 12px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  width: 400px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 72px);
+  border: 1px solid #656a70;
+  border-radius: 6px;
+  color: var(--studio-text);
+  background: #292a2c;
+  box-shadow: 0 14px 50px #0008;
+}
+.studio-export-queue-panel > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #45484d;
+}
+.studio-export-queue-panel > header strong {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+}
+.studio-export-queue-panel button {
+  border: 0;
+  border-radius: 3px;
+  padding: 3px 7px;
+  color: #d6d8db;
+  background: #3a3c40;
+  font-size: 10px;
+  cursor: pointer;
+}
+.studio-export-queue-panel button:hover {
+  background: #4a4d52;
+}
+.studio-export-queue-panel > .studio-help {
+  margin: 0;
+  padding: 8px 12px 0;
+  font-size: 10px;
+}
+.studio-export-queue-panel .studio-export-queue {
+  margin: 0;
+  padding: 0 12px 10px;
+  overflow-y: auto;
+}
+.studio-export-queue-empty {
+  margin: 0;
+  padding: 14px 12px;
+  font-size: 11px;
+  color: #9c9fa4;
+}
+.studio-export-queue li.studio-export-job {
+  display: block;
+  padding: 8px 0;
+}
+.studio-export-job-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.studio-export-job-head > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.studio-export-job-progress {
+  display: block;
+  width: 100%;
+  height: 4px;
+  margin-top: 5px;
+  accent-color: #a9bdcc;
+}
+.studio-export-queue-panel .studio-export-job-photos {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+  padding: 2px 4px 2px 0;
+  background: transparent;
+  color: #9c9fa4;
+}
+.studio-export-queue .studio-export-items {
+  max-height: 260px;
+  margin-top: 4px;
+  overflow-y: auto;
+  contain: content;
+}
+.studio-export-queue .studio-export-items li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 2px 8px;
+  padding: 3px 0;
+  border-top: 0;
+}
+.studio-export-items li > strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.studio-export-items li > span {
+  color: #9c9fa4;
+  text-align: right;
+}
+.studio-export-items li.is-failed > span {
+  grid-column: 1 / -1;
+  color: #e0a0a0;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.studio-export-items li.is-done > span {
+  color: #a8c8a0;
+}
+.studio-export-items li > progress {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 3px;
+  accent-color: #a9bdcc;
 }
 .studio-workspace.is-image-fullscreen .studio-primary-panel,
 .studio-workspace.is-image-fullscreen .studio-secondary-panel,
