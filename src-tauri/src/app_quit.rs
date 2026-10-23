@@ -21,7 +21,7 @@
 //! Dock, log out) waiting about half a second for an answer that never came.
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 /// The webview did not take the request (not loaded, hung).
 const ACK_TIMEOUT: Duration = Duration::from_secs(3);
@@ -116,8 +116,45 @@ pub(crate) fn cancel_quit(app_handle: AppHandle) {
     let _ = app_handle;
 }
 
+/// Whether an exit request asks for a restart (`relaunch()` in the webview,
+/// Tauri's `request_restart`).
+pub fn is_restart(code: Option<i32>) -> bool {
+    code == Some(tauri::RESTART_EXIT_CODE)
+}
+
+/// Starts the new instance of a restart. Tauri would start it after
+/// `RunEvent::Exit`, which the app never reaches: lib.rs ends the process in
+/// `ExitRequested`. The single-instance name is released first, else the new
+/// process would find this one, hand its arguments over and quit.
+pub fn start_new_instance<R: Runtime>(app: &AppHandle<R>) {
+    #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+    tauri_plugin_single_instance::destroy(app);
+    let env = app.env();
+    let started = tauri::process::current_binary(&env).and_then(|binary| {
+        std::process::Command::new(binary)
+            .args(env.args_os.iter().skip(1))
+            .spawn()
+    });
+    if let Err(e) = started {
+        log::error!("Could not restart the app: {e}");
+    }
+}
+
 #[cfg(target_os = "macos")]
 pub use system_terminate::hold_system_terminate;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_tauris_restart_code_restarts() {
+        assert!(is_restart(Some(tauri::RESTART_EXIT_CODE)));
+        assert!(!is_restart(Some(0)));
+        assert!(!is_restart(Some(1)));
+        assert!(!is_restart(None));
+    }
+}
 
 /// macOS: the delegate method AppKit asks before it terminates the app on
 /// its own (Dock Quit, log out, restart, shut down).
