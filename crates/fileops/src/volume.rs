@@ -318,10 +318,34 @@ pub(crate) struct Tally<'a> {
     pub total: u64,
 }
 
+/// FAT-family and NTFS volumes synthesize Unix modes from mount options; those
+/// bits cannot tell us which permissions the file had on a POSIX volume.
+#[cfg(unix)]
+pub(crate) fn unix_mode(path: &Path) -> Result<Option<u32>> {
+    use std::os::unix::fs::PermissionsExt;
+    let fs = volume_info(path)?.file_system;
+    if matches!(
+        fs.as_str(),
+        "msdos" | "msdosfs" | "vfat" | "exfat" | "fuseblk" | "ntfs" | "ntfs3"
+    ) {
+        return Ok(None);
+    }
+    Ok(Some(fs::metadata(path)?.permissions().mode() & 0o7777))
+}
+
+/// A recorded first mode is a ceiling, as is a live POSIX source's mode.
+/// Synthesized source modes impose no ceiling; without a recorded mode,
+/// creation with this mode also lets the OS apply the current umask.
+#[cfg(unix)]
+fn safe_copy_mode(recorded: Option<u32>, live: Option<u32>) -> u32 {
+    recorded.unwrap_or(0o644) & live.unwrap_or(0o666) & 0o666
+}
+
 pub(crate) const BLOCK: usize = 1 << 20;
 
 /// Copies `source` into a new file `staged` (never an existing one) with
-/// its permission bits and modification time, syncs it and its folder,
+/// its recorded permissions (without execute/special bits), or 0644 masked
+/// by umask when unrecorded, and its modification time, syncs it and its folder,
 /// then reads it back from the drive and compares it byte for byte with
 /// `source`. Returns the source's stamp, unchanged through the copy, and
 /// the copy's. Stop is honoured while copying and comparing. On failure
@@ -329,6 +353,7 @@ pub(crate) const BLOCK: usize = 1 << 20;
 pub(crate) fn copy_verified(
     source: &Path,
     staged: &Path,
+    original_mode: Option<u32>,
     tally: &mut Tally,
 ) -> Result<(Stamp, Stamp)> {
     let mut input =
@@ -336,12 +361,26 @@ pub(crate) fn copy_verified(
     let meta = input.metadata()?;
     ensure!(meta.is_file(), "{} is not a file", source.display());
     let before = Stamp::from_meta(&meta);
+    #[cfg(unix)]
+    let mode = {
+        use std::os::unix::fs::PermissionsExt;
+        let live = unix_mode(source)?.map(|_| meta.permissions().mode());
+        safe_copy_mode(original_mode, live)
+    };
+    #[cfg(unix)]
+    let restore_mode = if original_mode.is_some()
+        && unix_mode(staged.parent().context("The copy has no folder")?)?.is_some()
+    {
+        Some(mode)
+    } else {
+        None
+    };
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-        options.mode(meta.permissions().mode() & 0o7777);
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(mode);
     }
     let mut output = options
         .open(staged)
@@ -363,9 +402,14 @@ pub(crate) fn copy_verified(
         #[cfg(test)]
         crate::crash::point("copy block written");
     }
-    // Best effort: a volume without Unix permissions (exFAT, FAT) keeps
-    // its own, and the times are a courtesy, not the photo.
-    let _ = output.set_permissions(meta.permissions());
+    #[cfg(unix)]
+    if let Some(mode) = restore_mode {
+        use std::os::unix::fs::PermissionsExt;
+        output.set_permissions(fs::Permissions::from_mode(mode & 0o666))?;
+    }
+    #[cfg(not(unix))]
+    let _ = original_mode;
+    // Times are best effort on volumes that cannot represent them exactly.
     if let Ok(modified) = meta.modified() {
         let _ = output.set_modified(modified);
     }
@@ -524,6 +568,22 @@ mod tests {
         }
         for name in ["ext4", "btrfs", "exfat", "vfat", "fuseblk", "tmpfs"] {
             assert!(!is_network_fs(name), "{name}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_permissions_obey_both_recorded_and_live_ceilings() {
+        for (recorded, live, expected) in [
+            (None, None, 0o644),
+            (Some(0o640), None, 0o640),
+            (None, Some(0o600), 0o600),
+            (Some(0o640), Some(0o600), 0o600),
+            (Some(0o600), Some(0o644), 0o600),
+            (Some(0o6751), Some(0o777), 0o640),
+            (Some(0o640), Some(0o700), 0o600),
+        ] {
+            assert_eq!(safe_copy_mode(recorded, live), expected);
         }
     }
 
