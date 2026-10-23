@@ -385,7 +385,7 @@ function VolumeHeader({
       </button>
       <button onClick={onToggle} title={title}>
         <HardDrive size={14} />
-        <span>{volume.name}</span>
+        <span>{volume.name}{volume.kind === "network" && <> · {t("offline.folders.network")}</>}</span>
         <i
           className={`studio-volume-state ${volume.online ? (low ? "is-low" : "is-online") : ""}`}
           aria-hidden

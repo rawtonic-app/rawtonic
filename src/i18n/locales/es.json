@@ -727,6 +727,7 @@
     },
     "folders": {
       "missing": "Falta {{path}} (renombrada, movida o eliminada). Sus fotos conservan las ediciones; clic derecho en una › Localizar carpeta…",
+      "network": "Recurso de red",
       "offlineInside_one": "{{count}} foto aquí está sin conexión",
       "offlineInside_many": "{{count}} fotos aquí están sin conexión",
       "offlineInside_other": "{{count}} fotos aquí están sin conexión",

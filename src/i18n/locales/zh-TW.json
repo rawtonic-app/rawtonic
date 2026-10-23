@@ -705,6 +705,7 @@
     },
     "folders": {
       "missing": "{{path}} 遺失（已重新命名、移動或刪除）。照片保留編輯；在其中一張按右鍵 › 尋找資料夾…",
+      "network": "網路共享",
       "offlineInside_other": "此處 {{count}} 張照片離線",
       "onVolume": "{{path}} 位於未連接的「{{volume}}」上。",
       "title": "遺失",

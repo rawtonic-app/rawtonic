@@ -220,6 +220,7 @@ fn a_drive_mounted_elsewhere_is_followed_and_a_disconnected_one_is_named() {
     let (lib, ids) = catalog(tmp.path());
     let mount = tmp.path().canonicalize().unwrap().join("Card");
     let volume = Volume {
+        kind: rawtonic_catalog::volume::VolumeKind::Local,
         id: "0A1B2C3D-0000-4000-8000-000000000001".into(),
         name: "Photos".into(),
         mount_point: mount.clone(),
@@ -246,6 +247,7 @@ fn a_drive_mounted_elsewhere_is_followed_and_a_disconnected_one_is_named() {
     // B was deleted meanwhile: it stays missing at its old place.
     fs::remove_file(remounted.join("2026/B.NEF")).unwrap();
     let now = Volume {
+        kind: rawtonic_catalog::volume::VolumeKind::Local,
         mount_point: remounted.clone(),
         name: "Photos 1".into(),
         ..volume.clone()
@@ -264,6 +266,7 @@ fn a_drive_mounted_elsewhere_is_followed_and_a_disconnected_one_is_named() {
     assert_eq!(lib.assets(None).unwrap().len(), 3, "nothing removed");
     // Another drive with the same layout is not taken for it.
     let stranger = Volume {
+        kind: rawtonic_catalog::volume::VolumeKind::Local,
         id: "FFFFFFFF-0000-4000-8000-000000000002".into(),
         ..now
     };
@@ -279,6 +282,7 @@ fn an_older_database_is_migrated_with_its_photographs() {
     let conn = rusqlite::Connection::open(&db).unwrap();
     // Back to schema 2 (no volume columns, no import batches).
     conn.execute_batch(concat!(
+        include_str!("undo_0015.sql"),
         include_str!("undo_0014.sql"),
         include_str!("undo_0013.sql"),
         include_str!("undo_0012.sql"),
@@ -373,6 +377,7 @@ fn a_drive_whose_mount_point_folder_stays_is_named_as_disconnected() {
     // Linux) that stays, empty, when it is unmounted.
     let mount = tmp.path().canonicalize().unwrap().join("Card");
     let volume = Volume {
+        kind: rawtonic_catalog::volume::VolumeKind::Local,
         id: "0A1B2C3D-0000-4000-8000-000000000009".into(),
         name: "Card".into(),
         mount_point: mount.clone(),

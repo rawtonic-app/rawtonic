@@ -319,6 +319,7 @@ mod tests {
         let asset = lib.add_asset(&photo).unwrap();
         lib.conn
             .execute_batch(concat!(
+                include_str!("../tests/undo_0015.sql"),
                 include_str!("../tests/undo_0014.sql"),
                 include_str!("../tests/undo_0013.sql"),
                 include_str!("../tests/undo_0012.sql"),

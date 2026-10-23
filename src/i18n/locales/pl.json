@@ -747,6 +747,7 @@
     },
     "folders": {
       "missing": "Brak folderu {{path}} (zmieniono nazwę, przeniesiono lub usunięto). Zdjęcia zachowują edycje; prawy przycisk na jednym › Znajdź folder…",
+      "network": "Udział sieciowy",
       "offlineInside_one": "{{count}} zdjęcie tutaj jest offline",
       "offlineInside_few": "{{count}} zdjęcia tutaj są offline",
       "offlineInside_many": "{{count}} zdjęć tutaj jest offline",

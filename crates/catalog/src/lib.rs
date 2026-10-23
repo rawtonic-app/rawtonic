@@ -35,7 +35,7 @@ pub use volume::Volume;
 /// Version of the session/catalog manifest (`session.json`).
 pub const SCHEMA_VERSION: u32 = 1;
 /// Version of the SQLite schema; older databases are migrated when opened.
-pub const DB_SCHEMA_VERSION: u32 = 14;
+pub const DB_SCHEMA_VERSION: u32 = 15;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -253,6 +253,7 @@ impl Library {
         conn.execute_batch(include_str!("../migrations/0012.sql"))?;
         conn.execute_batch(include_str!("../migrations/0013.sql"))?;
         conn.execute_batch(include_str!("../migrations/0014.sql"))?;
+        conn.execute_batch(include_str!("../migrations/0015.sql"))?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],
@@ -373,6 +374,9 @@ impl Library {
         }
         if version < 14 {
             tx.execute_batch(include_str!("../migrations/0014.sql"))?;
+        }
+        if version < 15 {
+            tx.execute_batch(include_str!("../migrations/0015.sql"))?;
         }
         tx.commit()?;
         Ok(())
@@ -1820,7 +1824,7 @@ impl Library {
     pub fn folders(&self) -> Result<Vec<FolderRecord>> {
         let mut query = self.conn.prepare(
             "SELECT r.path,r.volume_id,r.volume_name,r.volume_path,
-                    count(a.id),coalesce(sum(a.missing),0)
+                    count(a.id),coalesce(sum(a.missing),0),r.volume_kind
              FROM roots r JOIN assets a ON a.root_id=r.id
              WHERE r.external=1 GROUP BY r.id ORDER BY r.path",
         )?;
@@ -1829,6 +1833,9 @@ impl Library {
                 path: PathBuf::from(r.get::<_, String>(0)?),
                 volume_id: r.get(1)?,
                 volume_name: r.get(2)?,
+                volume_kind: r
+                    .get::<_, Option<String>>(6)?
+                    .map(|value| volume::VolumeKind::from_record(&value)),
                 volume_path: r.get::<_, Option<String>>(3)?.map(PathBuf::from),
                 photos: r.get::<_, i64>(4)? as usize,
                 missing: r.get::<_, i64>(5)? as usize,
@@ -1928,6 +1935,7 @@ pub struct FolderRecord {
     /// The drive it was registered on (identity, name, mount point then).
     pub volume_id: Option<String>,
     pub volume_name: Option<String>,
+    pub volume_kind: Option<volume::VolumeKind>,
     pub volume_path: Option<PathBuf>,
 }
 
@@ -2207,11 +2215,12 @@ fn insert_root(conn: &Connection, root: &str, root_path: &str) -> Result<()> {
 
 fn record_volume(conn: &Connection, root: &str, volume: &Volume) -> Result<()> {
     conn.execute(
-        "UPDATE roots SET volume_id=?,volume_name=?,volume_path=? WHERE id=?",
+        "UPDATE roots SET volume_id=?,volume_name=?,volume_path=?,volume_kind=? WHERE id=?",
         params![
             volume.id,
             volume.name,
             volume.mount_point.to_string_lossy().as_ref(),
+            volume.kind.as_str(),
             root
         ],
     )?;

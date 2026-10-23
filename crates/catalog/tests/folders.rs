@@ -75,6 +75,7 @@ fn a_disconnected_drive_keeps_its_folders_under_its_name() {
     photo(&mount.join("2026/A.NEF"), 1);
     lib.add_asset(&mount.join("2026/A.NEF")).unwrap();
     let card = Volume {
+        kind: rawtonic_catalog::volume::VolumeKind::Local,
         id: "0A1B2C3D-0000-4000-8000-0000000000AA".into(),
         name: "Card".into(),
         mount_point: mount.clone(),

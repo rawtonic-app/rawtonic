@@ -331,6 +331,7 @@ fn photographs_on_a_disconnected_drive_are_unavailable_never_moved_or_removed() 
     lib.set_folder_volume(
         &folder,
         &Volume {
+            kind: rawtonic_catalog::volume::VolumeKind::Local,
             id: "PHOTOS-UUID".into(),
             name: "Photos".into(),
             mount_point: mount.clone(),
