@@ -727,6 +727,7 @@
     },
     "folders": {
       "missing": "{{path}} manca (rinominata, spostata o eliminata). Le sue foto conservano le modifiche; clic destro su una › Individua cartella…",
+      "network": "Condivisione di rete",
       "offlineInside_one": "{{count}} foto qui è offline",
       "offlineInside_many": "{{count}} foto qui sono offline",
       "offlineInside_other": "{{count}} foto qui sono offline",

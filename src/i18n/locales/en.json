@@ -707,6 +707,7 @@
     },
     "folders": {
       "missing": "{{path}} is missing (renamed, moved or deleted). Its photographs keep their edits; right-click one › Locate Folder…",
+      "network": "Network share",
       "offlineInside_one": "{{count}} photograph here is offline",
       "offlineInside_other": "{{count}} photographs here are offline",
       "onVolume": "{{path}} is on “{{volume}}”, which is not connected.",

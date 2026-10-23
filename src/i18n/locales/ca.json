@@ -727,6 +727,7 @@
     },
     "folders": {
       "missing": "Falta {{path}} (reanomenada, moguda o suprimida). Les fotos conserven les edicions; clic dret en una › Localitza la carpeta…",
+      "network": "Recurs de xarxa",
       "offlineInside_one": "{{count}} foto aquí és fora de línia",
       "offlineInside_many": "{{count}} fotos aquí són fora de línia",
       "offlineInside_other": "{{count}} fotos aquí són fora de línia",

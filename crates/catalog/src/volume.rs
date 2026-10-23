@@ -21,12 +21,98 @@ type MountWaiter = Box<dyn FnMut() -> bool + Send>;
 /// A mounted volume.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Volume {
-    /// Stable identity (filesystem UUID); survives renaming and remounting.
+    /// How the system classifies this mount; persisted for offline folders.
+    #[serde(default)]
+    pub kind: VolumeKind,
+    /// Filesystem UUID when available; otherwise a hash of mount source and
+    /// mount point (network shares and filesystems without UUIDs).
     pub id: String,
     /// The name the user knows the volume by.
     pub name: String,
     /// Where it is mounted now.
     pub mount_point: PathBuf,
+}
+
+/// The role of a volume in the Library, independent of its current availability.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VolumeKind {
+    Startup,
+    #[default]
+    Local,
+    Removable,
+    Network,
+}
+
+impl VolumeKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Startup => "startup",
+            Self::Local => "local",
+            Self::Removable => "removable",
+            Self::Network => "network",
+        }
+    }
+
+    pub fn from_record(value: &str) -> Self {
+        match value {
+            "startup" => Self::Startup,
+            "removable" => Self::Removable,
+            "network" => Self::Network,
+            _ => Self::Local,
+        }
+    }
+}
+
+/// Classification from mount facts only. No connection to a server is opened.
+#[cfg(any(unix, test))]
+fn classify(mount: &Path, network: bool, removable: bool) -> VolumeKind {
+    if network {
+        VolumeKind::Network
+    } else if mount == Path::new("/")
+        || (cfg!(target_os = "macos") && mount == Path::new("/System/Volumes/Data"))
+    {
+        VolumeKind::Startup
+    } else if removable {
+        VolumeKind::Removable
+    } else {
+        VolumeKind::Local
+    }
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn network_fs(name: &str) -> bool {
+    matches!(
+        name,
+        "nfs"
+            | "nfs4"
+            | "cifs"
+            | "smb"
+            | "smb3"
+            | "smbfs"
+            | "afpfs"
+            | "webdav"
+            | "davfs"
+            | "ncpfs"
+            | "afs"
+            | "ceph"
+            | "glusterfs"
+            | "9p"
+            | "fuse.sshfs"
+            | "fuse.rclone"
+            | "fuse.gvfsd-fuse"
+            | "fuse.s3fs"
+    )
+}
+
+/// Mount-derived identity when a filesystem UUID is unavailable (e.g. SMB).
+/// Hash the source so connection strings are never exposed in the catalog/UI.
+#[cfg(unix)]
+fn mount_id(source: &str, mount: &Path) -> String {
+    format!(
+        "mount:{:016x}",
+        xxhash_rust::xxh3::xxh3_64(format!("{source}\0{}", mount.display()).as_bytes())
+    )
 }
 
 /// The volume holding `path` (which must exist), if it can be identified.
@@ -191,9 +277,22 @@ mod imp {
         PathBuf::from(OsStr::from_bytes(text.to_bytes()))
     }
 
-    /// Name and UUID of the volume mounted at `mount_point`.
-    fn identify(mount_point: &Path) -> Option<Volume> {
-        let path = c_path(mount_point)?;
+    /// Name and UUID from an already-read mount entry. Remote mounts use
+    /// mount-table facts only: never getattrlist/statfs a server here.
+    fn identify(stat: &libc::statfs) -> Option<Volume> {
+        let mount_point = c_text(&stat.f_mntonname);
+        let network = stat.f_flags & libc::MNT_LOCAL as u32 == 0;
+        let kind = super::classify(&mount_point, network, stat.f_flags & MNT_REMOVABLE != 0);
+        if network {
+            let source = c_text(&stat.f_mntfromname);
+            return Some(Volume {
+                id: super::mount_id(&source.to_string_lossy(), &mount_point),
+                name: mount_point.file_name()?.to_string_lossy().into_owned(),
+                mount_point,
+                kind,
+            });
+        }
+        let path = c_path(&mount_point)?;
         let mut request = libc::attrlist {
             bitmapcount: libc::ATTR_BIT_MAP_COUNT,
             reserved: 0,
@@ -247,6 +346,7 @@ mod imp {
             id,
             name,
             mount_point: mount_point.to_path_buf(),
+            kind,
         })
     }
 
@@ -258,7 +358,7 @@ mod imp {
         if unsafe { libc::statfs(c.as_ptr(), &mut stat) } != 0 {
             return None;
         }
-        identify(&c_text(&stat.f_mntonname))
+        identify(&stat)
     }
 
     /// `MNT_REMOVABLE` (sys/mount.h): the file system is on removable media.
@@ -299,10 +399,7 @@ mod imp {
     }
 
     pub fn mounted_volumes() -> Vec<Volume> {
-        statfs_list()
-            .iter()
-            .filter_map(|stat| identify(&c_text(&stat.f_mntonname)))
-            .collect()
+        statfs_list().iter().filter_map(identify).collect()
     }
 
     /// `MNT_DONTBROWSE` (sys/mount.h): system volumes, Time Machine snapshot
@@ -373,58 +470,68 @@ mod imp {
     }
 }
 
+#[cfg(any(target_os = "linux", test))]
+#[derive(Debug)]
+struct LinuxMount {
+    mount: PathBuf,
+    source: PathBuf,
+    fs_type: String,
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn linux_mounts(text: &str) -> Vec<LinuxMount> {
+    text.lines()
+        .filter_map(|line| {
+            let (before, after) = line.split_once(" - ")?;
+            let mut fields = after.split_whitespace();
+            Some(LinuxMount {
+                mount: unescape(before.split_whitespace().nth(4)?, false).into(),
+                fs_type: fields.next()?.into(),
+                source: unescape(fields.next()?, false).into(),
+            })
+        })
+        .collect()
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn unescape(text: &str, hex: bool) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let start = if hex && bytes.get(i..i + 2) == Some(b"\\x") {
+            Some(i + 2)
+        } else if !hex && bytes[i] == b'\\' {
+            Some(i + 1)
+        } else {
+            None
+        };
+        let len = if hex { 2 } else { 3 };
+        let value = start
+            .and_then(|start| bytes.get(start..start + len))
+            .and_then(|digits| std::str::from_utf8(digits).ok())
+            .and_then(|digits| u8::from_str_radix(digits, if hex { 16 } else { 8 }).ok());
+        if let Some(value) = value {
+            out.push(value);
+            i += 4;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 #[cfg(target_os = "linux")]
 mod imp {
     use super::Volume;
     use std::fs;
     use std::path::{Path, PathBuf};
 
-    /// `/proc/self/mountinfo` escapes spaces and other bytes as `\ooo`
-    /// (octal); udev's `/dev/disk/by-label` names as `\xhh` (hex).
-    fn unescape(text: &str, hex: bool) -> String {
-        let bytes = text.as_bytes();
-        let mut out = Vec::with_capacity(bytes.len());
-        let mut i = 0;
-        while i < bytes.len() {
-            let digits = if hex {
-                (bytes[i] == b'\\' && bytes.get(i + 1) == Some(&b'x'))
-                    .then(|| bytes.get(i + 2..i + 4))
-                    .flatten()
-            } else {
-                (bytes[i] == b'\\')
-                    .then(|| bytes.get(i + 1..i + 4))
-                    .flatten()
-            };
-            let value = digits
-                .and_then(|digits| std::str::from_utf8(digits).ok())
-                .and_then(|digits| u8::from_str_radix(digits, if hex { 16 } else { 8 }).ok());
-            if let Some(value) = value {
-                out.push(value);
-                i += 4;
-            } else {
-                out.push(bytes[i]);
-                i += 1;
-            }
-        }
-        String::from_utf8_lossy(&out).into_owned()
-    }
-
-    /// (mount point, device) of every mount.
-    fn mount_table() -> Vec<(PathBuf, PathBuf)> {
-        let Ok(text) = fs::read_to_string("/proc/self/mountinfo") else {
-            return Vec::new();
-        };
-        text.lines()
-            .filter_map(|line| {
-                let (before, after) = line.split_once(" - ")?;
-                let mount_point = before.split(' ').nth(4)?;
-                let source = after.split(' ').nth(1)?;
-                Some((
-                    PathBuf::from(unescape(mount_point, false)),
-                    PathBuf::from(unescape(source, false)),
-                ))
-            })
-            .collect()
+    fn mount_table() -> Vec<super::LinuxMount> {
+        fs::read_to_string("/proc/self/mountinfo")
+            .map(|text| super::linux_mounts(&text))
+            .unwrap_or_default()
     }
 
     /// The link name in `dir` (`/dev/disk/by-uuid`, `by-label`) pointing at `device`.
@@ -432,32 +539,47 @@ mod imp {
         let device = device.canonicalize().ok()?;
         fs::read_dir(dir).ok()?.flatten().find_map(|entry| {
             (entry.path().canonicalize().ok()? == device)
-                .then(|| unescape(&entry.file_name().to_string_lossy(), true))
+                .then(|| super::unescape(&entry.file_name().to_string_lossy(), true))
         })
     }
 
-    fn identify(mount_point: &Path, device: &Path) -> Option<Volume> {
-        let id = link_to("/dev/disk/by-uuid", device)?;
-        let name = link_to("/dev/disk/by-label", device).unwrap_or_else(|| {
-            mount_point
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "/".into())
-        });
+    fn identify(entry: &super::LinuxMount) -> Option<Volume> {
+        let (mount_point, device) = (&entry.mount, &entry.source);
+        let network = super::network_fs(&entry.fs_type);
+        let block = device.starts_with("/dev/");
+        let id = block
+            .then(|| link_to("/dev/disk/by-uuid", device))
+            .flatten()
+            .unwrap_or_else(|| super::mount_id(&device.to_string_lossy(), mount_point));
+        let kind = super::classify(
+            mount_point,
+            network,
+            block && removable(device).unwrap_or(false),
+        );
+        let name = block
+            .then(|| link_to("/dev/disk/by-label", device))
+            .flatten()
+            .unwrap_or_else(|| {
+                mount_point
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "/".into())
+            });
         Some(Volume {
             id,
             name,
             mount_point: mount_point.to_path_buf(),
+            kind,
         })
     }
 
     pub fn volume_of(path: &Path) -> Option<Volume> {
         let path = path.canonicalize().ok()?;
-        let (mount_point, device) = mount_table()
+        let entry = mount_table()
             .into_iter()
-            .filter(|(mount, _)| path.starts_with(mount))
-            .max_by_key(|(mount, _)| mount.as_os_str().len())?;
-        identify(&mount_point, &device)
+            .filter(|entry| path.starts_with(&entry.mount))
+            .max_by_key(|entry| entry.mount.as_os_str().len())?;
+        identify(&entry)
     }
 
     /// The disk's `removable` attribute in sysfs (a partition's is its
@@ -479,28 +601,25 @@ mod imp {
         let Ok(path) = path.canonicalize() else {
             return super::MediaInfo::default();
         };
-        let Some((mount_point, device)) = mount_table()
+        let Some(entry) = mount_table()
             .into_iter()
-            .filter(|(mount, _)| path.starts_with(mount))
-            .max_by_key(|(mount, _)| mount.as_os_str().len())
+            .filter(|entry| path.starts_with(&entry.mount))
+            .max_by_key(|entry| entry.mount.as_os_str().len())
         else {
             return super::MediaInfo::default();
         };
         super::MediaInfo {
-            removable: device
+            removable: entry
+                .source
                 .starts_with("/dev/")
-                .then(|| removable(&device))
+                .then(|| removable(&entry.source))
                 .flatten(),
-            mount_point: Some(mount_point),
+            mount_point: Some(entry.mount),
         }
     }
 
     pub fn mounted_volumes() -> Vec<Volume> {
-        mount_table()
-            .into_iter()
-            .filter(|(_, device)| device.starts_with("/dev/"))
-            .filter_map(|(mount, device)| identify(&mount, &device))
-            .collect()
+        mount_table().iter().filter_map(identify).collect()
     }
 
     /// Mounts of drives and network shares (not the many virtual file
@@ -508,11 +627,11 @@ mod imp {
     pub fn mounts() -> Vec<String> {
         mount_table()
             .into_iter()
-            .filter(|(_, source)| {
-                let source = source.to_string_lossy();
+            .filter(|entry| {
+                let source = entry.source.to_string_lossy();
                 source.starts_with("/dev/") || source.starts_with("//") || source.contains(":/")
             })
-            .map(|(mount, source)| format!("{}={}", source.display(), mount.display()))
+            .map(|entry| format!("{}={}", entry.source.display(), entry.mount.display()))
             .collect()
     }
 
@@ -649,5 +768,53 @@ mod tests {
                 "{volume:?} not listed"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod classification_tests {
+    use super::*;
+
+    #[test]
+    fn mount_facts_classify_without_using_folder_names() {
+        for (mount, network, removable, expected) in [
+            ("/", false, false, VolumeKind::Startup),
+            ("/Volumes/External", false, false, VolumeKind::Local),
+            ("/media/me/Card", false, true, VolumeKind::Removable),
+            ("/Volumes/Photos", true, false, VolumeKind::Network),
+            ("/mnt/card", true, true, VolumeKind::Network),
+        ] {
+            assert_eq!(classify(Path::new(mount), network, removable), expected);
+        }
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            classify(Path::new("/System/Volumes/Data"), false, false),
+            VolumeKind::Startup
+        );
+    }
+
+    #[test]
+    fn linux_mountinfo_fixture_preserves_mounts_and_network_types() {
+        let mounts = linux_mounts(concat!(
+            "21 1 8:1 / / rw - ext4 /dev/sda1 rw\n",
+            "22 21 8:2 / /media/me/My\\040Disk rw shared:1 - exfat /dev/sdb1 rw\n",
+            "23 21 0:7 / /mnt/Photos rw - cifs //nas/Photos rw\n",
+            "24 21 0:8 / /srv/archive rw - nfs4 nas:/archive rw\n",
+            "25 21 0:9 / /home/me/remote rw - fuse.sshfs me@host:/photos rw\n",
+            "malformed row\n",
+        ));
+        assert_eq!(mounts.len(), 5);
+        assert_eq!(mounts[1].mount, Path::new("/media/me/My Disk"));
+        assert_eq!(mounts[1].source, Path::new("/dev/sdb1"));
+        assert!(!network_fs(&mounts[0].fs_type));
+        assert!(!network_fs(&mounts[1].fs_type));
+        for entry in &mounts[2..] {
+            assert_eq!(
+                classify(&entry.mount, network_fs(&entry.fs_type), false),
+                VolumeKind::Network
+            );
+        }
+        assert_eq!(unescape(r"My\x20Disk", true), "My Disk");
+        assert_eq!(unescape(r"/a\134b", false), r"/a\b");
     }
 }

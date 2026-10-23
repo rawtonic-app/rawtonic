@@ -707,6 +707,7 @@
     },
     "folders": {
       "missing": "{{path}} fehlt (umbenannt, verschoben oder gelöscht). Die Fotos behalten ihre Bearbeitungen; Rechtsklick auf eines › Ordner suchen…",
+      "network": "Netzwerkfreigabe",
       "offlineInside_one": "{{count}} Foto hier ist offline",
       "offlineInside_other": "{{count}} Fotos hier sind offline",
       "onVolume": "{{path}} liegt auf „{{volume}}“, das nicht verbunden ist.",

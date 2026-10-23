@@ -416,6 +416,29 @@ describe("a catalog's folders by drive", () => {
   });
 });
 
+it("shows startup first and identifies an offline network share with one root", async () => {
+  mockInvoke.mockImplementation(async (command) => {
+    if (command === "session_offline") return [];
+    if (command === "catalog_folders") return {
+      catalog: true,
+      volumes: [
+        { key: "share", id: "share", name: "Team", kind: "network", mount_point: "/srv/team", online: false,
+          free_bytes: null, total_bytes: null, folders: [], roots: ["/srv/team/Jobs"] },
+        { key: "startup", id: "startup", name: "Macintosh HD", kind: "startup", mount_point: "/", online: true,
+          free_bytes: null, total_bytes: null, folders: [], roots: ["/job"] },
+      ],
+    };
+    return [];
+  });
+  render(<ContextMenuProvider><StudioNavigation onNavigate={vi.fn()} folderActions={actions} /></ContextMenuProvider>);
+  await act(async () => {});
+  const headings = [...document.querySelectorAll("[data-volume]")];
+  expect(headings.map((node) => node.getAttribute("data-volume"))).toEqual(["startup", "share"]);
+  expect(headings[1].textContent).toContain("Team · Network share");
+  expect(headings[1].textContent).toContain("Offline");
+  expect(screen.getByText("Jobs")).toBeTruthy();
+});
+
 describe("the panel beside Develop's tools", () => {
   const tools = () =>
     [...document.querySelectorAll("[data-tool-title]")].map((el) => el.getAttribute("data-tool-title"));

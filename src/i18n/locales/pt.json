@@ -727,6 +727,7 @@
     },
     "folders": {
       "missing": "{{path}} está ausente (renomeada, movida ou excluída). As fotos mantêm as edições; clique direito numa › Localizar pasta…",
+      "network": "Partilha de rede",
       "offlineInside_one": "{{count}} foto aqui está offline",
       "offlineInside_many": "{{count}} fotos aqui estão offline",
       "offlineInside_other": "{{count}} fotos aqui estão offline",

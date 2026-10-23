@@ -730,6 +730,7 @@ fn a_schema_10_library_gets_its_keywords_search_and_albums_migrated() {
     drop(lib);
     let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
     db.execute_batch(concat!(
+        include_str!("undo_0015.sql"),
         include_str!("undo_0014.sql"),
         include_str!("undo_0013.sql"),
         include_str!("undo_0012.sql"),
@@ -1261,6 +1262,7 @@ fn a_schema_12_library_reads_undated_and_unrated_facts_again() {
     drop(lib);
     let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
     db.execute_batch(concat!(
+        include_str!("undo_0015.sql"),
         include_str!("undo_0014.sql"),
         include_str!("undo_0013.sql")
     ))
@@ -1324,7 +1326,11 @@ fn a_schema_13_library_reads_undated_facts_again() {
     assert_eq!(lib.facts_backlog().unwrap(), 0);
     drop(lib);
     let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
-    db.execute_batch(include_str!("undo_0014.sql")).unwrap();
+    db.execute_batch(concat!(
+        include_str!("undo_0015.sql"),
+        include_str!("undo_0014.sql")
+    ))
+    .unwrap();
     drop(db);
     let lib = Library::open(&d.path().join("Job")).unwrap();
     assert_eq!(lib.facts_backlog().unwrap(), 3);

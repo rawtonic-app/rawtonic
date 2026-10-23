@@ -790,6 +790,7 @@ mod tests {
         // Back to schema 5: batches limited to ingest, add and sync.
         lib.conn
             .execute_batch(concat!(
+                include_str!("../tests/undo_0015.sql"),
                 include_str!("../tests/undo_0014.sql"),
                 include_str!("../tests/undo_0013.sql"),
                 include_str!("../tests/undo_0012.sql"),

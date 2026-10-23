@@ -26,6 +26,7 @@ const volume = (extra: Partial<VolumeFolders>): VolumeFolders => ({
   key: 'id:X',
   id: 'X',
   name: 'Card',
+  kind: 'local',
   mount_point: '/Volumes/Card',
   online: true,
   free_bytes: 50e9,
@@ -160,4 +161,19 @@ it('shows free space in the larger unit', () => {
   expect(formatSpace(1.25e12, 4e12)).toBe('1.3 TB / 4 TB');
   expect(formatSpace(200e9, 1000e9)).toBe('200 GB / 1 TB');
   expect(formatSpace(null, 4e12)).toBeNull();
+});
+
+it('always shows one-root drive headings, startup first, then local drives and network shares by name', () => {
+  const volumes = [
+    volume({ key: 'share', name: 'A share', kind: 'network', roots: ['/mnt/share/Jobs'], online: false }),
+    volume({ key: 'z', name: 'Zulu', kind: 'local', roots: ['/mnt/z/Jobs'] }),
+    volume({ key: 'sys', name: 'Startup', kind: 'startup', roots: ['/home/me/Jobs'], mount_point: '/' }),
+    volume({ key: 'a', name: 'Alpha', kind: 'removable', roots: ['/mnt/a/Jobs'] }),
+  ];
+  const sections = volumeSections({ catalog: true, volumes }, [], []);
+  expect(sections.map(({ volume }) => volume.key)).toEqual(['sys', 'a', 'z', 'share']);
+  expect(sections.every(({ trees }) => trees.length === 1)).toBe(true);
+  expect(sections[3].volume.online).toBe(false);
+  expect(sections[3].trees[0]).toMatchObject({ path: '/mnt/share/Jobs', missing: true });
+  expect(volumes.map((volume) => volume.key)).toEqual(['share', 'z', 'sys', 'a']);
 });

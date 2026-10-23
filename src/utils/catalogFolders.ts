@@ -29,6 +29,7 @@ export interface VolumeFolders {
   key: string;
   id: string | null;
   name: string;
+  kind: 'startup' | 'local' | 'removable' | 'network';
   mount_point: string;
   online: boolean;
   free_bytes: number | null;
@@ -174,7 +175,8 @@ export function volumeSections(
 ): VolumeSection[] {
   if (!view?.catalog) return [];
   const missing = missingFolders(view, offline);
-  return view.volumes.map((volume) => {
+  const rank = (volume: VolumeFolders) => volume.kind === 'startup' ? 0 : volume.kind === 'network' ? 2 : 1;
+  return [...view.volumes].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name) || a.key.localeCompare(b.key)).map((volume) => {
     const paths = volumeTops(volume);
     // Named as Lightroom names top-level folders; by their path on the
     // drive where two would read the same.

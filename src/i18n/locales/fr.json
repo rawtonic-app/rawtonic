@@ -727,6 +727,7 @@
     },
     "folders": {
       "missing": "{{path}} est introuvable (renommé, déplacé ou supprimé). Ses photos conservent leurs retouches ; clic droit sur l’une › Localiser le dossier…",
+      "network": "Partage réseau",
       "offlineInside_one": "{{count}} photo ici est hors ligne",
       "offlineInside_many": "{{count}} photos ici sont hors ligne",
       "offlineInside_other": "{{count}} photos ici sont hors ligne",

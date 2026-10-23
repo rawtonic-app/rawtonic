@@ -1576,12 +1576,13 @@ pub async fn catalog_folders(
                 volumes: Vec::new(),
             });
         }
-        let records = lib.folders().map_err(|e| e.to_string())?;
         // As the Folders panel has them: it finds its trees by them.
         let roots: Vec<PathBuf> = roots.iter().map(PathBuf::from).collect();
         Ok(CatalogFoldersView {
             catalog: true,
-            volumes: rawtonic_catalog::folders::by_volume(&records, &roots, &AppProbe),
+            volumes: lib
+                .folder_groups(&roots, &AppProbe)
+                .map_err(|e| e.to_string())?,
         })
     })
     .await

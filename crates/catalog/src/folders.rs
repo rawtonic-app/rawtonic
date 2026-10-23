@@ -8,7 +8,7 @@
 //! Reads only. What is asked of the disk (whether a folder exists, which
 //! volume holds it, free space) goes through [`Probe`] so the grouping is
 //! tested without real drives.
-use crate::{FolderRecord, Volume, volume};
+use crate::{FolderRecord, Library, Volume, volume};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -30,12 +30,13 @@ pub struct CatalogFolder {
 /// A drive and the catalog folders on it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct VolumeFolders {
-    /// Stable key: `id:<volume uuid>` or, for drives without an identity,
+    /// Stable key: `startup`, `id:<volume uuid>` or, for drives without an identity,
     /// `path:<mount point>`.
     pub key: String,
     pub id: Option<String>,
     /// Its name now (when connected) or when its folders were registered.
     pub name: String,
+    pub kind: volume::VolumeKind,
     /// Where it is (or was last) mounted.
     pub mount_point: PathBuf,
     /// Connected now.
@@ -75,8 +76,90 @@ impl Probe for SystemProbe {
     }
 }
 
+impl Library {
+    /// Resolve configured roots and remember their last observed volume in
+    /// the catalog, including roots with no photographs. Only catalog metadata
+    /// is written; the drives and original files are read-only.
+    pub fn folder_groups(
+        &self,
+        roots: &[PathBuf],
+        probe: &dyn Probe,
+    ) -> anyhow::Result<Vec<VolumeFolders>> {
+        let mut records = self.folders()?;
+        for root in roots {
+            use rusqlite::OptionalExtension;
+            let json: Option<String> = self
+                .conn
+                .query_row(
+                    "SELECT volume FROM folder_root_volumes WHERE path=?",
+                    [root.to_string_lossy()],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            let previous = json
+                .map(|json| serde_json::from_str::<Volume>(&json))
+                .transpose()?;
+            let observed = probe.is_dir(root).then(|| probe.volume_of(root)).flatten();
+            // After unmounting, an empty mount-point directory can still
+            // exist on its parent filesystem. That is not the root's drive.
+            let observed = observed.filter(|now| {
+                previous
+                    .as_ref()
+                    .is_none_or(|old| !underlying_mount(now, &old.mount_point, old.kind))
+            });
+            if let Some(volume) = &observed {
+                self.conn.execute(
+                    "INSERT INTO folder_root_volumes(path,volume) VALUES(?,?) ON CONFLICT(path) DO UPDATE SET volume=excluded.volume",
+                    rusqlite::params![root.to_string_lossy(), serde_json::to_string(volume)?],
+                )?;
+            }
+            let volume = observed.or(previous);
+            if let Some(volume) = volume {
+                // An identity-only record lets the same grouping logic place
+                // an offline root. It is not a catalog photograph folder.
+                records.push(FolderRecord {
+                    path: root.clone(),
+                    photos: 0,
+                    missing: 0,
+                    volume_id: Some(volume.id),
+                    volume_name: Some(volume.name),
+                    volume_path: Some(volume.mount_point),
+                    volume_kind: Some(volume.kind),
+                });
+            }
+        }
+        let mut groups = by_volume(&records, roots, probe);
+        for group in &mut groups {
+            if group.online
+                && let Some(id) = &group.id
+            {
+                self.conn.execute(
+                    "UPDATE roots SET volume_kind=? WHERE volume_id=? AND volume_kind IS NOT ?",
+                    rusqlite::params![group.kind.as_str(), id, group.kind.as_str()],
+                )?;
+            }
+            group.folders.retain(|folder| folder.photos > 0);
+        }
+        groups.retain(|group| !group.folders.is_empty() || !group.roots.is_empty());
+        Ok(groups)
+    }
+}
+
+/// A disconnected mount's directory now resolves to the parent filesystem.
+fn underlying_mount(
+    now: &Volume,
+    previous_mount: &Path,
+    previous_kind: volume::VolumeKind,
+) -> bool {
+    now.mount_point != previous_mount
+        && (previous_mount.starts_with(&now.mount_point)
+            || (now.kind == volume::VolumeKind::Startup
+                && previous_kind != volume::VolumeKind::Startup))
+}
+
 /// Groups catalog folders (`records`) and the library's top-level folders
-/// (`roots`) by drive. Drives are sorted by name; a drive is listed when it
+/// (`roots`) by drive. Startup first, then local/removable drives by name,
+/// then network shares by name; a drive is listed when it
 /// holds a catalog folder or a root.
 pub fn by_volume(
     records: &[FolderRecord],
@@ -125,12 +208,25 @@ pub fn by_volume(
         // disconnected now, when the system cannot say where it is).
         let with_records = records
             .iter()
-            .filter(|r| r.path.starts_with(root) && r.volume_id.is_some())
-            .find_map(|r| r.volume_id.as_deref().map(|id| (id, r)));
+            .rev()
+            .find(|r| r.path == *root && r.volume_id.is_some())
+            .or_else(|| {
+                records
+                    .iter()
+                    .find(|r| r.path.starts_with(root) && r.volume_id.is_some())
+            })
+            .and_then(|r| r.volume_id.as_deref().map(|id| (id, r)));
         let group = match (
             exists.then(|| probe.volume_of(root)).flatten(),
             with_records,
         ) {
+            (Some(volume), Some((id, record)))
+                if record.volume_path.as_ref().is_some_and(|mount| {
+                    underlying_mount(&volume, mount, record.volume_kind.unwrap_or_default())
+                }) =>
+            {
+                known_volume(id, record, &mounted, probe)
+            }
             (Some(volume), _) => volume_group(&volume, true, probe),
             (None, Some((id, record))) => known_volume(id, record, &mounted, probe),
             (None, None) => unknown_volume(root, exists, &mounted, probe),
@@ -153,9 +249,14 @@ pub fn by_volume(
         group.folders.sort_by(|a, b| a.path.cmp(&b.path));
     }
     groups.sort_by(|a, b| {
-        a.name
-            .to_lowercase()
-            .cmp(&b.name.to_lowercase())
+        let rank = |kind| match kind {
+            volume::VolumeKind::Startup => 0,
+            volume::VolumeKind::Network => 2,
+            _ => 1,
+        };
+        rank(a.kind)
+            .cmp(&rank(b.kind))
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
             .then_with(|| a.key.cmp(&b.key))
     });
     groups
@@ -165,9 +266,14 @@ fn volume_group(volume: &Volume, online: bool, probe: &dyn Probe) -> VolumeFolde
     let (name, mount_point) = shown(volume, probe);
     let space = online.then(|| probe.space(&volume.mount_point)).flatten();
     VolumeFolders {
-        key: format!("id:{}", volume.id),
+        key: if volume.kind == volume::VolumeKind::Startup {
+            "startup".into()
+        } else {
+            format!("id:{}", volume.id)
+        },
         id: Some(volume.id.clone()),
         name,
+        kind: volume.kind,
         mount_point,
         online,
         free_bytes: space.map(|s| s.0),
@@ -212,6 +318,13 @@ fn known_volume(
         return volume_group(volume, true, probe);
     }
     let volume = Volume {
+        kind: record.volume_kind.unwrap_or_else(|| {
+            if record.volume_path.as_deref() == Some(Path::new("/")) {
+                volume::VolumeKind::Startup
+            } else {
+                volume::VolumeKind::Local
+            }
+        }),
         id: id.to_string(),
         name: record
             .volume_name
@@ -250,6 +363,11 @@ fn unknown_volume(
         key: format!("path:{}", root.display()),
         id: None,
         name: fallback_name(&root),
+        kind: if root == Path::new("/") {
+            volume::VolumeKind::Startup
+        } else {
+            volume::VolumeKind::Local
+        },
         mount_point: root,
         online,
         free_bytes: space.map(|s| s.0),
@@ -335,6 +453,11 @@ mod tests {
 
     fn volume(id: &str, name: &str, mount: &str) -> Volume {
         Volume {
+            kind: if mount == "/" {
+                volume::VolumeKind::Startup
+            } else {
+                volume::VolumeKind::Local
+            },
             id: id.into(),
             name: name.into(),
             mount_point: mount.into(),
@@ -348,6 +471,7 @@ mod tests {
             missing,
             volume_id: volume.map(|v| v.id.clone()),
             volume_name: volume.map(|v| v.name.clone()),
+            volume_kind: volume.map(|v| v.kind),
             volume_path: volume.map(|v| v.mount_point.clone()),
         }
     }
@@ -391,9 +515,9 @@ mod tests {
         let names: Vec<_> = groups.iter().map(|g| (g.name.as_str(), g.online)).collect();
         assert_eq!(
             names,
-            [("Backup", false), ("Card", true), ("Macintosh HD", true)]
+            [("Macintosh HD", true), ("Backup", false), ("Card", true)]
         );
-        let card_group = &groups[1];
+        let card_group = &groups[2];
         assert_eq!(card_group.free_bytes, Some(10));
         assert_eq!(
             card_group
@@ -407,11 +531,11 @@ mod tests {
             ]
         );
         assert_eq!(
-            groups[0].free_bytes, None,
+            groups[1].free_bytes, None,
             "no space for a disconnected drive"
         );
-        assert_eq!(groups[0].mount_point, Path::new("/Volumes/Backup"));
-        assert_eq!(groups[2].roots, [PathBuf::from("/Users/me/Lib.catalog")]);
+        assert_eq!(groups[1].mount_point, Path::new("/Volumes/Backup"));
+        assert_eq!(groups[0].roots, [PathBuf::from("/Users/me/Lib.catalog")]);
     }
 
     #[test]
@@ -466,6 +590,71 @@ mod tests {
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].key, "id:CARD");
         assert_eq!(groups[0].roots, [PathBuf::from("/mnt/card/2026")]);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn system_and_data_roots_share_one_startup_heading() {
+        let system = volume("SYS", "Startup Disk", "/");
+        let mut data = volume("DATA", "Startup Disk - Data", "/System/Volumes/Data");
+        data.kind = volume::VolumeKind::Startup;
+        let probe = Fake {
+            mounted: vec![system, data],
+            dirs: HashSet::from([
+                PathBuf::from("/"),
+                PathBuf::from("/System/Volumes/Data/Users"),
+            ]),
+        };
+        let groups = by_volume(
+            &[],
+            &[
+                PathBuf::from("/"),
+                PathBuf::from("/System/Volumes/Data/Users"),
+            ],
+            &probe,
+        );
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].name, "Startup Disk");
+        assert_eq!(groups[0].roots.len(), 2);
+    }
+
+    #[test]
+    fn empty_roots_keep_last_drive_and_kind_after_reopening_offline() {
+        let tmp = tempfile::tempdir().unwrap();
+        let directory = tmp.path().join("Library");
+        let root = PathBuf::from("/srv/team/Jobs");
+        let mut share = volume("share-id", "Team Photos", "/srv/team");
+        share.kind = volume::VolumeKind::Network;
+        let online = Fake {
+            mounted: vec![share],
+            dirs: HashSet::from([root.clone()]),
+        };
+        let lib = Library::create(&directory, "Library", crate::Mode::Catalog).unwrap();
+        let before = lib
+            .folder_groups(std::slice::from_ref(&root), &online)
+            .unwrap();
+        assert_eq!(before.len(), 1);
+        assert_eq!(before[0].kind, volume::VolumeKind::Network);
+        assert!(before[0].online);
+        assert!(before[0].folders.is_empty());
+        drop(lib);
+        let lib = Library::open(&directory).unwrap();
+        let offline = Fake {
+            mounted: vec![volume("SYS", "Startup", "/")],
+            dirs: HashSet::from([root.clone()]),
+        };
+        let after = lib
+            .folder_groups(std::slice::from_ref(&root), &offline)
+            .unwrap();
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].key, before[0].key);
+        assert_eq!(after[0].name, "Team Photos");
+        assert_eq!(after[0].kind, volume::VolumeKind::Network);
+        assert_eq!(after[0].mount_point, Path::new("/srv/team"));
+        assert_eq!(after[0].roots, [root]);
+        assert!(!after[0].online);
+        assert_eq!(after[0].free_bytes, None);
+        assert!(after[0].folders.is_empty());
     }
 
     #[test]
