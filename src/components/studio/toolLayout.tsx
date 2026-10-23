@@ -36,8 +36,12 @@ const releasePress = () => {
 
 /** A tool's content. While a slider drag that started in another tool is in
  * progress it keeps its last render: the drag's commits (every 250 ms,
- * utils/sliderDraft.ts) then re-render only the dragged tool, which holds the
- * displays linked to the dragged value. It renders again when the drag ends. */
+ * utils/sliderDraft.ts) then reach only the dragged tool, which holds the
+ * displays linked to the dragged value. It renders again when the drag ends.
+ * Components that subscribe to the editor store themselves still render on
+ * their own; those in Develop's tools select only the values they show
+ * (lens correction, face retouch and the people mask still take the whole
+ * recipe). */
 const ToolSlotContent = memo(
   function ToolSlotContent({ children }: { children: ReactNode; frozen: boolean }) {
     return <>{children}</>;

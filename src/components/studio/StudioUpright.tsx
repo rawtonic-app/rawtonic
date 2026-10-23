@@ -37,14 +37,15 @@ const AUTO_DONE = {
  * perspective correction; Constrain crop zooms to the corrected area. */
 export default function StudioUpright() {
   const { t } = useTranslation();
-  const adjustments = useEditorStore((s) => s.adjustments);
+  // Only its own value: other edits (a slider drag's commits) do not
+  // re-render it.
+  const guided = useEditorStore((s) => s.adjustments.guidedPerspective);
   const drawing = useEditorStore((s) => s.isGuidedPerspectiveActive);
   const setEditor = useEditorStore((s) => s.setEditor);
   const activePanel = useUIStore((s) => s.activePanel);
   const { setAdjustments } = useEditorActions();
   const [busy, setBusy] = useState<UprightMode | null>(null);
   const [note, setNote] = useState("");
-  const guided = adjustments.guidedPerspective;
   const lines = guided?.lines ?? [];
   const mode: UprightMode = guided?.upright ?? (guided?.enabled && lines.length >= 2 ? "guided" : "off");
   // Keeps its look while the next photograph loads (the tools are inert).

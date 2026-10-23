@@ -92,11 +92,18 @@ export default function StudioCropControls({
       : name === ORIGINAL
         ? t("studio.crop.ratios.original")
         : name;
-  const { adjustments, selectedImage, setEditor } = useEditorStore(
+  // Only the values the tool shows: other edits (a slider drag's commits)
+  // do not re-render it.
+  const { selectedImage, setEditor, ...adjustments } = useEditorStore(
     useShallow((s) => ({
-      adjustments: s.adjustments,
       selectedImage: s.selectedImage,
       setEditor: s.setEditor,
+      aspectRatio: s.adjustments.aspectRatio,
+      orientationSteps: s.adjustments.orientationSteps,
+      crop: s.adjustments.crop,
+      rotation: s.adjustments.rotation,
+      flipHorizontal: s.adjustments.flipHorizontal,
+      flipVertical: s.adjustments.flipVertical,
     })),
   );
   const { appSettings, handleSettingsChange } = useSettingsStore(
