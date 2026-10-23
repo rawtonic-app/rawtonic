@@ -2171,6 +2171,14 @@ fn upload_pool() -> &'static rayon::ThreadPool {
     })
 }
 
+/// Starts the pool foreground renders hand work to, if not yet started,
+/// from the calling thread: its threads inherit the caller's scheduling
+/// priority (Linux), so a lower-priority export thread must not be the one
+/// to start it.
+pub fn start_shared_pools() {
+    upload_pool();
+}
+
 thread_local! {
     /// Set on the threads of a pool none of whose jobs waits for the GPU
     /// processor ([`mark_private_pool_thread`]).

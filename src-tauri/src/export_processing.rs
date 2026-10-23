@@ -516,6 +516,8 @@ struct Lane {
 
 impl ExportLanes {
     fn new(workers: usize, threads: usize) -> Arc<Self> {
+        // Threads inherit their creator's priority: not from an export's.
+        crate::gpu_processing::start_shared_pools();
         let pools = (0..workers)
             .map(|lane| {
                 rayon::ThreadPoolBuilder::new()

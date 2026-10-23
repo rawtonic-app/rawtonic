@@ -20,7 +20,9 @@ pub(super) const FOREGROUND_PAUSE: Duration = Duration::from_millis(250);
 
 #[derive(Default)]
 struct State {
-    /// Foreground renders waiting for the processor.
+    /// A render holds its turn (it has or is about to lock the slot).
+    taken: bool,
+    /// Foreground renders waiting for a turn.
     waiting: usize,
     /// When the last foreground render ended.
     ended: Option<Instant>,
@@ -38,6 +40,7 @@ impl ProcessorTurns {
     pub(super) const fn new() -> Self {
         Self {
             state: Mutex::new(State {
+                taken: false,
                 waiting: 0,
                 ended: None,
             }),
@@ -49,61 +52,67 @@ impl ProcessorTurns {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Locks `slot` in turn: a foreground render at once, a background
-    /// render once no foreground render waits or has ended within
-    /// [`FOREGROUND_PAUSE`].
+    /// Locks `slot` in turn: a foreground render once no render holds a
+    /// turn, a background render once, besides, no foreground render waits
+    /// or has ended within [`FOREGROUND_PAUSE`]. Every waiter checks again
+    /// when a turn ends, so one queued earlier gets no precedence.
     pub(super) fn lock<'a, T>(
         &'a self,
         slot: &'a Mutex<T>,
         foreground: bool,
     ) -> LockResult<TurnGuard<'a, T>> {
-        if foreground {
-            self.state().waiting += 1;
-            let locked = slot.lock();
-            self.state().waiting -= 1;
-            return wrap(locked, |guard| TurnGuard {
-                guard,
-                turns: Some(self),
-            });
-        }
         let mut state = self.state();
-        loop {
-            let pause = state.ended.map_or(Duration::ZERO, |ended| {
-                FOREGROUND_PAUSE.saturating_sub(ended.elapsed())
-            });
-            if state.waiting == 0 && pause.is_zero() {
-                break;
-            }
-            state = if state.waiting > 0 {
-                self.changed
+        if foreground {
+            state.waiting += 1;
+            while state.taken {
+                state = self
+                    .changed
                     .wait(state)
-                    .unwrap_or_else(PoisonError::into_inner)
-            } else {
-                self.changed
-                    .wait_timeout(state, pause)
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .0
-            };
+                    .unwrap_or_else(PoisonError::into_inner);
+            }
+            state.waiting -= 1;
+        } else {
+            loop {
+                let pause = state.ended.map_or(Duration::ZERO, |ended| {
+                    FOREGROUND_PAUSE.saturating_sub(ended.elapsed())
+                });
+                if !state.taken && state.waiting == 0 && pause.is_zero() {
+                    break;
+                }
+                state = if state.taken || state.waiting > 0 {
+                    self.changed
+                        .wait(state)
+                        .unwrap_or_else(PoisonError::into_inner)
+                } else {
+                    self.changed
+                        .wait_timeout(state, pause)
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .0
+                };
+            }
         }
+        state.taken = true;
         drop(state);
-        wrap(slot.lock(), |guard| TurnGuard { guard, turns: None })
+        // Uncontended but for callers outside the turns (the app's
+        // pipeline prewarm).
+        let turn = |guard| TurnGuard {
+            guard,
+            turns: self,
+            foreground,
+        };
+        match slot.lock() {
+            Ok(guard) => Ok(turn(guard)),
+            Err(poisoned) => Err(PoisonError::new(turn(poisoned.into_inner()))),
+        }
     }
 }
 
-fn wrap<'a, T>(
-    locked: LockResult<MutexGuard<'a, T>>,
-    turn: impl FnOnce(MutexGuard<'a, T>) -> TurnGuard<'a, T>,
-) -> LockResult<TurnGuard<'a, T>> {
-    match locked {
-        Ok(guard) => Ok(turn(guard)),
-        Err(poisoned) => Err(PoisonError::new(turn(poisoned.into_inner()))),
-    }
-}
-
-/// The locked slot; a foreground render's records when it ended.
+/// The locked slot; gives the turn back when dropped (a foreground render's
+/// also records when it ended).
 pub(super) struct TurnGuard<'a, T> {
     guard: MutexGuard<'a, T>,
-    turns: Option<&'a ProcessorTurns>,
+    turns: &'a ProcessorTurns,
+    foreground: bool,
 }
 
 impl<T> Deref for TurnGuard<'_, T> {
@@ -122,10 +131,13 @@ impl<T> DerefMut for TurnGuard<'_, T> {
 
 impl<T> Drop for TurnGuard<'_, T> {
     fn drop(&mut self) {
-        if let Some(turns) = self.turns {
-            turns.state().ended = Some(Instant::now());
-            turns.changed.notify_all();
+        let mut state = self.turns.state();
+        state.taken = false;
+        if self.foreground {
+            state.ended = Some(Instant::now());
         }
+        drop(state);
+        self.turns.changed.notify_all();
     }
 }
 
@@ -182,6 +194,62 @@ mod tests {
         let order = slot.lock().unwrap();
         assert_eq!(order[0], "foreground");
         assert_eq!(order.len(), 4);
+    }
+
+    /// Export renders that queued while another render ran do not get the
+    /// processor before a Develop frame that asks after them.
+    #[test]
+    fn background_renders_queued_earlier_do_not_go_before_a_foreground_render() {
+        // A plain mutex hands itself to any of its waiters: a few rounds.
+        for _ in 0..5 {
+            let turns = turns();
+            let slot: &'static Mutex<Vec<&str>> = Box::leak(Box::new(Mutex::new(Vec::new())));
+            let running = turns.lock(slot, false).unwrap();
+            let backgrounds: Vec<_> = (0..6)
+                .map(|_| {
+                    std::thread::spawn(move || {
+                        turns.lock(slot, false).unwrap().push("background");
+                    })
+                })
+                .collect();
+            // The background renders reach their wait.
+            std::thread::sleep(Duration::from_millis(30));
+            let foreground = std::thread::spawn(move || {
+                turns.lock(slot, true).unwrap().push("foreground");
+            });
+            until_waiting(turns, 1);
+            // The foreground render reaches its wait.
+            std::thread::sleep(Duration::from_millis(10));
+            drop(running);
+            foreground.join().unwrap();
+            for background in backgrounds {
+                background.join().unwrap();
+            }
+            let order = slot.lock().unwrap();
+            assert_eq!(order[0], "foreground");
+            assert_eq!(order.len(), 7);
+        }
+    }
+
+    /// An export render that queued during a Develop frame still waits out
+    /// the pause after it.
+    #[test]
+    fn a_background_render_queued_during_a_foreground_render_waits_out_the_pause() {
+        let turns = turns();
+        let slot: &'static Mutex<()> = Box::leak(Box::new(Mutex::new(())));
+        let frame = turns.lock(slot, true).unwrap();
+        let (sent, taken) = channel();
+        let background = std::thread::spawn(move || {
+            let _turn = turns.lock(slot, false).unwrap();
+            sent.send(Instant::now()).unwrap();
+        });
+        // The background render reaches its wait.
+        std::thread::sleep(Duration::from_millis(50));
+        drop(frame);
+        let ended = Instant::now();
+        let taken = taken.recv().unwrap();
+        background.join().unwrap();
+        assert!(taken.duration_since(ended) >= FOREGROUND_PAUSE - Duration::from_millis(5));
     }
 
     /// A drag's next frame arrives after its previous one ended: background
