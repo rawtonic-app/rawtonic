@@ -1,3 +1,4 @@
+import OperationError from "../ui/OperationError";
 import { Invokes } from '../ui/AppProperties';
 import { useEffect, useRef, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
@@ -131,7 +132,7 @@ export default function LibraryTransferDialog({ purpose, directory = "", name = 
             </div>}
           </>
         )}
-        {error && <p className="session-error" role="alert">{error}</p>}
+        {error && <p className="session-error" role="alert"><OperationError detail={error} /></p>}
         <div className="session-dialog-footer">
           {result ? <>
             <button type="button" className="session-action" onClick={onClose}>{t("session.dialogs.close")}</button>

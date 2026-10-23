@@ -1,3 +1,4 @@
+import OperationError from "../ui/OperationError";
 import { swallowDragClick } from '../../utils/swallowClick';
 import {
   useCallback,
@@ -702,7 +703,7 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
             style={{ paddingLeft: 22 }}
             title={t("studio.library.albums.previousImportTitle")}
             data-drop-refused={t("studio.library.albums.previousImportNoDrop")}
-            onClick={() => void showImported().catch((e) => toast.error(String(e)))}
+            onClick={() => void showImported().catch((e) => toast.error(<OperationError detail={String(e)} />))}
           >
             <History size={12} />
             <span>{t("studio.library.albums.previousImport")}</span>
@@ -718,7 +719,7 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
             style={{ paddingLeft: 22 }}
             title={t("offline.missingViewTitle")}
             data-drop-refused={t("offline.missingViewNoDrop")}
-            onClick={() => void showMissing().catch((e) => toast.error(String(e)))}
+            onClick={() => void showMissing().catch((e) => toast.error(<OperationError detail={String(e)} />))}
           >
             <Unlink size={12} />
             <span>{t("offline.missingView")}</span>

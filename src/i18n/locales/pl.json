@@ -3214,6 +3214,7 @@
       "zoomLock": "Zablokuj powiększenie",
       "zoomLockTitle": "Zablokuj powiększenie: powiększenie zdjęcia głównego powiększa i przesuwa wszystkie zdjęcia do tego samego miejsca. Wyłączone, każde zdjęcie powiększa się osobno (kółko, gest szczypania, dwuklik lub Spacja nad nim)"
     },
+    "operationFailed": "Nie udało się ukończyć operacji.",
     "people": {
       "aria": "Maska osób",
       "everyone": "Wszyscy",

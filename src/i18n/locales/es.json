@@ -3119,6 +3119,7 @@
       "zoomLock": "Bloquear zoom",
       "zoomLockTitle": "Bloquear zoom: hacer zoom en la foto principal amplía y desplaza todas las fotos al mismo punto. Desactivado, cada foto hace zoom por separado (rueda, pellizco, doble clic o Espacio sobre ella)"
     },
+    "operationFailed": "No se ha podido completar la operación.",
     "people": {
       "aria": "Máscara de personas",
       "everyone": "Todos",

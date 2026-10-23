@@ -94,8 +94,18 @@ describe("camera profile choice", () => {
     fireEvent.change(screen.getByLabelText("Camera profile"), {
       target: { value: "__import__" },
     });
-    expect((await screen.findByRole("alert")).textContent).toBe(
-      "Not a DCP camera profile",
-    );
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("The operation could not be completed.");
+    expect(alert.querySelector("small")?.textContent).toBe("Not a DCP camera profile");
   });
+});
+
+it("reports native profile picker failures with translated context", async () => {
+  invoke.mockResolvedValue([]);
+  open.mockRejectedValue(new Error("Picker unavailable"));
+  render(<StudioCameraProfile value={undefined} imagePath="/s/Capture/a.CR3" disabled={false} onChange={vi.fn()} />);
+  fireEvent.change(screen.getByLabelText("Camera profile"), { target: { value: "__import__" } });
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("The operation could not be completed.");
+  expect(alert.querySelector("small")?.textContent).toBe("Error: Picker unavailable");
 });

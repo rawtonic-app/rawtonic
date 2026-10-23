@@ -1,4 +1,5 @@
 import "../../i18n";
+import { toast } from "react-toastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
@@ -551,4 +552,27 @@ describe("Smart albums in the Albums tool", () => {
       vi.useRealTimers();
     }
   });
+});
+
+
+it.each([
+  ["Previous Import", "session_previous_import", { batch: { id: 3, kind: "sync", created_at: "", count: 1 }, paths: ["/job/a.arw"] }],
+  ["Missing Photographs", "session_offline", [{ path: "/job/a.arw", volume: null, mtime: 1 }]],
+])("shows translated context for a failed %s query", async (label, command, result) => {
+  const base = mockInvoke.getMockImplementation()!;
+  let fail = false;
+  mockInvoke.mockImplementation(async (name, args) => {
+    if (name !== command) return base(name, args);
+    if (fail) throw new Error("EIO: catalog");
+    return result;
+  });
+  await renderTool();
+  fail = true;
+  vi.mocked(toast.error).mockClear();
+  await act(async () => { fireEvent.click(screen.getByText(label as string)); });
+  const content = vi.mocked(toast.error).mock.calls[0][0];
+  expect(typeof content).toBe("object");
+  render(<>{content as import("react").ReactNode}</>);
+  expect(screen.getByText("The operation could not be completed.")).toBeTruthy();
+  expect(screen.getByText("Error: EIO: catalog").tagName).toBe("SMALL");
 });

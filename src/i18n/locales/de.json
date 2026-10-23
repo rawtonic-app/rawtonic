@@ -3024,6 +3024,7 @@
       "zoomLock": "Zoom koppeln",
       "zoomLockTitle": "Zoom koppeln: Zoomen des Hauptfotos zoomt und verschiebt jedes Foto auf dieselbe Stelle. Aus, zoomt jedes Foto für sich (Mausrad, Zwei-Finger-Zoom, Doppelklick oder Leertaste darüber)"
     },
+    "operationFailed": "Der Vorgang konnte nicht abgeschlossen werden.",
     "people": {
       "aria": "Personenmaske",
       "everyone": "Alle",

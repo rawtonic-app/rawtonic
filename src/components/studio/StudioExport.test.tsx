@@ -795,3 +795,11 @@ it("sends a custom counter start to batch exports and uses it in the single-file
   const { save } = await import("@tauri-apps/plugin-dialog");
   await vi.waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ defaultPath: "Image_0.jpg" })));
 });
+
+it("shows a translated summary with backend export details as secondary text", () => {
+  useProcessStore.setState({ exportState: { status: Status.Error, errorMessage: "EIO: cannot write", progress: { current: 0, total: 0 } } });
+  render(<StudioExport />);
+  const alert = screen.getByRole("alert");
+  expect(within(alert).getByText("The operation could not be completed.")).toBeTruthy();
+  expect(within(alert).getByText("EIO: cannot write").tagName).toBe("SMALL");
+});

@@ -3119,6 +3119,7 @@
       "zoomLock": "Verrouiller le zoom",
       "zoomLockTitle": "Verrouiller le zoom : zoomer sur la photo principale zoome et déplace chaque photo au même endroit. Désactivé, chaque photo zoome seule (molette, pincement, double-clic ou Espace au-dessus)"
     },
+    "operationFailed": "L’opération n’a pas pu être terminée.",
     "people": {
       "aria": "Masque de personnes",
       "everyone": "Tout le monde",

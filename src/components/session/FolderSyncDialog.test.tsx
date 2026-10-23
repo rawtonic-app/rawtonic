@@ -146,3 +146,11 @@ it("does not call a folder on a disconnected drive in sync", async () => {
   expect(within(screen.getByRole("region", { name: "Not available" })).getByText("on “Photos”")).toBeTruthy();
   expect(screen.queryByRole("button", { name: /Apply/ })).toBeNull();
 });
+
+it("keeps a scan failure below a translated summary", async () => {
+  vi.mocked(invoke).mockRejectedValueOnce("EACCES: folder");
+  render(<FolderSyncDialog directory="/lib" folder={null} onClose={vi.fn()} onApplied={vi.fn()} />);
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("The operation could not be completed.");
+  expect(alert.querySelector("small")?.textContent).toBe("EACCES: folder");
+});

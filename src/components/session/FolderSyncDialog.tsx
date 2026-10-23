@@ -1,3 +1,4 @@
+import OperationError from "../ui/OperationError";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -404,12 +405,12 @@ export default function FolderSyncDialog({ directory, folder, onClose, onApplied
         {phase.kind === "done" && done(phase.applied)}
         {phase.kind === "failed" && (
           <p className="session-error" role="alert">
-            {phase.error}
+            <OperationError detail={phase.error} />
           </p>
         )}
         {error && (
           <p className="session-error" role="alert">
-            {error}
+            <OperationError detail={error} />
           </p>
         )}
         <div className="session-dialog-footer">

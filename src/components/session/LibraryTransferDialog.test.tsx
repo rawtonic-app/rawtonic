@@ -78,3 +78,12 @@ it("restores the chosen backup into a new folder and opens only the finished cop
   await waitFor(() => expect(close).toHaveBeenCalled());
   expect(onOpen).toHaveBeenCalledWith("/drive/Restored");
 });
+
+it("keeps a backend failure below a translated summary", async () => {
+  vi.mocked(open).mockRejectedValueOnce("EACCES: drive");
+  render(<LibraryTransferDialog purpose="backup" directory="/photos" onClose={vi.fn()} onOpen={vi.fn()} />);
+  await userEvent.setup().click(screen.getByRole("button", { name: "Destination parent folder" }));
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("The operation could not be completed.");
+  expect(alert.querySelector("small")?.textContent).toBe("EACCES: drive");
+});

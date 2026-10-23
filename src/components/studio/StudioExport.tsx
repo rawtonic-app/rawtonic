@@ -2,13 +2,13 @@ import { validNamingTemplate, validSequenceStart } from "../../utils/namingTempl
 import NamingEditor from "../ui/NamingEditor";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import i18n from "i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { currentEditForExport, useEditorStore } from "../../store/useEditorStore";
 import { useProcessStore } from "../../store/useProcessStore";
-import { renderErrorMessage } from "../../utils/renderErrors";
+import OperationError from "../ui/OperationError";
+import { formatFileSize } from "../../utils/formatFileSize";
 import { ExportQueueJobs } from "./StudioExportQueue";
 import { toast } from "react-toastify";
 import { Invokes } from "../ui/AppProperties";
@@ -91,26 +91,6 @@ const ANCHORS = [
   { anchor: WatermarkAnchor.BottomCenter, name: "bottomCenter" },
   { anchor: WatermarkAnchor.BottomRight, name: "bottomRight" },
 ] as const;
-
-/** subfolderProblem's English messages, mapped to their translations. */
-const SUBFOLDER_PROBLEMS = {
-  "The subfolder must stay inside the destination folder.":
-    "studio.export.destination.errors.outside",
-  "Use a folder name, not a drive or full path.":
-    "studio.export.destination.errors.fullPath",
-} as const;
-const subfolderMessage = (problem: string): string =>
-  problem in SUBFOLDER_PROBLEMS
-    ? i18n.t(SUBFOLDER_PROBLEMS[problem as keyof typeof SUBFOLDER_PROBLEMS])
-    : problem;
-
-/** Bytes as Finder shows them (1 MB = 1,000,000 bytes). */
-export function formatFileSize(bytes: number): string {
-  if (!(bytes > 0)) return "0 KB";
-  if (bytes < 1e6) return `${Math.max(1, Math.round(bytes / 1e3))} KB`;
-  if (bytes < 1e9) return `${(bytes / 1e6).toFixed(1)} MB`;
-  return `${(bytes / 1e9).toFixed(2)} GB`;
-}
 
 const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
@@ -579,7 +559,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
         </label>
         {subfolderError && (
           <small className="studio-export-error" role="alert">
-            {subfolderMessage(subfolderError)}
+            {t(`studio.export.destination.errors.${subfolderError}`)}
           </small>
         )}
         {target !== "original" && (
@@ -1248,7 +1228,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
       )}
       {state.status === Status.Error && (
         <p className="studio-export-error" role="alert">
-          {renderErrorMessage(state.errorMessage)}
+          <OperationError detail={state.errorMessage} />
         </p>
       )}
       {state.status === Status.Success && (

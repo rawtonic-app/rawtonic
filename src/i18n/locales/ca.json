@@ -3119,6 +3119,7 @@
       "zoomLock": "Bloqueja el zoom",
       "zoomLockTitle": "Bloca el zoom: fer zoom a la foto principal amplia i desplaça totes les fotos al mateix punt. Desactivat, cada foto fa zoom per separat (roda, pessic, doble clic o Espai a sobre)"
     },
+    "operationFailed": "No s’ha pogut completar l’operació.",
     "people": {
       "aria": "Màscara de persones",
       "everyone": "Tothom",
