@@ -5,6 +5,7 @@ import { useEditorStore } from "../store/useEditorStore";
 import { useLibraryStore } from "../store/useLibraryStore";
 import { useUIStore } from "../store/useUIStore";
 import type { LatestPreviewQueue } from "../utils/latestPreviewQueue";
+import { startRenderCensus, takeRenderCensus } from "../utils/renderCensus";
 
 // Explicit profiling builds only. No frame loop, subscriptions or IPC in normal builds.
 export const performanceDiagnosticsEnabled =
@@ -164,6 +165,7 @@ function summarize(prefix: string, values: number[]) {
 
 function finishPointerSession(session: PointerSession) {
   if (pointerSession === session) pointerSession = null;
+  const renders = takeRenderCensus();
   if (session.moveTimes.length < 3) return;
   const intervals = (times: number[]) => times.slice(1).map((time, index) => time - times[index]);
   const moveSpan = session.moveTimes[session.moveTimes.length - 1] - session.moveTimes[0];
@@ -201,6 +203,8 @@ function finishPointerSession(session: PointerSession) {
     react_ms: Math.round(session.commits.reduce((a, b) => a + b, 0)),
     ...summarize("react_commit", session.commits),
     ...Object.fromEntries(Object.entries(session.commitIds).map(([id, ms]) => [`react_ms_${id}`, Math.round(ms)])),
+    // Renders per component during the session (renderCensus.ts).
+    renders: JSON.stringify(renders),
     frames_without_moves: session.movesPerFrame.filter((moves) => moves === 0).length,
     stroke_sends: session.strokeSends,
     stroke_moves_dropped: session.strokeDropped,
@@ -348,6 +352,7 @@ export function usePerformanceDiagnostics() {
       const slider = event.target instanceof HTMLInputElement && event.target.type === "range";
       if (event.button !== 0 || !(slider || event.target instanceof HTMLCanvasElement) ||
           useUIStore.getState().activeView !== "editor") return;
+      startRenderCensus();
       pointerSession = {
         pointerType: event.pointerType,
         maskType: slider ? "slider" : activeMaskType(),

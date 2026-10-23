@@ -1,3 +1,5 @@
+// First: profiling builds count renders through React's DevTools hook.
+import './utils/renderCensus';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
