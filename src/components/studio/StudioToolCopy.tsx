@@ -39,19 +39,16 @@ const COPIED_ALONG: Partial<Record<string, string[]>> = {
   sharpnessFalloff: ["sharpenVersion"],
   // AI Denoise means what the recipe's AI Denoise version makes of it.
   aiDenoise: ["aiDenoiseVersion"],
-  // The grain is the pattern of the recipe's grain version.
-  grainAmount: ["grainVersion"],
-  grainSize: ["grainVersion"],
-  grainRoughness: ["grainVersion"],
-  grainStructure: ["grainVersion"],
 };
 
-function pick(values: Adjustments, keys: string[]): Partial<Adjustments> {
+export function pick(values: Adjustments, keys: string[]): Partial<Adjustments> {
   const all = new Set(keys.flatMap((key) => [key, ...(COPIED_ALONG[key] ?? [])]));
   const picked = Object.fromEntries(
     [...all].map((key) => [key, structuredClone(values[key as keyof Adjustments])]),
   ) as Partial<Adjustments>;
-  // A missing response key would vanish on the way: say it explicitly.
+  // A missing response key would vanish on the way: say it explicitly. The
+  // grain version is not picked along (an absent one would read as an undo
+  // to version 1): withGrainVersion takes it from the source.
   return withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, values), values), values);
 }
 
