@@ -1348,6 +1348,19 @@ fn sharpen_version_4_keeps_low_contrast_texture_at_radius_and_masking() {
             [v, v, v, f16::ONE]
         })
         .collect();
+    // Strong fine patterns at the 2 and 4 px periods of a sparse sample grid
+    // (diagonal and vertical stripes, ±60 %): Masking must see their spread.
+    let stripes = |period: f32, diagonal: bool| -> Vec<f16> {
+        (0..width * height)
+            .flat_map(|i| {
+                let (x, y) = ((i % width) as f32, (i / width) as f32);
+                let t = if diagonal { x + y } else { x };
+                let v =
+                    f16::from_f32(0.15 * (1.0 + 0.6 * (t * std::f32::consts::TAU / period).cos()));
+                [v, v, v, f16::ONE]
+            })
+            .collect()
+    };
     let context = context();
     let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
     let render = |data: &[f16], extra: serde_json::Value, version: u64| {
@@ -1393,9 +1406,9 @@ fn sharpen_version_4_keeps_low_contrast_texture_at_radius_and_masking() {
         }
         sum / n
     };
-    // Radius 1 without Masking: the same path, bit for bit.
-    for amount in [40, 80] {
-        let recipe = json!({"sharpness": amount, "sharpenDetail": 50});
+    // From Radius 1 up without Masking: the same path, bit for bit.
+    for (amount, radius) in [(40, 1.0), (80, 1.0), (80, 2.0)] {
+        let recipe = json!({"sharpness": amount, "sharpenDetail": 50, "sharpenRadius": radius});
         assert_eq!(render(&grain, recipe.clone(), 4), render(&grain, recipe, 3));
     }
     let radius_1 = change(&grain, json!({}), 4);
@@ -1413,9 +1426,20 @@ fn sharpen_version_4_keeps_low_contrast_texture_at_radius_and_masking() {
         change(&pattern, json!({"sharpenMasking": 50}), 4),
     );
     assert!(
-        masked_4 > 0.05 * unmasked && masked_4 > 2.0 * masked_3 && masked_4 < unmasked,
+        masked_4 > 0.03 * unmasked && masked_4 > 2.0 * masked_3 && masked_4 < unmasked,
         "Masking 50: {masked_4} against response 3's {masked_3} and no masking's {unmasked}"
     );
+    for (period, diagonal) in [(2.0, false), (4.0, false), (4.0, true)] {
+        let data = stripes(period, diagonal);
+        let (masked, unmasked) = (
+            change(&data, json!({"sharpenMasking": 50}), 4),
+            change(&data, json!({}), 4),
+        );
+        assert!(
+            masked > 0.8 * unmasked,
+            "Masking 50 on {period} px stripes (diagonal {diagonal}): {masked} of {unmasked}"
+        );
+    }
 }
 
 fn context() -> GpuContext {

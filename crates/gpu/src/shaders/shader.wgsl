@@ -2848,8 +2848,8 @@ fn apply_sharpen(
     // controls at their defaults, where it equals the default path below;
     // response 3 at every amount (its lightness weight differs there too).
     let response = adjustments.global.sharpen_falloff.w;
-    // Response 4 differs from 3 only away from Radius 1 or with Masking.
-    if (response >= 4.0 && (adjustments.global.sharpen_radius_offset != 0.0 || adjustments.global.sharpen_masking > 0.0)) {
+    // Response 4 differs from 3 only below Radius 1 or with Masking.
+    if (response >= 4.0 && (adjustments.global.sharpen_radius_offset < 0.0 || adjustments.global.sharpen_masking > 0.0)) {
         return apply_sharpen_v4(color, coords_i, amount, threshold, is_raw);
     }
     if (response >= 3.0 || (response >= 2.0 && (extended || abs(amount - 0.8) > 1e-6))) {
@@ -3194,7 +3194,7 @@ fn apply_sharpen_v2(
 // Response 4 (`sharpenVersion` 4, notes: reference/detail.md "Sharpening
 // response 4"): response 3 with Radius and Masking after Camera Raw's, in
 // its own function so that responses 1-3 compile and render as before
-// (GPU fast-math reorders shared code); at Radius 1 without Masking
+// (GPU fast-math reorders shared code); from Radius 1 up without Masking
 // `apply_sharpen` takes response 3's path.
 // - Below Radius 1 the σ blur is nearly the pixel itself, so the unsharp
 //   difference is a fraction of Radius 1's (σ 0.42 px: 0.36 of it) and the
@@ -3202,17 +3202,13 @@ fn apply_sharpen_v2(
 //   band 42–57 % low on the R5/R6 frames at Amount 40). The gate now reads
 //   the difference rescaled to Radius 1's kernel (its high-pass share, one
 //   minus the centre weight), and the gain rises by that ratio^0.15.
-// - Above Radius 1 the halo ceiling no longer falls with the whole radius
-//   gain normalisation, only with its 0.75th power (Radius 2 at Amount 80
-//   was 9–14 % low with halos 5–8 below Camera Raw's).
-// - Masking measures the neighbourhood's spread over a 3 px Gaussian (every
-//   second pixel) instead of the σ window, where noise and texture look
-//   alike, and ramps in from no spread with a threshold 1.75 times as high:
+// - Masking measures the neighbourhood's spread over a 3 px Gaussian
+//   instead of the σ window, where noise and texture look alike, and ramps
+//   in from no spread with a threshold 1.75 times as high:
 //   low-contrast texture keeps some sharpening (Camera Raw: a fifth on the
 //   R5 frame at Masking 50, response 3 none) while flat noise stays at or
 //   below Camera Raw's.
 const SHARPEN_V4_GAIN_KERNEL: f32 = 0.15;
-const SHARPEN_V4_CEILING_RADIUS: f32 = 0.25;
 const SHARPEN_V4_MASK_SIGMA: f32 = 3.0;
 const SHARPEN_V4_MASK_SCALE: f32 = 1.75;
 
@@ -3260,6 +3256,12 @@ fn apply_sharpen_v4(
     var blur_w = 0.0;
     var wide_sum = 0.0;
     var wide_w = 0.0;
+    // Masking's neighbourhood: every pixel of the loop below, and beyond
+    // it a sparse grid (see the masking step).
+    let mask_sigma = max(SHARPEN_V4_MASK_SIGMA * detail_scale, 0.5);
+    var m_sum = 0.0;
+    var m_sq = 0.0;
+    var m_w = 0.0;
     for (var sy = -reach; sy <= reach; sy = sy + 1) {
         for (var sx = -reach; sx <= reach; sx = sx + 1) {
             let w = exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma));
@@ -3272,6 +3274,12 @@ fn apply_sharpen_v4(
                 let w2 = exp(-f32(sx * sx + sy * sy) / (8.0 * sigma * sigma));
                 wide_sum += p * w2;
                 wide_w += w2;
+            }
+            if (masking > 0.0) {
+                let wm = exp(-f32(sx * sx + sy * sy) / (2.0 * mask_sigma * mask_sigma));
+                m_sum += p * wm;
+                m_sq += p * p * wm;
+                m_w += wm;
             }
         }
     }
@@ -3298,18 +3306,21 @@ fn apply_sharpen_v4(
     var gate = smoothstep(t_gate * 0.2, t_gate, abs(d));
     let spread = sqrt(max(blur_sq / blur_w - mean * mean, 0.0));
     if (masking > 0.0) {
-        let mask_sigma = max(SHARPEN_V4_MASK_SIGMA * detail_scale, 0.5);
+        // Outside the dense core, from σ 2 px on: every other point of the
+        // even grid (alternating by row), each weighted for the 8 pixels it
+        // stands for. The dense core keeps patterns at the grid's own
+        // period (2 or 4 px) from vanishing in the samples.
         let step = select(1, 2, mask_sigma >= 2.0);
         let mask_reach = min(i32(ceil(2.0 * mask_sigma / f32(step))) * step, 6);
-        var m_sum = 0.0;
-        var m_sq = 0.0;
-        var m_w = 0.0;
+        let stride = select(1, 2 * step, step > 1);
+        let area = f32(stride * step);
         for (var my = -mask_reach; my <= mask_reach; my = my + step) {
-            // On the sparse grid every other sample, alternating by row.
             let shift = select(0, step, step > 1 && ((my / step) & 1) != 0);
-            let stride = select(1, 2 * step, step > 1);
             for (var mx = -mask_reach + shift; mx <= mask_reach; mx = mx + stride) {
-                let w = exp(-f32(mx * mx + my * my) / (2.0 * mask_sigma * mask_sigma));
+                if (max(abs(mx), abs(my)) <= reach) {
+                    continue;
+                }
+                let w = area * exp(-f32(mx * mx + my * my) / (2.0 * mask_sigma * mask_sigma));
                 let c = clamp(coords_i + vec2<i32>(mx, my), vec2<i32>(0), dims_s);
                 let p = sharpen_perc(load_input(c).rgb, is_raw);
                 m_sum += p * w;
@@ -3340,10 +3351,9 @@ fn apply_sharpen_v4(
     var gain = SHARPEN_V2_GAIN_40 * pow(r, progression) * scale;
     // Below Radius 1 the gain rises to keep the fine band; the halo
     // ceiling does not.
-    var ceiling = SHARPEN_V2_HALO_40 * pow(r, SHARPEN_V2_HALO_AMOUNT) * scale / max(radius_gain, 1.0)
+    let ceiling = SHARPEN_V2_HALO_40 * pow(r, SHARPEN_V2_HALO_AMOUNT) * scale / max(radius_gain, 1.0)
         * exp2(select(0.0, SHARPEN_DETAIL_HALO_HIGH, detail > 0.0) * detail);
     gain *= pow(kernel_ratio, SHARPEN_V4_GAIN_KERNEL);
-    ceiling /= pow(min(radius_gain, 1.0), SHARPEN_V4_CEILING_RADIUS);
     let knee = 1.0 + (SHARPEN_DETAIL_KNEE - 1.0) * detail_up;
     let x = gain * d;
     let delta = x / pow(1.0 + pow(abs(x) / ceiling, knee), 1.0 / knee);

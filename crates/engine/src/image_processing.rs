@@ -4690,10 +4690,10 @@ pub const SHARPEN_VERSION_KEY: &str = "sharpenVersion";
 /// The newest response: 4 (2026-10-23) is 3 with Radius and Masking after
 /// Camera Raw's: below Radius 1 the Threshold gate and part of the gain
 /// follow the narrower kernel (Radius 0.5 kept 15–57 % too little fine
-/// detail), above it the halo ceiling falls less, and Masking reads a 3 px
-/// neighbourhood that tells texture from noise (Masking 50 removed all
-/// sharpening from low-contrast photos); at Radius 1 without Masking it
-/// renders as 3 (notes: reference/detail.md "Sharpening response 4").
+/// detail), and Masking reads a 3 px neighbourhood that tells texture from
+/// noise (Masking 50 removed all sharpening from low-contrast photos); from
+/// Radius 1 up without Masking it renders as 3 (notes: reference/detail.md
+/// "Sharpening response 4").
 /// 3 (2026-10-21) is 2 weighted by lightness, as
 /// Camera Raw's is: little sharpening in the shadows, more in the
 /// highlights, so shadow noise and dark rims around bright detail in

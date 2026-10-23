@@ -596,7 +596,7 @@ export interface Adjustments {
   defringeVersion?: number;
   /** Sharpening response (crates/engine/src/image_processing.rs
    * `SHARPEN_VERSION`): 4 = 3 with Radius and Masking after Camera Raw's
-   * (renders as 3 at Radius 1 without Masking); 3 = 2 weighted by lightness (little sharpening in
+   * (renders as 3 from Radius 1 up without Masking); 3 = 2 weighted by lightness (little sharpening in
    * the shadows, more in the highlights, as Camera Raw's); 2 = halos nearly
    * constant over the amount, gain and Detail tilt after Camera Raw at high
    * amounts; 1 or missing on recipes that sharpened before 3 = the earliest
