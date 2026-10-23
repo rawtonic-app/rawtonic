@@ -176,6 +176,29 @@ impl World {
             );
         }
     }
+    /// Every file is at `side` with its bytes; at `other` a file is either
+    /// gone (trashed) or its original kept unchanged (a crash in phase 3
+    /// keeps the sources not yet trashed); no staging folder is left.
+    fn assert_moved(&self, side: &Path, other: &Path) {
+        for (name, len) in FILES {
+            assert_eq!(
+                fs::read(side.join(name)).unwrap(),
+                content(name, len),
+                "{name}"
+            );
+            if let Ok(kept) = fs::read(other.join(name)) {
+                assert_eq!(kept, content(name, len), "{name} kept changed");
+            }
+        }
+        for dir in [side, other] {
+            assert!(
+                Self::names(dir).iter().all(|n| !n.starts_with('.')),
+                "left in {}: {:?}",
+                dir.display(),
+                Self::names(dir)
+            );
+        }
+    }
     /// After a crash, before recovery: no file is lost, and a file under
     /// a final name in the target is complete.
     fn assert_nothing_lost(&self) {
@@ -395,7 +418,7 @@ fn a_crash_at_any_step_of_a_move_loses_nothing() {
                 assert!(pending.is_empty());
             }
             State::Done => {
-                world.assert_at(&world.target, &world.source);
+                world.assert_moved(&world.target, &world.source);
                 assert_eq!(pending.len(), 1, "the records follow");
             }
             other => panic!("crash point {n}: {other:?}"),
@@ -442,7 +465,7 @@ fn a_crash_at_any_step_of_an_undo_loses_nothing() {
                 world.assert_at(&world.source, &world.target);
             }
             State::Undone => {
-                world.assert_at(&world.source, &world.target);
+                world.assert_moved(&world.source, &world.target);
                 assert_eq!(journal.last_redoable().unwrap().unwrap().id, op.id);
             }
             other => panic!("crash point {n}: {other:?}"),
@@ -485,7 +508,7 @@ fn a_crash_at_any_step_of_a_redo_loses_nothing() {
                 assert_eq!(journal.last_redoable().unwrap().unwrap().id, op.id);
             }
             State::Done => {
-                world.assert_at(&world.target, &world.source);
+                world.assert_moved(&world.target, &world.source);
                 assert!(journal.last_redoable().unwrap().is_none());
                 assert_eq!(pending.len(), 1);
             }
@@ -811,49 +834,11 @@ fn copy_move_timing() {
     );
 }
 
-/// A crash after the copies were published, then the target drive changed
-/// before the next start (a copy gone, another replaced): recovery trashes
-/// no original and rolls the move back; the changed file there is not
-/// taken for a copy.
+/// A crash after the copies were published: the copies are the photos;
+/// recovery trashes nothing more, keeps the sources still there and says
+/// so, whatever happened to the target drive meanwhile.
 #[test]
-fn recovery_rolls_a_move_back_when_a_copy_is_gone_or_changed() {
-    let world = World::new();
-    crash::arm_at("finishing");
-    let run = catch_unwind(AssertUnwindSafe(|| {
-        world
-            .journal()
-            .execute("move", "Move", world.steps(), &world.trash)
-    }));
-    assert!(!crash::disarm() && run.is_err());
-    fs::remove_file(world.target.join("A.RAF")).unwrap();
-    let xmp = world.target.join("A.xmp");
-    let mut changed = fs::read(&xmp).unwrap();
-    changed[0] ^= 1;
-    fs::write(&xmp, &changed).unwrap();
-    let journal = world.journal();
-    let pending = journal.recover(&world.trash).unwrap();
-    let op = journal.history(1).unwrap().remove(0);
-    assert_eq!(op.state, State::RolledBack);
-    assert!(pending.is_empty());
-    let note = op.note.unwrap();
-    assert!(note.contains("A.RAF is gone"), "{note}");
-    for (name, len) in FILES {
-        assert_eq!(
-            fs::read(world.source.join(name)).unwrap(),
-            content(name, len),
-            "{name}"
-        );
-    }
-    assert!(world.trash.items().is_empty());
-    assert_eq!(World::names(&world.target), ["A.xmp"]);
-    assert_eq!(fs::read(&xmp).unwrap(), changed);
-}
-
-/// A photo's files never end up in two places: a crash after its RAW went
-/// to the Trash, then a sidecar's copy gone before the next start: the RAW
-/// comes back from the Trash and the move is rolled back as a whole.
-#[test]
-fn recovery_keeps_a_photos_files_together() {
+fn recovery_of_an_interrupted_finish_keeps_the_remaining_originals() {
     let world = World::new();
     crash::arm_at("trash recorded");
     let run = catch_unwind(AssertUnwindSafe(|| {
@@ -865,41 +850,104 @@ fn recovery_keeps_a_photos_files_together() {
     assert!(!exists(&world.source.join("A.RAF")), "the RAW was trashed");
     fs::remove_file(world.target.join("A.RAF.rrdata")).unwrap();
     let journal = world.journal();
-    journal.recover(&world.trash).unwrap();
-    assert_eq!(journal.history(1).unwrap()[0].state, State::RolledBack);
+    let pending = journal.recover(&world.trash).unwrap();
+    let op = journal.history(1).unwrap().remove(0);
+    assert_eq!(op.state, State::Done);
+    assert_eq!(pending.len(), 1, "the records follow the copies");
+    let note = op.note.unwrap();
+    assert!(note.contains("A.RAF.rrdata was kept"), "{note}");
+    assert!(note.contains("A.xmp was kept"), "{note}");
+    for name in ["A.RAF.rrdata", "A.xmp"] {
+        assert!(exists(&world.source.join(name)), "{name} kept");
+    }
+    assert_eq!(world.trash.items().len(), 1);
+    assert!(
+        World::names(&world.target)
+            .iter()
+            .all(|n| !n.starts_with('.'))
+    );
+    // Undo takes the kept ones as they are: only their copies go.
+    fs::write(
+        world.target.join("A.RAF.rrdata"),
+        content("A.RAF.rrdata", FILES[1].1),
+    )
+    .unwrap();
+    journal.undo(&op.id, &world.trash).unwrap();
     world.assert_at(&world.source, &world.target);
-    assert!(world.trash.items().is_empty());
 }
 
-/// The same for an undo: a copy back gone before recovery puts the trashed
-/// copies back at the target and the move stays done.
+/// A copy that disappears while the originals go to the Trash: its
+/// original is checked just before and kept.
 #[test]
-fn recovery_of_an_undo_keeps_a_photos_files_together() {
+fn an_original_whose_copy_disappears_while_trashing_is_kept() {
     let world = World::new();
+    let copy = world.target.join("A.RAF.rrdata");
+    let gone = copy.clone();
+    *world.trash.on_trash.borrow_mut() = Some(Box::new(move |path: &Path| {
+        if path.ends_with("A.RAF") {
+            let _ = fs::remove_file(&gone);
+        }
+    }));
     let op = world
         .journal()
         .execute("move", "Move", world.steps(), &world.trash)
         .unwrap();
-    let trashed_by_move = world.trash.items().len();
-    crash::arm_at("trash recorded");
-    let run = catch_unwind(AssertUnwindSafe(|| {
-        world.journal().undo(&op.id, &world.trash)
-    }));
-    assert!(!crash::disarm() && run.is_err());
-    assert!(
-        !exists(&world.target.join("A.RAF")),
-        "the copy went to the Trash"
+    assert_eq!(op.state, State::Done);
+    assert!(op.note.unwrap().contains("A.RAF.rrdata was kept"));
+    assert_eq!(
+        fs::read(world.source.join("A.RAF.rrdata")).unwrap(),
+        content("A.RAF.rrdata", FILES[1].1)
     );
-    fs::remove_file(world.source.join("A.xmp")).unwrap();
+    assert!(!exists(&copy));
+}
+
+/// A staging folder replaced by a link (after a crash) is not cleaned
+/// through the link.
+#[cfg(unix)]
+#[test]
+fn staging_cleanup_never_follows_a_link_in_place_of_its_folder() {
+    let world = World::new();
+    let elsewhere = world.target.join("Elsewhere");
+    fs::create_dir(&elsewhere).unwrap();
+    fs::write(elsewhere.join("0"), b"not ours").unwrap();
+    let staging = world.target.join(format!("{MOVE_STAGING_PREFIX}x"));
+    std::os::unix::fs::symlink(&elsewhere, &staging).unwrap();
+    let mut step = Step::other_volume(world.source.join("A.RAF"), world.target.join("A.RAF"));
+    if let Target::OtherVolume { copy, .. } = &mut step.to {
+        copy.staged = Some(staging.join("0"));
+    }
+    let payload = Payload {
+        steps: vec![step],
+        staging_dirs: vec![staging],
+        ..Payload::default()
+    };
+    assert!(remove_staging(&payload).is_err());
+    assert_eq!(fs::read(elsewhere.join("0")).unwrap(), b"not ours");
+}
+
+/// Stop pressed while the copies are being published stops the move.
+#[test]
+fn stop_while_publishing_rolls_back() {
+    struct StopOncePublished(PathBuf);
+    impl CopyObserver for StopOncePublished {
+        fn cancelled(&self) -> bool {
+            exists(&self.0)
+        }
+    }
+    let world = World::new();
     let journal = world.journal();
-    journal.recover(&world.trash).unwrap();
-    let now = journal.operation(&op.id).unwrap();
-    assert_eq!(now.state, State::Done);
-    world.assert_at(&world.target, &world.source);
-    assert_eq!(world.trash.items().len(), trashed_by_move);
-    // And the undo works after all.
-    journal.undo(&op.id, &world.trash).unwrap();
+    let error = journal
+        .execute_with(
+            "move",
+            "Move",
+            world.steps(),
+            &world.trash,
+            &StopOncePublished(world.target.join("A.RAF")),
+        )
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("Stopped"), "{error:#}");
     world.assert_at(&world.source, &world.target);
+    assert_eq!(journal.history(1).unwrap()[0].state, State::RolledBack);
 }
 
 /// A file name at the file system's limit moves (its staging name is short).
