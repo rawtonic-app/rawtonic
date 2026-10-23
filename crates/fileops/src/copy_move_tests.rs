@@ -846,6 +846,28 @@ fn recovery_keeps_an_original_whose_copy_is_gone_or_changed() {
         "an intact copy's original goes"
     );
     assert_eq!(world.trash.items().len(), 1);
+    // The records follow only the file that moved.
+    assert_eq!(
+        op.renames(),
+        [(
+            world.source.join("A.RAF.rrdata"),
+            world.target.join("A.RAF.rrdata")
+        )]
+    );
+    // Undo brings that one back and leaves the others.
+    journal.undo(&op.id, &world.trash).unwrap();
+    for (name, len) in FILES {
+        assert_eq!(
+            fs::read(world.source.join(name)).unwrap(),
+            content(name, len),
+            "{name}"
+        );
+    }
+    assert!(!exists(&world.target.join("A.RAF.rrdata")));
+    assert!(
+        exists(&world.target.join("A.xmp")),
+        "the changed file there is not ours to trash"
+    );
 }
 
 /// The same for an undo: a copy back gone before recovery keeps the copy
@@ -873,6 +895,15 @@ fn recovery_of_an_undo_keeps_a_copy_whose_copy_back_is_gone() {
         "the only copy left stays"
     );
     assert!(!exists(&world.target.join("A.xmp")));
+    // Undone, the records go back for the others; this one stays there.
+    let undone = journal.operation(&op.id).unwrap();
+    assert!(
+        undone
+            .renames()
+            .iter()
+            .all(|(from, _)| !from.ends_with("A.RAF"))
+    );
+    assert_eq!(undone.renames().len(), FILES.len() - 1);
 }
 
 /// A publish whose rename worked but whose folder could not be synced (a

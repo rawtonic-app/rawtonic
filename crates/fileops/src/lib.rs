@@ -81,6 +81,12 @@ pub struct CopyState {
     /// volume has no Trash): both copies exist.
     #[serde(default)]
     pub kept: bool,
+    /// The last finished direction left the file where it was: its copy
+    /// was gone or changed when the source was to go to the Trash (a drive
+    /// swapped before a crash was recovered). The source stays the photo;
+    /// the step is no rename for the caller's records, and undo skips it.
+    #[serde(default)]
+    pub stays: bool,
 }
 
 /// One file or folder of an operation.
@@ -122,6 +128,10 @@ impl Step {
         } else {
             Self::other_volume(from, to)
         })
+    }
+    /// Whether a copy move left its file where it was ([`CopyState::stays`]).
+    pub fn stayed(&self) -> bool {
+        matches!(&self.to, Target::OtherVolume { copy, .. } if copy.stays)
     }
     /// Where the step puts its file, unless it goes to the system Trash.
     pub fn target(&self) -> Option<&Path> {
@@ -255,9 +265,11 @@ pub struct Operation {
 impl Operation {
     /// Pairs of (old, new) location for the operation's current state:
     /// after it was done (`from` → target) or undone/rolled back (none).
+    /// A copy move that left its file in place is none.
     pub fn renames(&self) -> Vec<(PathBuf, PathBuf)> {
         self.steps
             .iter()
+            .filter(|step| !step.stayed())
             .filter_map(|step| Some((step.from.clone(), step.target()?.to_path_buf())))
             .collect()
     }
@@ -564,9 +576,11 @@ impl Journal {
                 Direction::Forward => (from, path.clone(), true),
                 Direction::Back => (path.clone(), from, false),
             };
-            if (forward && (copy.trashed.is_some() || copy.kept)) || !exists(&source) {
+            if (forward && (copy.trashed.is_some() || copy.kept)) || copy.stays || !exists(&source)
+            {
                 // Done before a crash (an unjournaled trashing included:
-                // the source is gone and its copy is in place).
+                // the source is gone and its copy is in place), or a file
+                // the move left in place, which its undo leaves too.
                 continue;
             }
             let copy_there = fs::symlink_metadata(&destination).is_ok_and(|m| m.is_file())
@@ -578,9 +592,9 @@ impl Journal {
                     Stamp::of(&destination).ok() == copy.copy_stamp
                 };
             if !copy_there {
-                copy.kept |= forward;
+                copy.stays = true;
                 kept.push(format!(
-                    "{} was kept: its copy at {} is not there unchanged",
+                    "{} stays where it is: its copy at {} is not there unchanged",
                     source.display(),
                     destination.display()
                 ));
@@ -672,6 +686,7 @@ impl Journal {
                         step.from.display()
                     );
                 }
+                Target::OtherVolume { copy, .. } if copy.stays => {}
                 Target::OtherVolume { path, copy } => {
                     ensure!(
                         fs::symlink_metadata(path).is_ok_and(|m| m.is_file()),
@@ -704,6 +719,7 @@ impl Journal {
             // if it does not change meanwhile.
             if let Target::OtherVolume { path, copy } = &mut step.to
                 && copy.staged.is_none()
+                && !copy.stays
             {
                 copy.stamp = Some(Stamp::of(path)?);
             }
@@ -1556,7 +1572,7 @@ fn copy_pairs(steps: &[Step], direction: Direction) -> Vec<(PathBuf, PathBuf)> {
             (Target::OtherVolume { path, .. }, Direction::Forward) => {
                 Some((step.from.clone(), path.clone()))
             }
-            (Target::OtherVolume { path, copy }, Direction::Back) if !copy.kept => {
+            (Target::OtherVolume { path, copy }, Direction::Back) if !copy.kept && !copy.stays => {
                 Some((path.clone(), step.from.clone()))
             }
             _ => None,
@@ -1666,7 +1682,7 @@ fn plan_staging(steps: &mut [Step], direction: Direction) -> Result<Vec<PathBuf>
         copy.staged = None;
         let destination = match direction {
             Direction::Forward => path.clone(),
-            Direction::Back if copy.kept => continue,
+            Direction::Back if copy.kept || copy.stays => continue,
             Direction::Back => from,
         };
         let (Some(parent), Some(name)) = (destination.parent(), destination.file_name()) else {

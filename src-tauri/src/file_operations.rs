@@ -112,7 +112,9 @@ struct CopyProgress {
 }
 
 /// Sends the copy progress to the frontend (at most ten times a second)
-/// and passes Stop on.
+/// and passes Stop on. File operations run one at a time (the journal's
+/// lock): `start` clears an earlier Stop once this one holds it, so Stop
+/// pressed during one operation never reaches the next.
 struct ProgressEvents<'a> {
     app: &'a AppHandle,
     label: String,
@@ -121,12 +123,17 @@ struct ProgressEvents<'a> {
 
 impl<'a> ProgressEvents<'a> {
     fn new(app: &'a AppHandle, label: &str) -> Self {
-        STOP_COPYING.store(false, Ordering::SeqCst);
         Self {
             app,
             label: label.to_string(),
             last: Cell::new(None),
         }
+    }
+}
+
+impl ProgressEvents<'_> {
+    fn start(&self) {
+        STOP_COPYING.store(false, Ordering::SeqCst);
     }
 }
 
@@ -245,6 +252,10 @@ impl From<&Operation> for OperationSummary {
             match &step.to {
                 Target::SystemTrash { .. } => summary.system_trash += 1,
                 Target::Path { path } | Target::OtherVolume { path, .. } => {
+                    if step.stayed() {
+                        // A move to another drive that left it in place.
+                        continue;
+                    }
                     if op.kind == "trash" {
                         summary.session_trash += 1;
                     }
@@ -412,6 +423,7 @@ pub fn run(
     let memberships = album_memberships(app, &trashed);
     let progress = ProgressEvents::new(app, label);
     let op = with_journal(app, |journal| {
+        progress.start();
         let op = journal.execute_with(kind, label, steps, &PlatformTrash, &progress)?;
         if !memberships.is_empty() {
             journal.set_context(&op.id, serde_json::json!({ "albums": memberships }))?;
@@ -429,6 +441,7 @@ pub fn undo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
     };
     let progress = ProgressEvents::new(app, &last.label);
     let op = with_journal(app, |journal| {
+        progress.start();
         journal.undo_with(&last.id, &PlatformTrash, &progress)
     })?;
     sync_pending(app, Some(&op.id));
@@ -444,6 +457,7 @@ pub fn redo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
     };
     let progress = ProgressEvents::new(app, &next.label);
     let op = with_journal(app, |journal| {
+        progress.start();
         journal.redo_with(&next.id, &PlatformTrash, &progress)
     })?;
     sync_pending(app, Some(&op.id));
