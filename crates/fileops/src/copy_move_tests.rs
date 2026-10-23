@@ -1178,3 +1178,28 @@ fn stop_during_the_last_publish_rolls_back() {
     assert!(exists(&world.source.join("A.xmp")));
     assert!(World::names(&world.target).is_empty());
 }
+
+/// After a crash before the originals went, a source replaced by a link to
+/// its published copy never lets recovery remove that copy (the only one).
+#[cfg(unix)]
+#[test]
+fn recovery_never_takes_back_a_copy_whose_source_is_a_link_to_it() {
+    let world = World::new();
+    crash::arm_at("applied");
+    let run = catch_unwind(AssertUnwindSafe(|| {
+        world
+            .journal()
+            .execute("move", "Move", world.steps(), &world.trash)
+    }));
+    assert!(!crash::disarm() && run.is_err());
+    let (source, copy) = (world.source.join("A.RAF"), world.target.join("A.RAF"));
+    assert!(exists(&copy), "published before the crash");
+    fs::remove_file(&source).unwrap();
+    std::os::unix::fs::symlink(&copy, &source).unwrap();
+    let journal = world.journal();
+    journal.recover(&world.trash).unwrap();
+    let op = journal.history(1).unwrap().remove(0);
+    assert_eq!(op.state, State::RolledBack);
+    assert!(op.note.unwrap().contains("not a file of its own"));
+    assert_eq!(fs::read(&copy).unwrap(), content("A.RAF", FILES[0].1));
+}

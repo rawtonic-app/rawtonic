@@ -1915,9 +1915,11 @@ fn unpublish(step: &Step, direction: Direction) -> Result<()> {
         // Never published (a file there now is someone else's).
         return Ok(());
     }
+    // The source must be a file of its own: not gone, not a link (or a
+    // hard link) to the copy, which would then be the only one left.
     ensure!(
-        exists(source),
-        "{} is gone; its copy stays at {}",
+        fs::symlink_metadata(source).is_ok_and(|m| m.is_file()) && !same_file(source, destination),
+        "{} is gone or not a file of its own; its copy stays at {}",
         source.display(),
         destination.display()
     );
