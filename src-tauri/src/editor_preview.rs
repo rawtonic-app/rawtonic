@@ -970,6 +970,7 @@ pub(crate) fn preview_source(state: &AppState) -> Result<(LoadedImage, f32, (u32
                     image: proxy.image,
                     is_raw: proxy.is_raw,
                     multiscale: None,
+                    measures: None,
                 },
                 scale,
                 (proxy.full_width, proxy.full_height),
@@ -1156,7 +1157,11 @@ pub async fn sample_curve_input(
             tm_override,
             &mask_definitions,
         );
-        crate::baseline_exposure::apply_base_look(&mut probe.global, &loaded_image.path);
+        crate::baseline_exposure::apply_base_look(
+            &mut probe.global,
+            &loaded_image.path,
+            loaded_image.measures.as_ref(),
+        );
         probe.global.detail_scale = scale;
         let space = rawtonic_engine::output_color_space::OutputColorSpace::ProPhoto;
         probe.global.output_space[0] = space.shader_code();
@@ -1496,7 +1501,11 @@ pub(crate) fn process_preview_job(
     let tm_override = resolve_tonemapper_override_from_handle(app_handle, is_raw);
     let mut final_adjustments =
         get_all_adjustments_with_masks(&adjustments_clone, is_raw, tm_override, &mask_definitions);
-    crate::baseline_exposure::apply_base_look(&mut final_adjustments.global, &loaded_image.path);
+    crate::baseline_exposure::apply_base_look(
+        &mut final_adjustments.global,
+        &loaded_image.path,
+        loaded_image.measures.as_ref(),
+    );
     final_adjustments.global.detail_scale = effective_scale;
     let lut_path = adjustments_clone["lutPath"].as_str();
     let lut = lut_path.and_then(|p| lut_processing::get_or_load_lut(&state, p).ok());
@@ -2121,7 +2130,11 @@ fn render_split_before_blocking(
     let is_raw = loaded_image.is_raw;
     let tm_override = resolve_tonemapper_override(&settings, is_raw);
     let mut all_adjustments = get_all_adjustments_from_json(&adjustments, is_raw, tm_override);
-    crate::baseline_exposure::apply_base_look(&mut all_adjustments.global, &loaded_image.path);
+    crate::baseline_exposure::apply_base_look(
+        &mut all_adjustments.global,
+        &loaded_image.path,
+        loaded_image.measures.as_ref(),
+    );
     all_adjustments.global.detail_scale = scale;
     // Encoded for the window layer, as display frames are.
     let space = context.display_space;
@@ -2411,7 +2424,11 @@ pub(crate) async fn generate_uncropped_preview(
         let tm_override = resolve_tonemapper_override_from_handle(&app_handle, is_raw);
         let mut uncropped_adjustments =
             get_all_adjustments_from_json(&adjustments_clone, is_raw, tm_override);
-        crate::baseline_exposure::apply_base_look(&mut uncropped_adjustments.global, &path);
+        crate::baseline_exposure::apply_base_look(
+            &mut uncropped_adjustments.global,
+            &path,
+            loaded_image.measures.as_ref(),
+        );
         uncropped_adjustments.global.detail_scale = scale_for_gpu;
         uncropped_adjustments.global.show_clipping = 0;
         let lut_path = adjustments_clone["lutPath"].as_str();
@@ -2480,8 +2497,8 @@ pub(crate) async fn generate_preview_for_path(
         let is_raw = is_raw_file(&source_path_str);
         let settings = load_settings(app_handle.clone()).unwrap_or_default();
 
-        let pristine_source = match read_file_mapped(&source_path) {
-            Ok(mmap) => crate::image_loader::load_base_image_for_recipe(
+        let (pristine_source, measures) = match read_file_mapped(&source_path) {
+            Ok(mmap) => crate::image_loader::load_base_image_for_recipe_measured(
                 &mmap,
                 &source_path_str,
                 false,
@@ -2498,7 +2515,7 @@ pub(crate) async fn generate_preview_for_path(
                     e
                 );
                 let bytes = fs::read(&source_path).map_err(|io_err| io_err.to_string())?;
-                crate::image_loader::load_base_image_for_recipe(
+                crate::image_loader::load_base_image_for_recipe_measured(
                     &bytes,
                     &source_path_str,
                     false,
@@ -2551,7 +2568,11 @@ pub(crate) async fn generate_preview_for_path(
         let tm_override = resolve_tonemapper_override(&settings, is_raw);
         let mut all_adjustments =
             get_all_adjustments_from_json(&js_adjustments, is_raw, tm_override);
-        crate::baseline_exposure::apply_base_look(&mut all_adjustments.global, &source_path_str);
+        crate::baseline_exposure::apply_base_look(
+            &mut all_adjustments.global,
+            &source_path_str,
+            measures.as_ref(),
+        );
         all_adjustments.global.show_clipping = 0;
         let lut_path = js_adjustments["lutPath"].as_str();
         let lut = lut_path.and_then(|p| lut_processing::get_or_load_lut(&state, p).ok());
@@ -2892,6 +2913,7 @@ mod preview_memory_tests {
             image: Arc::new(DynamicImage::ImageRgb32F(image::Rgb32FImage::new(12, 8))),
             is_raw: true,
             multiscale: None,
+            measures: None,
         };
         let result = compute_patched_and_warped(&loaded, &serde_json::json!({})).unwrap();
         assert!(Arc::ptr_eq(&loaded.image, &result));

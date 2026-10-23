@@ -62,6 +62,9 @@ struct Facts {
     full_width: u32,
     full_height: u32,
     is_raw: bool,
+    /// The measures of the decode the source is (None: a preview or a fast
+    /// development), `image_loader::DecodeMeasures`.
+    measures: Option<crate::image_loader::DecodeMeasures>,
 }
 
 struct Base {
@@ -69,6 +72,8 @@ struct Base {
     dim: u32,
     base: PreviewBase,
     mask_source: Option<ParametricMaskSource>,
+    /// The measures of the source it was made from.
+    measures: Option<crate::image_loader::DecodeMeasures>,
 }
 
 #[derive(Default)]
@@ -501,17 +506,18 @@ fn load_source(
     let (source_path, _) = parse_virtual_path(path);
     let source_str = source_path.to_string_lossy().to_string();
     let is_raw = is_raw_file(&source_path);
-    if let Some((image, _)) = state
+    if let Some((image, _, measures)) = state
         .decoded_image_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(&decoded_key(path, recipe))
+        .get_measured(&decoded_key(path, recipe))
     {
         let (full_width, full_height) = image.dimensions();
         let facts = Facts {
             full_width,
             full_height,
             is_raw,
+            measures,
         };
         return Ok((image, 1.0, facts, "decoded"));
     }
@@ -526,6 +532,7 @@ fn load_source(
             full_width: proxy.full_width,
             full_height: proxy.full_height,
             is_raw: proxy.is_raw,
+            measures: None,
         };
         return Ok((proxy.image, scale, facts, "proxy-memory"));
     }
@@ -536,6 +543,7 @@ fn load_source(
             full_width: proxy.full_width,
             full_height: proxy.full_height,
             is_raw,
+            measures: None,
         };
         return Ok((Arc::new(proxy.image), scale, facts, "proxy-disk"));
     }
@@ -564,6 +572,7 @@ fn decode(
         full_width: (width as f32 / scale).round() as u32,
         full_height: (height as f32 / scale).round() as u32,
         is_raw,
+        measures: None,
     };
     Ok((Arc::new(image), scale, facts, "decode"))
 }
@@ -660,10 +669,10 @@ fn prepare(
             .bases
             .get(&todo.path)
             .filter(|base| base.preparation_key == preparation_key && base.dim == dim)
-            .map(|base| (base.base.clone(), base.mask_source.clone()))
+            .map(|base| (base.base.clone(), base.mask_source.clone(), base.measures))
     };
-    let (base, mask_source, source_kind) = match cached {
-        Some((base, mask_source)) => (base, mask_source, "base-cache"),
+    let (base, mask_source, measures, source_kind) = match cached {
+        Some((base, mask_source, measures)) => (base, mask_source, measures, "base-cache"),
         None => {
             let (source, source_scale, facts, kind) = match loaded {
                 Some(loaded) => loaded,
@@ -714,16 +723,18 @@ fn prepare(
                         dim,
                         base: base.clone(),
                         mask_source: mask_source.clone(),
+                        measures: facts.measures,
                     },
                 );
-            (base, mask_source, kind)
+            (base, mask_source, facts.measures, kind)
         }
     };
     Ok(Some(Prepared {
         path: todo.path,
         recipe: todo.recipe,
         key,
-        facts,
+        // The size known for the photograph, the measures of the base's source.
+        facts: Facts { measures, ..facts },
         base,
         mask_source,
         source_kind,
@@ -782,7 +793,11 @@ fn develop_rgba(
     let is_raw = input.facts.is_raw;
     let tm_override = image_processing::resolve_tonemapper_override(&settings, is_raw);
     let mut adjustments = get_all_adjustments_from_json(recipe, is_raw, tm_override);
-    crate::baseline_exposure::apply_base_look(&mut adjustments.global, input.path);
+    crate::baseline_exposure::apply_base_look(
+        &mut adjustments.global,
+        input.path,
+        input.facts.measures.as_ref(),
+    );
     adjustments.global.detail_scale = input.scale;
     adjustments.global.show_clipping = 0;
     // Encoded for the window, as the live frame beside it.
@@ -1227,17 +1242,18 @@ fn load_full_source(
     let (source_path, _) = parse_virtual_path(path);
     let source_str = source_path.to_string_lossy().to_string();
     let is_raw = is_raw_file(&source_path);
-    if let Some((image, _)) = state
+    if let Some((image, _, measures)) = state
         .decoded_image_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(&decoded_key(path, recipe))
+        .get_measured(&decoded_key(path, recipe))
     {
         let (full_width, full_height) = image.dimensions();
         let facts = Facts {
             full_width,
             full_height,
             is_raw,
+            measures,
         };
         return Ok((image, 1.0, facts, "decoded", None));
     }
@@ -1254,6 +1270,7 @@ fn load_full_source(
             full_width: proxy.full_width,
             full_height: proxy.full_height,
             is_raw,
+            measures: None,
         };
         return Ok((
             Arc::new(proxy.image),
@@ -1264,7 +1281,7 @@ fn load_full_source(
         ));
     }
     let bytes = read_file_mapped(&source_path).map_err(|e| e.to_string())?;
-    let image = crate::image_loader::load_base_image_for_recipe(
+    let (image, measures) = crate::image_loader::load_base_image_for_recipe_measured(
         &bytes,
         &source_str,
         false,
@@ -1279,6 +1296,7 @@ fn load_full_source(
         full_width,
         full_height,
         is_raw,
+        measures,
     };
     Ok((Arc::new(image), 1.0, facts, "full-decode", None))
 }
@@ -1466,9 +1484,11 @@ fn prepare_region_from_rows(
         .decoded_image_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(&decoded_key(path, recipe))
-        .map(|(image, _)| image)
-        .filter(|image| image.as_rgb32f().is_some());
+        .get_measured(&decoded_key(path, recipe))
+        .map(|(image, _, measures)| (image, measures))
+        .filter(|(image, _)| image.as_rgb32f().is_some());
+    let decoded_measures = decoded.as_ref().and_then(|(_, measures)| *measures);
+    let decoded = decoded.map(|(image, _)| image);
     let (full_w, full_h) = match &decoded {
         Some(image) => image.dimensions(),
         None if known.is_raw => crate::preview_proxy::full_size(&source_path, &settings)
@@ -1479,6 +1499,7 @@ fn prepare_region_from_rows(
         full_width: full_w,
         full_height: full_h,
         is_raw: known.is_raw,
+        measures: decoded_measures,
     };
     // The measures of the decode in memory, else those recorded for the
     // 1:1 preview's photograph.
@@ -2079,14 +2100,16 @@ pub(crate) fn live_step(app_handle: &tauri::AppHandle) -> bool {
                         b.dim,
                         b.base.clone(),
                         b.mask_source.clone(),
+                        b.measures,
                     )
                 }))
         };
         // Not prepared yet (the cell worker brings it), or the change needs
         // another base (geometry): shown once the recipe is written.
-        let Some((facts, (preparation_key, dim, base, mask_source))) = base else {
+        let Some((facts, (preparation_key, dim, base, mask_source, measures))) = base else {
             continue;
         };
+        let facts = Facts { measures, ..facts };
         if preparation_key != base_key(app_handle, &path, &recipe) {
             continue;
         }
@@ -2253,7 +2276,7 @@ mod tests {
         let multiscale = [true, false]
             .into_iter()
             .find(|&m| {
-                crate::preview_proxy::write_full(&photo, &image, &settings, m).unwrap();
+                crate::preview_proxy::write_full(&photo, &image, &settings, m, None).unwrap();
                 crate::preview_proxy::has_full(&photo, &settings)
             })
             .expect("a current preview");
@@ -2261,7 +2284,7 @@ mod tests {
         measure_preview(&path, &recipe, &settings);
         assert!(current(&settings).is_some_and(|m| m.fringe.is_some()));
         // Rebuilt with other decoder settings: the current preview has none.
-        crate::preview_proxy::write_full(&photo, &image, &other, multiscale).unwrap();
+        crate::preview_proxy::write_full(&photo, &image, &other, multiscale, None).unwrap();
         assert_eq!(current(&other), None);
         assert_eq!(current(&settings), None);
         // Rows read after a rebuild do not fit measures planned before it.
@@ -2270,7 +2293,7 @@ mod tests {
         assert!(rows_fit_measures(true, Some(&rows.key), &rows.key));
         assert!(rows_fit_measures(false, None, &rows.key));
         // Another file at the same path: its old preview is not current.
-        crate::preview_proxy::write_full(&photo, &image, &settings, multiscale).unwrap();
+        crate::preview_proxy::write_full(&photo, &image, &settings, multiscale, None).unwrap();
         measure_preview(&path, &recipe, &settings);
         assert!(current(&settings).is_some());
         std::fs::write(&photo, b"second, longer").unwrap();
@@ -2312,7 +2335,7 @@ mod tests {
             image::Rgb([v + red, v, v + 0.002 * (x % 3) as f32])
         }));
         for multiscale in [true, false] {
-            crate::preview_proxy::write_full(&photo, &decode, &settings, multiscale).unwrap();
+            crate::preview_proxy::write_full(&photo, &decode, &settings, multiscale, None).unwrap();
             if crate::preview_proxy::has_full(&photo, &settings) {
                 break;
             }
@@ -2386,6 +2409,7 @@ mod tests {
             full_width: 6000,
             full_height: 4000,
             is_raw: true,
+            measures: None,
         };
         let plain = serde_json::json!({});
         // 3:2 in a 400 × 600 cell: 400 × 267 → long edge 400.
@@ -2422,6 +2446,7 @@ mod tests {
             full_width: full_w,
             full_height: full_h,
             is_raw: true,
+            measures: None,
         };
         let lens =
             serde_json::json!({"k1": -0.08, "k2": 0.01, "k3": 0.0, "model": 0, "tca_vr": 1.001});

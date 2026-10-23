@@ -1264,6 +1264,7 @@ mod tests {
             image: image.clone(),
             is_raw: true,
             multiscale: None,
+            measures: None,
         };
         let pixels = || Arc::new(image::DynamicImage::new_rgb8(2, 1));
         let decode = pixels();

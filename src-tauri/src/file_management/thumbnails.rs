@@ -570,7 +570,12 @@ pub(crate) fn develop_thumbnail(
         let tm_override = crate::image_processing::resolve_tonemapper_override(&settings, is_raw);
         let mut gpu_adjustments =
             get_all_adjustments_from_json(&meta.adjustments, is_raw, tm_override);
-        crate::baseline_exposure::apply_base_look(&mut gpu_adjustments.global, &source_path_str);
+        // A preview or a fast development: the last full decode's measures.
+        crate::baseline_exposure::apply_base_look(
+            &mut gpu_adjustments.global,
+            &source_path_str,
+            None,
+        );
         gpu_adjustments.global.detail_scale = total_scale;
         let lut_path = meta.adjustments["lutPath"].as_str();
         let lut = lut_path.and_then(|p| state.lut_cache.lock().unwrap().get_or_load(p).ok());

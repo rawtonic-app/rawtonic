@@ -186,13 +186,19 @@ pub async fn auto_gray_mix(
     let context = crate::gpu_processing::get_or_init_gpu_context(&state, &app_handle)?;
     tauri::async_runtime::spawn_blocking(move || {
         let state = app_handle.state::<crate::app_state::AppState>();
-        let Some((source, is_raw)) = state
+        let Some((source, is_raw, measures)) = state
             .original_image
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .as_ref()
             .filter(|image| image.path == path)
-            .map(|image| (std::sync::Arc::clone(&image.image), image.is_raw))
+            .map(|image| {
+                (
+                    std::sync::Arc::clone(&image.image),
+                    image.is_raw,
+                    image.measures,
+                )
+            })
         else {
             return Ok(None);
         };
@@ -220,7 +226,11 @@ pub async fn auto_gray_mix(
             crate::image_processing::resolve_tonemapper_override_from_handle(&app_handle, is_raw);
         let mut adjustments =
             crate::image_processing::get_all_adjustments_from_json(&recipe, is_raw, tone_mapper);
-        crate::baseline_exposure::apply_base_look(&mut adjustments.global, &path);
+        crate::baseline_exposure::apply_base_look(
+            &mut adjustments.global,
+            &path,
+            measures.as_ref(),
+        );
         adjustments.global.detail_scale = scale;
         adjustments.global.show_clipping = 0;
         let lut = recipe["lutPath"]

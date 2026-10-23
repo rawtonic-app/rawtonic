@@ -117,6 +117,9 @@ pub struct LoadedImage {
     /// (without the decode-time chroma clean-up,
     /// `image_loader::load_base_image_from_bytes_for`); None for preview data.
     pub multiscale: Option<bool>,
+    /// The measures of the decode (`image_loader::DecodeMeasures`); None for
+    /// preview data, drafts and other formats.
+    pub measures: Option<crate::image_loader::DecodeMeasures>,
 }
 
 impl LoadedImage {

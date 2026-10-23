@@ -130,16 +130,31 @@ fn cache() -> &'static Mutex<HashMap<String, BaseLook>> {
     CACHE.get_or_init(Default::default)
 }
 
-/// Applies the file's base look to shader adjustments.
-pub fn apply_base_look(global: &mut GlobalAdjustments, path: &str) {
+/// Applies the file's base look to shader adjustments. `measures`: those of
+/// the decode rendered (`image_loader::DecodeMeasures`); without them (a
+/// preview proxy, a fast development) the last full decode's of `path`,
+/// else the facts registered for it.
+pub fn apply_base_look(
+    global: &mut GlobalAdjustments,
+    path: &str,
+    measures: Option<&crate::image_loader::DecodeMeasures>,
+) {
     base_look(path).apply(global);
     crate::camera_profile::apply(global, path);
     crate::diffraction::apply(global, path);
-    global.noise_level = crate::noise_level::for_path(path)
-        .or_else(|| crate::source_facts::registered(path).and_then(|facts| facts.noise_level))
+    let registered = || crate::source_facts::registered(path);
+    let (noise_level, image_key) = match measures {
+        Some(measures) => (measures.noise_level, measures.image_key),
+        None => (
+            crate::noise_level::for_path(path),
+            crate::image_key::for_path(path),
+        ),
+    };
+    global.noise_level = noise_level
+        .or_else(|| registered().and_then(|facts| facts.noise_level))
         .unwrap_or(0.0);
-    let [low, high] = crate::image_key::for_path(path)
-        .or_else(|| crate::source_facts::registered(path).and_then(|facts| facts.image_key))
+    let [low, high] = image_key
+        .or_else(|| registered().and_then(|facts| facts.image_key))
         .unwrap_or([0.0, 0.0]);
     global.image_key = high;
     global.image_key_low = low;
@@ -680,6 +695,32 @@ mod adobe_check {
 mod tests {
     use super::{BaseLook, base_look};
     use crate::image_processing::GlobalAdjustments;
+
+    /// The measures of the decode rendered win over the last full decode's
+    /// of the same file (another recipe's decode may have come since).
+    #[test]
+    fn the_decode_rendered_brings_its_own_measures() {
+        let path = "/nonexistent/measures-test.NEF";
+        crate::noise_level::record(path, 0.03);
+        crate::image_key::record(path, [0.2, 0.7]);
+        let own = crate::image_loader::DecodeMeasures {
+            noise_level: Some(0.01),
+            image_key: Some([0.1, 0.6]),
+        };
+        let mut global = GlobalAdjustments::default();
+        super::apply_base_look(&mut global, path, Some(&own));
+        assert_eq!(
+            (global.noise_level, global.image_key_low, global.image_key),
+            (0.01, 0.1, 0.6)
+        );
+        // Without a decode (a preview): the last full decode's.
+        let mut global = GlobalAdjustments::default();
+        super::apply_base_look(&mut global, path, None);
+        assert_eq!(
+            (global.noise_level, global.image_key_low, global.image_key),
+            (0.03, 0.2, 0.7)
+        );
+    }
 
     #[test]
     fn non_raw_and_unknown_files_have_no_baseline() {

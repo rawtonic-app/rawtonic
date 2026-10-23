@@ -1,3 +1,4 @@
+use rawtonic_engine::image_loader::DecodeMeasures;
 use std::borrow::Cow;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -1002,9 +1003,12 @@ pub struct ExportOutput<'a> {
 
 /// The source pixels of one export: refuses a RAW shown only through its
 /// embedded preview, then composites AI patches and spots.
+/// `measures`: those of the decode `pristine_source` is (None: a preview or
+/// a non-RAW, `baseline_exposure::apply_base_look`).
 pub fn prepare_export_source(
     source_path_str: &str,
     pristine_source: Arc<DynamicImage>,
+    measures: Option<DecodeMeasures>,
     js_adjustments: &Value,
 ) -> Result<ExportSource, String> {
     rawtonic_engine::image_loader::ensure_raw_developed(source_path_str)
@@ -1029,6 +1033,7 @@ pub fn prepare_export_source(
     Ok(ExportSource {
         pristine: pristine_source,
         patched,
+        measures,
     })
 }
 
@@ -1191,6 +1196,9 @@ pub struct ExportSource {
     pub pristine: Arc<DynamicImage>,
     /// AI patches composited over `pristine`, when the recipe has any.
     pub patched: Option<Arc<DynamicImage>>,
+    /// The measures of the decode `pristine` is
+    /// (`image_loader::DecodeMeasures`).
+    pub measures: Option<DecodeMeasures>,
 }
 
 impl ExportSource {
@@ -1284,7 +1292,11 @@ pub fn prepare_export_render(
     let tm_override = (env.tonemapper_override)(is_raw);
     let mut all_adjustments =
         get_all_adjustments_with_masks(js_adjustments, is_raw, tm_override, &mask_definitions);
-    crate::baseline_exposure::apply_base_look(&mut all_adjustments.global, path);
+    crate::baseline_exposure::apply_base_look(
+        &mut all_adjustments.global,
+        path,
+        source.measures.as_ref(),
+    );
     all_adjustments.global.show_clipping = 0;
 
     let lut_path = js_adjustments["lutPath"].as_str();
@@ -2677,7 +2689,7 @@ mod detection_tests {
                 {"id": "s", "type": "ai-sky", "visible": true, "mode": "additive", "parameters": parameters}]}]})
         };
         let pending = layer(json!({"maskDataBase64": null, "detectPending": true}));
-        let error = prepare_export_source("/qa/a.jpg", image.clone(), &pending)
+        let error = prepare_export_source("/qa/a.jpg", image.clone(), None, &pending)
             .err()
             .expect("refused");
         assert!(error.contains("/qa/a.jpg"), "{error}");
@@ -2688,8 +2700,8 @@ mod detection_tests {
         // Detected on it (or never pasted): exported.
         let detected =
             layer(json!({"maskDataBase64": "data:image/png;base64,AAAA", "detectPending": true}));
-        assert!(prepare_export_source("/qa/a.jpg", image.clone(), &detected).is_ok());
-        assert!(prepare_export_source("/qa/a.jpg", image, &json!({"exposure": 1})).is_ok());
+        assert!(prepare_export_source("/qa/a.jpg", image.clone(), None, &detected).is_ok());
+        assert!(prepare_export_source("/qa/a.jpg", image, None, &json!({"exposure": 1})).is_ok());
     }
 }
 

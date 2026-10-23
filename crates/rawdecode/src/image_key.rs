@@ -42,16 +42,13 @@ pub fn for_path(path: &str) -> Option<ImageKey> {
         .copied()
 }
 
-/// Measures and remembers the key of a full-resolution decode.
-pub fn remember(path: &str, image: &DynamicImage) {
-    if let Some(key) = measure(image) {
-        let mut cache = cache().lock().unwrap_or_else(|e| e.into_inner());
-        if cache.len() > 8192 {
-            cache.clear();
-        }
-        cache.insert(path.to_string(), key);
-        log::info!("Image key for '{path}': {key:?}");
+/// Records `key`, measured on a full decode of `path`, as its last.
+pub fn record(path: &str, key: ImageKey) {
+    let mut cache = cache().lock().unwrap_or_else(|e| e.into_inner());
+    if cache.len() > 8192 {
+        cache.clear();
     }
+    cache.insert(path.to_string(), key);
 }
 
 /// The 10th and 90th percentile of linear luminance, sampled on a grid;

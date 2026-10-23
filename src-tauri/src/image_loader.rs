@@ -140,9 +140,32 @@ pub fn load_base_image_for_recipe(
     denoise: Option<rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
     adjustments: &Value,
 ) -> Result<DynamicImage> {
+    load_base_image_for_recipe_measured(
+        bytes,
+        path_for_ext_check,
+        use_fast_raw_dev,
+        settings,
+        cancel_token,
+        denoise,
+        adjustments,
+    )
+    .map(|(image, _)| image)
+}
+
+/// `load_base_image_for_recipe` with the measures of a full RAW decode
+/// (`DecodeMeasures`).
+pub fn load_base_image_for_recipe_measured(
+    bytes: &[u8],
+    path_for_ext_check: &str,
+    use_fast_raw_dev: bool,
+    settings: &AppSettings,
+    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
+    denoise: Option<rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
+    adjustments: &Value,
+) -> Result<(DynamicImage, Option<DecodeMeasures>)> {
     let multiscale =
         rawtonic_engine::color_noise::multiscale(adjustments, is_raw_file(path_for_ext_check));
-    load_base_image_from_bytes_for(
+    load_base_image_measured_for(
         bytes,
         path_for_ext_check,
         use_fast_raw_dev,
@@ -194,6 +217,33 @@ pub fn load_base_image_from_bytes_for(
     draft: Option<Arc<rawtonic_rawdecode::raw_processing::DraftSink>>,
     multiscale: Option<bool>,
 ) -> Result<DynamicImage> {
+    load_base_image_measured_for(
+        bytes,
+        path_for_ext_check,
+        use_fast_raw_dev,
+        settings,
+        cancel_token,
+        denoise,
+        draft,
+        multiscale,
+    )
+    .map(|(image, _)| image)
+}
+
+/// `load_base_image_from_bytes_for` with the measures of a full RAW decode
+/// (`DecodeMeasures`; None for fast developments, Apple's RAW engine,
+/// embedded previews and other formats), which travel with its pixels.
+#[allow(clippy::too_many_arguments)]
+pub fn load_base_image_measured_for(
+    bytes: &[u8],
+    path_for_ext_check: &str,
+    use_fast_raw_dev: bool,
+    settings: &AppSettings,
+    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
+    denoise: Option<rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
+    draft: Option<Arc<rawtonic_rawdecode::raw_processing::DraftSink>>,
+    multiscale: Option<bool>,
+) -> Result<(DynamicImage, Option<DecodeMeasures>)> {
     let multiscale =
         !use_fast_raw_dev && multiscale.unwrap_or_else(|| stored_multiscale(path_for_ext_check));
     let mut options = base_options(settings, multiscale);
@@ -227,7 +277,7 @@ pub fn load_base_image_from_bytes_for(
             path_for_ext_check,
             &crate::apple_raw::Raw9Options::for_loading(),
         ) {
-            Ok(image) => return Ok(image),
+            Ok(image) => return Ok((image, None)),
             Err(e) => log::warn!(
                 "Apple RAW 9 unavailable for '{}', falling back to rawler: {}",
                 path_for_ext_check,
@@ -236,7 +286,7 @@ pub fn load_base_image_from_bytes_for(
         }
     }
 
-    crate::image_loader::load_base_image(
+    crate::image_loader::load_base_image_measured(
         bytes,
         path_for_ext_check,
         use_fast_raw_dev,
@@ -627,16 +677,16 @@ pub async fn apply_ai_denoise(
         .decoded_image_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(&key);
-    let image = match cached {
-        Some((image, _)) => image,
+        .get_measured(&key);
+    let (image, measures) = match cached {
+        Some((image, _, measures)) => (image, measures),
         None => {
             let settings = load_settings(app_handle.clone()).unwrap_or_default();
             let cancel_token = Some((tracker, my_generation));
             let decode_source = source.clone();
-            let (image, exif) = tokio::task::spawn_blocking(move || {
+            let ((image, measures), exif) = tokio::task::spawn_blocking(move || {
                 let bytes = fs::read(&decode_source).map_err(|e| e.to_string())?;
-                let image = load_base_image_from_bytes_for(
+                let image = load_base_image_measured_for(
                     &bytes,
                     &decode_source,
                     false,
@@ -660,8 +710,8 @@ pub async fn apply_ai_denoise(
                 .decoded_image_cache
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .insert(key, image.clone(), exif);
-            image
+                .insert(key, image.clone(), exif, measures);
+            (image, measures)
         }
     };
     if *state
@@ -682,6 +732,7 @@ pub async fn apply_ai_denoise(
             image,
             is_raw: true,
             multiscale: Some(multiscale),
+            measures,
         },
     )?;
     clear_derived_caches(&state);
@@ -871,7 +922,7 @@ pub async fn load_image(
             .decoded_image_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let cached = cache.get(&cache_key);
+        let cached = cache.get_measured(&cache_key);
         if cached.is_none() {
             cache.make_room_for_next();
         }
@@ -880,8 +931,10 @@ pub async fn load_image(
 
     #[cfg(feature = "performance-profiling")]
     let was_cached = cached_data.is_some();
-    let (pristine_arc, exif_data) = if let Some((cached_img, cached_exif)) = cached_data {
-        (cached_img, cached_exif)
+    let (pristine_arc, exif_data, measures) = if let Some((cached_img, cached_exif, measures)) =
+        cached_data
+    {
+        (cached_img, cached_exif, measures)
     } else {
         // Offline (missing, unreadable or not downloaded): the photograph
         // opens on its preview proxies, as Lightroom's smart previews and
@@ -911,7 +964,7 @@ pub async fn load_image(
             ));
         }
 
-        let (pristine_img, exif_data_loaded) = tokio::task::spawn_blocking(move || {
+        let ((pristine_img, measures), exif_data_loaded) = tokio::task::spawn_blocking(move || {
             if generation_tracker.load(Ordering::SeqCst) != my_generation {
                 return Err("Load cancelled".to_string());
             }
@@ -921,14 +974,15 @@ pub async fn load_image(
                 serde_json::json!({"stage": "load_image_decode_start", "epoch_ms": crate::performance::epoch_ms()})
             );
 
-            let result: Result<(DynamicImage, HashMap<String, String>), String> =
+            #[allow(clippy::type_complexity)]
+            let result: Result<((DynamicImage, Option<DecodeMeasures>), HashMap<String, String>), String> =
                 (|| match read_file_mapped(Path::new(&path_clone)) {
                     Ok(mmap) => {
                         if generation_tracker.load(Ordering::SeqCst) != my_generation {
                             return Err("Load cancelled".to_string());
                         }
 
-                        let img = load_base_image_from_bytes_for(
+                        let img = load_base_image_measured_for(
                             &mmap,
                             &path_clone,
                             false,
@@ -961,7 +1015,7 @@ pub async fn load_image(
                             return Err("Load cancelled".to_string());
                         }
 
-                        let img = load_base_image_from_bytes_for(
+                        let img = load_base_image_measured_for(
                             &bytes,
                             &path_clone,
                             false,
@@ -998,9 +1052,14 @@ pub async fn load_image(
             .decoded_image_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .insert(cache_key.clone(), arc_img.clone(), exif_data_loaded.clone());
+            .insert(
+                cache_key.clone(),
+                arc_img.clone(),
+                exif_data_loaded.clone(),
+                measures,
+            );
 
-        (arc_img, exif_data_loaded)
+        (arc_img, exif_data_loaded, measures)
     };
 
     if state.load_image_generation.load(Ordering::SeqCst) != my_generation {
@@ -1024,6 +1083,7 @@ pub async fn load_image(
             image: pristine_arc,
             is_raw,
             multiscale: Some(multiscale),
+            measures,
         },
     )?;
     // The full decode replaces the proxy; keep (or make) the proxy on disk
@@ -1067,7 +1127,14 @@ pub async fn load_image(
             };
             #[cfg(feature = "performance-profiling")]
             let _stage = crate::performance::PerformanceStage::new("preview_proxy_write");
-            match crate::preview_proxy::write(&source, &proxy_source, size, &settings, multiscale) {
+            match crate::preview_proxy::write(
+                &source,
+                &proxy_source,
+                size,
+                &settings,
+                multiscale,
+                measures,
+            ) {
                 Ok(proxy) => {
                     app.state::<AppState>()
                         .proxy_memory
@@ -1167,6 +1234,7 @@ async fn open_offline(
                 image: Arc::new(full.image),
                 is_raw: true,
                 multiscale: None,
+                measures: None,
             },
         )
         .inspect_err(|_| state.source_signal.changed())?;
@@ -1245,6 +1313,7 @@ mod activation_tests {
             image: Arc::new(DynamicImage::new_rgb8(2, 1)),
             is_raw: true,
             multiscale: None,
+            measures: None,
         };
         // Marked offline, its 1:1 preview not published yet.
         assert!(settled(None, true, false).is_none());
@@ -1273,6 +1342,7 @@ mod activation_tests {
             image: Arc::new(DynamicImage::new_rgb8(2, 1)),
             is_raw: true,
             multiscale: None,
+            measures: None,
         };
         publish_loaded_image(
             &original,
@@ -1303,6 +1373,7 @@ mod activation_tests {
             image: Arc::new(DynamicImage::new_rgb8(2, 1)),
             is_raw: true,
             multiscale: None,
+            measures: None,
         };
         publish_loaded_image(&original, &signal, &generation, 1, loaded("first.raf")).unwrap();
         generation.store(2, Ordering::SeqCst);

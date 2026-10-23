@@ -131,7 +131,7 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
         // resolved (as the single-photo export).
         rawtonic_export::exif_processing::prepare_recipe_lens(&mut adjustments, &source_path)?;
         generated |= rawtonic_engine::image_loader::has_generated_areas(&adjustments);
-        let pristine = crate::export_processing::load_export_base_image(
+        let (pristine, measures) = crate::export_processing::load_export_base_image(
             &state,
             &source,
             is_raw,
@@ -140,7 +140,8 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
             None,
         )
         .map_err(|e| format!("Failed to load {}: {e}", source))?;
-        let export_source = prepare_export_source(&source, Arc::new(pristine), &adjustments)?;
+        let export_source =
+            prepare_export_source(&source, Arc::new(pristine), measures, &adjustments)?;
         let tonemapper_override = |is_raw| {
             crate::image_processing::resolve_tonemapper_override_from_handle(app_handle, is_raw)
         };

@@ -222,6 +222,41 @@ impl Default for BaseImageOptions {
     }
 }
 
+/// What renders read from a full RAW decode besides its pixels
+/// (`baseline_exposure::apply_base_look`): its noise level and image key,
+/// measured on it before the decode-time clean-up. They belong to those
+/// pixels: decodes of one file for different recipes (AI Denoise, colour
+/// noise filter) measure differently, so they travel with the decode
+/// (decoded-image cache, the open source, export sources, preview proxies)
+/// instead of being looked up by path.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DecodeMeasures {
+    pub noise_level: Option<f32>,
+    pub image_key: Option<crate::image_key::ImageKey>,
+}
+
+impl DecodeMeasures {
+    /// Measures a full decode.
+    pub fn of(image: &DynamicImage) -> Self {
+        Self {
+            noise_level: crate::noise_level::measure(image),
+            image_key: crate::image_key::measure(image),
+        }
+    }
+
+    /// Records them as the last of `path` (read where no decode is at hand).
+    fn record(&self, path: &str) {
+        if let Some(level) = self.noise_level {
+            crate::noise_level::record(path, level);
+            log::info!("Noise level for '{path}': {level:.5}");
+        }
+        if let Some(key) = self.image_key {
+            crate::image_key::record(path, key);
+            log::info!("Image key for '{path}': {key:?}");
+        }
+    }
+}
+
 /// The base image of a source file: a RAW developed (embedded preview only
 /// as a recorded fallback), any other format decoded and oriented.
 pub fn load_base_image(
@@ -231,6 +266,25 @@ pub fn load_base_image(
     options: &BaseImageOptions,
     cancel_token: Option<(Arc<AtomicUsize>, usize)>,
 ) -> Result<DynamicImage> {
+    load_base_image_measured(
+        bytes,
+        path_for_ext_check,
+        use_fast_raw_dev,
+        options,
+        cancel_token,
+    )
+    .map(|(image, _)| image)
+}
+
+/// `load_base_image` with the measures of a full RAW decode (None for
+/// fast developments, embedded-preview fallbacks and other formats).
+pub fn load_base_image_measured(
+    bytes: &[u8],
+    path_for_ext_check: &str,
+    use_fast_raw_dev: bool,
+    options: &BaseImageOptions,
+    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
+) -> Result<(DynamicImage, Option<DecodeMeasures>)> {
     let BaseImageOptions {
         highlight_compression,
         linear_mode,
@@ -254,10 +308,11 @@ pub fn load_base_image(
             )
         })) {
             Ok(Ok(mut image)) => {
-                if !use_fast_raw_dev {
-                    crate::noise_level::remember(path_for_ext_check, &image);
-                    crate::image_key::remember(path_for_ext_check, &image);
-                }
+                let measures = (!use_fast_raw_dev).then(|| {
+                    let measures = DecodeMeasures::of(&image);
+                    measures.record(path_for_ext_check);
+                    measures
+                });
                 if !use_fast_raw_dev && (color_nr_amount > 0.0 || sharpening_amount > 0.0) {
                     let start = Instant::now();
                     {
@@ -282,7 +337,7 @@ pub fn load_base_image(
                     crate::allocator::release_freed_memory();
                     note_preview_fallback(path_for_ext_check, None);
                 }
-                Ok(image)
+                Ok((image, measures))
             }
             Ok(Err(e)) => {
                 let classified = classify_raw_develop_error(path_for_ext_check, e);
@@ -305,7 +360,7 @@ pub fn load_base_image(
                     );
                     note_preview_fallback(path_for_ext_check, Some(classified.to_string()));
 
-                    return Ok(linearize_embedded_preview(preview));
+                    return Ok((linearize_embedded_preview(preview), None));
                 }
                 Err(classified)
             }
@@ -323,7 +378,7 @@ pub fn load_base_image(
                         Some("the RAW decoder panicked".to_string()),
                     );
 
-                    return Ok(linearize_embedded_preview(preview));
+                    return Ok((linearize_embedded_preview(preview), None));
                 }
                 Err(anyhow!(
                     "Failed to process RAW file: {}",
@@ -348,7 +403,7 @@ pub fn load_base_image(
             );
         }
 
-        Ok(image)
+        Ok((image, None))
     }
 }
 

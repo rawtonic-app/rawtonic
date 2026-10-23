@@ -20,7 +20,9 @@ use crate::gpu_processing::{GpuContext, GpuImageCache, GpuProcessorState};
 use crate::output::write_new_output;
 use rawtonic_engine::file_io::read_file_mapped;
 use rawtonic_engine::formats::is_raw_file;
-use rawtonic_engine::image_loader::{BaseImageOptions, ai_denoise_settings, load_base_image};
+use rawtonic_engine::image_loader::{
+    BaseImageOptions, ai_denoise_settings, load_base_image_measured,
+};
 use rawtonic_rawdecode::mosaic_denoise::{MosaicDenoise, MosaicDenoiser};
 
 /// One export: `output` must not exist; its extension, else `format`,
@@ -101,17 +103,21 @@ impl FileExporter {
             base.mosaic_denoise =
                 Some(MosaicDenoise::new(denoiser, ai.blend).with_noise_scale(ai.noise_scale));
         }
-        let pristine_source = match read_file_mapped(job.source) {
-            Ok(mmap) => load_base_image(&mmap, &source_path_str, false, &base, None)
+        let (pristine_source, measures) = match read_file_mapped(job.source) {
+            Ok(mmap) => load_base_image_measured(&mmap, &source_path_str, false, &base, None)
                 .map_err(|e| format!("Failed to load from mmap: {}", e))?,
             Err(_) => {
                 let bytes = fs::read(&source_path_str).map_err(|e| e.to_string())?;
-                load_base_image(&bytes, &source_path_str, false, &base, None)
+                load_base_image_measured(&bytes, &source_path_str, false, &base, None)
                     .map_err(|e| format!("Failed to load from bytes: {}", e))?
             }
         };
-        let source =
-            prepare_export_source(&source_path_str, Arc::new(pristine_source), &js_adjustments)?;
+        let source = prepare_export_source(
+            &source_path_str,
+            Arc::new(pristine_source),
+            measures,
+            &js_adjustments,
+        )?;
 
         // The app's default preferences: no forced tone mapper.
         let tonemapper_override = |_is_raw: bool| None;
