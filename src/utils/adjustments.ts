@@ -397,17 +397,22 @@ export const effectiveGrainStructure = (adjustments: Partial<Adjustments>): Grai
  * portable grain, the same on every GPU; 1 (missing key) the earlier one. */
 export const GRAIN_VERSION = 2;
 
-/** Writes Even and grain version 1 into grain that has none (recipes and
- * presets from before the structure choice or the version), so it keeps
- * rendering as before when copied, pasted, saved as a preset or turned off
- * and on again. */
-export const withGrainStructure = <T extends Partial<Adjustments>>(adjustments: T): T => {
-  if ((adjustments.grainAmount ?? 0) <= 0) return adjustments;
-  let grain = adjustments;
-  if (grain.grainStructure === undefined) grain = { ...grain, grainStructure: 'even' };
-  if (grain.grainVersion == null) grain = { ...grain, grainVersion: 1 };
-  return grain;
-};
+/** Writes Even into grain that has none (recipes and presets from before the
+ * structure choice), so it keeps rendering Even when copied, pasted, saved as
+ * a preset or turned off and on again. */
+export const withGrainStructure = <T extends Partial<Adjustments>>(adjustments: T): T =>
+  adjustments.grainStructure === undefined && (adjustments.grainAmount ?? 0) > 0
+    ? { ...adjustments, grainStructure: 'even' }
+    : adjustments;
+
+/** Writes grain version 1 into grain that has no version (recipes and
+ * presets from before the key), so it keeps its pattern. Not for settings
+ * chosen in the Copy/Sync picker: there the version is a processing version
+ * and the destination keeps its own unless it is chosen. */
+export const withLegacyGrainVersion = <T extends Partial<Adjustments>>(adjustments: T): T =>
+  adjustments.grainVersion == null && (adjustments.grainAmount ?? 0) > 0
+    ? { ...adjustments, grainVersion: 1 }
+    : adjustments;
 
 /** AI Denoise's amount means what its version makes of it, so wherever an
  * amount is copied (paste, tool copy, presets) its version goes along: the
@@ -1643,7 +1648,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     subMasks: normalizeSubMasks(patch.subMasks),
   }));
 
-  return withGrainStructure({
+  return withLegacyGrainVersion(withGrainStructure({
     ...initialAdjustmentsFor(isRaw),
     ...loadedAdjustments,
     guidedPerspective: {
@@ -1739,7 +1744,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     sharpenRadius: loadedAdjustments.sharpenRadius ?? INITIAL_ADJUSTMENTS.sharpenRadius,
     sharpenDetail: loadedAdjustments.sharpenDetail ?? INITIAL_ADJUSTMENTS.sharpenDetail,
     sharpenMasking: loadedAdjustments.sharpenMasking ?? INITIAL_ADJUSTMENTS.sharpenMasking,
-  });
+  }));
 };
 
 export interface AdjustmentGroup {

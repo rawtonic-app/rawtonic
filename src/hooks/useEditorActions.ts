@@ -22,6 +22,7 @@ import {
   withLumaNoiseVersion,
   withSharpenVersion,
   withGrainStructure,
+  withLegacyGrainVersion,
 } from '../utils/adjustments';
 import { calculateCenteredCrop, reframingInputs } from '../utils/cropUtils';
 import { cropGestures } from '../utils/cropGesture';
@@ -702,7 +703,7 @@ export function useEditorActions() {
       const grain = withGrainStructure(partial);
       const adjustmentsToApply = asChosen
         ? grain
-        : withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(grain))));
+        : withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(grain)))));
       const { selectedImage, adjustments } = useEditorStore.getState();
       const { multiSelectedPaths } = useLibraryStore.getState();
       const pathsToUpdate =

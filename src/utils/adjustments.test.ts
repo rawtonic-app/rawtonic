@@ -33,6 +33,7 @@ import {
   withGrainStructure,
   withNewGrainStructure,
   withGrainVersion,
+  withLegacyGrainVersion,
   GRAIN_VERSION,
   type Adjustments,
 } from './adjustments';
@@ -451,7 +452,7 @@ describe('Grain structure defaults', () => {
     expect(normalizeLoadedAdjustments(old).grainStructure).toBe('even');
     expect(normalizeLoadedAdjustments({ ...INITIAL_ADJUSTMENTS } as Adjustments).grainStructure).toBeUndefined();
     // Old presets and copied grain carry the structure they render with.
-    expect(withGrainStructure({ grainAmount: 30 })).toEqual({ grainAmount: 30, grainStructure: 'even', grainVersion: 1 });
+    expect(withGrainStructure({ grainAmount: 30 })).toEqual({ grainAmount: 30, grainStructure: 'even' });
     expect(withGrainStructure({ grainAmount: 30, grainStructure: 'soft' }).grainStructure).toBe('soft');
     expect(withGrainStructure({ exposure: 1 })).toEqual({ exposure: 1 });
   });
@@ -477,8 +478,11 @@ describe('Grain version', () => {
     expect(normalizeLoadedAdjustments(old).grainVersion).toBe(1);
     expect(normalizeLoadedAdjustments({ ...old, grainVersion: 2 }).grainVersion).toBe(2);
     expect(normalizeLoadedAdjustments({ ...INITIAL_ADJUSTMENTS } as Adjustments).grainVersion).toBeUndefined();
-    expect(withGrainStructure<Partial<Adjustments>>({ grainAmount: 30, grainStructure: 'soft' }).grainVersion).toBe(1);
-    expect(withGrainStructure({ grainAmount: 30, grainVersion: 2 }).grainVersion).toBe(2);
+    expect(withLegacyGrainVersion<Partial<Adjustments>>({ grainAmount: 30, grainStructure: 'soft' }).grainVersion).toBe(1);
+    expect(withLegacyGrainVersion({ grainAmount: 30, grainVersion: 2 }).grainVersion).toBe(2);
+    // Settings chosen in the Copy/Sync picker without the processing versions
+    // keep the destination's version: no stamp there.
+    expect('grainVersion' in withGrainStructure({ grainAmount: 30 })).toBe(false);
     expect(withNewGrainStructure(INITIAL_ADJUSTMENTS, { ...INITIAL_ADJUSTMENTS, grainAmount: 20 }).grainVersion).toBe(
       GRAIN_VERSION,
     );

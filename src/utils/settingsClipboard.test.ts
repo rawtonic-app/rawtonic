@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER, initialAdjustmentsFor, type Adjustments, type MaskContainer } from './adjustments';
+import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER, initialAdjustmentsFor, withGrainStructure, type Adjustments, type MaskContainer } from './adjustments';
 import { Mask } from '../components/panel/right/Masks';
 import {
   RESPONSE_KEYS,
@@ -136,5 +136,16 @@ describe('settings clipboard', () => {
     const many = Array.from({ length: 33 }, (_, i) => layer(`l${i}`));
     expect(pasteInto(recipe({}), { masks: many } as unknown as Partial<Adjustments>, { samePhoto: false, replaceLayers: false })).toBeNull();
     expect(pasteInto(recipe({}), { masks: many.slice(0, 32) } as unknown as Partial<Adjustments>, { samePhoto: false, replaceLayers: false })).not.toBeNull();
+  });
+});
+
+describe('Copy/Sync of grain', () => {
+  it('leaves the destination its grain version unless the processing versions are chosen', () => {
+    const source = { ...INITIAL_ADJUSTMENTS, grainAmount: 30, grainVersion: 2 } as Adjustments;
+    const grain = SETTINGS_GROUPS.find((g) => g.label === 'modals.copyPaste.groups.grain')!;
+    expect(grain.keys).not.toContain('grainVersion');
+    const applied = withGrainStructure(chosenSettings(source, grain.keys, []));
+    expect('grainVersion' in applied).toBe(false);
+    expect(chosenSettings(source, [...grain.keys, 'grainVersion'], []).grainVersion).toBe(2);
   });
 });
