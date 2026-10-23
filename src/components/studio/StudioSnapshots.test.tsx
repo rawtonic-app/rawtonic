@@ -288,3 +288,10 @@ it("restores AI bitmaps under ids of their own, also while the renderer is still
   expect(restored.aiPatches[0].id).not.toBe("patch");
   expect(restored.aiPatches[0].patchData).toMatchObject({ color: "c" });
 });
+
+it("is open from the start", async () => {
+  kept[PHOTO] = [{ id: "a", name: "Bright", createdAt: "2026-10-20T10:00:00.000Z", adjustments: recipe(2) }];
+  render(<StudioSnapshots />);
+  await screen.findByText("Bright");
+  expect(document.querySelector<HTMLDetailsElement>('[data-tool-title="Snapshots"]')!.open).toBe(true);
+});

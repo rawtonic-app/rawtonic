@@ -11,8 +11,8 @@ import { ToolGroup } from "./StudioDevelop";
  * states of the open photograph's development. A click restores one as a
  * history step (undoable); + takes one of the current edit (the history
  * takes one of any step); the pencil renames, the arrows update one with
- * the current edit. Kept by the library (the
- * editor sidecar for a photograph in none). */
+ * the current edit. Open from the start, in the dock under the tools. Kept
+ * by the library (the editor sidecar for a photograph in none). */
 export default function StudioSnapshots() {
   const { t, i18n } = useTranslation();
   const image = useEditorStore((s) => s.selectedImage);
@@ -46,7 +46,6 @@ export default function StudioSnapshots() {
     <ToolGroup
       title="Snapshots"
       label={t("studio.develop.snapshots.title")}
-      open={false}
       actions={
         <button
           type="button"
