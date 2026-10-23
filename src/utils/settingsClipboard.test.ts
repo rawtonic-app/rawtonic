@@ -147,5 +147,10 @@ describe('Copy/Sync of grain', () => {
     const applied = withGrainStructure(chosenSettings(source, grain.keys, []));
     expect('grainVersion' in applied).toBe(false);
     expect(chosenSettings(source, [...grain.keys, 'grainVersion'], []).grainVersion).toBe(2);
+    // A never-edited destination gets a new edit's grain; an edited one keeps its own.
+    const fresh = pasteInto(null, applied, { samePhoto: false, replaceLayers: false, newEdit: newEditResponses().raw })!;
+    expect(fresh.grainVersion).toBe(2);
+    const old = { ...INITIAL_ADJUSTMENTS, grainAmount: 10, grainVersion: 1 } as Adjustments;
+    expect(pasteInto(old, applied, { samePhoto: false, replaceLayers: false })!.grainVersion).toBe(1);
   });
 });

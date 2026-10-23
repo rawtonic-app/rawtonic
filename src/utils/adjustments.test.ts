@@ -477,7 +477,9 @@ describe('Grain version', () => {
     expect(INITIAL_ADJUSTMENTS.grainVersion).toBeUndefined();
     expect(normalizeLoadedAdjustments(old).grainVersion).toBe(1);
     expect(normalizeLoadedAdjustments({ ...old, grainVersion: 2 }).grainVersion).toBe(2);
-    expect(normalizeLoadedAdjustments({ ...INITIAL_ADJUSTMENTS } as Adjustments).grainVersion).toBeUndefined();
+    expect(normalizeLoadedAdjustments({ ...INITIAL_ADJUSTMENTS } as Adjustments).grainVersion).toBe(GRAIN_VERSION);
+    expect(initialAdjustmentsFor(true).grainVersion).toBe(GRAIN_VERSION);
+    expect(initialAdjustmentsFor(false).grainVersion).toBe(GRAIN_VERSION);
     expect(withLegacyGrainVersion<Partial<Adjustments>>({ grainAmount: 30, grainStructure: 'soft' }).grainVersion).toBe(1);
     expect(withLegacyGrainVersion({ grainAmount: 30, grainVersion: 2 }).grainVersion).toBe(2);
     // Settings chosen in the Copy/Sync picker without the processing versions

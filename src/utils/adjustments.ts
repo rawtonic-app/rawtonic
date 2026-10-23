@@ -1297,6 +1297,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         lumaNoiseVersion: LUMA_NOISE_VERSION,
         aiDenoiseVersion: AI_DENOISE_VERSION,
         renderVersion: RENDER_VERSION,
+        grainVersion: GRAIN_VERSION,
       }
     : {
         ...INITIAL_ADJUSTMENTS,
@@ -1306,6 +1307,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         sharpenVersion: SHARPEN_VERSION,
         lumaNoiseVersion: LUMA_NOISE_VERSION,
         renderVersion: RENDER_VERSION,
+        grainVersion: GRAIN_VERSION,
       };
 
 /** Whether a saved recipe is new: empty (Library Reset saves `{}`; loading
@@ -1673,6 +1675,9 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     toneVersion: loadedToneVersion(loadedAdjustments),
     defringeVersion: loadedDefringeVersion(loadedAdjustments),
     sharpenVersion: loadedSharpenVersion(loadedAdjustments, isRaw),
+    // A saved recipe's own grain; without the key 1 where it has grain, else
+    // the newest (a new edit's, as `initialAdjustmentsFor`).
+    grainVersion: loadedAdjustments.grainVersion ?? ((loadedAdjustments.grainAmount ?? 0) > 0 ? 1 : GRAIN_VERSION),
     lumaNoiseVersion: loadedLumaNoiseVersion(loadedAdjustments, isRaw),
     aiDenoiseVersion: loadedAiDenoiseVersion(loadedAdjustments, isRaw),
     // Saved recipes keep rendering as they were made: no pass unless they

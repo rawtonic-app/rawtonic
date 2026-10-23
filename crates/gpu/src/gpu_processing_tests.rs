@@ -11844,7 +11844,8 @@ mod portable_grain_reference {
     /// Lattice cells per pixel, 12 fractional bits, for a grain size and
     /// image dimensions.
     pub fn cells_per_px(size: f32, width: u32, height: u32) -> u32 {
-        let size_q = (size.clamp(0.1, 4.0) * ONE as f32).round() as u64;
+        // WGSL's round() rounds halfway cases to even.
+        let size_q = (size.clamp(0.1, 4.0) * ONE as f32).round_ties_even() as u64;
         let den = size_q * u64::from(width.min(height).max(108));
         ((1080u64 << 24) + den / 2).div_euclid(den) as u32
     }
@@ -11946,7 +11947,13 @@ fn portable_grain_is_the_same_on_every_gpu() {
         .into_iter()
         .enumerate()
     {
-        for (size, roughness) in [(25.0f32, 50.0f32), (80.0, 0.0), (10.0, 100.0)] {
+        // 25.006103515625 / 50 * 4096 = 2048.5: a halfway case of the rounding.
+        for (size, roughness) in [
+            (25.0f32, 50.0f32),
+            (80.0, 0.0),
+            (10.0, 100.0),
+            (25.006103515625, 50.0),
+        ] {
             let recipe = json!({"grainAmount": 30, "grainSize": size, "grainRoughness": roughness,
                 "grainStructure": name, "grainVersion": 2});
             let pixels = render(recipe);
