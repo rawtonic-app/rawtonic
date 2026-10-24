@@ -57,7 +57,7 @@ describe('sourceDevelopToApply', () => {
 
   it('does nothing while the source matches the recipe', () => {
     expect(sourceDevelopToApply(multiscaleBase, v2, false)).toBeNull();
-    // Versions 2 to 9 share the base image: no new development.
+    // Versions 2 to 10 share the base image: no new development.
     expect(sourceDevelopToApply(multiscaleBase, { ...v2, colorNoiseVersion: 3 }, false)).toBeNull();
     expect(sourceDevelopToApply(multiscaleBase, { ...v2, colorNoiseVersion: 4 }, false)).toBeNull();
     expect(sourceDevelopToApply(multiscaleBase, { ...v2, colorNoiseVersion: 5 }, false)).toBeNull();
@@ -65,6 +65,7 @@ describe('sourceDevelopToApply', () => {
     expect(sourceDevelopToApply(multiscaleBase, { ...v2, colorNoiseVersion: 7 }, false)).toBeNull();
     expect(sourceDevelopToApply(multiscaleBase, { ...v2, colorNoiseVersion: 8 }, false)).toBeNull();
     expect(sourceDevelopToApply(multiscaleBase, { ...v2, colorNoiseVersion: 9 }, false)).toBeNull();
+    expect(sourceDevelopToApply(multiscaleBase, { ...v2, colorNoiseVersion: 10 }, false)).toBeNull();
     expect(sourceDevelopToApply(oldBase, v1, false)).toBeNull();
     expect(sourceDevelopToApply(oldBase, { ...v1, colorNoiseVersion: 1 }, false)).toBeNull();
   });

@@ -80,7 +80,9 @@ use std::sync::{Arc, Mutex};
 /// `colorNoiseReduction`, the newest ([`VERSION`]) when they leave it to the
 /// RAW default (photos never edited; the editor starts them the same way).
 pub const VERSION_KEY: &str = "colorNoiseVersion";
-/// The newest version: 9 (2026-10-20) keeps each pixel's filtered chroma
+/// The newest version: 10 (2026-10-24) keeps it within its neighbourhood's
+/// plain reconstruction only, closer ([`Tuning::range_plain`]); 9 (2026-10-20)
+/// keeps each pixel's filtered chroma
 /// within the range of its neighbourhood's filtered reconstruction
 /// ([`Tuning::range_clamp`]); 8 (2026-10-20) judges whether such a speck stands
 /// out in brightness by its luminance after the luminance noise reduction
@@ -99,7 +101,7 @@ pub const VERSION_KEY: &str = "colorNoiseVersion";
 /// ([`Tuning::linear_means`]); 3 (2026-10-16) keeps more 8–30 px colour
 /// texture where those scales of the photo are quiet ([`Tuning::quiet`],
 /// [`Tuning::coarse_noise_fall`]); 2 is the same filter before that.
-pub const VERSION: u64 = 9;
+pub const VERSION: u64 = 10;
 /// The first version that is this filter (on a base image without the
 /// decode-time chroma clean-up; every later version shares that base).
 pub const MULTISCALE_VERSION: u64 = 2;
@@ -366,6 +368,24 @@ pub struct Tuning {
     /// ([`Tuning::speck_strength`]) and for pixels far beyond the range
     /// ([`RANGE_CLAMP_FAR`]). Version 9.
     pub range_clamp: f32,
+    /// The range of [`Tuning::range_clamp`] leaves out the pixel's own
+    /// edge-aware reconstruction (only the plain expansions at the pixel and
+    /// its 8 neighbours), so a pixel's chroma is checked against what its
+    /// neighbourhood holds also where its own reconstruction took a side by
+    /// its noisy chroma, and the margin is [`RANGE_CLAMP_PLAIN`]. Most colour
+    /// specks left at Color 25 by version 9 lay in flat areas whose rebuilt
+    /// level 1 still holds some colour noise: there the finest edge guard
+    /// keeps noisy detail and the aware expansion takes a level-1 sample by
+    /// the pixel's own noise, both within the range while the pixel's own
+    /// reconstruction was part of it. On 55 high-ISO RAWs colour specks
+    /// 7.5 → 5.0 / 4.2 → 3.5 / 4.1 → 3.1 per Mpx at Color 25/50/100
+    /// (Capture One's default 5.4, Camera Raw 5.4/4.7/4.6) for colour edges
+    /// ≥ 0.9988 of version 9 in every ISO band and RawNIND ground-truth
+    /// error equal or lower in every cell; fine colour detail −1 % at ISO
+    /// 1600–2500 and 6400. Only a smaller margin with the own
+    /// reconstruction in the range (1.0 σ) cost more edges for fewer specks
+    /// (notes: reference/color-noise-reference.md, round 16). Version 10.
+    pub range_plain: bool,
 }
 
 impl Default for Tuning {
@@ -429,9 +449,17 @@ impl Tuning {
         if version == 8 {
             return v8;
         }
-        Self {
+        let v9 = Self {
             range_clamp: RANGE_CLAMP,
             ..v8
+        };
+        if version == 9 {
+            return v9;
+        }
+        Self {
+            range_clamp: RANGE_CLAMP_PLAIN,
+            range_plain: true,
+            ..v9
         }
     }
 
@@ -472,6 +500,7 @@ impl Tuning {
             speck_swap: 0.0,
             speck_luma_after_nr: false,
             range_clamp: 0.0,
+            range_plain: false,
         }
     }
 
@@ -483,10 +512,13 @@ impl Tuning {
     /// swap K ([`Tuning::speck_swap`]); + 2048 when its luminance gate reads
     /// the luminance after the luminance noise reduction
     /// ([`Tuning::speck_luma_after_nr`]); + 4096 × 4 T with the range clamp
-    /// T ([`Tuning::range_clamp`]); and the switch's squared multiple.
+    /// T ([`Tuning::range_clamp`]); + 65536 when its range leaves out the
+    /// pixel's own reconstruction ([`Tuning::range_plain`]); and the switch's
+    /// squared multiple.
     pub fn finest_guide_code(&self) -> (f32, f32) {
         let aware = if self.finest_detail_aware { 32.0 } else { 0.0 }
             + 4096.0 * self.range_clamp_steps()
+            + if self.range_plain { 65536.0 } else { 0.0 }
             + if self.speck_swap > 0.0 {
                 64.0 + 128.0 * (self.speck_swap * 4.0).round().min(15.0)
                     + if self.speck_luma_after_nr {
@@ -1125,6 +1157,9 @@ pub const SPECK_LUMA: f32 = 1.0;
 /// Version 9's [`Tuning::range_clamp`] in finest noise σ (notes:
 /// reference/color-noise-reference.md, round 15).
 pub const RANGE_CLAMP: f32 = 1.5;
+/// Version 10's [`Tuning::range_clamp`] with [`Tuning::range_plain`] (notes:
+/// reference/color-noise-reference.md, round 16).
+pub const RANGE_CLAMP_PLAIN: f32 = 1.25;
 /// Beyond the range by this many finest noise σ (from, to) the clamp fades
 /// out: a coloured point that far from its neighbourhood (a small light, a
 /// real fine detail) keeps its colour, as with the speck swap's luminance
@@ -2220,7 +2255,8 @@ pub fn filtered_pixel_in_range(
 /// The range a pixel's filtered chroma is kept in ([`Tuning::range_clamp`]):
 /// per component the lowest and highest of the plain expansion of
 /// `rebuilt` at (x, y) and its 8 neighbours (clamped to the `w` × `h`
-/// image) and of the pixel's own reconstruction `own` (renderer
+/// image) and of the pixel's own reconstruction `own` (its edge-aware one;
+/// with [`Tuning::range_plain`] its plain one, which adds nothing; renderer
 /// `ms_rebuilt_range`).
 pub fn rebuilt_range(
     rebuilt: &Plane,
@@ -2269,6 +2305,36 @@ pub fn keep_in_range(
         let kept = ab[c].clamp(lo[c] - margin, hi[c] + margin);
         ab[c] * (1.0 - share) + kept * share
     })
+}
+
+/// The filtered chroma `ab` of pixel (x, y) of a `w` × `h` image kept in its
+/// range
+/// ([`Tuning::range_clamp`], [`rebuilt_range`], [`keep_in_range`]): the
+/// range holds the pixel's own edge-aware reconstruction `aware`, or with
+/// [`Tuning::range_plain`] its plain one (one of the 3 × 3 already). Chroma
+/// within `margin` of that lies in the widened range already and stays
+/// (renderer `apply_color_noise_multiscale`).
+#[allow(clippy::too_many_arguments)]
+pub fn pixel_in_range(
+    ab: [f32; 2],
+    rebuilt: &Plane,
+    (x, y, w, h): (usize, usize, usize, usize),
+    aware: Px,
+    tuning: &Tuning,
+    margin: f32,
+    sigma: f32,
+    strength: f32,
+) -> [f32; 2] {
+    let own = if tuning.range_plain {
+        expand_at(rebuilt, x, y)
+    } else {
+        aware
+    };
+    if (ab[0] - own[0]).abs().max((ab[1] - own[1]).abs()) <= margin {
+        return ab;
+    }
+    let range = rebuilt_range(rebuilt, x, y, w, h, own);
+    keep_in_range(ab, range, margin, sigma, strength)
 }
 
 /// [`filtered_pixel`] with the edge-kept detail from the guide
@@ -2491,17 +2557,16 @@ pub fn apply_with(
                 let v = match range_margin {
                     Some(margin) => {
                         filtered_pixel_in_range(rgb, level1_at, rebuilt_at, g, c0, |ab| {
-                            // Within the margin of its own reconstruction the
-                            // chroma lies in the widened range already.
-                            if (ab[0] - rebuilt_at[0])
-                                .abs()
-                                .max((ab[1] - rebuilt_at[1]).abs())
-                                <= margin
-                            {
-                                return ab;
-                            }
-                            let range = rebuilt_range(&rebuilt, x, y, w, h, rebuilt_at);
-                            keep_in_range(ab, range, margin, sigma, strength)
+                            pixel_in_range(
+                                ab,
+                                &rebuilt,
+                                (x, y, w, h),
+                                rebuilt_at,
+                                tuning,
+                                margin,
+                                sigma,
+                                strength,
+                            )
                         })
                     }
                     None => filtered_pixel_from(rgb, level1_at, rebuilt_at, g, c0),
@@ -2768,7 +2833,7 @@ mod tests {
         assert!(multiscale(&serde_json::Value::Null, true));
         assert!(!multiscale(&json!({}), false));
         assert_eq!(version(&json!({}), true), VERSION);
-        assert_eq!(VERSION, 9);
+        assert_eq!(VERSION, 10);
         // Saved versions stay; unknown newer ones get the newest.
         assert_eq!(version(&json!({"colorNoiseVersion": 2}), true), 2);
         assert_eq!(version(&json!({"colorNoiseVersion": 3}), true), 3);
@@ -2776,7 +2841,8 @@ mod tests {
         assert_eq!(version(&json!({"colorNoiseVersion": 5}), true), 5);
         assert_eq!(version(&json!({"colorNoiseVersion": 7}), true), 7);
         assert_eq!(version(&json!({"colorNoiseVersion": 8}), true), 8);
-        assert_eq!(version(&json!({"colorNoiseVersion": 10}), true), VERSION);
+        assert_eq!(version(&json!({"colorNoiseVersion": 9}), true), 9);
+        assert_eq!(version(&json!({"colorNoiseVersion": 11}), true), VERSION);
         assert_eq!(version(&json!({"colorNoiseVersion": 0}), true), 1);
     }
 
@@ -2998,7 +3064,6 @@ mod tests {
         // Version 8 recipes render exactly as before version 9: no range
         // clamp.
         let (v8, v9) = (Tuning::for_version(8), Tuning::for_version(9));
-        assert_eq!(v9, Tuning::default());
         assert_eq!((v8.range_clamp, v9.range_clamp), (0.0, RANGE_CLAMP));
         assert_eq!(
             v8.finest_guide_code(),
@@ -3020,6 +3085,35 @@ mod tests {
         );
         for version in 2..=8 {
             assert_eq!(Tuning::for_version(version).range_clamp, 0.0);
+        }
+    }
+
+    #[test]
+    fn version_9_keeps_its_constants() {
+        // Version 9 recipes render exactly as before version 10: the range
+        // holds the pixel's own aware reconstruction, margin 1.5 σ.
+        let (v9, v10) = (Tuning::for_version(9), Tuning::for_version(10));
+        assert_eq!(v10, Tuning::default());
+        assert_eq!((v9.range_plain, v10.range_plain), (false, true));
+        assert_eq!(
+            (v9.range_clamp, v10.range_clamp),
+            (RANGE_CLAMP, RANGE_CLAMP_PLAIN)
+        );
+        let base = 35.0 + 64.0 + 128.0 * 8.0 + 2048.0;
+        assert_eq!(
+            v10.finest_guide_code(),
+            (base + 4096.0 * 4.0 * RANGE_CLAMP_PLAIN + 65536.0, 1.0)
+        );
+        assert_eq!(
+            Tuning {
+                range_clamp: RANGE_CLAMP,
+                range_plain: false,
+                ..v10
+            },
+            v9
+        );
+        for version in 2..=9 {
+            assert!(!Tuning::for_version(version).range_plain);
         }
     }
 
@@ -3136,6 +3230,60 @@ mod tests {
         println!("speck chroma v8 {s8:.4}, v9 {s9:.4}; edge step v8 {e8:.4}, v9 {e9:.4}");
         assert!(s9 < 0.6 * s8, "version 9 left the specks: {s8} -> {s9}");
         assert!((e9 / e8 - 1.0).abs() < 0.01, "edge step {e8} -> {e9}");
+    }
+
+    #[test]
+    fn version_10_checks_a_pixel_against_its_neighbourhoods_plain_reconstruction() {
+        // A flat rebuilt level 1 (grey) and a pixel whose edge-aware
+        // reconstruction took a sample 3 noise σ off it (its own noisy chroma
+        // picked it) with its filtered chroma close to that: version 9's
+        // range held that reconstruction, so the pixel stayed a speck;
+        // version 10's range is the neighbourhood's plain reconstruction
+        // (notes: reference/color-noise-reference.md, round 16).
+        let (w, h) = (16, 16);
+        let rebuilt = Plane {
+            width: w / 2,
+            height: h / 2,
+            data: vec![[0.0, 0.0, 0.4]; (w / 2) * (h / 2)],
+        };
+        let sigma = 0.02;
+        let aware = [3.0 * sigma, 0.0, 0.4];
+        let ab = [3.3 * sigma, 0.2 * sigma];
+        let kept = |version: u64| {
+            let tuning = Tuning::for_version(version);
+            let margin = tuning.range_clamp_steps() * 0.25 * sigma;
+            pixel_in_range(
+                ab,
+                &rebuilt,
+                (7, 7, w, h),
+                aware,
+                &tuning,
+                margin,
+                sigma,
+                1.0,
+            )
+        };
+        assert_eq!(kept(9), ab);
+        let v10 = kept(10);
+        assert!((v10[0] - RANGE_CLAMP_PLAIN * sigma).abs() < 1e-6, "{v10:?}");
+        assert_eq!(v10[1], ab[1]);
+        // Within the margin of the plain reconstruction nothing changes.
+        let near = [sigma, -sigma];
+        let tuning = Tuning::for_version(10);
+        let margin = tuning.range_clamp_steps() * 0.25 * sigma;
+        assert_eq!(
+            pixel_in_range(
+                near,
+                &rebuilt,
+                (7, 7, w, h),
+                aware,
+                &tuning,
+                margin,
+                sigma,
+                1.0
+            ),
+            near
+        );
     }
 
     #[test]

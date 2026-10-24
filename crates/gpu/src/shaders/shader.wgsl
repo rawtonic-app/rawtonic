@@ -3868,6 +3868,10 @@ fn ms_expand(p: vec2<i32>) -> vec4<f32> {
     return out;
 }
 
+// The plain expansion of the last ms_expand_aware call (version 10's range,
+// `Tuning::range_plain`).
+var<private> ms_plain: vec4<f32> = vec4<f32>(0.0);
+
 // ms_expand with level 1 (xy) plain and its reconstruction (zw) aware: each
 // level-1 sample's weight also scaled by exp(-d^2 / aware2), d the distance
 // of its rebuilt chroma from `guide` (the pixel's chroma), so the
@@ -3912,6 +3916,7 @@ fn ms_expand_aware(p: vec2<i32>, guide: vec2<f32>, aware2: f32, both_aware: bool
             farthest = max(farthest, dd);
         }
     }
+    ms_plain = plain;
     // A pixel far from every sample is taken for noise (color_noise.rs
     // `Tuning::aware_far`); where the weights would be within 0.1 % of each
     // other (`AWARE_FLAT`) the plain expansion is the same.
@@ -4168,16 +4173,22 @@ fn apply_color_noise_multiscale(
     // `Tuning::range_clamp`, `keep_in_range`), fading with the filter like
     // the speck swap and for chroma 4-8 σ beyond the range
     // (`RANGE_CLAMP_FAR`: a coloured point that far keeps its colour).
+    // Version 10 (code bit 65536, `Tuning::range_plain`): the pixel's own
+    // plain reconstruction instead (one of the 3 x 3 already).
     // Chroma within the margin of the pixel's own reconstruction lies in the
     // widened range already: unchanged, without reading the range.
     let range_steps = (guide_code >> 12u) & 15u;
     let sigma = sqrt(max(aware2, 0.0));
     let margin = vec2<f32>(f32(range_steps) * 0.25 * sigma);
-    let off = abs(ab - center_e.zw);
+    var own = center_e.zw;
+    if ((guide_code & 65536u) != 0u && aware2 > 0.0) {
+        own = ms_plain.zw;
+    }
+    let off = abs(ab - own);
     if (range_steps != 0u && aware2 > 0.0 && speck > 0.0 && max(off.x, off.y) > margin.x) {
         let span = ms_rebuilt_range(coords_i);
-        let lo = min(span.xy, center_e.zw);
-        let hi = max(span.zw, center_e.zw);
+        let lo = min(span.xy, own);
+        let hi = max(span.zw, own);
         let beyond = max(max(lo - ab, ab - hi), vec2<f32>(0.0));
         let share = speck * (1.0 - smoothstep(4.0, 8.0, max(beyond.x, beyond.y) / sigma));
         ab = mix(ab, clamp(ab, lo - margin, hi + margin), share);
