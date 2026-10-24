@@ -1479,20 +1479,21 @@
         "toggle_crop_panel": "Zuschneiden-Panel ein-/ausblenden",
         "toggle_export": "Exportieren-Panel ein-/ausblenden",
         "toggle_folder_tree": "Ordner-Werkzeug zeigen",
-        "toggle_fullscreen": "Vollbild umschalten",
+        "toggle_fullscreen": "Foto allein (Vollbild)",
         "toggle_layer_solo": "Nur gewählte Ebene oder Maske zeigen",
         "toggle_left_panel": "Linkes Panel ein-/ausblenden",
         "toggle_library_exif": "EXIF-Überlagerung ein-/ausblenden",
         "toggle_mask_grayscale": "Maske in Graustufen anzeigen",
         "toggle_mask_overlay": "Maske ein-/ausblenden",
         "toggle_masks": "Maskieren-Panel ein-/ausblenden",
-        "toggle_metadata": "Metadaten-Werkzeug zeigen",
+        "toggle_metadata": "Metadaten-Werkzeug (Bibliothek) oder Foto-Informationen (Entwickeln, Vollbild)",
         "toggle_multi_view": "Mehrfachansicht: ausgewählte Fotos nebeneinander",
         "toggle_proof_margin": "Prüfrand ein/aus",
         "toggle_right_panel": "Rechtes Panel ein-/ausblenden",
         "toggle_side_panels": "Seitenpanels aus-/einblenden",
         "toggle_soft_proof": "Softproof ein-/ausschalten",
         "toggle_split_view": "Vorher/Nachher (geteilte Ansicht)",
+        "toggle_window_fullscreen": "Fenster-Vollbild",
         "toggle_zoom_lock": "Mehrfachansicht: Zoom koppeln",
         "tool_brush": "Pinsel (Maske zeichnen)",
         "tool_crop": "Zuschneiden",
@@ -3743,9 +3744,21 @@
         "thumbnailSize": "Miniaturgröße",
         "unrated": "Ohne Bewertung"
       },
+      "info": {
+        "keywords": "Stichwörter: {{keywords}}",
+        "label": "Foto-Informationen",
+        "noKeywords": "Keine Stichwörter"
+      },
       "layout": {
         "moveToolsLeft": "Entwickeln-Werkzeuge nach links verschieben",
         "moveToolsRight": "Entwickeln-Werkzeuge nach rechts verschieben"
+      },
+      "loupe": {
+        "adjust": "Entwickeln",
+        "adjustTitle": "In Entwickeln bearbeiten",
+        "backToGrid": "Zurück zum Raster",
+        "fullScreen": "Foto allein (Vollbild)",
+        "grid": "Raster"
       },
       "modules": {
         "develop": "Entwickeln",

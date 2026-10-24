@@ -1538,20 +1538,21 @@
         "toggle_crop_panel": "Alternar painel de Corte",
         "toggle_export": "Alternar painel de Exportação",
         "toggle_folder_tree": "Alternar painel da árvore de pastas",
-        "toggle_fullscreen": "Alternar tela cheia",
+        "toggle_fullscreen": "Só a foto (ecrã inteiro)",
         "toggle_layer_solo": "Mostrar apenas a camada ou máscara selecionada",
         "toggle_left_panel": "Alternar painel esquerdo",
         "toggle_library_exif": "Alternar sobreposição EXIF",
         "toggle_mask_grayscale": "Máscara em tons de cinza",
         "toggle_mask_overlay": "Mostrar ou ocultar a máscara",
         "toggle_masks": "Alternar painel de Máscaras",
-        "toggle_metadata": "Alternar painel de Metadados",
+        "toggle_metadata": "Ferramenta Metadados (Biblioteca) ou informações da foto (Revelação, ecrã inteiro)",
         "toggle_multi_view": "Vista múltipla: fotos selecionadas lado a lado",
         "toggle_proof_margin": "Alternar margem de prova",
         "toggle_right_panel": "Alternar painel direito",
         "toggle_side_panels": "Ocultar ou mostrar os painéis laterais",
         "toggle_soft_proof": "Alternar prova de cores na tela",
         "toggle_split_view": "Antes/Depois (vista dividida)",
+        "toggle_window_fullscreen": "Janela em ecrã inteiro",
         "toggle_zoom_lock": "Vista múltipla: bloquear zoom",
         "tool_brush": "Pincel (desenhar máscara)",
         "tool_crop": "Recortar",
@@ -3851,9 +3852,21 @@
         "thumbnailSize": "Tamanho das miniaturas",
         "unrated": "Sem classificação"
       },
+      "info": {
+        "keywords": "Palavras-chave: {{keywords}}",
+        "label": "Informações da foto",
+        "noKeywords": "Sem palavras-chave"
+      },
       "layout": {
         "moveToolsLeft": "Mover as ferramentas de Revelação para a esquerda",
         "moveToolsRight": "Mover as ferramentas de Revelação para a direita"
+      },
+      "loupe": {
+        "adjust": "Revelação",
+        "adjustTitle": "Ajustar em Revelação",
+        "backToGrid": "Voltar à grelha",
+        "fullScreen": "Só a foto (ecrã inteiro)",
+        "grid": "Grelha"
       },
       "modules": {
         "develop": "Revelação",

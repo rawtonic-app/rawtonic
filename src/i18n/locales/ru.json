@@ -1597,20 +1597,21 @@
         "toggle_crop_panel": "Панель обрезки",
         "toggle_export": "Панель экспорта",
         "toggle_folder_tree": "Показать/скрыть панель дерева папок",
-        "toggle_fullscreen": "Полноэкранный режим",
+        "toggle_fullscreen": "Только фото (полный экран)",
         "toggle_layer_solo": "Показать только выбранный слой или маску",
         "toggle_left_panel": "Показать/скрыть левую панель",
         "toggle_library_exif": "Информация EXIF поверх сетки",
         "toggle_mask_grayscale": "Маска в оттенках серого",
         "toggle_mask_overlay": "Показать или скрыть маску",
         "toggle_masks": "Панель масок",
-        "toggle_metadata": "Панель метаданных",
+        "toggle_metadata": "Инструмент «Метаданные» (Библиотека) или сведения о фото (Проявка, полный экран)",
         "toggle_multi_view": "Мультипросмотр: выбранные фотографии рядом",
         "toggle_proof_margin": "Переключить поля для оценки",
         "toggle_right_panel": "Показать/скрыть правую панель",
         "toggle_side_panels": "Скрыть/показать боковые панели",
         "toggle_soft_proof": "Переключить экранную цветопробу",
         "toggle_split_view": "До/После (разделённый вид)",
+        "toggle_window_fullscreen": "Окно на весь экран",
         "toggle_zoom_lock": "Мультипросмотр: связать масштаб",
         "tool_brush": "Кисть (рисовать маску)",
         "tool_crop": "Кадрирование",
@@ -3959,9 +3960,21 @@
         "thumbnailSize": "Размер миниатюр",
         "unrated": "Без рейтинга"
       },
+      "info": {
+        "keywords": "Ключевые слова: {{keywords}}",
+        "label": "Сведения о фото",
+        "noKeywords": "Нет ключевых слов"
+      },
       "layout": {
         "moveToolsLeft": "Переместить инструменты проявки влево",
         "moveToolsRight": "Переместить инструменты проявки вправо"
+      },
+      "loupe": {
+        "adjust": "Проявка",
+        "adjustTitle": "Настроить в Проявке",
+        "backToGrid": "Назад к сетке",
+        "fullScreen": "Только фото (полный экран)",
+        "grid": "Сетка"
       },
       "modules": {
         "develop": "Проявка",

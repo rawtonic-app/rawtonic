@@ -159,9 +159,20 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     section: 'view',
   },
   {
+    // Lightroom's F: the photograph alone on the viewer background, from the
+    // Library and Develop (one key; Capture One needs several commands for
+    // its viewer only). Esc or F leaves it.
     action: 'toggle_fullscreen',
     description: 'settings.keybinds.actions.toggle_fullscreen',
     defaultCombo: ['KeyF'],
+    section: 'view',
+  },
+  {
+    // The window's full screen with the interface as it is. macOS: also
+    // ⌃⌘F and View ▸ Enter Full Screen (the system menu); F11 elsewhere.
+    action: 'toggle_window_fullscreen',
+    description: 'settings.keybinds.actions.toggle_window_fullscreen',
+    defaultCombo: ['F11'],
     section: 'view',
   },
   {

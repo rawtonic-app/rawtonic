@@ -9,6 +9,8 @@
 | — | Session | Project |
 | Pick/reject | Color/rating workflow | Pick/reject |
 | Develop | Adjustments | Develop |
+| Loupe view | Viewer | Loupe |
+| Full Screen Preview | — | Full screen (F) |
 | Synchronize Folder | Synchronize | Synchronize Folder |
 | Previous Import | Recent Imports | Previous Import |
 The inherited editor still exposes some legacy names; workspace-specific vocabulary is a tracked gap.

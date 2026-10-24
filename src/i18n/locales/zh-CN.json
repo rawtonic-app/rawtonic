@@ -1441,20 +1441,21 @@
         "toggle_crop_panel": "切换裁剪面板",
         "toggle_export": "切换导出面板",
         "toggle_folder_tree": "切换文件夹树面板",
-        "toggle_fullscreen": "切换全屏",
+        "toggle_fullscreen": "仅显示照片（全屏）",
         "toggle_layer_solo": "仅显示所选图层或蒙版",
         "toggle_left_panel": "切换左侧面板",
         "toggle_library_exif": "切换 EXIF 叠加",
         "toggle_mask_grayscale": "以灰度显示蒙版",
         "toggle_mask_overlay": "显示或隐藏蒙版",
         "toggle_masks": "切换蒙版面板",
-        "toggle_metadata": "切换元数据面板",
+        "toggle_metadata": "元数据工具（图库）或照片信息（显影、全屏）",
         "toggle_multi_view": "多图视图：选中的照片并排显示",
         "toggle_proof_margin": "切换校样边距",
         "toggle_right_panel": "切换右侧面板",
         "toggle_side_panels": "隐藏/显示侧边面板",
         "toggle_soft_proof": "切换软打样",
         "toggle_split_view": "前/后对比（分割视图）",
+        "toggle_window_fullscreen": "窗口全屏",
         "toggle_zoom_lock": "多视图：锁定缩放",
         "tool_brush": "画笔（绘制蒙版）",
         "tool_crop": "裁剪",
@@ -3657,9 +3658,21 @@
         "thumbnailSize": "缩略图大小",
         "unrated": "无星级"
       },
+      "info": {
+        "keywords": "关键字：{{keywords}}",
+        "label": "照片信息",
+        "noKeywords": "无关键字"
+      },
       "layout": {
         "moveToolsLeft": "将显影工具移到左侧",
         "moveToolsRight": "将显影工具移到右侧"
+      },
+      "loupe": {
+        "adjust": "显影",
+        "adjustTitle": "在显影中调整",
+        "backToGrid": "返回网格",
+        "fullScreen": "仅显示照片（全屏）",
+        "grid": "网格"
       },
       "modules": {
         "develop": "显影",

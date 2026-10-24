@@ -1538,20 +1538,21 @@
         "toggle_crop_panel": "Alternar tauler de Retall",
         "toggle_export": "Alternar tauler d'Exportació",
         "toggle_folder_tree": "Alternar tauler d'arbre de carpetes",
-        "toggle_fullscreen": "Alternar pantalla completa",
+        "toggle_fullscreen": "Només la foto (pantalla completa)",
         "toggle_layer_solo": "Mostra només la capa o màscara seleccionada",
         "toggle_left_panel": "Commutar el panell esquerre",
         "toggle_library_exif": "Alternar superposició EXIF",
         "toggle_mask_grayscale": "Màscara en escala de grisos",
         "toggle_mask_overlay": "Mostra o amaga la màscara",
         "toggle_masks": "Alternar tauler de Màscares",
-        "toggle_metadata": "Alternar tauler de Metadades",
+        "toggle_metadata": "Eina Metadades (Biblioteca) o informació de la foto (Revelatge, pantalla completa)",
         "toggle_multi_view": "Vista múltiple: fotos seleccionades una al costat de l’altra",
         "toggle_proof_margin": "Activa/desactiva el marge de prova",
         "toggle_right_panel": "Commutar el panell dret",
         "toggle_side_panels": "Amaga o mostra els panells laterals",
         "toggle_soft_proof": "Commuta la prova en pantalla",
         "toggle_split_view": "Abans/Després (vista dividida)",
+        "toggle_window_fullscreen": "Finestra a pantalla completa",
         "toggle_zoom_lock": "Vista múltiple: bloca el zoom",
         "tool_brush": "Pinzell (dibuixa la màscara)",
         "tool_crop": "Retalla",
@@ -3851,9 +3852,21 @@
         "thumbnailSize": "Mida de les miniatures",
         "unrated": "Sense valorar"
       },
+      "info": {
+        "keywords": "Paraules clau: {{keywords}}",
+        "label": "Informació de la foto",
+        "noKeywords": "Sense paraules clau"
+      },
       "layout": {
         "moveToolsLeft": "Mou les eines de Revelatge a l'esquerra",
         "moveToolsRight": "Mou les eines de Revelatge a la dreta"
+      },
+      "loupe": {
+        "adjust": "Revelatge",
+        "adjustTitle": "Ajusta a Revelatge",
+        "backToGrid": "Torna a la graella",
+        "fullScreen": "Només la foto (pantalla completa)",
+        "grid": "Graella"
       },
       "modules": {
         "develop": "Revelatge",

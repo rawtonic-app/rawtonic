@@ -211,7 +211,14 @@ export interface UIState {
   /** Photographs per row of the Library grid while it is shown, else 0
    * (Up/Down move a row there). */
   gridColumns: number;
+  /** The photograph alone on the viewer background, without bars, panels
+   * or edge strips (F), from the Library and Develop (utils/viewerMode). */
   isFullScreen: boolean;
+  /** The Library's single large photograph (loupe) instead of the grid. */
+  libraryLoupe: boolean;
+  /** Read-only facts of the photograph over the viewer (I in Develop and
+   * in the full screen). */
+  infoOverlay: boolean;
   isWindowFullScreen: boolean;
   isInstantTransition: boolean;
   isLayoutReady: boolean;
@@ -305,6 +312,8 @@ export const useUIStore = create<UIState>((set, get) => ({
   activeView: 'library',
   gridColumns: 0,
   isFullScreen: false,
+  libraryLoupe: false,
+  infoOverlay: false,
   isWindowFullScreen: false,
   isInstantTransition: false,
   isLayoutReady: false,

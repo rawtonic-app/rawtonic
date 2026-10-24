@@ -18,6 +18,7 @@ import { noteListedOffline } from '../utils/offline';
 import { noteBackgroundAiError } from '../utils/aiErrors';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
 import { isBelow } from '../utils/catalogFolders';
+import { viewerShown } from '../utils/viewerMode';
 
 /** The folder of `roots` that `path` is in (or is), the innermost one: a
  * name prefix is not a parent (`/photos/2024-old` is not in `/photos/2024`). */
@@ -126,7 +127,9 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       const { setLibrary, multiSelectedPaths } = useLibraryStore.getState();
       const { setUI } = useUIStore.getState();
 
-      const wasInEditor = useUIStore.getState().activeView === 'editor';
+      // Develop, or the Library's loupe or full screen: the native viewer
+      // is showing a photograph, so the next one swaps in as there.
+      const wasInEditor = viewerShown(useUIStore.getState());
       if (openInEditor) {
         setUI({ activeView: 'editor' });
       }

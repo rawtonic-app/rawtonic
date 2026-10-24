@@ -1597,20 +1597,21 @@
         "toggle_crop_panel": "Przełącz panel Kadrowanie",
         "toggle_export": "Przełącz panel Eksport",
         "toggle_folder_tree": "Przełącz panel drzewa folderów",
-        "toggle_fullscreen": "Przełącz tryb pełnoekranowy",
+        "toggle_fullscreen": "Samo zdjęcie (pełny ekran)",
         "toggle_layer_solo": "Pokaż tylko wybraną warstwę lub maskę",
         "toggle_left_panel": "Przełącz lewy panel",
         "toggle_library_exif": "Przełącz nakładkę EXIF",
         "toggle_mask_grayscale": "Maska w skali szarości",
         "toggle_mask_overlay": "Pokaż lub ukryj maskę",
         "toggle_masks": "Przełącz panel Maski",
-        "toggle_metadata": "Przełącz panel Metadane",
+        "toggle_metadata": "Narzędzie Metadane (Biblioteka) lub informacje o zdjęciu (Wywoływanie, pełny ekran)",
         "toggle_multi_view": "Widok wielu zdjęć: zaznaczone zdjęcia obok siebie",
         "toggle_proof_margin": "Przełącz margines podglądu",
         "toggle_right_panel": "Przełącz prawy panel",
         "toggle_side_panels": "Ukryj lub pokaż panele boczne",
         "toggle_soft_proof": "Przełącz próbę kolorów na ekranie",
         "toggle_split_view": "Przed/Po (widok dzielony)",
+        "toggle_window_fullscreen": "Okno na pełnym ekranie",
         "toggle_zoom_lock": "Widok wielu zdjęć: zablokuj powiększenie",
         "tool_brush": "Pędzel (rysuj maskę)",
         "tool_crop": "Kadrowanie",
@@ -3959,9 +3960,21 @@
         "thumbnailSize": "Rozmiar miniatur",
         "unrated": "Bez oceny"
       },
+      "info": {
+        "keywords": "Słowa kluczowe: {{keywords}}",
+        "label": "Informacje o zdjęciu",
+        "noKeywords": "Brak słów kluczowych"
+      },
       "layout": {
         "moveToolsLeft": "Przenieś narzędzia Wywoływania na lewo",
         "moveToolsRight": "Przenieś narzędzia Wywoływania na prawo"
+      },
+      "loupe": {
+        "adjust": "Wywoływanie",
+        "adjustTitle": "Dostosuj w Wywoływaniu",
+        "backToGrid": "Wróć do siatki",
+        "fullScreen": "Samo zdjęcie (pełny ekran)",
+        "grid": "Siatka"
       },
       "modules": {
         "develop": "Wywoływanie",

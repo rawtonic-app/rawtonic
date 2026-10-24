@@ -92,11 +92,11 @@ Already have a Lightroom Classic catalog or a Capture One session? Rawtonic can 
   <a href="docs/images/readme-library.jpg"><img src="docs/images/readme-library.jpg" alt="Library workspace with landscapes and studio portraits, ratings, picks, keywords and metadata" width="860"></a>
 </p>
 
-The **Library** shows the whole shoot. Rate with 1–5, pick and reject with P and ⇧X, add colour labels, then filter down to the frames that matter. Group keepers into albums and add keywords, captions and copyright while you are at it. Everything is written to standard XMP sidecars, so other software sees your ratings too.
+The **Library** shows the whole shoot. Rate with 1–5, pick and reject with P and ⇧X, add colour labels, then filter down to the frames that matter. Double-click a photograph (or press E or Space) to see it large in the **loupe**, with its keywords and metadata beside it; G goes back to the grid. Group keepers into albums and add keywords, captions and copyright while you are at it. Everything is written to standard XMP sidecars, so other software sees your ratings too.
 
 ### 3 · Develop
 
-The **Develop** room gives the photograph the space: a filmstrip, a histogram and compact tool tabs. Work from the overall light and colour down to the details, compare with **Before/After** (Y), line up a series side by side in the **multi view** (N) and edit them all at once, go **full screen** (F), step back through **History**, copy settings across a series and save your own presets. Drag a slider to explore or type a number to be exact.
+The **Develop** room gives the photograph the space: a filmstrip, a histogram and compact tool tabs. Work from the overall light and colour down to the details, compare with **Before/After** (Y), line up a series side by side in the **multi view** (N) and edit them all at once, see the photograph alone in **full screen** (F, also from the Library; I shows its facts), step back through **History**, copy settings across a series and save your own presets. Drag a slider to explore or type a number to be exact.
 
 <table>
 <tr>
@@ -161,23 +161,25 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 
 ## Keyboard
 
-| Keys                        | Action                         |
-| :-------------------------- | :----------------------------- |
-| **G** / **D**               | Library / Develop              |
-| ← / →                       | previous / next photograph     |
-| **1**–**5** / **0**         | star rating / clear it         |
-| **P** / **⇧X** / **U**      | pick / reject / clear the flag |
-| **Y**                       | before / after split           |
-| hold **\\**                 | whole photograph before        |
-| **N**                       | multi view of the selection    |
-| **F**                       | full screen                    |
-| **⇧Return** / **⌘Return**   | pin / clear the reference      |
-| **C** / **R** / **B**       | crop / straighten / brush      |
-| **M**                       | show or hide the mask overlay  |
-| **J**                       | clipping warnings              |
-| **X**                       | proof margin                   |
-| **Tab** (on the photograph) | hide or show the panels        |
-| ⌘Z / ⇧⌘Z                    | undo / redo                    |
+| Keys                         | Action                         |
+| :--------------------------- | :----------------------------- |
+| **G** / **E** / **D**        | grid / loupe / Develop         |
+| ← / →                        | previous / next photograph     |
+| **1**–**5** / **0**          | star rating / clear it         |
+| **P** / **⇧X** / **U**       | pick / reject / clear the flag |
+| **Y**                        | before / after split           |
+| hold **\\**                  | whole photograph before        |
+| **N**                        | multi view of the selection    |
+| **F**                        | photograph alone, full screen  |
+| **I** (Develop, full screen) | photograph info                |
+| ⌃⌘F (macOS) / **F11**        | window full screen             |
+| **⇧Return** / **⌘Return**    | pin / clear the reference      |
+| **C** / **R** / **B**        | crop / straighten / brush      |
+| **M**                        | show or hide the mask overlay  |
+| **J**                        | clipping warnings              |
+| **X**                        | proof margin                   |
+| **Tab** (on the photograph)  | hide or show the panels        |
+| ⌘Z / ⇧⌘Z                     | undo / redo                    |
 
 The before / after split shows in the single view only: turning on the multi view turns the split off, and turning on the split leaves the multi view.
 
