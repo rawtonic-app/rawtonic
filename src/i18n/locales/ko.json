@@ -2835,6 +2835,14 @@
       "importFolder": "폴더 가져오기…",
       "importFolderTitle": "폴더(하위 폴더 포함)의 모든 LUT를 팩으로 가져옵니다",
       "importTitle": ".cube, .3dl 또는 HALD 이미지 LUT 가져오기",
+      "names": {
+        "coolCinema": "차가운 시네마",
+        "pastel": "파스텔",
+        "softPortrait": "부드러운 인물",
+        "vivid": "선명함",
+        "warm": "따뜻함",
+        "warmCinema": "따뜻한 시네마"
+      },
       "none": "없음",
       "remove": "제거",
       "removeTitle": "가져온 이 LUT를 Rawtonic에서 제거",

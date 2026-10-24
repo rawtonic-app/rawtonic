@@ -2835,6 +2835,14 @@
       "importFolder": "フォルダーを読み込む…",
       "importFolderTitle": "フォルダー（サブフォルダーを含む）内のすべてのLUTをパックとして読み込みます",
       "importTitle": ".cube、.3dl、HALD 画像の LUT を取り込み",
+      "names": {
+        "coolCinema": "涼しげなシネマ",
+        "pastel": "パステル",
+        "softPortrait": "柔らかなポートレート",
+        "vivid": "鮮やか",
+        "warm": "暖か",
+        "warmCinema": "暖かなシネマ"
+      },
       "none": "なし",
       "remove": "削除",
       "removeTitle": "取り込んだこの LUT を Rawtonic から削除",

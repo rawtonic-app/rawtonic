@@ -253,7 +253,8 @@ struct ExportArgs {
     quality: u8,
     #[arg(long, default_value_t = 16, value_parser = clap::value_parser!(u8).range(8..=16))]
     tiff_bit_depth: u8,
-    /// Copy the source's EXIF and, for photos in a session, its catalog metadata.
+    /// Copy all source EXIF and session metadata. Creator, copyright, contact
+    /// details and usage terms are always retained, even without this flag.
     #[arg(long)]
     keep_metadata: bool,
     /// With --keep-metadata: leave out GPS positions.
@@ -1110,7 +1111,7 @@ fn export(args: ExportArgs) -> Result<()> {
             recipe,
             settings: settings.clone(),
             base: rawtonic_engine::image_loader::BaseImageOptions::default(),
-            catalog: keep_metadata.then(|| catalog_metadata(&source)).flatten(),
+            catalog: catalog_metadata(&source),
         });
         match result {
             Ok(()) => written.push(output.clone()),
@@ -1121,7 +1122,7 @@ fn export(args: ExportArgs) -> Result<()> {
         "written": written,
         "failed": failed,
         "seconds": started.elapsed().as_secs_f64(),
-        "metadata": if keep_metadata { "source EXIF and session catalog metadata" } else { "none" },
+        "metadata": if keep_metadata { "source EXIF and session catalog metadata" } else { "creator, copyright, creator contact details and usage terms" },
     }))?;
     anyhow::ensure!(
         failed.is_empty(),

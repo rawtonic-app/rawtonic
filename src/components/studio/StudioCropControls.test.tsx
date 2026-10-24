@@ -70,3 +70,11 @@ describe("crop controls (Lightroom and Capture One)", () => {
     expect(useEditorStore.getState().overlayRotation).toBe(1);
   });
 });
+
+it("returns focus to the photograph after choosing a crop ratio", () => {
+  const { container } = render(<><div className="studio-viewer" tabIndex={0} /><StudioCropControls /></>);
+  const select = screen.getByRole("combobox", { name: "Crop aspect ratio" });
+  select.focus();
+  fireEvent.change(select, { target: { value: "1" } });
+  expect(document.activeElement).toBe(container.querySelector(".studio-viewer"));
+});

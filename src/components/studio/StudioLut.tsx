@@ -51,6 +51,16 @@ type SkipKind = (typeof SKIP_KINDS)[number];
  * system's error). */
 const WITH_DETAIL = new Set(["unreadable", "folderUnreadable", "copyFailed"]);
 
+// File names are stable recipe identifiers; only the displayed names change.
+const BUILT_IN_NAMES: Record<string, "softPortrait" | "warmCinema" | "coolCinema" | "pastel" | "vivid" | "warm"> = {
+  "Portrait 400": "softPortrait",
+  "Cinema 250D": "warmCinema",
+  "Cinema 500T": "coolCinema",
+  "Pastel 400": "pastel",
+  "Vivid 100": "vivid",
+  "Warm 200": "warm",
+};
+
 const EXTENSIONS = ["cube", "3dl", "png", "jpg", "jpeg", "tiff"];
 
 /** The imported LUTs by pack, single files first; groups by name. */
@@ -175,7 +185,7 @@ export default function StudioLut({
               <optgroup label={t("studio.lut.builtIn")}>
                 {builtIn.map((e) => (
                   <option key={e.path} value={e.path}>
-                    {e.name}
+                    {e.isBuiltIn && BUILT_IN_NAMES[e.name] ? t(`studio.lut.names.${BUILT_IN_NAMES[e.name]}`) : e.name}
                   </option>
                 ))}
               </optgroup>
@@ -184,7 +194,7 @@ export default function StudioLut({
               <optgroup key={group ?? ""} label={group ?? t("studio.lut.imported")}>
                 {list.map((e) => (
                   <option key={e.path} value={e.path}>
-                    {e.name}
+                    {e.isBuiltIn && BUILT_IN_NAMES[e.name] ? t(`studio.lut.names.${BUILT_IN_NAMES[e.name]}`) : e.name}
                   </option>
                 ))}
               </optgroup>

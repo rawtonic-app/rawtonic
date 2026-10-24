@@ -921,6 +921,16 @@ export const useKeyboardShortcuts = ({
       },
       {
         match: (e: KeyboardEvent, s: ShortcutState) =>
+          s.ui.activeView === 'library' && s.settings.osPlatform === 'macos' &&
+          (e.code === 'Backspace' || e.code === 'Delete') &&
+          !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey,
+        execute: (e: KeyboardEvent) => {
+          e.preventDefault();
+          handleDeleteSelected();
+        },
+      },
+      {
+        match: (e: KeyboardEvent, s: ShortcutState) =>
           s.ui.activeView === 'library' && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code),
         execute: (e: KeyboardEvent, s: ShortcutState) => {
           e.preventDefault();

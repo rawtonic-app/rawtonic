@@ -2998,6 +2998,14 @@
       "importFolder": "Importar carpeta…",
       "importFolderTitle": "Importar todas las LUT de una carpeta (y sus subcarpetas) como un paquete",
       "importTitle": "Importar LUT .cube, .3dl o de imagen HALD",
+      "names": {
+        "coolCinema": "Cine frío",
+        "pastel": "Pastel",
+        "softPortrait": "Retrato suave",
+        "vivid": "Vívido",
+        "warm": "Cálido",
+        "warmCinema": "Cine cálido"
+      },
       "none": "Ninguna",
       "remove": "Quitar",
       "removeTitle": "Quitar esta LUT importada de Rawtonic",

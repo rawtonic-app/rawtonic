@@ -2906,6 +2906,14 @@
       "importFolder": "Ordner importieren…",
       "importFolderTitle": "Alle LUTs eines Ordners (samt Unterordnern) als Paket importieren",
       "importTitle": ".cube-, .3dl- oder HALD-Bild-LUTs importieren",
+      "names": {
+        "coolCinema": "Kühles Kino",
+        "pastel": "Pastell",
+        "softPortrait": "Weiches Porträt",
+        "vivid": "Lebhaft",
+        "warm": "Warm",
+        "warmCinema": "Warmes Kino"
+      },
       "none": "Keine",
       "remove": "Entfernen",
       "removeTitle": "Diese importierte LUT aus Rawtonic entfernen",

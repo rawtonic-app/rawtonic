@@ -3090,6 +3090,14 @@
       "importFolder": "Importuj folder…",
       "importFolderTitle": "Importuj wszystkie LUT z folderu (i podfolderów) jako pakiet",
       "importTitle": "Importuj LUT .cube, .3dl lub obrazy HALD",
+      "names": {
+        "coolCinema": "Chłodne kino",
+        "pastel": "Pastelowy",
+        "softPortrait": "Miękki portret",
+        "vivid": "Żywy",
+        "warm": "Ciepły",
+        "warmCinema": "Ciepłe kino"
+      },
       "none": "Brak",
       "remove": "Usuń",
       "removeTitle": "Usuń tę zaimportowaną LUT z Rawtonic",

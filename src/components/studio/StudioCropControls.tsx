@@ -208,6 +208,7 @@ export default function StudioCropControls({
               const chosen = Number(e.target.value) || null;
               // Keep the current orientation when changing the ratio.
               setRatio(chosen && ratio && ratio < 1 ? 1 / chosen : chosen);
+              document.querySelector<HTMLElement>(".studio-viewer")?.focus({ preventScroll: true });
             }}
           >
             {ratio && !label && (

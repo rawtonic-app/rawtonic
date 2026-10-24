@@ -2835,6 +2835,14 @@
       "importFolder": "匯入資料夾…",
       "importFolderTitle": "將資料夾（含子資料夾）中的所有 LUT 作為一個套件匯入",
       "importTitle": "匯入 .cube、.3dl 或 HALD 影像 LUT",
+      "names": {
+        "coolCinema": "冷調電影",
+        "pastel": "粉彩",
+        "softPortrait": "柔和人像",
+        "vivid": "鮮豔",
+        "warm": "暖調",
+        "warmCinema": "暖調電影"
+      },
       "none": "無",
       "remove": "移除",
       "removeTitle": "從 Rawtonic 移除這個匯入的 LUT",

@@ -1,4 +1,5 @@
 import "../../i18n";
+import i18n from "i18next";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
@@ -49,7 +50,7 @@ it("applies a LUT with its amount and removes it again", async () => {
     render(<StudioLut disabled={false} onInteraction={vi.fn()} />);
   });
   const select = screen.getByRole("combobox", { name: "LUT" });
-  expect([...select.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["None", "Warm 200", "Mine"]);
+  expect([...select.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["None", "Warm", "Mine"]);
   await act(async () => {
     fireEvent.change(select, { target: { value: "/u/Mine.cube" } });
   });
@@ -125,7 +126,7 @@ it("groups imported LUTs by pack and reports the files a folder import left out"
     [...g.querySelectorAll("option")].map((o) => o.textContent),
   ]);
   expect(groups).toEqual([
-    ["Built in", ["Warm 200"]],
+    ["Built in", ["Warm"]],
     ["Imported", ["Mine"]],
     ["Autumn", ["Bright"]],
     ["Summer", ["Dusk"]],
@@ -175,4 +176,24 @@ it("translates why files were not imported, with the system's error where it say
   } finally {
     await i18n.changeLanguage("en");
   }
+});
+
+it("translates all built-in names without changing their saved paths or imported names", async () => {
+  const names = ["Portrait 400", "Cinema 250D", "Cinema 500T", "Pastel 400", "Vivid 100", "Warm 200"];
+  invoke.mockResolvedValue([
+    ...names.map((name) => ({ name, path: `/r/${name}.cube`, isBuiltIn: true })),
+    { name: "Warm 200", path: "/u/Warm 200.cube", isBuiltIn: false },
+  ]);
+  for (const language of Object.keys(i18n.options.resources!)) {
+    await act(async () => { await i18n.changeLanguage(language); });
+    const view = await act(async () => render(<StudioLut disabled={false} onInteraction={vi.fn()} />));
+    const options = [...screen.getByRole("combobox", { name: "LUT" }).querySelectorAll("option")];
+    const labels = options.slice(1, 7).map((o) => o.textContent!);
+    expect(labels.every((label) => !/\d|studio\.lut/.test(label))).toBe(true);
+    expect(new Set(labels).size).toBe(6);
+    expect(options.slice(1, 7).map((o) => o.value)).toEqual(names.map((name) => `/r/${name}.cube`));
+    expect(options.at(-1)?.textContent).toBe("Warm 200");
+    view.unmount();
+  }
+  await act(async () => { await i18n.changeLanguage("en"); });
 });

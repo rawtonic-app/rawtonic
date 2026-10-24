@@ -342,7 +342,7 @@ fn avif_export_carries_the_ai_marking_and_kept_metadata() {
     test_image().save(&source).unwrap();
 
     for space in ["srgb", "displayP3"] {
-        // Generated areas, metadata not kept: only the marking and the tool.
+        // Generated areas, metadata stripped: rights and the marking remain.
         let bytes = export_avif(&source, false, true, space);
         let xmp = primary_xmp(&bytes).expect("AI marking needs XMP");
         assert!(xmp.contains(SOURCE_TYPE), "{space}: {xmp}");
@@ -350,7 +350,7 @@ fn avif_export_carries_the_ai_marking_and_kept_metadata() {
             !xmp.contains("Harbour at dusk"),
             "{space}: metadata not kept"
         );
-        // EXIF with the creating tool only, as the other formats write it.
+        // EXIF with the creator and creating tool, as the other formats write it.
         assert!(has_primary_exif(&bytes), "{space}: Software EXIF");
         let decoded = load_image_with_orientation(&bytes, None).unwrap();
         assert_eq!((decoded.width(), decoded.height()), (96, 64));
@@ -373,11 +373,13 @@ fn avif_export_carries_the_ai_marking_and_kept_metadata() {
         assert!(xmp.contains("Harbour at dusk"), "{space}: {xmp}");
         load_image_with_orientation(&bytes, None).unwrap();
 
-        // No generated areas, metadata not kept: as before, no metadata items
-        // and the encoder's file unchanged.
+        // Stripping keeps the creator, omits descriptive fields and AI marking,
+        // and changes no decoded pixels.
         let bytes = export_avif(&source, false, false, space);
-        assert_eq!(primary_xmp(&bytes), None);
-        assert!(!has_primary_exif(&bytes));
+        let xmp = primary_xmp(&bytes).expect("creator retained");
+        assert!(xmp.contains("Test Creator"));
+        assert!(!xmp.contains("Harbour at dusk") && !xmp.contains("DigitalSourceType"));
+        assert!(has_primary_exif(&bytes));
         let plain = encode_image_to_bytes(
             &test_image(),
             "avif",
@@ -387,6 +389,14 @@ fn avif_export_carries_the_ai_marking_and_kept_metadata() {
             None,
         )
         .unwrap();
-        assert_eq!(bytes, plain, "{space}: unchanged without metadata");
+        assert_eq!(
+            load_image_with_orientation(&bytes, None)
+                .unwrap()
+                .to_rgba8(),
+            load_image_with_orientation(&plain, None)
+                .unwrap()
+                .to_rgba8(),
+            "{space}: pixels unchanged with rights metadata"
+        );
     }
 }
