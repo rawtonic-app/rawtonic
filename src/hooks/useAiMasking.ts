@@ -37,8 +37,10 @@ const retouchBasis = (a: Adjustments) => {
  * that runs now, and whether the run is still going. */
 let maskPrecompute: { key: string; taskId: string; running: boolean; cancelled: boolean } | null = null;
 
-/** The newest Object selection request per component (later ones win). */
+/** The newest Object selection request per component (later ones win),
+ * numbered from one counter so a finished one's number is never reused. */
 const objectRequests = new Map<string, number>();
+let objectRequestCount = 0;
 /** The prompts of an Object selection's request in flight: the next Shift or
  * Alt press builds on them, not on the stored ones. */
 const objectPromptsInFlight = new Map<string, ObjectPrompt[]>();
@@ -338,7 +340,7 @@ export function useAiMasking() {
   ): Promise<boolean> => {
     const { selectedImage, adjustments } = useEditorStore.getState();
     if (!selectedImage?.path) return false;
-    const request = (objectRequests.get(subMaskId) ?? 0) + 1;
+    const request = ++objectRequestCount;
     objectRequests.set(subMaskId, request);
     if (prompts) objectPromptsInFlight.set(subMaskId, prompts);
     registerAiTask(subMaskId, 'subject');
