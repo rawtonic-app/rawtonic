@@ -3,6 +3,7 @@ import {
   nextPrompts,
   promptBounds,
   promptGesture,
+  promptFrameKey,
   promptOf,
   storedPrompts,
   type ObjectPrompt,
@@ -10,6 +11,9 @@ import {
 
 const at = (x: number, y: number) => ({ x, y });
 const upright = { rotation: 0, flipHorizontal: false, flipVertical: false, orientationSteps: 0 };
+// As the backend stores it: the lens and transform adjustments the mask was made in.
+const warp = { transformVertical: 0, lensCorrectionMode: 'auto' };
+const shown = { ...upright, ...warp, exposure: 1 };
 
 describe('Object selection prompts', () => {
   it('reads Shift as adding, Alt as excluding (Alt wins), a plain press as starting over', () => {
@@ -61,17 +65,30 @@ describe('Object selection prompts', () => {
   });
 
   it("builds on a recipe's one box or click from before", () => {
-    const params = { maskDataBase64: 'png', startX: 1, startY: 2, endX: 30, endY: 40, ...upright };
-    expect(storedPrompts(params, upright)).toEqual([{ type: 'box', startX: 1, startY: 2, endX: 30, endY: 40 }]);
-    expect(storedPrompts({ ...params, endX: 1, endY: 2 }, upright)).toEqual([{ type: 'point', x: 1, y: 2 }]);
+    const params = { maskDataBase64: 'png', startX: 1, startY: 2, endX: 30, endY: 40, ...upright, warp };
+    expect(storedPrompts(params, shown)).toEqual([{ type: 'box', startX: 1, startY: 2, endX: 30, endY: 40 }]);
+    expect(storedPrompts({ ...params, endX: 1, endY: 2 }, shown)).toEqual([{ type: 'point', x: 1, y: 2 }]);
   });
 
-  it('builds on nothing without a mask (pasted, waiting) or after the photo was turned', () => {
+  it('builds on nothing without a mask (pasted, waiting) or after the photo was turned or warped', () => {
     const prompts: ObjectPrompt[] = [{ type: 'point', x: 1, y: 1 }];
-    const params = { maskDataBase64: 'png', prompts, startX: 1, startY: 1, endX: 1, endY: 1, ...upright };
-    expect(storedPrompts(params, upright)).toEqual(prompts);
-    expect(storedPrompts({ ...params, maskDataBase64: null }, upright)).toEqual([]);
-    expect(storedPrompts(params, { ...upright, orientationSteps: 1 })).toEqual([]);
-    expect(storedPrompts(params, { ...upright, rotation: 2 })).toEqual([]);
+    const params = { maskDataBase64: 'png', prompts, startX: 1, startY: 1, endX: 1, endY: 1, ...upright, warp };
+    expect(storedPrompts(params, shown)).toEqual(prompts);
+    expect(storedPrompts({ ...params, maskDataBase64: null }, shown)).toEqual([]);
+    expect(storedPrompts(params, { ...shown, orientationSteps: 1 })).toEqual([]);
+    expect(storedPrompts(params, { ...shown, rotation: 2 })).toEqual([]);
+    // Perspective, offsets, lens: the stored points sit elsewhere on the photo now.
+    expect(storedPrompts(params, { ...shown, transformVertical: 12 })).toEqual([]);
+    expect(storedPrompts(params, { ...shown, lensDistortionAmount: 40 })).toEqual([]);
+    // A mask from before `warp` was stored.
+    const { warp: _warp, ...withoutWarp } = params;
+    expect(storedPrompts(withoutWarp, shown)).toEqual([]);
+  });
+
+  it('gives the same frame key for the same frame whatever the key order, another for a changed warp', () => {
+    expect(promptFrameKey({ ...upright, guidedPerspective: { a: 1, b: [2, 3] } })).toBe(
+      promptFrameKey({ guidedPerspective: { b: [2, 3], a: 1 }, ...upright }),
+    );
+    expect(promptFrameKey(shown)).not.toBe(promptFrameKey({ ...shown, transformXOffset: 5 }));
   });
 });

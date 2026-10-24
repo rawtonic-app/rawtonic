@@ -1,3 +1,5 @@
+import { GEOMETRY_KEYS } from './geometryKeys';
+
 /** An Object selection's prompts (the sub-mask's `prompts`, in the turned
  * photo's pixels like `startX`…`endY`): clicks and boxes; `exclude` takes
  * one out. Recipes from before keep only `startX`…`endY`, one box or a click
@@ -22,22 +24,51 @@ export function promptGesture(modifiers: { shiftKey?: boolean; altKey?: boolean 
   return 'replace';
 }
 
-/** The photo's turn the prompts were made in (`rotation`, flips, quarter
- * turns): prompts of another turn point elsewhere now. */
-interface Geometry {
-  rotation?: number;
-  flipHorizontal?: boolean;
-  flipVertical?: boolean;
-  orientationSteps?: number;
+/** The frame prompts are made in: the photo's turn (`rotation`, flips,
+ * quarter turns) and the lens and transform warps before it
+ * (`GEOMETRY_KEYS`, stored with the mask as `warp`). Prompts of another
+ * frame point elsewhere now. */
+type Frame = Record<string, unknown>;
+
+/** Values of a frame compared by content (object keys in any order). */
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === 'object')
+    return Object.fromEntries(
+      Object.keys(value as Record<string, unknown>)
+        .sort()
+        .map((key) => [key, canonical((value as Record<string, unknown>)[key])]),
+    );
+  return value;
 }
 
-function sameGeometry(params: Record<string, unknown>, geometry: Geometry) {
-  return (
-    Number(params.rotation ?? 0) === (geometry.rotation ?? 0) &&
-    Boolean(params.flipHorizontal) === Boolean(geometry.flipHorizontal) &&
-    Boolean(params.flipVertical) === Boolean(geometry.flipVertical) &&
-    Number(params.orientationSteps ?? 0) === (geometry.orientationSteps ?? 0)
+/** The lens and transform warps of `adjustments` as the backend stores them
+ * in a mask's `warp` (unset ones left out). */
+function warpOf(adjustments: Frame) {
+  return Object.fromEntries(
+    GEOMETRY_KEYS.filter((key) => adjustments[key] != null).map((key) => [key, adjustments[key]]),
   );
+}
+
+/** A key of the frame `adjustments` show the photo in: prompts made under
+ * one key are valid under the same key only. */
+export function promptFrameKey(adjustments: Frame): string {
+  return JSON.stringify(
+    canonical([
+      Number(adjustments.rotation ?? 0),
+      Boolean(adjustments.flipHorizontal),
+      Boolean(adjustments.flipVertical),
+      Number(adjustments.orientationSteps ?? 0),
+      warpOf(adjustments),
+    ]),
+  );
+}
+
+/** The frame key of a mask's stored parameters (its turn and `warp`);
+ * null for masks from before `warp` was stored. */
+function storedFrameKey(params: Record<string, unknown>): string | null {
+  if (!params.warp || typeof params.warp !== 'object') return null;
+  return promptFrameKey({ ...params, ...(params.warp as Frame) });
 }
 
 /** A press from `start` to `end`: a click when it stays put. */
@@ -51,10 +82,11 @@ export function promptOf(start: Coord, end: Coord, exclude = false): ObjectPromp
 
 /** The prompts a selection's mask was made from: its `prompts`, or the one
  * box or click of a recipe from before. None while it has no mask (new, or
- * pasted and waiting to be pointed at again) or when the photo was turned
- * since. */
-export function storedPrompts(params: Record<string, unknown> | undefined, geometry: Geometry): ObjectPrompt[] {
-  if (!params?.maskDataBase64 || !sameGeometry(params, geometry)) return [];
+ * pasted and waiting to be pointed at again) or when the photo's frame
+ * changed since (turned, flipped, lens or transform changed; masks without a
+ * stored `warp` count as changed). */
+export function storedPrompts(params: Record<string, unknown> | undefined, adjustments: Frame): ObjectPrompt[] {
+  if (!params?.maskDataBase64 || storedFrameKey(params) !== promptFrameKey(adjustments)) return [];
   if (Array.isArray(params.prompts)) return params.prompts as ObjectPrompt[];
   const { startX, startY, endX, endY } = params as Record<string, number | undefined>;
   if ([startX, startY, endX, endY].some((v) => typeof v !== 'number')) return [];

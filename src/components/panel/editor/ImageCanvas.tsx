@@ -99,6 +99,7 @@ import {
   nextPrompts,
   promptBounds,
   promptGesture,
+  promptFrameKey,
   promptOf,
   storedPrompts,
   type ObjectPrompt,
@@ -2723,9 +2724,10 @@ const ImageCanvas = memo(
         // The prompts and their mask are written together when the mask is
         // in (one history step per prompt); a press meanwhile builds on the
         // prompts in flight.
+        const { adjustments: shown, selectedImage: photo } = useEditorStore.getState();
         const base =
-          pendingObjectPrompts(activeSubMask.id) ??
-          storedPrompts(activeSubMask.parameters, useEditorStore.getState().adjustments);
+          (photo && pendingObjectPrompts(activeSubMask.id, photo.path, promptFrameKey(shown))) ??
+          storedPrompts(activeSubMask.parameters, shown);
         const prompts = nextPrompts(
           base,
           promptOf(startPoint, endPoint, objectGestureRef.current === 'exclude'),

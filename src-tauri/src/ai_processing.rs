@@ -3489,7 +3489,8 @@ mod tool_tests {
     /// it): "decoder" is the decoder calls alone, "mask" adds the edge
     /// refinement the app runs. `AI_PROMPTS`: `;`-separated steps, each
     /// `p:x,y` (click) or `b:x0,y0,x1,y1` (box) in fractions of the photo,
-    /// `-` in front excludes; `AI_OUT` gets an overlay per step. Models from
+    /// `-` in front excludes; `AI_OUT` gets an overlay per step as a new file
+    /// (an existing one stops the test). Models from
     /// `$AI_MODELS`, runtime from `ORT_DYLIB_PATH`, photo `$AI_FILE`.
     #[test]
     #[ignore = "needs AI_MODELS, ORT_DYLIB_PATH, AI_FILE, AI_PROMPTS and AI_OUT"]
@@ -3585,9 +3586,22 @@ mod tool_tests {
                 pixel[1] = (pixel[1] as f32 * (1.0 - a)) as u8;
                 pixel[2] = (pixel[2] as f32 * (1.0 - a)) as u8;
             }
+            // Never over an existing file (a symlink or the photo itself
+            // included): a new file or a failed test.
+            let mut png = Vec::new();
             small(&overlay)
-                .save(out.join(format!("step{}.png", step + 1)))
+                .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
                 .unwrap();
+            let target = out.join(format!("step{}.png", step + 1));
+            std::io::Write::write_all(
+                &mut std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&target)
+                    .unwrap_or_else(|e| panic!("{}: {e}", target.display())),
+                &png,
+            )
+            .unwrap();
         }
     }
 

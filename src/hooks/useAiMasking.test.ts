@@ -376,6 +376,49 @@ describe("automatic AI masks from imported presets", () => {
     expect(subOf("sub-ai-subject")?.parameters).not.toHaveProperty("detectPending");
   });
 
+  it("runs a second Object prompt pressed before the first is in after it: one history step each", async () => {
+    const pending = deferredMasks();
+    const object = layer("ai-subject", { maskDataBase64: null, grow: 0, feather: 0 });
+    const initial = { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [object] as never };
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true, width: 3000, height: 2000 } as never,
+      adjustments: initial,
+      history: [initial],
+      historyIndex: 0,
+    });
+    const { result } = renderHook(() => useAiMasking());
+    const a = { type: "point" as const, x: 10, y: 10 };
+    const b = { type: "point" as const, x: 900, y: 500 };
+    let first!: Promise<boolean>;
+    let second!: Promise<boolean>;
+    act(() => {
+      first = result.current.handleGenerateAiMask("sub-ai-subject", a, a, [a]);
+      second = result.current.handleGenerateAiMask("sub-ai-subject", a, a, [a, b]);
+    });
+    await waitFor(() => expect(pending).toHaveLength(1));
+    const asked = () =>
+      invoke.mock.calls.filter((c) => c[0] === "generate_ai_subject_mask").map((c) => c[1].prompts);
+    // The second waits for the first.
+    expect(asked()).toEqual([[a]]);
+    await act(async () => {
+      pending[0]({ maskDataBase64: "data:image/png;base64,AAAA" });
+      await first;
+    });
+    await waitFor(() => expect(pending).toHaveLength(2));
+    expect(asked()).toEqual([[a], [a, b]]);
+    await act(async () => {
+      pending[1]({ maskDataBase64: "data:image/png;base64,BBBB" });
+      await second;
+    });
+    const promptsOf = (adjustments: { masks: { subMasks: { parameters: Record<string, unknown> }[] }[] }) =>
+      adjustments.masks[0].subMasks[0].parameters.prompts;
+    const { history } = useEditorStore.getState();
+    expect(history.map(promptsOf)).toEqual([undefined, [a], [a, b]]);
+    act(() => useEditorStore.getState().undo());
+    expect(promptsOf(useEditorStore.getState().adjustments)).toEqual([a]);
+    expect(subOf("sub-ai-subject")?.parameters.maskDataBase64).toBe("data:image/png;base64,AAAA");
+  });
+
   it("clears the busy state and says so in a toast when the AI runtime cannot be loaded", async () => {
     toast.error.mockReset();
     useProcessStore.setState({ activeAiTasks: {} });
