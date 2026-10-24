@@ -41,7 +41,7 @@ const VERBATIM_KEYS: &[&str] = &[
 /// spelling (review rounds 1–4), dropping the rest of the line rather than
 /// keeping part of a name.
 static PATH: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(^|[\s(\[=,"'`<])((?:file:/+|~/|/[^/\s]|[A-Za-z]:[\\/]|\\\\[^\s\\])[^\n]*)"#)
+    Regex::new(r#"(^|[\s(\[=,"'`<])((?:file:/+|~/|/+[^/\s]|[A-Za-z]:[\\/]|\\\\[^\s\\])[^\n]*)"#)
         .expect("path pattern")
 });
 /// A backtrace frame's source file with line and column, the whole rest of
@@ -210,10 +210,14 @@ impl Scrubber {
     }
 }
 
-/// `name` as a whole word (case-insensitively), never inside a placeholder.
+/// The scrubber's own placeholders, which a name equal to one of them
+/// must not replace (`<user>` stays `<user>` for an account named "user").
+const PLACEHOLDER_WORDS: &[&str] = &["path", "user", "host", "serial", "email", "ip", "gps"];
+
+/// `name` as a whole word (case-insensitively).
 fn word_pattern(name: &str) -> Option<Regex> {
     Regex::new(&format!(
-        r"(?i)(^|[^\p{{L}}\p{{N}}_<]){}($|[^\p{{L}}\p{{N}}_>])",
+        r"(?i)(^|[^\p{{L}}\p{{N}}_])({})($|[^\p{{L}}\p{{N}}_])",
         regex::escape(name)
     ))
     .ok()
@@ -261,7 +265,16 @@ fn replace_word(text: &str, re: &Regex, placeholder: &str) -> String {
     loop {
         let next = re
             .replace_all(&out, |c: &Captures| {
-                format!("{}{placeholder}{}", &c[1], &c[2])
+                // Only a placeholder itself is kept, never a name that merely
+                // stands in angle brackets (`owner <anna>`).
+                let placeholder_itself = &c[1] == "<"
+                    && &c[3] == ">"
+                    && PLACEHOLDER_WORDS.contains(&c[2].to_ascii_lowercase().as_str());
+                if placeholder_itself {
+                    c[0].to_string()
+                } else {
+                    format!("{}{placeholder}{}", &c[1], &c[3])
+                }
             })
             .into_owned();
         if next == out {
@@ -463,6 +476,21 @@ mod tests {
         );
         assert_eq!(s.scrub("connect fe80::1: failed"), "connect <ip>: failed");
         assert_eq!(s.scrub("/Users/x/Client.Jane"), "<path>");
+    }
+
+    #[test]
+    fn bracketed_names_and_double_slash_paths_go_too() {
+        let s = anna();
+        assert_eq!(
+            s.scrub("owner <anna> on <Annas-MacBook-Pro>"),
+            "owner <<user>> on <<host>>"
+        );
+        assert_eq!(
+            s.scrub("open //nas/Clients/Jane Wedding.CR3"),
+            "open <path>.CR3"
+        );
+        let s = Scrubber::new(Some("user"), None);
+        assert_eq!(s.scrub("<user> and user"), "<user> and <user>");
     }
 
     #[test]

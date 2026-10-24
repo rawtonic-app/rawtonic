@@ -89,6 +89,10 @@ describe('reviewView', () => {
     expect(view.text).toBe(body.replace(`"${PNG}"`, '"‹image, shown below›"'));
     expect(view.screenshot?.bytes).toBe(8);
     expect(reviewView('{"schema":1}').text).toBe('{"schema":1}');
+    const twice = JSON.stringify({ logTail: PNG, schema: 1, screenshot: { data: PNG, mime: 'image/png' } }, null, 2);
+    const shown = reviewView(twice).text;
+    expect(shown).toContain(`"logTail": "${PNG}"`);
+    expect(shown).toContain('"data": "‹image, shown below›"');
     expect(reviewView('not json').text).toBe('not json');
   });
 });

@@ -53,10 +53,16 @@ export const reviewView = (body: string): { text: string; screenshot?: { src: st
   }
   const shot = (parsed as { screenshot?: { mime?: unknown; data?: unknown } } | null)?.screenshot;
   if (!shot || typeof shot.data !== "string" || typeof shot.mime !== "string") return { text: body };
+  // The data's own place in the body: after the screenshot's key, its
+  // "data" field (serde_json prints keys sorted), never an equal value
+  // elsewhere (a log tail, say).
   const quoted = JSON.stringify(shot.data);
+  const shotKey = body.indexOf('"screenshot":');
+  const at = shotKey < 0 ? -1 : body.indexOf(`"data": ${quoted}`, shotKey);
+  if (at < 0) return { text: body };
   const bytes = Math.floor((shot.data.length * 3) / 4) - (shot.data.match(/=+$/)?.[0].length ?? 0);
   return {
-    text: body.replace(quoted, `"‹image, shown below›"`),
+    text: `${body.slice(0, at)}"data": "‹image, shown below›"${body.slice(at + `"data": ${quoted}`.length)}`,
     screenshot: { src: `data:${shot.mime};base64,${shot.data}`, bytes },
   };
 };
