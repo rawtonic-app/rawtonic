@@ -5,7 +5,11 @@
 //! normal live preview. Each other cell is developed here once at its cell's
 //! size, from its preview proxy (or a fast decode) and its stored recipe, with
 //! the display's shader variants, and kept on the GPU until its recipe or
-//! size changes. Develop pixels never cross IPC.
+//! size changes. Zoomed in, each cell's visible region is developed at the
+//! zoom's magnification from the photograph at full resolution; until then
+//! it shows the region from the reduced source its cell was developed from,
+//! marked interim (never taken for the developed region). Develop pixels
+//! never cross IPC.
 
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
@@ -80,6 +84,52 @@ struct Base {
 struct Memory {
     facts: HashMap<String, Facts>,
     bases: HashMap<String, Base>,
+    /// The reduced sources the cells were developed from (a fast decode, a
+    /// Standard preview), kept within [`interim_budget`]: a zoom shows its
+    /// regions from them at once, until they are developed from the
+    /// photographs at full resolution.
+    interims: HashMap<String, Interim>,
+}
+
+/// A cell's reduced source: the image, its pixels per full-resolution
+/// pixel and the photograph's facts.
+#[derive(Clone)]
+struct Interim {
+    image: Arc<DynamicImage>,
+    scale: f32,
+    facts: Facts,
+}
+
+/// Bytes of reduced sources kept for interim regions: a sixteenth of the
+/// physical memory (1.5 GB of 24 GB: the half-size fast decodes of eleven
+/// 20–61 MP RAWs take about 1.1 GB), none while the system is short of
+/// memory.
+fn interim_budget() -> usize {
+    if crate::memory_pressure::level_now().is_some() {
+        return 0;
+    }
+    static TOTAL: OnceLock<u64> = OnceLock::new();
+    let total = *TOTAL.get_or_init(|| {
+        let mut system = sysinfo::System::new();
+        system.refresh_memory();
+        system.total_memory()
+    });
+    (total / 16) as usize
+}
+
+/// Keeps `interim` for `path` when it fits [`interim_budget`] beside the
+/// others (one already kept for `path` is replaced).
+fn keep_interim(
+    interims: &mut HashMap<String, Interim>,
+    path: &str,
+    interim: Interim,
+    budget: usize,
+) {
+    interims.remove(path);
+    let used: usize = interims.values().map(|i| i.image.as_bytes().len()).sum();
+    if used + interim.image.as_bytes().len() <= budget {
+        interims.insert(path.to_string(), interim);
+    }
 }
 
 struct Worker {
@@ -203,6 +253,12 @@ fn show_cells(
         memory
             .facts
             .retain(|path, _| cells.iter().any(|cell| &cell.path == path));
+        memory
+            .interims
+            .retain(|path, _| cells.iter().any(|cell| &cell.path == path));
+        if interim_budget() == 0 {
+            memory.interims.clear();
+        }
     }
     worker.sender.send(Job {
         generation,
@@ -717,6 +773,22 @@ fn prepare(
                 Some(loaded) => loaded,
                 None => load_source(app_handle, &todo.path, &todo.recipe)?,
             };
+            if source_scale < 1.0 {
+                keep_interim(
+                    &mut worker
+                        .memory
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .interims,
+                    &todo.path,
+                    Interim {
+                        image: Arc::clone(&source),
+                        scale: source_scale,
+                        facts,
+                    },
+                    interim_budget(),
+                );
+            }
             let scale =
                 reduced_preview_scale(facts.full_width, facts.full_height, &todo.recipe, dim)
                     .unwrap_or(source_scale);
@@ -1272,20 +1344,32 @@ type FullSource = (
     Option<crate::preview_proxy::ProxyKey>,
 );
 
+/// How long a zoom waits for the background decode of a photograph under
+/// way (`multi_view_prefetch::decoding_now`) before decoding it itself.
+const PENDING_DECODE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// A photograph at full resolution for zoomed regions: a decode still cached
-/// from Develop, its 1:1 preview, else a full decode. Returns the image, its
-/// pixels per full-resolution pixel and its facts.
+/// from Develop or held (or under way) in the background, its 1:1 preview,
+/// else a full decode, which is then held for the background's previews
+/// (`multi_view_prefetch::offer_decode`; `generation` is the decodes'
+/// generation read before `settings`). Returns the image, its pixels per
+/// full-resolution pixel and its facts.
 fn load_full_source(
     app_handle: &tauri::AppHandle,
     path: &str,
     recipe: &serde_json::Value,
     settings: &crate::app_settings::AppSettings,
+    generation: usize,
 ) -> Result<FullSource, String> {
     let state = app_handle.state::<AppState>();
     let (source_path, _) = parse_virtual_path(path);
     let source_str = source_path.to_string_lossy().to_string();
     let is_raw = is_raw_file(&source_path);
-    if let Some((image, measures)) = decode_in_memory(&state, path, recipe, settings) {
+    let key = decoded_key(path, recipe);
+    let in_memory = decode_in_memory(&state, path, recipe, settings).or_else(|| {
+        crate::multi_view_prefetch::held_or_pending_decode(&key, settings, PENDING_DECODE_WAIT)
+    });
+    if let Some((image, measures)) = in_memory {
         let (full_width, full_height) = image.dimensions();
         let facts = Facts {
             full_width,
@@ -1336,7 +1420,17 @@ fn load_full_source(
         is_raw,
         measures,
     };
-    Ok((Arc::new(image), 1.0, facts, "full-decode", None))
+    let image = Arc::new(image);
+    let variant = crate::image_loader::decode_variant(recipe, is_raw);
+    let held = crate::multi_view_prefetch::offer_decode(
+        path, &key, &image, measures, variant, generation, settings,
+    );
+    let kind = if held {
+        "full-decode-held"
+    } else {
+        "full-decode"
+    };
+    Ok((image, 1.0, facts, kind, None))
 }
 
 fn region_key(recipe: &serde_json::Value, zoom: CellZoom, context: &GpuContext) -> u64 {
@@ -1393,9 +1487,11 @@ fn prepare_region(
         }
     }
     let loading = Instant::now();
+    // Before the settings: a change after makes a decode made now stale.
+    let generation = crate::multi_view_prefetch::decodes_generation();
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
     let (source, source_scale, facts, source_kind, preview_key) =
-        load_full_source(app_handle, path, recipe, &settings)?;
+        load_full_source(app_handle, path, recipe, &settings, generation)?;
     log::info!(
         "[multi_view] {path}: {source_kind} source in {:.1} ms",
         loading.elapsed().as_secs_f64() * 1e3
@@ -1412,7 +1508,7 @@ fn prepare_region(
         recipe,
     ) {
         let kind = match source_kind {
-            "full-decode" => "full-decode-rows",
+            "full-decode" | "full-decode-held" => "full-decode-rows",
             "decoded" => "decoded-rows",
             _ => "1:1-rows",
         };
@@ -1697,10 +1793,10 @@ fn region_from_full_decode(
         full_height: full_h,
         ..facts
     };
-    // A decode in memory or a 1:1 preview: its own, measured once. A full
-    // decode used once: its own, not recorded.
+    // A decode in memory (or held from now on) or a 1:1 preview: its own,
+    // measured once. A full decode used once: its own, not recorded.
     let on = match (source_kind, preview_key) {
-        ("decoded", _) => MeasuredOn::Decode(source),
+        ("decoded" | "full-decode-held", _) => MeasuredOn::Decode(source),
         (_, Some(key)) => MeasuredOn::Preview(key),
         _ => MeasuredOn::Fresh,
     };
@@ -1843,6 +1939,178 @@ fn develop_region(
     })
 }
 
+/// Whether the cell of `path` is a secondary shown at magnification `scale`
+/// with the recipe a region of render key `key` was developed with
+/// (`region_key`).
+fn still_wanted(context: &GpuContext, path: &str, key: u64, scale: f32) -> bool {
+    let zoom = {
+        let display = context.display.lock().unwrap_or_else(|e| e.into_inner());
+        display.as_ref().and_then(|display| {
+            let multi = display.multi_view();
+            (multi.cell(path).is_some() && multi.primary() != Some(path))
+                .then(|| multi.zoom_of(path))
+                .flatten()
+        })
+    };
+    zoom.is_some_and(|zoom| {
+        zoom.scale == scale && region_key(&with_live_patch(recipe_of(path)), zoom, context) == key
+    })
+}
+
+/// Interim regions developed at the same time from the cells' reduced
+/// sources (a warp of a few megapixels each, ~10–40 ms).
+const INTERIM_REGION_THREADS: usize = 4;
+
+/// How long interim regions may hold back the decodes for the regions:
+/// those not begun by then are left out.
+const INTERIM_TIME: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// Shows interim regions (`develop_interim_region`) of `interims` (path,
+/// cell area, zoom, recipe, region key, reduced source) while `current`,
+/// several at a time, beginning none after [`INTERIM_TIME`].
+fn show_interim_regions(
+    app_handle: &tauri::AppHandle,
+    context: &GpuContext,
+    current: &(dyn Fn() -> bool + Sync),
+    interims: Vec<(String, [f32; 4], CellZoom, serde_json::Value, u64, Interim)>,
+) {
+    let until = Instant::now() + INTERIM_TIME;
+    let count = interims.len();
+    let interims = Mutex::new(interims.into_iter());
+    std::thread::scope(|scope| {
+        for _ in 0..INTERIM_REGION_THREADS.min(count) {
+            scope.spawn(|| {
+                while current() && Instant::now() < until {
+                    let Some((path, area, zoom, recipe, key, interim)) =
+                        interims.lock().unwrap_or_else(|e| e.into_inner()).next()
+                    else {
+                        return;
+                    };
+                    let region = match develop_interim_region(
+                        app_handle, context, &path, area, zoom, &recipe, key, &interim,
+                    ) {
+                        Ok(region) => region,
+                        Err(e) => {
+                            log::info!("[multi_view] {path}: no interim region: {e}");
+                            continue;
+                        }
+                    };
+                    if !current() {
+                        return;
+                    }
+                    show_frame(
+                        context,
+                        &region.path,
+                        region.key,
+                        region.extent,
+                        CellLayer::Region,
+                        &region.rgba,
+                    );
+                    #[cfg(feature = "performance-profiling")]
+                    log::info!(
+                        "[PERF] {}",
+                        serde_json::json!({
+                            "stage": "multi_view_region_interim", "source": region.source_kind,
+                            "ms": region.ms, "end_epoch_ms": crate::performance::epoch_ms()
+                        })
+                    );
+                    log::info!(
+                        "[multi_view] {path}: interim region {}x{} at {:.4}x in {:.1} ms",
+                        region.rgba.width(),
+                        region.rgba.height(),
+                        zoom.scale,
+                        region.ms
+                    );
+                }
+            });
+        }
+    });
+}
+
+/// The render key of an interim region (`develop_interim_region`) of the
+/// region whose key is `key`: never a region's own key (those are odd), so
+/// the region is still developed and replaces it.
+fn interim_key(key: u64) -> u64 {
+    key & !1
+}
+
+/// Whether a region of `recipe` may be shown from a cell's reduced source
+/// until it is developed at full resolution: not with retouching, lens blur
+/// or masks that read the warped photograph (they need it at full
+/// resolution, and an interim region would show them otherwise).
+fn interim_region_possible(recipe: &serde_json::Value) -> bool {
+    region_from_rows_possible(recipe) && !recipe["lensBlurEnabled"].as_bool().unwrap_or(false)
+}
+
+/// The region of `path` its cell `area` shows at `zoom`, from the cell's
+/// reduced source (`interim`) at that source's resolution (enlarged on the
+/// display), with an interim key: shown only until the region developed at
+/// full resolution replaces it, never in its place.
+#[allow(clippy::too_many_arguments)]
+fn develop_interim_region(
+    app_handle: &tauri::AppHandle,
+    context: &GpuContext,
+    path: &str,
+    area: [f32; 4],
+    zoom: CellZoom,
+    recipe: &serde_json::Value,
+    key: u64,
+    interim: &Interim,
+) -> Result<Region, String> {
+    let start = Instant::now();
+    let facts = interim.facts;
+    let scale = zoom.scale.min(interim.scale).min(1.0);
+    let dim = ((facts.full_width.max(facts.full_height) as f32 * scale).ceil() as u32).max(1) + 2;
+    let base = crate::editor_preview::interim_preview_base(
+        &interim.image,
+        interim.scale,
+        facts.full_width,
+        facts.full_height,
+        recipe,
+        dim,
+        scale,
+    )?;
+    let (shown_w, shown_h) = shown_size(recipe, facts);
+    let wanted =
+        gpu_processing::multi_view::zoomed_region(area, [shown_w, shown_h], zoom, REGION_MARGIN);
+    let (base_w, base_h) = base.image.dimensions();
+    let s = base.scale;
+    let x = ((wanted[0] * s).floor().max(0.0) as u32).min(base_w.saturating_sub(1));
+    let y = ((wanted[1] * s).floor().max(0.0) as u32).min(base_h.saturating_sub(1));
+    let w = (((wanted[0] + wanted[2]) * s).ceil().max(0.0) as u32).clamp(x + 1, base_w) - x;
+    let h = (((wanted[1] + wanted[3]) * s).ceil().max(0.0) as u32).clamp(y + 1, base_h) - y;
+    let image = base.image.crop_imm(x, y, w, h);
+    let key = interim_key(key);
+    let rgba = develop_rgba(
+        app_handle,
+        context,
+        DevelopInput {
+            path,
+            recipe,
+            facts,
+            image: &image,
+            scale: s,
+            crop_offset: (
+                base.unscaled_crop_offset.0 * s + x as f32,
+                base.unscaled_crop_offset.1 * s + y as f32,
+            ),
+            mask_source: None,
+            key,
+        },
+    )?;
+    Ok(Region {
+        path: path.to_string(),
+        key,
+        extent: CellExtent {
+            shown: [shown_w, shown_h],
+            region: Some([x as f32 / s, y as f32 / s, w as f32 / s, h as f32 / s]),
+        },
+        rgba,
+        source_kind: "interim",
+        ms: start.elapsed().as_secs_f64() * 1e3,
+    })
+}
+
 /// Whether `outer` holds all of `inner` (x, y, w, h), within half a pixel.
 fn contains(outer: [f32; 4], inner: [f32; 4]) -> bool {
     let eps = 0.5;
@@ -1850,6 +2118,22 @@ fn contains(outer: [f32; 4], inner: [f32; 4]) -> bool {
         && outer[1] <= inner[1] + eps
         && outer[0] + outer[2] + eps >= inner[0] + inner[2]
         && outer[1] + outer[3] + eps >= inner[1] + inner[3]
+}
+
+/// The order in which the regions whose RAWs must be decoded are taken:
+/// the largest photographs first (the decodes, a few at a time, end
+/// together), those decoded in the background already (`facts` says
+/// whether that decode is under way, and the photograph's pixels) last,
+/// when that decode is nearly done.
+fn heavy_order<T>(
+    mut heavy: Vec<(String, [f32; 4], CellZoom, serde_json::Value, T)>,
+    facts: impl Fn(&str, &serde_json::Value) -> (bool, u64),
+) -> Vec<(String, [f32; 4], CellZoom, serde_json::Value, T)> {
+    heavy.sort_by_cached_key(|(path, _, _, recipe, _)| {
+        let (pending, pixels) = facts(path, recipe);
+        (pending, std::cmp::Reverse(pixels))
+    });
+    heavy
 }
 
 fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: RegionJob) {
@@ -1920,6 +2204,34 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
             region_from_rows_possible(recipe)
                 && region_source_ready(app_handle, path, *zoom, recipe)
         });
+    let heavy = heavy_order(heavy, |path, recipe| {
+        let pending = crate::multi_view_prefetch::decoding_now(&decoded_key(path, recipe));
+        let pixels = facts
+            .as_ref()
+            .and_then(|f| f.get(path))
+            .map_or(0, |f| f.full_width as u64 * f.full_height as u64);
+        (pending, pixels)
+    });
+    // First those regions from the cells' reduced sources, at once.
+    let interims: Vec<_> = {
+        let cells = WORKER.get().map(|w| {
+            w.memory
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .interims
+                .clone()
+        });
+        heavy
+            .iter()
+            .filter(|(_, _, _, recipe, _)| interim_region_possible(recipe))
+            .filter_map(|(path, area, zoom, recipe, key)| {
+                let interim = cells.as_ref()?.get(path)?.clone();
+                Some((path.clone(), *area, *zoom, recipe.clone(), *key, interim))
+            })
+            .collect()
+    };
+    // Before the decodes take the cores: shown at once, within INTERIM_TIME.
+    show_interim_regions(app_handle, &context, &current, interims);
     let ready_count = ready.len();
     let ready = Mutex::new(ready.into_iter());
     let heavy = Mutex::new(heavy.into_iter());
@@ -1953,10 +2265,14 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
         }
         drop(sender);
         for (path, result) in receiver {
-            if !current() {
-                continue;
-            }
+            // A job after this one (cells shown again, a pan) still wants a
+            // region it finished when the cell is at that magnification
+            // with that recipe: shown, so that it is not developed again.
+            let wanted = |region: &Region, scale: f32| {
+                current() || still_wanted(&context, &region.path, region.key, scale)
+            };
             match result {
+                Ok((region, scale)) if !wanted(&region, scale) => {}
                 Ok((region, scale)) => {
                     show_frame(
                         &context,
@@ -1984,6 +2300,7 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
                         region.ms
                     );
                 }
+                Err(_) if !current() => {}
                 Err(e) => log::warn!("[multi_view] {path}: region not developed: {e}"),
             }
         }
@@ -2583,5 +2900,76 @@ mod tests {
         // An empty patch is no patch.
         set_live(Some(serde_json::json!({})));
         assert!(!live_pending());
+    }
+
+    #[test]
+    fn regions_to_decode_take_the_largest_first_and_those_decoded_in_the_background_last() {
+        let zoom = CellZoom {
+            scale: 1.0,
+            center: [0.5, 0.5],
+        };
+        let item = |path: &str| (path.to_string(), [0.0; 4], zoom, serde_json::json!({}), ());
+        // (decode under way in the background, pixels)
+        let facts = |path: &str, _: &serde_json::Value| match path {
+            "small" => (false, 20),
+            "large" => (false, 61),
+            "pending" => (true, 45),
+            _ => (false, 0),
+        };
+        let order: Vec<String> = heavy_order(
+            vec![
+                item("pending"),
+                item("small"),
+                item("unknown"),
+                item("large"),
+            ],
+            facts,
+        )
+        .into_iter()
+        .map(|(path, ..)| path)
+        .collect();
+        assert_eq!(order, ["large", "small", "unknown", "pending"]);
+    }
+
+    #[test]
+    fn interim_regions_never_stand_for_the_developed_region() {
+        for key in [1u64, 3, 0xffff_ffff_ffff_ffff, 0x1234_5679] {
+            // Region keys are odd; the interim key is another.
+            assert_ne!(interim_key(key), key);
+        }
+        // Not where the full resolution changes the pixels beyond detail.
+        assert!(interim_region_possible(&serde_json::json!({})));
+        assert!(!interim_region_possible(
+            &serde_json::json!({"lensBlurEnabled": true})
+        ));
+    }
+
+    #[test]
+    fn reduced_sources_are_kept_within_their_budget() {
+        let facts = Facts {
+            full_width: 2,
+            full_height: 2,
+            is_raw: true,
+            measures: None,
+        };
+        // 1024 x 1024 float RGB: 12 MiB.
+        let interim = || Interim {
+            image: Arc::new(DynamicImage::new_rgb32f(1024, 1024)),
+            scale: 0.5,
+            facts,
+        };
+        const UNIT: usize = 12 << 20;
+        let mut kept = HashMap::new();
+        keep_interim(&mut kept, "a", interim(), 2 * UNIT);
+        keep_interim(&mut kept, "b", interim(), 2 * UNIT);
+        // Full: not kept.
+        keep_interim(&mut kept, "c", interim(), 2 * UNIT);
+        assert!(kept.contains_key("a") && kept.contains_key("b") && !kept.contains_key("c"));
+        // Replacing one of its own photograph fits.
+        keep_interim(&mut kept, "a", interim(), 2 * UNIT);
+        assert_eq!(kept.len(), 2);
+        // No budget (short of memory): nothing more.
+        keep_interim(&mut kept, "d", interim(), 0);
+        assert!(!kept.contains_key("d"));
     }
 }

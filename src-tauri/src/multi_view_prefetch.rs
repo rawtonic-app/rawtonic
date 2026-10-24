@@ -11,7 +11,9 @@
 //! memory, within a budget, while their previews are written after them (a
 //! 1:1 preview takes about as long to write as its RAW to decode): a zoom
 //! cuts its regions from the decodes held, and a cell made the primary
-//! opens on its held decode.
+//! opens on its held decode. A zoom that must decode RAWs itself hands its
+//! decodes over to be held the same way (`offer_decode`): they are not
+//! decoded here again, and a next zoom or pan uses them.
 //!
 //! Bounds: one decode at a time (a 61 MP decode alone takes well over a
 //! gigabyte while it runs), on utility-priority threads (a few for the
@@ -21,8 +23,9 @@
 //! longer shown; nothing starts while the primary is being decoded or
 //! developed, a zoom is being developed, Edit all selected follows a drag or
 //! the system's memory pressure is critical, a preview being written waits
-//! meanwhile, and an edit of the primary or its decode cancels the decode
-//! under way (it is done again later). Photographs with a current 1:1
+//! meanwhile, and an edit of the primary, its decode or the cells' own
+//! development cancels the decode under way (it is done again later; a
+//! zoom lets it end and uses it). Photographs with a current 1:1
 //! preview and other files than RAWs are skipped.
 
 use std::collections::VecDeque;
@@ -302,6 +305,93 @@ fn is_current(held: &HeldDecode, settings: &crate::app_settings::AppSettings) ->
         && preview_proxy::current_key(&source, settings, held.variant) == held.proxy_key
 }
 
+/// Whether the decode of `key` is under way here (a zoom waits for it
+/// rather than decoding the photograph a second time beside it).
+pub(crate) fn decoding_now(key: &str) -> bool {
+    decoding(key)
+}
+
+/// A full decode a zoom made for its regions (`multi_view::load_full_source`):
+/// held as if decoded here, so that its previews are written from it and a
+/// next zoom, a pan or the cell made the primary does not decode the RAW
+/// again. `key` and `variant` are the decode's, `settings` those it was
+/// made with, begun in decodes `generation`. Only while its photograph is
+/// planned, of the decode variant its previews stand for, and within the
+/// budget beside the nearer ones (farther written ones make room); whether
+/// it is held.
+pub(crate) fn offer_decode(
+    path: &str,
+    key: &str,
+    image: &Arc<DynamicImage>,
+    measures: Option<DecodeMeasures>,
+    variant: DecodeVariant,
+    generation: usize,
+    settings: &crate::app_settings::AppSettings,
+) -> bool {
+    let Some(worker) = WORKER.get() else {
+        return false;
+    };
+    let (source, _) = parse_virtual_path(path);
+    if !is_raw_file(&source) || current_decode_key(path) != key {
+        return false;
+    }
+    let proxy_key = preview_proxy::current_key(&source, settings, variant);
+    let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
+    let accepted = {
+        let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+        offer(
+            &queue,
+            &mut held,
+            HeldDecode {
+                path: path.to_string(),
+                key: key.to_string(),
+                image: Arc::clone(image),
+                measures,
+                variant,
+                written: false,
+                rank: usize::MAX,
+                generation,
+                settings: settings.clone(),
+                proxy_key,
+            },
+            hold_budget(),
+        )
+    };
+    if accepted {
+        // Not decoded here again (unless under way: it ends as held already).
+        let under_way = worker.decoding.load(Ordering::SeqCst)
+            && queue
+                .todo
+                .front()
+                .is_some_and(|p| source_of(p) == source_of(path));
+        let skip = usize::from(under_way);
+        let mut at = 0;
+        queue.todo.retain(|p| {
+            at += 1;
+            at <= skip || source_of(p) != source_of(path)
+        });
+        worker.wake.notify_one();
+    }
+    accepted
+}
+
+/// [`accept`] for a decode made elsewhere: when it fits `budget` beside the
+/// decodes held nearer the primary, letting farther written ones go for it.
+fn offer(
+    queue: &Queue,
+    held: &mut VecDeque<HeldDecode>,
+    decoded: HeldDecode,
+    budget: usize,
+) -> bool {
+    let rank = queue.rank(&decoded.path);
+    let bytes = decoded.image.as_bytes().len();
+    if rank == usize::MAX || held.iter().any(|h| h.key == decoded.key) {
+        return false;
+    }
+    make_room(held, bytes, budget, Some(rank));
+    held_bytes(held) + bytes <= budget && accept(queue, held, decoded)
+}
+
 /// [`held_decode`], waiting up to `wait` for the decode of `key` under way
 /// to end (a cell made the primary while it is decoded: its decode is
 /// finished rather than started again).
@@ -431,26 +521,29 @@ impl Drop for PreviewFrame {
 }
 
 /// Zoomed regions (or the cells) are being developed while the guard
-/// lives: the decode under way is cancelled and none starts (they need the
-/// cores and memory); after regions nothing starts for [`QUIET`].
+/// lives: nothing starts (they need the cores and memory); after regions
+/// nothing starts for [`QUIET`]. The cells cancel the decode under way;
+/// a zoom lets it end and cuts its region from it (`decoding_now`): the
+/// photograph is one the zoom shows, and most of its decode is done.
 pub(crate) struct RegionsBusy {
     quiet_after: bool,
 }
 
 impl RegionsBusy {
     pub(crate) fn start() -> Self {
-        Self::new(true)
+        Self::new(true, false)
     }
 
     /// For the cells' own development (entering the multi view, a cell
     /// added): the background work goes on right after it.
     pub(crate) fn cells() -> Self {
-        Self::new(false)
+        Self::new(false, true)
     }
 
-    fn new(quiet_after: bool) -> Self {
+    fn new(quiet_after: bool, cancel: bool) -> Self {
         REGIONS_BUSY.fetch_add(1, Ordering::SeqCst);
         if let Some(worker) = WORKER.get()
+            && cancel
             && worker.decoding.load(Ordering::Relaxed)
         {
             worker.cancel.fetch_add(1, Ordering::SeqCst);
@@ -1330,6 +1423,45 @@ mod tests {
     }
 
     #[test]
+    fn a_zooms_decode_is_held_while_planned_and_within_the_budget() {
+        let _statics = STATICS.lock().unwrap_or_else(|e| e.into_inner());
+        const UNIT: usize = 12 << 20;
+        let queue = Queue {
+            order: paths(&["p.raf", "a.raf", "b.raf", "c.raf"]),
+            ..Queue::default()
+        };
+        let current = |key: &str| HeldDecode {
+            generation: decodes_generation(),
+            ..held(key, 1, false, usize::MAX)
+        };
+        let mut all: VecDeque<HeldDecode> = [HeldDecode {
+            generation: decodes_generation(),
+            ..held("c.raf", 1, true, 4)
+        }]
+        .into();
+        // Room beside the one held: held, with its distance from the primary.
+        assert!(offer(&queue, &mut all, current("b.raf"), 2 * UNIT));
+        assert_eq!(all.back().unwrap().rank, 3);
+        // Not twice.
+        assert!(!offer(&queue, &mut all, current("b.raf"), 3 * UNIT));
+        // Full: a farther written one makes room for a nearer one.
+        assert!(offer(&queue, &mut all, current("a.raf"), 2 * UNIT));
+        let keys: Vec<_> = all.iter().map(|h| h.key.clone()).collect();
+        assert_eq!(keys, ["b.raf", "a.raf"]);
+        // Nothing farther to let go (b is not written yet): not held.
+        all.retain(|h| h.key != "a.raf");
+        assert!(!offer(&queue, &mut all, current("c.raf"), UNIT));
+        // Not planned (the multi view moved on): not held.
+        assert!(!offer(&queue, &mut all, current("x.raf"), 10 * UNIT));
+        // Begun before the decoder's settings changed: not held.
+        let stale = current("a.raf");
+        forget_decodes();
+        assert!(!offer(&queue, &mut all, stale, 10 * UNIT));
+        assert_eq!(all.len(), 1);
+        test_worker().queue.lock().unwrap().todo.clear();
+    }
+
+    #[test]
     fn a_decode_is_held_only_while_its_photograph_is_planned_and_current() {
         let _statics = STATICS.lock().unwrap_or_else(|e| e.into_inner());
         let queue = Queue {
@@ -1462,7 +1594,7 @@ mod tests {
     }
 
     #[test]
-    fn an_edit_or_a_zoom_cancels_the_decode_under_way() {
+    fn an_edit_or_the_cells_cancel_the_decode_under_way_and_a_zoom_waits_for_it() {
         let _statics = STATICS.lock().unwrap_or_else(|e| e.into_inner());
         let worker = test_worker();
         let before = worker.cancel.load(Ordering::SeqCst);
@@ -1475,9 +1607,16 @@ mod tests {
         assert_eq!(worker.cancel.load(Ordering::SeqCst), before + 1);
         assert!(since_activity() < QUIET);
         {
+            // A zoom lets the decode under way end (it cuts its region from
+            // it); the cells' development cancels it.
             let _busy = RegionsBusy::start();
-            assert_eq!(worker.cancel.load(Ordering::SeqCst), before + 2);
+            assert_eq!(worker.cancel.load(Ordering::SeqCst), before + 1);
             assert_eq!(REGIONS_BUSY.load(Ordering::SeqCst), 1);
+            assert!(busy());
+        }
+        {
+            let _busy = RegionsBusy::cells();
+            assert_eq!(worker.cancel.load(Ordering::SeqCst), before + 2);
         }
         assert_eq!(REGIONS_BUSY.load(Ordering::SeqCst), 0);
         {
