@@ -295,8 +295,10 @@ impl From<&Operation> for OperationSummary {
             }
         };
         for step in &op.steps {
-            let counted =
-                is_item(&step.from) || matches!(&step.to, Target::Path { path } if path.is_dir());
+            // A folder moved to another drive is no longer at `from` (its
+            // original went to the Trash).
+            let counted = is_item(&step.from)
+                || matches!(&step.to, Target::Path { path } | Target::OtherVolume { path, .. } if path.is_dir());
             if !counted {
                 continue;
             }
@@ -745,9 +747,8 @@ fn sync(app: &AppHandle, op: &Operation, follows: bool) -> Result<(), String> {
 
     let mut renames = HashMap::new();
     let mut folder_renames = Vec::new();
-    for (from, to) in op.renames() {
-        let (a, b) = if forward { (from, to) } else { (to, from) };
-        if b.is_dir() {
+    for (a, b, folder) in moved(op, forward) {
+        if folder {
             folder_renames.push((
                 a.to_string_lossy().into_owned(),
                 b.to_string_lossy().into_owned(),
@@ -788,6 +789,28 @@ fn sync(app: &AppHandle, op: &Operation, follows: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// The (old, new) places of what the operation moved, in the direction its
+/// records follow (`forward`: done; else undone), and whether each is a
+/// folder: a folder moved to another drive by the journal, since that drive
+/// may be offline when the records follow (after a crash, at the next
+/// start); anything else by what is on disk.
+fn moved(op: &Operation, forward: bool) -> Vec<(PathBuf, PathBuf, bool)> {
+    op.steps
+        .iter()
+        .filter_map(|step| {
+            let to = step.target()?.to_path_buf();
+            let journaled = matches!(&step.to, Target::OtherVolume { copy, .. } if copy.folder);
+            let (a, b) = if forward {
+                (step.from.clone(), to)
+            } else {
+                (to, step.from.clone())
+            };
+            let folder = journaled || b.is_dir();
+            Some((a, b, folder))
+        })
+        .collect()
+}
+
 /// Session/catalog records follow renamed and moved photos and folders, and
 /// mark photos sent to the system Trash as missing (present again on undo).
 /// Every change is tried; the failures are returned together. Running it
@@ -798,9 +821,8 @@ pub fn sync_catalog(op: &Operation, forward: bool) -> Result<(), String> {
         Missing(PathBuf, bool),
     }
     let mut changes: Vec<(PathBuf, Change)> = Vec::new();
-    for (from, to) in op.renames() {
-        let (a, b) = if forward { (from, to) } else { (to, from) };
-        if !(b.is_dir() || is_supported_image_file(&b)) {
+    for (a, b, folder) in moved(op, forward) {
+        if !(folder || is_supported_image_file(&b)) {
             continue;
         }
         let library = crate::session_bridge::library_dir_for(&a)
@@ -1730,6 +1752,98 @@ mod tests {
         assert!(summary.new_paths.is_empty());
         let json = serde_json::to_value(&summary).unwrap();
         assert_eq!(json["moves"][0]["to"], s(&capture));
+    }
+
+    /// A Trash folder of its own for copy moves in tests.
+    struct BesideTrash(PathBuf);
+    impl SystemTrash for BesideTrash {
+        fn trash(&self, path: &Path) -> anyhow::Result<String> {
+            fs::create_dir_all(&self.0)?;
+            let item = self.0.join(uuid::Uuid::new_v4().to_string());
+            fs::rename(path, &item)?;
+            Ok(item.to_string_lossy().into_owned())
+        }
+        fn restore(&self, item: &str, original: &Path) -> anyhow::Result<()> {
+            Ok(rawtonic_fileops::rename_no_clobber(
+                Path::new(item),
+                original,
+            )?)
+        }
+        fn contains(&self, item: &str) -> bool {
+            Path::new(item).exists()
+        }
+    }
+
+    /// The records follow a folder moved to another drive also when that
+    /// drive is offline when they do (a crash before the sync, the next
+    /// start without the drive): the journal says it was a folder.
+    #[test]
+    fn records_follow_a_folder_moved_to_another_drive_while_that_drive_is_offline() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = session(tmp.path());
+        let photo = dir.join("Capture/Day 1/A.RAF");
+        fs::create_dir_all(photo.parent().unwrap()).unwrap();
+        fs::write(&photo, "a").unwrap();
+        let lib = Library::open(&dir).unwrap();
+        let asset = lib.add_asset(&photo).unwrap();
+        let trash = BesideTrash(tmp.path().join(".trash"));
+        let journal = Journal::open(&tmp.path().join("journal.sqlite")).unwrap();
+        let moved = dir.join("Selects/Day 1");
+        let op = journal
+            .execute(
+                "moveFolder",
+                "Move folder Day 1 to Selects",
+                vec![Step::other_volume(dir.join("Capture/Day 1"), &moved)],
+                &trash,
+            )
+            .unwrap();
+        // The drive goes away before the records follow.
+        let away = tmp.path().join("away");
+        fs::rename(&moved, &away).unwrap();
+        sync_catalog(&op, true).unwrap();
+        fs::rename(&away, &moved).unwrap();
+        let found = lib.asset_at(&moved.join("A.RAF")).unwrap();
+        assert_eq!(found.map(|a| a.id), Some(asset.id));
+    }
+
+    /// A folder copied to another drive (its original then in the Trash),
+    /// its undo and its redo: each summary moves the paths that way.
+    #[test]
+    fn summaries_of_a_folder_moved_to_another_drive_and_back_carry_its_move() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let (folder, archive) = (root.join("Shoot"), root.join("Archive"));
+        fs::create_dir_all(folder.join("Day 1")).unwrap();
+        fs::write(folder.join("Day 1/A.RAF"), "a").unwrap();
+        fs::create_dir(&archive).unwrap();
+        let trash = BesideTrash(root.join(".trash"));
+        let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
+        // The copy move itself, also on one volume.
+        let moved = archive.join("Shoot");
+        let op = journal
+            .execute(
+                "moveFolder",
+                "Move folder Shoot to Archive",
+                vec![Step::other_volume(&folder, &moved)],
+                &trash,
+            )
+            .unwrap();
+        assert!(!folder.exists());
+        let s = |p: &Path| p.to_string_lossy().into_owned();
+        let there = [PathMove {
+            from: s(&folder),
+            to: s(&moved),
+        }];
+        let back = [PathMove {
+            from: s(&moved),
+            to: s(&folder),
+        }];
+        assert_eq!(OperationSummary::from(&op).moves, there);
+        let undone = journal.undo(&op.id, &trash).unwrap();
+        assert_eq!(OperationSummary::from(&undone).moves, back);
+        let redone = journal.redo(&op.id, &trash).unwrap();
+        assert_eq!(OperationSummary::from(&redone).moves, there);
+        assert_eq!(OperationSummary::from(&redone).items, 1);
     }
 
     /// Uses the real system Trash (and puts the file back): run by hand.

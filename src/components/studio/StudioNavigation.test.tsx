@@ -30,7 +30,14 @@ const tree = folder("/job", 0, [
   folder("/job/Selects", 0, [folder("/job/Selects/Day 1")]),
 ]);
 
-const actions = { moveHere: vi.fn(), trash: vi.fn(), addFolder: vi.fn(), removeFromLibrary: vi.fn(), paste: vi.fn() };
+const actions = {
+  moveHere: vi.fn(),
+  moveFolder: vi.fn(),
+  trash: vi.fn(),
+  addFolder: vi.fn(),
+  removeFromLibrary: vi.fn(),
+  paste: vi.fn(),
+};
 const settings = (extra: Partial<AppSettings> = {}) =>
   useSettingsStore.setState({ appSettings: { pinnedFolders: [], ...extra } as AppSettings });
 
@@ -99,6 +106,13 @@ describe("folder menu", () => {
     openMenu("/job/Selects");
     expect(item(/Rename Folder/)).toHaveProperty("disabled", true);
     expect(item(/Move Folder to Trash/)).toHaveProperty("disabled", true);
+    expect(item("Move Folder…")).toHaveProperty("disabled", true);
+  });
+
+  it("moves a user folder with everything in it from its menu", () => {
+    openMenu("/job/Selects/Day 1");
+    fireEvent.click(item("Move Folder…"));
+    expect(actions.moveFolder).toHaveBeenCalledWith("/job/Selects/Day 1");
   });
 
   it("moves the selection into another folder and trashes user folders", () => {

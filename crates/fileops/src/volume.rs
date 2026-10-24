@@ -280,7 +280,7 @@ impl Stamp {
     pub fn of(path: &Path) -> io::Result<Self> {
         Ok(Self::from_meta(&fs::symlink_metadata(path)?))
     }
-    fn from_meta(meta: &fs::Metadata) -> Self {
+    pub(crate) fn from_meta(meta: &fs::Metadata) -> Self {
         let (modified_secs, modified_nanos) = match meta.modified() {
             Ok(time) => match time.duration_since(std::time::UNIX_EPOCH) {
                 Ok(d) => (d.as_secs() as i64, d.subsec_nanos()),
@@ -356,6 +356,25 @@ pub(crate) fn copy_verified(
     original_mode: Option<u32>,
     tally: &mut Tally,
 ) -> Result<(Stamp, Stamp)> {
+    #[cfg(unix)]
+    let posix = (
+        unix_mode(source)?.is_some(),
+        unix_mode(staged.parent().context("The copy has no folder")?)?.is_some(),
+    );
+    #[cfg(not(unix))]
+    let posix = (false, false);
+    copy_file_verified(source, staged, original_mode, posix, tally)
+}
+
+/// [`copy_verified`] with whether the source's and the copy's volumes
+/// keep Unix modes (`posix`) known.
+pub(crate) fn copy_file_verified(
+    source: &Path,
+    staged: &Path,
+    original_mode: Option<u32>,
+    posix: (bool, bool),
+    tally: &mut Tally,
+) -> Result<(Stamp, Stamp)> {
     let mut input =
         File::open(source).with_context(|| format!("Cannot read {}", source.display()))?;
     let meta = input.metadata()?;
@@ -364,17 +383,17 @@ pub(crate) fn copy_verified(
     #[cfg(unix)]
     let mode = {
         use std::os::unix::fs::PermissionsExt;
-        let live = unix_mode(source)?.map(|_| meta.permissions().mode());
+        let live = posix.0.then(|| meta.permissions().mode());
         safe_copy_mode(original_mode, live)
     };
     #[cfg(unix)]
-    let restore_mode = if original_mode.is_some()
-        && unix_mode(staged.parent().context("The copy has no folder")?)?.is_some()
-    {
+    let restore_mode = if original_mode.is_some() && posix.1 {
         Some(mode)
     } else {
         None
     };
+    #[cfg(not(unix))]
+    let _ = posix;
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]

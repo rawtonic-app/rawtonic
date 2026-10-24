@@ -11,6 +11,8 @@ use super::*;
 use std::cell::{Cell, RefCell};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
+mod folders;
+
 /// The system Trash for tests: a `.trash` folder beside the file's folder
 /// (so on its volume). `refuse` plays a volume without a Trash; `on_trash`
 /// runs before each trashing.
@@ -73,6 +75,20 @@ impl SystemTrash for FakeTrash {
     }
     fn contains(&self, item: &str) -> bool {
         exists(Path::new(item))
+    }
+}
+
+/// Makes a link at `link` (on the target volume): false, with SKIP printed,
+/// where that volume cannot hold links (FAT, exFAT).
+#[cfg(unix)]
+fn symlink_or_skip(original: &Path, link: &Path) -> bool {
+    match std::os::unix::fs::symlink(original, link) {
+        Ok(()) => true,
+        Err(e) if matches!(e.raw_os_error(), Some(libc::EPERM | libc::ENOTSUP)) => {
+            eprintln!("SKIP: no links on the target volume ({e})");
+            false
+        }
+        Err(e) => panic!("cannot make a link at {}: {e}", link.display()),
     }
 }
 
@@ -708,7 +724,7 @@ fn a_name_taken_while_copying_is_never_replaced() {
 }
 
 #[test]
-fn folders_links_existing_targets_and_full_volumes_are_refused_before_copying() {
+fn links_existing_targets_and_full_volumes_are_refused_before_copying() {
     let world = World::new();
     let journal = world.journal();
     let refused = |steps: Vec<Step>, expected: &str| {
@@ -718,14 +734,6 @@ fn folders_links_existing_targets_and_full_volumes_are_refused_before_copying() 
         assert!(format!("{error:#}").contains(expected), "{error:#}");
         assert!(World::names(&world.target).iter().all(|n| n == "B.RAF"));
     };
-    fs::create_dir(world.source.join("Folder")).unwrap();
-    refused(
-        vec![Step::other_volume(
-            world.source.join("Folder"),
-            world.target.join("Folder"),
-        )],
-        "moving folders to another drive is not supported yet",
-    );
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink(world.source.join("A.RAF"), world.source.join("L.RAF")).unwrap();
@@ -975,7 +983,9 @@ fn staging_cleanup_never_follows_a_link_in_place_of_its_folder() {
     fs::create_dir(&elsewhere).unwrap();
     fs::write(elsewhere.join("0"), b"not ours").unwrap();
     let staging = world.target.join(format!("{MOVE_STAGING_PREFIX}x"));
-    std::os::unix::fs::symlink(&elsewhere, &staging).unwrap();
+    if !symlink_or_skip(&elsewhere, &staging) {
+        return;
+    }
     let mut step = Step::other_volume(world.source.join("A.RAF"), world.target.join("A.RAF"));
     if let Target::OtherVolume { copy, .. } = &mut step.to {
         copy.staged = Some(staging.join("0"));
@@ -1136,7 +1146,9 @@ fn redo_never_takes_a_link_or_another_file_for_a_copy() {
         .execute("move", "Move", world.steps(), &world.trash)
         .unwrap();
     journal.undo(&op.id, &world.trash).unwrap();
-    std::os::unix::fs::symlink(world.source.join("A.RAF"), world.target.join("A.RAF")).unwrap();
+    if !symlink_or_skip(&world.source.join("A.RAF"), &world.target.join("A.RAF")) {
+        return;
+    }
     let error = journal.redo(&op.id, &world.trash).unwrap_err();
     assert!(format!("{error:#}").contains("already exists"), "{error:#}");
     assert!(

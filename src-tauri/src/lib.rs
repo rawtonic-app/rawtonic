@@ -770,6 +770,8 @@ pub fn run() {
             file_management::copy_files,
             file_management::move_files,
             file_management::plan_move_files,
+            file_management::move_folder,
+            file_management::plan_move_folder,
             file_management::rename_folder,
             file_management::rename_files,
             file_management::duplicate_file,

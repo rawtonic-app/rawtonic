@@ -1,6 +1,7 @@
 import { createElement, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { open } from '@tauri-apps/plugin-dialog';
 import { toast, type Id } from 'react-toastify';
 import i18next from 'i18next';
 import { useLibraryStore } from '../store/useLibraryStore';
@@ -60,6 +61,20 @@ export function formatBytes(bytes: number): string {
  * how much is copied and how much is free there, where the originals go. */
 export function describeCrossVolumeMove(plan: MovePlan): string {
   return i18next.t('studio.library.fileOperations.otherDriveMessage', {
+    count: plan.photos,
+    files: plan.files,
+    size: formatBytes(plan.bytes),
+    drive: plan.drive,
+    free: formatBytes(plan.freeBytes),
+    sources: plan.sourceDrives.join(', '),
+  });
+}
+
+/** The question before a folder is copied to another drive: the same, for
+ * the folder with everything in it (`plan.photos` are the photographs in it). */
+export function describeCrossVolumeFolderMove(plan: MovePlan, name: string): string {
+  return i18next.t('studio.library.fileOperations.otherDriveFolderMessage', {
+    name,
     count: plan.photos,
     files: plan.files,
     size: formatBytes(plan.bytes),
@@ -162,6 +177,8 @@ type FileOperationText =
   | 'deleteFailed'
   | 'moveFailed'
   | 'moveFilesFailed'
+  | 'moveFolderFailed'
+  | 'moveFolderTo'
   | 'nothingToUndo'
   | 'renameFilesFailed'
   | 'renameFolderFailed'
@@ -539,6 +556,65 @@ export function useFileOperations(
     [refreshImageList, refreshAllFolderTrees, handleBackToLibrary, followMoves],
   );
 
+  /** Moves a folder with everything in it into a folder the user picks
+   * (`destination` skips the picker): a rename on its drive; to another
+   * drive the whole folder is copied and checked first, after the user
+   * agreed. The shown folders, selection and open photograph follow it. */
+  const handleMoveFolder = useCallback(
+    async (path: string, destination?: string) => {
+      const name = path.split(/[\\/]/).pop() ?? path;
+      const picked =
+        destination ??
+        (await open({ directory: true, multiple: false, title: ops('moveFolderTo', { name }) }).catch(() => null));
+      if (typeof picked !== 'string' || !picked) return;
+      const move = async () => {
+        try {
+          if (!(await saveEditsFirst([path]))) return;
+          const summary = await withCopyProgress(() =>
+            invoke<FileOperationSummary>(Invokes.MoveFolder, { path, destinationFolder: picked }),
+          );
+          if (summary) toast.success(describeFileOperation(summary));
+          warnAboutNote(summary);
+          const separator = picked.includes('/') ? '/' : '\\';
+          const reopen = followMoves(
+            summary?.moves?.length ? summary.moves : [{ from: path, to: `${picked}${separator}${name}` }],
+          );
+          await refreshAllFolderTrees();
+          await refreshImageList();
+          reopen();
+          void recountAfterFileOperation();
+        } catch (err) {
+          toast.error(ops('moveFolderFailed', { error: String(err) }));
+        }
+      };
+      let plan: MovePlan;
+      try {
+        plan = await invoke<MovePlan>(Invokes.PlanMoveFolder, { path, destinationFolder: picked });
+      } catch (err) {
+        toast.error(ops('moveFolderFailed', { error: String(err) }));
+        return;
+      }
+      if (!plan?.crossVolume) {
+        await move();
+        return;
+      }
+      if (plan.refusal) {
+        toast.error(ops('moveFolderFailed', { error: plan.refusal }));
+        return;
+      }
+      useUIStore.getState().setUI({
+        confirmModalState: {
+          isOpen: true,
+          title: i18next.t('studio.library.fileOperations.otherDriveTitle', { drive: plan.drive }),
+          message: describeCrossVolumeFolderMove(plan, name),
+          confirmText: i18next.t('studio.library.fileOperations.otherDriveConfirm'),
+          onConfirm: () => void move(),
+        },
+      });
+    },
+    [refreshImageList, refreshAllFolderTrees, followMoves],
+  );
+
   /** Capture One's Move to Selects (⌘J): the selection into the session's Selects folder. */
   const handleMoveToSelects = useCallback(async () => {
     const { sessionDirectory, multiSelectedPaths, libraryActivePath } = useLibraryStore.getState();
@@ -789,6 +865,7 @@ export function useFileOperations(
     handleEmptySessionTrash,
     handleMoveToFolder,
     handleMoveToSelects,
+    handleMoveFolder,
     handleTrashFolder,
     handleCreateFolder,
     handleRenameFolder,

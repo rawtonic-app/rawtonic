@@ -335,6 +335,7 @@ function App() {
     handleEmptySessionTrash,
     handleMoveToFolder,
     handleMoveToSelects,
+    handleMoveFolder,
     handleTrashFolder,
     handleCreateFolder,
     handleRenameFolder,
@@ -523,6 +524,7 @@ function App() {
           onSettings={() => setUI({ isSettingsOpen: true })}
           folderActions={{
             moveHere: handleMoveToFolder,
+            moveFolder: (path) => void handleMoveFolder(path),
             trash: handleTrashFolder,
             emptyTrash: () => void handleEmptySessionTrash(),
             addFolder: handleOpenFolder,
