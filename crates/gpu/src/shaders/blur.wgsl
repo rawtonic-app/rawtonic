@@ -14,7 +14,9 @@ struct BlurParams {
     // rows it blurs (the vertical pass's whole radius at the region's edges).
     rows_above: u32,
     blurred_rows: u32,
-    _pad3: u32,
+    // Bit 0: carry the mean log2 luminance in alpha (else 1). Bit 1: the input
+    // is sRGB-encoded (not a RAW).
+    flags: u32,
 }
 
 @group(0) @binding(0) var input_texture: texture_2d<f32>;
@@ -26,6 +28,18 @@ const F16_MAX = 65504.0;
 // Negative channels are colours beyond sRGB (the working gamut is ProPhoto).
 fn sample_range(c: vec3<f32>) -> vec3<f32> {
     return clamp(c, vec3(-F16_MAX), vec3(F16_MAX));
+}
+
+// log2 of a sample's linear luminance. The blurs carry its mean in alpha
+// (Clarity's edge-aware base, shader.wgsl clarity_base); colour stays the
+// plain mean.
+fn log_luma(c: vec3<f32>) -> f32 {
+    var lin = c;
+    if ((params.flags & 2u) != 0u) {
+        let s = max(c, vec3<f32>(0.0));
+        lin = select(pow((s + 0.055) / 1.055, vec3<f32>(2.4)), s / 12.92, s <= vec3<f32>(0.04045));
+    }
+    return log2(max(dot(lin, vec3<f32>(0.2126, 0.7152, 0.0722)), 0.0001));
 }
 
 fn gaussian(x: f32, sigma: f32) -> f32 {
@@ -47,6 +61,7 @@ fn horizontal_blur(@builtin(global_invocation_id) id: vec3<u32>) {
     let window_origin = vec2<i32>(i32(params.source_x), i32(params.source_y));
 
     var total_color = vec3<f32>(0.0);
+    var total_log = 0.0;
     var total_weight = 0.0;
 
     for (var offset = -radius; offset <= radius; offset = offset + 1) {
@@ -57,11 +72,15 @@ fn horizontal_blur(@builtin(global_invocation_id) id: vec3<u32>) {
         let weight = gaussian(f32(offset), sigma);
 
         total_color += sample_color * weight;
+        if ((params.flags & 1u) != 0u) {
+            total_log += log_luma(sample_color) * weight;
+        }
         total_weight += weight;
     }
 
     let final_color = total_color / total_weight;
-    textureStore(output_texture, id.xy, vec4<f32>(final_color, 1.0));
+    let alpha = select(1.0, total_log / total_weight, (params.flags & 1u) != 0u);
+    textureStore(output_texture, id.xy, vec4<f32>(final_color, alpha));
 }
 
 // 16 × 16 groups: neighbouring pixels share the rows they read (a one-pixel
@@ -79,19 +98,25 @@ fn vertical_blur(@builtin(global_invocation_id) id: vec3<u32>) {
     let max_y = i32(params.blurred_rows) - 1;
 
     var total_color = vec3<f32>(0.0);
+    var total_log = 0.0;
     var total_weight = 0.0;
 
     for (var offset = -radius; offset <= radius; offset = offset + 1) {
         let sample_y = clamp(local_coord.y + offset, 0, max_y);
         let sample_coord = vec2<i32>(local_coord.x, sample_y);
 
-        let sample_color = sample_range(textureLoad(input_texture, vec2<u32>(sample_coord), 0).rgb);
+        let sample = textureLoad(input_texture, vec2<u32>(sample_coord), 0);
+        let sample_color = sample_range(sample.rgb);
         let weight = gaussian(f32(offset), sigma);
 
         total_color += sample_color * weight;
+        if ((params.flags & 1u) != 0u) {
+            total_log += sample.a * weight;
+        }
         total_weight += weight;
     }
 
     let final_color = total_color / total_weight;
-    textureStore(output_texture, id.xy, vec4<f32>(final_color, 1.0));
+    let alpha = select(1.0, total_log / total_weight, (params.flags & 1u) != 0u);
+    textureStore(output_texture, id.xy, vec4<f32>(final_color, alpha));
 }

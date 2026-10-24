@@ -2361,7 +2361,10 @@ struct BlurParams {
     /// region's edges).
     rows_above: u32,
     blurred_rows: u32,
-    _pad3: u32,
+    /// Bit 0: the blur carries the mean log2 luminance in alpha (the blurs
+    /// Clarity version 2 reads, else alpha is 1). Bit 1: the input holds
+    /// sRGB-encoded values (not a RAW), linearised for that luminance.
+    flags: u32,
 }
 
 #[repr(C)]
@@ -3316,9 +3319,11 @@ fn display_cache_bytes(width: u32, height: u32, tile: u32, overlap: u32, blurs: 
 }
 
 struct BlurTile {
-    /// Photo size, the input region, and whether the blurs read their whole
-    /// radius at its edges (`PreparedAdjustments::whole_blur_radius`).
-    geometry: [u32; 7],
+    /// Photo size, the input region, whether the blurs read their whole
+    /// radius at its edges (`PreparedAdjustments::whole_blur_radius`), how
+    /// far beyond the tile the large blur is read (`clarity_reach`) and
+    /// whether the blurs carry the mean log luminance (Clarity version 2).
+    geometry: [u32; 9],
     views: [Option<wgpu::TextureView>; 5],
     /// The detail stage of this tile and the settings it was computed with.
     detail: Option<(DetailKey, wgpu::TextureView)>,
@@ -3387,15 +3392,37 @@ impl DetailKey {
     }
 }
 
+/// How far beyond a pixel Clarity version 2 reads the large blur (the outer
+/// ring of shader.wgsl `clarity_base`: twice the spacing of 10 × short side /
+/// 1080 pixels, at most 60), 0 when the recipe uses no version 2 Clarity.
+/// With the whole blur radius its vertical pass blurs that many rows more, so
+/// the rows it reads beyond a tile are exact and tiles join.
+fn clarity_reach(adjustments: &AllAdjustments, scale: f32) -> u32 {
+    let g = &adjustments.global;
+    let used = g.clarity != 0.0
+        || adjustments
+            .mask_adjustments
+            .iter()
+            .take(adjustments.mask_count as usize)
+            .any(|m| m.clarity != 0.0);
+    if g.clarity_version < 2 || !used {
+        return 0;
+    }
+    2 * (10.0 * scale).clamp(1.0, 60.0).round() as u32
+}
+
 fn required_blurs(adjustments: &AllAdjustments) -> [bool; 5] {
     let g = &adjustments.global;
     // Structure uses the small blur (index 2) and Clarity the large one
-    // (index 3), as their Capture One and Lightroom counterparts do.
+    // (index 3), as their Capture One and Lightroom counterparts do; the
+    // blurs carry the mean log luminance in alpha (blur.wgsl).
     // Noise reduction samples the small blur too; colour noise reduction
     // also the tonal one.
     // Luminance noise reduction uses the 1 px (index 4) and tonal blurs as
     // its bands.
     let luma_nr = g.luma_noise_reduction != 0.0;
+    // Clarity version 2 also weighs the small blur into its base.
+    let clarity_v2 = g.clarity_version >= 2;
     let mut required = [
         g.sharpness != 0.0 || g.color_noise_reduction != 0.0 || luma_nr,
         g.sharpness != 0.0
@@ -3403,7 +3430,10 @@ fn required_blurs(adjustments: &AllAdjustments) -> [bool; 5] {
             || g.blacks != 0.0
             || g.color_noise_reduction != 0.0
             || luma_nr,
-        g.structure != 0.0 || g.centré != 0.0 || g.halation_amount > 0.0,
+        g.structure != 0.0
+            || g.centré != 0.0
+            || g.halation_amount > 0.0
+            || (clarity_v2 && g.clarity != 0.0),
         g.clarity != 0.0 || g.dehaze != 0.0 || g.glow_amount > 0.0,
         luma_nr,
     ];
@@ -3418,7 +3448,8 @@ fn required_blurs(adjustments: &AllAdjustments) -> [bool; 5] {
             || m.shadows != 0.0
             || m.blacks != 0.0
             || m.color_noise_reduction != 0.0;
-        required[2] |= m.structure != 0.0 || m.halation_amount > 0.0;
+        required[2] |=
+            m.structure != 0.0 || m.halation_amount > 0.0 || (clarity_v2 && m.clarity != 0.0);
         required[3] |= m.clarity != 0.0 || m.dehaze != 0.0 || m.glow_amount > 0.0;
         if m.luma_noise_reduction != 0.0 {
             required[1] = true;
@@ -6665,7 +6696,15 @@ impl GpuProcessor {
         // Blur rows beyond the ping-pong texture's (`BlurParams::blurred_rows`),
         // for the largest radius (Clarity's base 40).
         let mut tall_ping_pong: Option<wgpu::TextureView> = None;
-        let largest_beyond = ((40.0 * scale).ceil() as u32).saturating_sub(TILE_OVERLAP);
+        // Only Clarity version 2 reads the blurs' mean log luminance (alpha).
+        let clarity_v2_reach = clarity_reach(&adjustments, scale);
+        let log_alpha = clarity_v2_reach > 0;
+        let reach = if request.adjustments.whole_blur_radius {
+            clarity_v2_reach
+        } else {
+            0
+        };
+        let largest_beyond = ((40.0 * scale).ceil() as u32 + reach).saturating_sub(TILE_OVERLAP);
         for tile_y in start_tile_y..end_tile_y {
             for tile_x in start_tile_x..end_tile_x {
                 let x_start_unclamped = tile_x * TILE_SIZE;
@@ -6733,6 +6772,8 @@ impl GpuProcessor {
                     input_width,
                     input_height,
                     u32::from(whole_blur_radius),
+                    reach,
+                    u32::from(log_alpha),
                 ];
                 let mut cache = blur_cache.lock().unwrap_or_else(|e| e.into_inner());
                 if cache.input.as_ref() != Some(input_texture_view) {
@@ -6781,7 +6822,10 @@ impl GpuProcessor {
                     // The vertical pass reads the rows the horizontal one
                     // blurred: beyond the overlap where the radius is larger.
                     let beyond = if whole_blur_radius {
-                        radius.saturating_sub(TILE_OVERLAP)
+                        // Clarity version 2 reads the large blur up to
+                        // `reach` rows beyond the tile.
+                        let reach = if index == 3 { reach } else { 0 };
+                        (radius + reach).saturating_sub(TILE_OVERLAP)
                     } else {
                         0
                     };
@@ -6823,7 +6867,8 @@ impl GpuProcessor {
                         full_height: height,
                         rows_above,
                         blurred_rows,
-                        _pad3: 0,
+                        flags: u32::from(log_alpha && (index == 2 || index == 3))
+                            | (u32::from(adjustments.global.is_raw_image != 1) << 1),
                     };
                     queue.write_buffer(&self.blur_params_buffer, 0, bytemuck::bytes_of(&params));
 

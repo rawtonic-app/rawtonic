@@ -27,6 +27,8 @@ const COPIED_ALONG: Partial<Record<string, string[]>> = {
   lumaNoiseContrast: ["lumaNoiseVersion"],
   // Shadows means what the recipe's tone-slider response makes of it.
   shadows: ["toneVersion"],
+  // Clarity means what the recipe's Clarity response makes of it.
+  clarity: ["clarityVersion"],
   // Defringe means what the recipe's fringe detector makes of it.
   defringePurpleAmount: ["defringeVersion"],
   defringeGreenAmount: ["defringeVersion"],
