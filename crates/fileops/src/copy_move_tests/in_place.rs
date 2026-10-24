@@ -131,13 +131,15 @@ fn a_crash_at_any_step_of_an_in_place_move_undo_or_redo_loses_nothing() {
                 let named = note.contains(&format!("{}", left.display()));
                 match fs::read(&left) {
                     Err(_) => {}
-                    // A kept original (after the copies were verified), or a
-                    // complete copy the rolled-back direction made in place.
+                    // A complete copy the rolled-back direction made in
+                    // place: kept, and named like a partial one.
                     Ok(whole) if whole == content(name, len) => {
-                        if named {
-                            kept_left += 1;
-                            fs::remove_file(&left).unwrap();
-                        }
+                        assert!(
+                            named,
+                            "{phase:?} crash point {n}: complete {name} left unnamed: {note}"
+                        );
+                        kept_left += 1;
+                        fs::remove_file(&left).unwrap();
                     }
                     Ok(part) => {
                         assert!(
