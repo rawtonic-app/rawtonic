@@ -1392,27 +1392,13 @@ fn prepare_region(
         }
     }
     let loading = Instant::now();
-    let generation = crate::multi_view_prefetch::decodes_generation();
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
-    let (source, source_scale, facts, mut source_kind, preview_key) =
+    let (source, source_scale, facts, source_kind, preview_key) =
         load_full_source(app_handle, path, recipe, &settings)?;
     log::info!(
         "[multi_view] {path}: {source_kind} source in {:.1} ms",
         loading.elapsed().as_secs_f64() * 1e3
     );
-    // Kept for its 1:1 preview, it is a decode in memory like the others.
-    if source_kind == "full-decode"
-        && crate::multi_view_prefetch::adopt(
-            path,
-            &decoded_key(path, recipe),
-            &source,
-            facts.measures,
-            generation,
-            &settings,
-        )
-    {
-        source_kind = "decoded";
-    }
     if let Some(base) = region_from_full_decode(
         path,
         &source,

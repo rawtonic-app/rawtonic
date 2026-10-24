@@ -10,9 +10,8 @@
 //! The shown photographs are decoded first and their decodes held in
 //! memory, within a budget, while their previews are written after them (a
 //! 1:1 preview takes about as long to write as its RAW to decode): a zoom
-//! cuts its regions from the decodes held, a full decode a zoom makes itself
-//! is kept for its preview, and a cell made the primary opens on its held
-//! decode.
+//! cuts its regions from the decodes held, and a cell made the primary
+//! opens on its held decode.
 //!
 //! Bounds: one decode at a time (a 61 MP decode alone takes well over a
 //! gigabyte while it runs), on utility-priority threads (a few for the
@@ -307,70 +306,44 @@ pub(crate) fn held_or_pending_decode(
     }
 }
 
-/// A full decode a zoom made of `path` (decoded cache key `key`): kept for
-/// the 1:1 preview still to be made of it, so the RAW is not decoded again,
-/// when it is of the decode variant the previews stand for and fits the
-/// budget beside the decodes held. Whether it was kept.
-pub(crate) fn adopt(
-    path: &str,
-    key: &str,
-    image: &Arc<DynamicImage>,
-    measures: Option<DecodeMeasures>,
-    generation: usize,
-    settings: &crate::app_settings::AppSettings,
-) -> bool {
-    let Some(worker) = WORKER.get() else {
-        return false;
-    };
-    let source = source_of(path);
-    let (source_path, _) = parse_virtual_path(path);
-    let source_str = source_path.to_string_lossy();
-    let variant = crate::image_loader::stored_decode_variant(&source_str);
-    if crate::image_loader::decoded_cache_key(&source_str, None, variant) != key {
-        return false;
-    }
-    let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
-    let Some(at) = queue.todo.iter().position(|p| source_of(p) == source) else {
-        return false;
-    };
-    // The decode under way is of the first photograph planned.
-    if at == 0 && worker.decoding.load(Ordering::SeqCst) {
-        return false;
-    }
-    let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
-    if held.iter().any(|h| h.key == key) || decodes_generation() != generation {
-        return false;
-    }
-    let budget = hold_budget();
-    let rank = queue.rank(path);
-    make_room(&mut held, image.as_bytes().len(), budget, Some(rank));
-    if held_bytes(&held) + image.as_bytes().len() > budget {
-        return false;
-    }
-    let path = queue.todo.remove(at).expect("found");
-    held.push_back(HeldDecode {
-        path,
-        key: key.to_string(),
-        image: Arc::clone(image),
-        measures,
-        variant,
-        written: false,
-        rank,
-        generation,
-        settings: settings.clone(),
-        proxy_key: preview_proxy::current_key(&source_path, settings, variant),
-    });
-    worker.wake.notify_one();
-    true
-}
-
 /// Before each band of a 1:1 preview being written: waits while zoomed
 /// regions are developed, the primary is decoded or developed, or Edit all
 /// selected follows an edit, and for [`QUIET`] after an edit (they need the
-/// cores; the write goes on after).
+/// cores; the write goes on after). Critically short of memory meanwhile
+/// (a long drag), it lets the decodes held go and finishes.
 fn yield_to_editing() {
-    while busy() || since_activity() < QUIET {
+    wait_for_editing(
+        || busy() || since_activity() < QUIET,
+        || crate::memory_pressure::level_now() == Some(crate::memory_pressure::Level::Critical),
+        let_held_go_for_memory,
+    );
+}
+
+/// Waits while `editing`, unless `critical` (then `release` once).
+fn wait_for_editing(editing: impl Fn() -> bool, critical: impl Fn() -> bool, release: impl Fn()) {
+    while editing() {
+        if critical() {
+            release();
+            return;
+        }
         std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Critically short of memory: every decode held goes (those not written
+/// yet are made again later, `let_all_go`).
+fn let_held_go_for_memory() {
+    let Some(worker) = WORKER.get() else {
+        return;
+    };
+    let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
+    let freed = let_all_go(
+        &mut HELD.lock().unwrap_or_else(|e| e.into_inner()),
+        &mut queue.todo,
+    );
+    drop(queue);
+    if freed {
+        rawtonic_runtime::allocator::release_freed_memory();
     }
 }
 
@@ -551,7 +524,9 @@ pub(crate) fn plan(app_handle: &tauri::AppHandle, paths: Vec<String>, primary: O
         .collect();
     let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
     let before = held.len();
-    held.retain(|h| shown.contains(&source_of(&h.path)));
+    // And those of another decode variant than the stored recipe asks for
+    // now (a reset, paste or undo): made again.
+    held.retain(|h| shown.contains(&source_of(&h.path)) && current_decode_key(&h.path) == h.key);
     let held_paths: Vec<String> = held.iter().map(|h| h.path.clone()).collect();
     let released = held.len() < before;
     drop(held);
@@ -584,6 +559,15 @@ pub(crate) fn plan(app_handle: &tauri::AppHandle, paths: Vec<String>, primary: O
     if released {
         rawtonic_runtime::allocator::release_freed_memory();
     }
+}
+
+/// The decoded cache key the 1:1 previews of `path` stand for now: of the
+/// decode variant its stored (master) recipe asks for.
+fn current_decode_key(path: &str) -> String {
+    let (source, _) = parse_virtual_path(path);
+    let source = source.to_string_lossy();
+    let variant = crate::image_loader::stored_decode_variant(&source);
+    crate::image_loader::decoded_cache_key(&source, None, variant)
 }
 
 /// The photographs still to decode for the plan `paths`: those whose
@@ -1182,7 +1166,7 @@ mod tests {
         forget_decodes();
         // Neither is held; both are made again (their previews are of the
         // old settings); the decode under way is cancelled; a decode begun
-        // before is no longer held (`decode`, `adopt`) or written (`write`).
+        // before is no longer held (`accept`) or written (`write`).
         assert!(HELD.lock().unwrap().is_empty());
         let mut queue = worker.queue.lock().unwrap();
         assert_eq!(
@@ -1329,6 +1313,26 @@ mod tests {
         forget_decodes();
         assert!(!labels_hold(&held, Some(&key("old"))));
         test_worker().queue.lock().unwrap().todo.clear();
+    }
+
+    #[test]
+    fn a_paused_write_gives_way_to_memory_pressure() {
+        use std::cell::Cell;
+        // Edited throughout; critically short of memory from the third look.
+        let looks = Cell::new(0);
+        let released = Cell::new(0);
+        wait_for_editing(
+            || true,
+            || {
+                looks.set(looks.get() + 1);
+                looks.get() >= 3
+            },
+            || released.set(released.get() + 1),
+        );
+        assert_eq!((looks.get(), released.get()), (3, 1));
+        // Not edited: no wait, nothing let go.
+        wait_for_editing(|| false, || true, || released.set(released.get() + 1));
+        assert_eq!(released.get(), 1);
     }
 
     #[test]
