@@ -3,7 +3,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import { CopySettingsDialogHost } from "./CopySettingsDialog";
-import { useEditorActions } from "../../hooks/useEditorActions";
+import { updateAdjustments, useEditorActions } from "../../hooks/useEditorActions";
+import { registerSliderDraftRenderer } from "../../utils/sliderDraft";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
@@ -462,6 +463,32 @@ it("puts a pasted lens's data into later edits keeping its choice and into an un
   act(() => useEditorStore.getState().redo());
   shown = useEditorStore.getState().adjustments;
   expect([shown.lensModel, shown.lensDistortionParams, shown.lensProfileFor]).toEqual(["50mm", { k1: 0.5 }, "manual stamp"]);
+});
+
+it("keeps a pasted lens's data when a slider drag started during its lookup commits", async () => {
+  const lookup = delayedLensLookup();
+  const stop = registerSliderDraftRenderer(() => true);
+  try {
+    const { result } = renderHook(useEditorActions);
+    const own = { ...structuredClone(INITIAL_ADJUSTMENTS), clarity: 1 } as unknown as Adjustments;
+    useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [INITIAL_ADJUSTMENTS, own], historyIndex: 1 });
+    useEditorStore.setState({ copiedAdjustments: { lensCorrectionMode: "camera" } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+    act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+    await settle();
+    // A drag of Exposure while the lens data is looked up: a draft only.
+    act(() => useEditorStore.setState({ isSliderDragging: true }));
+    act(() => updateAdjustments({ exposure: 0.5 }));
+    await act(async () => lookup.release({ lensDistortionParams: { k1: 0.3 } as never, lensProfileFor: "camera stamp" }));
+    await settle();
+    // Its next move and its end build on the resolved data.
+    act(() => updateAdjustments({ exposure: 0.7 }));
+    act(() => useEditorStore.setState({ isSliderDragging: false }));
+    await settle();
+    const shown = useEditorStore.getState().adjustments;
+    expect([shown.exposure, shown.lensDistortionParams, shown.lensProfileFor]).toEqual([0.7, { k1: 0.3 }, "camera stamp"]);
+  } finally {
+    stop();
+  }
 });
 
 it("never puts a pasted lens's data over a later lens edit", async () => {

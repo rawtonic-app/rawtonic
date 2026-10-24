@@ -242,6 +242,9 @@ async function resolvePastedLens(path: string, pastedStep: Adjustments) {
     () => null,
   );
   if (!lens || lens.lensProfileFor === LENS_UNRESOLVED || !isCurrentEditorImage(path)) return;
+  // A drag's moves since the lookup began become a step first, so they
+  // get the data too and its next move builds on them.
+  flushSliderDraft();
   debouncedSetHistory.flush();
   const { history, historyIndex, adjustments } = useEditorStore.getState();
   const at = history.indexOf(pastedStep);
