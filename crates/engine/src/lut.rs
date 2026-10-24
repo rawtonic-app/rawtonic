@@ -48,10 +48,7 @@ pub fn parse_lut_file(path_str: &str) -> anyhow::Result<Lut> {
         .unwrap_or("")
         .to_lowercase();
     match extension.as_str() {
-        "cube" => {
-            let file = File::open(path_str)?;
-            parse_cube(BufReader::new(file))
-        }
+        "cube" => parse_cube(std::fs::read(path_str)?),
         "3dl" => {
             let file = File::open(path_str)?;
             parse_3dl(BufReader::new(file))
@@ -64,21 +61,152 @@ pub fn parse_lut_file(path_str: &str) -> anyhow::Result<Lut> {
 /// A LUT read into memory (Android content URIs), by its file extension.
 pub fn parse_lut_bytes(extension: &str, bytes: Vec<u8>) -> anyhow::Result<Lut> {
     match extension {
-        "cube" => parse_cube(BufReader::new(Cursor::new(bytes))),
+        "cube" => parse_cube(bytes),
         "3dl" => parse_3dl(BufReader::new(Cursor::new(bytes))),
         "png" | "jpg" | "jpeg" | "tiff" => parse_hald(image::load_from_memory(&bytes)?),
         _ => Err(anyhow!("Unsupported LUT file format: {}", extension)),
     }
 }
 
+/// Reads a .cube file. A file the earlier reader took (a 3D table:
+/// `LUT_3D_SIZE` and its data, other lines ignored) is read exactly as it
+/// was, so saved edits render as before, `DOMAIN_MIN`/`DOMAIN_MAX`
+/// included (ignored by that reader); anything else goes to
+/// [`parse_cube_full`] (1D tables, shapers, domains).
+fn parse_cube(bytes: Vec<u8>) -> anyhow::Result<Lut> {
+    parse_cube_3d(BufReader::new(Cursor::new(&bytes)))
+        .or_else(|_| parse_cube_full(BufReader::new(Cursor::new(&bytes))))
+}
+
+/// A LUT to import, by its file extension: as [`parse_lut_bytes`], but a
+/// .cube that the earlier reader takes differently from the full reading
+/// (a 3D table with a domain other than 0–1, which that reader ignores) is
+/// refused, so no new edit depends on that reading.
+pub fn parse_lut_bytes_for_import(extension: &str, bytes: Vec<u8>) -> anyhow::Result<Lut> {
+    if extension != "cube" {
+        return parse_lut_bytes(extension, bytes);
+    }
+    match (
+        parse_cube_3d(BufReader::new(Cursor::new(&bytes))),
+        parse_cube_full(BufReader::new(Cursor::new(&bytes))),
+    ) {
+        (Ok(earlier), Ok(full)) if earlier.size == full.size && earlier.data == full.data => {
+            Ok(earlier)
+        }
+        (Ok(_), _) => Err(anyhow!(
+            "A 3D table with a domain other than 0–1 (DOMAIN_MIN/MAX or LUT_3D_INPUT_RANGE) is not supported"
+        )),
+        (Err(_), full) => full,
+    }
+}
+
+/// The 3D .cube reader before 1D tables, shapers and domains (unchanged).
+fn parse_cube_3d(reader: impl BufRead) -> anyhow::Result<Lut> {
+    let mut size: Option<u32> = None;
+    let mut data: Vec<f32> = Vec::new();
+    let mut line_num = 0;
+
+    for line in reader.lines() {
+        line_num += 1;
+        let line = line?;
+        let trimmed = line.trim();
+
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        if parts.is_empty() {
+            continue;
+        }
+
+        match parts[0].to_uppercase().as_str() {
+            "TITLE" | "DOMAIN_MIN" | "DOMAIN_MAX" => continue,
+
+            "LUT_3D_SIZE" => {
+                if parts.len() < 2 {
+                    return Err(anyhow!(
+                        "Malformed LUT_3D_SIZE on line {}: '{}'",
+                        line_num,
+                        line
+                    ));
+                }
+                size = Some(parts[1].parse().map_err(|e| {
+                    anyhow!(
+                        "Failed to parse LUT_3D_SIZE on line {}: '{}'. Error: {}",
+                        line_num,
+                        line,
+                        e
+                    )
+                })?);
+            }
+            _ => {
+                if size.is_some() {
+                    if parts.len() < 3 {
+                        return Err(anyhow!(
+                            "Invalid data line on line {}: '{}'. Expected 3 float values, found {}",
+                            line_num,
+                            line,
+                            parts.len()
+                        ));
+                    }
+                    let r: f32 = parts[0].parse().map_err(|e| {
+                        anyhow!(
+                            "Failed to parse R value on line {}: '{}'. Error: {}",
+                            line_num,
+                            line,
+                            e
+                        )
+                    })?;
+                    let g: f32 = parts[1].parse().map_err(|e| {
+                        anyhow!(
+                            "Failed to parse G value on line {}: '{}'. Error: {}",
+                            line_num,
+                            line,
+                            e
+                        )
+                    })?;
+                    let b: f32 = parts[2].parse().map_err(|e| {
+                        anyhow!(
+                            "Failed to parse B value on line {}: '{}'. Error: {}",
+                            line_num,
+                            line,
+                            e
+                        )
+                    })?;
+                    data.push(r);
+                    data.push(g);
+                    data.push(b);
+                }
+            }
+        }
+    }
+
+    let lut_size = size.ok_or(anyhow!("LUT_3D_SIZE not found in .cube file"))?;
+    let expected_len = (lut_size * lut_size * lut_size * 3) as usize;
+    if data.len() != expected_len {
+        return Err(anyhow!(
+            "LUT data size mismatch. Expected {} float values (for size {}), but found {}. The file may be corrupt or incomplete.",
+            expected_len,
+            lut_size,
+            data.len()
+        ));
+    }
+
+    Ok(Lut {
+        size: lut_size,
+        data,
+    })
+}
+
 /// Largest 3D grid a .cube may hold (the format's own limit) and largest 1D
 /// table.
 const MAX_3D_SIZE: u32 = 256;
 const MAX_1D_SIZE: usize = 65536;
-/// Grid a 1D table, a shaper or a non-unit domain is baked into. A 1D curve
-/// sampled on the 3D grid is exact between grid points (tetrahedral
-/// interpolation of a per-channel curve is linear per channel), so 65
-/// points keep a smooth curve within ~1e-4.
+/// Grid a 1D table or a shaper is baked into. A 1D curve sampled on the 3D
+/// grid is interpolated linearly per channel between grid points
+/// (tetrahedral interpolation of a per-channel curve is linear per
+/// channel); [`checked_bake`] refuses a file whose curve that misses.
 const BAKED_SIZE: u32 = 65;
 
 /// Reads a .cube file (Adobe's Cube LUT Specification 1.0 and the
@@ -87,9 +215,10 @@ const BAKED_SIZE: u32 = 65;
 /// `DOMAIN_MIN`/`DOMAIN_MAX` (per channel) or `LUT_1D_INPUT_RANGE` /
 /// `LUT_3D_INPUT_RANGE` (all channels). A plain 3D table over the unit
 /// domain is used as written; anything else is baked into a
-/// [`BAKED_SIZE`]³ table over the unit domain, which the pipeline samples
-/// like any other. Other keywords are ignored, as before.
-fn parse_cube(reader: impl BufRead) -> anyhow::Result<Lut> {
+/// [`BAKED_SIZE`]³ table over the unit domain (checked against the file's
+/// reading), which the pipeline samples like any other. Other keywords
+/// are ignored.
+fn parse_cube_full(reader: impl BufRead) -> anyhow::Result<Lut> {
     let mut size_3d: Option<u32> = None;
     let mut size_1d: Option<usize> = None;
     let mut domain: Option<([f32; 3], [f32; 3])> = None;
@@ -231,7 +360,7 @@ fn parse_cube(reader: impl BufRead) -> anyhow::Result<Lut> {
     match (shaper, table) {
         // As written (the parser before shapers and domains read these).
         (None, Some(table)) if domain_3d == unit => Ok(table),
-        (shaper, table) => Ok(bake(
+        (shaper, table) => checked_bake(
             BAKED_SIZE.max(table.as_ref().map_or(0, |t| t.size)),
             |rgb| {
                 let rgb = shaper.as_ref().map_or(rgb, |s| s.apply(rgb));
@@ -240,7 +369,7 @@ fn parse_cube(reader: impl BufRead) -> anyhow::Result<Lut> {
                     None => rgb,
                 }
             },
-        )),
+        ),
     }
 }
 
@@ -268,6 +397,43 @@ impl Shaper {
 /// `rgb` mapped from `domain` to the unit cube, clamped.
 fn normalize(rgb: [f32; 3], (lo, hi): ([f32; 3], [f32; 3])) -> [f32; 3] {
     std::array::from_fn(|c| ((rgb[c] - lo[c]) / (hi[c] - lo[c])).clamp(0.0, 1.0))
+}
+
+/// Largest error a baked table may have against the file's own reading, in
+/// output values: one 8-bit code.
+const MAX_BAKE_ERROR: f32 = 1.0 / 255.0;
+
+/// [`bake`], refused when the table strays from `transform` by more than
+/// [`MAX_BAKE_ERROR`] (a curve too steep for the grid, such as a square
+/// root near black), measured along the grey axis at 4096 points (where a
+/// per-channel curve's error shows on every channel) and at 4096 scattered
+/// colours.
+fn checked_bake(size: u32, transform: impl Fn([f32; 3]) -> [f32; 3]) -> anyhow::Result<Lut> {
+    let lut = bake(size, &transform);
+    let mut seed = 0x9e37_79b9u32;
+    let mut next = || {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        (seed >> 8) as f32 / (1u32 << 24) as f32
+    };
+    let grey = (0..4096).map(|i| [i as f32 / 4095.0; 3]);
+    let scattered: Vec<[f32; 3]> = (0..4096).map(|_| [next(), next(), next()]).collect();
+    let error = grey
+        .chain(scattered)
+        .map(|rgb| {
+            let (got, want) = (lut.sample(rgb), transform(rgb));
+            (0..3)
+                .map(|c| (got[c] - want[c]).abs())
+                .fold(0.0f32, f32::max)
+        })
+        .fold(0.0f32, f32::max);
+    if error > MAX_BAKE_ERROR {
+        return Err(anyhow!(
+            "The curve is too steep for a {size}-point table (error {error:.4}, more than 1/255)"
+        ));
+    }
+    Ok(lut)
 }
 
 /// `transform` sampled on a `size`³ grid over the unit cube (red fastest,
@@ -428,7 +594,11 @@ mod tests {
     use super::*;
 
     fn cube(text: &str) -> anyhow::Result<Lut> {
-        parse_cube(BufReader::new(Cursor::new(text.as_bytes().to_vec())))
+        parse_cube(text.as_bytes().to_vec())
+    }
+
+    fn import(text: &str) -> anyhow::Result<Lut> {
+        parse_lut_bytes_for_import("cube", text.as_bytes().to_vec())
     }
 
     /// A 3D .cube of `transform` on a `size`³ grid over `lo..hi` on every
@@ -508,24 +678,47 @@ mod tests {
     }
 
     #[test]
-    fn a_3d_domain_beyond_the_unit_cube_is_honoured() {
-        // An identity table over -0.25..1.25: within 0..1 it changes
-        // nothing; read as 0..1 (as before) it would darken the shadows.
-        let lut = cube(&table_3d(
+    fn a_3d_domain_is_read_as_before_and_refused_on_import() {
+        // An identity table over -0.25..1.25. The earlier reader ignored
+        // the domain; saved edits keep that reading, a new import refuses
+        // the file rather than depend on it.
+        let text = table_3d(
             17,
             "DOMAIN_MIN -0.25 -0.25 -0.25\nDOMAIN_MAX 1.25 1.25 1.25\n",
             -0.25,
             1.25,
             |rgb| rgb,
-        ))
-        .unwrap();
-        for &x in &[0.0, 0.2, 0.5, 0.9, 1.0] {
-            assert!(close(
-                lut.sample([x, 1.0 - x, 0.5]),
-                [x, 1.0 - x, 0.5],
-                1e-5
-            ));
+        );
+        let lut = cube(&text).unwrap();
+        assert_eq!(lut.size, 17);
+        assert!(close(lut.sample([0.0; 3]), [-0.25; 3], 1e-6));
+        assert!(import(&text).unwrap_err().to_string().contains("domain"));
+        // Over the unit domain both readings agree: imported as written.
+        let unit = table_3d(9, "DOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n", 0.0, 1.0, |rgb| {
+            rgb
+        });
+        assert_eq!(import(&unit).unwrap().data, cube(&unit).unwrap().data);
+    }
+
+    #[test]
+    fn a_curve_too_steep_for_the_table_is_refused() {
+        // Square root over 1025 entries: near black the 65-point grid
+        // misses it by far more than one 8-bit code.
+        let mut text = "LUT_1D_SIZE 1025\n".to_string();
+        for i in 0..1025 {
+            let v = (i as f32 / 1024.0).sqrt();
+            text.push_str(&format!("{v} {v} {v}\n"));
         }
+        let reason = cube(&text).unwrap_err().to_string();
+        assert!(reason.contains("too steep"), "{reason}");
+        assert!(import(&text).is_err());
+        // A gentle curve (gamma 1/1.2) is within the bound.
+        let mut text = "LUT_1D_SIZE 1025\n".to_string();
+        for i in 0..1025 {
+            let v = (i as f32 / 1024.0).powf(1.0 / 1.2);
+            text.push_str(&format!("{v} {v} {v}\n"));
+        }
+        assert!(cube(&text).is_ok());
     }
 
     #[test]
@@ -555,7 +748,7 @@ mod tests {
         let reason = |text: &str| cube(text).unwrap_err().to_string();
         assert!(reason("TITLE x\n0 0 0\n").contains("LUT_3D_SIZE nor LUT_1D_SIZE"));
         assert!(reason("LUT_3D_SIZE 2\n0 0 0\n").contains("mismatch"));
-        assert!(reason("LUT_3D_SIZE 1\n0 0 0\n").contains("outside"));
+        assert!(reason("LUT_1D_SIZE 1\n0 0 0\n").contains("outside"));
         assert!(
             reason("LUT_1D_SIZE 2\nDOMAIN_MIN 1 0 0\nDOMAIN_MAX 1 1 1\n0 0 0\n1 1 1\n")
                 .contains("not above")

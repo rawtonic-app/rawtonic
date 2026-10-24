@@ -188,7 +188,7 @@ fn import_items(source_paths: &[String]) -> (Vec<ImportItem>, Vec<SkippedLut>) {
             .unwrap_or_else(|| source.to_string_lossy().into_owned());
         if source.is_dir() {
             let pack = PathBuf::from(folder_name(&name));
-            if let Err(error) = walk_folder(source, &pack, &name, 0, &mut items) {
+            if let Err(error) = walk_folder(source, &pack, &name, 1, &mut items, &mut skipped) {
                 skipped.push(SkippedLut {
                     file: name,
                     reason: error.to_string(),
@@ -216,6 +216,7 @@ fn walk_folder(
     label: &str,
     depth: usize,
     items: &mut Vec<ImportItem>,
+    skipped: &mut Vec<SkippedLut>,
 ) -> std::io::Result<()> {
     let mut entries: Vec<_> = read_dir(dir)?.collect::<Result<_, _>>()?;
     entries.sort_by_key(|e| e.file_name());
@@ -227,6 +228,8 @@ fn walk_folder(
         let name = entry.file_name().to_string_lossy().into_owned();
         let kind = entry.file_type()?;
         if kind.is_dir() {
+            // `depth` counts the pack folders down to `folder`, as the
+            // listing counts groups.
             if depth < MAX_DEPTH {
                 walk_folder(
                     &path,
@@ -234,7 +237,15 @@ fn walk_folder(
                     &format!("{label}/{name}"),
                     depth + 1,
                     items,
+                    skipped,
                 )?;
+            } else {
+                skipped.push(SkippedLut {
+                    file: format!("{label}/{name}"),
+                    reason: format!(
+                        "Folders nested deeper than {MAX_DEPTH} levels are not imported"
+                    ),
+                });
             }
         } else if lut_extension(&path).is_some() {
             items.push(ImportItem {
@@ -258,8 +269,8 @@ pub fn import_luts_to_dir(dir: &Path, source_paths: &[String]) -> anyhow::Result
     for item in items {
         match import_one(dir, &item) {
             Ok(()) => imported += 1,
-            Err(_) if item.found_in_folder && !is_lut_text(&item.source) => {}
-            Err(error) => {
+            Err(ImportError::NotALut(_)) if item.found_in_folder && !is_lut_text(&item.source) => {}
+            Err(ImportError::NotALut(error) | ImportError::Failed(error)) => {
                 log::warn!("Skipping LUT '{}': {:#}", item.source.display(), error);
                 skipped.push(SkippedLut {
                     file: item.label,
@@ -279,10 +290,22 @@ fn is_lut_text(path: &Path) -> bool {
     matches!(lut_extension(path).as_deref(), Some("cube" | "3dl"))
 }
 
-fn import_one(dir: &Path, item: &ImportItem) -> anyhow::Result<()> {
+/// Why a file was not imported: it does not read as a LUT, or reading or
+/// writing it failed.
+enum ImportError {
+    NotALut(anyhow::Error),
+    Failed(anyhow::Error),
+}
+
+fn import_one(dir: &Path, item: &ImportItem) -> Result<(), ImportError> {
     let extension = lut_extension(&item.source).unwrap_or_default();
-    let bytes = std::fs::read(&item.source)?;
-    rawtonic_engine::lut::parse_lut_bytes(&extension, bytes.clone())?;
+    let bytes = std::fs::read(&item.source).map_err(|e| ImportError::Failed(e.into()))?;
+    rawtonic_engine::lut::parse_lut_bytes_for_import(&extension, bytes.clone())
+        .map_err(ImportError::NotALut)?;
+    write_copy(dir, item, &extension, &bytes).map_err(ImportError::Failed)
+}
+
+fn write_copy(dir: &Path, item: &ImportItem, extension: &str, bytes: &[u8]) -> anyhow::Result<()> {
     let folder = dir.join(&item.folder);
     create_dir_all(&folder)?;
     let stem = item
@@ -291,7 +314,7 @@ fn import_one(dir: &Path, item: &ImportItem) -> anyhow::Result<()> {
         .and_then(|s| s.to_str())
         .unwrap_or("LUT");
     let mut temp = tempfile::NamedTempFile::new_in(&folder)?;
-    temp.write_all(&bytes)?;
+    temp.write_all(bytes)?;
     temp.as_file().sync_all()?;
     for suffix in 0..1000 {
         let name = if suffix == 0 {
@@ -312,7 +335,7 @@ fn import_one(dir: &Path, item: &ImportItem) -> anyhow::Result<()> {
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                 // Taken meanwhile; `persist` has used up the temporary file.
                 temp = tempfile::NamedTempFile::new_in(&folder)?;
-                temp.write_all(&bytes)?;
+                temp.write_all(bytes)?;
                 temp.as_file().sync_all()?;
             }
             Err(error) => return Err(error.into()),
@@ -698,5 +721,51 @@ mod tests {
         assert!(!inner.exists());
         assert!(luts.join("Pack").join("Keep.cube").exists());
         assert!(luts.exists());
+    }
+
+    #[test]
+    fn packs_nest_as_deep_as_the_listing_shows_and_deeper_folders_are_reported() {
+        let temp = tempfile::tempdir().unwrap();
+        let luts = temp.path().join("luts");
+        std::fs::create_dir(&luts).unwrap();
+        let pack = temp.path().join("Pack");
+        let deepest = pack.join("a").join("b").join("c");
+        std::fs::create_dir_all(deepest.join("d")).unwrap();
+        std::fs::write(deepest.join("Shown.cube"), cube(0.3)).unwrap();
+        std::fs::write(deepest.join("d").join("Deep.cube"), cube(0.3)).unwrap();
+
+        let report = import_luts_to_dir(&luts, &strings(&[&pack])).unwrap();
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.luts.len(), 1);
+        assert_eq!(report.luts[0].group.as_deref(), Some("Pack / a / b / c"));
+        assert_eq!(report.skipped.len(), 1);
+        assert_eq!(report.skipped[0].file, "Pack/a/b/c/d");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_lut_that_reads_but_cannot_be_written_is_reported() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let luts = temp.path().join("luts");
+        std::fs::create_dir_all(luts.join("Pack")).unwrap();
+        let pack = temp.path().join("Pack");
+        std::fs::create_dir(&pack).unwrap();
+        // A HALD image (8 × 8 = 4³ entries) and a picture that is none.
+        image::RgbImage::new(8, 8)
+            .save(pack.join("Hald.png"))
+            .unwrap();
+        image::RgbImage::new(8, 5)
+            .save(pack.join("preview.png"))
+            .unwrap();
+        std::fs::set_permissions(luts.join("Pack"), std::fs::Permissions::from_mode(0o555))
+            .unwrap();
+        let report = import_luts_to_dir(&luts, &strings(&[&pack]));
+        std::fs::set_permissions(luts.join("Pack"), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+        let report = report.unwrap();
+        assert_eq!(report.imported, 0);
+        let files: Vec<_> = report.skipped.iter().map(|s| s.file.as_str()).collect();
+        assert_eq!(files, ["Pack/Hald.png"]);
     }
 }
