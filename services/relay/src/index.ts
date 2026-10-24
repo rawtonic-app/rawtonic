@@ -4,7 +4,8 @@
 // and usage statistics from the app, files them privately and deletes them
 // on request or after their retention. Deployment: docs/RELAY.md.
 //
-// It fits the Workers Free plan's 10 ms of CPU per request: JSON bodies
+// It is built for the Workers Free plan's 10 ms of CPU per request (to be
+// checked after each deploy, docs/RELAY.md): JSON bodies
 // are small, and files arrive as raw bytes that the runtime pipes into R2
 // without JavaScript touching them (`PUT /upload/:token`).
 
@@ -298,8 +299,9 @@ const peek = async (body: ReadableStream<Uint8Array>, n: number) => {
 };
 
 /** `head` and then the rest of the body as one stream of known length for
- * R2, piped by the runtime: no JavaScript touches the chunks, so a 100 MB
- * upload costs next to no CPU time (Workers Free plan: 10 ms a request). */
+ * R2, piped by the runtime: no JavaScript touches the chunks, so a large
+ * upload should cost little CPU time (Workers Free plan: 10 ms a request;
+ * measured after deploy, docs/RELAY.md). */
 const joined = (head: Uint8Array, rest: ReadableStream<Uint8Array>, length: number) => {
   const fixed = new FixedLengthStream(length);
   (async () => {
@@ -315,13 +317,16 @@ const joined = (head: Uint8Array, rest: ReadableStream<Uint8Array>, length: numb
   return fixed.readable;
 };
 
-/** `work`, or a failure once `ms` have passed. The runtime's pipe ignores
- * an abort signal, so the deadline fails the request instead: answering
- * ends the request, which cancels its unfinished put, and R2 stores
- * nothing (an object appears only when its put succeeds). */
+class Deadline extends Error {}
+
+/** `work`, or a `Deadline` failure once `ms` have passed. The runtime's
+ * pipe ignores an abort signal, so the deadline fails the request instead;
+ * answering ends the request, which should cancel its unfinished put, but
+ * a put may still complete after the deadline, so its key stays recorded
+ * (see `putUpload`). */
 const within = <T>(work: Promise<T>, ms: number) =>
   new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("upload deadline")), ms);
+    const timer = setTimeout(() => reject(new Deadline("upload deadline")), ms);
     work.then(
       (value) => {
         clearTimeout(timer);
@@ -359,8 +364,17 @@ const putUpload = async (request: Request, env: Env, deps: Deps, token: string) 
   const max = screenshot ? MAX_SCREENSHOT_BYTES : MAX_PHOTO_BYTES;
   if (!request.body || length !== upload.size || length > max) return error(400, "size-mismatch");
   const mime = upload.object_key.endsWith(".png") ? "image/png" : "image/jpeg";
-  const head = screenshot ? await peek(request.body, 8) : new Uint8Array();
-  if (screenshot && !looksLike(head, mime)) return error(400, "invalid", "screenshot");
+  const deadline = deps.uploadDeadlineMs ?? UPLOAD_DEADLINE_MS;
+  let head = new Uint8Array();
+  if (screenshot) {
+    try {
+      head = await within(peek(request.body, 8), deadline);
+    } catch {
+      return error(422, "not-stored");
+    }
+    if (!looksLike(head, mime)) return error(400, "invalid", "screenshot");
+    if (upload.expires < deps.now()) return error(404, "unknown-upload");
+  }
   const row = await env.DB.prepare(`${ROW} WHERE id_hash = ?1`).bind(upload.id_hash).first<Row>();
   if (!row) return error(404, "unknown-upload");
   if (row.state !== "filed") return error(409, "busy");
@@ -394,9 +408,13 @@ const putUpload = async (request: Request, env: Env, deps: Deps, token: string) 
       sha256: upload.sha256,
       httpMetadata: { contentType: screenshot ? mime : "application/octet-stream" },
     });
-    await within(put, deps.uploadDeadlineMs ?? UPLOAD_DEADLINE_MS);
-  } catch {
-    await undo();
+    await within(put, deadline);
+  } catch (e) {
+    // A put past its deadline may still complete: its key stays recorded
+    // and the row `attaching`, so once `stale` (90 minutes after the
+    // report) deletion and retention remove whatever it wrote. A put that
+    // failed has stopped: undone at once.
+    if (!(e instanceof Deadline)) await undo();
     return error(422, "not-stored");
   }
   try {

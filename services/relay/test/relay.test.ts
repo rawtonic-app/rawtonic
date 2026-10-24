@@ -111,8 +111,8 @@ describe("reports", () => {
     expect(await count("uploads")).toBe(0);
   });
 
-  it("stores no screenshot when its bytes do not arrive in time, and keeps the report", async () => {
-    const deps = { ...makeDeps(), uploadDeadlineMs: 50 };
+  it("keeps a screenshot that missed its deadline tracked until no write can follow", async () => {
+    const deps = Object.assign(makeDeps(), { uploadDeadlineMs: 50 });
     const a = (await (await post("/report", report({ screenshot: await shot() }), deps)).json()) as Answer;
     const stalled = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -121,9 +121,56 @@ describe("reports", () => {
     });
     expect((await put(a.uploads.screenshot!, deps, stalled, PNG.byteLength)).status).toBe(422);
     expect((await env.BUCKET.list()).objects).toHaveLength(0);
-    expect(await env.DB.prepare("SELECT state, objects FROM submissions").first()).toEqual({ state: "filed", objects: "[]" });
+    const row = await env.DB.prepare("SELECT state, objects FROM submissions").first<{ state: string; objects: string }>();
+    expect(row!.state).toBe("attaching");
+    expect(JSON.parse(row!.objects)).toHaveLength(1);
+    expect((await del(a.id, deps)).status).toBe(409);
+    deps.at += 2 * 3_600_000;
     expect((await del(a.id, deps)).status).toBe(204);
   });
+
+  it("removes a file whose put completes after its deadline", async () => {
+    const deps = Object.assign(makeDeps(), { uploadDeadlineMs: 20 });
+    const a = (await (await post("/report", report({ screenshot: await shot() }), deps)).json()) as Answer;
+    let late: Promise<unknown> = Promise.resolve();
+    const slow: Env = {
+      ...env,
+      BUCKET: new Proxy(env.BUCKET, {
+        get(target, key) {
+          if (key === "put") {
+            return (...args: Parameters<R2Bucket["put"]>) => {
+              late = new Promise((r) => setTimeout(r, 100)).then(() => target.put(...args));
+              return late;
+            };
+          }
+          const value = Reflect.get(target, key);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }),
+    };
+    expect((await put(a.uploads.screenshot!, deps, PNG, PNG.byteLength, slow)).status).toBe(422);
+    await late;
+    const [object] = (await env.BUCKET.list()).objects;
+    expect(object).toBeDefined();
+    const row = await env.DB.prepare("SELECT objects FROM submissions").first<{ objects: string }>();
+    expect(JSON.parse(row!.objects)).toEqual([object.key]);
+    deps.at += 2 * 3_600_000;
+    expect((await del(a.id, deps)).status).toBe(204);
+    expect((await env.BUCKET.list()).objects).toHaveLength(0);
+  });
+
+  it("gives a screenshot's first bytes the same deadline", async () => {
+    const deps = Object.assign(makeDeps(), { uploadDeadlineMs: 50 });
+    const a = (await (await post("/report", report({ screenshot: await shot() }), deps)).json()) as Answer;
+    const stalled = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(PNG.slice(0, 3));
+      },
+    });
+    expect((await put(a.uploads.screenshot!, deps, stalled, PNG.byteLength)).status).toBe(422);
+    expect(await env.DB.prepare("SELECT state FROM submissions").first()).toEqual({ state: "filed" });
+  });
+
 
   it("rate-limits per IP: five reports an hour", async () => {
     const deps = makeDeps();
