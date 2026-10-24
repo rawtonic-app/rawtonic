@@ -71,6 +71,8 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 
 
 
+
+
 <!-- generated inventory -->
 
 ## Resolved Rust dependencies
@@ -646,7 +648,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | rustls-pki-types | 1.15.1 | MIT OR Apache-2.0 |
 | rustls-platform-verifier | 0.7.0 | MIT OR Apache-2.0 |
 | rustls-platform-verifier-android | 0.1.1 | MIT OR Apache-2.0 |
-| rustls-webpki | 0.103.15 | ISC |
+| rustls-webpki | 0.103.16 | ISC |
 | rustversion | 1.0.23 | MIT OR Apache-2.0 |
 | rusty-fork | 0.3.1 | MIT/Apache-2.0 |
 | ryu | 1.0.23 | Apache-2.0 OR BSL-1.0 |
@@ -824,7 +826,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | webkit2gtk | 2.0.2 | MIT |
 | webkit2gtk-sys | 2.0.2 | MIT |
 | webp | 0.3.1 | MIT OR Apache-2.0 |
-| webpki-root-certs | 1.0.9 | CDLA-Permissive-2.0 |
+| webpki-root-certs | 1.0.10 | CDLA-Permissive-2.0 |
 | webview2-com | 0.39.1 | MIT |
 | webview2-com-macros | 0.8.1 | MIT |
 | webview2-com-sys | 0.39.1 | MIT |
@@ -952,8 +954,14 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | @babel/traverse | 7.29.8 | MIT |
 | @babel/types | 7.29.8 | MIT |
 | @bramus/specificity | 2.4.2 | MIT |
+| @cloudflare/kv-asset-handler | 0.5.0 | MIT OR Apache-2.0 |
+| @cloudflare/unenv-preset | 2.16.2 | MIT OR Apache-2.0 |
+| @cloudflare/vitest-plugin | 1.4.7 | MIT |
+| @cloudflare/workerd-darwin-arm64 | 1.20261019.1 | Apache-2.0 |
+| @cloudflare/workers-types | 5.20261024.1 | MIT OR Apache-2.0 |
 | @croct/json | 2.1.0 | MIT |
 | @croct/json5-parser | 0.2.2 | MIT |
+| @cspotcode/source-map-support | 0.8.1 | MIT |
 | @csstools/color-helpers | 6.1.2 | MIT-0 |
 | @csstools/css-calc | 3.4.2 | MIT |
 | @csstools/css-color-parser | 4.2.5 | MIT |
@@ -978,6 +986,9 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | @humanfs/types | 0.15.0 | Apache-2.0 |
 | @humanwhocodes/module-importer | 1.0.1 | Apache-2.0 |
 | @humanwhocodes/retry | 0.4.3 | Apache-2.0 |
+| @img/colour | 1.1.0 | MIT |
+| @img/sharp-darwin-arm64 | 0.35.5 | Apache-2.0 |
+| @img/sharp-libvips-darwin-arm64 | 1.3.4 | LGPL-3.0-or-later |
 | @inquirer/ansi | 2.0.7 | MIT |
 | @inquirer/checkbox | 5.2.2 | MIT |
 | @inquirer/confirm | 6.2.0 | MIT |
@@ -999,11 +1010,19 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | @jridgewell/resolve-uri | 3.1.2 | MIT |
 | @jridgewell/sourcemap-codec | 1.6.0 | MIT |
 | @jridgewell/trace-mapping | 0.3.31 | MIT |
+| @jridgewell/trace-mapping | 0.3.9 | MIT |
 | @oxc-project/types | 0.146.0 | MIT |
+| @oxc-project/types | 0.155.0 | MIT |
+| @poppinss/colors | 4.1.6 | MIT |
+| @poppinss/dumper | 0.6.5 | MIT |
+| @poppinss/exception | 1.2.3 | MIT |
+| @rolldown/binding-darwin-arm64 | 1.2.15 | MIT |
 | @rolldown/binding-darwin-arm64 | 1.2.5 | MIT |
 | @rolldown/pluginutils | 1.0.1 | MIT |
 | @sec-ant/readable-stream | 0.4.1 | MIT |
+| @sindresorhus/is | 7.2.0 | MIT |
 | @sindresorhus/merge-streams | 4.0.0 | MIT |
+| @speed-highlight/core | 1.2.24 | CC0-1.0 |
 | @swc/core | 1.16.1 | Apache-2.0 |
 | @swc/core-darwin-arm64 | 1.16.1 | Apache-2.0 AND MIT |
 | @swc/counter | 0.1.3 | Apache-2.0 |
@@ -1050,7 +1069,9 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | @uiw/react-drag-event-interactive | 2.10.3 | MIT |
 | @vitejs/plugin-react | 6.1.0 | MIT |
 | @vitest/mocker | 5.0.3 | MIT |
+| @vitest/mocker | 5.0.5 | MIT |
 | @vitest/spy | 5.0.3 | MIT |
+| @vitest/spy | 5.0.5 | MIT |
 | acorn | 8.18.0 | MIT |
 | acorn-jsx | 5.3.2 | MIT |
 | ajv | 6.15.0 | MIT |
@@ -1062,6 +1083,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | balanced-match | 4.0.4 | MIT |
 | baseline-browser-mapping | 2.11.27 | Apache-2.0 |
 | bidi-js | 1.1.0 | MIT |
+| blake3-wasm | 2.1.5 | MIT |
 | brace-expansion | 5.0.12 | MIT |
 | browserslist | 4.29.3 | MIT |
 | caniuse-lite | 1.0.30001814 | CC-BY-4.0 |
@@ -1069,12 +1091,14 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | chalk | 5.6.2 | MIT |
 | chardet | 2.2.0 | MIT |
 | chokidar | 5.0.0 | MIT |
+| cjs-module-lexer | 1.2.3 | MIT |
 | cli-cursor | 5.0.0 | MIT |
 | cli-spinners | 3.4.0 | MIT |
 | cli-width | 4.1.0 | ISC |
 | clsx | 2.1.1 | MIT |
 | commander | 15.0.0 | MIT |
 | convert-source-map | 2.0.0 | MIT |
+| cookie | 1.1.1 | MIT |
 | cross-spawn | 7.0.6 | MIT |
 | css-tree | 3.2.1 | MIT |
 | csstype | 3.2.3 | MIT |
@@ -1088,6 +1112,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | electron-to-chromium | 1.5.444 | ISC |
 | enhanced-resolve | 5.24.5 | MIT |
 | entities | 8.1.0 | BSD-2-Clause |
+| error-stack-parser-es | 1.0.5 | MIT |
 | es-module-lexer | 2.3.2 | MIT |
 | esbuild | 0.28.2 | MIT |
 | escalade | 3.2.0 | MIT |
@@ -1158,6 +1183,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | json5 | 2.2.3 | MIT |
 | jsonc-parser | 3.3.1 | MIT |
 | keyv | 4.5.4 | MIT |
+| kleur | 4.1.5 | MIT |
 | konva | 10.3.1 | MIT |
 | levn | 0.4.1 | MIT |
 | lightningcss | 1.32.0 | MPL-2.0 |
@@ -1175,8 +1201,10 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | magic-string | 0.30.21 | MIT |
 | magic-string | 1.2.2 | MIT |
 | magic-string | 1.4.2 | MIT |
+| magic-string | 1.4.3 | MIT |
 | mdn-data | 2.27.1 | CC0-1.0 |
 | mimic-function | 5.0.1 | MIT |
+| miniflare | 5.20261019.2-beta | MIT |
 | minimatch | 10.2.6 | BlueOak-1.0.0 |
 | minipass | 7.1.3 | BlueOak-1.0.0 |
 | motion-dom | 13.1.1 | MIT |
@@ -1184,10 +1212,12 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | ms | 2.1.3 | MIT |
 | mute-stream | 3.0.0 | ISC |
 | nanoid | 3.3.18 | MIT |
+| nanoid | 3.3.20 | MIT |
 | natural-compare | 1.4.0 | MIT |
 | node-releases | 2.0.57 | MIT |
 | npm-run-path | 6.0.0 | MIT |
 | obug | 2.2.1 | MIT |
+| obug | 3.0.0 | MIT |
 | onetime | 7.0.0 | MIT |
 | optionator | 0.9.4 | MIT |
 | ora | 9.4.1 | MIT |
@@ -1199,9 +1229,12 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | path-key | 3.1.1 | MIT |
 | path-key | 4.0.0 | MIT |
 | path-scurry | 2.0.2 | BlueOak-1.0.0 |
+| path-to-regexp | 6.3.0 | MIT |
+| pathe | 2.0.3 | MIT |
 | picocolors | 1.1.1 | ISC |
 | picomatch | 4.0.7 | MIT |
 | postcss | 8.5.26 | MIT |
+| postcss | 8.5.31 | MIT |
 | prelude-ls | 1.2.1 | MIT |
 | prettier | 3.9.6 | MIT |
 | pretty-format | 27.5.1 | MIT |
@@ -1219,6 +1252,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | require-from-string | 2.0.2 | MIT |
 | requireindex | 1.1.0 | MIT |
 | restore-cursor | 5.1.0 | MIT |
+| rolldown | 1.2.15 | MIT |
 | rolldown | 1.2.5 | MIT |
 | run-async | 4.0.6 | MIT |
 | safer-buffer | 2.1.2 | MIT |
@@ -1226,18 +1260,22 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | scheduler | 0.27.0 | MIT |
 | semver | 6.3.1 | ISC |
 | semver | 7.8.5 | ISC |
+| sharp | 0.35.5 | Apache-2.0 |
 | shebang-command | 2.0.0 | MIT |
 | shebang-regex | 3.0.0 | MIT |
 | signal-exit | 4.1.0 | ISC |
 | source-map-js | 1.2.1 | BSD-3-Clause |
+| source-map-js | 1.2.2 | BSD-3-Clause |
 | std-env | 4.3.0 | MIT |
 | stdin-discarder | 0.3.2 | MIT |
 | string-width | 8.2.2 | MIT |
 | strip-ansi | 7.2.0 | MIT |
 | strip-final-newline | 4.0.0 | MIT |
+| supports-color | 10.2.2 | MIT |
 | tailwindcss | 4.3.3 | MIT |
 | tapable | 2.3.3 | MIT |
 | tinybench | 6.2.0 | MIT |
+| tinybench | 6.2.2 | MIT |
 | tinyexec | 1.3.1 | MIT |
 | tinyglobby | 0.2.17 | MIT |
 | tldts | 7.4.16 | MIT |
@@ -1247,16 +1285,21 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | ts-api-utils | 2.5.0 | MIT |
 | tslib | 2.8.1 | 0BSD |
 | type-check | 0.4.0 | MIT |
+| typescript | 5.9.3 | Apache-2.0 |
 | typescript | 6.0.3 | Apache-2.0 |
 | typescript-eslint | 8.67.0 | MIT |
+| undici | 7.30.1 | MIT |
 | undici | 8.11.2 | MIT |
+| unenv | 2.0.0-rc.24 | MIT |
 | unicorn-magic | 0.3.0 | MIT |
 | update-browserslist-db | 1.3.3 | MIT |
 | uri-js | 4.4.1 | BSD-2-Clause |
 | use-sync-external-store | 1.6.0 | MIT |
 | uuid | 14.0.2 | MIT |
 | vite | 8.2.2 | MIT |
+| vite | 8.3.5 | MIT |
 | vitest | 5.0.3 | MIT |
+| vitest | 5.0.5 | MIT |
 | w3c-xmlserializer | 6.0.0 | MIT |
 | webidl-conversions | 8.0.1 | BSD-2-Clause |
 | whatwg-mimetype | 5.0.0 | MIT |
@@ -1266,12 +1309,18 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | which-command | 0.1.0 | MIT |
 | why-is-node-running | 3.2.1 | MIT |
 | word-wrap | 1.2.5 | MIT |
+| workerd | 1.20261019.1 | Apache-2.0 |
+| wrangler | 4.152.0 | MIT OR Apache-2.0 |
+| ws | 8.21.0 | MIT |
 | xml-name-validator | 5.0.0 | Apache-2.0 |
 | xmlchars | 2.2.0 | MIT |
 | yallist | 3.1.1 | ISC |
 | yaml | 2.9.0 | ISC |
 | yocto-queue | 0.1.0 | MIT |
 | yoctocolors | 2.2.0 | MIT |
+| youch | 4.1.0-beta.10 | MIT |
+| youch-core | 0.3.3 | MIT |
 | zod | 4.6.5 | MIT |
+| zod | 4.6.6 | MIT |
 | zod-validation-error | 4.0.2 | MIT |
 | zustand | 5.0.15 | MIT |

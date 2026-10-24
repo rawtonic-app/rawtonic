@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { beforeEach, describe, expect, it } from "vitest";
-import { handle, sweep } from "../src/index";
+import { SWEEP_QUERIES, handle, sweep } from "../src/index";
 import { powHash } from "../src/limits";
 import { DAY_MS, sha256Hex } from "../src/util";
 import { APP, del, failingDb, makeDeps, migrate, post, testEnv as env } from "./helpers";
@@ -177,16 +177,10 @@ describe("reports", () => {
   });
 
   it("reads expired records through the index, never by scanning the table", async () => {
-    for (const where of [
-      "state = 'filed' AND kind = 'raw-sample' AND received_at < 1",
-      "state = 'filed' AND kind IN ('report', 'crash', 'camera-test') AND received_at < 1",
-      "state IN ('pending', 'filing', 'uploading') AND received_at < 1",
-    ]) {
-      const { results } = await env.DB.prepare(`EXPLAIN QUERY PLAN SELECT * FROM submissions WHERE ${where} LIMIT 15`).all<{
-        detail: string;
-      }>();
+    for (const sql of SWEEP_QUERIES) {
+      const { results } = await env.DB.prepare(`EXPLAIN QUERY PLAN ${sql}`).bind(1, 15).all<{ detail: string }>();
       const plan = results.map((r) => r.detail).join("; ");
-      expect(plan).toContain("USING INDEX submissions_by_state_age");
+      expect(plan).toMatch(/USING INDEX submissions_by_state_age \(state=\? AND kind=\? AND received_at<\?\)/);
       expect(plan).not.toMatch(/SCAN submissions(?! USING)/);
     }
   });

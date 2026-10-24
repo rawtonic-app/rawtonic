@@ -419,6 +419,14 @@ export const handle = async (request: Request, env: Env, deps: Deps): Promise<Re
   return error(404, "not-found");
 };
 
+/** The sweep's reads of expired records: RAW samples, issue-backed kinds,
+ * unfinished requests (?1 = cutoff, ?2 = limit). */
+export const SWEEP_QUERIES = [
+  `${ROW} WHERE state = 'filed' AND kind = 'raw-sample' AND received_at < ?1 LIMIT ?2`,
+  `${ROW} WHERE state = 'filed' AND kind IN ('report', 'crash', 'camera-test') AND received_at < ?1 LIMIT ?2`,
+  `${ROW} WHERE state IN ('pending', 'filing', 'uploading') AND kind IN ('report', 'crash', 'camera-test', 'raw-sample') AND received_at < ?1 LIMIT ?2`,
+] as const;
+
 /** The scheduled run, in three independent steps (a failure in one never
  * holds up the others): housekeeping; records and their objects by age
  * (retention, and rows whose request stopped half-way two hours ago),
@@ -435,18 +443,11 @@ export const sweep = async (env: Env, deps: Deps) => {
   try {
     // Three range reads on the (state, kind, received_at) index, each
     // bounded, never a scan of the table.
+    const [samples, issues, unfinished] = SWEEP_QUERIES;
     const ranges = [
-      env.DB.prepare(`${ROW} WHERE state = 'filed' AND kind = 'raw-sample' AND received_at < ?1 LIMIT ?2`).bind(
-        now - SAMPLE_DAYS * DAY_MS,
-        RECORDS_PER_SWEEP,
-      ),
-      env.DB.prepare(
-        `${ROW} WHERE state = 'filed' AND kind IN ('report', 'crash', 'camera-test') AND received_at < ?1 LIMIT ?2`,
-      ).bind(now - ISSUE_DAYS * DAY_MS, RECORDS_PER_SWEEP),
-      env.DB.prepare(`${ROW} WHERE state IN ('pending', 'filing', 'uploading') AND received_at < ?1 LIMIT ?2`).bind(
-        now - UPLOAD_VALID_MS - HOUR_MS,
-        RECORDS_PER_SWEEP,
-      ),
+      env.DB.prepare(samples).bind(now - SAMPLE_DAYS * DAY_MS, RECORDS_PER_SWEEP),
+      env.DB.prepare(issues).bind(now - ISSUE_DAYS * DAY_MS, RECORDS_PER_SWEEP),
+      env.DB.prepare(unfinished).bind(now - UPLOAD_VALID_MS - HOUR_MS, RECORDS_PER_SWEEP),
     ];
     const results = (await env.DB.batch<Row>(ranges)).flatMap((r) => r.results).slice(0, RECORDS_PER_SWEEP);
     // Objects first (one call), then each record only if unchanged since

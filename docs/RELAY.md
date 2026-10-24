@@ -2,7 +2,7 @@
 
 The relay (`services/relay/`, design: [ADR 0017](decisions/0017-contribution-channels.md)) is the one service the app's contribution channels talk to: problem reports, crash reports, camera-test results, RAW sample donations and opt-in usage statistics. It is a Cloudflare Worker with a D1 database and an R2 bucket, and it files reports as issues in a **private** GitHub repository. Deploying it is a maintainer's action; nothing in the app sends until a build carries the relay's URL.
 
-What runs where, and what it costs: the Workers free plan is enough to start (100 000 requests a day, D1 5 GB, R2 10 GB with no egress fees); a request body may be at most 100 MB there, which is the RAW sample limit. No third-party service besides Cloudflare and GitHub is involved. The relay has no runtime npm dependencies — `wrangler`, `vitest` and the type packages in `services/relay/package.json` are build and test tools and are not deployed.
+What runs where, and what it costs: the Workers free plan is enough to start (100 000 requests a day, D1 5 GB, R2 10 GB with no egress fees); a request body may be at most 100 MB there, which is the RAW sample limit. No third-party service besides Cloudflare and GitHub is involved. The relay has no runtime npm dependencies — `wrangler`, `vitest` and the type packages in `services/relay/package.json` are build and test tools and are not deployed (they are listed in the npm inventory of `THIRD_PARTY_NOTICES.md`).
 
 ## Once
 
