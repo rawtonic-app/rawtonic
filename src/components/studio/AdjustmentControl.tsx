@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { selectOnFocus } from "../../utils/selectOnFocus";
+import { MIN_SEND_INTERVAL_MS } from "../../hooks/useDragSend";
 
 export interface AdjustmentControlProps {
   label: string;
@@ -48,10 +49,6 @@ export function shownValue(value: number, step: number) {
   const digits = Math.min(6, Math.max(0, -Math.floor(Math.log10(step / 10))));
   return String(Number(value.toFixed(digits)));
 }
-
-/** Input closer than this to the previous engine update waits for the next
- * animation frame. */
-const MIN_SEND_INTERVAL_MS = 8;
 
 /** Independent desktop control: local feedback, engine updates as input
  * arrives, at most one per 8 ms. */

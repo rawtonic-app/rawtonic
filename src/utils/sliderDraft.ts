@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from 'react';
 import type { Adjustments } from './adjustments';
 
 /**
@@ -10,8 +11,9 @@ import type { Adjustments } from './adjustments';
  * the drag ends, so the store ends with exactly the last move.
  *
  * 250 ms (4 Hz): displays linked to the dragged value (colour-wheel puck,
- * region curve under the tone curve, refinement enable states) follow at
- * that rate, the photo and the dragged control itself on every move. Of
+ * refinement enable states) follow at that rate unless they read the draft
+ * (`useSliderDraft`, as the region curve under the tone curve does); the
+ * photo and the dragged control itself follow every move. Of
  * Develop's tools only the dragged one re-renders on these commits, the
  * others when the drag ends (ToolColumn in toolLayout.tsx). At
  * 100 ms these commits were nearly all of the ~95 ms React per 1 s drag on
@@ -38,6 +40,26 @@ let committer: ((path: string, adjustments: Adjustments) => void) | null = null;
  * second render. */
 let lastRendered: Adjustments | null = null;
 
+/** Called when the draft changes (a move, its commit). */
+const listeners = new Set<() => void>();
+const notify = () => listeners.forEach((listener) => listener());
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+/** `select` of the drag's newest adjustments for `path` (null without a
+ * draft), re-rendering on each move that changes it: for displays linked to
+ * the dragged value that should follow the drag, not the commits. `select`
+ * must return a part of the adjustments, not a new object. */
+export function useSliderDraft<T>(path: string | undefined, select: (adjustments: Adjustments) => T): T | null {
+  return useSyncExternalStore(subscribe, () => {
+    const adjustments = path ? draftFor(path) : null;
+    return adjustments ? select(adjustments) : null;
+  });
+}
+
 /** The drag's newest adjustments for `path`, if a draft is pending. */
 export function draftFor(path: string): Adjustments | null {
   return draft?.path === path ? draft.adjustments : null;
@@ -55,6 +77,7 @@ export function renderDraft(
   lastRendered = adjustments;
   committer = commit;
   commitTimer ??= setTimeout(flushSliderDraft, COMMIT_INTERVAL_MS);
+  notify();
   return true;
 }
 
@@ -66,6 +89,7 @@ export function updateDraft(path: string, update: (adjustments: Adjustments) => 
   if (next === draft.adjustments) return;
   draft = { path, adjustments: next };
   if (renderer?.(path, next)) lastRendered = next;
+  notify();
 }
 
 /** Commits a pending draft now (drag ended, another edit, photo switch). */
@@ -75,6 +99,7 @@ export function flushSliderDraft() {
   const pending = draft;
   draft = null;
   if (pending && committer) committer(pending.path, pending.adjustments);
+  if (pending) notify();
 }
 
 /** Whether `adjustments` is what the draft renderer showed last. */
