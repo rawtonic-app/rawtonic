@@ -213,14 +213,14 @@ describe('RAW detail defaults', () => {
   it('keep the Clarity response a saved recipe rendered with', () => {
     expect(initialAdjustmentsFor(true).clarityVersion).toBe(CLARITY_VERSION);
     expect(initialAdjustmentsFor(false).clarityVersion).toBe(CLARITY_VERSION);
-    // Clarity without a version: the earlier response, key absent.
+    // Clarity without a version: the first response, stated so a copy of
+    // its Clarity carries it (1 renders as the missing key).
     const used = { clarity: 40 } as unknown as Adjustments;
-    expect(normalizeLoadedAdjustments(used, true).clarityVersion).toBeUndefined();
-    expect('clarityVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(used, true)))).toBe(false);
+    expect(normalizeLoadedAdjustments(used, true).clarityVersion).toBe(1);
     const lowered = { clarity: -20 } as unknown as Adjustments;
-    expect(normalizeLoadedAdjustments(lowered, true).clarityVersion).toBeUndefined();
+    expect(normalizeLoadedAdjustments(lowered, true).clarityVersion).toBe(1);
     const layered = { masks: [{ adjustments: { clarity: 30 }, subMasks: [] }] } as unknown as Adjustments;
-    expect(normalizeLoadedAdjustments(layered, true).clarityVersion).toBeUndefined();
+    expect(normalizeLoadedAdjustments(layered, true).clarityVersion).toBe(1);
     // No Clarity anywhere: the current response.
     const none = { structure: 40, dehaze: 20 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(none, true).clarityVersion).toBe(CLARITY_VERSION);

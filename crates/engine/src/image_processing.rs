@@ -6423,10 +6423,11 @@ pub const CLARITY_VERSION_KEY: &str = "clarityVersion";
 /// The newest Clarity: 2 (2026-10-24) measures a pixel's medium-scale band in
 /// log luminance against a base taken from the large blur at the pixel and at
 /// sixteen points around it (plus the small blur), each weighted by how close
-/// its level is to the pixel's own, so a narrow bright edge does not pull the
-/// base of its darker surroundings up: the dark halos beside slats, window
-/// frames and branches drop to a third or less of version 1's at the same
-/// texture gain (notes: parity-gaps/G06-presence.md "Clarity halos").
+/// its level is to the pixel's own, so a narrow bright edge pulls the base of
+/// its darker surroundings up less: per unit of texture gain the dark halo
+/// 1–6 px beside slats, frames and branches is 19–68 % of version 1's on six
+/// held-out photos (about half on a synthetic stripe); farther out it shrinks
+/// less (notes: parity-gaps/G06-presence.md "Clarity halos").
 /// Recipes without the key keep version 1.
 pub const CLARITY_VERSION: u64 = 2;
 

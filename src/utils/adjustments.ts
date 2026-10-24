@@ -1524,15 +1524,16 @@ const loadedToneVersion = (loaded: Partial<Adjustments>): number | undefined => 
 };
 
 /** The Clarity response of a saved recipe: its own; else the current one
- * when it uses no Clarity (on the photo or a layer), the earlier one
- * otherwise (missing key). */
-const loadedClarityVersion = (loaded: Partial<Adjustments>): number | undefined => {
+ * when it uses no Clarity (on the photo or a layer), else the first one,
+ * stated (1 renders as the missing key does), so Clarity copied from it
+ * keeps its response on a photo already at the current one. */
+const loadedClarityVersion = (loaded: Partial<Adjustments>): number => {
   if (loaded.clarityVersion !== undefined && loaded.clarityVersion !== null) {
     return loaded.clarityVersion;
   }
   const uses = (values: { clarity?: unknown } | undefined) => ((values?.clarity as number | undefined) ?? 0) !== 0;
   const rendersDifferently = uses(loaded) || (loaded.masks ?? []).some((mask) => uses(mask?.adjustments));
-  return rendersDifferently ? undefined : CLARITY_VERSION;
+  return rendersDifferently ? 1 : CLARITY_VERSION;
 };
 
 /** The colour noise filter of a saved recipe: its own, else the earlier
