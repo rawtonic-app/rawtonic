@@ -341,6 +341,9 @@ pub fn load_base_image_measured(
         dead_test,
     } = options.clone();
     if is_raw_file(path_for_ext_check) {
+        let cancelled = cancel_token
+            .clone()
+            .map(|(tracker, generation)| move || tracker.load(Ordering::SeqCst) != generation);
         // The denoiser is only read; a panic leaves nothing half-updated.
         match panic::catch_unwind(panic::AssertUnwindSafe(move || {
             crate::raw_processing::develop_raw_image_with_draft(
@@ -360,6 +363,9 @@ pub fn load_base_image_measured(
                     measures.record(path_for_ext_check);
                     measures
                 });
+                if cancelled.as_ref().is_some_and(|cancelled| cancelled()) {
+                    return Err(anyhow!("Load cancelled"));
+                }
                 if !use_fast_raw_dev && (color_nr_amount > 0.0 || sharpening_amount > 0.0) {
                     let start = Instant::now();
                     {

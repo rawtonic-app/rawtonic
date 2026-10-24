@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use rayon::prelude::*;
 use wgpu::util::DeviceExt;
 
-use crate::demosaic::{BORDER, CfaPattern, DirectionalTables};
+use crate::demosaic::{BORDER, Cancel, Cancelled, CfaPattern, DirectionalTables};
 
 /// Output rows per band (plus `BORDER` rows of context above and below).
 const BAND_ROWS: usize = 256;
@@ -172,13 +172,15 @@ impl Pipelines {
 }
 
 /// Demosaics a non-Bayer mosaic on the GPU; `None` leaves it to the CPU.
+/// `cancelled` is asked before each band.
 pub fn xtrans(
     mosaic: &[f32],
     width: usize,
     height: usize,
     cfa: &CfaPattern,
     tables: &DirectionalTables,
-) -> Option<Vec<[f32; 3]>> {
+    cancelled: Cancel,
+) -> Option<Result<Vec<[f32; 3]>, Cancelled>> {
     if std::env::var_os("RAWTONIC_CPU_DEMOSAIC").is_some() || width < 64 || height < 64 {
         return None;
     }
@@ -196,9 +198,10 @@ pub fn xtrans(
     }
     let pipelines = running.as_ref()?;
     match run(
-        &device, &queue, pipelines, mosaic, width, height, cfa, tables,
+        &device, &queue, pipelines, mosaic, width, height, cfa, tables, cancelled,
     ) {
-        Ok(rgb) => Some(rgb),
+        Ok(Some(rgb)) => Some(Ok(rgb)),
+        Ok(None) => Some(Err(Cancelled)),
         Err(error) => {
             log::warn!("GPU demosaic unavailable, using the CPU: {error}");
             None
@@ -216,7 +219,8 @@ fn run(
     height: usize,
     cfa: &CfaPattern,
     tables: &DirectionalTables,
-) -> Result<Vec<[f32; 3]>, String> {
+    cancelled: Cancel,
+) -> Result<Option<Vec<[f32; 3]>>, String> {
     let padded_width = width + 2 * BORDER;
     let band_pixels = padded_width * (BAND_ROWS + 2 * BORDER);
     let limit = device.limits().max_storage_buffer_binding_size as usize;
@@ -403,6 +407,11 @@ fn run(
         };
 
     for band in 0..bands {
+        // Work already submitted finishes on its own; its buffers are kept
+        // alive until then.
+        if cancelled() {
+            return Ok(None);
+        }
         let first = band * BAND_ROWS;
         let rows = BAND_ROWS.min(height - first);
         let band_rows = rows + 2 * BORDER;
@@ -481,7 +490,7 @@ fn run(
     if let Some(previous) = pending.take() {
         finish(&mut rgb, previous)?;
     }
-    Ok(rgb)
+    Ok(Some(rgb))
 }
 
 #[cfg(test)]
@@ -546,7 +555,14 @@ mod tests {
         }
         let tables = DirectionalTables::new(&cfa);
         let cpu = crate::demosaic::xtrans_cpu(&mosaic, width, height, &cfa, &tables);
-        let gpu = super::xtrans(&mosaic, width, height, &cfa, &tables).expect("GPU demosaic");
+        let gpu = super::xtrans(&mosaic, width, height, &cfa, &tables, &|| false)
+            .expect("GPU demosaic")
+            .unwrap();
+        // A cancel stops it before the next band.
+        assert!(matches!(
+            super::xtrans(&mosaic, width, height, &cfa, &tables, &|| true),
+            Some(Err(crate::demosaic::Cancelled))
+        ));
         let (mut max, mut sum) = (0.0f32, 0.0f64);
         for (a, b) in cpu.iter().flatten().zip(gpu.iter().flatten()) {
             let d = (a - b).abs();
