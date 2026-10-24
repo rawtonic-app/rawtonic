@@ -35,25 +35,33 @@ const VERBATIM_KEYS: &[&str] = &[
 
 /// The start of an absolute path — POSIX, `~/`, Windows with either slash,
 /// UNC, `file:` URL — at the start of the text or after a space, bracket,
-/// `=`, comma or quote. Names may hold spaces, quotes (escaped or not) and
-/// any other punctuation, so a path runs to the end of its line; only
-/// `path_in_text` ends it earlier, at a colon before a space or a line
-/// number. One fail-closed rule instead of one pattern per spelling: a few
-/// words after a path are dropped rather than part of a name kept.
+/// `=`, comma, quote or `<`. Names may hold spaces, quotes, colons and any
+/// other punctuation, so everything from a path's start to the end of its
+/// line is redacted: one fail-closed rule instead of one pattern per
+/// spelling (review rounds 1–4), dropping the rest of the line rather than
+/// keeping part of a name.
 static PATH: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(^|[\s(\[=,"'`])((?:file:/+|~/|/[^/\s]|[A-Za-z]:[\\/]|\\\\[^\s\\])[^\n]*)"#)
+    Regex::new(r#"(^|[\s(\[=,"'`<])((?:file:/+|~/|/[^/\s]|[A-Za-z]:[\\/]|\\\\[^\s\\])[^\n]*)"#)
         .expect("path pattern")
 });
-/// Where an unquoted path ends at the latest: a colon before a space, a
-/// digit (line numbers) or the end.
-static PATH_END: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r":(?:\s|\d|$)").expect("path end pattern"));
-/// A file extension at the end of a word.
+/// A backtrace frame's source file with line and column, the whole rest of
+/// its line: its name stays (`<path>/lib.rs:12:5`).
+static RUST_FRAME: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\S*[/\\]([A-Za-z0-9_.-]{1,64}\.rs)(:\d+(?::\d+)?)?$").expect("frame pattern")
+});
+/// File types a path's placeholder keeps (photo, sidecar and preview
+/// formats): a fixed list, so no word of a name can pass as an extension.
+const KEPT_EXTENSIONS: &[&str] = &[
+    "3fr", "arw", "avif", "cr2", "cr3", "crw", "dcr", "dng", "erf", "gpr", "heic", "heif", "iiq",
+    "jpeg", "jpg", "jxl", "kdc", "mef", "mos", "nef", "nrw", "orf", "pef", "png", "psd", "raf",
+    "rrdata", "rw2", "rwl", "sr2", "srf", "srw", "tif", "tiff", "webp", "x3f", "xmp",
+];
 static EXTENSION: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\S\.([A-Za-z0-9]{1,8})(?:\s|$)").expect("extension pattern"));
+    LazyLock::new(|| Regex::new(r"\.([A-Za-z0-9]{2,6})\b").expect("extension pattern"));
 static SERIAL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r#"(?i)\b((?:body|internal|lens|camera)?\s?serial(?:\s?(?:number|no))?)(["']?\s*[:=]\s*["']?)([^\s"',;}\]]+)"#,
+        // The value is the rest of the line: serials may hold spaces.
+        r#"(?i)\b((?:body|internal|lens|camera)?\s?serial(?:\s?(?:number|no))?)(["']?\s*[:=]\s*["']?)([^\n]+)"#,
     )
     .expect("serial pattern")
 });
@@ -73,41 +81,25 @@ static GPS: LazyLock<Regex> = LazyLock::new(|| {
     )
     .expect("GPS pattern")
 });
-/// What follows a path but is not part of it: line and column numbers,
-/// closing punctuation.
-static PATH_TAIL: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(?:(?::\d+)+|[.,;:!?)\]}"'`])+$"#).expect("path tail pattern"));
-static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\p{L}\p{N}_.-]+").expect("word"));
-
-/// The placeholder for an unquoted path found in running text, with what
-/// follows it (": denied", ":12:5", closing punctuation) kept. Everything
-/// else up to the end of the line counts as the path, since names may hold
-/// spaces: a few words too many are dropped rather than a name kept.
+/// The placeholder for everything from a path's start to the end of its
+/// line: `<path>` with the last kept file type named in it, or a Rust
+/// frame's file name and position.
 fn path_in_text(found: &str) -> String {
-    let end = PATH_END.find(found).map_or(found.len(), |m| m.start());
-    let (path, rest) = found.split_at(end);
-    let tail = PATH_TAIL.find(path).map_or("", |m| m.as_str());
-    let path = &path[..path.len() - tail.len()];
-    format!("{}{tail}{rest}", path_placeholder(path))
-}
-
-/// `<path>` plus what may stay of the last segment: its extension (the file
-/// type), or the whole name of a Rust source file (a backtrace's frame,
-/// never a user's file).
-fn path_placeholder(path: &str) -> String {
-    let last = path
-        .trim_end_matches(['/', '\\'])
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or("");
-    if last.ends_with(".rs")
-        && last.len() <= 64
-        && WORD.find(last).is_some_and(|m| m.len() == last.len())
-    {
-        return format!("<path>/{last}");
+    let found = found.trim_end();
+    if let Some(c) = RUST_FRAME.captures(found) {
+        return format!("<path>/{}{}", &c[1], c.get(2).map_or("", |m| m.as_str()));
     }
-    match EXTENSION.captures_iter(last).last() {
-        Some(c) => format!("<path>.{}", &c[1]),
+    let kept = EXTENSION
+        .captures_iter(found)
+        .filter_map(|c| {
+            let ext = c.get(1)?.as_str();
+            KEPT_EXTENSIONS
+                .contains(&ext.to_ascii_lowercase().as_str())
+                .then_some(ext)
+        })
+        .last();
+    match kept {
+        Some(ext) => format!("<path>.{ext}"),
         None => "<path>".to_string(),
     }
 }
@@ -241,16 +233,21 @@ fn replace_ipv6(text: &str) -> String {
         // A dot joins only when a word goes on after it ("abc.def"); a
         // sentence's full stop does not.
         let joined_after = word(after) || (after == Some('.') && word(rest.next()));
-        let candidate = m.as_str();
-        if !word(before)
+        // A colon of the sentence may follow ("fe80::1: failed"): try the
+        // run without its trailing colons too.
+        let full = m.as_str();
+        let trimmed = full.trim_end_matches(':');
+        let address = [full, trimmed].into_iter().find(|c| {
+            c.chars().any(|ch| ch.is_ascii_hexdigit()) && c.parse::<std::net::Ipv6Addr>().is_ok()
+        });
+        if let Some(address) = address
+            && !word(before)
             && before != Some('.')
             && !joined_after
-            && candidate.chars().any(|c| c.is_ascii_hexdigit())
-            && candidate.parse::<std::net::Ipv6Addr>().is_ok()
         {
             out.push_str(&text[last..m.start()]);
             out.push_str("<ip>");
-            last = m.end();
+            last = m.start() + address.len();
         }
     }
     out.push_str(&text[last..]);
@@ -293,7 +290,7 @@ mod tests {
         assert_eq!(s.scrub("cache ~/Library/Caches/x"), "cache <path>");
         assert_eq!(
             s.scrub(r"read C:\Users\anna\Bilder\a.NEF: denied"),
-            "read <path>.NEF: denied"
+            "read <path>.NEF"
         );
         assert_eq!(
             s.scrub(r"share \\nas\photos\2026\b.ARW"),
@@ -315,7 +312,7 @@ mod tests {
         );
         assert_eq!(
             s.scrub(r"read C:\Users\Jane Doe\Pictures\Jane Wedding.NEF: access denied"),
-            "read <path>.NEF: access denied"
+            "read <path>.NEF"
         );
         assert_eq!(
             s.scrub("moved /Volumes/Card One/DCIM/a.ARW\nnext line"),
@@ -328,9 +325,9 @@ mod tests {
         let s = anna();
         assert_eq!(
             s.scrub(r#"Failed to open "/Users/anna/My Photos/Anna and Ben.dng": gone"#),
-            r#"Failed to open "<path>.dng": gone"#
+            r#"Failed to open "<path>.dng"#
         );
-        assert_eq!(s.scrub("'/home/x/a b/c.tif'"), "'<path>.tif'");
+        assert_eq!(s.scrub("'/home/x/a b/c.tif'"), "'<path>.tif");
     }
 
     #[test]
@@ -368,7 +365,7 @@ mod tests {
         );
         assert_eq!(
             s.scrub(r#"{"SerialNumber":"A1B2C3"}"#),
-            r#"{"SerialNumber":"<serial>"}"#
+            r#"{"SerialNumber":"<serial>"#
         );
         assert_eq!(
             s.scrub("Lens serial number = 99887"),
@@ -437,16 +434,35 @@ mod tests {
         );
         assert_eq!(
             s.scrub(r#"open "C:/Jobs/Jane Wedding.NEF": denied"#),
-            r#"open "<path>.NEF": denied"#
+            r#"open "<path>.NEF"#
         );
         assert_eq!(
             s.scrub(r#"Failed "/Volumes/Client \"Jane Wedding\".CR3": gone"#),
-            r#"Failed "<path>.CR3": gone"#
+            r#"Failed "<path>.CR3"#
         );
         assert_eq!(
             s.scrub("{\"file\":\"/Users/a/b c.CR3\",\"size\":5}"),
-            "{\"file\":\"<path>\":5}"
+            "{\"file\":\"<path>.CR3"
         );
+    }
+
+    #[test]
+    fn colons_angle_brackets_and_spaced_serials_hide_nothing() {
+        let s = anna();
+        assert_eq!(
+            s.scrub("open /Volumes/Jobs/Client: Jane Wedding.CR3"),
+            "open <path>.CR3"
+        );
+        assert_eq!(
+            s.scrub("see </Volumes/Jobs/Jane Wedding.CR3> now"),
+            "see <<path>.CR3"
+        );
+        assert_eq!(
+            s.scrub(r#"SerialNumber: "AB 123456""#),
+            "SerialNumber: \"<serial>"
+        );
+        assert_eq!(s.scrub("connect fe80::1: failed"), "connect <ip>: failed");
+        assert_eq!(s.scrub("/Users/x/Client.Jane"), "<path>");
     }
 
     #[test]
@@ -483,13 +499,10 @@ mod tests {
         assert_eq!(s.scrub("user on host"), "<user> on <host>");
         assert_eq!(s.scrub(&s.scrub("user on host")), "<user> on <host>");
         let s = Scrubber::new(Some("path"), Some("x"));
-        assert_eq!(
-            s.scrub("path saw x: /a/b.txt"),
-            "<user> saw <host>: <path>.txt"
-        );
+        assert_eq!(s.scrub("path saw x: /a/b.txt"), "<user> saw <host>: <path>");
         assert_eq!(
             s.scrub(&s.scrub("path saw x: /a/b.txt")),
-            "<user> saw <host>: <path>.txt"
+            "<user> saw <host>: <path>"
         );
     }
 
