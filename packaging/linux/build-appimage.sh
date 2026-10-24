@@ -22,7 +22,7 @@ export PATH=$CARGO_HOME/bin:/home/builder/.cargo/bin:$PATH RUSTUP_HOME=/home/bui
 # linuxdeploy is itself an AppImage; containers have no FUSE mount.
 export APPIMAGE_EXTRACT_AND_RUN=1 CI=true RAWTONIC_BUNDLE_ONNX=1
 # Update information for AppImageUpdate and Gear Lever, which the user runs
-# (the app itself never checks for updates, PRIVACY.md): the newest GitHub
+# (the app only links to releases; it never installs updates): the newest GitHub
 # release, pre-releases included; appimagetool writes the matching .zsync
 # beside the AppImage, to be attached to the release with it.
 export LDAI_UPDATE_INFORMATION='gh-releases-zsync|rawtonic-app|rawtonic|latest-all|Rawtonic_*_amd64.AppImage.zsync'

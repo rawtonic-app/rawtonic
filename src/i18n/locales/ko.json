@@ -3497,5 +3497,17 @@
       "clickToEdit": "클릭하여 편집",
       "reset": "초기화"
     }
+  },
+  "updates": {
+    "appImage": "이 AppImage는 AppImageUpdate로도 업데이트할 수 있습니다.",
+    "available": "Rawtonic {{version}} 업데이트가 있습니다",
+    "checking": "확인 중…",
+    "checkNow": "지금 확인",
+    "download": "다운로드",
+    "notNow": "나중에",
+    "noUpdate": "더 최신 릴리스를 찾지 못했습니다.",
+    "prereleases": "사전 릴리스 포함",
+    "privacy": "하루에 한 번 GitHub를 확인합니다. IP 주소와 앱 버전을 전송하며 사진이나 식별자는 전송하지 않습니다.",
+    "startup": "시작 시 업데이트 확인"
   }
 }

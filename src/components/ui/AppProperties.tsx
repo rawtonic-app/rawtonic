@@ -175,6 +175,7 @@ export enum Invokes {
   LoadEmbeddedPreview = 'load_embedded_preview',
   LoadMetadata = 'load_metadata',
   LoadPresets = 'load_presets',
+  CheckUpdates = 'check_updates',
   LoadSettings = 'load_settings',
   MoveFiles = 'move_files',
   MoveFolder = 'move_folder',
@@ -341,6 +342,10 @@ export interface MyLens {
 export type CropGrid = 'always' | 'drag' | 'off';
 
 export interface AppSettings {
+  checkForUpdates?: boolean;
+  updatePrereleases?: boolean;
+  lastUpdateCheck?: number;
+  dismissedUpdateVersion?: string;
   aiConnectorAddress?: string;
   aiProvider?: string;
   decorations?: boolean;

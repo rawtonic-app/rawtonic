@@ -70,7 +70,7 @@ chmod +x Rawtonic_*_amd64.AppImage
 
 It runs on current distributions (Ubuntu 22.04 or later, Debian 12, Fedora and others with glibc 2.35 or later). If it does not start, install FUSE 2 (`sudo apt install libfuse2t64` on Ubuntu 24.04, `libfuse2` on older Ubuntu and Debian) or start it with `--appimage-extract-and-run`. The very first start can take a minute or two before the first photo appears while the graphics driver prepares Rawtonic's shaders; later starts are quick.
 
-To update, use [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate) or [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever): the AppImage names its GitHub releases as its update source, and they download only the changed parts. Rawtonic itself never checks for updates.
+To update, use [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate) or [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever): the AppImage names its GitHub releases as its update source, and they download only the changed parts. Rawtonic checks for new releases at startup at most once per day; you can turn this off in Preferences. It never downloads or installs updates itself.
 
 ### Other systems
 
@@ -155,7 +155,7 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 - **Merge.** HDR, panorama, HDR panorama and focus stacking to a DNG; collages.
 - **Film.** Convert scanned negatives; grain with five structures (even, soft, clumped, speckled, gritty) and vignette.
 - **Output.** JPEG, TIFF, PNG, WebP, JPEG XL and AVIF in sRGB, Display P3, Adobe RGB or ProPhoto RGB; output sharpening for screen and print; watermarks and borders; metadata you choose to keep.
-- **Private by design.** No account, no telemetry, no update checks. Rawtonic only goes online when you ask it to ([privacy](PRIVACY.md)).
+- **Private by design.** No account or telemetry. An optional startup update check is the only automatic network access ([privacy](PRIVACY.md)).
 
 <sub>\* Optional AI tools. They run on your computer, never in the cloud; each model is downloaded once, the first time you use the tool (see <a href="docs/MODELS.md">AI models</a>). Areas filled by a generative model are marked as such in exported files.</sub>
 

@@ -40,6 +40,7 @@ import {
 import Text from '../ui/Text';
 import AboutSettings from './AboutSettings';
 import PreviewSettings from './PreviewSettings';
+import UpdateSettings from './UpdateSettings';
 import DevelopToolsSide from '../studio/DevelopToolsSide';
 import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 import { useOsPlatform } from '../../hooks/useOsPlatform';
@@ -916,6 +917,8 @@ export default function SettingsPanel({
                           triggerClassName="bg-bg-primary"
                         />
                       </SettingItem>
+
+                      <UpdateSettings appSettings={appSettings} onSettingsChange={onSettingsChange} />
 
                       <SettingItem label={t('settings.general.uiScale')} description={t('settings.general.uiScaleDesc')}>
                         <Dropdown

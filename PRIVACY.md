@@ -2,10 +2,27 @@
 
 Rawtonic is a desktop app. Photos, catalogs, sessions and edits stay on
 your computer and in the folders you choose. Rawtonic has no accounts,
-analytics, telemetry, crash reporting or update checks, and its makers
+analytics, telemetry or crash reporting, and its makers
 receive no data from it.
 
-Rawtonic goes online only when you ask it to:
+## Update checks
+
+At startup, Rawtonic checks for new releases at most once every 24 hours.
+This is on by default and is its only automatic network access. Turn off
+“Check for updates at startup” in Preferences → General to stop it. “Check now”
+requests a check even when the startup check is off.
+
+Each check sends one GET to GitHub's public Releases API for
+`rawtonic-app/rawtonic`. GitHub receives your IP address and a User-Agent of
+`Rawtonic/<version>`; no cookies, identifiers, photos, paths or settings are sent.
+Requests time out after 10 seconds; failures are silent and count toward the
+24-hour interval. Alpha/beta builds include pre-releases; stable builds ignore
+them by default. “Download” opens the release page in your browser. Rawtonic
+never downloads or installs an update itself.
+
+## Other network access
+
+Rawtonic otherwise goes online only when you ask it to:
 
 - **AI models.** The first time you use an AI tool (masks, depth-based Relight, AI Denoise,
   object removal, automatic keywords), Rawtonic downloads that tool's model
