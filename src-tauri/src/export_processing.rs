@@ -533,6 +533,8 @@ async fn release_after_run<T, E>(
 struct ExportLanes {
     pools: Vec<rayon::ThreadPool>,
     free: Mutex<Vec<usize>>,
+    /// Their threads, on few CPUs while the user edits.
+    _cpus: Arc<crate::export_cpus::ExportCpus>,
 }
 
 /// An export worker's pool, given back when its photo is done.
@@ -545,22 +547,29 @@ impl ExportLanes {
     fn new(workers: usize, threads: usize) -> Arc<Self> {
         // Threads inherit their creator's priority: not from an export's.
         crate::gpu_processing::start_shared_pools();
+        let cpus = crate::export_cpus::ExportCpus::new();
         let pools = (0..workers)
             .map(|lane| {
+                let run = Arc::downgrade(&cpus);
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(threads)
                     .thread_name(move |i| format!("export-{lane}-{i}"))
-                    .start_handler(|_| {
+                    .start_handler(move |_| {
                         lower_thread_priority();
                         crate::gpu_processing::mark_private_pool_thread();
+                        if let Some(cpus) = run.upgrade() {
+                            cpus.add_current_thread();
+                        }
                     })
                     .build()
                     .expect("export thread pool")
             })
             .collect();
+        cpus.follow_editing();
         Arc::new(Self {
             free: Mutex::new((0..workers).rev().collect()),
             pools,
+            _cpus: cpus,
         })
     }
 

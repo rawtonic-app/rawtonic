@@ -33,6 +33,7 @@ mod embedded_lens;
 #[cfg(test)]
 mod engine_tools;
 mod exif_processing;
+mod export_cpus;
 mod export_processing;
 mod export_queue;
 mod file_management;
