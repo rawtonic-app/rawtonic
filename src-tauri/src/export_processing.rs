@@ -596,14 +596,23 @@ impl Drop for Lane {
 }
 
 /// Lowers the calling thread's scheduling priority below the editor's.
-/// Linux: nice 10, which an unprivileged thread cannot undo, so only for
-/// threads that do nothing else. macOS keeps the default: its lower classes
-/// move threads to the efficiency cores (see `proxy_worker`'s builds).
+/// Linux: `SCHED_IDLE`, which an unprivileged thread cannot undo, so only
+/// for threads that do nothing else: they run on the time other threads
+/// leave. At nice 10, slider drags during a 200-photo export on a 6-core
+/// PC drew 32–34 frames a second with 200 photos selected, 44–48 with
+/// this, export time unchanged (notes: parity-gaps/G44).
+/// macOS keeps the default: its lower classes move threads to the
+/// efficiency cores (see `proxy_worker`'s builds).
 #[cfg(target_os = "linux")]
 fn lower_thread_priority() {
-    // SAFETY: changes the calling thread's own nice value; no pointers.
-    unsafe {
-        libc::setpriority(libc::PRIO_PROCESS, libc::gettid() as libc::id_t, 10);
+    let param = libc::sched_param { sched_priority: 0 };
+    // SAFETY: changes the calling thread's own policy (0 = this thread);
+    // `param` outlives the call.
+    if unsafe { libc::sched_setscheduler(0, libc::SCHED_IDLE, &param) } != 0 {
+        // SAFETY: changes the calling thread's own nice value; no pointers.
+        unsafe {
+            libc::setpriority(libc::PRIO_PROCESS, libc::gettid() as libc::id_t, 10);
+        }
     }
 }
 
@@ -2028,6 +2037,22 @@ mod tests {
         built_tx.send(()).unwrap();
         assert!(end.await);
         assert!(processor.lock().unwrap().is_none());
+    }
+
+    /// Export threads run only on the time the editor's threads leave.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn export_threads_run_on_idle_time() {
+        let policy = std::thread::spawn(|| {
+            super::lower_thread_priority();
+            // SAFETY: reads the calling thread's own policy.
+            unsafe { libc::sched_getscheduler(0) }
+        })
+        .join()
+        .unwrap();
+        assert_eq!(policy, libc::SCHED_IDLE);
+        // SAFETY: as above, for this thread, which keeps its policy.
+        assert_eq!(unsafe { libc::sched_getscheduler(0) }, libc::SCHED_OTHER);
     }
 
     #[test]
