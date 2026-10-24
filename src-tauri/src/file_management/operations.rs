@@ -407,6 +407,19 @@ fn plan_move(
             return Err("Cannot move files into the same folder they are already in.".to_string());
         }
     }
+    // A session keeps only photos inside its folder: photos moved out of it
+    // would go offline there, so such a move is refused before anything
+    // moves. Catalogs keep originals anywhere.
+    let to_session = session_above(dest_path)?;
+    for image in &images {
+        let from_session = session_above(image.parent().unwrap_or(Path::new("")))?;
+        if let Some(session) = from_session.filter(|s| Some(s) != to_session.as_ref()) {
+            return Err(format!(
+                "This moves the photos out of the session {}, where they would go offline; nothing was moved. Move the whole session folder to the drive, or add the drive's folder to a catalog.",
+                session.file_name().unwrap_or_default().to_string_lossy()
+            ));
+        }
+    }
     let steps = crate::file_operations::associated_files(&images)?
         .into_iter()
         .map(|file| {
@@ -626,16 +639,10 @@ fn plan_folder_move(
     // Photos leaving a session are kept there as missing (an undo brings
     // them back); a folder moves only within its session or outside any.
     let target = destination.join(name);
-    // Catalogs keep originals anywhere (`relocate` follows them out). By
-    // the real places: a link may lead into or out of a session.
-    let session_of = |path: &Path| {
-        path.ancestors()
-            .find(|p| p.join("session.json").is_file())
-            .map(Path::to_path_buf)
-    };
+    // Catalogs keep originals anywhere (`relocate` follows them out).
     let (from_session, to_session) = (
-        session_of(real(folder)?.parent().unwrap_or(Path::new(""))),
-        session_of(&real(destination)?),
+        session_above(real(folder)?.parent().unwrap_or(Path::new("")))?,
+        session_above(destination)?,
     );
     if from_session != to_session {
         let session = from_session.or(to_session).unwrap_or_default();
@@ -654,6 +661,18 @@ fn plan_folder_move(
             .to_string_lossy()
     );
     Ok((step, label))
+}
+
+/// The session folder holding `folder` (itself or above it), by real
+/// places: a link may lead into or out of a session.
+fn session_above(folder: &Path) -> Result<Option<PathBuf>, String> {
+    let real = folder
+        .canonicalize()
+        .map_err(|e| format!("{}: {e}", folder.display()))?;
+    Ok(real
+        .ancestors()
+        .find(|p| p.join("session.json").is_file())
+        .map(Path::to_path_buf))
 }
 
 #[tauri::command]
@@ -1077,6 +1096,60 @@ mod tests {
         // A session (or catalog) inside: its database may be open.
         write(&folder.join("Day 1/Job/session.json"), "{}");
         refused(&folder, &dest, "holds a Rawtonic session or catalog");
+    }
+
+    /// Session photos never move out of their session (they would go
+    /// offline there): such a move is refused before anything moves, also
+    /// through a link and into another session. Within the session, into
+    /// it and anything a catalog holds move.
+    #[test]
+    fn photos_are_never_moved_out_of_their_session() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let job = root.join("Job");
+        rawtonic_catalog::Library::create(&job, "Job", rawtonic_catalog::Mode::Session).unwrap();
+        let photo = job.join("Capture/A.NEF");
+        write(&photo, "a");
+        write(&job.join("Capture/A.NEF.rrdata"), "{}");
+        fs::create_dir_all(job.join("Selects")).unwrap();
+        let drive = root.join("Drive/Shoots");
+        fs::create_dir_all(&drive).unwrap();
+        let other = root.join("Other");
+        rawtonic_catalog::Library::create(&other, "Other", rawtonic_catalog::Mode::Session)
+            .unwrap();
+        let source = [photo.to_string_lossy().into_owned()];
+        let refused = |to: &Path| {
+            let error = plan_move(&source, &to.to_string_lossy()).unwrap_err();
+            assert!(error.contains("out of the session Job"), "{error}");
+            assert!(error.contains("nothing was moved"), "{error}");
+        };
+        refused(&drive);
+        refused(&other.join("Capture"));
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&drive, job.join("Selects/Out")).unwrap();
+            refused(&job.join("Selects/Out"));
+        }
+        assert_eq!(read(&photo), "a");
+        let (steps, ..) = plan_move(&source, &job.join("Selects").to_string_lossy()).unwrap();
+        assert_eq!(steps.len(), 2);
+        // Into the session from outside, and a catalog's photos anywhere.
+        let loose = root.join("Loose/B.NEF");
+        write(&loose, "b");
+        plan_move(
+            &[loose.to_string_lossy().into_owned()],
+            &job.join("Selects").to_string_lossy(),
+        )
+        .unwrap();
+        let catalog = root.join("Catalog");
+        write(&catalog.join("catalog.json"), "{}");
+        let kept = catalog.join("Photos/C.NEF");
+        write(&kept, "c");
+        plan_move(
+            &[kept.to_string_lossy().into_owned()],
+            &drive.to_string_lossy(),
+        )
+        .unwrap();
     }
 
     /// A Trash folder that records what it was given (and refuses `refuse`).
