@@ -254,7 +254,7 @@
       "preview": "Rawtonic non può ancora sviluppare i dati RAW di «{{name}}», quindi mostra l'anteprima che la fotocamera ha salvato nel file. Questa anteprima non può essere esportata.",
       "previewNotice": "Rawtonic non può ancora sviluppare i dati RAW di «{{name}}» e mostra invece l'anteprima della fotocamera; non può essere esportata.",
       "report": "Segnala un problema con questo file…",
-      "reportInstead": "Preferisci non condividerlo pubblicamente? Invia invece una segnalazione di problema agli autori di Rawtonic; viene archiviata in privato.",
+      "reportInstead": "Preferisci non condividerlo pubblicamente? Invia invece una segnalazione di problema agli autori di Rawtonic; viene archiviata in privato e puoi allegare il file.",
       "shot": "Altrimenti scatta una nuova foto apposta: una scena diurna ben illuminata e ricca di dettagli, a ISO basso, a fuoco e ben esposta, con l'obiettivo montato, in orizzontale. Niente persone, niente target colore e niente serie con impostazioni diverse.",
       "title": "Aiuta a supportare questa fotocamera",
       "unreadable": "Rawtonic non riesce ad aprire «{{name}}». Se il file viene direttamente dalla fotocamera, probabilmente quella fotocamera o la sua modalità RAW non sono ancora supportate.",

@@ -241,7 +241,7 @@
       "preview": "Rawtonic kann die RAW-Daten von „{{name}}“ noch nicht entwickeln und zeigt deshalb die Vorschau, die die Kamera in der Datei gespeichert hat. Diese Vorschau kann nicht exportiert werden.",
       "previewNotice": "Rawtonic kann die RAW-Daten von „{{name}}“ noch nicht entwickeln und zeigt stattdessen die Vorschau der Kamera; sie kann nicht exportiert werden.",
       "report": "Problem mit dieser Datei melden…",
-      "reportInstead": "Lieber nicht öffentlich teilen? Schick stattdessen einen Problembericht an die Macher von Rawtonic; er wird privat abgelegt.",
+      "reportInstead": "Lieber nicht öffentlich teilen? Schick stattdessen einen Problembericht an die Macher von Rawtonic; er wird privat abgelegt, und du kannst die Datei anhängen.",
       "shot": "Wenn nicht, mach ein neues Foto dafür: eine helle, detailreiche Tageslichtszene bei niedriger ISO, scharf und richtig belichtet, mit angesetztem Objektiv, im Querformat. Keine Personen, keine Farbtafeln und keine Serien mit verschiedenen Einstellungen.",
       "title": "Diese Kamera unterstützen helfen",
       "unreadable": "Rawtonic kann „{{name}}“ nicht öffnen. Stammt die Datei direkt aus der Kamera, wird die Kamera oder ihr RAW-Modus wahrscheinlich noch nicht unterstützt.",

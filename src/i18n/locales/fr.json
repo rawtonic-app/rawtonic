@@ -254,7 +254,7 @@
       "preview": "Rawtonic ne peut pas encore développer les données RAW de « {{name}} » ; il affiche donc l'aperçu que l'appareil a enregistré dans le fichier. Cet aperçu ne peut pas être exporté.",
       "previewNotice": "Rawtonic ne peut pas encore développer les données RAW de « {{name}} » et affiche à la place l'aperçu de l'appareil ; il ne peut pas être exporté.",
       "report": "Signaler un problème avec ce fichier…",
-      "reportInstead": "Vous préférez ne pas le partager publiquement ? Envoyez plutôt un rapport de problème aux créateurs de Rawtonic ; il est classé en privé.",
+      "reportInstead": "Vous préférez ne pas le partager publiquement ? Envoyez plutôt un rapport de problème aux créateurs de Rawtonic ; il est classé en privé et vous pouvez y joindre le fichier.",
       "shot": "Sinon, prenez une nouvelle photo pour cela : une scène de jour bien éclairée et détaillée, à faible ISO, nette et bien exposée, objectif monté, en format paysage. Pas de personnes, pas de mires de couleur ni de séries avec différents réglages.",
       "title": "Aider à prendre en charge cet appareil",
       "unreadable": "Rawtonic ne peut pas ouvrir « {{name}} ». Si le fichier vient directement de l'appareil, cet appareil ou son mode RAW n'est probablement pas encore pris en charge.",

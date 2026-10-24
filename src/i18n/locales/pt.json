@@ -254,7 +254,7 @@
       "preview": "O Rawtonic ainda não consegue revelar os dados RAW de “{{name}}”, por isso mostra a pré-visualização que a câmera gravou no arquivo. Essa pré-visualização não pode ser exportada.",
       "previewNotice": "O Rawtonic ainda não consegue revelar os dados RAW de “{{name}}” e mostra a pré-visualização da câmera em seu lugar; ela não pode ser exportada.",
       "report": "Relatar um problema com este arquivo…",
-      "reportInstead": "Prefere não compartilhar publicamente? Envie em vez disso um relatório de problema aos criadores do Rawtonic; ele é arquivado em privado.",
+      "reportInstead": "Prefere não compartilhar publicamente? Envie em vez disso um relatório de problema aos criadores do Rawtonic; ele é arquivado em privado e você pode anexar o arquivo.",
       "shot": "Se não, tire uma foto nova para isso: uma cena diurna bem iluminada e com detalhes, com ISO baixo, em foco e bem exposta, com a objetiva montada, na horizontal. Sem pessoas, sem cartões de cor e sem séries com configurações diferentes.",
       "title": "Ajudar a suportar esta câmera",
       "unreadable": "O Rawtonic não consegue abrir “{{name}}”. Se o arquivo veio direto da câmera, provavelmente essa câmera ou o seu modo RAW ainda não é suportado.",

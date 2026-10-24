@@ -254,7 +254,7 @@
       "preview": "Rawtonic encara no pot revelar les dades RAW de «{{name}}», així que mostra la previsualització que la càmera va desar al fitxer. Aquesta previsualització no es pot exportar.",
       "previewNotice": "Rawtonic encara no pot revelar les dades RAW de «{{name}}» i en mostra la previsualització de la càmera; no es pot exportar.",
       "report": "Informa d'un problema amb aquest fitxer…",
-      "reportInstead": "Prefereixes no compartir-lo públicament? Envia en canvi un informe de problema als creadors de Rawtonic; s'arxiva en privat.",
+      "reportInstead": "Prefereixes no compartir-lo públicament? Envia en canvi un informe de problema als creadors de Rawtonic; s'arxiva en privat i hi pots adjuntar el fitxer.",
       "shot": "Si no, fes-ne una foto nova: una escena de dia ben il·luminada i amb detall, a ISO baix, enfocada i ben exposada, amb l'objectiu posat, en horitzontal. Sense persones, sense cartes de color i sense sèries amb ajustos diferents.",
       "title": "Ajuda a fer compatible aquesta càmera",
       "unreadable": "Rawtonic no pot obrir «{{name}}». Si el fitxer ve directament de la càmera, probablement aquesta càmera o el seu mode RAW encara no són compatibles.",
