@@ -11,21 +11,21 @@ const NAME: &str = "cc.rawtonic.test";
 #[cfg(not(target_vendor = "apple"))]
 const NAME: &str = "user.rawtonic.test";
 
-fn attribute(value: &str) -> Vec<Attribute> {
+pub(super) fn attribute(value: &str) -> Vec<Attribute> {
     vec![(NAME.as_bytes().to_vec(), value.as_bytes().to_vec())]
 }
 
 /// Gives `path` the test attribute; false where its volume cannot.
-fn tag(path: &Path, value: &str) -> bool {
+pub(super) fn tag(path: &Path, value: &str) -> bool {
     xattr::write(&fs::File::open(path).unwrap(), &attribute(value)).is_ok()
 }
 
-fn tags(path: &Path) -> Vec<Attribute> {
+pub(super) fn tags(path: &Path) -> Vec<Attribute> {
     xattr::read_path(path).unwrap()
 }
 
 /// Whether the target volume keeps attributes (else the move is refused).
-fn target_keeps(world: &World) -> bool {
+pub(super) fn target_keeps(world: &World) -> bool {
     let probe = world.target.join("probe");
     fs::create_dir(&probe).unwrap();
     let keeps = xattr::probe(&probe).is_ok();

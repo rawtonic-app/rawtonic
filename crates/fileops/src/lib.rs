@@ -644,7 +644,7 @@ impl Journal {
                     copy.created = true;
                 }
                 let original_mode = copy.original_mode;
-                let journaled = std::cell::Cell::new(false);
+                let opened = std::cell::Cell::new(false);
                 let mut written = volume::Written::default();
                 let copied = copy_verified(
                     &source,
@@ -652,10 +652,12 @@ impl Journal {
                     original_mode,
                     &mut tally,
                     &mut || {
+                        opened.set(true);
                         #[cfg(test)]
                         crash::point("in place opened");
+                        #[cfg(test)]
+                        crash::fail("in place journaled")?;
                         self.store_keeping_sync(id, state, &created)?;
-                        journaled.set(true);
                         #[cfg(test)]
                         crash::point("in place created");
                         Ok(())
@@ -667,7 +669,7 @@ impl Journal {
                 // own, also when it is no longer the start of that source
                 // (changed while it was copied).
                 let taken_back = copied.is_err()
-                    && journaled.get()
+                    && opened.get()
                     && is_kind(&source, false)
                     && !same_file(&source, &destination)
                     && written.is_in(&destination).unwrap_or(false)
@@ -676,8 +678,9 @@ impl Journal {
                     let _ = sync_folder(parent);
                 }
                 if let Target::OtherVolume { copy, .. } = &mut payload.steps[index].to {
-                    // A failure after the creation leaves a file to take back.
-                    copy.created = journaled.get() && !taken_back;
+                    // A failure after the creation leaves a file to take
+                    // back, also when journaling its creation failed.
+                    copy.created = opened.get() && !taken_back;
                 }
                 let (stamp, copy_stamp) = copied?;
                 if let Target::OtherVolume { copy, .. } = &mut payload.steps[index].to {
@@ -2332,7 +2335,8 @@ fn remove_in_place(source: &Path, destination: &Path, copy: &CopyState) -> Resul
         destination.display()
     );
     ensure!(
-        volume::is_prefix_of(destination, source)?,
+        volume::is_prefix_of(destination, source)?
+            && xattr::within(destination, &xattr::read_path(source)?)?,
         "{} differs from {} now; both were kept",
         destination.display(),
         source.display()
@@ -2522,6 +2526,7 @@ pub(crate) mod crash {
     thread_local! {
         static COUNTDOWN: Cell<Option<usize>> = const { Cell::new(None) };
         static AT_LABEL: Cell<Option<&'static str>> = const { Cell::new(None) };
+        static FAIL_AT: Cell<Option<&'static str>> = const { Cell::new(None) };
     }
     /// Crash at the `n`-th point reached from now (0 = the next).
     pub fn arm(n: usize) {
@@ -2534,6 +2539,18 @@ pub(crate) mod crash {
     /// Whether the armed crash has not happened (and disarms it).
     pub fn disarm() -> bool {
         AT_LABEL.take().is_some() | COUNTDOWN.take().is_some()
+    }
+    /// Fail (an error, not a crash) at the first point named `label`.
+    pub fn fail_at(label: &'static str) {
+        FAIL_AT.set(Some(label));
+    }
+    /// An error where [`fail_at`] named this point.
+    pub fn fail(label: &str) -> anyhow::Result<()> {
+        if FAIL_AT.get() == Some(label) {
+            FAIL_AT.set(None);
+            anyhow::bail!("simulated failure at {label}");
+        }
+        Ok(())
     }
     pub fn point(label: &str) {
         if AT_LABEL.get() == Some(label) {

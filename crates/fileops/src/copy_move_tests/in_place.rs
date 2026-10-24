@@ -249,6 +249,84 @@ fn a_copy_in_place_whose_source_vanished_stays() {
     );
 }
 
+/// An attribute another program gives a copy while it is made in place
+/// (a Finder comment): the copy fails its check and is kept with it, both
+/// when the failed copy is taken back at once and after a crash.
+#[test]
+fn an_attribute_given_to_a_copy_in_place_meanwhile_keeps_it() {
+    use super::attributes::{attribute, tag, tags, target_keeps};
+    struct Comment<'a>(&'a Path, Cell<bool>);
+    impl CopyObserver for Comment<'_> {
+        fn copied(&self, _: u64, _: u64) {
+            if !self.1.replace(true) {
+                assert!(tag(self.0, "comment"));
+            }
+        }
+    }
+    for crash in [false, true] {
+        let _in_place = InPlace::on();
+        let world = World::new();
+        if !target_keeps(&world) {
+            eprintln!("SKIP: the target volume keeps no extended attributes");
+            return;
+        }
+        let copy = world.target.join("A.RAF");
+        let journal = world.journal();
+        if crash {
+            crash::arm_at("copy block written");
+        }
+        let run = catch_unwind(AssertUnwindSafe(|| {
+            journal.execute_with(
+                "move",
+                "Move",
+                world.steps(),
+                &world.trash,
+                &Comment(&copy, Cell::new(false)),
+            )
+        }));
+        if crash {
+            assert!(!crash::disarm() && run.is_err());
+            journal.recover(&world.trash).unwrap();
+        } else {
+            assert!(run.unwrap().is_err());
+        }
+        assert_eq!(tags(&copy), attribute("comment"), "crash: {crash}");
+        assert_eq!(World::names(&world.target), ["A.RAF"]);
+        let op = journal.history(1).unwrap().remove(0);
+        assert_eq!(op.state, State::RolledBack);
+        assert!(op.note.unwrap().contains("both were kept"));
+        for (name, len) in FILES {
+            assert_eq!(
+                fs::read(world.source.join(name)).unwrap(),
+                content(name, len)
+            );
+        }
+    }
+}
+
+/// Journaling a creation fails after the file was created: the empty file
+/// is taken back and the move rolls back.
+#[test]
+fn a_creation_its_journal_missed_is_taken_back() {
+    let _in_place = InPlace::on();
+    let world = World::new();
+    let journal = world.journal();
+    crash::fail_at("in place journaled");
+    let error = journal
+        .execute("move", "Move", world.steps(), &world.trash)
+        .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("simulated failure"),
+        "{error:#}"
+    );
+    assert!(World::names(&world.target).is_empty());
+    assert_eq!(
+        journal.history(1).unwrap().remove(0).state,
+        State::RolledBack
+    );
+    world.assert_at(&world.source, &world.target);
+}
+
 /// A name taken before its creation is never touched; what was created
 /// is taken back.
 #[test]

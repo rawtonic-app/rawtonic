@@ -404,13 +404,15 @@ fn safe_copy_mode(recorded: Option<u32>, live: Option<u32>) -> u32 {
 
 pub(crate) const BLOCK: usize = 1 << 20;
 
-/// The bytes a copy wrote, as their length and a hash valid in this
-/// process only: tells a copy made in place that holds just what this move
-/// wrote from one something else wrote into.
+/// What a copy wrote: its bytes, as their length and a hash valid in this
+/// process only, and the attributes it was to be given. Tells a copy made
+/// in place that holds just what this move wrote from one something else
+/// wrote into or gave attributes.
 #[derive(Default)]
 pub(crate) struct Written {
     hasher: std::hash::DefaultHasher,
     len: u64,
+    attributes: Vec<xattr::Attribute>,
 }
 
 impl Written {
@@ -419,12 +421,17 @@ impl Written {
         self.len += bytes.len() as u64;
     }
 
-    /// Whether the file at `path` holds exactly the bytes written.
+    /// Whether the file at `path` holds exactly the bytes written, and no
+    /// attribute but those it was to be given.
     pub(crate) fn is_in(&self, path: &Path) -> Result<bool> {
         use std::hash::Hasher;
         let mut file =
             File::open(path).with_context(|| format!("Cannot read {}", path.display()))?;
-        if file.metadata()?.len() != self.len {
+        if file.metadata()?.len() != self.len
+            || !xattr::read(&file)?
+                .iter()
+                .all(|a| self.attributes.contains(a))
+        {
             return Ok(false);
         }
         uncached(&file);
@@ -552,6 +559,9 @@ pub(crate) fn copy_file_verified(
         tally.observer.copied(tally.done, tally.total);
         #[cfg(test)]
         crate::crash::point("copy block written");
+    }
+    if let Some(written) = written {
+        written.attributes.clone_from(&attributes);
     }
     xattr::write(&output, &attributes).map_err(|e| {
         xattr::cannot_keep(staged.parent().unwrap_or(staged), source, &attributes, &e)
