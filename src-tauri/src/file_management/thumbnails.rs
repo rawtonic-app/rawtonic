@@ -389,8 +389,16 @@ pub(crate) fn develop_thumbnail(
                 Cow::Owned(img)
             };
 
+            // A reduced source (proxy, fast decode) leaves Lightroom's spots
+            // and red eyes not yet placed out, as reduced copies do
+            // (`composite_patches_on_scaled_image`).
+            let retouch = if raw_scale_factor == 1.0 {
+                std::borrow::Cow::Borrowed(&adjustments)
+            } else {
+                rawtonic_engine::lightroom_retouch::without_pending(&adjustments)
+            };
             let composite_image =
-                image_loader::composite_patches_for_render(&pristine_source, &adjustments)?;
+                image_loader::composite_patches_for_render(&pristine_source, &retouch)?;
 
             let warped_image = apply_geometry_warp(composite_image, &meta.adjustments);
 

@@ -321,6 +321,25 @@ pub fn place(adjustments: &mut Value, width: u32, height: u32, orientation: Opti
     placed
 }
 
+/// `adjustments` without its pending spots and red eye corrections (for
+/// reduced copies of the base, `image_loader::composite_patches_on_scaled_image`),
+/// borrowed when it has none.
+pub fn without_pending(adjustments: &Value) -> std::borrow::Cow<'_, Value> {
+    if ["spots", "redEyes"]
+        .iter()
+        .all(|key| pending_items(adjustments, key).next().is_none())
+    {
+        return std::borrow::Cow::Borrowed(adjustments);
+    }
+    let mut kept = adjustments.clone();
+    for key in ["spots", "redEyes"] {
+        if let Some(items) = kept.get_mut(key).and_then(Value::as_array_mut) {
+            items.retain(|item| !item.get(PENDING).is_some_and(Value::is_object));
+        }
+    }
+    std::borrow::Cow::Owned(kept)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -597,17 +616,20 @@ mod tests {
     }
 
     #[test]
-    fn pending_items_land_in_place_on_a_reduced_copy() {
+    fn reduced_copies_leave_pending_items_out() {
+        // Only full-resolution bases place them exactly as the editor will;
+        // a reduced copy shows them once they are placed.
         let pending = json!({
             "spots": [{"mode": "heal", PENDING: {"x": 0.25, "y": 0.5, "radius": 0.08,
                 "sourceX": 0.25, "sourceY": 0.25, ORIENTATION: 6}}],
+            "redEyes": [{"kind": "red", PENDING: {"x": 0.75, "y": 0.25, "width": 0.03,
+                "height": 0.04, ORIENTATION: 6}}],
         });
-        // Half of the portrait above: the speck at (30, 20); the spot's
-        // radius, 0.08 of the raw's width (80 pixels in this copy), 6.4.
-        let half = photo(60, 80, (30.0, 20.0), (-50.0, -50.0));
-        let healed = crate::image_loader::composite_patches_on_scaled_image(&half, &pending, 0.5)
+        let half = photo(60, 80, (30.0, 20.0), (45.0, 60.0));
+        let reduced = crate::image_loader::composite_patches_on_scaled_image(&half, &pending, 0.5)
             .unwrap()
             .to_rgb32f();
-        assert!(healed.get_pixel(30, 20)[0] > 0.2);
+        assert_eq!(reduced.into_raw(), half.to_rgb32f().into_raw());
+        assert!(crate::image_loader::retouch_needs_full_resolution(&pending));
     }
 }

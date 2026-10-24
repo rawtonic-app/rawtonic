@@ -1007,6 +1007,10 @@ pub fn composite_patches_on_scaled_image(
         return composite_patches_on_image(base_image, current_adjustments);
     }
     let patched = composite_ai_patches_at(base_image, current_adjustments, scale)?;
+    // Lightroom's spots and red eyes not yet placed render on full-resolution
+    // bases only, where they are placed exactly as the editor will place them
+    // (`lightroom_retouch`); a reduced copy shows them once they are placed.
+    let current_adjustments = &crate::lightroom_retouch::without_pending(current_adjustments);
     // Red eyes are kept in units of the photo's long edge: they fit as they are.
     let patched = crate::red_eye::apply_red_eyes(&patched, current_adjustments).unwrap_or(patched);
     let spots = crate::spot_removal::scaled_spots_recipe(current_adjustments, f64::from(scale));
