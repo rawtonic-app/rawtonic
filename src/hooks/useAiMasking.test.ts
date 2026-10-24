@@ -545,37 +545,59 @@ describe("automatic AI masks from imported presets", () => {
     expect(invoke).toHaveBeenCalledTimes(1);
   });
 
-  it("asks again for a placement dropped because another photo opened (A, B, back to A)", async () => {
-    let answer: (value: unknown) => void = () => {};
+  /** Placement answers held until the test gives them, in order of asking. */
+  const heldPlacements = () => {
+    const answers: ((value: unknown) => void)[] = [];
     invoke.mockImplementation(
       (command: string) =>
         new Promise((resolve) => {
-          if (command === "place_lightroom_retouch") answer = resolve;
+          if (command === "place_lightroom_retouch") answers.push(resolve);
           else resolve(null);
         }),
     );
-    const open = (path: string) =>
-      useEditorStore.setState({
-        selectedImage: { path, isReady: true, isRaw: true, width: 6000, height: 4000 } as never,
-        adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), spots: [pendingSpot] as never },
-      });
-    open("/s/a.NEF");
+    return answers;
+  };
+  const openWithPendingSpot = (path: string, isReady = true) =>
+    useEditorStore.setState({
+      selectedImage: { path, isReady, isRaw: true, width: 6000, height: 4000 } as never,
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), spots: [pendingSpot] as never },
+    });
+  const placeCalls = () => invoke.mock.calls.filter(([command]) => command === "place_lightroom_retouch");
+
+  it("asks again for a placement dropped because another photo opened, even when A is open again first", async () => {
+    const answers = heldPlacements();
+    openWithPendingSpot("/s/a.NEF");
     const { rerender } = renderHook(() => useAiMasking());
-    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
-    // B opens before A's answer: the backend has B loaded and says so.
-    useEditorStore.setState({ selectedImage: { path: "/s/b.NEF", isReady: false } as never, adjustments: structuredClone(INITIAL_ADJUSTMENTS) });
+    await waitFor(() => expect(placeCalls()).toHaveLength(1));
+    // B opens, then A again, all before A's first answer: the backend had B
+    // loaded and says so only now.
+    useEditorStore.setState({ selectedImage: { path: "/s/b.NEF", isReady: false } as never });
     rerender();
-    await act(async () => answer(null));
-    open("/s/a.NEF");
-    useEditorStore.setState({ selectedImage: { ...useEditorStore.getState().selectedImage!, isReady: false } });
+    openWithPendingSpot("/s/a.NEF", false);
     rerender();
-    open("/s/a.NEF");
+    openWithPendingSpot("/s/a.NEF");
     rerender();
-    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
-    invoke.mockImplementation(async (command: string, args: never) =>
-      command === "place_lightroom_retouch" ? placeRetouch(command, args) : null,
-    );
-    await act(async () => answer(await placeRetouch("", { jsAdjustments: { spots: [pendingSpot], redEyes: [] } })));
+    expect(placeCalls()).toHaveLength(1);
+    await act(async () => answers[0](null));
+    await waitFor(() => expect(placeCalls()).toHaveLength(2));
+    await act(async () => answers[1](await placeRetouch("", { jsAdjustments: { spots: [pendingSpot], redEyes: [] } })));
+    await waitFor(() => expect(useEditorStore.getState().adjustments.spots?.[0]).toMatchObject({ id: "placed-spot" }));
+  });
+
+  it("drops a placement made for a geometry the photo no longer has and asks again for the current one", async () => {
+    const answers = heldPlacements();
+    openWithPendingSpot("/s/a.NEF");
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(placeCalls()).toHaveLength(1));
+    // Turned a quarter while the placement ran.
+    act(() => {
+      useEditorStore.setState((state) => ({ adjustments: { ...state.adjustments, orientationSteps: 1 } }));
+    });
+    await act(async () => answers[0](await placeRetouch("", { jsAdjustments: { spots: [pendingSpot], redEyes: [] } })));
+    expect(useEditorStore.getState().adjustments.spots?.[0]).toEqual(pendingSpot);
+    await waitFor(() => expect(placeCalls()).toHaveLength(2));
+    expect(placeCalls()[1][1]).toMatchObject({ jsAdjustments: { orientationSteps: 1 } });
+    await act(async () => answers[1](await placeRetouch("", { jsAdjustments: { spots: [pendingSpot], redEyes: [] } })));
     await waitFor(() => expect(useEditorStore.getState().adjustments.spots?.[0]).toMatchObject({ id: "placed-spot" }));
   });
 

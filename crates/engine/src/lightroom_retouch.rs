@@ -168,16 +168,13 @@ pub fn placed_spot(
     let to_mask = |p: (f64, f64)| crate::red_eye::to_mask(adjustments, frame, p);
     let round = |v: f64| (v * 100.0).round() / 100.0;
     let centre = to_mask(spot.centre)?;
-    let edge = to_mask((spot.centre.0 + spot.radius, spot.centre.1))?;
+    let radius = mask_radius(adjustments, frame, centre, spot.centre, spot.radius)?;
     let source = to_mask(spot.source)?;
     let mut placed = item.as_object()?.clone();
     placed.remove(PENDING);
     placed.insert("x".into(), json!(round(centre.0)));
     placed.insert("y".into(), json!(round(centre.1)));
-    placed.insert(
-        "radius".into(),
-        json!(round((edge.0 - centre.0).hypot(edge.1 - centre.1))),
-    );
+    placed.insert("radius".into(), json!(round(radius)));
     placed.insert("sourceX".into(), json!(round(source.0)));
     placed.insert("sourceY".into(), json!(round(source.1)));
     placed.insert("visible".into(), json!(true));
@@ -190,6 +187,37 @@ pub fn placed_spot(
         placed.insert("points".into(), Value::Array(points?));
     }
     Some(Value::Object(placed))
+}
+
+/// The mask-frame radius a spot centred at mask-frame `centre` (base pixel
+/// `base_centre`) needs to render with `radius` base pixels:
+/// `spot_removal::apply_spots` measures it from the centre to the point a
+/// radius along the mask frame's x, carried to the base, so it is solved
+/// for that (a stretching or distorting geometry scales the two frames
+/// unequally along different directions). None when it does not converge.
+fn mask_radius(
+    adjustments: &Value,
+    frame: (f64, f64),
+    centre: (f64, f64),
+    base_centre: (f64, f64),
+    radius: f64,
+) -> Option<f64> {
+    let rendered = |r: f64| {
+        let edge = crate::spot_removal::to_base(adjustments, frame, centre.0 + r, centre.1);
+        (edge.0 - base_centre.0).hypot(edge.1 - base_centre.1)
+    };
+    let mut r = radius;
+    for _ in 0..20 {
+        let got = rendered(r);
+        if !(got.is_finite() && got > 0.0) {
+            return None;
+        }
+        if (got - radius).abs() < 1e-3 {
+            return Some(r);
+        }
+        r *= radius / got;
+    }
+    None
 }
 
 /// A pending red eye correction (Lightroom's `crs:RedEyeInfo`, see
@@ -351,6 +379,10 @@ mod tests {
             json!({"orientationSteps": 1}),
             json!({"rotation": 7.5}),
             json!({"orientationSteps": 3, "flipHorizontal": true, "rotation": -3.0}),
+            // Stretching and distorting: the two frames' scales differ by
+            // direction, the rendered radius must still be Lightroom's.
+            json!({"orientationSteps": 1, "transformAspect": 100.0}),
+            json!({"transformDistortion": 35.0, "transformAspect": -40.0, "rotation": 2.0}),
         ] {
             let placed = placed_spot(&item, &geometry, 6000, 4000, None).unwrap();
             let frame = crate::spot_removal::mask_frame(&geometry, 6000, 4000);
@@ -362,7 +394,10 @@ mod tests {
             );
             let source = crate::spot_removal::to_base(&geometry, frame, n("sourceX"), n("sourceY"));
             assert!((source.0 - 1800.0).abs() < 0.02 && (source.1 - 2000.0).abs() < 0.02);
-            assert!((n("radius") - 60.0).abs() < 0.02, "{geometry}");
+            // The radius as `apply_spots` renders it.
+            let edge = crate::spot_removal::to_base(&geometry, frame, n("x") + n("radius"), n("y"));
+            let rendered = (edge.0 - base.0).hypot(edge.1 - base.1);
+            assert!((rendered - 60.0).abs() < 0.05, "{geometry}: {rendered}");
         }
     }
 
@@ -485,6 +520,7 @@ mod tests {
             json!({}),
             json!({"orientationSteps": 1}),
             json!({"rotation": 4.0}),
+            json!({"orientationSteps": 1, "transformAspect": 100.0}),
         ] {
             let mut recipe = pending.clone();
             for (k, v) in geometry.as_object().unwrap() {
