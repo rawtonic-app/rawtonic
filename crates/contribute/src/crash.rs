@@ -576,14 +576,38 @@ impl CrashStore {
 // while recording is on (the user did not choose Never).
 
 static ARMED: Mutex<Option<PathBuf>> = Mutex::new(None);
-static NOTED: AtomicBool = AtomicBool::new(false);
 static EXITING: AtomicBool = AtomicBool::new(false);
 static RECORDING: AtomicBool = AtomicBool::new(false);
+/// Held while the panic note is decided and written and while recording is
+/// switched: a note being written when Never is chosen is either deleted
+/// with the others or not written at all. Holds whether this recording
+/// period noted its first panic.
+static NOTE_LOCK: Mutex<bool> = Mutex::new(false);
+
+/// The note lock, waiting at most ~0.2 s: a panic while it is held (in the
+/// note's own write, say) must not hang the panicking thread.
+fn note_lock() -> Option<std::sync::MutexGuard<'static, bool>> {
+    for _ in 0..200 {
+        match NOTE_LOCK.try_lock() {
+            Ok(guard) => return Some(guard),
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => return Some(poisoned.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                std::thread::sleep(std::time::Duration::from_millis(1))
+            }
+        }
+    }
+    None
+}
 
 /// Turns the notes on or off (Never, or the preference). Off also deletes
-/// the notes this run already wrote.
+/// the notes this run already wrote; on starts a new period whose first
+/// panic is noted again.
 pub fn set_recording(store: &CrashStore, on: bool) {
+    let guard = note_lock();
     RECORDING.store(on, Ordering::SeqCst);
+    if let Some(mut noted) = guard {
+        *noted = false;
+    }
     if !on {
         store.remove_notes();
     }
@@ -613,9 +637,6 @@ pub fn note_panic(info: &std::panic::PanicHookInfo<'_>) {
     let Some(dir) = ARMED.try_lock().ok().and_then(|armed| armed.clone()) else {
         return;
     };
-    if NOTED.swap(true, Ordering::SeqCst) {
-        return;
-    }
     let message = if let Some(s) = info.payload().downcast_ref::<&'static str>() {
         (*s).to_string()
     } else if let Some(s) = info.payload().downcast_ref::<String>() {
@@ -642,6 +663,14 @@ pub fn note_panic(info: &std::panic::PanicHookInfo<'_>) {
         location,
         backtrace,
     };
+    // Decided and written under the lock, after the slow capture above.
+    let Some(mut noted) = note_lock() else {
+        return;
+    };
+    if *noted || !RECORDING.load(Ordering::SeqCst) {
+        return;
+    }
+    *noted = true;
     let _ = write_json(&dir.join(PANIC_NOTE), &note);
 }
 
@@ -1055,8 +1084,37 @@ mod tests {
         set_recording(&store, true);
         let first = std::panic::catch_unwind(|| panic!("boom at /Users/anna/secret.NEF"));
         let second = std::panic::catch_unwind(|| panic!("later"));
-        std::panic::set_hook(previous);
         assert!(first.is_err() && second.is_err());
+        let note: PanicNote = read_json(&store.path(PANIC_NOTE)).unwrap();
+        assert_eq!(note.message, "boom at /Users/anna/secret.NEF");
+        // Off deletes it; on again notes the next first panic.
+        set_recording(&store, false);
+        assert!(!store.path(PANIC_NOTE).exists());
+        set_recording(&store, true);
+        let _ = std::panic::catch_unwind(|| panic!("after on again"));
+        let again: PanicNote = read_json(&store.path(PANIC_NOTE)).unwrap();
+        assert_eq!(again.message, "after on again");
+        // Turning it off while other threads panic leaves no note behind.
+        for _ in 0..20 {
+            set_recording(&store, true);
+            let threads: Vec<_> = (0..4)
+                .map(|_| {
+                    std::thread::spawn(|| {
+                        for _ in 0..5 {
+                            let _ = std::panic::catch_unwind(|| panic!("racing"));
+                        }
+                    })
+                })
+                .collect();
+            set_recording(&store, false);
+            for thread in threads {
+                thread.join().unwrap();
+            }
+            assert!(!store.path(PANIC_NOTE).exists());
+        }
+        set_recording(&store, true);
+        let _ = std::panic::catch_unwind(|| panic!("boom at /Users/anna/secret.NEF"));
+        std::panic::set_hook(previous);
         let note: PanicNote = read_json(&store.path(PANIC_NOTE)).unwrap();
         assert_eq!(note.pid, std::process::id());
         assert_eq!(note.message, "boom at /Users/anna/secret.NEF");
