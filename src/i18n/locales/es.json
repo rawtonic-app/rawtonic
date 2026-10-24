@@ -242,6 +242,29 @@
       "failedRemoveImages": "Error al quitar las imágenes: {{err}}"
     }
   },
+  "contribute": {
+    "review": {
+      "bodyLabel": "Lo que se enviará",
+      "cancel": "Cancelar",
+      "close": "Cerrar",
+      "copyId": "Copiar ID",
+      "errors": {
+        "network": "No se pudo contactar con el relé de Rawtonic. Comprueba la conexión e inténtalo de nuevo.",
+        "notConfigured": "Esta versión de Rawtonic no puede enviar informes.",
+        "rateLimited": "Demasiados informes ahora mismo. Inténtalo más tarde.",
+        "refused": "El relé no confirmó este informe. Inténtalo más tarde.",
+        "unapproved": "El informe cambió después de mostrarse, así que no se envió. Cierra esto e inténtalo de nuevo."
+      },
+      "idHint": "Guarda este ID: con él puedes pedir que se borre lo que enviaste en cualquier momento.",
+      "intro": "Esto es exactamente lo que Rawtonic enviará a su relé, que lo archiva de forma privada para los creadores de Rawtonic. Rawtonic ha intentado quitar las rutas, tu nombre de usuario y los números de serie: revisa el texto de abajo, puede contener aún algo que no quieras enviar. No se envía nada hasta que pulses Enviar.",
+      "screenshot": "Captura de pantalla que se enviará",
+      "screenshotSize": "Captura de pantalla, {{size}}",
+      "send": "Enviar",
+      "sending": "Enviando…",
+      "sent": "Enviado. ¡Gracias!",
+      "size": "{{size}} en total"
+    }
+  },
   "editor": {
     "adjustments": {
       "actions": {

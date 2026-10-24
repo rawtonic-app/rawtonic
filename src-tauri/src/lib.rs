@@ -25,6 +25,7 @@ mod cache_utils;
 mod camera_profile;
 mod camera_tethering;
 mod collage;
+mod contribute;
 mod costyle;
 mod culling;
 mod editor_preview;
@@ -710,6 +711,10 @@ pub fn run() {
             editor_preview::prewarm_mask_source,
             cache_utils::clear_image_caches,
             update_check::check_updates,
+            contribute::contribution_available,
+            contribute::contribution_prepare,
+            contribute::contribution_send,
+            contribute::contribution_delete,
             app_settings::load_settings,
             app_settings::save_settings,
             ai_commands::generate_ai_depth_mask,

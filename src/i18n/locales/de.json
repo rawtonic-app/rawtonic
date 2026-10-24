@@ -229,6 +229,29 @@
       "failedRemoveImages": "Bilder entfernen fehlgeschlagen: {{err}}"
     }
   },
+  "contribute": {
+    "review": {
+      "bodyLabel": "Was gesendet wird",
+      "cancel": "Abbrechen",
+      "close": "Schließen",
+      "copyId": "ID kopieren",
+      "errors": {
+        "network": "Rawtonics Relay-Dienst ist nicht erreichbar. Prüfe die Verbindung und versuche es noch einmal.",
+        "notConfigured": "Diese Rawtonic-Version kann keine Berichte senden.",
+        "rateLimited": "Gerade zu viele Berichte. Versuche es später noch einmal.",
+        "refused": "Der Relay-Dienst hat diesen Bericht nicht bestätigt. Versuche es später noch einmal.",
+        "unapproved": "Der Bericht hat sich nach der Anzeige geändert und wurde nicht gesendet. Schließe dies und versuche es noch einmal."
+      },
+      "idHint": "Bewahre diese ID auf: Mit ihr kannst du das Gesendete jederzeit löschen lassen.",
+      "intro": "Genau das sendet Rawtonic an seinen Relay-Dienst, der es privat für die Macher von Rawtonic ablegt. Rawtonic hat versucht, Pfade, deinen Benutzernamen und Seriennummern zu entfernen – prüfe den Text unten, er kann noch etwas enthalten, das du nicht senden willst. Nichts wird gesendet, bevor du auf Senden klickst.",
+      "screenshot": "Bildschirmfoto, das gesendet wird",
+      "screenshotSize": "Bildschirmfoto, {{size}}",
+      "send": "Senden",
+      "sending": "Wird gesendet…",
+      "sent": "Gesendet. Danke!",
+      "size": "Insgesamt {{size}}"
+    }
+  },
   "editor": {
     "adjustments": {
       "actions": {

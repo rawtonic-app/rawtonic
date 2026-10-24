@@ -28,6 +28,7 @@ qa-control = []
 
 [dependencies]
 rawtonic-catalog = { path = "../crates/catalog", version = "0.1.0" }
+rawtonic-contribute = { path = "../crates/contribute", version = "0.1.0" }
 rawtonic-metadata = { path = "../crates/metadata", version = "0.1.0" }
 rawtonic-ingest = { path = "../crates/ingest", version = "0.1.0" }
 rawtonic-tether = { path = "../crates/tether", version = "0.1.0" }

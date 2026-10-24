@@ -242,6 +242,29 @@
       "failedRemoveImages": "Échec de la suppression des images : {{err}}"
     }
   },
+  "contribute": {
+    "review": {
+      "bodyLabel": "Ce qui sera envoyé",
+      "cancel": "Annuler",
+      "close": "Fermer",
+      "copyId": "Copier l'identifiant",
+      "errors": {
+        "network": "Impossible de joindre le relais de Rawtonic. Vérifiez la connexion et réessayez.",
+        "notConfigured": "Cette version de Rawtonic ne peut pas envoyer de rapports.",
+        "rateLimited": "Trop de rapports en ce moment. Réessayez plus tard.",
+        "refused": "Le relais n'a pas confirmé ce rapport. Réessayez plus tard.",
+        "unapproved": "Le rapport a changé après son affichage et n'a pas été envoyé. Fermez ceci et réessayez."
+      },
+      "idHint": "Conservez cet identifiant : il permet de faire supprimer ce que vous avez envoyé à tout moment.",
+      "intro": "Voici exactement ce que Rawtonic enverra à son relais, qui le classe en privé pour les auteurs de Rawtonic. Rawtonic a essayé de retirer les chemins, votre nom d'utilisateur et les numéros de série : vérifiez le texte ci-dessous, il peut encore contenir quelque chose que vous ne voulez pas envoyer. Rien n'est envoyé avant que vous cliquiez sur Envoyer.",
+      "screenshot": "Capture d'écran qui sera envoyée",
+      "screenshotSize": "Capture d'écran, {{size}}",
+      "send": "Envoyer",
+      "sending": "Envoi…",
+      "sent": "Envoyé. Merci !",
+      "size": "{{size}} au total"
+    }
+  },
   "editor": {
     "adjustments": {
       "actions": {
