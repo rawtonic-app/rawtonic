@@ -35,6 +35,9 @@ pub fn calculate_geometry_hash(adjustments: &serde_json::Value) -> u64 {
     if let Some(patches) = adjustments.get("aiPatches") {
         patches.to_string().hash(&mut hasher);
     }
+    if let Some(eyes) = adjustments.get("redEyes") {
+        eyes.to_string().hash(&mut hasher);
+    }
     if let Some(spots) = adjustments.get("spots") {
         spots.to_string().hash(&mut hasher);
     }
@@ -203,6 +206,9 @@ pub fn calculate_transform_hash(adjustments: &serde_json::Value) -> u64 {
     }
     hash_resampling(adjustments, &mut hasher);
 
+    if let Some(eyes) = adjustments.get("redEyes") {
+        eyes.to_string().hash(&mut hasher);
+    }
     if let Some(spots) = adjustments.get("spots") {
         spots.to_string().hash(&mut hasher);
     }

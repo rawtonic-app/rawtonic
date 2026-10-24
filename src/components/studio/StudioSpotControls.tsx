@@ -5,6 +5,7 @@ import { updateAdjustments } from "../../hooks/useEditorActions";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { shortcutHint } from "../../utils/keyboardUtils";
 import type { Spot } from "../../utils/adjustments";
+import StudioRedEyeControls from "./StudioRedEyeControls";
 
 type Settings = ReturnType<typeof useEditorStore.getState>["spotSettings"];
 
@@ -13,7 +14,8 @@ type Settings = ReturnType<typeof useEditorStore.getState>["spotSettings"];
  * and opacity. They apply to the selected spot and are what new spots get.
  * Remove's Detect objects (Lightroom's object-aware Remove) selects an
  * object by a click, a loose brush stroke over it or a box around it;
- * Shift adds to the selected removal and Alt subtracts from it. */
+ * Shift adds to the selected removal and Alt subtracts from it. Red eye
+ * places red eye and pet eye corrections (`StudioRedEyeControls`). */
 export default function StudioSpotControls() {
   const { t } = useTranslation();
   const settings = useEditorStore((s) => s.spotSettings);
@@ -25,7 +27,8 @@ export default function StudioSpotControls() {
   const activeSpot = useEditorStore((s) =>
     s.adjustments.spots?.find((spot) => spot.id === s.activeSpotId),
   );
-  const shown: Settings = activeSpot
+  const redEye = settings.mode === "redEye";
+  const shown: Settings = activeSpot && !redEye
     ? {
         mode: activeSpot.mode,
         size: Math.round(activeSpot.radius),
@@ -39,11 +42,19 @@ export default function StudioSpotControls() {
 
   const set = (patch: Partial<Settings>) => {
     const { setEditor, spotSettings } = useEditorStore.getState();
-    setEditor({ spotSettings: { ...spotSettings, ...patch } });
-    if (!activeSpot) return;
+    // Into or out of Red eye: the selection belongs to the other mode.
+    const switching =
+      patch.mode !== undefined && (patch.mode === "redEye") !== (spotSettings.mode === "redEye");
+    setEditor({
+      spotSettings: { ...spotSettings, ...patch },
+      ...(switching && { activeSpotId: null }),
+    });
+    if (!activeSpot || switching) return;
     // A spot stays heal or clone; Remove makes new removals only.
     const spotPatch: Partial<Spot> = {
-      ...(patch.mode && patch.mode !== "remove" && { mode: patch.mode }),
+      ...(patch.mode &&
+        patch.mode !== "remove" &&
+        patch.mode !== "redEye" && { mode: patch.mode }),
       ...(patch.size !== undefined && { radius: patch.size }),
       ...(patch.feather !== undefined && { feather: patch.feather }),
       ...(patch.opacity !== undefined && { opacity: patch.opacity }),
@@ -59,7 +70,7 @@ export default function StudioSpotControls() {
   return (
     <div className="studio-spot-controls">
       <div className="studio-segments" role="radiogroup" aria-label={t("spotRemoval.mode")}>
-        {(["remove", "heal", "clone"] as const).map((mode) => (
+        {(["remove", "heal", "clone", "redEye"] as const).map((mode) => (
           <button
             key={mode}
             type="button"
@@ -71,6 +82,7 @@ export default function StudioSpotControls() {
           </button>
         ))}
       </div>
+      {redEye && <StudioRedEyeControls />}
       {shown.mode === "remove" && (
         <label
           className="studio-inline studio-check"
@@ -91,7 +103,7 @@ export default function StudioSpotControls() {
           {t("spotRemoval.detectObjects")}
         </label>
       )}
-      {detectObjects ? (
+      {redEye ? null : detectObjects ? (
         <>
           <div
             className="studio-segments"
@@ -169,15 +181,17 @@ export default function StudioSpotControls() {
           )}
         </>
       )}
-      <label className="studio-inline studio-check">
-        <input
-          type="checkbox"
-          checked={visualize.on}
-          onChange={(e) => setVisualize({ on: e.target.checked })}
-        />
-        {t("spotRemoval.visualize")}
-      </label>
-      {visualize.on && (
+      {!redEye && (
+        <label className="studio-inline studio-check">
+          <input
+            type="checkbox"
+            checked={visualize.on}
+            onChange={(e) => setVisualize({ on: e.target.checked })}
+          />
+          {t("spotRemoval.visualize")}
+        </label>
+      )}
+      {!redEye && visualize.on && (
         <AdjustmentControl
           label={t("spotRemoval.sensitivity")}
           ariaLabel={t("spotRemoval.sensitivityAria")}

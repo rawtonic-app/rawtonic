@@ -1590,6 +1590,7 @@
     "modes": {
       "clone": "Cloner",
       "heal": "Corriger",
+      "redEye": "Yeux rouges",
       "remove": "Supprimer"
     },
     "objectSelect": "Sélection",
@@ -1599,6 +1600,22 @@
     },
     "opacity": "Opacité",
     "opacityAria": "Opacité de la zone",
+    "redEye": {
+      "catchlight": "Ajouter un reflet",
+      "darken": "Assombrir",
+      "darkenAria": "Assombrissement (yeux rouges)",
+      "hint": "Cliquez sur un œil pour corriger sa pupille ; faites glisser pour régler le cercle de recherche.",
+      "kind": "Type d’œil",
+      "kinds": {
+        "pet": "Yeux d’animaux",
+        "red": "Yeux rouges"
+      },
+      "noPetEye": "Aucun œil d’animal trouvé ici. Cliquez sur la pupille ou tracez un cercle plus grand.",
+      "noRedEye": "Aucun œil rouge trouvé ici. Cliquez sur la pupille ou tracez un cercle plus grand.",
+      "overlay": "Yeux rouges : cliquez sur un œil ou faites glisser pour régler le cercle de recherche",
+      "pupilSize": "Taille de la pupille",
+      "pupilSizeAria": "Taille de la pupille (yeux rouges)"
+    },
     "sensitivity": "Sensibilité",
     "sensitivityAria": "Sensibilité de la visualisation des défauts",
     "size": "Taille",
@@ -1881,6 +1898,7 @@
         "mask": "Masque",
         "opened": "Image ouverte",
         "other": "Réglage",
+        "redEyes": "Yeux rouges",
         "spots": "Suppression des taches",
         "title": "Historique"
       },

@@ -1590,6 +1590,7 @@
     "modes": {
       "clone": "Clona",
       "heal": "Corregeix",
+      "redEye": "Ulls vermells",
       "remove": "Elimina"
     },
     "objectSelect": "Selecció",
@@ -1599,6 +1600,22 @@
     },
     "opacity": "Opacitat",
     "opacityAria": "Opacitat de la taca",
+    "redEye": {
+      "catchlight": "Afegeix un reflex",
+      "darken": "Enfosquir",
+      "darkenAria": "Enfosquiment (ulls vermells)",
+      "hint": "Feu clic en un ull per corregir-ne la pupil·la; arrossegueu per ajustar el cercle de cerca.",
+      "kind": "Tipus d’ull",
+      "kinds": {
+        "pet": "Ulls d’animals",
+        "red": "Ulls vermells"
+      },
+      "noPetEye": "No s’ha trobat cap ull d’animal aquí. Feu clic a la pupil·la o arrossegueu un cercle més gran.",
+      "noRedEye": "No s’han trobat ulls vermells aquí. Feu clic a la pupil·la o arrossegueu un cercle més gran.",
+      "overlay": "Ulls vermells: feu clic en un ull o arrossegueu per ajustar el cercle de cerca",
+      "pupilSize": "Mida de la pupil·la",
+      "pupilSizeAria": "Mida de la pupil·la (ulls vermells)"
+    },
     "sensitivity": "Sensibilitat",
     "sensitivityAria": "Sensibilitat de la visualització de taques",
     "size": "Mida",
@@ -1881,6 +1898,7 @@
         "mask": "Màscara",
         "opened": "Imatge oberta",
         "other": "Ajustament",
+        "redEyes": "Ulls vermells",
         "spots": "Eliminació de taques",
         "title": "Historial"
       },

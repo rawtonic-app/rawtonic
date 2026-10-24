@@ -38,6 +38,7 @@ pub mod output_color_space;
 pub mod patch_fill;
 pub mod point_curve;
 pub mod proxy_codec;
+pub mod red_eye;
 pub mod region_curve;
 pub mod relight;
 pub mod session_layout;

@@ -1495,6 +1495,7 @@
     "modes": {
       "clone": "仿製",
       "heal": "修復",
+      "redEye": "紅眼",
       "remove": "移除"
     },
     "objectSelect": "選取",
@@ -1504,6 +1505,22 @@
     },
     "opacity": "不透明度",
     "opacityAria": "污點不透明度",
+    "redEye": {
+      "catchlight": "加入眼神光",
+      "darken": "變暗",
+      "darkenAria": "紅眼校正變暗",
+      "hint": "按一下眼睛以校正瞳孔；拖曳可設定搜尋圓的大小。",
+      "kind": "眼睛類型",
+      "kinds": {
+        "pet": "寵物眼",
+        "red": "紅眼"
+      },
+      "noPetEye": "此處找不到寵物眼。請按一下瞳孔或拖出更大的圓。",
+      "noRedEye": "此處找不到紅眼。請按一下瞳孔或拖出更大的圓。",
+      "overlay": "紅眼：按一下眼睛或拖曳以設定搜尋圓的大小",
+      "pupilSize": "瞳孔大小",
+      "pupilSizeAria": "紅眼校正瞳孔大小"
+    },
     "sensitivity": "靈敏度",
     "sensitivityAria": "顯示污點的靈敏度",
     "size": "大小",
@@ -1786,6 +1803,7 @@
         "mask": "遮色片",
         "opened": "開啟影像",
         "other": "調整",
+        "redEyes": "紅眼",
         "spots": "污點移除",
         "title": "步驟記錄"
       },

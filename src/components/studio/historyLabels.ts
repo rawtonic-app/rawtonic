@@ -49,6 +49,7 @@ const TOOLS: [match: RegExp, label: ParseKeys][] = [
   [/^(vignette|grain|glow|halation|flare|lut|lensBlur)/, "studio.develop.groups.effects"],
   [/^faceRetouch$/, "studio.develop.groups.faceRetouch"],
   [/^spots$/, "studio.develop.history.spots"],
+  [/^redEyes$/, "studio.develop.history.redEyes"],
 ];
 
 /** Keys that change with an edit but say nothing about it. */

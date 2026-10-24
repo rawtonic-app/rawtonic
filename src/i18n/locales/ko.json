@@ -1495,6 +1495,7 @@
     "modes": {
       "clone": "복제",
       "heal": "복구",
+      "redEye": "적목",
       "remove": "제거"
     },
     "objectSelect": "선택",
@@ -1504,6 +1505,22 @@
     },
     "opacity": "불투명도",
     "opacityAria": "스팟 불투명도",
+    "redEye": {
+      "catchlight": "캐치라이트 추가",
+      "darken": "어둡게",
+      "darkenAria": "적목 보정 어둡게",
+      "hint": "눈을 클릭하면 동공을 보정합니다. 드래그하면 검색할 원의 크기를 정합니다.",
+      "kind": "눈 종류",
+      "kinds": {
+        "pet": "반려동물 눈",
+        "red": "적목"
+      },
+      "noPetEye": "여기서 반려동물 눈을 찾지 못했습니다. 동공을 클릭하거나 더 큰 원을 드래그하세요.",
+      "noRedEye": "여기서 적목을 찾지 못했습니다. 동공을 클릭하거나 더 큰 원을 드래그하세요.",
+      "overlay": "적목: 눈을 클릭하거나 드래그해 검색할 원의 크기를 정하세요",
+      "pupilSize": "동공 크기",
+      "pupilSizeAria": "적목 보정 동공 크기"
+    },
     "sensitivity": "감도",
     "sensitivityAria": "스팟 시각화 감도",
     "size": "크기",
@@ -1786,6 +1803,7 @@
         "mask": "마스크",
         "opened": "이미지 열기",
         "other": "조정",
+        "redEyes": "적목",
         "spots": "잡티 제거",
         "title": "작업 내역"
       },

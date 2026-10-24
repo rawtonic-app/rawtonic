@@ -756,7 +756,7 @@ pub fn find_source(
 
 /// The mask-frame point that lies `offset` base pixels from mask-frame
 /// `point`, through the inverse of the geometry's local derivative.
-fn to_mask_point(
+pub(crate) fn to_mask_point(
     adjustments: &Value,
     frame: (f64, f64),
     point: (f64, f64),
