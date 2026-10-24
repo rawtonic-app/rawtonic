@@ -1,16 +1,20 @@
 //! A 3D colour look-up table as the GPU pipeline samples it (`size`³ RGB
-//! entries) and its parsers for .cube, .3dl and HaldCLUT images. The app's
-//! `lut_processing` adds Android content URIs and the LUT library.
+//! entries, optionally after a 1D shaper) and its parsers for .cube, .3dl
+//! and HaldCLUT images. The app's `lut_processing` adds Android content
+//! URIs and the LUT library.
 use anyhow::anyhow;
 use image::{DynamicImage, GenericImageView};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Cursor};
 use std::path::Path;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Lut {
     pub size: u32,
     pub data: Vec<f32>,
+    /// The stage a colour passes before the table (a .cube's 1D shaper or
+    /// input range); `None`: the table spans the unit cube.
+    pub shaper: Option<Shaper>,
 }
 
 /// Refuses network, device and traversal paths for LUT files.
@@ -94,9 +98,7 @@ pub fn parse_lut_bytes_for_import(extension: &str, bytes: Vec<u8>) -> anyhow::Re
         parse_cube_3d(BufReader::new(Cursor::new(&bytes))),
         parse_cube_full(BufReader::new(Cursor::new(&bytes))),
     ) {
-        (Ok(earlier), Ok(full)) if earlier.size == full.size && earlier.data == full.data => {
-            Ok(earlier)
-        }
+        (Ok(earlier), Ok(full)) if earlier == full => Ok(earlier),
         (Ok(_), _) => Err(anyhow!(
             "A 3D table with a domain other than 0–1 (DOMAIN_MIN/MAX or LUT_3D_INPUT_RANGE) is not supported"
         )),
@@ -200,6 +202,7 @@ fn parse_cube_3d(reader: impl BufRead) -> anyhow::Result<Lut> {
     Ok(Lut {
         size: lut_size,
         data,
+        shaper: None,
     })
 }
 
@@ -210,17 +213,22 @@ const MAX_1D_SIZE: usize = 65536;
 /// Grid a 1D table is baked into. A 1D curve sampled on the 3D
 /// grid is interpolated linearly per channel between grid points
 /// (tetrahedral interpolation of a per-channel curve is linear per
-/// channel); [`checked_bake`] refuses a file whose curve that misses.
+/// channel); a curve [`checked_bake`] finds that misses is read through the
+/// shaper stage instead.
 const BAKED_SIZE: u32 = 65;
 
 /// Reads a .cube file (Adobe's Cube LUT Specification 1.0 and the
-/// shaper form Resolve writes): a 3D table (`LUT_3D_SIZE`) over the unit
-/// domain, used as written, or a 1D table (`LUT_1D_SIZE`) with
-/// `DOMAIN_MIN`/`DOMAIN_MAX` (per channel) or `LUT_1D_INPUT_RANGE` (all
-/// channels), baked into a [`BAKED_SIZE`]³ table over the unit domain
-/// (checked against the file's reading), which the pipeline samples like
-/// any other. A 3D table after a shaper or over another range is refused
-/// with the reason. Other keywords are ignored.
+/// shaper form Resolve writes): a 3D table (`LUT_3D_SIZE`), a 1D table
+/// (`LUT_1D_SIZE`) or a 1D shaper followed by a 3D table. The first table
+/// spans `DOMAIN_MIN`/`DOMAIN_MAX` (per channel) or its
+/// `LUT_1D_INPUT_RANGE`/`LUT_3D_INPUT_RANGE` (all channels); a shaper's 3D
+/// table reads the shaper's output over its `LUT_3D_INPUT_RANGE`. A 3D
+/// table over the unit domain is used as written; one after a shaper or
+/// over another range gets a [`Shaper`] stage, which the pipeline samples
+/// exactly before the table. A 1D table alone is baked into a
+/// [`BAKED_SIZE`]³ table over the unit domain when that is within one 8-bit
+/// code of the file's reading (provably, see [`checked_bake`]), otherwise
+/// read through the shaper stage. Other keywords are ignored.
 fn parse_cube_full(reader: impl BufRead) -> anyhow::Result<Lut> {
     let mut size_3d: Option<u32> = None;
     let mut size_1d: Option<usize> = None;
@@ -355,41 +363,88 @@ fn parse_cube_full(reader: impl BufRead) -> anyhow::Result<Lut> {
         size: n,
         data: data[..n * 3].to_vec(),
         domain: domain_1d,
+        table_domain: domain_3d,
     });
-    let table = size_3d.map(|n| Lut {
+    let table = |n: u32, shaper| Lut {
         size: n,
         data: data[entries_1d * 3..].to_vec(),
-    });
-    match (shaper, table) {
+        shaper,
+    };
+    match (shaper, size_3d) {
         // As written (the parser before 1D tables read these).
-        (None, Some(table)) if domain_3d == unit => Ok(table),
-        // Baked into one grid, a 3D table read over another grid (a
-        // shaper's output or another range) can stray anywhere inside its
-        // cells, beyond what a check can bound; it needs a shaper stage in
-        // the shader.
-        (None, Some(_)) => Err(anyhow!(
-            "A 3D table with an input range other than 0–1 is not supported"
+        (None, Some(n)) if domain_3d == unit => Ok(table(n, None)),
+        // A 3D table over another range: its range as a straight shaper.
+        (None, Some(n)) => Ok(table(
+            n,
+            Some(Shaper {
+                size: 2,
+                data: domain_3d.0.into_iter().chain(domain_3d.1).collect(),
+                domain: domain_3d,
+                table_domain: domain_3d,
+            }),
         )),
-        (Some(_), Some(_)) => Err(anyhow!("A 3D table after a 1D shaper is not supported")),
+        // Baked into one grid, a 3D table read over another grid can
+        // stray anywhere inside its cells, beyond what a check can bound;
+        // the shaper stage reads the file exactly.
+        (Some(shaper), Some(n)) => Ok(table(n, Some(shaper))),
         (Some(shaper), None) => {
             checked_bake(BAKED_SIZE, &breakpoints(&shaper), |rgb| shaper.apply(rgb))
+                .or_else(|_| Ok(shaper.alone()))
         }
         (None, None) => Err(anyhow!("No table in .cube file")),
     }
 }
 
 /// A per-channel input range: minima and maxima.
-type Domain = ([f32; 3], [f32; 3]);
+pub type Domain = ([f32; 3], [f32; 3]);
 
 /// A per-channel curve of `size` entries over `domain`, linearly
-/// interpolated; inputs outside the domain take its end values.
-struct Shaper {
-    size: usize,
-    data: Vec<f32>,
-    domain: Domain,
+/// interpolated (inputs outside the domain take its end values), whose
+/// output the 3D table reads over `table_domain`. Mirrored by the shader's
+/// `lut_table_input`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Shaper {
+    pub size: usize,
+    /// `size` RGB entries.
+    pub data: Vec<f32>,
+    pub domain: Domain,
+    pub table_domain: Domain,
 }
 
 impl Shaper {
+    /// Where the 3D table is read for `rgb`: the curve's output mapped from
+    /// `table_domain` to the unit cube, clamped.
+    pub fn table_input(&self, rgb: [f32; 3]) -> [f32; 3] {
+        normalize(self.apply(rgb), self.table_domain)
+    }
+
+    /// The curve on its own: a straight 2³ table spanning the curve's
+    /// output range, which tetrahedral interpolation reads back exactly.
+    fn alone(self) -> Lut {
+        let mut lo = [f32::INFINITY; 3];
+        let mut hi = [f32::NEG_INFINITY; 3];
+        for entry in self.data.as_chunks::<3>().0 {
+            for c in 0..3 {
+                lo[c] = lo[c].min(entry[c]);
+                hi[c] = hi[c].max(entry[c]);
+            }
+        }
+        // A flat channel still needs a range to divide by.
+        for c in 0..3 {
+            if hi[c] <= lo[c] {
+                hi[c] = lo[c] + 1.0;
+            }
+        }
+        let mut lut = bake(2, |rgb| {
+            std::array::from_fn(|c| lo[c] + (hi[c] - lo[c]) * rgb[c])
+        });
+        lut.shaper = Some(Shaper {
+            table_domain: (lo, hi),
+            ..self
+        });
+        lut
+    }
+
     fn apply(&self, rgb: [f32; 3]) -> [f32; 3] {
         let x = normalize(rgb, self.domain);
         std::array::from_fn(|c| {
@@ -487,13 +542,22 @@ fn bake(size: u32, transform: impl Fn([f32; 3]) -> [f32; 3]) -> Lut {
             }
         }
     }
-    Lut { size, data }
+    Lut {
+        size,
+        data,
+        shaper: None,
+    }
 }
 
 impl Lut {
-    /// The table at `rgb` (unit cube, clamped) by tetrahedral
-    /// interpolation, as the shader's `sample_lut_tetrahedral` reads it.
+    /// The table at `rgb` (unit cube, clamped; after the shaper when there
+    /// is one) by tetrahedral interpolation, as the shader reads it
+    /// (`sample_lut_tetrahedral` of `lut_table_input`).
     pub fn sample(&self, rgb: [f32; 3]) -> [f32; 3] {
+        let rgb = match &self.shaper {
+            Some(shaper) => shaper.table_input(rgb),
+            None => rgb,
+        };
         let n = self.size as usize;
         let scaled = rgb.map(|v| v.clamp(0.0, 1.0) * (n - 1) as f32);
         let base = scaled.map(|v| (v.floor() as usize).min(n - 1));
@@ -589,7 +653,11 @@ fn parse_3dl(reader: impl BufRead) -> anyhow::Result<Lut> {
         ));
     }
 
-    Ok(Lut { size, data })
+    Ok(Lut {
+        size,
+        data,
+        shaper: None,
+    })
 }
 
 fn parse_hald(image: DynamicImage) -> anyhow::Result<Lut> {
@@ -621,7 +689,11 @@ fn parse_hald(image: DynamicImage) -> anyhow::Result<Lut> {
         data.push(pixel[2] as f32 / 255.0);
     }
 
-    Ok(Lut { size, data })
+    Ok(Lut {
+        size,
+        data,
+        shaper: None,
+    })
 }
 
 #[cfg(test)]
@@ -735,61 +807,196 @@ mod tests {
         assert_eq!(import(&unit).unwrap().data, cube(&unit).unwrap().data);
     }
 
+    /// The curve a .cube's 1D table describes at `x`: its entries over
+    /// `lo..hi`, linear between them, end values outside.
+    fn curve(entries: &[f32], lo: f32, hi: f32, x: f32) -> f32 {
+        let p = ((x - lo) / (hi - lo)).clamp(0.0, 1.0) * (entries.len() - 1) as f32;
+        let i = (p.floor() as usize).min(entries.len() - 2);
+        entries[i] + (entries[i + 1] - entries[i]) * (p - i as f32)
+    }
+
+    /// Inputs over and beyond the unit cube: the grey axis, then scattered
+    /// colours.
+    fn probes() -> Vec<[f32; 3]> {
+        let mut seed = 0x2545_f491u32;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            (seed >> 8) as f32 / (1u32 << 24) as f32 * 1.2 - 0.1
+        };
+        let mut probes: Vec<[f32; 3]> = (0..=512).map(|i| [i as f32 / 512.0; 3]).collect();
+        probes.extend((0..4096).map(|_| [next(), next(), next()]));
+        probes
+    }
+
     #[test]
-    fn a_curve_too_steep_for_the_table_is_refused() {
+    fn a_curve_too_steep_for_the_table_is_read_through_the_shaper() {
         // Square root over 1025 entries: near black the 65-point grid
-        // misses it by far more than one 8-bit code.
+        // misses it by far more than one 8-bit code; the shaper stage reads
+        // the file's own curve.
+        let entries: Vec<f32> = (0..1025).map(|i| (i as f32 / 1024.0).sqrt()).collect();
         let mut text = "LUT_1D_SIZE 1025\n".to_string();
-        for i in 0..1025 {
-            let v = (i as f32 / 1024.0).sqrt();
+        for v in &entries {
             text.push_str(&format!("{v} {v} {v}\n"));
         }
-        let reason = cube(&text).unwrap_err().to_string();
-        assert!(reason.contains("too steep"), "{reason}");
-        assert!(import(&text).is_err());
+        let lut = cube(&text).unwrap();
+        assert_eq!(lut.size, 2);
+        assert!(lut.shaper.is_some());
+        for rgb in probes() {
+            let want = rgb.map(|x| curve(&entries, 0.0, 1.0, x));
+            assert!(close(lut.sample(rgb), want, 1e-6), "{rgb:?}");
+        }
+        assert_eq!(import(&text).unwrap(), lut);
         // A spike between the grid's points (65536 entries, one red entry
-        // lit) is found, though no fixed probe meets it.
+        // lit) is read as written, the flat channels too.
         let mut spike = "LUT_1D_SIZE 65536\n".to_string();
         for i in 0..65536 {
-            spike.push_str(if i == 1000 { "1 0 0\n" } else { "0 0 0\n" });
+            spike.push_str(if i == 1000 { "1 0.5 0\n" } else { "0 0.5 0\n" });
         }
-        assert!(cube(&spike).unwrap_err().to_string().contains("too steep"));
-        // A gentle curve (gamma 1/1.2) is within the bound.
+        let lut = cube(&spike).unwrap();
+        let at = |i: f32| i / 65535.0;
+        assert!(close(
+            lut.sample([at(1000.0), 0.3, 0.9]),
+            [1.0, 0.5, 0.0],
+            1e-6
+        ));
+        assert!(close(
+            lut.sample([at(1000.5), 0.0, 0.0]),
+            [0.5, 0.5, 0.0],
+            1e-4
+        ));
+        assert!(close(
+            lut.sample([at(1002.0), 1.0, 1.0]),
+            [0.0, 0.5, 0.0],
+            1e-6
+        ));
+        // A gentle curve (gamma 1/1.2) is within the bound: baked as
+        // before.
         let mut text = "LUT_1D_SIZE 1025\n".to_string();
         for i in 0..1025 {
             let v = (i as f32 / 1024.0).powf(1.0 / 1.2);
             text.push_str(&format!("{v} {v} {v}\n"));
         }
-        assert!(cube(&text).is_ok());
+        let lut = cube(&text).unwrap();
+        assert_eq!((lut.size, lut.shaper), (BAKED_SIZE, None));
+    }
+
+    /// Resolve's form: a 1D shaper of `entries` per channel over
+    /// `range_1d`, then a 3D table of `look` over `range_3d`.
+    fn shaper_cube(
+        entries: &[[f32; 3]],
+        range_1d: (f32, f32),
+        size: u32,
+        range_3d: (f32, f32),
+        look: impl Fn([f32; 3]) -> [f32; 3],
+    ) -> String {
+        let mut text = format!(
+            "TITLE \"s\"\nLUT_1D_SIZE {}\nLUT_1D_INPUT_RANGE {} {}\nLUT_3D_SIZE {size}\nLUT_3D_INPUT_RANGE {} {}\n",
+            entries.len(),
+            range_1d.0,
+            range_1d.1,
+            range_3d.0,
+            range_3d.1
+        );
+        for [r, g, b] in entries {
+            text.push_str(&format!("{r:.9} {g:.9} {b:.9}\n"));
+        }
+        let table = table_3d(size, "", range_3d.0, range_3d.1, look);
+        text.push_str(
+            table
+                .split_once(&format!("LUT_3D_SIZE {size}\n"))
+                .unwrap()
+                .1,
+        );
+        text
     }
 
     #[test]
-    fn a_3d_table_after_a_shaper_or_over_another_range_is_refused() {
-        // Resolve's form: a shaper, then a 3D table. Baked into one grid
-        // such a table can stray anywhere inside its cells (a lone lit
-        // entry read through a near-linear shaper: off by 0.5 between the
-        // points), so it is refused until the shader has a shaper stage.
-        let mut text = "LUT_1D_SIZE 2\nLUT_1D_INPUT_RANGE 0 1\nLUT_3D_SIZE 9\n".to_string();
-        text.push_str("0.0078125 0.0078125 0.0078125\n1 1 1\n");
-        let table = table_3d(9, "", 0.0, 1.0, |rgb| rgb);
-        text.push_str(table.split_once("LUT_3D_SIZE 9\n").unwrap().1);
-        assert!(cube(&text).unwrap_err().to_string().contains("shaper"));
-        let ranged = table_3d(9, "LUT_3D_INPUT_RANGE -0.25 1.25\n", -0.25, 1.25, |rgb| rgb);
-        // The earlier reader ignored the range line: saved edits keep that
-        // reading, an import refuses it.
-        assert!(cube(&ranged).is_ok());
-        assert!(import(&ranged).is_err());
-        let after_size = ranged.replacen(
-            "LUT_3D_INPUT_RANGE -0.25 1.25\nLUT_3D_SIZE 9\n",
+    fn a_3d_table_after_a_log_shaper_reads_the_shaper_output() {
+        // A log-style shaper: scene values 0..16 to log2 over -8..4 stops,
+        // mapped to 0.05..0.95 (beyond the 3D range at the ends), then an
+        // affine look over 0..1, which tetrahedral interpolation reads
+        // exactly: the result is the look of the file's own curve.
+        let log = |x: f32| 0.05 + 0.9 * ((x.max(1.0 / 256.0)).log2() + 8.0) / 12.0;
+        let entries: Vec<[f32; 3]> = (0..4096)
+            .map(|i| {
+                let x = 16.0 * i as f32 / 4095.0;
+                [log(x), log(x * 0.9), log(x * 1.1)]
+            })
+            .collect();
+        let look = |[r, g, b]: [f32; 3]| [0.8 * r + 0.1 * g, 0.9 * g + 0.05, 0.3 * r + 0.6 * b];
+        let text = shaper_cube(&entries, (0.0, 16.0), 17, (0.0, 1.0), look);
+        let lut = cube(&text).unwrap();
+        assert_eq!(lut.size, 17);
+        let channel = |c: usize| entries.iter().map(|e| e[c]).collect::<Vec<_>>();
+        let channels = [channel(0), channel(1), channel(2)];
+        for rgb in probes().into_iter().map(|p| p.map(|v| v * 16.0)) {
+            let shaped: [f32; 3] =
+                std::array::from_fn(|c| curve(&channels[c], 0.0, 16.0, rgb[c]).clamp(0.0, 1.0));
+            assert!(close(lut.sample(rgb), look(shaped), 2e-6), "{rgb:?}");
+        }
+        // Imported as read: the earlier reader takes no such file.
+        assert!(parse_cube_3d(BufReader::new(Cursor::new(text.as_bytes()))).is_err());
+        assert_eq!(import(&text).unwrap(), lut);
+    }
+
+    #[test]
+    fn a_shaper_table_is_read_inside_its_cells() {
+        // The review's counterexample to a baked grid: a near-linear
+        // shaper and a 9³ identity table with one lit entry. Between the
+        // grid points the result is the table's own interpolation.
+        let entries = [[0.0078125; 3], [1.0; 3]];
+        let mut text = shaper_cube(&entries, (0.0, 1.0), 9, (0.0, 1.0), |rgb| rgb);
+        // Light the entry at (4, 4, 4): line (4·81 + 4·9 + 4) of the table.
+        let lit = 4 * 81 + 4 * 9 + 4;
+        let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+        let first = lines.len() - 729;
+        lines[first + lit] = "1 0 0".to_string();
+        text = lines.join("\n");
+        let lut = cube(&text).unwrap();
+        let shaped = |x: f32| 0.0078125 + (1.0 - 0.0078125) * x;
+        // The input whose shaped value lands on the lit point, and one an
+        // eighth of a cell above it on every channel.
+        let on = (0.5 - 0.0078125) / (1.0 - 0.0078125);
+        assert!(close(lut.sample([on; 3]), [1.0, 0.0, 0.0], 1e-5));
+        let x = on + 0.125 / 8.0 / (1.0 - 0.0078125);
+        let t = (shaped(x) - 0.5) * 8.0;
+        // Tetrahedral weight of the lit corner on the diagonal is 1 − t.
+        let want_r = (1.0 - t) * 1.0 + t * 0.625;
+        let want_gb = t * 0.625;
+        assert!(close(lut.sample([x; 3]), [want_r, want_gb, want_gb], 1e-5));
+    }
+
+    #[test]
+    fn a_3d_table_over_another_range_reads_its_range() {
+        // An identity table over -0.25..1.25 (LUT_3D_INPUT_RANGE after the
+        // size, which the earlier reader took for a data line and refused):
+        // read over its range, so it stays an identity.
+        let ranged = table_3d(9, "", -0.25, 1.25, |rgb| rgb).replacen(
+            "LUT_3D_SIZE 9\n",
             "LUT_3D_SIZE 9\nLUT_3D_INPUT_RANGE -0.25 1.25\n",
             1,
         );
-        assert!(
-            cube(&after_size)
-                .unwrap_err()
-                .to_string()
-                .contains("input range")
-        );
+        assert!(parse_cube_3d(BufReader::new(Cursor::new(ranged.as_bytes()))).is_err());
+        let lut = cube(&ranged).unwrap();
+        for rgb in probes() {
+            assert!(close(lut.sample(rgb), rgb, 2e-6), "{rgb:?}");
+        }
+        assert_eq!(import(&ranged).unwrap(), lut);
+        // A shaper whose output the 3D table reads over 0..2: half of an
+        // identity table's span, so values come out halved.
+        let text = shaper_cube(&[[0.0; 3], [2.0; 3]], (0.0, 1.0), 5, (0.0, 2.0), |rgb| {
+            rgb.map(|v| v / 2.0)
+        });
+        let lut = cube(&text).unwrap();
+        assert!(close(lut.sample([0.3, 0.6, 1.0]), [0.3, 0.6, 1.0], 2e-6));
+        assert!(close(lut.sample([0.3, -0.5, 1.5]), [0.3, 0.0, 1.0], 2e-6));
+        // Before the size the earlier reader ignored the line: saved edits
+        // keep that reading, an import refuses it.
+        let before = table_3d(9, "LUT_3D_INPUT_RANGE -0.25 1.25\n", -0.25, 1.25, |rgb| rgb);
+        assert_eq!(cube(&before).unwrap().shaper, None);
+        assert!(import(&before).is_err());
     }
 
     #[test]

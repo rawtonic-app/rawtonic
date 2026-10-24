@@ -2615,6 +2615,8 @@ pub struct GpuProcessor {
     legacy_curve_pipelines: [std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT],
     dummy_lut_view: wgpu::TextureView,
     dummy_lut_sampler: wgpu::Sampler,
+    /// The shaper stage's buffer for LUTs without one (no curve).
+    no_lut_shaper: wgpu::Buffer,
     ping_pong_view: wgpu::TextureView,
 
     pub tile_output_texture: wgpu::Texture,
@@ -3771,6 +3773,32 @@ fn create_preview_pipeline(
 
 const FLARE_MAP_SIZE: u32 = 512;
 
+/// The shader's `lut_shaper` buffer: the curve's entry count (0: no
+/// shaper), its domain's minima and maxima, the table domain's, then the
+/// entries (`lut::Shaper`).
+fn lut_shaper_data(shaper: Option<&crate::lut::Shaper>) -> Vec<[f32; 4]> {
+    let Some(shaper) = shaper else {
+        return vec![[0.0; 4]; 5];
+    };
+    let rgb = |v: [f32; 3]| [v[0], v[1], v[2], 0.0];
+    let mut data = vec![
+        [shaper.size as f32, 0.0, 0.0, 0.0],
+        rgb(shaper.domain.0),
+        rgb(shaper.domain.1),
+        rgb(shaper.table_domain.0),
+        rgb(shaper.table_domain.1),
+    ];
+    data.extend(
+        shaper
+            .data
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|&entry| rgb(entry)),
+    );
+    data
+}
+
 fn storage_entry(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
         binding,
@@ -4345,6 +4373,7 @@ impl GpuProcessor {
         });
 
         bind_group_layout_entries.push(storage_entry(24, true));
+        bind_group_layout_entries.push(storage_entry(26, true));
 
         let main_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Main BGL"),
@@ -4532,6 +4561,11 @@ impl GpuProcessor {
         });
         let dummy_lut_view = dummy_lut_texture.create_view(&Default::default());
         let dummy_lut_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+        let no_lut_shaper = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("LUT shaper (none)"),
+            contents: bytemuck::cast_slice(&lut_shaper_data(None)),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
 
         let clamped_tile_width = max_width.min(TILE_SIZE + TILE_OVERLAP * 2);
         let clamped_tile_height = max_height.min(TILE_SIZE + TILE_OVERLAP * 2);
@@ -4672,6 +4706,7 @@ impl GpuProcessor {
             legacy_curve_pipelines: std::array::from_fn(|_| std::sync::OnceLock::new()),
             dummy_lut_view,
             dummy_lut_sampler,
+            no_lut_shaper,
             ping_pong_view,
             tile_output_texture,
             tile_output_texture_view,
@@ -6369,6 +6404,18 @@ impl GpuProcessor {
         } else {
             (self.dummy_lut_view.clone(), self.dummy_lut_sampler.clone())
         };
+        let lut_shaper = request
+            .lut
+            .as_ref()
+            .and_then(|lut| lut.shaper.as_ref())
+            .map(|shaper| {
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("LUT shaper"),
+                    contents: bytemuck::cast_slice(&lut_shaper_data(Some(shaper))),
+                    usage: wgpu::BufferUsages::STORAGE,
+                })
+            });
+        let lut_shaper = lut_shaper.as_ref().unwrap_or(&self.no_lut_shaper);
 
         let adjustments = request.adjustments.uniforms;
         self.update_camera_profile_tables(&adjustments.global);
@@ -7036,6 +7083,10 @@ impl GpuProcessor {
                 bind_group_entries.push(wgpu::BindGroupEntry {
                     binding: 24,
                     resource: layer_sums_buffer.as_entire_binding(),
+                });
+                bind_group_entries.push(wgpu::BindGroupEntry {
+                    binding: 26,
+                    resource: lut_shaper.as_entire_binding(),
                 });
                 let crop_x_start = x_start - input_x_start;
                 let crop_y_start = y_start - input_y_start;
