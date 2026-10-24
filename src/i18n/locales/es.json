@@ -320,6 +320,8 @@
       },
       "idHint": "Guarda este ID: con él puedes pedir que se borre lo que enviaste en cualquier momento.",
       "intro": "Esto es exactamente lo que Rawtonic enviará a su relé, que lo archiva de forma privada para los creadores de Rawtonic. Rawtonic ha intentado quitar las rutas, tu nombre de usuario y los números de serie: revisa el texto de abajo, puede contener aún algo que no quieras enviar. No se envía nada hasta que pulses Enviar.",
+      "notUploaded": "Enviado, pero no se pudo subir un archivo adjunto. El informe se guardó sin él.",
+      "photoFile": "Archivo de foto, {{size}}, se envía sin cambios",
       "screenshot": "Captura de pantalla que se enviará",
       "screenshotSize": "Captura de pantalla, {{size}}",
       "send": "Enviar",

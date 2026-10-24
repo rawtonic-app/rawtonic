@@ -63,8 +63,14 @@ export const failingDb = (pattern: RegExp, e: Env = env): Env => ({
           const fail = async () => {
             throw new Error("D1 unavailable");
           };
-          const statement = { run: fail, first: fail, all: fail, bind: () => statement };
+          const statement = { run: fail, first: fail, all: fail, bind: () => statement, failing: true };
           return statement;
+        };
+      }
+      if (key === "batch") {
+        return async (statements: (D1PreparedStatement & { failing?: boolean })[]) => {
+          if (statements.some((s) => s.failing)) throw new Error("D1 unavailable");
+          return target.batch(statements);
         };
       }
       const value = Reflect.get(target, key);

@@ -103,9 +103,10 @@ export interface ReportChoices {
   screenshot: Screenshot | null;
 }
 
-/** The `POST /report` payload (schema 1) for the user's choices. */
+/** The `POST /report` payload (schema 2) for the user's choices; the
+ * screenshot's data becomes an announced attachment in `prepare`. */
 export const reportPayload = (c: ReportChoices): Record<string, unknown> => {
-  const payload: Record<string, unknown> = { schema: 1, app: c.context.app, text: c.text.trim() };
+  const payload: Record<string, unknown> = { schema: 2, app: c.context.app, text: c.text.trim() };
   if (c.includeSystem && c.context.gpu) payload.gpu = c.context.gpu;
   if (c.logTail?.trim()) payload.logTail = c.logTail;
   if (c.photo) payload.photo = c.photo;

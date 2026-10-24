@@ -27,13 +27,19 @@ pub fn contribution_available(app_handle: AppHandle) -> bool {
     client(&app_handle).is_ok()
 }
 
-/// Scrubs a channel's payload and returns the exact body to review.
+/// Scrubs a channel's payload and returns the exact body to review. A
+/// report's screenshot (`screenshot.data`, base64) and photo file
+/// (`photo.path`) become attachments the body announces by size and
+/// SHA-256; hashing a photo's file runs off the main thread.
 #[tauri::command]
-pub fn contribution_prepare(
+pub async fn contribution_prepare(
     channel: Channel,
     payload: serde_json::Value,
 ) -> Result<Prepared, String> {
-    payload::prepare(channel, payload, &SCRUBBER).map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || payload::prepare(channel, payload, &SCRUBBER))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }
 
 /// Sends a reviewed body, once. Errors are the client's codes.
@@ -43,10 +49,14 @@ pub async fn contribution_send(
     prepared: Prepared,
 ) -> Result<Receipt, String> {
     let client = client(&app_handle)?;
-    client.send(&prepared, &SCRUBBER).await.map_err(|e| {
+    let receipt = client.send(&prepared, &SCRUBBER).await.map_err(|e| {
         log::warn!("Contribution not sent: {e}");
         e.code().to_string()
-    })
+    })?;
+    if !receipt.not_uploaded.is_empty() {
+        log::warn!("Contribution sent without {:?}", receipt.not_uploaded);
+    }
+    Ok(receipt)
 }
 
 /// The `app` block every payload carries (version, OS and its major.minor

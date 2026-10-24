@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Rawtonic's contribution relay (ADR 0017): takes problem reports, crash
-// reports, camera-test results, RAW samples and usage statistics from the
-// app, files them privately and deletes them on request or after their
-// retention. Deployment: docs/RELAY.md.
+// Rawtonic's contribution relay (ADR 0017): takes problem reports (with an
+// optional screenshot and photo file), crash reports, camera-test results
+// and usage statistics from the app, files them privately and deletes them
+// on request or after their retention. Deployment: docs/RELAY.md.
+//
+// It fits the Workers Free plan's 10 ms of CPU per request: JSON bodies
+// are small, and files arrive as raw bytes that the runtime pipes into R2
+// without JavaScript touching them (`PUT /upload/:token`).
 
 import { GitHubTracker, type IssueTracker } from "./github";
 import { cameraTestIssue, crashIssue, reportIssue } from "./issues";
@@ -10,15 +14,13 @@ import { allow, checkPow, takeGlobal, type Kind } from "./limits";
 import {
   BODY_CAPS,
   Invalid,
-  MAX_SAMPLE_BYTES,
+  MAX_PHOTO_BYTES,
   MAX_SCREENSHOT_BYTES,
   hasHomePath,
   parseCameraTest,
   parseCrash,
-  parseRawSample,
   parseReport,
   parseStats,
-  type RawSample,
 } from "./schema";
 import { closeWeeks, record, summary, weekOpen } from "./stats";
 import { DAY_MS, HOUR_MS, ID_PATTERN, WEEK_PATTERN, newId, sameSecret, sha256Hex } from "./util";
@@ -38,20 +40,18 @@ export interface Env {
 export interface Deps {
   tracker: IssueTracker;
   now: () => number;
-  /** How long a RAW sample's bytes may take (tests shorten it). */
+  /** How long an upload's bytes may take (tests shorten it). */
   uploadDeadlineMs?: number;
 }
 
-/** A RAW upload must finish within this; it starts at most an hour after
- * its announcement (UPLOAD_VALID_MS), so it is over well before the sweep
- * removes an unfinished upload's record two hours after the announcement,
- * and no late write can follow. */
+/** An upload must finish within this; it starts at most an hour after its
+ * report was filed (UPLOAD_VALID_MS), so after 90 minutes no write to the
+ * report's objects can follow (see `stale`). */
 const UPLOAD_DEADLINE_MS = 30 * 60_000;
 
-/** Reports, crashes and camera tests (their issues and records) are kept
- * 90 days, RAW samples two years (ADR 0017). */
+/** Reports (with their files), crashes and camera tests are kept 90 days
+ * (ADR 0017). */
 const ISSUE_DAYS = 90;
-const SAMPLE_DAYS = 730;
 const UPLOAD_VALID_MS = HOUR_MS;
 /** Issues one scheduled run deletes by age at most (one list request plus
  * one request each), and records it removes at most (their objects in one
@@ -91,12 +91,12 @@ const readCapped = async (request: Request, cap: number): Promise<Uint8Array | n
   return out;
 };
 
-const decodeBase64 = (data: string): Uint8Array => Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
-
-const looksLike = (bytes: Uint8Array, mime: string) =>
+/** A screenshot's type, told from its first bytes (PNG signature or JPEG
+ * start-of-image marker). */
+const looksLike = (head: Uint8Array, mime: string) =>
   mime === "image/png"
-    ? [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((b, i) => bytes[i] === b)
-    : bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    ? [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((b, i) => head[i] === b)
+    : head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
 
 const clientIp = (request: Request) => request.headers.get("cf-connecting-ip") ?? "unknown";
 
@@ -106,7 +106,7 @@ const newSubmission = async () => {
   return { id, idHash, ref: idHash.slice(0, 8) };
 };
 
-type Endpoint = "report" | "crash" | "camera-test" | "raw-sample" | "stats";
+type Endpoint = "report" | "crash" | "camera-test" | "stats";
 
 /** Reads, checks and parses a JSON submission; a Response when refused. */
 const accept = async <T>(
@@ -138,15 +138,16 @@ const accept = async <T>(
 };
 
 /** Row states: `filing` (recorded before anything external is written;
- * the id is not given out yet), `pending` (RAW sample announced),
- * `uploading` (its bytes are being written) and `filed`. Removal never
- * changes a row's state: it deletes the external things first and the row
- * last, only if the row is still as it was read, so an interrupted removal
- * leaves the row as it was for the next try. Rows left in `filing`,
- * `uploading` or `pending` are removed by the scheduled run once their
- * request is long over; an issue GitHub created without answering is not
- * looked for: it goes with the age-based issue retention. */
-type State = "filing" | "pending" | "uploading" | "filed";
+ * the id is not given out yet), `filed`, and `attaching` (one of a filed
+ * report's files is being written; the row counts as `filed` again once
+ * the upload's deadline is long over, see `stale`). Removal never changes
+ * a row's state: it deletes the external things first and the row last,
+ * only if the row is still as it was read, so an interrupted removal
+ * leaves the row as it was for the next try. Rows left in `filing` are
+ * removed by the scheduled run once their request is long over; an issue
+ * GitHub created without answering is not looked for: it goes with the
+ * age-based issue retention. */
+type State = "filing" | "filed" | "attaching";
 
 interface Row {
   id_hash: string;
@@ -159,59 +160,85 @@ interface Row {
 
 const ROW = "SELECT id_hash, ref, state, issue_node_id, objects, received_at FROM submissions";
 
-/** Files one issue (with its stored objects). The row is written first, so
- * a failure at any later step leaves something the scheduled run can clean
- * up; the id is only answered once everything is recorded. */
+/** A row left `attaching` by an upload that stopped half-way: its deadline
+ * is long over, so no write to its objects can follow. */
+const stale = (row: Row, deps: Deps, now: number) =>
+  row.state === "attaching" && now - row.received_at > UPLOAD_VALID_MS + (deps.uploadDeadlineMs ?? UPLOAD_DEADLINE_MS);
+
+/** The files a report may announce; each gets a one-time upload slot. */
+type Slot = "screenshot" | "photo";
+
+/** Where a report's file goes: `reports/<id hash>/screenshot.png` or
+ * `reports/<id hash>/photo.<file type>`. */
+const objectKey = (idHash: string, slot: Slot, ext: string) => `reports/${idHash}/${slot}.${ext}`;
+const slotOf = (key: string): Slot => (/\/screenshot\.[a-z]+$/.test(key) ? "screenshot" : "photo");
+
+interface Announced {
+  slot: Slot;
+  ext: string;
+  size: number;
+  sha256: string;
+}
+
+/** Files one issue, with an upload slot for each announced file: a
+ * one-time token, valid an hour, for exactly `size` bytes with this
+ * SHA-256. The row is written first, so a failure at any later step leaves
+ * something the scheduled run can clean up; the id is only answered once
+ * everything (the slots too) is recorded. */
 const file = async (
+  request: Request,
   env: Env,
   deps: Deps,
   kind: string,
-  build: (s: { ref: string; keys: string[] }) => Parameters<IssueTracker["create"]>[0],
-  objects: { key: string; data: Uint8Array; type: string }[] = [],
+  build: (s: { ref: string; keys: Partial<Record<Slot, string>> }) => Parameters<IssueTracker["create"]>[0],
+  announced: Announced[] = [],
 ) => {
   const now = deps.now();
   if (!(await takeGlobal(env.DB, "issues", 1, now))) return error(429, "busy");
   const s = await newSubmission();
-  const keys = objects.map((o) => o.key.replace("{hash}", s.idHash));
-  const row: Row = { id_hash: s.idHash, ref: s.ref, state: "filing", issue_node_id: null, objects: JSON.stringify(keys), received_at: now };
+  const row: Row = { id_hash: s.idHash, ref: s.ref, state: "filing", issue_node_id: null, objects: "[]", received_at: now };
   try {
     await env.DB.prepare(
-      "INSERT INTO submissions (id_hash, kind, ref, state, objects, received_at) VALUES (?1, ?2, ?3, 'filing', ?4, ?5)",
+      "INSERT INTO submissions (id_hash, kind, ref, state, objects, received_at) VALUES (?1, ?2, ?3, 'filing', '[]', ?4)",
     )
-      .bind(s.idHash, kind, s.ref, row.objects, now)
+      .bind(s.idHash, kind, s.ref, now)
       .run();
   } catch {
     return error(502, "not-filed");
   }
-  try {
-    for (const [i, o] of objects.entries()) {
-      await env.BUCKET.put(keys[i], o.data, { httpMetadata: { contentType: o.type } });
-    }
-  } catch {
-    await cleanUp(env, deps, row);
-    return error(502, "not-filed");
-  }
+  const slots = announced.map((a) => ({ ...a, key: objectKey(s.idHash, a.slot, a.ext), token: newId() + newId() }));
   let issue: { number: number; nodeId: string };
   try {
-    issue = await deps.tracker.create(build({ ref: s.ref, keys }));
+    issue = await deps.tracker.create(build({ ref: s.ref, keys: Object.fromEntries(slots.map((a) => [a.slot, a.key])) }));
   } catch {
-    // GitHub may have created it without answering: the row and objects
-    // go with the scheduled run, the issue (if any) with the age-based
-    // issue retention. The sender gets no id for it.
+    // GitHub may have created it without answering: the row goes with the
+    // scheduled run, the issue (if any) with the age-based issue
+    // retention. The sender gets no id for it.
     return error(502, "not-filed");
   }
+  const expires = now + UPLOAD_VALID_MS;
   try {
-    const filed = await env.DB.prepare(
-      "UPDATE submissions SET state = 'filed', issue_number = ?2, issue_node_id = ?3 WHERE id_hash = ?1 AND state = 'filing'",
-    )
-      .bind(s.idHash, issue.number, issue.nodeId)
-      .run();
+    // One transaction: the slots exist only for a filed row.
+    const [filed] = await env.DB.batch([
+      env.DB.prepare(
+        "UPDATE submissions SET state = 'filed', issue_number = ?2, issue_node_id = ?3 WHERE id_hash = ?1 AND state = 'filing'",
+      ).bind(s.idHash, issue.number, issue.nodeId),
+      ...(await Promise.all(
+        slots.map(async (a) =>
+          env.DB.prepare(
+            "INSERT INTO uploads (token_hash, id_hash, object_key, size, sha256, meta, expires) VALUES (?1, ?2, ?3, ?4, ?5, '', ?6)",
+          ).bind(await sha256Hex(a.token), s.idHash, a.key, a.size, a.sha256, expires),
+        ),
+      )),
+    ]);
     if (filed.meta.changes !== 1) throw new Error("row lost");
   } catch {
     await cleanUp(env, deps, { ...row, issue_node_id: issue.nodeId });
     return error(502, "not-filed");
   }
-  return json(201, { id: s.id, ref: s.ref });
+  if (!slots.length) return json(201, { id: s.id, ref: s.ref });
+  const uploads = Object.fromEntries(slots.map((a) => [a.slot, new URL(`/upload/${a.token}`, request.url).toString()]));
+  return json(201, { id: s.id, ref: s.ref, uploads, expiresAt: new Date(expires).toISOString() });
 };
 
 /** Removes what a failed request wrote. When that fails too, the row stays
@@ -227,123 +254,158 @@ const cleanUp = async (env: Env, deps: Deps, row: Row) => {
 const postReport = async (request: Request, env: Env, deps: Deps) => {
   const report = await accept(request, env, deps, "report", parseReport);
   if (report instanceof Response) return report;
-  const objects = [];
-  if (report.screenshot) {
-    const data = decodeBase64(report.screenshot.data);
-    if (data.byteLength > MAX_SCREENSHOT_BYTES || !looksLike(data, report.screenshot.mime)) {
-      return error(400, "invalid", "screenshot.data");
-    }
-    const ext = report.screenshot.mime === "image/png" ? "png" : "jpg";
-    objects.push({ key: `screenshots/{hash}.${ext}`, data, type: report.screenshot.mime });
-  }
-  return file(
-    env,
-    deps,
-    "report",
-    ({ ref, keys }) => reportIssue(report, ref, keys[0]),
-    objects,
-  );
+  const announced: Announced[] = [];
+  const shot = report.screenshot;
+  if (shot) announced.push({ slot: "screenshot", ext: shot.mime === "image/png" ? "png" : "jpg", size: shot.size, sha256: shot.sha256 });
+  const photo = report.photo;
+  if (photo?.file) announced.push({ slot: "photo", ext: photo.fileType, ...photo.file });
+  return file(request, env, deps, "report", ({ ref, keys }) => reportIssue(report, ref, keys), announced);
 };
 
 const postCrash = async (request: Request, env: Env, deps: Deps) => {
   const crash = await accept(request, env, deps, "crash", parseCrash);
   if (crash instanceof Response) return crash;
-  return file(env, deps, "crash", ({ ref }) => crashIssue(crash, ref));
+  return file(request, env, deps, "crash", ({ ref }) => crashIssue(crash, ref));
 };
 
 const postCameraTest = async (request: Request, env: Env, deps: Deps) => {
   const test = await accept(request, env, deps, "camera-test", parseCameraTest);
   if (test instanceof Response) return test;
-  return file(env, deps, "camera-test", ({ ref }) => cameraTestIssue(test, ref));
+  return file(request, env, deps, "camera-test", ({ ref }) => cameraTestIssue(test, ref));
 };
 
-const sampleKey = (idHash: string, s: RawSample) =>
-  `raw-samples/${idHash}/${`${s.camera.make}-${s.camera.model}`.replace(/[^A-Za-z0-9._-]+/g, "_")}.${s.fileType}`;
-
-/** Announces a RAW sample: answers a one-time upload URL. */
-const postRawSample = async (request: Request, env: Env, deps: Deps) => {
-  const sample = await accept(request, env, deps, "raw-sample", parseRawSample);
-  if (sample instanceof Response) return sample;
-  const now = deps.now();
-  if (!(await takeGlobal(env.DB, "samples", 1, now))) return error(429, "busy");
-  const s = await newSubmission();
-  const token = newId() + newId();
-  const key = sampleKey(s.idHash, sample);
-  const expires = now + UPLOAD_VALID_MS;
-  await env.DB.batch([
-    env.DB.prepare(
-      "INSERT INTO uploads (token_hash, id_hash, object_key, size, sha256, meta, expires) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-    ).bind(await sha256Hex(token), s.idHash, key, sample.size, sample.sha256, JSON.stringify(sample), expires),
-    env.DB.prepare(
-      "INSERT INTO submissions (id_hash, kind, ref, state, objects, received_at) VALUES (?1, 'raw-sample', ?2, 'pending', '[]', ?3)",
-    ).bind(s.idHash, s.ref, now),
-  ]);
-  const uploadUrl = new URL(`/raw-sample/upload/${token}`, request.url).toString();
-  return json(201, { id: s.id, ref: s.ref, uploadUrl, expiresAt: new Date(expires).toISOString() });
+/** Reads the body's first `n` bytes (fewer only if it is shorter) and
+ * gives the stream back unlocked, so the rest is piped without JavaScript
+ * touching it. */
+const peek = async (body: ReadableStream<Uint8Array>, n: number) => {
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  while (length < n) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    length += value.byteLength;
+  }
+  reader.releaseLock();
+  const head = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    head.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return head;
 };
 
-/** The body as a stream of known length that fails once `ms` have passed:
- * R2 then stores nothing (an object appears only when its put succeeds). */
-const withDeadline = (body: ReadableStream<Uint8Array>, length: number, ms: number) => {
+/** `head` and then the rest of the body as one stream of known length for
+ * R2, piped by the runtime: no JavaScript touches the chunks, so a 100 MB
+ * upload costs next to no CPU time (Workers Free plan: 10 ms a request). */
+const joined = (head: Uint8Array, rest: ReadableStream<Uint8Array>, length: number) => {
   const fixed = new FixedLengthStream(length);
-  let timer: number | null = null;
-  const guard = new TransformStream<Uint8Array, Uint8Array>({
-    start(controller) {
-      timer = setTimeout(() => controller.error(new Error("upload deadline")), ms);
-    },
-    flush() {
-      if (timer !== null) clearTimeout(timer);
-    },
+  (async () => {
+    if (head.byteLength) {
+      const writer = fixed.writable.getWriter();
+      await writer.write(head);
+      writer.releaseLock();
+    }
+    await rest.pipeTo(fixed.writable);
+  })().catch(() => {
+    // The put sees the stream fail.
   });
-  body
-    .pipeThrough(guard)
-    .pipeTo(fixed.writable)
-    .catch(() => {
-      if (timer !== null) clearTimeout(timer);
-    });
   return fixed.readable;
 };
 
-/** Takes a RAW sample's bytes once and checks size and SHA-256. Samples
- * are not filed as issues: the maintainers list them from the database
- * and the bucket (docs/RELAY.md), so no GitHub write can be left behind. */
-const putRawSample = async (request: Request, env: Env, deps: Deps, token: string) => {
+/** `work`, or a failure once `ms` have passed. The runtime's pipe ignores
+ * an abort signal, so the deadline fails the request instead: answering
+ * ends the request, which cancels its unfinished put, and R2 stores
+ * nothing (an object appears only when its put succeeds). */
+const within = <T>(work: Promise<T>, ms: number) =>
+  new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("upload deadline")), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (e: unknown) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+
+interface UploadRow {
+  token_hash: string;
+  id_hash: string;
+  object_key: string;
+  size: number;
+  sha256: string;
+  expires: number;
+}
+
+/** Takes one announced file of a filed report, once: checks its size, its
+ * SHA-256 (R2 verifies it while storing) and, for a screenshot, its type
+ * from the first bytes. The report's row is claimed (`attaching`, the file
+ * added to its objects) in the same transaction that uses up the token, so
+ * a deletion meanwhile waits (409) and an upload while another of the same
+ * report runs is refused with its token kept. */
+const putUpload = async (request: Request, env: Env, deps: Deps, token: string) => {
   const now = deps.now();
-  const upload = await env.DB.prepare("DELETE FROM uploads WHERE token_hash = ?1 RETURNING *")
-    .bind(await sha256Hex(token))
-    .first<{ id_hash: string; object_key: string; size: number; sha256: string; meta: string; expires: number }>();
+  const tokenHash = await sha256Hex(token);
+  const upload = await env.DB.prepare("SELECT * FROM uploads WHERE token_hash = ?1").bind(tokenHash).first<UploadRow>();
   if (!upload || upload.expires < now) return error(404, "unknown-upload");
+  const screenshot = slotOf(upload.object_key) === "screenshot";
   const length = Number(request.headers.get("content-length"));
-  if (!request.body || length !== upload.size || length > MAX_SAMPLE_BYTES) return error(400, "size-mismatch");
+  const max = screenshot ? MAX_SCREENSHOT_BYTES : MAX_PHOTO_BYTES;
+  if (!request.body || length !== upload.size || length > max) return error(400, "size-mismatch");
+  const mime = upload.object_key.endsWith(".png") ? "image/png" : "image/jpeg";
+  const head = screenshot ? await peek(request.body, 8) : new Uint8Array();
+  if (screenshot && !looksLike(head, mime)) return error(400, "invalid", "screenshot");
+  const row = await env.DB.prepare(`${ROW} WHERE id_hash = ?1`).bind(upload.id_hash).first<Row>();
+  if (!row) return error(404, "unknown-upload");
+  if (row.state !== "filed") return error(409, "busy");
   if (!(await takeGlobal(env.DB, "uploadBytes", length, now))) return error(429, "busy");
-  // Claimed before anything is written, with the objects recorded: a
-  // deletion now waits (409) instead of racing the upload. Beside the file
-  // goes what the donor announced (camera, licence, note) as sample.json.
-  const metaKey = upload.object_key.replace(/[^/]+$/, "sample.json");
-  const objects = JSON.stringify([upload.object_key, metaKey]);
-  const claimed = await env.DB.prepare(
-    "UPDATE submissions SET state = 'uploading', objects = ?2 WHERE id_hash = ?1 AND state = 'pending'",
-  )
-    .bind(upload.id_hash, objects)
-    .run();
-  if (claimed.meta.changes !== 1) return error(404, "unknown-upload");
-  const row: Row = { id_hash: upload.id_hash, ref: upload.id_hash.slice(0, 8), state: "uploading", issue_node_id: null, objects, received_at: now };
+  const objects = JSON.stringify([...(JSON.parse(row.objects) as string[]), upload.object_key]);
+  const [claimed, used] = await env.DB.batch([
+    env.DB.prepare("UPDATE submissions SET state = 'attaching', objects = ?3 WHERE id_hash = ?1 AND state = 'filed' AND objects = ?2").bind(
+      upload.id_hash,
+      row.objects,
+      objects,
+    ),
+    env.DB.prepare(
+      "DELETE FROM uploads WHERE token_hash = ?1 AND EXISTS (SELECT 1 FROM submissions WHERE id_hash = ?2 AND state = 'attaching' AND objects = ?3)",
+    ).bind(tokenHash, upload.id_hash, objects),
+  ]);
+  if (claimed.meta.changes !== 1 || used.meta.changes !== 1) return error(409, "busy");
+  /** Undoes the claim: the report goes back to filed without this file. */
+  const undo = async () => {
+    try {
+      await env.BUCKET.delete(upload.object_key);
+      await env.DB.prepare("UPDATE submissions SET state = 'filed', objects = ?3 WHERE id_hash = ?1 AND state = 'attaching' AND objects = ?2")
+        .bind(upload.id_hash, objects, row.objects)
+        .run();
+    } catch {
+      // The row stays `attaching` and becomes `stale`: deletion and
+      // retention remove it with its objects.
+    }
+  };
   try {
-    await env.BUCKET.put(upload.object_key, withDeadline(request.body, length, deps.uploadDeadlineMs ?? UPLOAD_DEADLINE_MS), {
+    const put = env.BUCKET.put(upload.object_key, joined(head, request.body, length), {
       sha256: upload.sha256,
+      httpMetadata: { contentType: screenshot ? mime : "application/octet-stream" },
     });
-    await env.BUCKET.put(metaKey, upload.meta, { httpMetadata: { contentType: "application/json" } });
+    await within(put, deps.uploadDeadlineMs ?? UPLOAD_DEADLINE_MS);
   } catch {
-    await cleanUp(env, deps, row);
+    await undo();
     return error(422, "not-stored");
   }
   try {
-    const filed = await env.DB.prepare("UPDATE submissions SET state = 'filed' WHERE id_hash = ?1 AND state = 'uploading'")
-      .bind(upload.id_hash)
+    const filed = await env.DB.prepare("UPDATE submissions SET state = 'filed' WHERE id_hash = ?1 AND state = 'attaching' AND objects = ?2")
+      .bind(upload.id_hash, objects)
       .run();
     if (filed.meta.changes !== 1) throw new Error("row lost");
   } catch {
-    await cleanUp(env, deps, row);
+    await undo();
     return error(502, "not-filed");
   }
   return new Response(null, { status: 204 });
@@ -366,7 +428,7 @@ const remove = async (env: Env, deps: Deps, row: Row): Promise<boolean> => {
   const objects = JSON.parse(row.objects) as string[];
   if (objects.length) await env.BUCKET.delete(objects);
   const [, deleted] = await env.DB.batch([
-    env.DB.prepare("DELETE FROM uploads WHERE id_hash = ?1 AND ?2 IN ('pending', 'filed')").bind(row.id_hash, row.state),
+    env.DB.prepare("DELETE FROM uploads WHERE id_hash = ?1 AND ?2 IN ('filed', 'attaching')").bind(row.id_hash, row.state),
     env.DB.prepare("DELETE FROM submissions WHERE id_hash = ?1 AND state = ?2 AND objects = ?3").bind(
       row.id_hash,
       row.state,
@@ -383,8 +445,8 @@ const deleteSubmission = async (request: Request, env: Env, deps: Deps, id: stri
   if (!ID_PATTERN.test(id)) return error(404, "unknown-id");
   const row = await env.DB.prepare(`${ROW} WHERE id_hash = ?1`).bind(await sha256Hex(id)).first<Row>();
   if (!row) return error(404, "unknown-id");
-  // A RAW sample still uploading: its objects are being written.
-  if (row.state !== "filed" && row.state !== "pending") return error(409, "busy");
+  // An upload still running: its objects are being written.
+  if (row.state !== "filed" && !stale(row, deps, deps.now())) return error(409, "busy");
   try {
     return (await remove(env, deps, row)) ? new Response(null, { status: 204 }) : error(409, "busy");
   } catch {
@@ -408,28 +470,26 @@ export const handle = async (request: Request, env: Env, deps: Deps): Promise<Re
     if (path === "/report") return postReport(request, env, deps);
     if (path === "/crash") return postCrash(request, env, deps);
     if (path === "/camera-test") return postCameraTest(request, env, deps);
-    if (path === "/raw-sample") return postRawSample(request, env, deps);
     if (path === "/stats") return postStats(request, env, deps);
   }
-  const upload = /^\/raw-sample\/upload\/([a-z2-7]{52})$/.exec(path);
-  if (upload && method === "PUT") return putRawSample(request, env, deps, upload[1]);
+  const upload = /^\/upload\/([a-z2-7]{52})$/.exec(path);
+  if (upload && method === "PUT") return putUpload(request, env, deps, upload[1]);
   const del = /^\/report\/([^/]+)$/.exec(path);
   if (del && method === "DELETE") return deleteSubmission(request, env, deps, del[1]);
   if (path === "/stats/summary" && method === "GET") return statsSummary(request, env, url);
   return error(404, "not-found");
 };
 
-/** The sweep's reads of expired records: RAW samples, issue-backed kinds,
- * unfinished requests (?1 = cutoff, ?2 = limit). */
+/** The sweep's reads of expired records: issue-backed kinds, and filings
+ * whose request stopped half-way (?1 = cutoff, ?2 = limit). */
 export const SWEEP_QUERIES = [
-  `${ROW} WHERE state = 'filed' AND kind = 'raw-sample' AND received_at < ?1 LIMIT ?2`,
-  `${ROW} WHERE state = 'filed' AND kind IN ('report', 'crash', 'camera-test') AND received_at < ?1 LIMIT ?2`,
-  `${ROW} WHERE state IN ('pending', 'filing', 'uploading') AND kind IN ('report', 'crash', 'camera-test', 'raw-sample') AND received_at < ?1 LIMIT ?2`,
+  `${ROW} WHERE state IN ('filed', 'attaching') AND kind IN ('report', 'crash', 'camera-test') AND received_at < ?1 LIMIT ?2`,
+  `${ROW} WHERE state = 'filing' AND kind IN ('report', 'crash', 'camera-test') AND received_at < ?1 LIMIT ?2`,
 ] as const;
 
 /** The scheduled run, in three independent steps (a failure in one never
  * holds up the others): housekeeping; records and their objects by age
- * (retention, and rows whose request stopped half-way two hours ago),
+ * (retention, and filings whose request stopped half-way two hours ago),
  * without GitHub; and issues by age, read from the repository itself,
  * oldest first. */
 export const sweep = async (env: Env, deps: Deps) => {
@@ -445,11 +505,10 @@ export const sweep = async (env: Env, deps: Deps) => {
     // Tried again next run; retention below does not depend on it.
   }
   try {
-    // Three range reads on the (state, kind, received_at) index, each
-    // bounded, never a scan of the table.
-    const [samples, issues, unfinished] = SWEEP_QUERIES;
+    // Range reads on the (state, kind, received_at) index, each bounded,
+    // never a scan of the table.
+    const [issues, unfinished] = SWEEP_QUERIES;
     const ranges = [
-      env.DB.prepare(samples).bind(now - SAMPLE_DAYS * DAY_MS, RECORDS_PER_SWEEP),
       env.DB.prepare(issues).bind(now - ISSUE_DAYS * DAY_MS, RECORDS_PER_SWEEP),
       env.DB.prepare(unfinished).bind(now - UPLOAD_VALID_MS - HOUR_MS, RECORDS_PER_SWEEP),
     ];
