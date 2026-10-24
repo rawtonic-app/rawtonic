@@ -16,7 +16,8 @@ CREATE TABLE submissions (
   objects TEXT NOT NULL DEFAULT '[]',
   received_at INTEGER NOT NULL
 );
-CREATE INDEX submissions_by_age ON submissions (kind, received_at);
+-- The scheduled run reads expired ranges per state and kind.
+CREATE INDEX submissions_by_state_age ON submissions (state, kind, received_at);
 
 -- One-time RAW sample upload tokens.
 CREATE TABLE uploads (

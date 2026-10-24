@@ -176,6 +176,21 @@ describe("reports", () => {
     expect(over.status).toBe(400);
   });
 
+  it("reads expired records through the index, never by scanning the table", async () => {
+    for (const where of [
+      "state = 'filed' AND kind = 'raw-sample' AND received_at < 1",
+      "state = 'filed' AND kind IN ('report', 'crash', 'camera-test') AND received_at < 1",
+      "state IN ('pending', 'filing', 'uploading') AND received_at < 1",
+    ]) {
+      const { results } = await env.DB.prepare(`EXPLAIN QUERY PLAN SELECT * FROM submissions WHERE ${where} LIMIT 15`).all<{
+        detail: string;
+      }>();
+      const plan = results.map((r) => r.detail).join("; ");
+      expect(plan).toContain("USING INDEX submissions_by_state_age");
+      expect(plan).not.toMatch(/SCAN submissions(?! USING)/);
+    }
+  });
+
   it("does housekeeping first and removes old reports in budgeted batches", async () => {
     const deps = makeDeps();
     for (let i = 0; i < 25; i++) await post("/report", report(), deps, { ip: `198.51.100.${i}` });
@@ -310,6 +325,24 @@ describe("RAW samples", () => {
       deps,
     );
     expect(response.status).toBe(502);
+    expect((await env.BUCKET.list()).objects).toHaveLength(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
+  });
+
+  it("stores nothing when the bytes do not arrive in time", async () => {
+    const deps = { ...makeDeps(), uploadDeadlineMs: 50 };
+    const answer = (await (await announce(deps)).json()) as { uploadUrl: string };
+    const stalled = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes.slice(0, 5)); // and nothing more
+      },
+    });
+    const response = await handle(
+      new Request(answer.uploadUrl, { method: "PUT", headers: { "content-length": String(bytes.byteLength) }, body: stalled }),
+      env,
+      deps,
+    );
+    expect(response.status).toBe(422);
     expect((await env.BUCKET.list()).objects).toHaveLength(0);
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
   });

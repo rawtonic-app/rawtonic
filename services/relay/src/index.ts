@@ -38,7 +38,15 @@ export interface Env {
 export interface Deps {
   tracker: IssueTracker;
   now: () => number;
+  /** How long a RAW sample's bytes may take (tests shorten it). */
+  uploadDeadlineMs?: number;
 }
+
+/** A RAW upload must finish within this; it starts at most an hour after
+ * its announcement (UPLOAD_VALID_MS), so it is over well before the sweep
+ * removes an unfinished upload's record two hours after the announcement,
+ * and no late write can follow. */
+const UPLOAD_DEADLINE_MS = 30 * 60_000;
 
 /** Reports, crashes and camera tests (their issues and records) are kept
  * 90 days, RAW samples two years (ADR 0017). */
@@ -274,6 +282,28 @@ const postRawSample = async (request: Request, env: Env, deps: Deps) => {
   return json(201, { id: s.id, ref: s.ref, uploadUrl, expiresAt: new Date(expires).toISOString() });
 };
 
+/** The body as a stream of known length that fails once `ms` have passed:
+ * R2 then stores nothing (an object appears only when its put succeeds). */
+const withDeadline = (body: ReadableStream<Uint8Array>, length: number, ms: number) => {
+  const fixed = new FixedLengthStream(length);
+  let timer: number | null = null;
+  const guard = new TransformStream<Uint8Array, Uint8Array>({
+    start(controller) {
+      timer = setTimeout(() => controller.error(new Error("upload deadline")), ms);
+    },
+    flush() {
+      if (timer !== null) clearTimeout(timer);
+    },
+  });
+  body
+    .pipeThrough(guard)
+    .pipeTo(fixed.writable)
+    .catch(() => {
+      if (timer !== null) clearTimeout(timer);
+    });
+  return fixed.readable;
+};
+
 /** Takes a RAW sample's bytes once and checks size and SHA-256. Samples
  * are not filed as issues: the maintainers list them from the database
  * and the bucket (docs/RELAY.md), so no GitHub write can be left behind. */
@@ -299,11 +329,13 @@ const putRawSample = async (request: Request, env: Env, deps: Deps, token: strin
   if (claimed.meta.changes !== 1) return error(404, "unknown-upload");
   const row: Row = { id_hash: upload.id_hash, ref: upload.id_hash.slice(0, 8), state: "uploading", issue_node_id: null, objects, received_at: now };
   try {
-    await env.BUCKET.put(upload.object_key, request.body, { sha256: upload.sha256 });
+    await env.BUCKET.put(upload.object_key, withDeadline(request.body, length, deps.uploadDeadlineMs ?? UPLOAD_DEADLINE_MS), {
+      sha256: upload.sha256,
+    });
     await env.BUCKET.put(metaKey, upload.meta, { httpMetadata: { contentType: "application/json" } });
   } catch {
     await cleanUp(env, deps, row);
-    return error(422, "checksum-mismatch");
+    return error(422, "not-stored");
   }
   try {
     const filed = await env.DB.prepare("UPDATE submissions SET state = 'filed' WHERE id_hash = ?1 AND state = 'uploading'")
@@ -401,12 +433,22 @@ export const sweep = async (env: Env, deps: Deps) => {
   ]);
   await closeWeeks(env.DB, now);
   try {
-    const { results } = await env.DB.prepare(
-      `${ROW} WHERE (state = 'filed' AND ((kind = 'raw-sample' AND received_at < ?1) OR (kind != 'raw-sample' AND received_at < ?2))) ` +
-        `OR (state IN ('pending', 'filing', 'uploading') AND received_at < ?3) ORDER BY received_at LIMIT ${RECORDS_PER_SWEEP}`,
-    )
-      .bind(now - SAMPLE_DAYS * DAY_MS, now - ISSUE_DAYS * DAY_MS, now - UPLOAD_VALID_MS - HOUR_MS)
-      .all<Row>();
+    // Three range reads on the (state, kind, received_at) index, each
+    // bounded, never a scan of the table.
+    const ranges = [
+      env.DB.prepare(`${ROW} WHERE state = 'filed' AND kind = 'raw-sample' AND received_at < ?1 LIMIT ?2`).bind(
+        now - SAMPLE_DAYS * DAY_MS,
+        RECORDS_PER_SWEEP,
+      ),
+      env.DB.prepare(
+        `${ROW} WHERE state = 'filed' AND kind IN ('report', 'crash', 'camera-test') AND received_at < ?1 LIMIT ?2`,
+      ).bind(now - ISSUE_DAYS * DAY_MS, RECORDS_PER_SWEEP),
+      env.DB.prepare(`${ROW} WHERE state IN ('pending', 'filing', 'uploading') AND received_at < ?1 LIMIT ?2`).bind(
+        now - UPLOAD_VALID_MS - HOUR_MS,
+        RECORDS_PER_SWEEP,
+      ),
+    ];
+    const results = (await env.DB.batch<Row>(ranges)).flatMap((r) => r.results).slice(0, RECORDS_PER_SWEEP);
     // Objects first (one call), then each record only if unchanged since
     // it was read; their upload tokens, if any, expired long ago.
     const keys = results.flatMap((row) => JSON.parse(row.objects) as string[]);
