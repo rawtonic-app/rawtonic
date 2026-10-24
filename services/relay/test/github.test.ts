@@ -28,19 +28,20 @@ describe("GitHub tracker", () => {
     ).rejects.toThrow("HTTP 500");
   });
 
-  it("finds issues by the reference in their title only", async () => {
-    let asked = "";
+  it("finds issues by their marker in the full issue list, and refuses to guess", async () => {
+    const asked: string[] = [];
+    const page = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ body: `x <!-- rawtonic-relay:${i === 3 ? "aa" : "bb"} -->`, node_id: `I_${n}_${i}` }));
     const fetcher = async (url: string) => {
-      asked = decodeURIComponent(url);
-      return Response.json({
-        items: [
-          { title: "Crash 0123abcd · Rawtonic 1 · macos", node_id: "I_1" },
-          { title: "Crash 0123abcde · other", node_id: "I_2" },
-        ],
-      });
+      asked.push(url);
+      return Response.json(asked.length === 1 ? page(100) : [...page(5), { body: "rawtonic-relay:aa", node_id: "PR", pull_request: {} }]);
     };
-    expect(await new GitHubTracker("t", "a/b", fetcher).findByRef("0123abcd")).toEqual(["I_1"]);
-    expect(asked).toContain("repo:a/b is:issue in:title 0123abcd");
-    expect(await new GitHubTracker("t", "a/b", fetcher).findByRef("not a ref")).toEqual([]);
+    expect(await new GitHubTracker("t", "a/b", fetcher).findByMarker("rawtonic-relay:aa", 0)).toEqual(["I_100_3", "I_5_3"]);
+    expect(asked[0]).toContain("/repos/a/b/issues?state=all&since=1970-01-01T00%3A00%3A00.000Z&per_page=100&page=1");
+    expect(asked[1]).toContain("page=2");
+    const failing = new GitHubTracker("t", "a/b", async () => new Response("", { status: 502 }));
+    await expect(failing.findByMarker("m", 0)).rejects.toThrow("HTTP 502");
+    const endless = new GitHubTracker("t", "a/b", async () => Response.json(page(100)));
+    await expect(endless.findByMarker("m", 0)).rejects.toThrow("too many");
   });
 });

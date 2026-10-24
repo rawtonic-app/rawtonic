@@ -30,20 +30,21 @@ export class FakeTracker implements IssueTracker {
     this.issues.set(filed.nodeId, { ...issue, ...filed });
     return filed;
   }
-  /** While set, create() waits for it (to interleave requests). */
-  gate?: Promise<void>;
-  creating = 0;
+  /** create() files the issue but then fails, as a lost answer would. */
+  createThenThrow = false;
+  failList = false;
   async create(issue: NewIssue): Promise<FiledIssue> {
-    this.creating++;
-    if (this.gate) await this.gate;
-    return this.createNow(issue);
+    const filed = await this.createNow(issue);
+    if (this.createThenThrow) throw new Error("answer lost");
+    return filed;
   }
   async delete(nodeId: string) {
     if (this.failDelete) throw new Error("GitHub down");
     this.issues.delete(nodeId);
   }
-  async findByRef(ref: string) {
-    return [...this.issues.values()].filter((i) => i.title.split(" ").includes(ref)).map((i) => i.nodeId);
+  async findByMarker(marker: string) {
+    if (this.failList) throw new Error("list unavailable");
+    return [...this.issues.values()].filter((i) => i.body.includes(marker)).map((i) => i.nodeId);
   }
 }
 

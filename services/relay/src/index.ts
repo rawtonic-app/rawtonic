@@ -5,7 +5,7 @@
 // retention. Deployment: docs/RELAY.md.
 
 import { GitHubTracker, type IssueTracker } from "./github";
-import { cameraTestIssue, crashIssue, rawSampleIssue, reportIssue } from "./issues";
+import { cameraTestIssue, crashIssue, marker, reportIssue, type Ids } from "./issues";
 import { allow, checkPow, takeGlobal, type Kind } from "./limits";
 import {
   BODY_CAPS,
@@ -129,9 +129,11 @@ const accept = async <T>(
 
 /** Row states: `filing` (recorded before anything external is written;
  * the id is not given out yet), `pending` (RAW sample announced),
- * `uploading` (its bytes and issue are being written), `filed`, and
- * `deleting` (claimed by a deletion). A row in `filing` or `uploading` for
- * long is reconciled by the scheduled run. */
+ * `uploading` (its bytes are being written), `filed`, and `deleting`
+ * (claimed by a deletion). A row left in `filing`, `uploading` or
+ * `deleting` is cleaned up by the scheduled run once its request is long
+ * over; only a `filing` row may have an issue whose number is unknown (its
+ * creation failed without an answer), found then by its marker. */
 type State = "filing" | "pending" | "uploading" | "filed" | "deleting";
 
 interface Row {
@@ -140,13 +142,16 @@ interface Row {
   state: State;
   issue_node_id: string | null;
   objects: string;
+  received_at: number;
 }
 
 /** Moves a row from one of `from` to `to` (compare and swap); the row as
  * it was, or null when it is gone or in another state (another request
  * has it). */
 const claim = async (env: Env, idHash: string, from: State[], to: State): Promise<Row | null> => {
-  const row = await env.DB.prepare("SELECT id_hash, ref, state, issue_node_id, objects FROM submissions WHERE id_hash = ?1")
+  const row = await env.DB.prepare(
+    "SELECT id_hash, ref, state, issue_node_id, objects, received_at FROM submissions WHERE id_hash = ?1",
+  )
     .bind(idHash)
     .first<Row>();
   if (!row || !from.includes(row.state)) return null;
@@ -157,34 +162,46 @@ const claim = async (env: Env, idHash: string, from: State[], to: State): Promis
 };
 
 /** Files one issue (with its stored objects). The row is written first, so
- * a failure at any later step leaves something the scheduled run can
- * reconcile; the id is only answered once everything is recorded. */
+ * a failure at any later step leaves something the scheduled run can clean
+ * up; the id is only answered once everything is recorded. */
 const file = async (
   env: Env,
   deps: Deps,
   kind: string,
-  build: (s: { ref: string; keys: string[] }) => Parameters<IssueTracker["create"]>[0],
+  build: (s: Ids & { keys: string[] }) => Parameters<IssueTracker["create"]>[0],
   objects: { key: string; data: Uint8Array; type: string }[] = [],
 ) => {
   const now = deps.now();
   if (!(await takeGlobal(env.DB, "issues", 1, now))) return error(429, "busy");
   const s = await newSubmission();
   const keys = objects.map((o) => o.key.replace("{hash}", s.idHash));
+  const row: Row = { id_hash: s.idHash, ref: s.ref, state: "filing", issue_node_id: null, objects: JSON.stringify(keys), received_at: now };
   try {
     await env.DB.prepare(
       "INSERT INTO submissions (id_hash, kind, ref, state, objects, received_at) VALUES (?1, ?2, ?3, 'filing', ?4, ?5)",
     )
-      .bind(s.idHash, kind, s.ref, JSON.stringify(keys), now)
+      .bind(s.idHash, kind, s.ref, row.objects, now)
       .run();
   } catch {
     return error(502, "not-filed");
   }
-  let issue: { number: number; nodeId: string } | undefined;
   try {
     for (const [i, o] of objects.entries()) {
       await env.BUCKET.put(keys[i], o.data, { httpMetadata: { contentType: o.type } });
     }
-    issue = await deps.tracker.create(build({ ref: s.ref, keys }));
+  } catch {
+    await cleanUp(env, deps, row, false);
+    return error(502, "not-filed");
+  }
+  let issue: { number: number; nodeId: string };
+  try {
+    issue = await deps.tracker.create(build({ ref: s.ref, idHash: s.idHash, keys }));
+  } catch {
+    // GitHub may have created it without answering: the row stays in
+    // `filing` and the scheduled run looks for the issue's marker later.
+    return error(502, "not-filed");
+  }
+  try {
     const filed = await env.DB.prepare(
       "UPDATE submissions SET state = 'filed', issue_number = ?2, issue_node_id = ?3 WHERE id_hash = ?1 AND state = 'filing'",
     )
@@ -192,19 +209,19 @@ const file = async (
       .run();
     if (filed.meta.changes !== 1) throw new Error("row lost");
   } catch {
-    await undoFiling(env, deps, { id_hash: s.idHash, ref: s.ref, state: "filing", issue_node_id: issue?.nodeId ?? null, objects: JSON.stringify(keys) });
+    await cleanUp(env, deps, { ...row, issue_node_id: issue.nodeId }, false);
     return error(502, "not-filed");
   }
   return json(201, { id: s.id, ref: s.ref });
 };
 
-/** Removes what a failed filing wrote. When that fails too, the row stays
- * in its state and the scheduled run finds the issue by its reference. */
-const undoFiling = async (env: Env, deps: Deps, row: Row) => {
+/** Removes what a failed request wrote. When that fails too, the row stays
+ * and the scheduled run tries again. */
+const cleanUp = async (env: Env, deps: Deps, row: Row, search: boolean) => {
   try {
-    await remove(env, deps, row);
+    await remove(env, deps, row, search);
   } catch {
-    // Reconciled by sweep().
+    // Left to sweep().
   }
 };
 
@@ -224,7 +241,7 @@ const postReport = async (request: Request, env: Env, deps: Deps) => {
     env,
     deps,
     "report",
-    ({ ref, keys }) => reportIssue(report, ref, keys[0]),
+    (ids) => reportIssue(report, ids, ids.keys[0]),
     objects,
   );
 };
@@ -232,13 +249,13 @@ const postReport = async (request: Request, env: Env, deps: Deps) => {
 const postCrash = async (request: Request, env: Env, deps: Deps) => {
   const crash = await accept(request, env, deps, "crash", parseCrash);
   if (crash instanceof Response) return crash;
-  return file(env, deps, "crash", ({ ref }) => crashIssue(crash, ref));
+  return file(env, deps, "crash", (ids) => crashIssue(crash, ids));
 };
 
 const postCameraTest = async (request: Request, env: Env, deps: Deps) => {
   const test = await accept(request, env, deps, "camera-test", parseCameraTest);
   if (test instanceof Response) return test;
-  return file(env, deps, "camera-test", ({ ref }) => cameraTestIssue(test, ref));
+  return file(env, deps, "camera-test", (ids) => cameraTestIssue(test, ids));
 };
 
 const sampleKey = (idHash: string, s: RawSample) =>
@@ -266,7 +283,9 @@ const postRawSample = async (request: Request, env: Env, deps: Deps) => {
   return json(201, { id: s.id, ref: s.ref, uploadUrl, expiresAt: new Date(expires).toISOString() });
 };
 
-/** Takes a RAW sample's bytes once, checks size and SHA-256, files the issue. */
+/** Takes a RAW sample's bytes once and checks size and SHA-256. Samples
+ * are not filed as issues: the maintainers list them from the database
+ * and the bucket (docs/RELAY.md), so no GitHub write can be left behind. */
 const putRawSample = async (request: Request, env: Env, deps: Deps, token: string) => {
   const now = deps.now();
   const upload = await env.DB.prepare("DELETE FROM uploads WHERE token_hash = ?1 RETURNING *")
@@ -276,41 +295,32 @@ const putRawSample = async (request: Request, env: Env, deps: Deps, token: strin
   const length = Number(request.headers.get("content-length"));
   if (!request.body || length !== upload.size || length > MAX_SAMPLE_BYTES) return error(400, "size-mismatch");
   if (!(await takeGlobal(env.DB, "uploadBytes", length, now))) return error(429, "busy");
-  // Claimed before anything is written, with the object recorded: a
-  // deletion now waits (409) instead of racing the upload.
-  const objects = JSON.stringify([upload.object_key]);
+  // Claimed before anything is written, with the objects recorded: a
+  // deletion now waits (409) instead of racing the upload. Beside the file
+  // goes what the donor announced (camera, licence, note) as sample.json.
+  const metaKey = upload.object_key.replace(/[^/]+$/, "sample.json");
+  const objects = JSON.stringify([upload.object_key, metaKey]);
   const claimed = await env.DB.prepare(
     "UPDATE submissions SET state = 'uploading', objects = ?2 WHERE id_hash = ?1 AND state = 'pending'",
   )
     .bind(upload.id_hash, objects)
     .run();
   if (claimed.meta.changes !== 1) return error(404, "unknown-upload");
-  const row: Row = { id_hash: upload.id_hash, ref: upload.id_hash.slice(0, 8), state: "uploading", issue_node_id: null, objects };
+  const row: Row = { id_hash: upload.id_hash, ref: upload.id_hash.slice(0, 8), state: "uploading", issue_node_id: null, objects, received_at: now };
   try {
     await env.BUCKET.put(upload.object_key, request.body, { sha256: upload.sha256 });
+    await env.BUCKET.put(metaKey, upload.meta, { httpMetadata: { contentType: "application/json" } });
   } catch {
-    await undoFiling(env, deps, row);
+    await cleanUp(env, deps, row, false);
     return error(422, "checksum-mismatch");
   }
-  const sample = JSON.parse(upload.meta) as RawSample;
-  let issue: { number: number; nodeId: string } | undefined;
   try {
-    if (await takeGlobal(env.DB, "issues", 1, now)) {
-      issue = await deps.tracker.create(rawSampleIssue(sample, row.ref, upload.object_key));
-    }
-  } catch {
-    // Keep the sample without an issue: it is recorded, retained and
-    // deletable; the maintainers find it in the bucket.
-  }
-  try {
-    const filed = await env.DB.prepare(
-      "UPDATE submissions SET state = 'filed', issue_number = ?2, issue_node_id = ?3 WHERE id_hash = ?1 AND state = 'uploading'",
-    )
-      .bind(upload.id_hash, issue?.number ?? null, issue?.nodeId ?? null)
+    const filed = await env.DB.prepare("UPDATE submissions SET state = 'filed' WHERE id_hash = ?1 AND state = 'uploading'")
+      .bind(upload.id_hash)
       .run();
     if (filed.meta.changes !== 1) throw new Error("row lost");
   } catch {
-    await undoFiling(env, deps, { ...row, issue_node_id: issue?.nodeId ?? null });
+    await cleanUp(env, deps, row, false);
     return error(502, "not-filed");
   }
   return new Response(null, { status: 204 });
@@ -324,13 +334,15 @@ const postStats = async (request: Request, env: Env, deps: Deps) => {
   return new Response(null, { status: 204 });
 };
 
-/** Deletes everything stored for one submission. Without its issue's node
- * id (a filing that failed half-way), the issue is found by its reference. */
-const remove = async (env: Env, deps: Deps, row: Row) => {
+/** Deletes everything stored for one submission. `search`: the row's
+ * issue may exist without its number recorded (a `filing` row whose
+ * creation got no answer); then every issue carrying its marker is deleted,
+ * and a listing that cannot be read keeps the row for the next run. */
+const remove = async (env: Env, deps: Deps, row: Row, search: boolean) => {
   const issues = row.issue_node_id
     ? [row.issue_node_id]
-    : row.state === "filing" || row.state === "uploading"
-      ? await deps.tracker.findByRef(row.ref)
+    : search
+      ? await deps.tracker.findByMarker(marker(row.id_hash), row.received_at - 10 * 60_000)
       : [];
   for (const nodeId of issues) await deps.tracker.delete(nodeId);
   const objects = JSON.parse(row.objects) as string[];
@@ -346,7 +358,7 @@ const removeClaimed = async (env: Env, deps: Deps, idHash: string, from: State[]
   const row = await claim(env, idHash, from, "deleting");
   if (!row) return false;
   try {
-    await remove(env, deps, row);
+    await remove(env, deps, row, row.state === "filing");
   } catch (e) {
     await env.DB.prepare("UPDATE submissions SET state = ?2 WHERE id_hash = ?1 AND state = 'deleting'")
       .bind(idHash, row.state)
@@ -424,14 +436,15 @@ export const sweep = async (env: Env, deps: Deps) => {
   for (const { idHash, from } of due) {
     if (budget-- <= 0) break;
     try {
-      // A row left in `deleting` by a deletion that died is claimed as is.
+      // A row left in `deleting` by a deletion that died is taken as is
+      // (it came from `filed` or `pending`: its issue, if any, is recorded).
       if (from[0] === "deleting") {
         const row = await env.DB.prepare(
-          "SELECT id_hash, ref, state, issue_node_id, objects FROM submissions WHERE id_hash = ?1",
+          "SELECT id_hash, ref, state, issue_node_id, objects, received_at FROM submissions WHERE id_hash = ?1",
         )
           .bind(idHash)
           .first<Row>();
-        if (row) await remove(env, deps, { ...row, state: row.issue_node_id ? "filed" : "filing" });
+        if (row) await remove(env, deps, row, false);
       } else {
         await removeClaimed(env, deps, idHash, from);
       }

@@ -17,9 +17,10 @@ export interface IssueTracker {
   /** Deletes the issue for good (edit history included). Resolves when it
    * is gone, also when it was already deleted. */
   delete(nodeId: string): Promise<void>;
-  /** Node ids of the issues whose title carries this reference (to clean
-   * up a filing whose issue id was never recorded). */
-  findByRef(ref: string): Promise<string[]>;
+  /** Node ids of the issues (any state) updated since `since` whose body
+   * carries `marker`. Reads the issue list, which is consistent, not the
+   * search index; throws when it cannot read all of it. */
+  findByMarker(marker: string, since: number): Promise<string[]>;
 }
 
 export class GitHubError extends Error {}
@@ -61,19 +62,25 @@ export class GitHubTracker implements IssueTracker {
     return { number: created.number, nodeId: created.node_id };
   }
 
-  async findByRef(ref: string): Promise<string[]> {
-    if (!/^[0-9a-f]{8}$/.test(ref)) return [];
-    const q = encodeURIComponent(`repo:${this.repo} is:issue in:title ${ref}`);
-    const response = await this.fetcher(`${this.api}/search/issues?q=${q}&per_page=10`, {
-      method: "GET",
-      headers: this.headers(),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (response.status !== 200) throw new GitHubError(`search issues: HTTP ${response.status}`);
-    const found = (await response.json()) as { items?: { title?: unknown; node_id?: unknown }[] };
-    return (found.items ?? [])
-      .filter((i) => typeof i.title === "string" && i.title.split(" ").includes(ref) && typeof i.node_id === "string")
-      .map((i) => i.node_id as string);
+  async findByMarker(marker: string, since: number): Promise<string[]> {
+    const found: string[] = [];
+    const after = new Date(since).toISOString();
+    for (let page = 1; page <= 20; page++) {
+      const response = await this.fetcher(
+        `${this.api}/repos/${this.repo}/issues?state=all&since=${encodeURIComponent(after)}&per_page=100&page=${page}`,
+        { method: "GET", headers: this.headers(), signal: AbortSignal.timeout(10_000) },
+      );
+      if (response.status !== 200) throw new GitHubError(`list issues: HTTP ${response.status}`);
+      const items = (await response.json()) as { body?: unknown; node_id?: unknown; pull_request?: unknown }[];
+      if (!Array.isArray(items)) throw new GitHubError("list issues: unexpected response");
+      for (const item of items) {
+        if (!item.pull_request && typeof item.body === "string" && item.body.includes(marker) && typeof item.node_id === "string") {
+          found.push(item.node_id);
+        }
+      }
+      if (items.length < 100) return found;
+    }
+    throw new GitHubError("list issues: too many to read");
   }
 
   async delete(nodeId: string): Promise<void> {

@@ -7,7 +7,7 @@ What runs where, and what it costs: the Workers free plan is enough to start (10
 ## Once
 
 1. **Accounts.** A Cloudflare account (free) and the GitHub organisation `rawtonic-app`.
-2. **Private repository** for the reports, e.g. `rawtonic-app/rawtonic-reports` — **private**, issues on, everything else off. Create the labels `report`, `crash`, `camera-test` and `raw-sample` (Issues → Labels).
+2. **Private repository** for the reports, e.g. `rawtonic-app/rawtonic-reports` — **private**, issues on, everything else off. Create the labels `report`, `crash` and `camera-test` (Issues → Labels).
 3. **Bot account and token.** Create a separate GitHub account for the relay (e.g. `rawtonic-relay-bot`, its own e-mail, two-factor on), invite it to the reports repository only, with the **Admin** role: deleting an issue (the user's delete route, and retention) needs repository admin rights; nothing less removes an issue with its edit history. As the bot, create a token limited to that repository: a fine-grained token with *Issues: read and write* (the organisation must allow fine-grained tokens), or a classic token with the `repo` scope if deleting fails with the fine-grained one (check in step 9). Give it an expiry and put a reminder in the calendar.
 4. **Tools.** Node 24+, then in the repository:
    ```sh
@@ -57,9 +57,12 @@ What runs where, and what it costs: the Workers free plan is enough to start (10
   ```sh
   curl -sS "$RELAY/stats/summary?week=2026-W43" -H "authorization: Bearer $ADMIN_TOKEN"
   ```
-- **RAW samples** are named in their issue (`raw-samples/<hash>/<make>-<model>.<ext>`):
+- **RAW samples** are not filed as issues. List them, newest first, and fetch one with what its donor announced:
   ```sh
-  npx wrangler r2 object get "rawtonic-contributions/raw-samples/<hash>/<file>" --remote --file sample.raw
+  npx wrangler d1 execute rawtonic-relay --remote --command \
+    "SELECT ref, objects, date(received_at / 1000, 'unixepoch') FROM submissions WHERE kind = 'raw-sample' AND state = 'filed' ORDER BY received_at DESC"
+  npx wrangler r2 object get "rawtonic-contributions/raw-samples/<hash>/sample.json" --remote --pipe
+  npx wrangler r2 object get "rawtonic-contributions/raw-samples/<hash>/<make>-<model>.<ext>" --remote --file sample.raw
   ```
   Keep downloaded samples out of git and out of shared folders (AGENTS.md: no photographs in the repository); they stay under the donor's licence (ADR 0017).
 - **Retention** runs every hour (cron in `wrangler.jsonc`): reports, crashes and camera tests go after 90 days, RAW samples after two years, at most 40 deletions per run. Check what is stored: `npx wrangler d1 execute rawtonic-relay --remote --command "SELECT kind, state, COUNT(*) FROM submissions GROUP BY kind, state"`.

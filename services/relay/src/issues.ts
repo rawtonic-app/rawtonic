@@ -3,7 +3,7 @@
 // fenced blocks only, so they cannot mention people or add markup; titles
 // hold only validated names and versions.
 
-import type { App, CameraTest, Crash, Gpu, RawSample, Report } from "./schema";
+import type { App, CameraTest, Crash, Gpu, Report } from "./schema";
 import type { NewIssue } from "./github";
 import { fence } from "./util";
 
@@ -13,11 +13,20 @@ const system = (app: App, gpu?: Gpu) =>
     gpu ? `- GPU: ${gpu.vendor}${gpu.name ? ` — ${gpu.name}` : ""}` : null,
   ].filter((line) => line !== null);
 
-const footer = (ref: string, retention: string) =>
-  `\n---\nReference ${ref}. Filed by the Rawtonic relay (ADR 0017); deleted after ${retention} or when the sender deletes it by its id.`;
+/** The marker that finds an issue again whose number was never recorded:
+ * the full hash of the submission's id (the id itself is never stored). */
+export const marker = (idHash: string) => `rawtonic-relay:${idHash}`;
 
-export const reportIssue = (r: Report, ref: string, screenshotKey?: string): NewIssue => ({
-  title: `Problem report ${ref} · Rawtonic ${r.app.version} · ${r.app.os}`,
+const footer = (s: Ids) =>
+  `\n---\nReference ${s.ref}. Filed by the Rawtonic relay (ADR 0017); deleted after 90 days or when the sender deletes it by its id.\n<!-- ${marker(s.idHash)} -->`;
+
+export interface Ids {
+  ref: string;
+  idHash: string;
+}
+
+export const reportIssue = (r: Report, ids: Ids, screenshotKey?: string): NewIssue => ({
+  title: `Problem report ${ids.ref} · Rawtonic ${r.app.version} · ${r.app.os}`,
   labels: ["report"],
   body: [
     "## System",
@@ -28,14 +37,14 @@ export const reportIssue = (r: Report, ref: string, screenshotKey?: string): New
     "## What happened",
     fence(r.text),
     r.logTail ? `\n## Log (last lines, scrubbed)\n${fence(r.logTail)}` : null,
-    footer(ref, "90 days"),
+    footer(ids),
   ]
     .filter((line) => line !== null)
     .join("\n"),
 });
 
-export const crashIssue = (c: Crash, ref: string): NewIssue => ({
-  title: `Crash ${ref} · Rawtonic ${c.app.version} · ${c.app.os}`,
+export const crashIssue = (c: Crash, ids: Ids): NewIssue => ({
+  title: `Crash ${ids.ref} · Rawtonic ${c.app.version} · ${c.app.os}`,
   labels: ["crash"],
   body: [
     "## System",
@@ -46,14 +55,14 @@ export const crashIssue = (c: Crash, ref: string): NewIssue => ({
     fence(`${c.message}\n${c.location}`),
     c.backtrace ? `\n## Backtrace\n${fence(c.backtrace)}` : null,
     c.logTail ? `\n## Log (last lines, scrubbed)\n${fence(c.logTail)}` : null,
-    footer(ref, "90 days"),
+    footer(ids),
   ]
     .filter((line) => line !== null)
     .join("\n"),
 });
 
-export const cameraTestIssue = (t: CameraTest, ref: string): NewIssue => ({
-  title: `Camera test ${ref} · ${t.camera.make} ${t.camera.model}`,
+export const cameraTestIssue = (t: CameraTest, ids: Ids): NewIssue => ({
+  title: `Camera test ${ids.ref} · ${t.camera.make} ${t.camera.model}`,
   labels: ["camera-test"],
   body: [
     "## System",
@@ -62,23 +71,6 @@ export const cameraTestIssue = (t: CameraTest, ref: string): NewIssue => ({
     "",
     "## Result",
     fence(t.report, "markdown"),
-    footer(ref, "90 days"),
+    footer(ids),
   ].join("\n"),
-});
-
-export const rawSampleIssue = (s: RawSample, ref: string, key: string): NewIssue => ({
-  title: `RAW sample ${ref} · ${s.camera.make} ${s.camera.model}`,
-  labels: ["raw-sample"],
-  body: [
-    "## Sample",
-    `- Camera: ${s.camera.make} ${s.camera.model}`,
-    `- File: ${s.fileType}, ${s.size} bytes, SHA-256 \`${s.sha256}\``,
-    `- Stored: R2 \`${key}\``,
-    `- Licence: ${s.licence} (personal-data notice acknowledged)`,
-    ...system(s.app),
-    s.note ? `\n## Note\n${fence(s.note)}` : null,
-    footer(ref, "two years"),
-  ]
-    .filter((line) => line !== null)
-    .join("\n"),
 });
