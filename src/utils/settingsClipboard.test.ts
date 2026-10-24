@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER, initialAdjustmentsFor, withGrainStructure, type Adjustments, type MaskContainer } from './adjustments';
+import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER, withGrainStructure, type Adjustments, type MaskContainer } from './adjustments';
 import { Mask } from '../components/panel/right/Masks';
 import {
   RESPONSE_KEYS,
@@ -74,15 +74,7 @@ describe('settings clipboard', () => {
     expect(RESPONSE_KEYS).toContain('toneVersion');
     // The camera CA version goes with the camera's lens data.
     expect(RESPONSE_KEYS).not.toContain('cameraCaVersion');
-  });
-
-  it('never takes Lens Correction, also when its settings are remembered as chosen', () => {
-    const lensKeys = ['lensCorrectionMode', 'lensMaker', 'lensModel', 'lensDistortionAmount', 'diffractionCorrection',
-      'autoChromaticAberration', 'cameraCaVersion'];
-    for (const g of SETTINGS_GROUPS) for (const key of lensKeys) expect(g.keys).not.toContain(key);
-    const source = { ...initialAdjustmentsFor(true), exposure: 1, lensCorrectionMode: 'manual', lensMaker: 'M',
-      lensModel: '50mm', cameraCaVersion: 2 } as unknown as Adjustments;
-    expect(chosenSettings(source, ['exposure', ...lensKeys], [])).toEqual({ exposure: 1 });
+    expect(SETTINGS_GROUPS.find((g) => g.keys.includes('cameraCaVersion'))?.keys).toContain('lensCorrectionMode');
   });
 
   it('gives a never-edited photo the versions of a new edit', () => {

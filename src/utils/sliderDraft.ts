@@ -58,6 +58,16 @@ export function renderDraft(
   return true;
 }
 
+/** Replaces the pending draft of `path` with `update` of it and renders it:
+ * data that arrived for the recipe being dragged, not a move. */
+export function updateDraft(path: string, update: (adjustments: Adjustments) => Adjustments) {
+  if (draft?.path !== path) return;
+  const next = update(draft.adjustments);
+  if (next === draft.adjustments) return;
+  draft = { path, adjustments: next };
+  if (renderer?.(path, next)) lastRendered = next;
+}
+
 /** Commits a pending draft now (drag ended, another edit, photo switch). */
 export function flushSliderDraft() {
   if (commitTimer !== null) clearTimeout(commitTimer);

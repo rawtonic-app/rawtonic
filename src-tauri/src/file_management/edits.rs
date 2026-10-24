@@ -482,6 +482,53 @@ fn pasted_into(
     Ok(new_adjustments)
 }
 
+/// The lens data a lens choice pasted onto the open photograph `path` means
+/// there (`adjustments`, marked unresolved by the editor), resolved as its
+/// save resolves it (`pasted_lens_data`): with the camera facts registered
+/// for an offline photograph, its EXIF from the sidecar or the file.
+#[tauri::command]
+pub async fn resolve_pasted_lens(path: String, adjustments: Value) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (source_path, sidecar_path) = parse_virtual_path(&path);
+        let exif = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path).exif;
+        let lens_db = crate::lens_correction::global_lens_db();
+        pasted_lens_data(adjustments, &exif, lens_db.as_deref(), &source_path)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// The lens keys of `adjustments` once its lens choice is resolved for
+/// `source` (`null` for a key it does not have); `lensProfileFor` stays
+/// `LENS_UNRESOLVED` while it cannot be resolved yet.
+fn pasted_lens_data(
+    mut adjustments: Value,
+    exif: &Option<HashMap<String, String>>,
+    lens_db: Option<&rawtonic_engine::lens_correction::LensDatabase>,
+    source: &Path,
+) -> Value {
+    resolve_lens_params_in_adjustments(
+        &mut adjustments,
+        LensLookup::Keep { previous: None },
+        exif,
+        lens_db,
+        source,
+    );
+    let keys = [
+        "lensMaker",
+        "lensModel",
+        "lensDistortionParams",
+        rawtonic_engine::lens_recipe::LENS_PROFILE_FOR,
+    ];
+    keys.iter()
+        .map(|key| {
+            let value = adjustments.get(*key).cloned().unwrap_or(Value::Null);
+            (key.to_string(), value)
+        })
+        .collect::<serde_json::Map<_, _>>()
+        .into()
+}
+
 /// Whether two photograph paths (virtual copies included) are of one file.
 fn same_photograph(a: &str, b: &str) -> bool {
     let (a, _) = parse_virtual_path(a);
@@ -1656,5 +1703,45 @@ mod tests {
         assert!(tmp.path().join("B.jpg.rrdata").is_dir());
         let failure = SaveFailure::check(paths.len(), failures).unwrap_err();
         assert_eq!(failure.failed, [paths[1].clone()]);
+    }
+    /// A camera correction pasted onto an offline photograph (shown from its
+    /// preview proxy) resolves from the camera facts registered for it, as
+    /// its save does; without them it stays unresolved for export to retry.
+    #[test]
+    fn a_pasted_camera_correction_resolves_offline_from_registered_facts() {
+        let source = Path::new("/offline/pasted-camera-lens/DSCF0001.RAF");
+        let pasted = serde_json::json!({
+            "lensCorrectionMode": "camera", "cameraCaVersion": 1,
+            "lensDistortionParams": null, LENS_PROFILE_FOR: LENS_UNRESOLVED,
+        });
+        let unregistered = pasted_lens_data(pasted.clone(), &None, None, source);
+        assert_eq!(
+            unregistered[LENS_PROFILE_FOR],
+            serde_json::json!(LENS_UNRESOLVED)
+        );
+        assert!(unregistered["lensDistortionParams"].is_null());
+
+        let params = serde_json::json!({"k1": -0.02, "k2": 0.004, "k3": 0.0, "model": 0,
+            "tca_vr": 1.0002, "tca_vb": 0.9998, "vig_k1": 0.1, "vig_k2": 0.0, "vig_k3": 0.0});
+        rawtonic_engine::source_facts::register(
+            &source.to_string_lossy(),
+            rawtonic_engine::source_facts::SourceFacts {
+                version: rawtonic_engine::source_facts::VERSION,
+                camera_lens: Some(serde_json::from_value(params.clone()).unwrap()),
+                ..Default::default()
+            },
+        );
+        // An export of the editor's recipe started before that resolves it too.
+        let mut exported = pasted.clone();
+        rawtonic_export::exif_processing::prepare_recipe_lens(&mut exported, source).unwrap();
+        assert_eq!(exported["lensDistortionParams"], params);
+        let resolved = pasted_lens_data(pasted, &None, None, source);
+        assert_eq!(resolved["lensDistortionParams"], params);
+        assert_ne!(
+            resolved[LENS_PROFILE_FOR],
+            serde_json::json!(LENS_UNRESOLVED)
+        );
+        assert!(resolved["lensMaker"].is_null() && resolved["lensModel"].is_null());
+        rawtonic_engine::source_facts::forget(&source.to_string_lossy());
     }
 }

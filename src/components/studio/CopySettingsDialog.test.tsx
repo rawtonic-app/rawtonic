@@ -3,11 +3,12 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import { CopySettingsDialogHost } from "./CopySettingsDialog";
-import { useEditorActions } from "../../hooks/useEditorActions";
+import { updateAdjustments, useEditorActions } from "../../hooks/useEditorActions";
+import { registerSliderDraftRenderer } from "../../utils/sliderDraft";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
-import { AUTO_CA_VERSION, FRINGE_VERSION, INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER, PasteMode, type Adjustments } from "../../utils/adjustments";
+import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER, PasteMode, type Adjustments } from "../../utils/adjustments";
 import { Invokes, type AppSettings } from "../ui/AppProperties";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -64,9 +65,6 @@ it("copies exactly the chosen tools and layers and remembers the choice", async 
   // Remembered: the group holding exposure; layers were not chosen.
   expect((screen.getByRole("checkbox", { name: /Exposure & Tone Mapper/ }) as HTMLInputElement).checked).toBe(true);
   expect((screen.getByRole("checkbox", { name: "Sky AI selections are detected on each photo" }) as HTMLInputElement).checked).toBe(false);
-  // Lens Correction is not offered, and the picker says so.
-  expect(screen.queryByRole("checkbox", { name: /Lens/ })).toBeNull();
-  expect(screen.getByText(/Lens Correction is not copied or synced yet/)).toBeTruthy();
   // Capture One's "adjusted tools": those this photo changed, all layers.
   fireEvent.click(screen.getByRole("button", { name: "Changed" }));
   expect((screen.getByRole("checkbox", { name: /^Tone/ }) as HTMLInputElement).checked).toBe(true);
@@ -248,7 +246,7 @@ it("Previous takes a never-edited RAW's settings as the editor showed them", asy
     return undefined;
   });
   useSettingsStore.setState({
-    appSettings: { copyPasteSettings: { mode: PasteMode.Merge, includedAdjustments: ["processingVersions", "fringeVersion", "autoCaVersion"], knownAdjustments: [], autoSync: false } } as unknown as AppSettings,
+    appSettings: { copyPasteSettings: { mode: PasteMode.Merge, includedAdjustments: ["lensCorrectionMode", "lensDistortionParams"], knownAdjustments: [], autoSync: false } } as unknown as AppSettings,
     // A RAW by its extension (A is not in the shown list).
     supportedTypes: { raw: ["arw"], nonRaw: ["jpg"] },
   });
@@ -258,8 +256,7 @@ it("Previous takes a never-edited RAW's settings as the editor showed them", asy
   act(() => useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never }));
   await act(() => result.current.handlePasteFromPrevious(["/s/C.ARW"]));
   await act(async () => {});
-  // Its edge-fringe pass and automatic lateral CA, as a never-edited RAW renders.
-  expect(applied()[0].adjustments).toMatchObject({ fringeVersion: FRINGE_VERSION, autoCaVersion: AUTO_CA_VERSION });
+  expect(applied()[0].adjustments).toMatchObject({ lensCorrectionMode: "camera", lensDistortionParams: { k1: 0.2 } });
 });
 
 it("Previous frames drawn masks with the size the previous photo was shown at", async () => {
@@ -365,4 +362,199 @@ it("refuses a paste onto the open photo beyond the layers the renderer applies",
   act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
   expect(useEditorStore.getState().adjustments).toBe(own);
   expect(toast.error).toHaveBeenCalled();
+});
+
+/** A delayed `resolve_pasted_lens`: `release` answers it with `lens`. */
+function delayedLensLookup() {
+  const lookup = { release: (_lens: Partial<Adjustments>) => {}, asked: [] as Adjustments[] };
+  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
+    if (name !== Invokes.ResolvePastedLens) return undefined;
+    lookup.asked.push((args as { adjustments: Adjustments }).adjustments);
+    return new Promise((resolve) => (lookup.release = resolve));
+  });
+  return lookup;
+}
+const settle = async () => {
+  for (let i = 0; i < 3; i++) await act(async () => {});
+};
+
+it("pastes a lens choice at once, unresolved until its data for the open photo is in the paste's step", async () => {
+  const lookup = delayedLensLookup();
+  const { result } = renderHook(useEditorActions);
+  const opened = structuredClone(INITIAL_ADJUSTMENTS);
+  const own = { ...opened, clarity: 1, lensCorrectionMode: "manual", lensDistortionParams: { k1: 0.9 }, lensProfileFor: "own" } as unknown as Adjustments;
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [opened, own], historyIndex: 1 });
+  useEditorStore.setState({
+    copiedAdjustments: { exposure: 1, lensCorrectionMode: "camera", cameraCaVersion: 1 } as unknown as Adjustments,
+    copiedFrom: "/s/A.ARW",
+  });
+  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  await settle();
+  // While its data is looked up, the recipe an export or save takes is
+  // marked unresolved, without the previous lens's data, so it is resolved
+  // for this photo (`prepare_recipe_lens`) rather than exported without it.
+  let shown = useEditorStore.getState().adjustments;
+  expect([shown.exposure, shown.lensCorrectionMode, shown.lensDistortionParams, shown.lensProfileFor]).toEqual([1, "camera", null, "unresolved"]);
+  expect(lookup.asked).toEqual([shown]);
+  await act(async () => lookup.release({ lensMaker: null, lensModel: null, lensDistortionParams: { k1: 0.3 } as never, lensProfileFor: "camera stamp" }));
+  await settle();
+  shown = useEditorStore.getState().adjustments;
+  expect([shown.lensDistortionParams, shown.lensProfileFor]).toEqual([{ k1: 0.3 }, "camera stamp"]);
+  expect(useEditorStore.getState().history).toHaveLength(3);
+  expect(useEditorStore.getState().history[2]).toBe(shown);
+  // One undo takes the whole paste away, redo brings it with its data.
+  act(() => useEditorStore.getState().undo());
+  expect(useEditorStore.getState().adjustments).toBe(own);
+  act(() => useEditorStore.getState().redo());
+  expect(useEditorStore.getState().adjustments.lensDistortionParams).toEqual({ k1: 0.3 });
+});
+
+it("leaves a lens the open photo already has as it is", async () => {
+  const lookup = delayedLensLookup();
+  const { result } = renderHook(useEditorActions);
+  const own = { ...structuredClone(INITIAL_ADJUSTMENTS), lensCorrectionMode: "manual", lensMaker: "M", lensModel: "50mm",
+    lensDistortionParams: { k1: 0.5 }, lensProfileFor: "own" } as unknown as Adjustments;
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [INITIAL_ADJUSTMENTS, own], historyIndex: 1 });
+  useEditorStore.setState({ copiedAdjustments: { exposure: 1, lensCorrectionMode: "manual", lensMaker: "M", lensModel: "50mm" } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  await settle();
+  const shown = useEditorStore.getState().adjustments;
+  expect([shown.exposure, shown.lensDistortionParams, shown.lensProfileFor]).toEqual([1, { k1: 0.5 }, "own"]);
+  expect(lookup.asked).toHaveLength(0);
+});
+
+it("puts a pasted lens's data into later edits keeping its choice and into an undone paste's redo", async () => {
+  const lookup = delayedLensLookup();
+  const { result } = renderHook(useEditorActions);
+  const opened = structuredClone(INITIAL_ADJUSTMENTS);
+  const own = { ...opened, clarity: 1 } as unknown as Adjustments;
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [opened, own], historyIndex: 1 });
+  useEditorStore.setState({
+    copiedAdjustments: { exposure: 1, lensCorrectionMode: "camera", cameraCaVersion: null } as unknown as Adjustments,
+    copiedFrom: "/s/A.ARW",
+  });
+  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  await settle();
+  // A camera choice from a recipe without a camera CA version: asked so.
+  expect("cameraCaVersion" in lookup.asked[0]).toBe(false);
+  // An edit while the lens data is read: it stays, the lens joins it.
+  const later = { ...useEditorStore.getState().adjustments, exposure: 2 };
+  useEditorStore.setState({ adjustments: later, history: [...useEditorStore.getState().history, later], historyIndex: 3 });
+  await act(async () => lookup.release({ lensDistortionParams: { k1: 0.3 } as never, lensProfileFor: "camera stamp" }));
+  await settle();
+  let shown = useEditorStore.getState().adjustments;
+  expect([shown.exposure, shown.lensDistortionParams]).toEqual([2, { k1: 0.3 }]);
+  // Its paste's step has it too: undoing the later edit keeps the lens.
+  expect(useEditorStore.getState().history).toHaveLength(4);
+  act(() => useEditorStore.getState().undo());
+  shown = useEditorStore.getState().adjustments;
+  expect([shown.exposure, shown.lensDistortionParams]).toEqual([1, { k1: 0.3 }]);
+  act(() => useEditorStore.getState().redo());
+  // Undone before its lens data came: the undone step gets it, redo shows it.
+  useEditorStore.setState({ copiedAdjustments: { lensCorrectionMode: "manual", lensMaker: "M", lensModel: "50mm" } as unknown as Adjustments });
+  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  await settle();
+  const before = useEditorStore.getState().history.length;
+  act(() => useEditorStore.getState().undo());
+  await act(async () => lookup.release({ lensMaker: "M", lensModel: "50mm", lensDistortionParams: { k1: 0.5 } as never, lensProfileFor: "manual stamp" }));
+  await settle();
+  expect(useEditorStore.getState().history).toHaveLength(before);
+  expect(useEditorStore.getState().adjustments.lensDistortionParams).toEqual({ k1: 0.3 });
+  act(() => useEditorStore.getState().redo());
+  shown = useEditorStore.getState().adjustments;
+  expect([shown.lensModel, shown.lensDistortionParams, shown.lensProfileFor]).toEqual(["50mm", { k1: 0.5 }, "manual stamp"]);
+});
+
+it("keeps a pasted lens's data when a slider drag started during its lookup commits", async () => {
+  const lookup = delayedLensLookup();
+  const stop = registerSliderDraftRenderer(() => true);
+  try {
+    const { result } = renderHook(useEditorActions);
+    const own = { ...structuredClone(INITIAL_ADJUSTMENTS), clarity: 1 } as unknown as Adjustments;
+    useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [INITIAL_ADJUSTMENTS, own], historyIndex: 1 });
+    useEditorStore.setState({ copiedAdjustments: { lensCorrectionMode: "camera" } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+    act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+    await settle();
+    // A drag of Exposure while the lens data is looked up: a draft only.
+    act(() => useEditorStore.setState({ isSliderDragging: true }));
+    act(() => updateAdjustments({ exposure: 0.5 }));
+    await act(async () => lookup.release({ lensDistortionParams: { k1: 0.3 } as never, lensProfileFor: "camera stamp" }));
+    await settle();
+    // Its next move and its end build on the resolved data.
+    act(() => updateAdjustments({ exposure: 0.7 }));
+    act(() => useEditorStore.setState({ isSliderDragging: false }));
+    await settle();
+    const shown = useEditorStore.getState().adjustments;
+    expect([shown.exposure, shown.lensDistortionParams, shown.lensProfileFor]).toEqual([0.7, { k1: 0.3 }, "camera stamp"]);
+    // The drag is one step: one Undo goes back to the paste, with its data.
+    act(() => useEditorStore.getState().undo());
+    const pasted = useEditorStore.getState().adjustments;
+    expect([pasted.exposure, pasted.lensCorrectionMode, pasted.lensDistortionParams]).toEqual([0, "camera", { k1: 0.3 }]);
+    act(() => useEditorStore.getState().undo());
+    expect(useEditorStore.getState().adjustments).toBe(own);
+  } finally {
+    stop();
+  }
+});
+
+it("resolves a lens pasted while a slider is dragged for the pasted choice, as a step of its own", async () => {
+  const lookup = delayedLensLookup();
+  const stop = registerSliderDraftRenderer(() => true);
+  try {
+    const { result } = renderHook(useEditorActions);
+    const own = { ...structuredClone(INITIAL_ADJUSTMENTS), lensCorrectionMode: "manual", lensMaker: "M", lensModel: "35mm",
+      lensDistortionParams: { k1: 0.9 }, lensProfileFor: "own" } as unknown as Adjustments;
+    useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [INITIAL_ADJUSTMENTS, own], historyIndex: 1 });
+    useEditorStore.setState({ copiedAdjustments: { lensCorrectionMode: "camera" } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+    act(() => useEditorStore.setState({ isSliderDragging: true }));
+    act(() => updateAdjustments({ exposure: 0.5 }));
+    act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+    await settle();
+    expect(lookup.asked.map((asked) => [asked.lensCorrectionMode, asked.lensProfileFor])).toEqual([["camera", "unresolved"]]);
+    act(() => updateAdjustments({ exposure: 0.7 }));
+    await act(async () => lookup.release({ lensMaker: null, lensModel: null, lensDistortionParams: { k1: 0.3 } as never, lensProfileFor: "camera stamp" }));
+    await settle();
+    act(() => useEditorStore.setState({ isSliderDragging: false }));
+    await settle();
+    const shown = useEditorStore.getState().adjustments;
+    expect([shown.exposure, shown.lensCorrectionMode, shown.lensDistortionParams]).toEqual([0.7, "camera", { k1: 0.3 }]);
+    act(() => useEditorStore.getState().undo());
+    const pasted = useEditorStore.getState().adjustments;
+    expect([pasted.exposure, pasted.lensCorrectionMode, pasted.lensDistortionParams]).toEqual([0.5, "camera", { k1: 0.3 }]);
+  } finally {
+    stop();
+  }
+});
+
+it("never puts a pasted lens's data over a later lens edit", async () => {
+  const lookup = delayedLensLookup();
+  const { result } = renderHook(useEditorActions);
+  const opened = structuredClone(INITIAL_ADJUSTMENTS);
+  const own = { ...opened, clarity: 1 } as unknown as Adjustments;
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [opened, own], historyIndex: 1 });
+  useEditorStore.setState({ copiedAdjustments: { lensCorrectionMode: "camera" } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  await settle();
+  const later = { ...useEditorStore.getState().adjustments, lensCorrectionMode: "manual", lensMaker: "M", lensModel: "35mm", lensDistortionParams: { k1: 0.2 } };
+  useEditorStore.setState({ adjustments: later as never, history: [...useEditorStore.getState().history, later as never], historyIndex: 3 });
+  await act(async () => lookup.release({ lensDistortionParams: { k1: 0.3 } as never, lensProfileFor: "camera stamp" }));
+  await settle();
+  expect(useEditorStore.getState().adjustments).toBe(later);
+  act(() => useEditorStore.getState().undo());
+  expect(useEditorStore.getState().adjustments.lensDistortionParams).toEqual({ k1: 0.3 });
+});
+
+it("keeps a pasted lens unresolved while its data cannot be resolved for the open photo yet", async () => {
+  const lookup = delayedLensLookup();
+  const { result } = renderHook(useEditorActions);
+  const own = { ...structuredClone(INITIAL_ADJUSTMENTS), clarity: 1 } as unknown as Adjustments;
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [INITIAL_ADJUSTMENTS, own], historyIndex: 1 });
+  useEditorStore.setState({ copiedAdjustments: { lensCorrectionMode: "manual", lensMaker: "M", lensModel: "50mm" } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  await settle();
+  const pasted = useEditorStore.getState().adjustments;
+  await act(async () => lookup.release({ lensMaker: "M", lensModel: "50mm", lensDistortionParams: null, lensProfileFor: "unresolved" }));
+  await settle();
+  expect(useEditorStore.getState().adjustments).toBe(pasted);
+  expect(pasted.lensProfileFor).toBe("unresolved");
 });

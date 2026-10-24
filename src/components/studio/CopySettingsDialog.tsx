@@ -7,7 +7,6 @@ import type { Adjustments, MaskContainer } from "../../utils/adjustments";
 import {
   DETECTED_TYPES,
   RESPONSES_CHOSEN,
-  NOT_PASTED_SECTION,
   RESPONSE_KEYS,
   SETTINGS_GROUPS,
   groupModified,
@@ -80,8 +79,7 @@ export function CopySettingsDialogHost() {
  * Lightroom's Copy/Sync Settings dialog (every setting by group, remembered)
  * and Capture One's adjustments clipboard (adjusted tools chosen at a click,
  * layers one by one). Retouching, AI patches (generated pixels), Relight and
- * lens blur belong to their photograph and are never copied; Lens
- * Correction is not copied yet (G27), which the picker says.
+ * lens blur belong to their photograph and are never copied.
  */
 function CopySettingsDialog({ request }: { request: PickerRequest }) {
   const { t } = useTranslation();
@@ -210,7 +208,6 @@ function CopySettingsDialog({ request }: { request: PickerRequest }) {
                     )}
                   </label>
                 ))}
-                {section === NOT_PASTED_SECTION && <p className="studio-help">{t("studio.copySettings.lensNotPasted")}</p>}
               </fieldset>
             );
           })}

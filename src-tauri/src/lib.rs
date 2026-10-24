@@ -784,6 +784,7 @@ pub fn run() {
             file_management::save_presets,
             file_management::reset_adjustments_for_paths,
             file_management::apply_auto_lens_correction_to_paths,
+            file_management::resolve_pasted_lens,
             file_management::apply_auto_adjustments_to_paths,
             file_management::handle_import_presets_from_file,
             file_management::handle_import_legacy_presets_from_file,
