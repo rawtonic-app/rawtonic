@@ -1399,7 +1399,15 @@ export default function StudioDevelop() {
                 )
               }
             >
-              {control(t("adjustments.effects.amount"), "sharpness")}
+              {/* Lightroom's range (to 150) from response 2 on, which is
+                  measured against Camera Raw up to 150; response 1's halos
+                  grew with the amount. Layers add -100 to 100. */}
+              {control(
+                t("adjustments.effects.amount"),
+                "sharpness",
+                -100,
+                !layer && ((values.sharpenVersion as number | undefined) ?? 1) >= 2 ? 150 : 100,
+              )}
               {/* Lightroom's Radius / Detail / Masking act on the whole photo. */}
               {!layer &&
                 control(

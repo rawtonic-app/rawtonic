@@ -467,12 +467,14 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     }
 
     // Rawtonic's Amount is calibrated to Lightroom's on the same scale
-    // (notes: reference/detail.md: 40 = Lightroom's 40), so it maps 1:1 up to
-    // the slider's 100 (the inherited x100/150 turned Lightroom's 40 into 27).
+    // (notes: reference/detail.md: 40 = Lightroom's 40), so it maps 1:1 over
+    // Lightroom's whole range to 150, which the slider offers from response
+    // 2 on (the import writes the newest; the inherited x100/150 turned
+    // Lightroom's 40 into 27).
     if let Some(sharpness_val) = get_attr_as_f64(&attrs, "Sharpness") {
         adjustments.insert(
             "sharpness".to_string(),
-            json!(sharpness_val.clamp(0.0, 100.0)),
+            json!(sharpness_val.clamp(0.0, 150.0)),
         );
     }
 
@@ -1858,6 +1860,14 @@ mod tests {
             adjustments["sharpenVersion"],
             rawtonic_engine::image_processing::SHARPEN_VERSION
         );
+        // Lightroom's range ends at 150, as Rawtonic's.
+        for (lightroom, rawtonic) in [(150.0, 150.0), (120.0, 120.0), (180.0, 150.0)] {
+            let xmp = format!(
+                r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:Sharpness="{lightroom}"/></rdf:RDF></x:xmpmeta>"#
+            );
+            let adjustments = convert_xmp_to_preset(&xmp).unwrap().adjustments;
+            assert_eq!(adjustments["sharpness"], rawtonic);
+        }
         let none = r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:Exposure2012="+0.5"/></rdf:RDF></x:xmpmeta>"#;
         let adjustments = convert_xmp_to_preset(none).unwrap().adjustments;
         assert!(adjustments.get("sharpenVersion").is_none());

@@ -4704,7 +4704,7 @@ pub const SHARPEN_VERSION_KEY: &str = "sharpenVersion";
 /// Camera Raw's: wider, with less sharpening on flat noise, more on
 /// moderate texture and a longer tail on strong texture (Masking's texture
 /// error against Camera Raw 0.055 → 0.046 on the tuning frames, 0.12 →
-/// 0.10 on the hold-outs, flat noise not above it); without Masking it
+/// 0.10 on the hold-outs, flat-noise excess unchanged); without Masking it
 /// renders as 4 (notes: reference/detail.md "Sharpening response 5").
 /// 4 (2026-10-23) is 3 with Radius and Masking after
 /// Camera Raw's: below Radius 1 the Threshold gate and part of the gain
