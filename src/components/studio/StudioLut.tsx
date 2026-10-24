@@ -92,7 +92,8 @@ export default function StudioLut({
       setEntries(result?.luts ?? []);
       const skipped = result?.skipped ?? [];
       if (skipped.length > 0) {
-        const files = skipped.map((s) => `${s.file}: ${s.reason}`).join("\n");
+        const lines = skipped.slice(0, 10).map((s) => `${s.file}: ${s.reason}`);
+        const files = [...lines, ...(skipped.length > 10 ? ["…"] : [])].join("\n");
         toast.warn(t("studio.lut.toasts.skipped", { count: skipped.length, imported: result.imported, files }));
       } else if (result && result.imported === 0) {
         toast.info(t("studio.lut.toasts.noneFound"));
