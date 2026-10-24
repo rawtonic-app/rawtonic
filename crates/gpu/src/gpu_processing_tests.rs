@@ -1569,7 +1569,7 @@ fn sharpen_version_3_spares_the_shadows() {
 }
 
 #[test]
-#[ignore = "requires a native GPU; compares sharpening responses 3 and 4"]
+#[ignore = "requires a native GPU; compares sharpening responses 3, 4 and 5"]
 fn sharpen_version_4_keeps_low_contrast_texture_at_radius_and_masking() {
     // Low-contrast grey texture at a mid-tone level, where response 3's
     // Threshold gate shut Radius 0.5 out (fine grain, ±3 %) and Masking 50
@@ -1678,6 +1678,57 @@ fn sharpen_version_4_keeps_low_contrast_texture_at_radius_and_masking() {
         assert!(
             masked > 0.8 * unmasked,
             "Masking 50 on {period} px stripes (diagonal {diagonal}): {masked} of {unmasked}"
+        );
+    }
+    // Response 5: Masking's ramp keeps more of moderate texture, not more
+    // of the fine grain (noise) than response 4, and the stripes; without
+    // Masking it is response 4, bit for bit.
+    for recipe in [
+        json!({"sharpenRadius": 0.5}),
+        json!({"sharpness": 80, "sharpenDetail": 50}),
+    ] {
+        assert_eq!(render(&grain, recipe.clone(), 5), render(&grain, recipe, 4));
+    }
+    // A stronger 6 px pattern (±20 %), half way up response 4's ramp.
+    let texture: Vec<f16> = (0..width * height)
+        .flat_map(|i| {
+            let phase = |c: u32| (c as f32 * std::f32::consts::TAU / 6.0).sin();
+            let v = f16::from_f32(0.15 * (1.0 + 0.2 * phase(i % width) * phase(i / width)));
+            [v, v, v, f16::ONE]
+        })
+        .collect();
+    let (texture_4, texture_5, texture_all) = (
+        change(&texture, json!({"sharpenMasking": 50}), 4),
+        change(&texture, json!({"sharpenMasking": 50}), 5),
+        change(&texture, json!({}), 5),
+    );
+    assert!(
+        texture_5 > 1.2 * texture_4 && texture_5 < texture_all,
+        "Masking 50: {texture_5} against response 4's {texture_4} and no masking's {texture_all}"
+    );
+    // Masking near 0 (fractional values from imports) keeps all of it.
+    let barely = change(&texture, json!({"sharpenMasking": 1e-7}), 5);
+    assert!(
+        (barely / texture_all - 1.0).abs() < 0.01,
+        "Masking 1e-7: {barely} against no masking's {texture_all}"
+    );
+    let (grain_4, grain_5) = (
+        change(&grain, json!({"sharpenMasking": 50}), 4),
+        change(&grain, json!({"sharpenMasking": 50}), 5),
+    );
+    assert!(
+        grain_5 <= grain_4 && grain_5 < 0.1 * radius_1,
+        "Masking 50 on grain: {grain_5} against response 4's {grain_4} and no masking's {radius_1}"
+    );
+    for (period, diagonal) in [(2.0, false), (4.0, false), (4.0, true)] {
+        let data = stripes(period, diagonal);
+        let (masked, unmasked) = (
+            change(&data, json!({"sharpenMasking": 50}), 5),
+            change(&data, json!({}), 5),
+        );
+        assert!(
+            masked > 0.8 * unmasked,
+            "Response 5, Masking 50 on {period} px stripes (diagonal {diagonal}): {masked} of {unmasked}"
         );
     }
 }
