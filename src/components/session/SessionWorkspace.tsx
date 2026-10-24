@@ -250,6 +250,7 @@ interface ImportReport {
   missing: number;
   copiesSkipped: number;
   albums: number;
+  aiMasksOnOpen: number;
   errors: string[];
 }
 
@@ -760,6 +761,9 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           report.missing ? t("session.toasts.importNotFound", { count: report.missing }) : null,
           report.copiesSkipped
             ? t("session.toasts.importCopiesSkipped", { count: report.copiesSkipped })
+            : null,
+          report.aiMasksOnOpen
+            ? t("session.toasts.importAiMasksOnOpen", { count: report.aiMasksOnOpen })
             : null,
         ]
           .filter(Boolean)

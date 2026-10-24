@@ -459,11 +459,14 @@ impl MetadataManager {
     }
 }
 
+/// A thumbnail's base: recipe hash, image, scale, mask source, and the
+/// photo's size when the base was made from its full decode.
 pub type ThumbnailGeometryEntry = (
     u64,
     Arc<DynamicImage>,
     f32,
     Option<crate::mask_generation::ParametricMaskSource>,
+    Option<(u32, u32)>,
 );
 pub type TransformedImageCache = (u64, Arc<DynamicImage>, (f32, f32));
 

@@ -138,8 +138,8 @@ fn generate_mask_overlay_bytes(
 
     let mut geometry =
         PhotoGeometry::from_adjustments(js_adjustments.as_ref().unwrap_or(&Value::Null));
-    if let Ok((_, _, (photo_w, photo_h))) = crate::editor_preview::preview_source(&state) {
-        geometry = geometry.with_photo_size(photo_w as f64, photo_h as f64);
+    if let Ok((loaded, _, full_dims)) = crate::editor_preview::preview_source(&state) {
+        geometry = crate::editor_preview::source_size(geometry, &loaded, full_dims);
     }
     if let Some(gray_mask) = generate_mask_bitmap(
         &parsed_mask_def,
@@ -279,8 +279,11 @@ fn mask_thumbnails(
         * THUMBNAIL_OVERSAMPLING;
     let small =
         MaskFrame::fitting(&adjustments, full_dims, longest).ok_or("The photograph has no size")?;
-    let geometry = PhotoGeometry::from_adjustments(&adjustments)
-        .with_photo_size(full_dims.0 as f64, full_dims.1 as f64);
+    let geometry = crate::editor_preview::source_size(
+        PhotoGeometry::from_adjustments(&adjustments),
+        &loaded,
+        full_dims,
+    );
     let sources = ThumbnailSources {
         preview: preview.map(|frame| (frame, &state.mask_cache)),
         small,

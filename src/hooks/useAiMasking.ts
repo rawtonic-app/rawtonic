@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { isPhotoChanged, noteBackgroundAiError, toastAiError } from '../utils/aiErrors';
 import { DETECT_PENDING } from '../utils/settingsClipboard';
-import { useEditorStore } from '../store/useEditorStore';
+import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { useUIStore } from '../store/useUIStore';
 import { useEditorActions } from './useEditorActions';
@@ -482,9 +482,13 @@ export function useAiMasking() {
 
   // Imported Lightroom masks: automatic AI masks without data (Select Sky,
   // Select Subject) are computed for the open photo, once each; geometry
-  // kept in normalised raw coordinates (gradients, brushes) is placed in its
-  // pixels by the backend, which knows the photo's EXIF orientation.
+  // kept in normalised raw coordinates (gradients, brushes, colour ranges)
+  // is placed in its pixels by the backend, which knows the photo's EXIF
+  // orientation. Renders that know the full decode's size place it the same
+  // way before (`rawtonic_engine::lightroom_masks`), so placement waits for
+  // the full decode and uses its size: opening the photo changes no pixel.
   const selectedImageReady = useEditorStore((s) => !!s.selectedImage?.isReady);
+  const selectedImageDecoded = useEditorStore((s) => !!s.selectedImage?.isDecoded);
   const masksKey = useEditorStore((s) => s.adjustments.masks);
   /** Whether the open photograph's component `id` holds its bitmap now. */
   const componentHasData = (id: string) => {
@@ -496,36 +500,86 @@ export function useAiMasking() {
   const requestedAutoMasks = useRef(new Set<string>());
   const [askAgain, setAskAgain] = useState(0);
   const requestedPlacements = useRef(new Set<string>());
+  const [placeMasksAgain, setPlaceMasksAgain] = useState(0);
+  const sliderDragging = useEditorStore((s) => s.isSliderDragging);
   useEffect(() => {
-    if (!selectedImageReady) return;
+    if (!selectedImageDecoded || sliderDragging) return;
     const { selectedImage } = useEditorStore.getState();
     const masks = useEditorStore.getState().adjustments.masks ?? [];
+    if (!selectedImage) return;
+    const path = selectedImage.path;
     const unplaced = masks
       .flatMap((m: MaskContainer) => m.subMasks)
       .filter(
         (sub: SubMask) =>
           (sub.parameters as { lrNormalized?: unknown } | undefined)?.lrNormalized &&
-          !requestedPlacements.current.has(sub.id),
+          !requestedPlacements.current.has(`${path}:${sub.id}`),
       );
-    if (unplaced.length > 0 && selectedImage) {
-      unplaced.forEach((sub: SubMask) => requestedPlacements.current.add(sub.id));
-      const path = selectedImage.path;
-      void invoke<{ masks?: MaskContainer[] }>(Invokes.PlaceLightroomMasks, {
-        path,
-        adjustments: { masks: [{ subMasks: unplaced }] },
-        width: selectedImage.width,
-        height: selectedImage.height,
+    if (unplaced.length === 0) return;
+    // Per photo: copied settings keep component ids.
+    const keys = unplaced.map((sub: SubMask) => `${path}:${sub.id}`);
+    const asked = new Map(unplaced.map((sub: SubMask) => [sub.id, JSON.stringify(sub.parameters)]));
+    keys.forEach((key) => requestedPlacements.current.add(key));
+    /** Asked again: at once when the photo is open and decoded, else when it is. */
+    const askAgainLater = () => {
+      keys.forEach((key) => requestedPlacements.current.delete(key));
+      const now = useEditorStore.getState().selectedImage;
+      if (now?.path === path && now.isDecoded) setPlaceMasksAgain((n) => n + 1);
+    };
+    void invoke<{ masks?: MaskContainer[] }>(Invokes.PlaceLightroomMasks, {
+      path,
+      adjustments: { masks: [{ subMasks: unplaced }] },
+      width: selectedImage.width,
+      height: selectedImage.height,
+    })
+      .then((placed) => {
+        const now = useEditorStore.getState();
+        // A drag holds its own draft of the recipe: placed when it ends.
+        if (now.selectedImage?.path !== path || now.isSliderDragging) {
+          askAgainLater();
+          return;
+        }
+        const placedParameters = new Map(
+          (placed.masks?.[0]?.subMasks ?? [])
+            .filter((sub) => !(sub.parameters as { lrNormalized?: unknown } | undefined)?.lrNormalized)
+            .map((sub) => [sub.id, sub.parameters]),
+        );
+        if (placedParameters.size === 0) return;
+        /** `adjustments` with the asked components, where still as asked, placed. */
+        const placeIn = (adjustments: Adjustments): Adjustments => {
+          let changed = false;
+          const masks = (adjustments.masks ?? []).map((container: MaskContainer) => {
+            let own = false;
+            const subMasks = container.subMasks.map((sub: SubMask) => {
+              const parameters = placedParameters.get(sub.id);
+              if (!parameters || JSON.stringify(sub.parameters) !== asked.get(sub.id)) return sub;
+              own = true;
+              return { ...sub, parameters };
+            });
+            if (!own) return container;
+            changed = true;
+            return { ...container, subMasks };
+          });
+          return changed ? { ...adjustments, masks } : adjustments;
+        };
+        // No history step of its own: the placed form replaces the imported
+        // one in the recipe and in every step that holds it, so an undo never
+        // brings back the imported form (which the editing tools cannot use)
+        // and redo stays. An edit still waiting to become a step is settled
+        // first, so it is replaced too.
+        debouncedSetHistory.flush();
+        now.setEditor((state) =>
+          state.selectedImage?.path !== path
+            ? state
+            : { adjustments: placeIn(state.adjustments), history: state.history.map(placeIn) },
+        );
       })
-        .then((placed) => {
-          if (useEditorStore.getState().selectedImage?.path !== path) return;
-          for (const sub of placed.masks?.[0]?.subMasks ?? []) {
-            if (!(sub.parameters as { lrNormalized?: unknown } | undefined)?.lrNormalized) {
-              updateSubMask(sub.id, { parameters: sub.parameters });
-            }
-          }
-        })
-        .catch((error) => console.error('Placing Lightroom masks failed:', error));
-    }
+      .catch((error) => console.error('Placing Lightroom masks failed:', error));
+  }, [selectedImageDecoded, sliderDragging, masksKey, placeMasksAgain]);
+  useEffect(() => {
+    if (!selectedImageReady) return;
+    const { selectedImage } = useEditorStore.getState();
+    const masks = useEditorStore.getState().adjustments.masks ?? [];
     for (const sub of masks.flatMap((m: MaskContainer) => m.subMasks)) {
       if ((sub.parameters as { lrNormalized?: unknown } | undefined)?.lrNormalized) continue;
       // A People mask computes again whenever its parts or person change
@@ -589,7 +643,6 @@ export function useAiMasking() {
   // current recipe; items the geometry cannot show are asked for again when
   // it changes, and items brought back (an undo) as well. Placement waits for
   // the full decode (it places on it), not the preview proxy.
-  const selectedImageDecoded = useEditorStore((s) => !!s.selectedImage?.isDecoded);
   const retouchBasisKey = useEditorStore((s) => retouchBasis(s.adjustments));
   const requestedRetouchPlacements = useRef(new Set<string>());
   const [placeRetouchAgain, setPlaceRetouchAgain] = useState(0);

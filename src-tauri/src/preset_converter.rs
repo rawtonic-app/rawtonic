@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::file_management::Preset;
-use rawtonic_engine::lightroom_retouch::{orient_direction, orient_point};
 
 #[derive(Copy, Clone, Debug)]
 enum Num {
@@ -972,20 +971,11 @@ fn seq_items_of<'a, 'i>(parent: roxmltree::Node<'a, 'i>) -> Vec<roxmltree::Node<
         .unwrap_or_default()
 }
 
-/// Lightroom's brush flow as the coverage of one dab: Camera Raw renders a
-/// single hard dab at Flow 0.5 with 0.105 and at 0.9 with 0.53, which
-/// `f / (8.12 − 7.12 f)` matches within 0.004 over 0.05–1.
-fn lightroom_dab_coverage(flow: f64) -> f64 {
-    let f = flow.clamp(0.0, 1.0);
-    f / (8.12 - 7.12 * f)
-}
-
-/// Places Lightroom mask geometry kept normalised (`lrNormalized`, see
-/// `lightroom_masks`) in a photo of `width` × `height` coordinate pixels
-/// (the displayed orientation) whose EXIF orientation is `orientation`.
-/// Lightroom keeps its geometry in the unrotated raw (Camera Raw puts a dab
-/// at raw (0.3, 0.5) of an orientation-8 photo at (0.5, 0.7)). Returns
-/// whether anything was placed.
+/// Places Lightroom geometry kept normalised (`lrNormalized`: masks, see
+/// `lightroom_masks` and `rawtonic_engine::lightroom_masks`; spots and red
+/// eye corrections) in a photo of `width` × `height` coordinate pixels (the
+/// displayed orientation) whose EXIF orientation is `orientation` (items
+/// that record their own keep it). Returns whether anything was placed.
 pub fn place_lightroom_geometry(
     adjustments: &mut Value,
     width: f64,
@@ -995,154 +985,8 @@ pub fn place_lightroom_geometry(
     if !(width > 0.0 && height > 0.0) {
         return false;
     }
-    let round = |v: f64| (v * 100.0).round() / 100.0;
-    let pixel = |x: f64, y: f64| {
-        let (u, v) = orient_point(orientation, x, y);
-        (u * width, v * height)
-    };
-    let mut placed = place_lightroom_spots(adjustments, width, height, orientation);
-    // Lightroom's geometry belongs to the photo, not to how it is shown: the
-    // placed shapes record the photo's own frame (`mask_generation`'s
-    // `ShapeFrame`), so they are drawn on the same spot of the photo however
-    // it is turned, flipped or straightened.
-    let frame = json!({"width": width, "height": height, "rotation": 0.0,
-        "flipHorizontal": false, "flipVertical": false, "orientationSteps": 0});
-    let Some(masks) = adjustments.get_mut("masks").and_then(Value::as_array_mut) else {
-        return placed;
-    };
-    for sub in masks
-        .iter_mut()
-        .filter_map(|m| m.get_mut("subMasks").and_then(Value::as_array_mut))
-        .flatten()
-    {
-        let Some(g) = sub["parameters"].get("lrNormalized").cloned() else {
-            continue;
-        };
-        let n = |k: &str| g[k].as_f64().unwrap_or(0.0);
-        let parameters = match sub["type"].as_str() {
-            Some("linear") => {
-                let (zx, zy) = pixel(n("zeroX"), n("zeroY"));
-                let (fx, fy) = pixel(n("fullX"), n("fullY"));
-                let (dx, dy) = (fx - zx, fy - zy);
-                let length = dx.hypot(dy);
-                if length <= 1.0 {
-                    continue;
-                }
-                let (mx, my) = ((zx + fx) / 2.0, (zy + fy) / 2.0);
-                let (lx, ly) = (-dy / 2.0, dx / 2.0);
-                json!({"startX": round(mx - lx), "startY": round(my - ly),
-                    "endX": round(mx + lx), "endY": round(my + ly), "range": round(length / 2.0),
-                    "frame": frame})
-            }
-            Some("radial") => {
-                // Top/Left and Bottom/Right are opposite corners of the
-                // ellipse's rectangle turned by Angle (clockwise): the
-                // semi-axes are the diagonal's projections on its axes
-                // (Camera Raw at 15°/30°/45° matches this in pixels).
-                let (x1, y1) = pixel(n("left"), n("top"));
-                let (x2, y2) = pixel(n("right"), n("bottom"));
-                let angle = g["angle"].as_f64().unwrap_or(0.0).to_radians();
-                let (ux, uy) = orient_direction(orientation, angle.cos(), angle.sin());
-                let (dx, dy) = (x2 - x1, y2 - y1);
-                json!({
-                    "centerX": round((x1 + x2) / 2.0),
-                    "centerY": round((y1 + y2) / 2.0),
-                    "radiusX": round((dx * ux + dy * uy).abs() / 2.0),
-                    "radiusY": round((-dx * uy + dy * ux).abs() / 2.0),
-                    "rotation": round(uy.atan2(ux).to_degrees()),
-                    "feather": (g["feather"].as_f64().unwrap_or(50.0) / 100.0).clamp(0.0, 1.0),
-                    "frame": frame,
-                })
-            }
-            Some("brush") => {
-                // The radius is a share of the long side (Camera Raw: 0.05 →
-                // 60 px on a 1200 px long side, in either orientation).
-                let long = width.max(height);
-                let lines: Vec<Value> = g["strokes"]
-                    .as_array()
-                    .map(Vec::as_slice)
-                    .unwrap_or_default()
-                    .iter()
-                    .filter_map(|stroke| {
-                        let points: Vec<Value> = stroke["dabs"]
-                            .as_array()?
-                            .iter()
-                            .filter_map(|d| {
-                                let (x, y) = pixel(d[0].as_f64()?, d[1].as_f64()?);
-                                Some(json!({"x": round(x), "y": round(y)}))
-                            })
-                            .collect();
-                        let radius = stroke["radius"].as_f64()? * long;
-                        (!points.is_empty() && radius > 0.0).then(|| {
-                            json!({
-                                "tool": "brush",
-                                "brushSize": round(2.0 * radius),
-                                "points": points,
-                                "feather": 0.5,
-                                "flow": round(
-                                    lightroom_dab_coverage(stroke["flow"].as_f64().unwrap_or(1.0)) * 100.0,
-                                ),
-                                "lrCenterWeight": stroke["centerWeight"].as_f64().unwrap_or(0.0).clamp(0.0, 1.0),
-                                "autoMask": stroke["autoMask"].as_bool().unwrap_or(false),
-                                "frame": frame,
-                            })
-                        })
-                    })
-                    .collect();
-                json!({"lines": lines})
-            }
-            Some("color") => {
-                let mut samples: Vec<Value> = g["points"]
-                    .as_array()
-                    .map(Vec::as_slice)
-                    .unwrap_or_default()
-                    .iter()
-                    .filter_map(|p| {
-                        let (x, y) = pixel(p[0].as_f64()?, p[1].as_f64()?);
-                        Some(json!({"x": round(x), "y": round(y)}))
-                    })
-                    .collect();
-                for corners in g["areas"].as_array().map(Vec::as_slice).unwrap_or_default() {
-                    let placed: Vec<(f64, f64)> = (0..4)
-                        .filter_map(|i| {
-                            Some(pixel(
-                                corners[2 * i].as_f64()?,
-                                corners[2 * i + 1].as_f64()?,
-                            ))
-                        })
-                        .collect();
-                    if placed.len() == 4 {
-                        let (x0, x1) = placed
-                            .iter()
-                            .fold((f64::MAX, f64::MIN), |(a, b), p| (a.min(p.0), b.max(p.0)));
-                        let (y0, y1) = placed
-                            .iter()
-                            .fold((f64::MAX, f64::MIN), |(a, b), p| (a.min(p.1), b.max(p.1)));
-                        samples.push(json!({"x": round(x0), "y": round(y0),
-                            "width": round(x1 - x0), "height": round(y1 - y0)}));
-                    }
-                }
-                samples.truncate(5);
-                let Some(first) = samples.first().cloned() else {
-                    continue;
-                };
-                let center = |s: &Value, k: &str, size: &str| {
-                    s[k].as_f64().unwrap_or(0.0) + s[size].as_f64().unwrap_or(0.0) / 2.0
-                };
-                json!({
-                    "targetX": round(center(&first, "x", "width")),
-                    "targetY": round(center(&first, "y", "height")),
-                    "samples": samples,
-                    "refine": g["refine"].as_f64().unwrap_or(50.0),
-                    "feather": 0.0,
-                })
-            }
-            _ => continue,
-        };
-        sub["parameters"] = parameters;
-        placed = true;
-    }
-    placed
+    let spots = place_lightroom_spots(adjustments, width, height, orientation);
+    rawtonic_engine::lightroom_masks::place(adjustments, width, height, Some(orientation)) || spots
 }
 
 /// `place_lightroom_geometry` for spots and red eye corrections

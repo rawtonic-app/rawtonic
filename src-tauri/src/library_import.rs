@@ -61,6 +61,10 @@ pub struct ImportReport {
     pub missing: usize,
     pub copies_skipped: usize,
     pub albums: usize,
+    /// Photographs with Lightroom AI masks (Select Subject, Select Sky):
+    /// their model runs when the photo is opened in Develop, so exports
+    /// before that leave those masks' layers without effect.
+    pub ai_masks_on_open: usize,
     pub errors: Vec<String>,
 }
 
@@ -131,9 +135,10 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
             continue;
         }
         match import_photo(catalog, photo) {
-            Ok((asset, translated)) => {
+            Ok((asset, translated, ai_masks)) => {
                 report.imported += 1;
                 report.with_settings += usize::from(translated);
+                report.ai_masks_on_open += usize::from(ai_masks);
                 assets.insert(photo.key.as_str(), asset);
             }
             Err(e) => report.errors.push(format!("{}: {e}", photo.path.display())),
@@ -202,20 +207,39 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
     Ok(report)
 }
 
-fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, bool)> {
+/// Whether the translated edit holds AI masks whose data a model computes
+/// when the photo is opened (`ai-foreground`, `ai-sky` without data).
+fn has_ai_masks_on_open(adjustments: &Value) -> bool {
+    adjustments["masks"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|layer| layer["subMasks"].as_array())
+        .flatten()
+        .any(|sub| {
+            matches!(sub["type"].as_str(), Some("ai-foreground" | "ai-sky"))
+                && sub["parameters"]["maskDataBase64"].is_null()
+        })
+}
+
+/// Registers one photograph with its translated edit: its asset id, whether
+/// it has an edit, and whether that waits for a model when opened
+/// (`has_ai_masks_on_open`).
+fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, bool, bool)> {
     let mut adjustments = translate(&photo.develop);
-    // Lightroom's spots and red eye corrections render from its own
-    // geometry once they know the photo's orientation, a fact of the file
-    // (`rawtonic_engine::lightroom_retouch`): exports of photos never opened
-    // keep them.
-    if let Some(adjustments) = adjustments
-        .as_mut()
-        .filter(|a| rawtonic_engine::lightroom_retouch::needs_orientation(a))
-        && let Ok(bytes) = std::fs::read(&photo.path)
+    // Lightroom's spots, red eye corrections and mask geometry render from
+    // its own geometry once they know the photo's orientation, a fact of
+    // the file (`rawtonic_engine::lightroom_retouch`, `lightroom_masks`):
+    // exports of photos never opened keep them.
+    if let Some(adjustments) = adjustments.as_mut().filter(|a| {
+        rawtonic_engine::lightroom_retouch::needs_orientation(a)
+            || rawtonic_engine::lightroom_masks::needs_orientation(a)
+    }) && let Ok(bytes) = std::fs::read(&photo.path)
     {
         let orientation =
             crate::image_loader::source_orientation(&bytes, &photo.path.to_string_lossy());
         rawtonic_engine::lightroom_retouch::set_orientation(adjustments, orientation);
+        rawtonic_engine::lightroom_masks::set_orientation(adjustments, orientation);
     }
     // The photograph, its translated edit and its metadata are stored in one
     // transaction: a failure leaves none of them, a retry imports it whole.
@@ -247,7 +271,11 @@ fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, boo
             id
         }
     };
-    Ok((id, adjustments.is_some()))
+    Ok((
+        id,
+        adjustments.is_some(),
+        adjustments.as_ref().is_some_and(has_ai_masks_on_open),
+    ))
 }
 
 #[tauri::command]
@@ -456,6 +484,113 @@ mod tests {
         assert!(crate::image_loader::has_base_retouch(adjustments));
         // Nothing was written beside the photograph.
         assert_eq!(fs::read(&path).unwrap(), jpeg);
+    }
+
+    #[test]
+    fn lightroom_masks_are_imported_with_the_photos_orientation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        let path = tmp.path().join("IMG_2.jpg");
+        let mut jpeg = Vec::new();
+        image::DynamicImage::new_rgb8(16, 8)
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        let mut metadata = little_exif::metadata::Metadata::new();
+        metadata.set_tag(little_exif::exif_tag::ExifTag::Orientation(vec![8]));
+        metadata
+            .write_to_vec(&mut jpeg, little_exif::filetype::FileExtension::JPEG)
+            .unwrap();
+        fs::write(&path, &jpeg).unwrap();
+        let xmp = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+ <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:ProcessVersion="15.4">
+ <crs:MaskGroupBasedCorrections><rdf:Seq>
+  <rdf:li><rdf:Description crs:CorrectionName="Sky" crs:LocalExposure2012="-0.1"><crs:CorrectionMasks><rdf:Seq>
+   <rdf:li><rdf:Description crs:What="Mask/Gradient" crs:ZeroX="0.5" crs:ZeroY="0.6" crs:FullX="0.5" crs:FullY="0.2"/></rdf:li>
+   <rdf:li><rdf:Description crs:What="Mask/CircularGradient" crs:MaskBlendMode="1" crs:Top="0.2" crs:Left="0.3" crs:Bottom="0.6" crs:Right="0.7" crs:Angle="10" crs:Feather="50"/></rdf:li>
+  </rdf:Seq></crs:CorrectionMasks></rdf:Description></rdf:li>
+  <rdf:li><rdf:Description crs:CorrectionName="Subject" crs:LocalExposure2012="0.1"><crs:CorrectionMasks><rdf:Seq>
+   <rdf:li><rdf:Description crs:What="Mask/Image" crs:MaskSubType="1"/></rdf:li>
+  </rdf:Seq></crs:CorrectionMasks></rdf:Description></rdf:li>
+ </rdf:Seq></crs:MaskGroupBasedCorrections></rdf:Description></rdf:RDF></x:xmpmeta>"#;
+        let source = Source {
+            name: "LR".into(),
+            photos: vec![photo(
+                "1",
+                path.clone(),
+                Develop::LightroomXmp(xmp.into()),
+                None,
+            )],
+            albums: vec![],
+            not_read: NotRead::default(),
+        };
+        let report = import_into(&catalog, &source).unwrap();
+        assert_eq!((report.imported, report.ai_masks_on_open), (1, 1));
+        let asset = catalog.asset_at(&path).unwrap().unwrap();
+        let state = catalog.editor_state(&asset.id).unwrap().unwrap();
+        let masks = &state["adjustments"]["masks"];
+        let subs = masks[0]["subMasks"].as_array().unwrap();
+        assert_eq!(subs.len(), 2);
+        for sub in subs {
+            assert_eq!(sub["parameters"]["lrNormalized"]["orientation"], 8, "{sub}");
+        }
+        // Renders place them without the editor: the photo is never opened.
+        assert!(!rawtonic_engine::lightroom_masks::needs_orientation(
+            &state["adjustments"]
+        ));
+        assert_eq!(masks[1]["subMasks"][0]["type"], "ai-foreground");
+        assert_eq!(fs::read(&path).unwrap(), jpeg);
+    }
+
+    /// Imports `$LR_IMPORT_FILE` with the Lightroom settings `$LR_IMPORT_XMP`
+    /// into a new catalog, writing its edit as imported to
+    /// `$LR_IMPORT_OUT-pending.json` and as the editor places it once the
+    /// photo is open (its full decode's size) to `$LR_IMPORT_OUT-placed.json`.
+    #[test]
+    #[ignore = "tool: needs LR_IMPORT_XMP, LR_IMPORT_FILE and LR_IMPORT_OUT"]
+    fn import_lightroom_edit_for_file() {
+        let var = |k: &str| std::env::var(k).unwrap();
+        let path = std::path::PathBuf::from(var("LR_IMPORT_FILE"));
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        let source = Source {
+            name: "LR".into(),
+            photos: vec![photo(
+                "1",
+                path.clone(),
+                Develop::LightroomXmp(fs::read_to_string(var("LR_IMPORT_XMP")).unwrap()),
+                None,
+            )],
+            albums: vec![],
+            not_read: NotRead::default(),
+        };
+        assert_eq!(import_into(&catalog, &source).unwrap().imported, 1);
+        let asset = catalog.asset_at(&path).unwrap().unwrap();
+        let pending = catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"].clone();
+        let bytes = fs::read(&path).unwrap();
+        let name = path.to_string_lossy();
+        let settings = crate::app_settings::AppSettings::default();
+        let full =
+            crate::image_loader::load_base_image_from_bytes(&bytes, &name, false, &settings, None)
+                .unwrap();
+        let mut placed = pending.clone();
+        crate::preset_converter::place_lightroom_geometry(
+            &mut placed,
+            f64::from(full.width()),
+            f64::from(full.height()),
+            crate::image_loader::source_orientation(&bytes, &name),
+        );
+        let out = var("LR_IMPORT_OUT");
+        for (suffix, recipe) in [("pending", &pending), ("placed", &placed)] {
+            rawtonic_export::output::write_new_output(
+                format!("{out}-{suffix}.json"),
+                recipe.to_string(),
+            )
+            .unwrap();
+        }
+        println!("{}x{}", full.width(), full.height());
     }
 
     #[test]

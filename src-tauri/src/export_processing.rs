@@ -303,10 +303,8 @@ fn export_masks_for_image(
         .any(MaskDefinition::requires_warped_image)
         .then(|| prepare_parametric_mask_source(pristine_source, is_raw, 1.0, js_adjustments))
         .transpose()?;
-    let mask_geometry = PhotoGeometry::from_adjustments(js_adjustments).with_photo_size(
-        pristine_source.width() as f64,
-        pristine_source.height() as f64,
-    );
+    let mask_geometry = PhotoGeometry::from_adjustments(js_adjustments)
+        .with_decoded_size(pristine_source.width(), pristine_source.height());
     let mut mask_bitmaps = Vec::with_capacity(mask_definitions.len());
     for definition in mask_definitions
         .iter()
@@ -1708,10 +1706,8 @@ fn estimate_sizes(
             &adjustments_clone,
             &mask_definitions,
         )?;
-        let mask_geometry = PhotoGeometry::from_adjustments(&adjustments_clone).with_photo_size(
-            loaded_image.image.width() as f64,
-            loaded_image.image.height() as f64,
-        );
+        let mask_geometry = PhotoGeometry::from_adjustments(&adjustments_clone)
+            .with_decoded_size(loaded_image.image.width(), loaded_image.image.height());
         let mask_bitmaps: Vec<Arc<MaskBitmap>> = mask_definitions
             .iter()
             .filter_map(|def| {

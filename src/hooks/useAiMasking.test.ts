@@ -449,7 +449,7 @@ describe("automatic AI masks from imported presets", () => {
     expect(invoke.mock.calls[1][1]).toMatchObject({ parts: ["faceSkin", "lips"], person: 1 });
   });
 
-  it("has the backend place imported Lightroom geometry once, in the open photo", async () => {
+  it("has the backend place imported Lightroom geometry once, on the full decode", async () => {
     const placed = {
       centerX: 3000,
       centerY: 1600,
@@ -472,31 +472,37 @@ describe("automatic AI masks from imported presets", () => {
           }
         : null,
     );
+    const pending = layer("radial", {
+      lrNormalized: {
+        top: 0.2,
+        left: 0.3,
+        bottom: 0.6,
+        right: 0.7,
+        angle: 0,
+        feather: 50,
+      },
+    });
+    // Shown on a preview proxy first, whose size may be rounded: renders
+    // place the geometry on the full decode's size, so the editor waits.
     useEditorStore.setState({
       selectedImage: {
         path: "/s/a.NEF",
         isReady: true,
         isRaw: true,
-        width: 6000,
+        width: 5999,
         height: 4000,
       } as never,
       adjustments: {
         ...structuredClone(INITIAL_ADJUSTMENTS),
-        masks: [
-          layer("radial", {
-            lrNormalized: {
-              top: 0.2,
-              left: 0.3,
-              bottom: 0.6,
-              right: 0.7,
-              angle: 0,
-              feather: 50,
-            },
-          }),
-        ] as never,
+        masks: [pending] as never,
       },
     });
     const { rerender } = renderHook(() => useAiMasking());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(invoke).not.toHaveBeenCalled();
+    useEditorStore.setState((state) => ({
+      selectedImage: { ...state.selectedImage, isDecoded: true, width: 6000, height: 4000 } as never,
+    }));
     await waitFor(() => {
       const sub = useEditorStore.getState().adjustments.masks[0].subMasks[0];
       expect(sub.parameters).toEqual(placed);
@@ -510,6 +516,96 @@ describe("automatic AI masks from imported presets", () => {
     });
     rerender();
     expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("places Lightroom geometry in every history step, adding none: undo and redo keep it placed", async () => {
+    const placedParameters = { centerX: 1, centerY: 2, radiusX: 3, radiusY: 4, rotation: 0, feather: 0.5 };
+    invoke.mockImplementation(async (command: string, args: { adjustments: { masks: { subMasks: { id: string }[] }[] } }) =>
+      command === "place_lightroom_masks"
+        ? {
+            masks: [
+              {
+                subMasks: args.adjustments.masks[0].subMasks.map((sub) => ({ ...sub, parameters: placedParameters })),
+              },
+            ],
+          }
+        : null,
+    );
+    const pending = layer("radial", { lrNormalized: { top: 0.2, left: 0.3, bottom: 0.6, right: 0.7 } });
+    const initial = { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [pending] as never };
+    // An edit made on the preview proxy before the decode came in.
+    const edited = { ...initial, exposure: 0.5 };
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isDecoded: true, isRaw: true, width: 6000, height: 4000 } as never,
+      adjustments: edited,
+      history: [initial, edited],
+      historyIndex: 1,
+    });
+    renderHook(() => useAiMasking());
+    const subOf = (adjustments: { masks: { subMasks: { parameters: unknown }[] }[] }) =>
+      adjustments.masks[0].subMasks[0].parameters;
+    await waitFor(() => expect(subOf(useEditorStore.getState().adjustments)).toEqual(placedParameters));
+    const state = useEditorStore.getState();
+    expect(state.adjustments.exposure).toBe(0.5);
+    expect(state.history).toHaveLength(2);
+    expect(state.historyIndex).toBe(1);
+    expect(state.history.map(subOf)).toEqual([placedParameters, placedParameters]);
+    // Undo reaches the step before the edit with the geometry placed (the
+    // editing tools need the placed form), and redo the edit.
+    act(() => useEditorStore.getState().undo());
+    expect(useEditorStore.getState().adjustments.exposure).toBe(0);
+    expect(subOf(useEditorStore.getState().adjustments)).toEqual(placedParameters);
+    act(() => useEditorStore.getState().redo());
+    expect(useEditorStore.getState().adjustments.exposure).toBe(0.5);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(useEditorStore.getState().history).toHaveLength(2);
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks again for Lightroom geometry whose placement came back for another photo", async () => {
+    let answer: (value: unknown) => void = () => {};
+    invoke.mockImplementation(
+      (command: string, args: { adjustments: { masks: { subMasks: { id: string }[] }[] } }) =>
+        command === "place_lightroom_masks"
+          ? new Promise((resolve) => {
+              answer = () =>
+                resolve({
+                  masks: [
+                    {
+                      subMasks: args.adjustments.masks[0].subMasks.map((sub) => ({
+                        ...sub,
+                        parameters: { centerX: 1, centerY: 2, radiusX: 3, radiusY: 4, rotation: 0, feather: 0.5 },
+                      })),
+                    },
+                  ],
+                });
+            })
+          : Promise.resolve(null),
+    );
+    const pending = layer("radial", { lrNormalized: { top: 0.2, left: 0.3, bottom: 0.6, right: 0.7 } });
+    const photo = (path: string) =>
+      ({ path, isReady: true, isDecoded: true, isRaw: true, width: 6000, height: 4000 }) as never;
+    useEditorStore.setState({
+      selectedImage: photo("/s/a.NEF"),
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [pending] as never },
+    });
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    // A → B while A's placement is under way, then back to A.
+    useEditorStore.setState({
+      selectedImage: photo("/s/b.NEF"),
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [] as never },
+    });
+    answer(null);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(invoke).toHaveBeenCalledTimes(1);
+    useEditorStore.setState({
+      selectedImage: { ...(photo("/s/a.NEF") as object), isDecoded: false } as never,
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [pending] as never },
+    });
+    useEditorStore.setState({ selectedImage: photo("/s/a.NEF") });
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
+    expect(invoke.mock.calls[1][1]).toMatchObject({ path: "/s/a.NEF" });
   });
 
   const pendingSpot = { mode: "heal", opacity: 100, feather: 0, lrNormalized: { x: 0.25, y: 0.5, radius: 0.01 } };

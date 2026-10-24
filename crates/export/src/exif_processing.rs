@@ -1615,11 +1615,19 @@ pub fn resolve_unresolved_lens(recipe: &mut Value, source: &Path) -> Result<(), 
 /// error is returned after the defaults are filled in, for the callers that
 /// must not render without them), then the camera's defaults for a
 /// never-edited photo (`embedded_lens::apply_default`), and the photo's
-/// orientation for Lightroom spots and red eye corrections imported before
-/// imports recorded it (`lightroom_retouch::needs_orientation`).
+/// orientation for Lightroom items imported before imports recorded it
+/// (`record_lightroom_orientation`).
 pub fn prepare_recipe_lens(recipe: &mut Value, source: &Path) -> Result<(), String> {
     let resolved = resolve_unresolved_lens(recipe, source);
     rawtonic_engine::embedded_lens::apply_default(recipe, source);
+    record_lightroom_orientation(recipe, source);
+    resolved
+}
+
+/// Records the photo's orientation in Lightroom spots and red eye
+/// corrections imported before imports recorded it
+/// (`lightroom_retouch::needs_orientation`), so they render.
+pub fn record_lightroom_orientation(recipe: &mut Value, source: &Path) {
     if rawtonic_engine::lightroom_retouch::needs_orientation(recipe)
         && rawtonic_engine::lens_recipe::readable(source)
         && let Ok(bytes) = std::fs::read(source)
@@ -1628,7 +1636,6 @@ pub fn prepare_recipe_lens(recipe: &mut Value, source: &Path) -> Result<(), Stri
             rawtonic_engine::image_loader::source_orientation(&bytes, &source.to_string_lossy());
         rawtonic_engine::lightroom_retouch::set_orientation(recipe, orientation);
     }
-    resolved
 }
 
 #[cfg(test)]
