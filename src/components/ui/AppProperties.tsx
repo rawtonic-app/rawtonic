@@ -192,6 +192,7 @@ export enum Invokes {
   UndoFileOperation = 'undo_file_operation',
   RedoFileOperation = 'redo_file_operation',
   StopFileOperation = 'stop_file_operation',
+  TrashKeptCopy = 'trash_kept_copy',
   SessionTrashContents = 'session_trash_contents',
   EmptySessionTrash = 'empty_session_trash',
   ResetAdjustmentsForPaths = 'reset_adjustments_for_paths',

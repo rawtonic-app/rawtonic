@@ -417,7 +417,7 @@ pub(crate) fn copy_verified(
     staged: &Path,
     original_mode: Option<u32>,
     tally: &mut Tally,
-    created: &mut dyn FnMut() -> Result<()>,
+    created: &mut dyn FnMut(&File) -> Result<()>,
     in_place: bool,
 ) -> Result<(Stamp, Stamp)> {
     #[cfg(unix)]
@@ -448,7 +448,7 @@ pub(crate) fn copy_file_verified(
     original_mode: Option<u32>,
     posix: (bool, bool),
     tally: &mut Tally,
-    created: &mut dyn FnMut() -> Result<()>,
+    created: &mut dyn FnMut(&File) -> Result<()>,
     in_place: bool,
 ) -> Result<(Stamp, Stamp)> {
     let mut input =
@@ -489,7 +489,13 @@ pub(crate) fn copy_file_verified(
     let mut output = options
         .open(staged)
         .with_context(|| format!("Cannot create {}", staged.display()))?;
-    created()?;
+    // Set first too where the copy is visible: a modification time before
+    // the file's creation moves its creation time back on some volumes
+    // (APFS), so the creation time `created` sees is the one the copy keeps.
+    if in_place && let Ok(modified) = meta.modified() {
+        let _ = output.set_modified(modified);
+    }
+    created(&output)?;
     // The mode it was made with (the umask applied), without the owner's
     // write bit when `mode` has none: what an unrecorded mode ends as.
     #[cfg(unix)]

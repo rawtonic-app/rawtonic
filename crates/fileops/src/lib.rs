@@ -107,6 +107,11 @@ pub struct CopyState {
     /// it and its note names it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub created: bool,
+    /// When the file `created` names was created, as its volume tells it
+    /// (journaled with `created`): a file under that name created later,
+    /// by anyone, has another.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub born: Option<Born>,
     /// The Trash item of the source this direction trashed.
     #[serde(default)]
     pub trashed: Option<String>,
@@ -258,6 +263,10 @@ struct Payload {
     /// The staging folders of the copies being made (ADR 0016).
     #[serde(default)]
     staging_dirs: Vec<PathBuf>,
+    /// Copies rolled-back directions made in place and left, kept across
+    /// undo and redo.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    kept: Vec<KeptCopy>,
 }
 
 impl Payload {
@@ -286,6 +295,10 @@ pub struct Operation {
     /// A purge: every file (and link) it deletes, at its place in the
     /// emptied folder; folders are not listed.
     pub removed: Vec<PathBuf>,
+    /// The copies made in place that rolled-back directions of this
+    /// operation left (ADR 0016), as they were left; see
+    /// [`Journal::kept_copies`].
+    pub kept: Vec<KeptCopy>,
     /// Whether the caller has brought its own records (catalog, albums) in
     /// line with the operation's current state.
     pub synced: bool,
@@ -535,8 +548,8 @@ impl Journal {
         let cleaned = remove_staging(payload);
         remove_created_dirs(&payload.created_dirs);
         let mut note = format!("{error:#}");
-        // Copies made in place stay (see `kept_in_place`).
-        let mut kept = kept_in_place(&payload.steps, Direction::Forward);
+        // Copies made in place stay (see `keep_in_place`).
+        let mut kept = keep_in_place(payload, Direction::Forward);
         if let Err(e) = reversed {
             kept.insert(0, format!("{e:#}"));
         }
@@ -649,13 +662,18 @@ impl Journal {
                 }
                 let original_mode = copy.original_mode;
                 let opened = std::cell::Cell::new(false);
+                let born = std::cell::Cell::new(None);
                 let copied = copy_verified(
                     &source,
                     &destination,
                     original_mode,
                     &mut tally,
-                    &mut || {
+                    &mut |file| {
                         opened.set(true);
+                        born.set(Born::of(&file.metadata()?));
+                        if let Target::OtherVolume { copy, .. } = &mut created.steps[index].to {
+                            copy.born = born.get();
+                        }
                         #[cfg(test)]
                         crash::point("in place opened");
                         #[cfg(test)]
@@ -671,6 +689,7 @@ impl Journal {
                     // A failure after the creation leaves a file that stays
                     // and is named, also when journaling its creation failed.
                     copy.created = opened.get();
+                    copy.born = born.get();
                 }
                 let (stamp, copy_stamp) = copied?;
                 if let Target::OtherVolume { copy, .. } = &mut payload.steps[index].to {
@@ -684,7 +703,7 @@ impl Journal {
                     &staged,
                     copy.original_mode,
                     &mut tally,
-                    &mut || Ok(()),
+                    &mut |_| Ok(()),
                     false,
                 )?;
                 if let Target::OtherVolume { copy, .. } = &mut payload.steps[index].to {
@@ -915,6 +934,7 @@ impl Journal {
             created_dirs: op.created_dirs.clone(),
             context: op.context.clone(),
             staging_dirs,
+            kept: op.kept.clone(),
             ..Payload::default()
         };
         self.store(id, State::Undoing, &payload)?;
@@ -924,7 +944,7 @@ impl Journal {
             self.stage_copies(id, State::Undoing, &mut payload, Direction::Back, observer)
         {
             let cleaned = remove_staging(&payload);
-            let kept = kept_in_place(&payload.steps, Direction::Back);
+            let kept = keep_in_place(&mut payload, Direction::Back);
             let mut note = format!("Undo failed: {error:#}");
             for problem in cleaned.err().map(|e| format!("{e:#}")).iter().chain(&kept) {
                 note.push_str(&format!("; {problem}"));
@@ -969,7 +989,7 @@ impl Journal {
                     note.push_str(&format!("; {e:#}"));
                 }
                 let mut kept = keep_published_folders(&mut payload, Direction::Back);
-                let in_place = kept_in_place(&payload.steps, Direction::Back);
+                let in_place = keep_in_place(&mut payload, Direction::Back);
                 for kept in &in_place {
                     note.push_str(&format!("; {kept}"));
                 }
@@ -1065,6 +1085,7 @@ impl Journal {
             created_dirs,
             staging_dirs,
             context: op.context.clone(),
+            kept: op.kept.clone(),
             ..Payload::default()
         };
         // The caller's records still follow the undone state until it is done.
@@ -1077,7 +1098,7 @@ impl Journal {
             }
             keep_present_copies(&mut payload);
             let mut kept = keep_published_folders(&mut payload, Direction::Forward);
-            kept.extend(kept_in_place(&payload.steps, Direction::Forward));
+            kept.extend(keep_in_place(&mut payload, Direction::Forward));
             self.store_keeping_sync(id, State::Undone, &payload)?;
             return Err(error.context(rolled_back("Nothing was redone", &kept)));
         }
@@ -1291,7 +1312,7 @@ impl Journal {
                     }
                 }
                 keep_published_folders(&mut payload, Direction::Back);
-                problems.extend(kept_in_place(&payload.steps, Direction::Back));
+                problems.extend(keep_in_place(&mut payload, Direction::Back));
                 note_unjournaled_in_place(&payload.steps, Direction::Back, &mut problems);
             } else {
                 for step in payload.steps.iter().rev() {
@@ -1299,7 +1320,7 @@ impl Journal {
                         problems.push(format!("{e:#}"));
                     }
                 }
-                problems.extend(kept_in_place(&payload.steps, Direction::Forward));
+                problems.extend(keep_in_place(&mut payload, Direction::Forward));
                 note_unjournaled_in_place(&payload.steps, Direction::Forward, &mut problems);
             }
             if let Err(e) = remove_staging(&payload) {
@@ -1429,9 +1450,67 @@ impl Journal {
             note: payload.note,
             context: payload.context,
             removed: payload.removed,
+            kept: payload.kept,
             synced,
             created_at,
         })
+    }
+
+    /// The copies made in place that the operation's rolled-back
+    /// directions left and that are still there, each the very file the
+    /// move created ([`KeptCopy::is_there`]).
+    pub fn kept_copies(&self, id: &str) -> Result<Vec<KeptCopy>> {
+        Ok(self
+            .payload(id)?
+            .kept
+            .into_iter()
+            .filter(KeptCopy::is_there)
+            .collect())
+    }
+
+    /// Moves a copy the operation `id` left ([`Journal::kept_copies`]) to
+    /// the system Trash, as an operation of its own (undoable). Refused,
+    /// changing nothing, for any other file: one the journal does not
+    /// record as created by that operation, or one that is no longer that
+    /// file. Nothing is ever deleted.
+    pub fn trash_kept_copy(
+        &self,
+        id: &str,
+        path: &Path,
+        trash: &dyn SystemTrash,
+    ) -> Result<Operation> {
+        let payload = self.payload(id)?;
+        let kept = payload
+            .kept
+            .iter()
+            .find(|k| k.path == path)
+            .with_context(|| {
+                format!(
+                    "{} is not a copy this move left; nothing was moved to the Trash",
+                    path.display()
+                )
+            })?;
+        ensure!(
+            kept.is_there(),
+            "{} is no longer the copy the move left; nothing was moved to the Trash",
+            path.display()
+        );
+        ensure!(
+            fs::symlink_metadata(&kept.source).is_ok_and(|m| m.is_file()),
+            "The original {} is gone, so {} may be its only copy; nothing was moved to the Trash",
+            kept.source.display(),
+            path.display()
+        );
+        let name = path
+            .file_name()
+            .unwrap_or(path.as_os_str())
+            .to_string_lossy();
+        self.execute(
+            "trash",
+            &format!("Move the copy {name} to the Trash"),
+            vec![Step::system_trash(path)],
+            trash,
+        )
     }
 
     fn payload(&self, id: &str) -> Result<Payload> {
@@ -2023,6 +2102,7 @@ fn plan_staging(steps: &mut [Step], direction: Direction) -> Result<Vec<PathBuf>
         copy.tree = None;
         copy.in_place = false;
         copy.created = false;
+        copy.born = None;
         copy.staged = None;
         copy.trashed = None;
         let destination = match direction {
@@ -2206,7 +2286,7 @@ fn unpublish(step: &Step, direction: Direction) -> Result<()> {
         return Ok(());
     };
     if copy.in_place {
-        // Never taken back (see `kept_in_place`).
+        // Never taken back (see `keep_in_place`).
         return Ok(());
     }
     if !copy.copied || exists(staged) || !exists(destination) {
@@ -2314,13 +2394,15 @@ fn remove_staged_folder(staged: &Path, step: &Step) -> Result<()> {
 }
 
 /// What a rolled-back direction leaves of the copies it made in place
-/// (`CopyState::in_place`), for its note and error. Such a file is visible
-/// from its creation on, so another program may have written into it or
-/// opened it meanwhile; it is never removed again (ADR 0016), complete or
-/// not, while its source was never touched.
-fn kept_in_place(steps: &[Step], direction: Direction) -> Vec<String> {
+/// (`CopyState::in_place`), for its note and error; each one still the
+/// file the direction created is recorded in `payload.kept`. Such a file
+/// is visible from its creation on, so another program may have written
+/// into it or opened it meanwhile; it is never removed again (ADR 0016),
+/// complete or not, while its source was never touched. Only the user may
+/// move it to the Trash ([`Journal::trash_kept_copy`]).
+fn keep_in_place(payload: &mut Payload, direction: Direction) -> Vec<String> {
     let mut kept = Vec::new();
-    for step in steps {
+    for step in &payload.steps {
         let Some((source, destination)) = copy_ends(step, direction) else {
             continue;
         };
@@ -2342,9 +2424,67 @@ fn kept_in_place(steps: &[Step], direction: Direction) -> Vec<String> {
                     destination.display()
                 )
             });
+            if let Some(born) = copy.born {
+                let left = KeptCopy {
+                    path: destination,
+                    source,
+                    complete: copy.copied,
+                    born,
+                };
+                if left.is_there() {
+                    payload.kept.retain(|k| k.path != left.path);
+                    payload.kept.push(left);
+                }
+            }
         }
     }
     kept
+}
+
+/// A copy a rolled-back direction made in place and left under its final
+/// name (ADR 0016).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeptCopy {
+    pub path: PathBuf,
+    /// The original it is a copy of (not touched by the move).
+    pub source: PathBuf,
+    /// It was verified to hold all of the original's bytes (otherwise it
+    /// may hold only their start).
+    pub complete: bool,
+    /// When the direction created it (`CopyState::born`).
+    pub born: Born,
+}
+
+impl KeptCopy {
+    /// The file at `path` is still the one the direction created (a file,
+    /// not a link, with that creation time), whatever was written into it.
+    pub fn is_there(&self) -> bool {
+        fs::symlink_metadata(&self.path)
+            .is_ok_and(|m| m.is_file() && Born::of(&m) == Some(self.born))
+    }
+}
+
+/// A file's creation time, as its volume records it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Born {
+    pub secs: i64,
+    pub nanos: u32,
+}
+
+impl Born {
+    /// `None` where the volume or the platform does not tell it.
+    fn of(meta: &fs::Metadata) -> Option<Self> {
+        let since = meta
+            .created()
+            .ok()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?;
+        Some(Self {
+            secs: since.as_secs() as i64,
+            nanos: since.subsec_nanos(),
+        })
+    }
 }
 
 /// After a crash: a copy to be made in place whose creation was not

@@ -121,6 +121,16 @@ fn a_crash_at_any_step_of_an_in_place_move_undo_or_redo_loses_nothing() {
                 other => panic!("{phase:?} crash point {n}: {other:?}"),
             };
             let note = op.note.clone().unwrap_or_default();
+            let kept = journal.kept_copies(&op.id).unwrap();
+            let recorded = |left: &Path| kept.iter().any(|k| k.path == left);
+            // The direction that crashed was rolled back: what it left on
+            // the other side are its copies (otherwise kept originals).
+            let rolled_back = matches!(
+                (phase, op.state),
+                (Phase::Move, State::RolledBack)
+                    | (Phase::Undo, State::Done)
+                    | (Phase::Redo, State::Undone)
+            );
             for (name, len) in FILES {
                 assert_eq!(
                     fs::read(side.join(name)).unwrap(),
@@ -131,12 +141,17 @@ fn a_crash_at_any_step_of_an_in_place_move_undo_or_redo_loses_nothing() {
                 let named = note.contains(&format!("{}", left.display()));
                 match fs::read(&left) {
                     Err(_) => {}
-                    // A complete copy the rolled-back direction made in
-                    // place: kept, and named like a partial one.
+                    // A kept original (after the copies were verified), or a
+                    // complete copy the rolled-back direction made in place;
+                    // both are named.
                     Ok(whole) if whole == content(name, len) => {
                         assert!(
                             named,
                             "{phase:?} crash point {n}: complete {name} left unnamed: {note}"
+                        );
+                        assert!(
+                            !rolled_back || !tells_creation(other) || recorded(&left),
+                            "{phase:?} crash point {n}: complete {name} not recorded"
                         );
                         kept_left += 1;
                         fs::remove_file(&left).unwrap();
@@ -153,6 +168,10 @@ fn a_crash_at_any_step_of_an_in_place_move_undo_or_redo_loses_nothing() {
                         if note.contains("may be an empty file") && part.is_empty() {
                             empty_left += 1;
                         } else {
+                            assert!(
+                                !tells_creation(other) || recorded(&left),
+                                "{phase:?} crash point {n}: {name} not recorded"
+                            );
                             kept_left += 1;
                         }
                         fs::remove_file(&left).unwrap();
@@ -283,6 +302,151 @@ fn stop_after_copying_in_place_keeps_the_verified_copies() {
     );
     world.assert_sources_untouched();
     assert!(world.trash.items().is_empty());
+}
+
+/// Whether files on `dir`'s volume tell their creation time, which a
+/// copy left in place is recognized by (`KeptCopy::is_there`).
+fn tells_creation(dir: &Path) -> bool {
+    fs::metadata(dir).and_then(|m| m.created()).is_ok()
+}
+
+/// The copies a stopped move left are recorded; each can go to the Trash
+/// on its own, as an undoable operation, while nothing else can: not an
+/// original, not a file the move did not leave, not a file created later
+/// under a kept copy's name, not a copy whose original is gone.
+#[test]
+fn the_copies_a_stopped_move_left_can_go_to_the_trash_and_nothing_else() {
+    struct StopBeforePublishing(Cell<u64>);
+    impl CopyObserver for StopBeforePublishing {
+        fn copied(&self, done: u64, _: u64) {
+            self.0.set(done);
+        }
+        fn cancelled(&self) -> bool {
+            let total: u64 = FILES.iter().map(|(_, len)| *len as u64).sum();
+            self.0.get() == total
+        }
+    }
+    let _in_place = InPlace::on();
+    let world = World::new();
+    if !tells_creation(&world.target) {
+        eprintln!("SKIP: the target volume does not tell creation times");
+        return;
+    }
+    let journal = world.journal();
+    journal
+        .execute_with(
+            "move",
+            "Move",
+            world.steps(),
+            &world.trash,
+            &StopBeforePublishing(Cell::new(0)),
+        )
+        .unwrap_err();
+    let op = journal.history(1).unwrap().remove(0);
+    let mut kept = journal.kept_copies(&op.id).unwrap();
+    kept.sort_by(|a, b| a.path.cmp(&b.path));
+    let expected: Vec<_> = FILES
+        .iter()
+        .map(|(name, _)| (world.target.join(name), world.source.join(name)))
+        .collect();
+    let found: Vec<_> = kept
+        .iter()
+        .map(|k| (k.path.clone(), k.source.clone()))
+        .collect();
+    assert_eq!(found, expected);
+    assert_eq!(op.kept, journal.operation(&op.id).unwrap().kept);
+
+    let refused = |path: &Path| {
+        let before = world.trash.items();
+        let error = journal
+            .trash_kept_copy(&op.id, path, &world.trash)
+            .unwrap_err();
+        assert!(
+            format!("{error:#}").contains("nothing was moved to the Trash"),
+            "{error:#}"
+        );
+        assert_eq!(world.trash.items(), before, "{}", path.display());
+    };
+    refused(&world.source.join("A.RAF"));
+    refused(&world.target.join("B.RAF"));
+    // The same name, another file.
+    let xmp = world.target.join("A.xmp");
+    fs::remove_file(&xmp).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    fs::write(&xmp, b"someone else's").unwrap();
+    refused(&xmp);
+    // The original is gone: the copy may be the only one.
+    let rrdata = world.source.join("A.RAF.rrdata");
+    let saved = fs::read(&rrdata).unwrap();
+    fs::remove_file(&rrdata).unwrap();
+    refused(&world.target.join("A.RAF.rrdata"));
+    fs::write(&rrdata, saved).unwrap();
+
+    let raw = world.target.join("A.RAF");
+    let trashed = journal.trash_kept_copy(&op.id, &raw, &world.trash).unwrap();
+    assert_eq!(trashed.kind, "trash");
+    assert!(!raw.exists());
+    let items = world.trash.items();
+    assert_eq!(items.len(), 1);
+    assert_eq!(fs::read(&items[0]).unwrap(), content("A.RAF", FILES[0].1));
+    assert!(
+        !journal
+            .kept_copies(&op.id)
+            .unwrap()
+            .iter()
+            .any(|k| k.path == raw)
+    );
+    world.assert_sources_untouched();
+    refused(&raw);
+    // Undone, the copy is back, and it is the copy the move left again.
+    journal.undo(&trashed.id, &world.trash).unwrap();
+    assert!(
+        journal
+            .kept_copies(&op.id)
+            .unwrap()
+            .iter()
+            .any(|k| k.path == raw)
+    );
+    world.assert_sources_untouched();
+}
+
+/// What an undo stopped while copying back in place left is recorded
+/// too, and stays recorded through a later redo and undo of the move.
+#[test]
+fn the_copies_a_stopped_undo_left_stay_recorded() {
+    struct StopAfterFirstBlock(Cell<bool>);
+    impl CopyObserver for StopAfterFirstBlock {
+        fn copied(&self, _: u64, _: u64) {
+            self.0.set(true);
+        }
+        fn cancelled(&self) -> bool {
+            self.0.get()
+        }
+    }
+    let _in_place = InPlace::on();
+    let world = World::new();
+    if !tells_creation(&world.source) {
+        eprintln!("SKIP: the source volume does not tell creation times");
+        return;
+    }
+    let journal = world.journal();
+    let op = journal
+        .execute("move", "Move", world.steps(), &world.trash)
+        .unwrap();
+    assert!(journal.kept_copies(&op.id).unwrap().is_empty());
+    journal
+        .undo_with(&op.id, &world.trash, &StopAfterFirstBlock(Cell::new(false)))
+        .unwrap_err();
+    let left = world.source.join("A.RAF");
+    let kept = journal.kept_copies(&op.id).unwrap();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(kept[0].path, left);
+    assert!(!kept[0].complete);
+    assert_eq!(kept[0].source, world.target.join("A.RAF"));
+    // The move is still done; its kept copy stays recorded.
+    assert_eq!(journal.operation(&op.id).unwrap().state, State::Done);
+    journal.undo(&op.id, &world.trash).unwrap_err();
+    assert_eq!(journal.kept_copies(&op.id).unwrap(), kept);
 }
 
 /// An original changed while it is copied in place stops the move; the
