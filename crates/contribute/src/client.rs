@@ -38,8 +38,9 @@ pub struct Receipt {
     /// them; they are of no use afterwards).
     #[serde(default, skip_serializing)]
     pub uploads: BTreeMap<Slot, String>,
-    /// Files the report announced that did not arrive: the report itself
-    /// is stored (and deleted by its id) without them.
+    /// Files the report announced whose upload was not confirmed (refused,
+    /// or no answer: a file may still have arrived). The report itself is
+    /// stored and deleted by its id, with whatever of them arrived.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub not_uploaded: Vec<Slot>,
 }

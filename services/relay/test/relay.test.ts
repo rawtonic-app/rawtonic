@@ -159,6 +159,52 @@ describe("reports", () => {
     expect((await env.BUCKET.list()).objects).toHaveLength(0);
   });
 
+  it("removes a file whose put completes after its report was deleted", async () => {
+    const deps = Object.assign(makeDeps(), { uploadDeadlineMs: 20 });
+    const a = (await (await post("/report", report({ screenshot: await shot() }), deps)).json()) as Answer;
+    let release = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    let late: Promise<unknown> = Promise.resolve();
+    const slow: Env = {
+      ...env,
+      BUCKET: new Proxy(env.BUCKET, {
+        get(target, key) {
+          if (key === "put") {
+            return (...args: Parameters<R2Bucket["put"]>) => (late = gate.then(() => target.put(...args)));
+          }
+          const value = Reflect.get(target, key);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }),
+    };
+    expect((await put(a.uploads.screenshot!, deps, PNG, PNG.byteLength, slow)).status).toBe(422);
+    deps.at += 2 * 3_600_000;
+    expect((await del(a.id, deps)).status).toBe(204);
+    release();
+    await late;
+    expect((await env.BUCKET.list()).objects).toHaveLength(1);
+    // Another report's file stays.
+    const b = (await (await post("/report", report({ screenshot: await shot() }), deps)).json()) as Answer;
+    expect((await put(b.uploads.screenshot!, deps, PNG, PNG.byteLength)).status).toBe(204);
+    await sweep(env, deps);
+    const left = (await env.BUCKET.list()).objects.map((o) => o.key);
+    expect(left).toEqual([`reports/${await sha256Hex(b.id)}/screenshot.png`]);
+  });
+
+  it("claims once when two uploads use one token", async () => {
+    const deps = makeDeps();
+    const a = (await (await post("/report", report({ screenshot: await shot() }), deps)).json()) as Answer;
+    const [first, second] = await Promise.all([
+      put(a.uploads.screenshot!, deps, PNG, PNG.byteLength),
+      put(a.uploads.screenshot!, deps, PNG, PNG.byteLength),
+    ]);
+    expect([first.status, second.status]).toContain(204);
+    expect([first.status, second.status].filter((s) => s !== 204)).toHaveLength(1);
+    const row = await env.DB.prepare("SELECT state, objects FROM submissions").first<{ state: string; objects: string }>();
+    expect(row!.state).toBe("filed");
+    expect(JSON.parse(row!.objects)).toHaveLength(1);
+  });
+
   it("gives a screenshot's first bytes the same deadline", async () => {
     const deps = Object.assign(makeDeps(), { uploadDeadlineMs: 50 });
     const a = (await (await post("/report", report({ screenshot: await shot() }), deps)).json()) as Answer;

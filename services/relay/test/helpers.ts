@@ -11,7 +11,7 @@ export const testEnv = env;
 export const migrate = async () => {
   await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
   await env.DB.batch(
-    ["submissions", "uploads", "rate", "pow_seen", "stats", "stats_closed"].map((t) => env.DB.prepare(`DELETE FROM ${t}`)),
+    ["submissions", "uploads", "rate", "pow_seen", "stats", "stats_closed", "sweep_state"].map((t) => env.DB.prepare(`DELETE FROM ${t}`)),
   );
   const { objects } = await env.BUCKET.list();
   if (objects.length) await env.BUCKET.delete(objects.map((o: R2Object) => o.key));

@@ -63,11 +63,11 @@ describe('ReviewSendDialog', () => {
     expect(screen.getByText(/^Photo file, /)).toBeTruthy();
   });
 
-  it('says when an attached file did not arrive', async () => {
+  it('says when the upload of an attached file was not confirmed', async () => {
     const send = vi.fn(() => Promise.resolve({ id: 'abcdefghijklmnopqrstuvwxyz', notUploaded: ['photo' as const] }));
     render(<ReviewSendDialog isOpen title="Report" prepared={prepared({ schema: 2 })} onClose={() => {}} send={send} />);
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/could not be uploaded/));
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/could not be confirmed/));
     expect(screen.getByTestId('report-id').textContent).toBe('abcdefghijklmnopqrstuvwxyz');
   });
 });

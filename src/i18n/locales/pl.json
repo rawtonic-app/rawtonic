@@ -333,7 +333,7 @@
       },
       "idHint": "Zachowaj ten identyfikator: dzięki niemu możesz w każdej chwili zlecić usunięcie tego, co wysłałeś.",
       "intro": "Dokładnie to Rawtonic wyśle do swojego przekaźnika, który zapisze to prywatnie dla twórców Rawtonic. Rawtonic próbował usunąć ścieżki, nazwę użytkownika i numery seryjne – sprawdź tekst poniżej, może nadal zawierać coś, czego nie chcesz wysyłać. Nic nie zostanie wysłane, dopóki nie klikniesz Wyślij.",
-      "notUploaded": "Wysłano, ale nie udało się przesłać załączonego pliku. Zgłoszenie zapisano bez niego.",
+      "notUploaded": "Wysłano, ale nie udało się potwierdzić przesłania załączonego pliku. Jeśli dotarł, zostanie usunięty razem ze zgłoszeniem.",
       "photoFile": "Plik zdjęcia, {{size}}, wysyłany bez zmian",
       "screenshot": "Zrzut ekranu, który zostanie wysłany",
       "screenshotSize": "Zrzut ekranu, {{size}}",

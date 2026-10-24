@@ -307,7 +307,7 @@
       },
       "idHint": "Bewahre diese ID auf: Mit ihr kannst du das Gesendete jederzeit löschen lassen.",
       "intro": "Genau das sendet Rawtonic an seinen Relay-Dienst, der es privat für die Macher von Rawtonic ablegt. Rawtonic hat versucht, Pfade, deinen Benutzernamen und Seriennummern zu entfernen – prüfe den Text unten, er kann noch etwas enthalten, das du nicht senden willst. Nichts wird gesendet, bevor du auf Senden klickst.",
-      "notUploaded": "Gesendet, aber eine angehängte Datei konnte nicht hochgeladen werden. Der Bericht ist ohne sie gespeichert.",
+      "notUploaded": "Gesendet, aber das Hochladen einer angehängten Datei konnte nicht bestätigt werden. Falls sie angekommen ist, wird sie mit dem Bericht gelöscht.",
       "photoFile": "Fotodatei, {{size}}, wird unverändert gesendet",
       "screenshot": "Bildschirmfoto, das gesendet wird",
       "screenshotSize": "Bildschirmfoto, {{size}}",

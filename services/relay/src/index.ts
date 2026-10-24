@@ -380,12 +380,13 @@ const putUpload = async (request: Request, env: Env, deps: Deps, token: string) 
   if (row.state !== "filed") return error(409, "busy");
   if (!(await takeGlobal(env.DB, "uploadBytes", length, now))) return error(429, "busy");
   const objects = JSON.stringify([...(JSON.parse(row.objects) as string[]), upload.object_key]);
+  // Claimed only while the token is still unused, and the token used up
+  // only by that claim: two requests with one token claim at most once.
   const [claimed, used] = await env.DB.batch([
-    env.DB.prepare("UPDATE submissions SET state = 'attaching', objects = ?3 WHERE id_hash = ?1 AND state = 'filed' AND objects = ?2").bind(
-      upload.id_hash,
-      row.objects,
-      objects,
-    ),
+    env.DB.prepare(
+      "UPDATE submissions SET state = 'attaching', objects = ?3 WHERE id_hash = ?1 AND state = 'filed' AND objects = ?2 " +
+        "AND EXISTS (SELECT 1 FROM uploads WHERE token_hash = ?4)",
+    ).bind(upload.id_hash, row.objects, objects, tokenHash),
     env.DB.prepare(
       "DELETE FROM uploads WHERE token_hash = ?1 AND EXISTS (SELECT 1 FROM submissions WHERE id_hash = ?2 AND state = 'attaching' AND objects = ?3)",
     ).bind(tokenHash, upload.id_hash, objects),
@@ -505,6 +506,41 @@ export const SWEEP_QUERIES = [
   `${ROW} WHERE state = 'filing' AND kind IN ('report', 'crash', 'camera-test') AND received_at < ?1 LIMIT ?2`,
 ] as const;
 
+/** Files the bucket's walk looks at per scheduled run (one list and at
+ * most one delete call). */
+const OBJECTS_PER_SWEEP = 100;
+
+/** Walks the bucket a batch per run and removes files whose submission row
+ * is gone. A put may complete after its deadline (the runtime does not
+ * stop it), even after its report was deleted; nothing else would find
+ * such a file. Every file's row exists before its put starts and goes only
+ * after its files were deleted, so a file without a row is always left
+ * over. */
+export const sweepOrphans = async (env: Env) => {
+  const cursor = await env.DB.prepare("SELECT value FROM sweep_state WHERE name = 'bucket'").first<{ value: string }>();
+  const listed = await env.BUCKET.list({
+    prefix: "reports/",
+    limit: OBJECTS_PER_SWEEP,
+    ...(cursor?.value ? { cursor: cursor.value } : {}),
+  });
+  const hashes = [...new Set(listed.objects.map((o) => o.key.split("/")[1]))];
+  if (hashes.length) {
+    const known = await env.DB.prepare(
+      `SELECT id_hash FROM submissions WHERE id_hash IN (${hashes.map((_, i) => `?${i + 1}`).join(", ")})`,
+    )
+      .bind(...hashes)
+      .all<{ id_hash: string }>();
+    const kept = new Set(known.results.map((r) => r.id_hash));
+    const orphans = listed.objects.map((o) => o.key).filter((key) => !kept.has(key.split("/")[1]));
+    if (orphans.length) await env.BUCKET.delete(orphans);
+  }
+  await env.DB.prepare(
+    "INSERT INTO sweep_state (name, value) VALUES ('bucket', ?1) ON CONFLICT (name) DO UPDATE SET value = ?1",
+  )
+    .bind(listed.truncated ? listed.cursor : "")
+    .run();
+};
+
 /** The scheduled run, in three independent steps (a failure in one never
  * holds up the others): housekeeping; records and their objects by age
  * (retention, and filings whose request stopped half-way two hours ago),
@@ -546,6 +582,11 @@ export const sweep = async (env: Env, deps: Deps) => {
         ),
       );
     }
+  } catch {
+    // Tried again next run.
+  }
+  try {
+    await sweepOrphans(env);
   } catch {
     // Tried again next run.
   }

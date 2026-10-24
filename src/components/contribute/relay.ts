@@ -33,7 +33,8 @@ export interface ContributionReceipt {
   /** Deletes the submission with its files; shown to the user. */
   id?: string | null;
   ref?: string | null;
-  /** Announced files that did not arrive; the report is stored without them. */
+  /** Announced files whose upload was not confirmed (one may still have
+   * arrived; it goes with the report). */
   notUploaded?: ContributionAttachment["slot"][];
 }
 
