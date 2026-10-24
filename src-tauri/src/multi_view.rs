@@ -1845,6 +1845,34 @@ fn region_source_ready(
             && crate::preview_proxy::has_full(&source_path, &settings))
 }
 
+/// The kept region base of `path` that still covers what its cell `area`
+/// shows at `zoom` (with REGION_MARGIN), at this magnification and
+/// geometry: its region is cut from it in milliseconds.
+fn kept_base(
+    worker: &RegionWorker,
+    path: &str,
+    area: [f32; 4],
+    zoom: CellZoom,
+    recipe: &serde_json::Value,
+) -> Option<RegionBase> {
+    let preparation_key = crate::preview_cache::preparation_key(recipe);
+    worker
+        .bases
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(path)
+        .filter(|base| {
+            let (w, h) = shown_size(recipe, base.facts);
+            base.preparation_key == preparation_key
+                && base.zoom_scale == zoom.scale
+                && contains(
+                    base.region,
+                    gpu_processing::multi_view::zoomed_region(area, [w, h], zoom, REGION_MARGIN),
+                )
+        })
+        .cloned()
+}
+
 /// Develops the region of `path` its cell shows at `zoom`, from a kept base
 /// when one still covers it at this magnification and geometry, else from
 /// a new one; then the region alone through the display's shader variants.
@@ -1860,24 +1888,13 @@ fn develop_region(
     key: u64,
 ) -> Result<Region, String> {
     let start = Instant::now();
-    let preparation_key = crate::preview_cache::preparation_key(&recipe);
     // The texture covers the visible part and REGION_MARGIN around it; the
     // kept base reaches further (BASE_MARGIN), so a pan is cut from it.
     let wanted_in = |facts: Facts| {
         let (w, h) = shown_size(&recipe, facts);
         gpu_processing::multi_view::zoomed_region(area, [w, h], zoom, REGION_MARGIN)
     };
-    let kept = worker
-        .bases
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(path)
-        .filter(|base| {
-            base.preparation_key == preparation_key
-                && base.zoom_scale == zoom.scale
-                && contains(base.region, wanted_in(base.facts))
-        })
-        .cloned();
+    let kept = kept_base(worker, path, area, zoom, &recipe);
     let (base, source_kind) = match kept {
         Some(base) => (base, "region-cache"),
         None => {
@@ -2136,6 +2153,12 @@ fn heavy_order<T>(
     heavy
 }
 
+/// A region to develop: the cell's path, area and zoom, its recipe and
+/// region render key.
+type RegionTodo = (String, [f32; 4], CellZoom, serde_json::Value, u64);
+/// A region developed (with its magnification), or why not.
+type RegionResult = (String, Result<(Region, f32), String>);
+
 fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: RegionJob) {
     let start = Instant::now();
     let current = || worker.generation.load(Ordering::SeqCst) == job.generation;
@@ -2197,12 +2220,25 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
     }
     let _busy = crate::multi_view_prefetch::RegionsBusy::start();
     let count = todo.len();
-    // Regions from ready sources several at a time; RAWs that must be
-    // decoded now one at a time beside them.
+    // Short of memory: the reduced sources kept for interim regions go.
+    if interim_budget() == 0
+        && let Some(cells) = WORKER.get()
+    {
+        cells
+            .memory
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .interims
+            .clear();
+    }
+    // Regions from ready sources (a kept region base, the decode in memory,
+    // a 1:1 preview) several at a time; RAWs that must be decoded now one
+    // at a time beside them.
     let (ready, heavy): (Vec<_>, Vec<_>) =
-        todo.into_iter().partition(|(path, _, zoom, recipe, _)| {
-            region_from_rows_possible(recipe)
-                && region_source_ready(app_handle, path, *zoom, recipe)
+        todo.into_iter().partition(|(path, area, zoom, recipe, _)| {
+            kept_base(worker, path, *area, *zoom, recipe).is_some()
+                || (region_from_rows_possible(recipe)
+                    && region_source_ready(app_handle, path, *zoom, recipe))
         });
     let heavy = heavy_order(heavy, |path, recipe| {
         let pending = crate::multi_view_prefetch::decoding_now(&decoded_key(path, recipe));
@@ -2212,7 +2248,8 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
             .map_or(0, |f| f.full_width as u64 * f.full_height as u64);
         (pending, pixels)
     });
-    // First those regions from the cells' reduced sources, at once.
+    // Those regions from the cells' reduced sources at once, before the
+    // decodes take the cores (the ready ones go on meanwhile).
     let interims: Vec<_> = {
         let cells = WORKER.get().map(|w| {
             w.memory
@@ -2230,39 +2267,50 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
             })
             .collect()
     };
-    // Before the decodes take the cores: shown at once, within INTERIM_TIME.
-    show_interim_regions(app_handle, &context, &current, interims);
     let ready_count = ready.len();
     let ready = Mutex::new(ready.into_iter());
     let heavy = Mutex::new(heavy.into_iter());
     let (sender, receiver) = std::sync::mpsc::channel();
     let mut shown = 0;
+    // Develops the regions of `queue` one after another.
+    let work = |queue: &Mutex<std::vec::IntoIter<RegionTodo>>,
+                sender: std::sync::mpsc::Sender<RegionResult>| {
+        loop {
+            if worker.generation.load(Ordering::SeqCst) != job.generation {
+                return;
+            }
+            let Some((path, area, zoom, recipe, key)) =
+                queue.lock().unwrap_or_else(|e| e.into_inner()).next()
+            else {
+                return;
+            };
+            let result =
+                develop_region(app_handle, &context, worker, &path, area, zoom, recipe, key)
+                    .map(|region| (region, zoom.scale));
+            if sender.send((path, result)).is_err() {
+                return;
+            }
+        }
+    };
+    let (work, ready, heavy, current_ref) = (&work, &ready, &heavy, &current);
     std::thread::scope(|scope| {
-        let workers = (0..READY_REGION_THREADS.min(ready_count))
-            .map(|_| &ready)
-            .chain(std::iter::repeat_n(&heavy, region_threads()));
-        for queue in workers {
+        for _ in 0..READY_REGION_THREADS.min(ready_count) {
             let sender = sender.clone();
-            let context = &context;
-            scope.spawn(move || {
-                loop {
-                    if worker.generation.load(Ordering::SeqCst) != job.generation {
-                        return;
-                    }
-                    let Some((path, area, zoom, recipe, key)) =
-                        queue.lock().unwrap_or_else(|e| e.into_inner()).next()
-                    else {
-                        return;
-                    };
-                    let result =
-                        develop_region(app_handle, context, worker, &path, area, zoom, recipe, key)
-                            .map(|region| (region, zoom.scale));
-                    if sender.send((path, result)).is_err() {
-                        return;
-                    }
+            scope.spawn(move || work(ready, sender));
+        }
+        // The decodes once the interim regions are shown (within
+        // INTERIM_TIME).
+        let heavy_sender = sender.clone();
+        let interim_context = &context;
+        scope.spawn(move || {
+            show_interim_regions(app_handle, interim_context, current_ref, interims);
+            std::thread::scope(|decodes| {
+                for _ in 0..region_threads() {
+                    let sender = heavy_sender.clone();
+                    decodes.spawn(move || work(heavy, sender));
                 }
             });
-        }
+        });
         drop(sender);
         for (path, result) in receiver {
             // A job after this one (cells shown again, a pan) still wants a
@@ -2556,22 +2604,7 @@ fn live_region(
     if shown_key == Some(key) {
         return LiveRegion::Current;
     }
-    let preparation_key = crate::preview_cache::preparation_key(recipe);
-    let kept = regions
-        .bases
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(path)
-        .is_some_and(|base| {
-            let (w, h) = shown_size(recipe, base.facts);
-            base.preparation_key == preparation_key
-                && base.zoom_scale == zoom.scale
-                && contains(
-                    base.region,
-                    gpu_processing::multi_view::zoomed_region(area, [w, h], zoom, REGION_MARGIN),
-                )
-        });
-    if !kept {
+    if kept_base(regions, path, area, zoom, recipe).is_none() {
         return LiveRegion::Unavailable;
     }
     match develop_region(
@@ -2971,5 +3004,54 @@ mod tests {
         // No budget (short of memory): nothing more.
         keep_interim(&mut kept, "d", interim(), 0);
         assert!(!kept.contains_key("d"));
+    }
+
+    #[test]
+    fn a_kept_region_base_serves_a_pan_within_it_at_its_magnification() {
+        let worker = RegionWorker {
+            generation: AtomicUsize::new(0),
+            sender: gpu_processing::start_latest_job_worker(|_: RegionJob| {}),
+            bases: Mutex::new(HashMap::new()),
+        };
+        let recipe = serde_json::json!({});
+        let facts = Facts {
+            full_width: 4000,
+            full_height: 3000,
+            is_raw: true,
+            measures: None,
+        };
+        let zoom = |x: f32| CellZoom {
+            scale: 1.0,
+            center: [x, 0.5],
+        };
+        let area = [0.0, 0.0, 400.0, 300.0];
+        assert!(kept_base(&worker, "a", area, zoom(0.5), &recipe).is_none());
+        // A base reaching 400 px around the visible 400 x 300 at the centre.
+        worker.bases.lock().unwrap().insert(
+            "a".into(),
+            RegionBase {
+                preparation_key: crate::preview_cache::preparation_key(&recipe),
+                zoom_scale: 1.0,
+                region: [1400.0, 1050.0, 1200.0, 900.0],
+                image: Arc::new(DynamicImage::new_rgb32f(1, 1)),
+                scale: 1.0,
+                crop_offset: (0.0, 0.0),
+                facts,
+                mask_source: None,
+            },
+        );
+        assert!(kept_base(&worker, "a", area, zoom(0.5), &recipe).is_some());
+        // Panned 100 px: still inside it.
+        assert!(kept_base(&worker, "a", area, zoom(0.525), &recipe).is_some());
+        // Panned beyond it, another magnification or another geometry: not.
+        assert!(kept_base(&worker, "a", area, zoom(0.8), &recipe).is_none());
+        let double = CellZoom {
+            scale: 2.0,
+            ..zoom(0.5)
+        };
+        assert!(kept_base(&worker, "a", area, double, &recipe).is_none());
+        let rotated = serde_json::json!({"rotation": 1.5});
+        assert!(kept_base(&worker, "a", area, zoom(0.5), &rotated).is_none());
+        assert!(kept_base(&worker, "b", area, zoom(0.5), &recipe).is_none());
     }
 }
