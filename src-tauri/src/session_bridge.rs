@@ -64,12 +64,65 @@ fn registered_form(source: &Path) -> PathBuf {
 }
 fn library_for(source: &Path) -> Option<PathBuf> {
     session_for(source).or_else(|| {
-        active()
-            .lock()
-            .ok()?
-            .clone()
-            .filter(|dir| dir.join("catalog.json").is_file())
+        let dir = active().lock().ok()?.clone()?;
+        (dir.join("catalog.json").is_file() || outside_of_active_session(&dir, source))
+            .then_some(dir)
     })
+}
+
+/// The folders outside the active session's own folder where it keeps
+/// photographs (the app moved them there, e.g. to another drive; ADR 0016),
+/// read from its records when it opens and after each file operation's
+/// records followed (`refresh_outside_folders`).
+static OUTSIDE_FOLDERS: Mutex<Option<(PathBuf, Vec<PathBuf>)>> = Mutex::new(None);
+
+/// Whether `path` is a photograph (or a folder holding some) the session
+/// `dir` keeps outside its own folder.
+fn outside_of_active_session(dir: &Path, path: &Path) -> bool {
+    let Ok(cache) = OUTSIDE_FOLDERS.lock() else {
+        return false;
+    };
+    let Some((_, folders)) = cache.as_ref().filter(|(s, f)| s == dir && !f.is_empty()) else {
+        return false;
+    };
+    let holds = |path: &Path| {
+        folders
+            .iter()
+            .any(|folder| path.parent() == Some(folder) || folder.starts_with(path))
+    };
+    holds(path) || holds(&registered_form(path))
+}
+
+/// Makes `dir` the active library, as opening it does (tests).
+#[cfg(test)]
+pub(crate) fn set_active_for_test(dir: Option<PathBuf>) {
+    *active().lock().unwrap() = dir;
+    refresh_outside_folders();
+}
+
+/// Reads again where the active session keeps photographs outside its
+/// folder (none for a catalog: it manages every path).
+pub(crate) fn refresh_outside_folders() {
+    let Some(dir) = active().lock().ok().and_then(|dir| dir.clone()) else {
+        if let Ok(mut cache) = OUTSIDE_FOLDERS.lock() {
+            *cache = None;
+        }
+        return;
+    };
+    let folders = if dir.join("session.json").is_file() {
+        match Library::open(&dir).and_then(|lib| lib.folders()) {
+            Ok(folders) => folders.into_iter().map(|folder| folder.path).collect(),
+            Err(e) => {
+                log::warn!("Folders outside {} not read: {e:#}", dir.display());
+                return;
+            }
+        }
+    } else {
+        Vec::new()
+    };
+    if let Ok(mut cache) = OUTSIDE_FOLDERS.lock() {
+        *cache = Some((dir, folders));
+    }
 }
 
 /// The session or open catalog that manages `path`, if any.
@@ -431,6 +484,7 @@ fn follow_verified_moves(lib: &Library, new: &[PathBuf]) -> anyhow::Result<HashS
 
 fn remember(app: &tauri::AppHandle, dir: &Path) -> Result<(), String> {
     *active().lock().map_err(|e| e.to_string())? = Some(dir.into());
+    refresh_outside_folders();
     let cache = app.path().app_config_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
     rawtonic_metadata::atomic_write(

@@ -1043,8 +1043,8 @@ impl Library {
             Ok(_) => {}
             Err(e) => return Err(e.to_string()),
         }
-        match self.place_for(to) {
-            Ok(Some(_)) => Ok(()),
+        match self.placeable(id, to) {
+            Ok(true) => Ok(()),
             _ => Err("Session photographs must be inside the session folder".into()),
         }
     }

@@ -957,6 +957,9 @@ pub fn sync_catalog(op: &Operation, forward: bool) -> Result<(), String> {
         }
     }
     drop(libraries);
+    // Photographs a session now keeps outside its folder (or no longer)
+    // are its own there from here on, for what follows too.
+    crate::session_bridge::refresh_outside_folders();
     carry_previews(op, forward);
     // Virtual copies the library keeps follow their sidecars: a deleted
     // copy is forgotten, one put back is kept again.
@@ -1888,6 +1891,117 @@ mod tests {
         fn contains(&self, item: &str) -> bool {
             Path::new(item).exists()
         }
+    }
+
+    /// UT2 S7 (notes: reference/ut2-pro-switcher-2026-10-24.md): RAW+JPEG
+    /// pairs of a session moved to a folder on another drive (a copy move,
+    /// here forced on one volume) stay the same photographs there — online,
+    /// managed by the session, paired, with their rating and edits — and
+    /// undo and redo bring them back and there again without leaving files
+    /// on the drive beside the copies the operation trashed.
+    #[test]
+    fn session_photographs_moved_to_another_drive_stay_online_and_come_back() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = session(tmp.path());
+        let photo = dir.join("Capture/DSC_0001.NEF");
+        let jpeg = dir.join("Capture/DSC_0001.JPG");
+        fs::write(&photo, "raw").unwrap();
+        fs::write(&jpeg, "jpeg").unwrap();
+        let lib = Library::open(&dir).unwrap();
+        let asset = lib.add_asset(&photo).unwrap();
+        lib.set_companion(&asset.id, Some("DSC_0001.JPG")).unwrap();
+        let mut metadata = lib.metadata(&asset.id).unwrap();
+        metadata.rating = 4;
+        lib.set_metadata(&asset.id, &metadata).unwrap();
+        lib.sync_xmp(&asset.id).unwrap();
+        lib.save_editor_state(
+            &asset.id,
+            &serde_json::json!({"rating":4,"adjustments":{"exposure":1.5}}),
+        )
+        .unwrap();
+        assert!(dir.join("Capture/DSC_0001.xmp").is_file());
+        crate::session_bridge::write_editor_sidecar(
+            dir.join("Capture/DSC_0001.NEF.c0ffee.rrdata"),
+            br#"{"version":1,"rating":2,"adjustments":{"exposure":-1}}"#,
+        )
+        .unwrap();
+        crate::session_bridge::set_active_for_test(Some(dir.clone()));
+
+        let drive = tmp.path().canonicalize().unwrap().join("Drive/Shoots");
+        fs::create_dir_all(&drive).unwrap();
+        let steps: Vec<Step> = associated_files(std::slice::from_ref(&photo))
+            .unwrap()
+            .into_iter()
+            .map(|file| Step::other_volume(&file, drive.join(file.file_name().unwrap())))
+            .collect();
+        let names: Vec<_> = steps.iter().map(|s| s.from.file_name().unwrap()).collect();
+        assert_eq!(
+            names,
+            [
+                "DSC_0001.JPG",
+                "DSC_0001.NEF",
+                "DSC_0001.NEF.c0ffee.rrdata",
+                "DSC_0001.xmp"
+            ]
+        );
+        let trash = BesideTrash(tmp.path().join(".trash"));
+        let journal = Journal::open(&tmp.path().join("journal.sqlite")).unwrap();
+        let op = journal
+            .execute("move", "Move 1 photo to Shoots", steps, &trash)
+            .unwrap();
+        sync_catalog(&op, true).unwrap();
+
+        let moved = drive.join("DSC_0001.NEF");
+        let sidecar = drive.join("DSC_0001.NEF.rrdata");
+        let found = lib.asset_at(&moved).unwrap().expect("the same photograph");
+        assert_eq!(found.id, asset.id);
+        assert!(!found.missing, "online at its new place");
+        assert_eq!(found.rating, 4);
+        assert!(lib.offline_assets().unwrap().is_empty());
+        assert!(crate::session_bridge::is_managed_source(&moved));
+        assert_eq!(
+            crate::session_bridge::companions_in_folder(&drive),
+            HashSet::from([drive.join("DSC_0001.JPG")]),
+            "still paired"
+        );
+        let state = crate::session_bridge::read_editor_sidecar(&sidecar).unwrap();
+        assert_eq!(state["adjustments"]["exposure"], 1.5);
+        assert_eq!(lib.copies(&asset.id).unwrap(), ["c0ffee"]);
+        let copy = lib.copy_state(&asset.id, "c0ffee").unwrap().unwrap();
+        assert_eq!(copy["adjustments"]["exposure"], -1);
+        assert!(drive.join("DSC_0001.NEF.c0ffee.rrdata").is_file());
+        // Listing the folder takes nothing from the XMP into a new sidecar
+        // there (UT2 found one per photograph on the drive after an undo).
+        let mut listed = crate::exif_processing::load_sidecar(&sidecar);
+        assert!(!crate::file_management::sync_metadata_from_xmp(
+            &moved,
+            &mut listed
+        ));
+        assert!(!sidecar.exists());
+
+        // Undo: back in the session, nothing left on the drive.
+        let undone = journal.undo(&op.id, &trash).unwrap();
+        sync_catalog(&undone, false).unwrap();
+        let back = lib.asset_at(&photo).unwrap().unwrap();
+        assert_eq!(back.id, asset.id);
+        assert!(!back.missing);
+        assert!(lib.folders().unwrap().is_empty());
+        assert!(!crate::session_bridge::is_managed_source(&moved));
+        let left: Vec<_> = fs::read_dir(&drive)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .collect();
+        assert!(left.is_empty(), "left on the drive: {left:?}");
+
+        // Redo: there again, the same photograph.
+        let redone = journal.redo(&op.id, &trash).unwrap();
+        sync_catalog(&redone, true).unwrap();
+        let again = lib.asset_at(&moved).unwrap().unwrap();
+        assert_eq!(again.id, asset.id);
+        assert!(!again.missing);
+        assert!(crate::session_bridge::is_managed_source(&moved));
+        crate::session_bridge::set_active_for_test(None);
     }
 
     /// The records follow a folder moved to another drive also when that

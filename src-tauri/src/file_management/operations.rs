@@ -623,8 +623,9 @@ fn plan_folder_move(
             marker.path().display()
         ));
     }
-    // Photos leaving a session are kept there as missing (an undo brings
-    // them back); a folder moves only within its session or outside any.
+    // A session keeps the photos of a folder moved out of it (to another
+    // drive, say) where they went; a folder moves into a session only from
+    // within it: the files of another place are not that session's.
     let target = destination.join(name);
     // Catalogs keep originals anywhere (`relocate` follows them out). By
     // the real places: a link may lead into or out of a session.
@@ -637,10 +638,9 @@ fn plan_folder_move(
         session_of(real(folder)?.parent().unwrap_or(Path::new(""))),
         session_of(&real(destination)?),
     );
-    if from_session != to_session {
-        let session = from_session.or(to_session).unwrap_or_default();
+    if let Some(session) = to_session.filter(|to| from_session.as_ref() != Some(to)) {
         return Err(format!(
-            "A folder can be moved within its session only, not into or out of one ({}).",
+            "A folder can be moved into a session only from within it ({}).",
             session.display()
         ));
     }
@@ -1048,25 +1048,30 @@ mod tests {
         refused(&folder, &folder.join("Day 1"), "into itself");
         refused(&folder.join("Day 1"), &folder, "already in that folder");
         refused(&folder.join("Day 1/A.RAF"), &dest, "is not a folder");
-        // Into or out of a session, never; within one, yes.
+        // Into a session from elsewhere, never; within one or out of it
+        // (the session keeps its photos there), yes.
         let job = root.join("Job");
         write(&job.join("session.json"), "{}");
         write(&job.join("Capture/Day 2/B.RAF"), "b");
         fs::create_dir_all(job.join("Selects")).unwrap();
-        refused(&folder, &job.join("Selects"), "within its session only");
-        refused(&job.join("Capture/Day 2"), &dest, "within its session only");
+        refused(&folder, &job.join("Selects"), "only from within it");
+        plan_folder_move(&job.join("Capture/Day 2"), &dest).unwrap();
         plan_folder_move(&job.join("Capture/Day 2"), &job.join("Selects")).unwrap();
+        let other = root.join("Other");
+        write(&other.join("session.json"), "{}");
+        fs::create_dir_all(other.join("Capture")).unwrap();
+        refused(
+            &job.join("Capture/Day 2"),
+            &other.join("Capture"),
+            "only from within it",
+        );
         // By the real places: links into and out of the session.
         #[cfg(unix)]
         {
             std::os::unix::fs::symlink(&dest, job.join("Selects/Out")).unwrap();
             std::os::unix::fs::symlink(job.join("Selects"), root.join("In")).unwrap();
-            refused(
-                &job.join("Capture/Day 2"),
-                &job.join("Selects/Out"),
-                "within its session only",
-            );
-            refused(&folder, &root.join("In"), "within its session only");
+            plan_folder_move(&job.join("Capture/Day 2"), &job.join("Selects/Out")).unwrap();
+            refused(&folder, &root.join("In"), "only from within it");
         }
         // A catalog's folders go anywhere.
         let catalog = root.join("Catalog");
