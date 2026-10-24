@@ -405,14 +405,23 @@ pub(crate) fn copy_file_verified(
     let _ = posix;
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
+    // Writable by its owner until its attributes are set (Linux asks for
+    // write permission to set them, also through an open descriptor).
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.mode(mode);
+        options.mode(mode | 0o200);
     }
     let mut output = options
         .open(staged)
         .with_context(|| format!("Cannot create {}", staged.display()))?;
+    // The mode it was made with (the umask applied), without the owner's
+    // write bit when `mode` has none: what an unrecorded mode ends as.
+    #[cfg(unix)]
+    let made_mode = {
+        use std::os::unix::fs::PermissionsExt;
+        output.metadata()?.permissions().mode() & !(0o200 & !mode) & 0o7777
+    };
     let mut buffer = vec![0u8; BLOCK];
     loop {
         if tally.observer.cancelled() {
@@ -437,6 +446,9 @@ pub(crate) fn copy_file_verified(
     if let Some(mode) = restore_mode {
         use std::os::unix::fs::PermissionsExt;
         output.set_permissions(fs::Permissions::from_mode(mode & 0o666))?;
+    } else if posix.1 && mode & 0o200 == 0 {
+        use std::os::unix::fs::PermissionsExt;
+        output.set_permissions(fs::Permissions::from_mode(made_mode))?;
     }
     #[cfg(not(unix))]
     let _ = original_mode;

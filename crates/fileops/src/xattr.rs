@@ -108,7 +108,7 @@ pub(crate) fn same(a: &Path, b: &Path) -> bool {
 pub(crate) fn probe(folder: &Path) -> io::Result<()> {
     #[cfg(test)]
     if NONE_BELOW.with_borrow(|below| below.as_ref().is_some_and(|b| folder.starts_with(b))) {
-        return Err(io::Error::from_raw_os_error(libc::ENOTSUP));
+        return Err(io::Error::from(io::ErrorKind::Unsupported));
     }
     let path = folder.join(PROBE_FILE);
     let result = File::create_new(&path).and_then(|file| sys::set(&file, PROBE_NAME, b"1"));
@@ -147,15 +147,42 @@ mod sys {
             }
             let mut buffer = vec![0u8; size as usize];
             let got = call(buffer.as_mut_ptr().cast(), buffer.len());
-            if got >= 0 {
+            // Grown meanwhile: with an empty buffer the call only tells the
+            // new size; a short one fails with ERANGE.
+            if got >= 0 && got as usize <= buffer.len() {
                 buffer.truncate(got as usize);
                 return Ok(buffer);
+            }
+            if got >= 0 {
+                continue;
             }
             let error = io::Error::last_os_error();
             if error.raw_os_error() != Some(libc::ERANGE) {
                 return Err(error);
             }
         }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn a_list_or_value_that_grows_from_nothing_is_read_whole() {
+        // First asked: nothing; then it appears (6 bytes) before the read.
+        let mut calls = 0;
+        let read = sized(|buffer, size| {
+            calls += 1;
+            match (calls, size) {
+                (1, _) => 0,
+                (_, 0) => 6,
+                (_, n) => {
+                    assert!(n >= 6);
+                    // SAFETY: the buffer is valid for `n` bytes.
+                    unsafe { std::ptr::copy_nonoverlapping(b"grown\0".as_ptr(), buffer.cast(), 6) };
+                    6
+                }
+            }
+        })
+        .unwrap();
+        assert_eq!(read, b"grown\0");
     }
 
     /// The names, each NUL-terminated; empty where the volume has none.

@@ -245,3 +245,29 @@ fn each_destination_needs_attributes_only_for_its_own_copies() {
     assert_eq!(tags(&world.source.join("A.RAF")), attribute("red"));
     assert_eq!(fs::read(other.join("B.RAF")).unwrap(), b"untagged");
 }
+
+/// A read-only photo with attributes moves and comes back, read-only and
+/// with them (Linux asks for write permission to set attributes).
+#[cfg(unix)]
+#[test]
+fn a_read_only_photo_keeps_its_attributes_and_its_mode() {
+    use std::os::unix::fs::PermissionsExt;
+    let world = World::new();
+    let raw = world.source.join("A.RAF");
+    if !tag(&raw, "red") || !target_keeps(&world) {
+        eprintln!("SKIP: no extended attributes on both volumes");
+        return;
+    }
+    fs::set_permissions(&raw, fs::Permissions::from_mode(0o444)).unwrap();
+    let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    let journal = world.journal();
+    let op = journal
+        .execute("move", "Move", world.steps(), &world.trash)
+        .unwrap();
+    let copy = world.target.join("A.RAF");
+    assert_eq!(tags(&copy), attribute("red"));
+    assert_eq!(mode(&copy), 0o444);
+    journal.undo(&op.id, &world.trash).unwrap();
+    assert_eq!(tags(&raw), attribute("red"));
+    assert_eq!(mode(&raw), 0o444);
+}
