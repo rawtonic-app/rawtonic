@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.5 — 2026-10-24
+
+A fix release for alpha.4: its downloads were built without the address of Rawtonic's report relay, so **Report a problem**, crash reports, camera test results and usage statistics could not be sent from the app (only **Copy report** and **Open on GitHub** worked). alpha.5 sends them as alpha.4's notes describe. Nothing else changes; edits render exactly as in alpha.4.
+
+### Details
+
+- Optimized builds send contributions to `https://relay.rawtonic.cc` unless `RAWTONIC_RELAY_URL` names another relay at build time (empty: none); debug builds and tests have no relay unless it is set. Before, every build without the variable, including the alpha.4 packages, had none.
+
 ## 0.1.0-alpha.4 — 2026-10-24
 
 The fourth alpha: about 130 changes since alpha.3. Red eye correction, library search with smart albums, RAW+JPEG pairs and imports that resume, moves to other drives, a copy/paste picker, named snapshots and an export queue panel arrive. Sharpening, colour noise reduction, fringes, curves and Clarity were reworked and measured against the leading RAW editors, and you can now report a problem or a crash from inside the app, without an account.

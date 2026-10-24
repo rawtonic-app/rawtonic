@@ -9,9 +9,25 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// The relay this build sends to, fixed at build time (docs/RELAY.md).
-/// Without it the app has no contribution channels.
-pub const BUILD_RELAY_URL: Option<&str> = option_env!("RAWTONIC_RELAY_URL");
+/// The project's relay, which optimized builds use unless
+/// `RAWTONIC_RELAY_URL` names another (docs/RELAY.md).
+pub const DEFAULT_RELAY_URL: &str = "https://relay.rawtonic.cc";
+
+/// The relay this build sends to, fixed at build time: `RAWTONIC_RELAY_URL`
+/// if set (empty: none), else [`DEFAULT_RELAY_URL`] in optimized builds and
+/// none in debug builds, so development and test runs send nothing.
+/// Without one the app has no contribution channels.
+pub const BUILD_RELAY_URL: Option<&str> =
+    relay_url(option_env!("RAWTONIC_RELAY_URL"), cfg!(debug_assertions));
+
+const fn relay_url(given: Option<&'static str>, debug: bool) -> Option<&'static str> {
+    match given {
+        Some(url) if url.is_empty() => None,
+        Some(url) => Some(url),
+        None if debug => None,
+        None => Some(DEFAULT_RELAY_URL),
+    }
+}
 
 /// Leading zero bits of the proof of work every send carries; the relay
 /// checks it only when its `POW_BITS` is set (at most this many).
@@ -715,6 +731,17 @@ mod tests {
             client.url("stats").as_str(),
             "https://relay.example.org/base/stats"
         );
+    }
+
+    #[test]
+    fn optimized_builds_send_to_the_project_relay_unless_told_otherwise() {
+        assert_eq!(relay_url(None, false), Some(DEFAULT_RELAY_URL));
+        assert_eq!(relay_url(None, true), None);
+        assert_eq!(
+            relay_url(Some("https://relay.example.org"), true),
+            Some("https://relay.example.org")
+        );
+        assert_eq!(relay_url(Some(""), false), None);
     }
 
     #[test]

@@ -62,7 +62,7 @@ The Free plan stops a request that uses more than its CPU time (error 1102), so 
    # → 204, and the issue is gone (not just closed), the screenshot too
    ```
    If the delete answers 502, the token cannot delete issues (step 3: Admin role, or a classic `repo` token). Then read the CPU time of these requests (section above).
-10. **Build the app with the relay.** The app's relay client reads the URL at build time: `RAWTONIC_RELAY_URL=https://… npm run tauri -- build` (release workflows: a repository variable). A build without it has no contribution channels.
+10. **Build the app with the relay.** The relay URL is fixed at build time: optimized builds (`npm run tauri -- build`, the release packages) use `https://relay.rawtonic.cc`; `RAWTONIC_RELAY_URL=https://…` names another, and an empty `RAWTONIC_RELAY_URL=` builds without one. Debug builds and tests have none unless it is set. A build without a relay has no contribution channels. Release smoke tests check that the packaged binary contains the URL (alpha.4 shipped without it).
 
 ## Operating
 
