@@ -27,4 +27,20 @@ describe("GitHub tracker", () => {
       new GitHubTracker("t", "a/b", async () => new Response("", { status: 500 })).create({ title: "", body: "", labels: [] }),
     ).rejects.toThrow("HTTP 500");
   });
+
+  it("finds issues by the reference in their title only", async () => {
+    let asked = "";
+    const fetcher = async (url: string) => {
+      asked = decodeURIComponent(url);
+      return Response.json({
+        items: [
+          { title: "Crash 0123abcd · Rawtonic 1 · macos", node_id: "I_1" },
+          { title: "Crash 0123abcde · other", node_id: "I_2" },
+        ],
+      });
+    };
+    expect(await new GitHubTracker("t", "a/b", fetcher).findByRef("0123abcd")).toEqual(["I_1"]);
+    expect(asked).toContain("repo:a/b is:issue in:title 0123abcd");
+    expect(await new GitHubTracker("t", "a/b", fetcher).findByRef("not a ref")).toEqual([]);
+  });
 });

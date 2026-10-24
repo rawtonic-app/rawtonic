@@ -23,18 +23,50 @@ export class FakeTracker implements IssueTracker {
   next = 1;
   failCreate = false;
   failDelete = false;
-  async create(issue: NewIssue): Promise<FiledIssue> {
+  private async createNow(issue: NewIssue): Promise<FiledIssue> {
     if (this.failCreate) throw new Error("GitHub down");
     const filed = { number: this.next, nodeId: `I_${this.next}` };
     this.next++;
     this.issues.set(filed.nodeId, { ...issue, ...filed });
     return filed;
   }
+  /** While set, create() waits for it (to interleave requests). */
+  gate?: Promise<void>;
+  creating = 0;
+  async create(issue: NewIssue): Promise<FiledIssue> {
+    this.creating++;
+    if (this.gate) await this.gate;
+    return this.createNow(issue);
+  }
   async delete(nodeId: string) {
     if (this.failDelete) throw new Error("GitHub down");
     this.issues.delete(nodeId);
   }
+  async findByRef(ref: string) {
+    return [...this.issues.values()].filter((i) => i.title.split(" ").includes(ref)).map((i) => i.nodeId);
+  }
 }
+
+/** The environment with a database whose statements matching `pattern` fail. */
+export const failingDb = (pattern: RegExp, e: Env = env): Env => ({
+  ...e,
+  DB: new Proxy(e.DB, {
+    get(target, key) {
+      if (key === "prepare") {
+        return (sql: string) => {
+          if (!pattern.test(sql)) return target.prepare(sql);
+          const fail = async () => {
+            throw new Error("D1 unavailable");
+          };
+          const statement = { run: fail, first: fail, all: fail, bind: () => statement };
+          return statement;
+        };
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }),
+});
 
 export const NOW = Date.UTC(2026, 9, 24, 12); // Saturday of 2026-W43
 

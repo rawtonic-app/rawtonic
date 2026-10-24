@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { handle, sweep } from "../src/index";
 import { powHash } from "../src/limits";
 import { DAY_MS, sha256Hex } from "../src/util";
-import { APP, del, makeDeps, migrate, post, testEnv as env } from "./helpers";
+import { APP, del, failingDb, makeDeps, migrate, post, testEnv as env } from "./helpers";
 
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
 const b64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
@@ -87,6 +87,31 @@ describe("reports", () => {
     expect((await del(id, deps)).status).toBe(204);
   });
 
+  it("leaves no issue behind when recording it fails", async () => {
+    const deps = makeDeps();
+    const broken = failingDb(/SET state = 'filed'/);
+    const response = await post("/report", report({ screenshot: { mime: "image/png", data: b64(PNG) } }), deps, {}, broken);
+    expect(response.status).toBe(502);
+    expect(deps.tracker.issues.size).toBe(0);
+    expect((await env.BUCKET.list()).objects).toHaveLength(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
+  });
+
+  it("finds and deletes an unrecorded issue on the next run when cleaning up failed", async () => {
+    const deps = makeDeps();
+    deps.tracker.failDelete = true;
+    const response = await post("/report", report(), deps, {}, failingDb(/SET state = 'filed'/));
+    expect(response.status).toBe(502);
+    expect(deps.tracker.issues.size).toBe(1);
+    deps.tracker.failDelete = false;
+    await sweep(env, deps);
+    expect(deps.tracker.issues.size).toBe(1); // its request may still be running
+    deps.at += 3 * 3_600_000;
+    await sweep(env, deps);
+    expect(deps.tracker.issues.size).toBe(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
+  });
+
   it("files camera tests with the camera in the title", async () => {
     const deps = makeDeps();
     const response = await post(
@@ -166,6 +191,46 @@ describe("RAW samples", () => {
     const b = (await (await announce(deps)).json()) as { uploadUrl: string };
     expect((await upload(b.uploadUrl, deps, bytes.slice(1))).status).toBe(400);
     expect(deps.tracker.issues.size).toBe(0);
+  });
+
+  it("makes a deletion wait while the sample is being filed, then deletes all of it", async () => {
+    const deps = makeDeps();
+    const answer = (await (await announce(deps)).json()) as { id: string; uploadUrl: string };
+    let release!: () => void;
+    deps.tracker.gate = new Promise((resolve) => (release = resolve));
+    const uploading = upload(answer.uploadUrl, deps);
+    while (deps.tracker.creating === 0) await new Promise((r) => setTimeout(r, 1));
+    expect((await del(answer.id, deps)).status).toBe(409);
+    release();
+    expect((await uploading).status).toBe(204);
+    expect(deps.tracker.issues.size).toBe(1);
+    expect((await del(answer.id, deps)).status).toBe(204);
+    expect(deps.tracker.issues.size).toBe(0);
+    expect((await env.BUCKET.list()).objects).toHaveLength(0);
+  });
+
+  it("removes the sample's issue and file when recording them fails", async () => {
+    const deps = makeDeps();
+    const answer = (await (await announce(deps)).json()) as { uploadUrl: string };
+    const response = await handle(
+      new Request(answer.uploadUrl, { method: "PUT", headers: { "content-length": String(bytes.byteLength) }, body: bytes }),
+      failingDb(/SET state = 'filed'/),
+      deps,
+    );
+    expect(response.status).toBe(502);
+    expect(deps.tracker.issues.size).toBe(0);
+    expect((await env.BUCKET.list()).objects).toHaveLength(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
+  });
+
+  it("keeps a sample without an issue when GitHub fails, still deletable", async () => {
+    const deps = makeDeps();
+    const answer = (await (await announce(deps)).json()) as { id: string; uploadUrl: string };
+    deps.tracker.failCreate = true;
+    expect((await upload(answer.uploadUrl, deps)).status).toBe(204);
+    expect((await env.BUCKET.list()).objects).toHaveLength(1);
+    expect((await del(answer.id, deps)).status).toBe(204);
+    expect((await env.BUCKET.list()).objects).toHaveLength(0);
   });
 
   it("expires announced samples never uploaded", async () => {

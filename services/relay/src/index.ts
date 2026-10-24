@@ -127,24 +127,38 @@ const accept = async <T>(
   return parsed;
 };
 
-const insertSubmission = (
-  env: Env,
-  s: { idHash: string; ref: string },
-  kind: string,
-  state: "pending" | "filed",
-  objects: string[],
-  now: number,
-  issue?: { number: number; nodeId: string },
-) =>
-  env.DB.prepare(
-    "INSERT INTO submissions (id_hash, kind, ref, state, issue_number, issue_node_id, objects, received_at) " +
-      "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-  )
-    .bind(s.idHash, kind, s.ref, state, issue?.number ?? null, issue?.nodeId ?? null, JSON.stringify(objects), now)
-    .run();
+/** Row states: `filing` (recorded before anything external is written;
+ * the id is not given out yet), `pending` (RAW sample announced),
+ * `uploading` (its bytes and issue are being written), `filed`, and
+ * `deleting` (claimed by a deletion). A row in `filing` or `uploading` for
+ * long is reconciled by the scheduled run. */
+type State = "filing" | "pending" | "uploading" | "filed" | "deleting";
 
-/** Files one issue (with its stored objects) and records it; on failure
- * removes the objects again. */
+interface Row {
+  id_hash: string;
+  ref: string;
+  state: State;
+  issue_node_id: string | null;
+  objects: string;
+}
+
+/** Moves a row from one of `from` to `to` (compare and swap); the row as
+ * it was, or null when it is gone or in another state (another request
+ * has it). */
+const claim = async (env: Env, idHash: string, from: State[], to: State): Promise<Row | null> => {
+  const row = await env.DB.prepare("SELECT id_hash, ref, state, issue_node_id, objects FROM submissions WHERE id_hash = ?1")
+    .bind(idHash)
+    .first<Row>();
+  if (!row || !from.includes(row.state)) return null;
+  const moved = await env.DB.prepare("UPDATE submissions SET state = ?3 WHERE id_hash = ?1 AND state = ?2")
+    .bind(idHash, row.state, to)
+    .run();
+  return moved.meta.changes === 1 ? row : null;
+};
+
+/** Files one issue (with its stored objects). The row is written first, so
+ * a failure at any later step leaves something the scheduled run can
+ * reconcile; the id is only answered once everything is recorded. */
 const file = async (
   env: Env,
   deps: Deps,
@@ -157,16 +171,41 @@ const file = async (
   const s = await newSubmission();
   const keys = objects.map((o) => o.key.replace("{hash}", s.idHash));
   try {
+    await env.DB.prepare(
+      "INSERT INTO submissions (id_hash, kind, ref, state, objects, received_at) VALUES (?1, ?2, ?3, 'filing', ?4, ?5)",
+    )
+      .bind(s.idHash, kind, s.ref, JSON.stringify(keys), now)
+      .run();
+  } catch {
+    return error(502, "not-filed");
+  }
+  let issue: { number: number; nodeId: string } | undefined;
+  try {
     for (const [i, o] of objects.entries()) {
       await env.BUCKET.put(keys[i], o.data, { httpMetadata: { contentType: o.type } });
     }
-    const issue = await deps.tracker.create(build({ ref: s.ref, keys }));
-    await insertSubmission(env, s, kind, "filed", keys, now, issue);
+    issue = await deps.tracker.create(build({ ref: s.ref, keys }));
+    const filed = await env.DB.prepare(
+      "UPDATE submissions SET state = 'filed', issue_number = ?2, issue_node_id = ?3 WHERE id_hash = ?1 AND state = 'filing'",
+    )
+      .bind(s.idHash, issue.number, issue.nodeId)
+      .run();
+    if (filed.meta.changes !== 1) throw new Error("row lost");
   } catch {
-    if (keys.length) await env.BUCKET.delete(keys);
+    await undoFiling(env, deps, { id_hash: s.idHash, ref: s.ref, state: "filing", issue_node_id: issue?.nodeId ?? null, objects: JSON.stringify(keys) });
     return error(502, "not-filed");
   }
   return json(201, { id: s.id, ref: s.ref });
+};
+
+/** Removes what a failed filing wrote. When that fails too, the row stays
+ * in its state and the scheduled run finds the issue by its reference. */
+const undoFiling = async (env: Env, deps: Deps, row: Row) => {
+  try {
+    await remove(env, deps, row);
+  } catch {
+    // Reconciled by sweep().
+  }
 };
 
 const postReport = async (request: Request, env: Env, deps: Deps) => {
@@ -237,35 +276,42 @@ const putRawSample = async (request: Request, env: Env, deps: Deps, token: strin
   const length = Number(request.headers.get("content-length"));
   if (!request.body || length !== upload.size || length > MAX_SAMPLE_BYTES) return error(400, "size-mismatch");
   if (!(await takeGlobal(env.DB, "uploadBytes", length, now))) return error(429, "busy");
-  const sample = JSON.parse(upload.meta) as RawSample;
+  // Claimed before anything is written, with the object recorded: a
+  // deletion now waits (409) instead of racing the upload.
+  const objects = JSON.stringify([upload.object_key]);
+  const claimed = await env.DB.prepare(
+    "UPDATE submissions SET state = 'uploading', objects = ?2 WHERE id_hash = ?1 AND state = 'pending'",
+  )
+    .bind(upload.id_hash, objects)
+    .run();
+  if (claimed.meta.changes !== 1) return error(404, "unknown-upload");
+  const row: Row = { id_hash: upload.id_hash, ref: upload.id_hash.slice(0, 8), state: "uploading", issue_node_id: null, objects };
   try {
     await env.BUCKET.put(upload.object_key, request.body, { sha256: upload.sha256 });
   } catch {
-    await env.BUCKET.delete(upload.object_key);
+    await undoFiling(env, deps, row);
     return error(422, "checksum-mismatch");
   }
-  const ref = upload.id_hash.slice(0, 8);
+  const sample = JSON.parse(upload.meta) as RawSample;
+  let issue: { number: number; nodeId: string } | undefined;
   try {
-    if (!(await takeGlobal(env.DB, "issues", 1, now))) throw new Error("issue cap");
-    const issue = await deps.tracker.create(rawSampleIssue(sample, ref, upload.object_key));
-    const updated = await env.DB.prepare(
-      "UPDATE submissions SET state = 'filed', issue_number = ?2, issue_node_id = ?3, objects = ?4 WHERE id_hash = ?1",
-    )
-      .bind(upload.id_hash, issue.number, issue.nodeId, JSON.stringify([upload.object_key]))
-      .run();
-    if (updated.meta.changes === 0) {
-      // Deleted by its id while it was uploading.
-      await remove(env, deps, { id_hash: upload.id_hash, issue_node_id: issue.nodeId, objects: JSON.stringify([upload.object_key]) });
-      return error(404, "unknown-upload");
+    if (await takeGlobal(env.DB, "issues", 1, now)) {
+      issue = await deps.tracker.create(rawSampleIssue(sample, row.ref, upload.object_key));
     }
   } catch {
-    // Keep the sample (it was announced and paid for in limits); record its
-    // object so retention or deletion removes it. The maintainers find it
-    // in the bucket.
-    const kept = await env.DB.prepare("UPDATE submissions SET state = 'filed', objects = ?2 WHERE id_hash = ?1")
-      .bind(upload.id_hash, JSON.stringify([upload.object_key]))
+    // Keep the sample without an issue: it is recorded, retained and
+    // deletable; the maintainers find it in the bucket.
+  }
+  try {
+    const filed = await env.DB.prepare(
+      "UPDATE submissions SET state = 'filed', issue_number = ?2, issue_node_id = ?3 WHERE id_hash = ?1 AND state = 'uploading'",
+    )
+      .bind(upload.id_hash, issue?.number ?? null, issue?.nodeId ?? null)
       .run();
-    if (kept.meta.changes === 0) await env.BUCKET.delete(upload.object_key);
+    if (filed.meta.changes !== 1) throw new Error("row lost");
+  } catch {
+    await undoFiling(env, deps, { ...row, issue_node_id: issue?.nodeId ?? null });
+    return error(502, "not-filed");
   }
   return new Response(null, { status: 204 });
 };
@@ -278,13 +324,15 @@ const postStats = async (request: Request, env: Env, deps: Deps) => {
   return new Response(null, { status: 204 });
 };
 
-/** Deletes everything stored for one submission. */
-const remove = async (
-  env: Env,
-  deps: Deps,
-  row: { id_hash: string; issue_node_id: string | null; objects: string },
-) => {
-  if (row.issue_node_id) await deps.tracker.delete(row.issue_node_id);
+/** Deletes everything stored for one submission. Without its issue's node
+ * id (a filing that failed half-way), the issue is found by its reference. */
+const remove = async (env: Env, deps: Deps, row: Row) => {
+  const issues = row.issue_node_id
+    ? [row.issue_node_id]
+    : row.state === "filing" || row.state === "uploading"
+      ? await deps.tracker.findByRef(row.ref)
+      : [];
+  for (const nodeId of issues) await deps.tracker.delete(nodeId);
   const objects = JSON.parse(row.objects) as string[];
   if (objects.length) await env.BUCKET.delete(objects);
   await env.DB.batch([
@@ -293,21 +341,35 @@ const remove = async (
   ]);
 };
 
+/** Claims a row for deletion and deletes it; on failure gives it back. */
+const removeClaimed = async (env: Env, deps: Deps, idHash: string, from: State[]) => {
+  const row = await claim(env, idHash, from, "deleting");
+  if (!row) return false;
+  try {
+    await remove(env, deps, row);
+  } catch (e) {
+    await env.DB.prepare("UPDATE submissions SET state = ?2 WHERE id_hash = ?1 AND state = 'deleting'")
+      .bind(idHash, row.state)
+      .run();
+    throw e;
+  }
+  return true;
+};
+
 const deleteSubmission = async (request: Request, env: Env, deps: Deps, id: string) => {
   if (!(await allow(env.DB, env.IP_HASH_KEY, "delete", clientIp(request), deps.now()))) {
     return error(429, "rate-limited");
   }
   if (!ID_PATTERN.test(id)) return error(404, "unknown-id");
-  const row = await env.DB.prepare("SELECT id_hash, issue_node_id, objects FROM submissions WHERE id_hash = ?1")
-    .bind(await sha256Hex(id))
-    .first<{ id_hash: string; issue_node_id: string | null; objects: string }>();
-  if (!row) return error(404, "unknown-id");
+  const idHash = await sha256Hex(id);
   try {
-    await remove(env, deps, row);
+    if (await removeClaimed(env, deps, idHash, ["filed", "pending"])) return new Response(null, { status: 204 });
   } catch {
     return error(502, "not-deleted");
   }
-  return new Response(null, { status: 204 });
+  const busy = await env.DB.prepare("SELECT state FROM submissions WHERE id_hash = ?1").bind(idHash).first<{ state: State }>();
+  // A RAW sample still uploading, or another deletion of it running.
+  return busy ? error(409, "busy") : error(404, "unknown-id");
 };
 
 const statsSummary = async (request: Request, env: Env, url: URL) => {
@@ -337,33 +399,46 @@ export const handle = async (request: Request, env: Env, deps: Deps): Promise<Re
   return error(404, "not-found");
 };
 
-/** The scheduled run: retention, expired limits and tokens, statistics weeks. */
+/** The scheduled run: retention, half-done filings, expired limits and
+ * tokens, statistics weeks. */
 export const sweep = async (env: Env, deps: Deps) => {
   const now = deps.now();
   let budget = RETENTION_BATCH;
+  const due: { idHash: string; from: State[] }[] = [];
   for (const [kind, days] of Object.entries(RETENTION_DAYS)) {
-    if (budget <= 0) break;
     const { results } = await env.DB.prepare(
-      "SELECT id_hash, issue_node_id, objects FROM submissions WHERE kind = ?1 AND received_at < ?2 LIMIT ?3",
+      "SELECT id_hash FROM submissions WHERE kind = ?1 AND state = 'filed' AND received_at < ?2 LIMIT ?3",
     )
       .bind(kind, now - days * DAY_MS, budget)
-      .all<{ id_hash: string; issue_node_id: string | null; objects: string }>();
-    for (const row of results) {
-      budget--;
-      try {
-        await remove(env, deps, row);
-      } catch {
-        // Tried again next run.
-      }
-    }
+      .all<{ id_hash: string }>();
+    due.push(...results.map((r) => ({ idHash: r.id_hash, from: ["filed"] as State[] })));
   }
-  // Announced samples never uploaded (their token expired).
+  // Announced samples never uploaded (their token expired), and filings
+  // or uploads that stopped half-way (their request ended long ago).
   const { results: stale } = await env.DB.prepare(
-    "SELECT id_hash, issue_node_id, objects FROM submissions WHERE state = 'pending' AND received_at < ?1",
+    "SELECT id_hash, state FROM submissions WHERE state IN ('pending', 'filing', 'uploading', 'deleting') AND received_at < ?1",
   )
     .bind(now - UPLOAD_VALID_MS - HOUR_MS)
-    .all<{ id_hash: string; issue_node_id: string | null; objects: string }>();
-  for (const row of stale) await remove(env, deps, row);
+    .all<{ id_hash: string; state: State }>();
+  due.push(...stale.map((r) => ({ idHash: r.id_hash, from: [r.state] })));
+  for (const { idHash, from } of due) {
+    if (budget-- <= 0) break;
+    try {
+      // A row left in `deleting` by a deletion that died is claimed as is.
+      if (from[0] === "deleting") {
+        const row = await env.DB.prepare(
+          "SELECT id_hash, ref, state, issue_node_id, objects FROM submissions WHERE id_hash = ?1",
+        )
+          .bind(idHash)
+          .first<Row>();
+        if (row) await remove(env, deps, { ...row, state: row.issue_node_id ? "filed" : "filing" });
+      } else {
+        await removeClaimed(env, deps, idHash, from);
+      }
+    } catch {
+      // Tried again next run.
+    }
+  }
   await env.DB.batch([
     env.DB.prepare("DELETE FROM rate WHERE expires < ?1").bind(now),
     env.DB.prepare("DELETE FROM pow_seen WHERE expires < ?1").bind(now),
