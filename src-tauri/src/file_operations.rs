@@ -1962,6 +1962,118 @@ mod tests {
         assert_eq!(OperationSummary::from(&redone).items, 1);
     }
 
+    /// The Trash of the first folder holding a path.
+    struct TrashPerDrive(Vec<(PathBuf, BesideTrash)>);
+    impl TrashPerDrive {
+        fn of(&self, path: &Path) -> &BesideTrash {
+            &self
+                .0
+                .iter()
+                .find(|(dir, _)| path.starts_with(dir))
+                .unwrap()
+                .1
+        }
+    }
+    impl SystemTrash for TrashPerDrive {
+        fn trash(&self, path: &Path) -> anyhow::Result<String> {
+            self.of(path).trash(path)
+        }
+        fn restore(&self, item: &str, original: &Path) -> anyhow::Result<()> {
+            self.of(original).restore(item, original)
+        }
+        fn contains(&self, item: &str) -> bool {
+            self.0.iter().any(|(_, trash)| trash.contains(item))
+        }
+    }
+
+    /// A catalog's RAW+JPEG photo (rating, edit sidecar) copied to a folder
+    /// on another drive stays the same photo there: online, paired, rated;
+    /// undo brings it back and leaves nothing in the drive's folder.
+    /// `RAWTONIC_TEST_OTHER_VOLUME` names a folder on another drive (e.g. an
+    /// attached disk image) to copy to.
+    #[test]
+    fn a_catalog_photo_moved_to_another_drive_stays_online_paired_and_rated() {
+        let tmp = tempfile::tempdir().unwrap();
+        let drive = match std::env::var_os("RAWTONIC_TEST_OTHER_VOLUME") {
+            Some(dir) => tempfile::tempdir_in(dir).unwrap(),
+            None => tempfile::tempdir().unwrap(),
+        };
+        let root = tmp.path().canonicalize().unwrap();
+        let lib = Library::create(
+            &root.join("Catalog"),
+            "Catalog",
+            rawtonic_catalog::Mode::Catalog,
+        )
+        .unwrap();
+        let shoot = root.join("Shoot");
+        let archive = drive.path().canonicalize().unwrap().join("Archive");
+        fs::create_dir_all(&shoot).unwrap();
+        fs::create_dir_all(&archive).unwrap();
+        let files = ["A.NEF", "A.JPG", "A.NEF.rrdata"];
+        for name in files {
+            fs::write(shoot.join(name), name).unwrap();
+        }
+        let asset = lib.add_asset(&shoot.join("A.NEF")).unwrap();
+        lib.set_companion(&asset.id, Some("A.JPG")).unwrap();
+        let rated = rawtonic_metadata::Metadata {
+            rating: 4,
+            ..Default::default()
+        };
+        lib.set_metadata(&asset.id, &rated).unwrap();
+        let steps = files
+            .iter()
+            .map(|name| Step::other_volume(shoot.join(name), archive.join(name)))
+            .collect();
+        // Each drive's own Trash, as the system's.
+        let drive_trash = BesideTrash(drive.path().join(".trash"));
+        let boot_trash = BesideTrash(root.join(".trash"));
+        let trash = TrashPerDrive(vec![
+            (archive.clone(), drive_trash),
+            (root.clone(), boot_trash),
+        ]);
+        let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
+        // The records follow as `sync_catalog` has them follow (it finds
+        // the open catalog by the app's state).
+        let follow = |op: &Operation, forward: bool| {
+            for (a, b, _) in moved(op, forward) {
+                if is_supported_image_file(&b) {
+                    lib.relocate(&a, &b).unwrap();
+                }
+            }
+        };
+        let op = journal
+            .execute("move", "Move 1 photo to Archive", steps, &trash)
+            .unwrap();
+        follow(&op, true);
+        let there = lib.asset_at(&archive.join("A.NEF")).unwrap().unwrap();
+        assert_eq!(there.id, asset.id);
+        assert!(!there.missing);
+        assert_eq!(there.rating, 4);
+        assert_eq!(
+            lib.companion_verified(&there).unwrap(),
+            Some(archive.join("A.JPG"))
+        );
+        assert!(lib.offline_assets().unwrap().is_empty());
+        assert_eq!(lib.assets(None).unwrap().len(), 1);
+
+        let undone = journal.undo(&op.id, &trash).unwrap();
+        follow(&undone, false);
+        let back = lib.asset_at(&shoot.join("A.NEF")).unwrap().unwrap();
+        assert_eq!(
+            (back.id.as_str(), back.missing, back.rating),
+            (asset.id.as_str(), false, 4)
+        );
+        assert_eq!(
+            lib.companion_verified(&back).unwrap(),
+            Some(shoot.join("A.JPG"))
+        );
+        for name in files {
+            assert_eq!(fs::read_to_string(shoot.join(name)).unwrap(), name);
+        }
+        let left: Vec<_> = fs::read_dir(&archive).unwrap().flatten().collect();
+        assert!(left.is_empty(), "{left:?}");
+    }
+
     /// Uses the real system Trash (and puts the file back): run by hand.
     /// `RAWTONIC_TEST_TRASH_DIR` names a folder on another drive (e.g. an
     /// attached disk image), whose own Trash must take the item.
