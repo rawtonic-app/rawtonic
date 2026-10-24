@@ -465,14 +465,22 @@ pub fn list_luts(app_handle: AppHandle) -> Result<Vec<LutEntry>, String> {
     Ok(all_luts)
 }
 
+/// Async, with the walking, parsing and copying in a blocking worker: a
+/// large pack on slow storage must not hold up the window.
 #[tauri::command]
-pub fn import_luts(app_handle: AppHandle, source_paths: Vec<String>) -> Result<LutImport, String> {
+pub async fn import_luts(
+    app_handle: AppHandle,
+    source_paths: Vec<String>,
+) -> Result<LutImport, String> {
     let data_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?;
     let luts_dir = get_luts_dir(&data_dir).map_err(|e| e.to_string())?;
-    let report = import_luts_to_dir(&luts_dir, &source_paths).map_err(|e| e.to_string())?;
+    let report = tokio::task::spawn_blocking(move || import_luts_to_dir(&luts_dir, &source_paths))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
 
     Ok(LutImport {
         luts: list_luts(app_handle)?,
