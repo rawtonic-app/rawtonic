@@ -31,6 +31,7 @@ use preview_layers::{
     CURVE_LUT_SAMPLES, LAYER_SUMS_HEADER, LayerSumsPlan, PreparedLayer, SummedLayers, curve_lut,
     plan_layer_sums, prepare_layers, summed_layers,
 };
+pub use processor_turns::ProcessorSlot;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Roi {
@@ -931,6 +932,9 @@ pub struct GpuProcessorState {
     pub width: u32,
     pub height: u32,
 }
+
+/// Where a caller keeps its GPU processor (created on its first render).
+pub type GpuProcessorSlot = ProcessorSlot<Option<GpuProcessorState>>;
 
 pub struct AnalyticsJob {
     pub path: String,
@@ -2569,6 +2573,13 @@ pub struct GpuProcessor {
     /// The multi-scale colour noise reduction's passes (None if they failed
     /// to compile: the cross-bilateral filter runs).
     chroma_pipelines: Option<ChromaPipelines>,
+    /// Its slot is background-only: CPU-readback renders pause between
+    /// their tiles while foreground renders run (`processor_turns`). Set
+    /// each time the slot is locked.
+    pauses_for_foreground: bool,
+    /// Tiles before which a render paused for foreground renders.
+    #[cfg(test)]
+    tile_pauses: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
     force_mask_upload: std::sync::atomic::AtomicBool,
     #[cfg(test)]
@@ -4626,6 +4637,9 @@ impl GpuProcessor {
             blur_cache: Mutex::new(BlurCache::default()),
             readback_pool: ReadbackPool::default(),
             chroma_pipelines,
+            pauses_for_foreground: false,
+            #[cfg(test)]
+            tile_pauses: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
             force_mask_upload: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
@@ -6639,6 +6653,16 @@ impl GpuProcessor {
                 if retained_regions.is_empty() {
                     continue;
                 }
+                // The tiles before stay in this processor's textures and
+                // buffers, which no other render uses meanwhile.
+                if self.pauses_for_foreground && !output_to_display {
+                    let _paused = processor_turns::TURNS.pause_for_foreground();
+                    #[cfg(test)]
+                    if _paused {
+                        self.tile_pauses
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
 
                 let input_x_start = (x_start as i32 - TILE_OVERLAP as i32).max(0) as u32;
                 let input_y_start = (y_start as i32 - TILE_OVERLAP as i32).max(0) as u32;
@@ -7553,7 +7577,7 @@ fn plan_render_windows(
 /// byte by `renders_over_the_texture_limit_match_whole_renders`).
 fn render_in_windows(
     context: &GpuContext,
-    processor_slot: &Mutex<Option<GpuProcessorState>>,
+    processor_slot: &GpuProcessorSlot,
     image: &DynamicImage,
     request: RenderRequest,
     caller_id: &str,
@@ -7762,7 +7786,7 @@ fn foreground_render(caller_id: &str, output_to_display: bool) -> bool {
 /// ([`processor_turns`]: foreground renders first).
 fn lock_processor<'a>(
     context: &GpuContext,
-    processor_slot: &'a Mutex<Option<GpuProcessorState>>,
+    processor_slot: &'a GpuProcessorSlot,
     width: u32,
     height: u32,
     foreground: bool,
@@ -7820,6 +7844,10 @@ fn lock_processor<'a>(
             height: new_height,
         });
     }
+    let pauses = processor_lock.pauses_for_foreground();
+    if let Some(state) = processor_lock.as_mut() {
+        state.processor.pauses_for_foreground = pauses;
+    }
 
     Ok(processor_lock)
 }
@@ -7844,7 +7872,7 @@ pub enum RenderSource<'a> {
 #[allow(clippy::too_many_arguments)]
 pub fn process_and_get_dynamic_image_inner(
     context: &GpuContext,
-    processor_slot: &Mutex<Option<GpuProcessorState>>,
+    processor_slot: &GpuProcessorSlot,
     image_cache: &Mutex<Option<GpuImageCache>>,
     source: RenderSource,
     request: RenderRequest,
@@ -7883,7 +7911,7 @@ pub fn process_and_get_dynamic_image_inner(
 /// and the output's precision and space), in `outputs` order.
 pub fn process_and_get_dynamic_images(
     context: &GpuContext,
-    processor_slot: &Mutex<Option<GpuProcessorState>>,
+    processor_slot: &GpuProcessorSlot,
     kept: &KeptUpload,
     request: RenderRequest,
     caller_id: &str,
@@ -7897,7 +7925,7 @@ pub fn process_and_get_dynamic_images(
 
 fn render_outputs(
     context: &GpuContext,
-    processor_slot: &Mutex<Option<GpuProcessorState>>,
+    processor_slot: &GpuProcessorSlot,
     kept: &KeptUpload,
     request: RenderRequest,
     caller_id: &str,
@@ -7987,7 +8015,7 @@ pub fn gpu_scoped<T>(device: &wgpu::Device, work: impl FnOnce() -> T) -> Result<
 #[allow(clippy::too_many_arguments)]
 fn render_dynamic_image(
     context: &GpuContext,
-    processor_slot: &Mutex<Option<GpuProcessorState>>,
+    processor_slot: &GpuProcessorSlot,
     image_cache: &Mutex<Option<GpuImageCache>>,
     source: RenderSource,
     request: RenderRequest,

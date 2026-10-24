@@ -40,7 +40,7 @@ use rawtonic_engine::image_processing::{
     get_all_adjustments_from_json, remove_raw_artifacts_and_enhance,
 };
 use rawtonic_gpu::gpu_processing::{
-    GpuContext, GpuImageCache, GpuProcessorState, ReadbackShader, RenderOutputPrecision,
+    GpuContext, GpuImageCache, GpuProcessorSlot, ReadbackShader, RenderOutputPrecision,
     RenderRequest, RenderSource, process_and_get_dynamic_image_inner,
 };
 use rawtonic_rawdecode::demosaic::{CfaPattern, demosaic};
@@ -357,7 +357,7 @@ fn develop(scene: &Scene, iso: f32, seed: u64) -> Rgb32FImage {
 
 struct Renderer {
     context: GpuContext,
-    processor: Mutex<Option<GpuProcessorState>>,
+    processor: GpuProcessorSlot,
     cache: Mutex<Option<GpuImageCache>>,
     serial: AtomicU64,
 }
@@ -366,7 +366,7 @@ impl Renderer {
     fn new() -> Self {
         Self {
             context: GpuContext::headless().expect("GPU"),
-            processor: Mutex::new(None),
+            processor: GpuProcessorSlot::new(None),
             cache: Mutex::new(None),
             serial: AtomicU64::new(1),
         }

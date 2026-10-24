@@ -9341,6 +9341,110 @@ fn chunk_test_profiles() -> Vec<(&'static str, serde_json::Value)> {
     ]
 }
 
+/// An export render on a background-only processor (the app's exports)
+/// pauses between its tiles while Develop frames render on the shared one
+/// (notes: parity-gaps/G44): its pixels stay byte for byte those of a render
+/// without pauses, and of one on a shared processor.
+#[test]
+#[ignore = "requires a native GPU"]
+fn export_renders_paused_between_tiles_keep_their_pixels() {
+    let context = context();
+    // 3 x 2 tiles.
+    let (width, height) = (4300, 2300);
+    let photo = |seed: u32| {
+        DynamicImage::ImageRgba32F(ImageBuffer::from_fn(width, height, move |x, y| {
+            let n = ((x * 7919 + y * 104_729 + seed) % 251) as f32 / 251.0;
+            Rgba([
+                0.2 + 0.5 * x as f32 / width as f32 + 0.05 * n,
+                0.3 + 0.2 * n,
+                0.6 * y as f32 / height as f32 + 0.1 * (1.0 - n),
+                1.0,
+            ])
+        }))
+    };
+    let (export_photo, frame_photo) = (photo(0), photo(17));
+    let export_recipe = json!({"exposure":0.4,"contrast":15,"clarity":30,"sharpness":40,
+        "lumaNoiseReduction":20,"colorNoiseReduction":25,"colorNoiseVersion":2,
+        "flareAmount":30,"vignetteAmount":-20});
+    let frame_recipe = json!({"exposure":-0.6,"structure":40,"dehaze":20,"colorNoiseReduction":40});
+    let render = |slot: &GpuProcessorSlot, image: &DynamicImage, recipe, caller_id, hash| {
+        process_and_get_dynamic_image_inner(
+            &context,
+            slot,
+            &Mutex::new(None),
+            RenderSource::Image {
+                image,
+                transform_hash: hash,
+            },
+            RenderRequest {
+                adjustments: get_all_adjustments_from_json(recipe, true, Some(2)),
+                mask_bitmaps: &[],
+                lut: None,
+                roi: None,
+            },
+            caller_id,
+            RenderOutputPrecision::EightBit,
+            false,
+            None,
+            None,
+            ReadbackShader::Export,
+        )
+        .expect("renders")
+    };
+    let shared = ProcessorSlot::new(None);
+    let exports = ProcessorSlot::background(None);
+    let expected = render(&shared, &export_photo, &export_recipe, "export_test", 1);
+    let alone = render(&exports, &export_photo, &export_recipe, "export_test", 1);
+    assert!(alone.as_bytes() == expected.as_bytes());
+    let pauses = |exports: &GpuProcessorSlot| {
+        exports
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .processor
+            .tile_pauses
+            .load(Ordering::Relaxed)
+    };
+    assert_eq!(pauses(&exports), 0, "no frame to pause for");
+
+    for round in 0..3 {
+        let done = std::sync::atomic::AtomicBool::new(false);
+        let paused = std::thread::scope(|scope| {
+            let before = pauses(&exports);
+            let export = scope.spawn(|| {
+                let image = render(&exports, &export_photo, &export_recipe, "export_test", 1);
+                done.store(true, Ordering::SeqCst);
+                image
+            });
+            // Frames of a drag from when the export render has its processor.
+            while exports.try_lock().is_ok() && !done.load(Ordering::SeqCst) {
+                std::thread::yield_now();
+            }
+            let drag = Instant::now();
+            while drag.elapsed() < std::time::Duration::from_millis(600) {
+                render(
+                    &shared,
+                    &frame_photo,
+                    &frame_recipe,
+                    "apply_adjustments",
+                    2 + round,
+                );
+            }
+            let image = export.join().unwrap();
+            assert!(
+                image.as_bytes() == expected.as_bytes(),
+                "round {round}: the paused render's pixels differ"
+            );
+            pauses(&exports) - before
+        });
+        assert!(
+            paused > 0,
+            "round {round}: the export render paused for the frames"
+        );
+    }
+}
+
 /// A photo exported with several recipes renders each from one kept upload
 /// ([`KeptUpload`]): byte for byte what a fresh upload renders, in every
 /// colour space and precision, also once an earlier render from it built
@@ -9374,7 +9478,7 @@ fn renders_from_a_kept_upload_match_fresh_uploads() {
         "the recipe uses the multi-scale colour noise"
     );
     let color_noise = Some((true, color_noise_tuning(&global).1));
-    let processor = Mutex::new(None);
+    let processor = ProcessorSlot::new(None);
     let cache = Mutex::new(None);
     let render = |source: RenderSource, space, precision| {
         process_and_get_dynamic_image_inner(
@@ -9603,7 +9707,7 @@ fn readback_render_fails_when_the_gpu_reports_an_error() {
     let source =
         DynamicImage::ImageRgba32F(ImageBuffer::from_pixel(64, 48, Rgba([0.5, 0.4, 0.3, 1.0])));
     let render = |source: RenderSource| {
-        let processor = Mutex::new(None);
+        let processor = ProcessorSlot::new(None);
         let cache = Mutex::new(None);
         process_and_get_dynamic_image_inner(
             &context,
@@ -9730,7 +9834,7 @@ fn chunk_test_render(
     } else {
         Vec::new()
     };
-    let processor = Mutex::new(None);
+    let processor = ProcessorSlot::new(None);
     let cache = Mutex::new(None);
     process_and_get_dynamic_image_inner(
         context,
@@ -10032,7 +10136,7 @@ fn renders_over_the_texture_limit_fail_instead_of_skipping_edits() {
     );
     assert_eq!(edited.unwrap_err(), texture_limit_error(600, 400, 512));
     // Display frames are never rendered from windows.
-    let processor = Mutex::new(None);
+    let processor = ProcessorSlot::new(None);
     let cache = Mutex::new(None);
     let display = process_and_get_dynamic_image_inner(
         &limited,
@@ -10087,7 +10191,7 @@ fn render_source(
     profile: serde_json::Value,
     precision: RenderOutputPrecision,
 ) -> DynamicImage {
-    let processor = Mutex::new(None);
+    let processor = ProcessorSlot::new(None);
     let cache = Mutex::new(None);
     process_and_get_dynamic_image_inner(
         context,
@@ -10651,7 +10755,7 @@ fn multiscale_color_noise_latency_probe() {
             );
         }
     }
-    let processor = Mutex::new(None);
+    let processor = ProcessorSlot::new(None);
     let cache = Mutex::new(None);
     // Twice, so the first pass compiles the pipelines and fills the caches.
     for pass in 0..3 {

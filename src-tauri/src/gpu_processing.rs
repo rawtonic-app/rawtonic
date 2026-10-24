@@ -212,8 +212,8 @@ pub fn get_or_init_gpu_context(
 /// compilation: seconds on a cold driver cache), so an export overlaps it
 /// with decoding. A processor that already exists
 /// is kept; the render path creates one itself if this has not finished.
-pub fn prewarm_gpu_processor(state: &AppState, context: &GpuContext) {
-    let mut processor_lock = match state.gpu_processor.lock() {
+pub fn prewarm_gpu_processor(slot: &GpuProcessorSlot, context: &GpuContext) {
+    let mut processor_lock = match slot.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };

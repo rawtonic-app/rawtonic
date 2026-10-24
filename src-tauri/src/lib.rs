@@ -376,6 +376,7 @@ pub fn run() {
             if !is_headless {
                 // Masking models: unloaded when idle or short of memory.
                 ai_lifecycle::start(&app_handle);
+                export_processing::release_processor_under_pressure(&app_handle);
                 // Roll back file operations a crash interrupted.
                 file_operations::recover(&app_handle);
                 export_queue::open(&app_handle);
@@ -476,7 +477,7 @@ pub fn run() {
                         let app_handle = app.handle().clone();
                         std::thread::spawn(move || {
                             gpu_processing::prewarm_gpu_processor(
-                                &app_handle.state::<AppState>(),
+                                &app_handle.state::<AppState>().gpu_processor,
                                 &context,
                             );
                         });

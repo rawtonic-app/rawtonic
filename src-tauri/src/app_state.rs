@@ -12,7 +12,9 @@ use tokio::task::JoinHandle;
 
 use crate::ai_processing::AiState;
 use crate::cache_utils::DecodedImageCache;
-pub use crate::gpu_processing::{AnalyticsConfig, AnalyticsJob, GpuImageCache, GpuProcessorState};
+pub use crate::gpu_processing::{
+    AnalyticsConfig, AnalyticsJob, GpuImageCache, GpuProcessorSlot, GpuProcessorState,
+};
 use crate::gpu_processing::{GpuContext, LatestJobSender};
 use crate::launch_request::ExternalEditSession;
 use crate::lens_correction::LensDatabase;
@@ -488,7 +490,11 @@ pub struct AppState {
     pub(crate) reusable_previews: Mutex<crate::preview_cache::PreviewBaseCache>,
     pub gpu_context: Mutex<Option<GpuContext>>,
     pub gpu_image_cache: Mutex<Option<GpuImageCache>>,
-    pub gpu_processor: Mutex<Option<GpuProcessorState>>,
+    pub gpu_processor: GpuProcessorSlot,
+    /// Exports' own processor: their renders pause between tiles for the
+    /// Develop view's frames instead of holding up the processor those use
+    /// for a whole photo (notes: parity-gaps/G44).
+    pub export_gpu_processor: GpuProcessorSlot,
     pub ai_state: Mutex<Option<AiState>>,
     pub ai_init_lock: TokioMutex<()>,
     /// AI Denoise (ai_denoise.rs) by `aiDenoiseVersion` (index 0: version
@@ -561,7 +567,8 @@ impl Default for AppState {
             reusable_previews: Mutex::new(Default::default()),
             gpu_context: Mutex::new(None),
             gpu_image_cache: Mutex::new(None),
-            gpu_processor: Mutex::new(None),
+            gpu_processor: GpuProcessorSlot::new(None),
+            export_gpu_processor: GpuProcessorSlot::background(None),
             ai_state: Mutex::new(None),
             ai_init_lock: TokioMutex::new(()),
             ai_denoiser: Mutex::new([None, None]),

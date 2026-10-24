@@ -490,6 +490,19 @@ const EXPORT_WORKER_GB: f64 = 2.0;
 /// Free memory a batch export leaves: no further photo starts below it.
 const EXPORT_MEMORY_RESERVE: u64 = 2 << 30;
 
+/// Exports keep their GPU processor (its textures and compiled pipelines)
+/// between runs until the system runs short of memory; one that a render
+/// holds stays.
+pub(crate) fn release_processor_under_pressure(app_handle: &tauri::AppHandle) {
+    let app_handle = app_handle.clone();
+    crate::memory_pressure::watch(Arc::new(move |_| {
+        let state = app_handle.state::<AppState>();
+        if state.export_gpu_processor.take_if_idle().is_some() {
+            log::info!("Memory pressure: released the exports' GPU processor");
+        }
+    }));
+}
+
 /// The thread pools an export's photos run in, one per export worker.
 ///
 /// Exports ran their parallel work (decode, develop, encode) in the global
@@ -639,7 +652,9 @@ pub(crate) async fn export_images_impl(
         let context = context.clone();
         std::thread::spawn(move || {
             crate::gpu_processing::prewarm_gpu_processor(
-                &app_handle.state::<crate::app_state::AppState>(),
+                &app_handle
+                    .state::<crate::app_state::AppState>()
+                    .export_gpu_processor,
                 &context,
             );
         });
@@ -1221,7 +1236,7 @@ fn export_photo(
     let load_lut = |path: &str| get_or_load_lut(&state, path).ok();
     let env = RenderEnv {
         context,
-        processor: &state.gpu_processor,
+        processor: &state.export_gpu_processor,
         image_cache: &state.gpu_image_cache,
         tonemapper_override: &tonemapper_override,
         load_lut: &load_lut,
