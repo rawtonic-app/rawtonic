@@ -74,6 +74,14 @@ impl World {
     }
 }
 
+/// `assert_whole` for a folder that also holds the file `extra`.
+fn assert_whole_but(root: &Path, extra: &str) {
+    let bytes = fs::read(root.join(extra)).unwrap();
+    fs::remove_file(root.join(extra)).unwrap();
+    assert_whole(root);
+    fs::write(root.join(extra), bytes).unwrap();
+}
+
 /// Every file of `TREE` with its bytes, every folder, nothing else.
 fn assert_whole(root: &Path) {
     let entries = tree::list(root).unwrap();
@@ -199,7 +207,7 @@ fn undo_refuses_when_the_folders_place_is_taken_again() {
 /// recovery ends the operation in one of its two states.
 #[test]
 fn a_crash_at_any_step_of_a_folder_move_undo_or_redo_loses_nothing() {
-    #[derive(Clone, Copy, Debug)]
+    #[derive(Clone, Copy, Debug, PartialEq)]
     enum Phase {
         Move,
         Undo,
@@ -246,17 +254,28 @@ fn a_crash_at_any_step_of_a_folder_move_undo_or_redo_loses_nothing() {
             let journal = world.journal();
             journal.recover(&world.trash).unwrap();
             let op = journal.history(1).unwrap().remove(0);
-            match op.state {
-                State::RolledBack | State::Undone => {
-                    world.assert_folder_at(&world.source, &world.target, op.state == State::Undone)
-                }
-                State::Done => world.assert_folder_at(&world.target, &world.source, true),
+            // A published folder's copy is never taken back: rolled back
+            // after it appeared, both are kept and the note says so.
+            let (side, other) = match op.state {
+                State::RolledBack | State::Undone => (&world.source, &world.target),
+                State::Done => (&world.target, &world.source),
                 other => panic!("{phase:?} crash point {n}: {other:?}"),
+            };
+            world.assert_folder_at(side, other, true);
+            let both = exists(&other.join("Shoot"));
+            if both {
+                let note = op.note.as_deref().unwrap_or("");
+                assert!(
+                    note.contains("stays at") || note.contains("was kept"),
+                    "{note}"
+                );
             }
             // Recovering again changes nothing, and the operation goes on.
             journal.recover(&world.trash).unwrap();
             assert_eq!(journal.operation(&op.id).unwrap().state, op.state);
             match op.state {
+                _ if both && op.state != State::Done => {}
+                State::Done if both && phase == Phase::Undo => {}
                 State::Done => {
                     journal.undo(&op.id, &world.trash).unwrap();
                     world.assert_folder_at(&world.source, &world.target, false);
@@ -557,9 +576,9 @@ fn an_original_folder_whose_copy_lost_a_file_is_kept() {
     assert!(world.trash.items().is_empty());
 }
 
-/// Taking a published folder back never deletes what was added to it: an
-/// addition before the comparison keeps the copy where it is (both kept),
-/// and staging cleanup removes only paths the moved folder has.
+/// A published folder is never taken back: Stop after it appeared keeps
+/// it (with what was added to it) and the original, and says so; staging
+/// cleanup removes only paths the moved folder has.
 #[test]
 fn rolling_a_published_folder_back_never_deletes_what_was_added_to_it() {
     struct AddAndStopOncePublished<'a>(&'a Path, Cell<bool>);
@@ -584,10 +603,15 @@ fn rolling_a_published_folder_back_never_deletes_what_was_added_to_it() {
             &AddAndStopOncePublished(&to, Cell::new(false)),
         )
         .unwrap_err();
-    assert!(format!("{error:#}").contains("Stopped"), "{error:#}");
+    let text = format!("{error:#}");
+    assert!(
+        text.contains("Stopped") && text.contains("Not everything was put back"),
+        "{text}"
+    );
     let op = journal.history(1).unwrap().remove(0);
     assert_eq!(op.state, State::RolledBack);
-    assert!(op.note.unwrap().contains("both were kept"));
+    assert!(op.note.unwrap().contains("stays at"));
+    assert_whole_but(&to, "Sub/added.jpg");
     assert_eq!(fs::read(to.join("Sub/added.jpg")).unwrap(), b"added there");
     assert_whole(&from);
 

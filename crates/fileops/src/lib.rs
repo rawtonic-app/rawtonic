@@ -451,7 +451,13 @@ impl Journal {
         crash::point("journaled");
         if let Err(error) = self.run_forward(&id, State::Applying, &mut payload, trash, observer) {
             self.store(&id, State::RolledBack, &payload)?;
-            return Err(error.context("Nothing was changed"));
+            // A published folder's copy stays (see `unpublish`).
+            let kept = payload
+                .note
+                .as_deref()
+                .and_then(|n| n.split_once("; could not reverse every step: "))
+                .map(|(_, kept)| format!("Not everything was put back: {kept}"));
+            return Err(error.context(kept.unwrap_or_else(|| "Nothing was changed".into())));
         }
         if payload.has_copies() {
             self.store_clearing_redo(&id, State::Finishing, &payload)?;
@@ -2046,6 +2052,14 @@ fn unpublish(step: &Step, direction: Direction) -> Result<()> {
         // Never published (a file there now is someone else's).
         return Ok(());
     }
+    // A published folder is never taken back: by now anything may be
+    // writing in it. Both stay; the original is untouched.
+    ensure!(
+        !copy.folder,
+        "the complete, verified copy of {} stays at {}, and the original is unchanged",
+        source.display(),
+        destination.display()
+    );
     // The source must be a file of its own: not gone, not a link (or a
     // hard link) to the copy, which would then be the only one left.
     ensure!(
