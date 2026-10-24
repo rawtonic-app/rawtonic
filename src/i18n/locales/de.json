@@ -2620,6 +2620,7 @@
         "sortFolders": "Ordner sortieren",
         "title": "Ordner",
         "toasts": {
+          "loadFailed": "Katalogordner konnten nicht aktualisiert werden: {{error}}",
           "showFailed": "Der Ordner konnte nicht angezeigt werden: {{error}}"
         }
       },

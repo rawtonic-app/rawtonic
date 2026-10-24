@@ -2703,6 +2703,7 @@
         "sortFolders": "Ordenar pastas",
         "title": "Pastas",
         "toasts": {
+          "loadFailed": "Não foi possível atualizar as pastas do catálogo: {{error}}",
           "showFailed": "Não foi possível mostrar a pasta: {{error}}"
         }
       },

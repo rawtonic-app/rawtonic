@@ -450,8 +450,8 @@ export function StudioFolders({
         .then((view) => {
           if (live) setLibrary({ catalogFolders: view ?? null });
         })
-        .catch(() => {
-          if (live) setLibrary({ catalogFolders: null });
+        .catch((error) => {
+          if (live) toast.error(t("studio.library.folders.toasts.loadFailed", { error: String(error) }));
         });
     // The folders after the check: it updates which photographs are missing.
     const load = () =>
@@ -477,7 +477,7 @@ export function StudioFolders({
       window.removeEventListener(OFFLINE_CHANGED, load);
       window.removeEventListener(OFFLINE_COUNTED, counted);
     };
-  }, [sessionRoot, trees, rootsKey]);
+  }, [sessionRoot, trees, rootsKey, t]);
 
   // Disk trees of top-level catalog folders that are not library roots
   // (photographs found, followed or relinked outside the added folders).

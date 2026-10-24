@@ -2558,6 +2558,7 @@
         "sortFolders": "資料夾排序",
         "title": "資料夾",
         "toasts": {
+          "loadFailed": "無法重新整理目錄資料夾：{{error}}",
           "showFailed": "無法顯示資料夾：{{error}}"
         }
       },

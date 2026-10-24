@@ -2620,6 +2620,7 @@
         "sortFolders": "Sort folders",
         "title": "Folders",
         "toasts": {
+          "loadFailed": "Could not refresh catalog folders: {{error}}",
           "showFailed": "Could not show the folder: {{error}}"
         }
       },

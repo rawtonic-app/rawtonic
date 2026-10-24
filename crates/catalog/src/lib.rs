@@ -1319,7 +1319,7 @@ impl Library {
             };
             let Some(now) = mounted
                 .iter()
-                .find(|v| v.id == volume && v.mount_point != Path::new(mount))
+                .find(|v| v.matches_id(&volume) && v.mount_point != Path::new(mount))
             else {
                 continue;
             };

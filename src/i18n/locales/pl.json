@@ -2786,6 +2786,7 @@
         "sortFolders": "Sortuj foldery",
         "title": "Foldery",
         "toasts": {
+          "loadFailed": "Nie udało się odświeżyć folderów katalogu: {{error}}",
           "showFailed": "Nie udało się pokazać folderu: {{error}}"
         }
       },

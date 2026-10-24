@@ -54,8 +54,52 @@ pub trait Probe {
     fn mounted(&self) -> Vec<Volume>;
     fn volume_of(&self, path: &Path) -> Option<Volume>;
     fn is_dir(&self, path: &Path) -> bool;
+    fn populated(&self, path: &Path) -> bool {
+        populated(path)
+    }
+    fn matches_id(&self, volume: &Volume, saved: &str) -> bool {
+        volume.matches_id(saved)
+    }
     /// (free, total) bytes of the volume mounted at `mount`.
     fn space(&self, mount: &Path) -> Option<(u64, u64)>;
+}
+
+/// Share lookups (including timeouts) are asked only once per listing.
+struct CachedProbe<'a> {
+    inner: &'a dyn Probe,
+    matches: std::cell::RefCell<HashMap<(String, String), bool>>,
+}
+impl<'a> CachedProbe<'a> {
+    fn new(inner: &'a dyn Probe) -> Self {
+        Self {
+            inner,
+            matches: Default::default(),
+        }
+    }
+}
+impl Probe for CachedProbe<'_> {
+    fn mounted(&self) -> Vec<Volume> {
+        self.inner.mounted()
+    }
+    fn volume_of(&self, path: &Path) -> Option<Volume> {
+        self.inner.volume_of(path)
+    }
+    fn is_dir(&self, path: &Path) -> bool {
+        self.inner.is_dir(path)
+    }
+    fn populated(&self, path: &Path) -> bool {
+        self.inner.populated(path)
+    }
+    fn space(&self, path: &Path) -> Option<(u64, u64)> {
+        self.inner.space(path)
+    }
+    fn matches_id(&self, volume: &Volume, saved: &str) -> bool {
+        *self
+            .matches
+            .borrow_mut()
+            .entry((volume.id.clone(), saved.into()))
+            .or_insert_with(|| self.inner.matches_id(volume, saved))
+    }
 }
 
 /// The real disks.
@@ -85,7 +129,37 @@ impl Library {
         roots: &[PathBuf],
         probe: &dyn Probe,
     ) -> anyhow::Result<Vec<VolumeFolders>> {
+        let cached = CachedProbe::new(probe);
+        let probe: &dyn Probe = &cached;
         let mut records = self.folders()?;
+        // Migrate only verified legacy identities, never a path/name match.
+        // Persist the current ID so the next listing needs no legacy query.
+        let mounted = probe.mounted();
+        let mut matched = HashMap::<String, Option<Volume>>::new();
+        for record in &mut records {
+            let Some(id) = &record.volume_id else {
+                continue;
+            };
+            let current = matched.entry(id.clone()).or_insert_with(|| {
+                mounted
+                    .iter()
+                    .find(|v| v.id == *id)
+                    .or_else(|| mounted.iter().find(|v| probe.matches_id(v, id)))
+                    .cloned()
+            });
+            if let Some(current) = current
+                && current.id != *id
+            {
+                self.conn.execute(
+                    "UPDATE roots SET volume_id=?,volume_name=?,volume_path=?,volume_kind=? WHERE external=1 AND path=?",
+                    rusqlite::params![current.id, current.name, current.mount_point.to_string_lossy(), current.kind.as_str(), record.path.to_string_lossy()],
+                )?;
+                record.volume_id = Some(current.id.clone());
+                record.volume_name = Some(current.name.clone());
+                record.volume_path = Some(current.mount_point.clone());
+                record.volume_kind = Some(current.kind);
+            }
+        }
         for root in roots {
             use rusqlite::OptionalExtension;
             let json: Option<String> = self
@@ -103,11 +177,13 @@ impl Library {
             // After unmounting, an empty mount-point directory can still
             // exist on its parent filesystem. That is not the root's drive.
             let observed = observed.filter(|now| {
-                previous
-                    .as_ref()
-                    .is_none_or(|old| !underlying_mount(now, &old.mount_point, old.kind))
+                previous.as_ref().is_none_or(|old| {
+                    !underlying_mount(now, &old.mount_point, old.kind) || probe.populated(root)
+                })
             });
-            if let Some(volume) = &observed {
+            if let Some(volume) = &observed
+                && previous.as_ref() != Some(volume)
+            {
                 self.conn.execute(
                     "INSERT INTO folder_root_volumes(path,volume) VALUES(?,?) ON CONFLICT(path) DO UPDATE SET volume=excluded.volume",
                     rusqlite::params![root.to_string_lossy(), serde_json::to_string(volume)?],
@@ -145,6 +221,14 @@ impl Library {
     }
 }
 
+/// A populated folder is an intentional replacement on the parent filesystem;
+/// an empty directory may just be the mount point left after unmounting.
+/// Failure to read it gives no evidence of a replacement.
+fn populated(path: &Path) -> bool {
+    std::fs::read_dir(path)
+        .is_ok_and(|mut entries| entries.next().is_some_and(|entry| entry.is_ok()))
+}
+
 /// A disconnected mount's directory now resolves to the parent filesystem.
 fn underlying_mount(
     now: &Volume,
@@ -166,6 +250,8 @@ pub fn by_volume(
     roots: &[PathBuf],
     probe: &dyn Probe,
 ) -> Vec<VolumeFolders> {
+    let cached = CachedProbe::new(probe);
+    let probe: &dyn Probe = &cached;
     let mounted = probe.mounted();
     let mut groups: Vec<VolumeFolders> = Vec::new();
     let mut index: HashMap<String, usize> = HashMap::new();
@@ -223,6 +309,7 @@ pub fn by_volume(
             (Some(volume), Some((id, record)))
                 if record.volume_path.as_ref().is_some_and(|mount| {
                     underlying_mount(&volume, mount, record.volume_kind.unwrap_or_default())
+                        && !probe.populated(root)
                 }) =>
             {
                 known_volume(id, record, &mounted, probe)
@@ -314,7 +401,11 @@ fn known_volume(
     mounted: &[Volume],
     probe: &dyn Probe,
 ) -> VolumeFolders {
-    if let Some(volume) = mounted.iter().find(|v| v.id == id) {
+    if let Some(volume) = mounted
+        .iter()
+        .find(|v| v.id == id)
+        .or_else(|| mounted.iter().find(|v| probe.matches_id(v, id)))
+    {
         return volume_group(volume, true, probe);
     }
     let volume = Volume {
@@ -655,6 +746,162 @@ mod tests {
         assert!(!after[0].online);
         assert_eq!(after[0].free_bytes, None);
         assert!(after[0].folders.is_empty());
+    }
+
+    #[test]
+    fn legacy_share_uuid_and_current_mount_identity_form_one_online_group() {
+        struct LegacyShare(Fake);
+        impl Probe for LegacyShare {
+            fn mounted(&self) -> Vec<Volume> {
+                self.0.mounted()
+            }
+            fn volume_of(&self, path: &Path) -> Option<Volume> {
+                self.0.volume_of(path)
+            }
+            fn is_dir(&self, path: &Path) -> bool {
+                self.0.is_dir(path)
+            }
+            fn space(&self, path: &Path) -> Option<(u64, u64)> {
+                self.0.space(path)
+            }
+            fn matches_id(&self, current: &Volume, saved: &str) -> bool {
+                current.id == saved
+                    || (current.id == "mount:share"
+                        && saved == "12345678-1234-1234-1234-123456789ABC")
+            }
+        }
+        let mut share = volume("mount:share", "Photos", "/Volumes/Photos");
+        share.kind = volume::VolumeKind::Network;
+        let mut old = share.clone();
+        old.id = "12345678-1234-1234-1234-123456789ABC".into();
+        old.kind = volume::VolumeKind::Local;
+        let root = PathBuf::from("/Volumes/Photos/Jobs");
+        let probe = LegacyShare(Fake {
+            mounted: vec![share],
+            dirs: HashSet::from([root.clone()]),
+        });
+        let groups = by_volume(
+            &[record(root.to_str().unwrap(), Some(&old), 2, 0)],
+            &[root],
+            &probe,
+        );
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].kind, volume::VolumeKind::Network);
+        assert!(groups[0].online);
+        assert_eq!(groups[0].folders[0].photos, 2);
+        // Verify the catalog records the new identity and does not write it
+        // again on the next listing, including a root with photographs.
+        let tmp = tempfile::tempdir().unwrap();
+        let folder = tmp.path().join("Photos");
+        std::fs::create_dir(&folder).unwrap();
+        let photo = folder.join("test.raw");
+        std::fs::write(&photo, b"fixture").unwrap();
+        let lib =
+            Library::create(&tmp.path().join("Library"), "Library", crate::Mode::Catalog).unwrap();
+        lib.add_asset(&photo).unwrap();
+        let mut stored = old.clone();
+        stored.mount_point = tmp.path().into();
+        lib.set_folder_volume(&folder, &stored).unwrap();
+        let mut current = probe.mounted()[0].clone();
+        current.mount_point = tmp.path().into();
+        let online = LegacyShare(Fake {
+            mounted: vec![current],
+            dirs: HashSet::from([folder.clone()]),
+        });
+        let groups = lib
+            .folder_groups(std::slice::from_ref(&folder), &online)
+            .unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(
+            lib.folders().unwrap()[0].volume_id.as_deref(),
+            Some("mount:share")
+        );
+        lib.conn.execute_batch("CREATE TRIGGER reject_root_update BEFORE UPDATE ON roots BEGIN SELECT RAISE(FAIL, 'unexpected root write'); END;").unwrap();
+        lib.folder_groups(&[folder], &online).unwrap();
+        let mut wrong = old;
+        wrong.id = "87654321-1234-1234-1234-123456789ABC".into();
+        assert!(
+            !by_volume(
+                &[record("/Volumes/Photos/Jobs", Some(&wrong), 1, 0)],
+                &[],
+                &probe
+            )[0]
+            .online
+        );
+    }
+
+    #[test]
+    fn unchanged_root_classifications_do_not_write() {
+        let tmp = tempfile::tempdir().unwrap();
+        let lib =
+            Library::create(&tmp.path().join("Library"), "Library", crate::Mode::Catalog).unwrap();
+        let root = PathBuf::from("/home/me/Photos");
+        let probe = Fake {
+            mounted: vec![volume("SYS", "Startup", "/")],
+            dirs: HashSet::from([root.clone()]),
+        };
+        lib.folder_groups(std::slice::from_ref(&root), &probe)
+            .unwrap();
+        lib.conn.execute_batch("CREATE TRIGGER reject_cache_update BEFORE UPDATE ON folder_root_volumes BEGIN SELECT RAISE(FAIL, 'unexpected cache write'); END;").unwrap();
+        lib.folder_groups(&[root], &probe).unwrap();
+    }
+
+    #[test]
+    fn root_cache_write_failures_are_returned() {
+        let tmp = tempfile::tempdir().unwrap();
+        let lib =
+            Library::create(&tmp.path().join("Library"), "Library", crate::Mode::Catalog).unwrap();
+        lib.conn.execute_batch("CREATE TRIGGER reject_cache_insert BEFORE INSERT ON folder_root_volumes BEGIN SELECT RAISE(FAIL, 'cache persistence failed'); END;").unwrap();
+        let root = PathBuf::from("/home/me/Photos");
+        let probe = Fake {
+            mounted: vec![volume("SYS", "Startup", "/")],
+            dirs: HashSet::from([root.clone()]),
+        };
+        assert!(
+            lib.folder_groups(&[root], &probe)
+                .unwrap_err()
+                .to_string()
+                .contains("cache persistence failed")
+        );
+    }
+
+    #[test]
+    fn populated_root_on_startup_storage_replaces_its_old_drive() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("Photos");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("entry"), b"test").unwrap();
+        let directory = tmp.path().join("Library");
+        let lib = Library::create(&directory, "Library", crate::Mode::Catalog).unwrap();
+        let old = Volume {
+            mount_point: tmp.path().to_path_buf(),
+            ..volume("EXT", "External", "/mnt/external")
+        };
+        let online = Fake {
+            mounted: vec![old],
+            dirs: HashSet::from([root.clone()]),
+        };
+        lib.folder_groups(std::slice::from_ref(&root), &online)
+            .unwrap();
+        let replaced = Fake {
+            mounted: vec![volume("SYS", "Startup", "/")],
+            dirs: HashSet::from([root.clone()]),
+        };
+        let groups = lib
+            .folder_groups(std::slice::from_ref(&root), &replaced)
+            .unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].key, "startup");
+        drop(lib);
+        let lib = Library::open(&directory).unwrap();
+        let absent = Fake {
+            mounted: vec![],
+            dirs: HashSet::new(),
+        };
+        assert_eq!(
+            lib.folder_groups(&[root], &absent).unwrap()[0].key,
+            "startup"
+        );
     }
 
     #[test]
