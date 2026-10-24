@@ -601,6 +601,12 @@ export interface Adjustments {
    * recipes that used either before it = the earlier response. Photo-wide
    * (layers follow it). */
   toneVersion?: number;
+  /** Clarity response (crates/engine/src/image_processing.rs
+   * `CLARITY_VERSION`): 2 = the medium-scale band against an edge-aware base
+   * (fewer dark halos beside narrow bright edges); 1 or missing on recipes
+   * that used Clarity before it = the band against a plain blur. Photo-wide
+   * (layers follow it). */
+  clarityVersion?: number;
   /** Edge-fringe pass (crates/engine/src/edge_fringe.rs `VERSION`): 1 =
    * colour along strong luminance edges that neither side explains
    * (demosaic false colour, lateral CA rests) is removed after the lens
@@ -1224,6 +1230,9 @@ export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
 export const TONE_VERSION = 2;
 
+/** The Clarity response new edits start with (notes: parity-gaps/G06-presence.md). */
+export const CLARITY_VERSION = 2;
+
 /** The edge-fringe pass new RAW edits start with (notes: reference/edge-fringes.md). */
 export const FRINGE_VERSION = 4;
 
@@ -1291,6 +1300,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         ...RAW_DETAIL_DEFAULTS,
         colorNoiseVersion: COLOR_NOISE_VERSION,
         toneVersion: TONE_VERSION,
+        clarityVersion: CLARITY_VERSION,
         fringeVersion: FRINGE_VERSION,
         cameraCaVersion: CAMERA_CA_VERSION,
         autoCaVersion: AUTO_CA_VERSION,
@@ -1305,6 +1315,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         ...INITIAL_ADJUSTMENTS,
         colorNoiseVersion: COLOR_NOISE_VERSION,
         toneVersion: TONE_VERSION,
+        clarityVersion: CLARITY_VERSION,
         defringeVersion: DEFRINGE_VERSION,
         sharpenVersion: SHARPEN_VERSION,
         lumaNoiseVersion: LUMA_NOISE_VERSION,
@@ -1377,6 +1388,7 @@ export const pastedAdjustments = (
       key === 'sharpenVersion' ||
       key === 'lumaNoiseVersion' ||
       key === 'grainVersion' ||
+      key === 'clarityVersion' ||
       !Object.prototype.hasOwnProperty.call(copied, key)
     ) {
       continue;
@@ -1385,7 +1397,7 @@ export const pastedAdjustments = (
     if (mode === PasteMode.Merge && sameAdjustmentValue(value, INITIAL_ADJUSTMENTS[key as keyof Adjustments])) continue;
     (picked as Record<string, unknown>)[key] = value;
   }
-  return withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, copied), copied), copied);
+  return withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, copied), copied), copied), copied);
 };
 
 /** Keys whose values mean what the sharpening response makes of them. */
@@ -1463,6 +1475,37 @@ export const withLumaNoiseVersion = <T extends Partial<Adjustments>>(
   return { ...picked, lumaNoiseVersion: source?.lumaNoiseVersion ?? 1 };
 };
 
+/** As `withSharpenVersion` for Clarity: wherever Clarity values are copied
+ * (paste, tool copy, Edit all selected, presets) the Clarity response goes
+ * along explicitly — the source's, else 1 (a source or preset from before
+ * the key), never on its own. Layers with Clarity count only when the source
+ * recipe is known: an update of layers alone (an AI detection refresh) keeps
+ * the destination's response. */
+export const withClarityVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>,
+): T & Pick<Partial<Adjustments>, 'clarityVersion'> => {
+  // A change back to a missing key (an undo to a recipe from before it)
+  // would vanish in JSON too: it is version 1.
+  if (Object.prototype.hasOwnProperty.call(picked, 'clarityVersion') && picked.clarityVersion == null) {
+    return { ...picked, clarityVersion: 1 };
+  }
+  const clarity =
+    picked.clarity !== undefined ||
+    (source !== undefined &&
+      (picked.masks ?? []).some((mask) => ((mask?.adjustments?.clarity as number | undefined) ?? 0) !== 0));
+  if (!clarity || picked.clarityVersion != null) {
+    return picked;
+  }
+  return { ...picked, clarityVersion: source?.clarityVersion ?? 1 };
+};
+
+/** A preset's settings with its Clarity response stated: the preset is its
+ * own source, so Clarity on its layers alone (a preset from before the key)
+ * renders with version 1 wherever it is previewed or applied. */
+export const withPresetClarityVersion = <T extends Partial<Adjustments>>(preset: T) =>
+  withClarityVersion(preset, preset);
+
 /** Keys whose values render the pattern of the recipe's grain version. */
 const GRAIN_KEYS = ['grainAmount', 'grainSize', 'grainRoughness', 'grainStructure'] as const;
 
@@ -1510,6 +1553,19 @@ const loadedToneVersion = (loaded: Partial<Adjustments>): number | undefined => 
     ((values?.shadows as number | undefined) ?? 0) > 50 || ((values?.highlights as number | undefined) ?? 0) < 0;
   const rendersDifferently = differs(loaded) || (loaded.masks ?? []).some((mask) => differs(mask?.adjustments));
   return rendersDifferently ? undefined : TONE_VERSION;
+};
+
+/** The Clarity response of a saved recipe: its own; else the current one
+ * when it uses no Clarity (on the photo or a layer), else the first one,
+ * stated (1 renders as the missing key does), so Clarity copied from it
+ * keeps its response on a photo already at the current one. */
+const loadedClarityVersion = (loaded: Partial<Adjustments>): number => {
+  if (loaded.clarityVersion !== undefined && loaded.clarityVersion !== null) {
+    return loaded.clarityVersion;
+  }
+  const uses = (values: { clarity?: unknown } | undefined) => ((values?.clarity as number | undefined) ?? 0) !== 0;
+  const rendersDifferently = uses(loaded) || (loaded.masks ?? []).some((mask) => uses(mask?.adjustments));
+  return rendersDifferently ? 1 : CLARITY_VERSION;
 };
 
 /** The colour noise filter of a saved recipe: its own, else the earlier
@@ -1675,6 +1731,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     lutIsSceneReferred: loadedAdjustments.lutIsSceneReferred ?? false,
     colorNoiseVersion: loadedColorNoiseVersion(loadedAdjustments, isRaw),
     toneVersion: loadedToneVersion(loadedAdjustments),
+    clarityVersion: loadedClarityVersion(loadedAdjustments),
     defringeVersion: loadedDefringeVersion(loadedAdjustments),
     sharpenVersion: loadedSharpenVersion(loadedAdjustments, isRaw),
     // A saved recipe's own grain; without the key 1 where it has grain, else
@@ -1805,6 +1862,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         DetailsAdjustment.Structure,
         DetailsAdjustment.Dehaze,
         DetailsAdjustment.Centré,
+        'clarityVersion',
       ],
     },
     {

@@ -62,7 +62,13 @@ import {
   AlbumGroup,
   ImageMetadata,
 } from '../components/ui/AppProperties';
-import { Color, COLOR_LABELS, initialAdjustmentsFor, normalizeLoadedAdjustments } from '../utils/adjustments';
+import {
+  Color,
+  COLOR_LABELS,
+  initialAdjustmentsFor,
+  normalizeLoadedAdjustments,
+  withPresetClarityVersion,
+} from '../utils/adjustments';
 import TaggingSubMenu from '../context/TaggingSubMenu';
 import SessionAlbumSubMenu from '../components/studio/SessionAlbumSubMenu';
 import { SESSION_ALBUM_PREFIX, SESSION_ALBUMS_CHANGED } from '../components/studio/StudioAlbums';
@@ -114,7 +120,8 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
   const presetMenu = (items: UserPreset[], paths: string[]): Option => {
     const entry = (preset: { id: string; name: string; adjustments: unknown }): Option => ({
       label: preset.name,
-      onClick: () => applyAdjustmentsToPaths(structuredClone(preset.adjustments) as never, paths),
+      onClick: () =>
+        applyAdjustmentsToPaths(withPresetClarityVersion(structuredClone(preset.adjustments) as never), paths),
     });
     const submenu = items.flatMap((item): Option[] =>
       item.preset

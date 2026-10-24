@@ -3323,7 +3323,10 @@ pub struct GlobalAdjustments {
     /// The recipe's grain (`grain_version`): 1 the float-hash grain, 2 the
     /// portable grain.
     pub grain_version: u32,
-    _pad_luminance: [u32; 2],
+    /// The recipe's Clarity (`clarity_version`): 1 the band against a plain
+    /// blur, 2 against an edge-aware base (fewer halos at narrow edges).
+    pub clarity_version: u32,
+    _pad_luminance: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -4372,7 +4375,8 @@ fn get_global_adjustments_from_json(
         luminance_curve: convert_points_to_aligned(luminance_points.clone()),
         luminance_curve_count: luminance_points.len().min(16) as u32,
         grain_version: grain_version(js_adjustments) as u32,
-        _pad_luminance: [0; 2],
+        clarity_version: clarity_version(js_adjustments) as u32,
+        _pad_luminance: 0,
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()
@@ -6414,6 +6418,29 @@ pub fn grain_version(adjustments: &serde_json::Value) -> u64 {
         .clamp(1, GRAIN_VERSION)
 }
 
+/// The recipe key naming the Clarity response it was made with.
+pub const CLARITY_VERSION_KEY: &str = "clarityVersion";
+/// The newest Clarity: 2 (2026-10-24) measures a pixel's medium-scale band in
+/// log luminance against a base taken from the large blur at the pixel and at
+/// sixteen points around it (plus the small blur), each weighted by how close
+/// its level is to the pixel's own, so a narrow bright edge pulls the base of
+/// its darker surroundings up less: per unit of texture gain the dark halo
+/// 1–6 px beside slats, frames and branches is 19–68 % of version 1's on six
+/// held-out photos (about half on a synthetic stripe); farther out it shrinks
+/// less (notes: parity-gaps/G06-presence.md "Clarity halos").
+/// Recipes without the key keep version 1.
+pub const CLARITY_VERSION: u64 = 2;
+
+/// The recipe's Clarity version, 1 when missing, never newer than this
+/// renderer knows.
+pub fn clarity_version(adjustments: &serde_json::Value) -> u64 {
+    adjustments
+        .get(CLARITY_VERSION_KEY)
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1)
+        .clamp(1, CLARITY_VERSION)
+}
+
 /// Recipe `grainStructure` names as the shader's grain structure. Missing
 /// and unknown names use Even, the original grain, so older recipes render
 /// unchanged.
@@ -6772,6 +6799,29 @@ mod tone_version_tests {
         assert_eq!(version(json!({"shadows": 80, "toneVersion": 2})), 2.0);
         // A newer version than this renderer knows renders with its newest.
         assert_eq!(version(json!({"toneVersion": 9})), TONE_VERSION as f32);
+    }
+}
+
+#[cfg(test)]
+mod clarity_version_tests {
+    use super::{CLARITY_VERSION, get_all_adjustments_from_json};
+    use serde_json::json;
+
+    #[test]
+    fn recipes_without_a_clarity_version_keep_the_first_response() {
+        let version = |recipe| {
+            get_all_adjustments_from_json(&recipe, true, None)
+                .global
+                .clarity_version
+        };
+        assert_eq!(version(json!({"clarity": 40})), 1);
+        assert_eq!(version(json!({"clarity": 40, "clarityVersion": 1})), 1);
+        assert_eq!(version(json!({"clarity": 40, "clarityVersion": 2})), 2);
+        // A newer version than this renderer knows renders with its newest.
+        assert_eq!(
+            version(json!({"clarityVersion": 9})),
+            CLARITY_VERSION as u32
+        );
     }
 }
 

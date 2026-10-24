@@ -187,6 +187,7 @@ pub fn all_available_adjustments() -> HashSet<String> {
         "colorNoiseVersion",
         "lumaNoiseVersion",
         "toneVersion",
+        "clarityVersion",
         "aiDenoise",
         "aiDenoiseVersion",
         "defringePurpleAmount",

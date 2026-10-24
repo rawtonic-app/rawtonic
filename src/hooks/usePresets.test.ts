@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { collectPresetAdjustments } from './usePresets';
-import { LUMA_NOISE_VERSION, SHARPEN_VERSION, initialAdjustmentsFor, type Adjustments } from '../utils/adjustments';
+import {
+  CLARITY_VERSION,
+  LUMA_NOISE_VERSION,
+  SHARPEN_VERSION,
+  initialAdjustmentsFor,
+  withClarityVersion,
+  withPresetClarityVersion,
+  type Adjustments,
+} from '../utils/adjustments';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
 
@@ -35,5 +43,28 @@ describe('collectPresetAdjustments', () => {
       lumaNoiseReduction: 30,
       lumaNoiseVersion: LUMA_NOISE_VERSION,
     });
+  });
+
+  it('takes the Clarity response along with Clarity only', () => {
+    // A Clarity-only tool preset from a current edit keeps version 2 (it is a
+    // new edit's default, so a plain difference would drop it).
+    const now = { ...initialAdjustmentsFor(true), clarity: 40 } as Adjustments;
+    expect(collectPresetAdjustments(now, initialAdjustmentsFor(true), options)).toEqual({
+      clarity: 40,
+      clarityVersion: CLARITY_VERSION,
+    });
+    // An exposure preset from a version-1 photo leaves the Clarity response alone.
+    const old = { ...initialAdjustmentsFor(true), exposure: 0.5, clarity: 0, clarityVersion: 1 } as Adjustments;
+    expect(collectPresetAdjustments(old, initialAdjustmentsFor(true), options)).toEqual({ exposure: 0.5 });
+    // A preset from before the key renders its Clarity with version 1 wherever applied.
+    expect(withClarityVersion({ clarity: 40 } as Partial<Adjustments>)).toEqual({ clarity: 40, clarityVersion: 1 });
+    expect(withClarityVersion({ exposure: 1 } as Partial<Adjustments>)).toEqual({ exposure: 1 });
+    // Layers alone (an AI detection refresh, no source): the destination keeps its response.
+    const layers = { masks: [{ id: 'm', adjustments: { clarity: 30 }, subMasks: [] }] } as unknown as Partial<Adjustments>;
+    expect('clarityVersion' in withClarityVersion(layers)).toBe(false);
+    expect(withClarityVersion(layers, { clarityVersion: 2 } as Partial<Adjustments>).clarityVersion).toBe(2);
+    // A preset from before the key with Clarity on a layer only: version 1 where applied.
+    expect(withPresetClarityVersion(layers).clarityVersion).toBe(1);
+    expect(withPresetClarityVersion({ ...layers, clarityVersion: 2 }).clarityVersion).toBe(2);
   });
 });

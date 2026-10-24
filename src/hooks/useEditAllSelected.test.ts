@@ -222,6 +222,15 @@ describe('Edit all selected', () => {
     expect(pasted().at(-1)).toEqual({ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { sharpenVersion: 1 } });
   });
 
+  it('sends the primary\'s Clarity response with Clarity edits', async () => {
+    useEditorStore.setState((state) => ({ adjustments: { ...state.adjustments, clarityVersion: 2 } as Adjustments }));
+    renderHook(() => useEditAllSelected(true, selection));
+    edit({ clarity: 30 });
+    expect(live()).toEqual([{ clarity: 30, clarityVersion: 2 }]);
+    await act(async () => { vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10); });
+    expect(pasted()).toEqual([{ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { clarity: 30, clarityVersion: 2 } }]);
+  });
+
   it('does not send a sharpening response live for a mask-only edit', () => {
     renderHook(() => useEditAllSelected(true, selection));
     edit({ masks: [{ id: 'm', adjustments: { sharpness: 30 }, subMasks: [] }] } as unknown as Partial<Adjustments>);

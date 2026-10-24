@@ -6,7 +6,7 @@ import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
 import { usePopoverFocus } from "./usePopoverFocus";
-import { withGrainVersion, withLumaNoiseVersion, withSharpenVersion, type Adjustments } from "../../utils/adjustments";
+import { withClarityVersion, withGrainVersion, withLumaNoiseVersion, withSharpenVersion, type Adjustments } from "../../utils/adjustments";
 
 /** A tool's parameters: recipe key and (translated) label. */
 export type ToolParams = [keyof Adjustments & string, string][];
@@ -27,6 +27,8 @@ const COPIED_ALONG: Partial<Record<string, string[]>> = {
   lumaNoiseContrast: ["lumaNoiseVersion"],
   // Shadows means what the recipe's tone-slider response makes of it.
   shadows: ["toneVersion"],
+  // Clarity means what the recipe's Clarity response makes of it.
+  clarity: ["clarityVersion"],
   // Defringe means what the recipe's fringe detector makes of it.
   defringePurpleAmount: ["defringeVersion"],
   defringeGreenAmount: ["defringeVersion"],
@@ -49,7 +51,7 @@ export function pick(values: Adjustments, keys: string[]): Partial<Adjustments> 
   // A missing response key would vanish on the way: say it explicitly. The
   // grain version is not picked along (an absent one would read as an undo
   // to version 1): withGrainVersion takes it from the source.
-  return withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, values), values), values);
+  return withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, values), values), values), values);
 }
 
 /** Capture One's copy/apply for one tool: a press opens a list of the tool's

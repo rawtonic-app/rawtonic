@@ -10359,6 +10359,161 @@ fn the_large_blur_has_its_whole_radius_at_tile_seams() {
     );
 }
 
+/// The blurs Clarity version 2 reads are exact where it reads them on every
+/// render version, at any photo size (a seam render above a 17280-pixel short
+/// side, where the small blur outgrows the overlap, is too large to test).
+#[test]
+fn clarity_version_2_blurs_have_their_whole_radius_on_every_render_version() {
+    let overlap = TILE_OVERLAP;
+    for (index, radius) in [(2usize, 8 * 18), (3, 40 * 18)] {
+        // Render version 1, no Clarity version 2: blurs stop at the overlap.
+        assert_eq!(blur_rows_beyond(index, radius, false, 0), 0);
+        // Clarity version 2 on render version 1: the whole radius, and the
+        // large blur its reach beyond the tile too.
+        let reach = 120;
+        let extra = if index == 3 { reach } else { 0 };
+        assert_eq!(
+            blur_rows_beyond(index, radius, false, reach),
+            radius + extra - overlap
+        );
+        assert_eq!(
+            blur_rows_beyond(index, radius, true, reach),
+            radius + extra - overlap
+        );
+        assert_eq!(blur_rows_beyond(index, radius, true, 0), radius - overlap);
+    }
+    // Blurs Clarity version 2 does not read keep their render version's rows.
+    assert_eq!(blur_rows_beyond(1, 300, false, 120), 0);
+    assert_eq!(blur_rows_beyond(4, 300, true, 120), 300 - overlap);
+}
+
+/// Clarity version 2 samples the large blur up to 120 pixels beyond a pixel
+/// (`clarity_base`): within the tiles' 128-pixel overlap, so rows next to a
+/// tile seam render as the same content inside a tile.
+#[test]
+#[ignore = "requires a native GPU; Clarity version 2 at tile seams"]
+fn clarity_version_2_joins_tiles_exactly() {
+    let context = context();
+    let width = 5400;
+    let content = |y: i64, x: u32| {
+        let mut h = (y.div_euclid(16) as u32).wrapping_mul(0x9e37_79b9);
+        h ^= h >> 15;
+        let band = 0.1 + 0.8 * (h % 1000) as f32 / 1000.0;
+        // Narrow bright columns as well, for the base's sideways samples.
+        let v = if x % 97 < 3 {
+            0.95
+        } else {
+            band + 0.05 * (x as f32 / width as f32)
+        };
+        image::Rgb([v, v * 0.9, v * 0.8])
+    };
+    let photo = |height: u32, shift: i64| {
+        DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
+            content(y as i64 - shift, x)
+        }))
+    };
+    let seam = 2048;
+    let rows = |shift: u32| Roi {
+        x: 0,
+        y: seam - 150 + shift,
+        width,
+        height: 300,
+    };
+    // Also on render version 1, whose own blurs stop at the tile overlap: an
+    // older recipe gets Clarity version 2 when Clarity is first added to it.
+    for render_version in [1, 3] {
+        let profile = json!({"clarity": 80, "renderVersion": render_version, "clarityVersion": 2});
+        let render = |source: &DynamicImage, roi: Roi| {
+            chunk_test_render(
+                &context,
+                source,
+                &profile,
+                false,
+                RenderOutputPrecision::SixteenBit,
+                Some(roi),
+            )
+            .unwrap()
+            .into_rgb16()
+        };
+        let at_seam = render(&photo(6000, 0), rows(0));
+        let inside = render(&photo(7024, 1024), rows(1024));
+        let diff = at_seam
+            .as_raw()
+            .iter()
+            .zip(inside.as_raw())
+            .map(|(a, b)| a.abs_diff(*b))
+            .max()
+            .unwrap();
+        assert!(
+            diff <= 1,
+            "render version {render_version}: a seam row renders as a tile's inside: {diff}"
+        );
+    }
+}
+
+/// Clarity version 2 measures the band against an edge-aware base: the dark
+/// surroundings of a narrow bright stripe are darkened about half as much as
+/// with version 1's plain blur (Metal: 1114 vs 2233 of 65535), while texture
+/// away from it keeps at least its gain.
+#[test]
+#[ignore = "requires a native GPU; Clarity halos beside a narrow bright stripe"]
+fn clarity_version_2_cuts_the_halo_beside_a_narrow_bright_edge() {
+    let context = context();
+    let (width, height) = (1200u32, 800u32);
+    let source = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
+        let v = if (598..602).contains(&x) && y < 400 {
+            0.9
+        } else if y >= 500 {
+            // Fine texture well away from the stripe.
+            0.3 + 0.06 * (((x / 6 + y / 6) % 2) as f32 - 0.5)
+        } else {
+            0.2
+        };
+        image::Rgb([v, v, v])
+    }));
+    let render = |profile: serde_json::Value| {
+        chunk_test_render(
+            &context,
+            &source,
+            &profile,
+            false,
+            RenderOutputPrecision::SixteenBit,
+            None,
+        )
+        .unwrap()
+        .into_rgb16()
+    };
+    let neutral = render(json!({"renderVersion": 3}));
+    let v1 = render(json!({"renderVersion": 3, "clarity": 100}));
+    let v2 = render(json!({"renderVersion": 3, "clarity": 100, "clarityVersion": 2}));
+    let level = |img: &image::ImageBuffer<image::Rgb<u16>, Vec<u16>>, x: u32, y: u32| {
+        img.get_pixel(x, y)[1] as f64
+    };
+    // Darkening 6-20 px beside the stripe, half way down it.
+    let halo = |img: &image::ImageBuffer<image::Rgb<u16>, Vec<u16>>| {
+        let xs: Vec<u32> = (580..=594).chain(606..=620).collect();
+        xs.iter()
+            .map(|&x| level(&neutral, x, 200) - level(img, x, 200))
+            .sum::<f64>()
+            / xs.len() as f64
+    };
+    // Texture amplitude well away from the stripe.
+    let amplitude = |img: &image::ImageBuffer<image::Rgb<u16>, Vec<u16>>| {
+        let row: Vec<f64> = (100..1100).map(|x| level(img, x, 650)).collect();
+        let mean = row.iter().sum::<f64>() / row.len() as f64;
+        (row.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / row.len() as f64).sqrt()
+    };
+    let (h1, h2) = (halo(&v1), halo(&v2));
+    let (a0, a1, a2) = (amplitude(&neutral), amplitude(&v1), amplitude(&v2));
+    println!("halo v1 {h1:.0} v2 {h2:.0}; texture amplitude neutral {a0:.0} v1 {a1:.0} v2 {a2:.0}");
+    assert!(h1 > 500.0, "version 1 darkens beside the stripe: {h1}");
+    assert!(h2 < 0.6 * h1, "version 2 cuts the halo: {h2} vs {h1}");
+    assert!(
+        (a2 - a0) > 0.75 * (a1 - a0),
+        "version 2 keeps most of the texture gain: {a2} vs {a1} (neutral {a0})"
+    );
+}
+
 #[test]
 #[ignore = "requires a native GPU; renders over the texture limit never return the source"]
 fn renders_over_the_texture_limit_fail_instead_of_skipping_edits() {

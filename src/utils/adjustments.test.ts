@@ -11,6 +11,7 @@ import {
   NON_COPYABLE_ADJUSTMENT_KEYS,
   RAW_DETAIL_DEFAULTS,
   TONE_VERSION,
+  CLARITY_VERSION,
   FRINGE_VERSION,
   RENDER_VERSION,
   DEFRINGE_VERSION,
@@ -207,6 +208,24 @@ describe('RAW detail defaults', () => {
     expect(normalizeLoadedAdjustments(saved, true).autoCaVersion).toBeUndefined();
     expect(autoCaOn(normalizeLoadedAdjustments(saved, true))).toBe(false);
     expect(autoCaOn({ ...saved, autoChromaticAberration: true })).toBe(true);
+  });
+
+  it('keep the Clarity response a saved recipe rendered with', () => {
+    expect(initialAdjustmentsFor(true).clarityVersion).toBe(CLARITY_VERSION);
+    expect(initialAdjustmentsFor(false).clarityVersion).toBe(CLARITY_VERSION);
+    // Clarity without a version: the first response, stated so a copy of
+    // its Clarity carries it (1 renders as the missing key).
+    const used = { clarity: 40 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(used, true).clarityVersion).toBe(1);
+    const lowered = { clarity: -20 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(lowered, true).clarityVersion).toBe(1);
+    const layered = { masks: [{ adjustments: { clarity: 30 }, subMasks: [] }] } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(layered, true).clarityVersion).toBe(1);
+    // No Clarity anywhere: the current response.
+    const none = { structure: 40, dehaze: 20 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(none, true).clarityVersion).toBe(CLARITY_VERSION);
+    const old = { clarity: 40, clarityVersion: 1 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(old, true).clarityVersion).toBe(1);
   });
 
   it('keep the Shadows response a saved recipe rendered with', () => {

@@ -242,7 +242,9 @@ struct GlobalAdjustments {
     // The recipe's grain (`grainVersion`): 1 the float-hash grain, 2 the
     // portable grain (apply_portable_grain).
     grain_version: u32,
-    _pad_luminance2: u32,
+    // The recipe's Clarity (`clarityVersion`): 1 the band against the plain
+    // large blur, 2 against clarity_base.
+    clarity_version: u32,
     _pad_luminance3: u32,
 }
 
@@ -2863,6 +2865,64 @@ fn apply_band_contrast(
     let luma = max(get_luma(color_linear), 0.0001);
     let blurred_luma = max(get_luma(blurred_linear), 0.0001);
     let band = 2.0 * tanh(log2(luma / blurred_luma) * 0.5);
+    let noise_floor = smoothstep(0.0, 0.004, luma * exposure_gain);
+    return mix(color_linear, color_linear * exp2(band * amount), noise_floor);
+}
+
+// Clarity version 2 (clarity_base): amounts, the level range in EV over which
+// a base sample counts, the ring spacing in units of the large blur's sigma
+// and the small blur's weight.
+const CLARITY2_GAIN_RAISE: f32 = 1.3;
+const CLARITY2_GAIN_LOWER: f32 = 0.32;
+const CLARITY_RANGE: f32 = 0.2;
+const CLARITY_SIDE: f32 = 0.5;
+const CLARITY_FINE_PRIOR: f32 = 0.12;
+// The base a pixel's Clarity band (version 2) is measured against, in log2
+// luminance: the large blur's mean log luminance at the pixel and on two
+// rings of eight points around it, and the small blur's at the pixel, each
+// weighted by how close it is to the pixel's own level. Near a narrow bright
+// edge the samples on the pixel's own side count, so the edge does not pull
+// the base of its darker surroundings up (the dark halo of a plain blur).
+// The outer ring stays within the 128 px the blur tiles extend beyond their
+// tile (gpu_processing.rs TILE_OVERLAP), so tiles join exactly.
+fn clarity_base(coords: vec2<i32>, own_log: f32, scale: f32) -> f32 {
+    let dims = vec2<i32>(textureDimensions(structure_blur_texture)) - vec2<i32>(1);
+    let d = clamp(CLARITY_SIDE * 20.0 * scale, 1.0, 60.0);
+    let dd = i32(round(d));
+    let dg = i32(round(d * 0.7071));
+    let offsets = array<vec2<i32>, 9>(
+        vec2<i32>(0, 0), vec2<i32>(dd, 0), vec2<i32>(-dd, 0), vec2<i32>(0, dd), vec2<i32>(0, -dd),
+        vec2<i32>(dg, dg), vec2<i32>(-dg, dg), vec2<i32>(dg, -dg), vec2<i32>(-dg, -dg));
+    var sum = 0.0;
+    var wsum = 0.0;
+    for (var ring = 1; ring <= 2; ring = ring + 1) {
+        for (var k = select(1u, 0u, ring == 1); k < 9u; k = k + 1u) {
+            let g = textureLoad(structure_blur_texture, clamp(coords + offsets[k] * ring, vec2<i32>(0), dims), 0).a;
+            let t = (g - own_log) / CLARITY_RANGE;
+            let w = exp(-0.5 * t * t) + 1e-4;
+            sum += w * g;
+            wsum += w;
+        }
+    }
+    let fine = textureLoad(clarity_blur_texture, coords, 0).a;
+    let tf = (fine - own_log) / CLARITY_RANGE;
+    let wf = CLARITY_FINE_PRIOR * exp(-0.5 * tf * tf);
+    return (sum + wf * fine) / (wsum + wf);
+}
+
+fn apply_band_contrast_log(
+    color_linear: vec3<f32>,
+    coords: vec2<i32>,
+    scale: f32,
+    amount: f32,
+    exposure_gain: f32
+) -> vec3<f32> {
+    if (amount == 0.0) {
+        return color_linear;
+    }
+    let luma = max(get_luma(color_linear), 0.0001);
+    let own_log = log2(luma);
+    let band = 2.0 * tanh((own_log - clarity_base(coords, own_log, scale)) * 0.5);
     let noise_floor = smoothstep(0.0, 0.004, luma * exposure_gain);
     return mix(color_linear, color_linear * exp2(band * amount), noise_floor);
 }
@@ -6864,8 +6924,13 @@ fn main(
     let exposure_gain = exp2(t_exposure);
     locally_contrasted_rgb = apply_band_contrast(locally_contrasted_rgb, clarity_blurred,
         band_amount(t_structure, STRUCTURE_GAIN_RAISE, STRUCTURE_GAIN_LOWER), is_raw, exposure_gain);
-    locally_contrasted_rgb = apply_band_contrast(locally_contrasted_rgb, structure_blurred,
-        band_amount(t_clarity, CLARITY_GAIN_RAISE, CLARITY_GAIN_LOWER), is_raw, exposure_gain);
+    if (adjustments.global.clarity_version >= 2u) {
+        locally_contrasted_rgb = apply_band_contrast_log(locally_contrasted_rgb, vec2<i32>(id.xy), scale,
+            band_amount(t_clarity, CLARITY2_GAIN_RAISE, CLARITY2_GAIN_LOWER), exposure_gain);
+    } else {
+        locally_contrasted_rgb = apply_band_contrast(locally_contrasted_rgb, structure_blurred,
+            band_amount(t_clarity, CLARITY_GAIN_RAISE, CLARITY_GAIN_LOWER), is_raw, exposure_gain);
+    }
     locally_contrasted_rgb = apply_centre_local_contrast(locally_contrasted_rgb, adjustments.global.centre, absolute_coord_i, clarity_blurred, is_raw);
 
     // Camera profile and/or Kelvin white balance (camera_profile.rs).

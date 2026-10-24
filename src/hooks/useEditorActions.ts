@@ -18,6 +18,7 @@ import {
   COPYABLE_ADJUSTMENT_KEYS,
   normalizeLoadedAdjustments,
   withAiDenoiseVersion,
+  withClarityVersion,
   withDiffractionVersion,
   withLumaNoiseVersion,
   withSharpenVersion,
@@ -703,7 +704,7 @@ export function useEditorActions() {
       const grain = withGrainStructure(partial);
       const adjustmentsToApply = asChosen
         ? grain
-        : withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(grain)))));
+        : withClarityVersion(withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(grain))))));
       const { selectedImage, adjustments } = useEditorStore.getState();
       const { multiSelectedPaths } = useLibraryStore.getState();
       const pathsToUpdate =
