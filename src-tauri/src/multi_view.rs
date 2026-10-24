@@ -358,6 +358,7 @@ fn decode_in_memory(
     state: &AppState,
     path: &str,
     recipe: &serde_json::Value,
+    settings: &crate::app_settings::AppSettings,
 ) -> Option<(
     Arc<DynamicImage>,
     Option<crate::image_loader::DecodeMeasures>,
@@ -369,7 +370,7 @@ fn decode_in_memory(
         .unwrap_or_else(|e| e.into_inner())
         .get_measured(&key)
         .map(|(image, _, measures)| (image, measures));
-    cached.or_else(|| crate::multi_view_prefetch::held_decode(&key))
+    cached.or_else(|| crate::multi_view_prefetch::held_decode(&key, settings))
 }
 
 /// What zoomed regions need from photographs' whole decodes (the automatic
@@ -1284,7 +1285,7 @@ fn load_full_source(
     let (source_path, _) = parse_virtual_path(path);
     let source_str = source_path.to_string_lossy().to_string();
     let is_raw = is_raw_file(&source_path);
-    if let Some((image, measures)) = decode_in_memory(&state, path, recipe) {
+    if let Some((image, measures)) = decode_in_memory(&state, path, recipe, settings) {
         let (full_width, full_height) = image.dimensions();
         let facts = Facts {
             full_width,
@@ -1528,8 +1529,8 @@ fn prepare_region_from_rows(
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
     // The source and its true size (the cells' facts may come from a fast
     // decode, whose size is rounded).
-    let decoded =
-        decode_in_memory(&state, path, recipe).filter(|(image, _)| image.as_rgb32f().is_some());
+    let decoded = decode_in_memory(&state, path, recipe, &settings)
+        .filter(|(image, _)| image.as_rgb32f().is_some());
     let decoded_measures = decoded.as_ref().and_then(|(_, measures)| *measures);
     let decoded = decoded.map(|(image, _)| image);
     let (full_w, full_h) = match &decoded {
@@ -1740,13 +1741,12 @@ fn region_source_ready(
 ) -> bool {
     let state = app_handle.state::<AppState>();
     let (source_path, _) = parse_virtual_path(path);
-    let in_memory = decode_in_memory(&state, path, recipe).is_some();
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let in_memory = decode_in_memory(&state, path, recipe, &settings).is_some();
     in_memory
-        || (zoom.scale >= 1.0 && {
-            let settings = load_settings(app_handle.clone()).unwrap_or_default();
-            crate::preview_proxy::stands_for(&source_path, recipe)
-                && crate::preview_proxy::has_full(&source_path, &settings)
-        })
+        || (zoom.scale >= 1.0
+            && crate::preview_proxy::stands_for(&source_path, recipe)
+            && crate::preview_proxy::has_full(&source_path, &settings))
 }
 
 /// Develops the region of `path` its cell shows at `zoom`, from a kept base

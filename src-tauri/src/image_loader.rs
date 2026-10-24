@@ -1010,6 +1010,7 @@ pub async fn load_image(
             // decoding the RAW again.
             let held = crate::multi_view_prefetch::held_or_pending_decode(
                 &held_key,
+                &settings,
                 std::time::Duration::from_secs(3),
             );
             // Its decode goes first (the background work waits).

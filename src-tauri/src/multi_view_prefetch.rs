@@ -268,18 +268,38 @@ fn hold_budget() -> usize {
 }
 
 /// The decode with this decoded cache key held for its 1:1 preview, if
-/// any, with its measures.
-pub(crate) fn held_decode(key: &str) -> Option<(Arc<DynamicImage>, Option<DecodeMeasures>)> {
-    find_held(&HELD.lock().unwrap_or_else(|e| e.into_inner()), key)
+/// any and still current with `settings` (`is_current`), with its
+/// measures.
+pub(crate) fn held_decode(
+    key: &str,
+    settings: &crate::app_settings::AppSettings,
+) -> Option<(Arc<DynamicImage>, Option<DecodeMeasures>)> {
+    find_held(
+        &HELD.lock().unwrap_or_else(|e| e.into_inner()),
+        key,
+        settings,
+    )
 }
 
 fn find_held(
     held: &VecDeque<HeldDecode>,
     key: &str,
+    settings: &crate::app_settings::AppSettings,
 ) -> Option<(Arc<DynamicImage>, Option<DecodeMeasures>)> {
     held.iter()
-        .find(|held| held.key == key)
+        .find(|held| held.key == key && is_current(held, settings))
         .map(|held| (Arc::clone(&held.image), held.measures))
+}
+
+/// Whether `held` is what a decode of its photograph made now with
+/// `settings` would be: the same file (size, modification time), decoder
+/// settings and engine (`preview_proxy::current_key`, as its previews would
+/// carry). A decode of other settings (a preference changed, whether or not
+/// the caches were cleared) or of a file changed since is never reused.
+fn is_current(held: &HeldDecode, settings: &crate::app_settings::AppSettings) -> bool {
+    let (source, _) = parse_virtual_path(&held.path);
+    held.proxy_key.is_some()
+        && preview_proxy::current_key(&source, settings, held.variant) == held.proxy_key
 }
 
 /// [`held_decode`], waiting up to `wait` for the decode of `key` under way
@@ -287,12 +307,13 @@ fn find_held(
 /// finished rather than started again).
 pub(crate) fn held_or_pending_decode(
     key: &str,
+    settings: &crate::app_settings::AppSettings,
     wait: Duration,
 ) -> Option<(Arc<DynamicImage>, Option<DecodeMeasures>)> {
     let until = Instant::now() + wait;
     let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
     loop {
-        if let Some(found) = find_held(&held, key) {
+        if let Some(found) = find_held(&held, key, settings) {
             return Some(found);
         }
         let left = until.saturating_duration_since(Instant::now());
@@ -514,6 +535,7 @@ pub(crate) fn plan(app_handle: &tauri::AppHandle, paths: Vec<String>, primary: O
         return;
     }
     let worker = worker(app_handle);
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
     let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
     // Decodes held for photographs no longer shown are let go (the
     // primary's too, once its cell is gone; all when the multi view ends).
@@ -525,8 +547,13 @@ pub(crate) fn plan(app_handle: &tauri::AppHandle, paths: Vec<String>, primary: O
     let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
     let before = held.len();
     // And those of another decode variant than the stored recipe asks for
-    // now (a reset, paste or undo): made again.
-    held.retain(|h| shown.contains(&source_of(&h.path)) && current_decode_key(&h.path) == h.key);
+    // now (a reset, paste or undo), of other decoder settings or of a file
+    // changed since: made again.
+    held.retain(|h| {
+        shown.contains(&source_of(&h.path))
+            && current_decode_key(&h.path) == h.key
+            && is_current(h, &settings)
+    });
     let held_paths: Vec<String> = held.iter().map(|h| h.path.clone()).collect();
     let released = held.len() < before;
     drop(held);
@@ -969,7 +996,7 @@ fn decode(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, 
     // for it (preview_proxy::header_is_current).
     let variant = crate::image_loader::stored_decode_variant(&source_str);
     let key = crate::image_loader::decoded_cache_key(&source_str, None, variant);
-    if held_decode(&key).is_some() {
+    if held_decode(&key, &settings).is_some() {
         return Outcome::Skipped;
     }
     let start = Instant::now();
@@ -1183,17 +1210,23 @@ mod tests {
         let _statics = STATICS.lock().unwrap_or_else(|e| e.into_inner());
         let key = "a cell made the primary";
         let image = Arc::new(DynamicImage::new_rgb32f(2, 2));
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("a.raf");
+        std::fs::write(&raw, b"raw bytes").unwrap();
+        let settings = crate::app_settings::AppSettings::default();
+        let proxy_key = preview_proxy::current_key(&raw, &settings, DecodeVariant::default());
         // Nothing under way and nothing held: none, without waiting.
         let start = Instant::now();
-        assert!(held_or_pending_decode(key, Duration::from_secs(5)).is_none());
+        assert!(held_or_pending_decode(key, &settings, Duration::from_secs(5)).is_none());
         assert!(start.elapsed() < Duration::from_secs(1));
         // Under way: the decode once it is held, not a decode of its own.
         let under_way = Decoding::start(key);
         let decoded = Arc::clone(&image);
+        let path = raw.to_string_lossy().to_string();
         let worker = std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(50));
             HELD.lock().unwrap().push_back(HeldDecode {
-                path: "a.raf".into(),
+                path,
                 key: key.into(),
                 image: decoded,
                 measures: None,
@@ -1202,11 +1235,12 @@ mod tests {
                 rank: 1,
                 generation: decodes_generation(),
                 settings: Default::default(),
-                proxy_key: None,
+                proxy_key,
             });
             drop(under_way);
         });
-        let (found, _) = held_or_pending_decode(key, Duration::from_secs(5)).expect("held");
+        let (found, _) =
+            held_or_pending_decode(key, &settings, Duration::from_secs(5)).expect("held");
         assert!(Arc::ptr_eq(&found, &image));
         worker.join().unwrap();
         HELD.lock().unwrap().retain(|h| h.key != key);
@@ -1216,8 +1250,44 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
             drop(under_way);
         });
-        assert!(held_or_pending_decode(key, Duration::from_secs(5)).is_none());
+        assert!(held_or_pending_decode(key, &settings, Duration::from_secs(5)).is_none());
         worker.join().unwrap();
+    }
+
+    /// A preference that changes the decoded pixels (linear RAW mode) is
+    /// saved without the caches being cleared: a held decode of the old one
+    /// is not reused; nor one of a file changed since.
+    #[test]
+    fn a_held_decode_of_other_decoder_settings_or_file_is_not_reused() {
+        let _statics = STATICS.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("b.raf");
+        std::fs::write(&raw, b"raw bytes").unwrap();
+        let before = crate::app_settings::AppSettings::default();
+        let after = crate::app_settings::AppSettings {
+            linear_raw_mode: format!("{}-changed", before.linear_raw_mode),
+            ..before.clone()
+        };
+        let key = "a held decode of other settings";
+        HELD.lock().unwrap().push_back(HeldDecode {
+            path: raw.to_string_lossy().to_string(),
+            key: key.into(),
+            image: Arc::new(DynamicImage::new_rgb32f(2, 2)),
+            measures: None,
+            variant: DecodeVariant::default(),
+            written: true,
+            rank: 1,
+            generation: decodes_generation(),
+            settings: before.clone(),
+            proxy_key: preview_proxy::current_key(&raw, &before, DecodeVariant::default()),
+        });
+        assert!(held_decode(key, &before).is_some());
+        assert!(held_decode(key, &after).is_none());
+        assert!(held_or_pending_decode(key, &after, Duration::from_secs(5)).is_none());
+        // The file changed (another size): not reused either.
+        std::fs::write(&raw, b"other raw bytes").unwrap();
+        assert!(held_decode(key, &before).is_none());
+        HELD.lock().unwrap().retain(|h| h.key != key);
     }
 
     #[test]
