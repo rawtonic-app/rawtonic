@@ -994,6 +994,7 @@ pub async fn load_image(
             ));
         }
 
+        let held_key = cache_key.clone();
         let ((pristine_img, measures), exif_data_loaded) = tokio::task::spawn_blocking(move || {
             if generation_tracker.load(Ordering::SeqCst) != my_generation {
                 return Err("Load cancelled".to_string());
@@ -1003,16 +1004,31 @@ pub async fn load_image(
                 "[PERF] {}",
                 serde_json::json!({"stage": "load_image_decode_start", "epoch_ms": crate::performance::epoch_ms()})
             );
+            // The multi view's background work holds the decodes of other
+            // cells for their 1:1 previews: a cell made the primary opens
+            // on its decode (finished first, when under way) instead of
+            // decoding the RAW again.
+            let held = crate::multi_view_prefetch::held_or_pending_decode(
+                &held_key,
+                &settings,
+                std::time::Duration::from_secs(3),
+            );
+            // Its decode goes first (the background work waits).
+            let _decoding = held.is_none().then(crate::multi_view_prefetch::PrimaryDecode::start);
 
             #[allow(clippy::type_complexity)]
-            let result: Result<((DynamicImage, Option<DecodeMeasures>), HashMap<String, String>), String> =
+            let result: Result<((Arc<DynamicImage>, Option<DecodeMeasures>), HashMap<String, String>), String> =
                 (|| match read_file_mapped(Path::new(&path_clone)) {
                     Ok(mmap) => {
                         if generation_tracker.load(Ordering::SeqCst) != my_generation {
                             return Err("Load cancelled".to_string());
                         }
+                        if let Some(held) = held {
+                            let exif = exif_processing::read_exif_data(&path_clone, &mmap);
+                            return Ok((held, exif));
+                        }
 
-                        let img = load_base_image_measured_for(
+                        let (img, measures) = load_base_image_measured_for(
                             &mmap,
                             &path_clone,
                             false,
@@ -1029,7 +1045,7 @@ pub async fn load_image(
                                 crate::performance::PerformanceStage::new("source_exif_read");
                             exif_processing::read_exif_data(&path_clone, &mmap)
                         };
-                        Ok((img, exif))
+                        Ok(((Arc::new(img), measures), exif))
                     }
                     Err(e) => {
                         log::warn!(
@@ -1045,7 +1061,7 @@ pub async fn load_image(
                             return Err("Load cancelled".to_string());
                         }
 
-                        let img = load_base_image_measured_for(
+                        let (img, measures) = load_base_image_measured_for(
                             &bytes,
                             &path_clone,
                             false,
@@ -1062,7 +1078,7 @@ pub async fn load_image(
                                 crate::performance::PerformanceStage::new("source_exif_read");
                             exif_processing::read_exif_data(&path_clone, &bytes)
                         };
-                        Ok((img, exif))
+                        Ok(((Arc::new(img), measures), exif))
                     }
                 })();
             result
@@ -1070,7 +1086,7 @@ pub async fn load_image(
         .await
         .map_err(|e| e.to_string())??;
 
-        let arc_img = Arc::new(pristine_img);
+        let arc_img = pristine_img;
         // A sensor the denoiser skips develops as without AI Denoise.
         if denoise.as_ref().is_some_and(|d| !d.was_applied()) {
             ai_denoise = 0.0;

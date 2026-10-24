@@ -186,7 +186,7 @@ fn show_cells(
     if cells.is_empty() {
         *worker.memory.lock().unwrap_or_else(|e| e.into_inner()) = Memory::default();
         forget_regions(app_handle);
-        crate::multi_view_prefetch::plan(app_handle, Vec::new());
+        crate::multi_view_prefetch::plan(app_handle, Vec::new(), None);
         return true;
     }
     // Zoomed in: regions of new cells, or of recipes that changed.
@@ -351,6 +351,28 @@ fn decoded_key(path: &str, recipe: &serde_json::Value) -> String {
     crate::image_loader::decoded_cache_key(&source, None, variant)
 }
 
+/// The full decode of `path` for `recipe` in memory, with its measures:
+/// Develop's decode cache, else the one the multi view's background work
+/// holds while it writes its 1:1 preview.
+fn decode_in_memory(
+    state: &AppState,
+    path: &str,
+    recipe: &serde_json::Value,
+    settings: &crate::app_settings::AppSettings,
+) -> Option<(
+    Arc<DynamicImage>,
+    Option<crate::image_loader::DecodeMeasures>,
+)> {
+    let key = decoded_key(path, recipe);
+    let cached = state
+        .decoded_image_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_measured(&key)
+        .map(|(image, _, measures)| (image, measures));
+    cached.or_else(|| crate::multi_view_prefetch::held_decode(&key, settings))
+}
+
 /// What zoomed regions need from photographs' whole decodes (the automatic
 /// lateral CA estimate, the edge-fringe radius: `RegionMeasures`), by the
 /// pixels they were measured on ([`MeasuredOn`]), what they depend on in the
@@ -460,6 +482,12 @@ pub(crate) fn measure_preview(
         let on = MeasuredOn::Preview(&proxy.key);
         note_measures(path, recipe, &proxy.image, on, true);
     }
+}
+
+/// Records the measures of `image`, the full decode of `path` held in
+/// memory, for `recipe` unless known (the multi view's background work).
+pub(crate) fn measure_decode(path: &str, recipe: &serde_json::Value, image: &Arc<DynamicImage>) {
+    note_measures(path, recipe, image, MeasuredOn::Decode(image), true);
 }
 
 /// The stored recipe of `path` (for the multi view's background work).
@@ -982,6 +1010,8 @@ fn run(app_handle: &tauri::AppHandle, worker: &Worker, job: Job) {
         return;
     }
     let count = todos.len();
+    // The 1:1 previews' background work waits for the cells.
+    let _busy = crate::multi_view_prefetch::RegionsBusy::cells();
     let queue = Mutex::new(todos.into_iter());
     let (sender, receiver) = std::sync::mpsc::channel();
     let mut developed = 0;
@@ -1059,6 +1089,7 @@ fn plan_prefetch(app_handle: &tauri::AppHandle, job: &Job) {
     crate::multi_view_prefetch::plan(
         app_handle,
         crate::multi_view_prefetch::order(&cells, job.primary.as_deref()),
+        job.primary.as_deref(),
     );
 }
 
@@ -1248,17 +1279,13 @@ fn load_full_source(
     app_handle: &tauri::AppHandle,
     path: &str,
     recipe: &serde_json::Value,
+    settings: &crate::app_settings::AppSettings,
 ) -> Result<FullSource, String> {
     let state = app_handle.state::<AppState>();
     let (source_path, _) = parse_virtual_path(path);
     let source_str = source_path.to_string_lossy().to_string();
     let is_raw = is_raw_file(&source_path);
-    if let Some((image, _, measures)) = state
-        .decoded_image_cache
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get_measured(&decoded_key(path, recipe))
-    {
+    if let Some((image, measures)) = decode_in_memory(&state, path, recipe, settings) {
         let (full_width, full_height) = image.dimensions();
         let facts = Facts {
             full_width,
@@ -1268,13 +1295,12 @@ fn load_full_source(
         };
         return Ok((image, 1.0, facts, "decoded", None));
     }
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
     if is_raw
         && crate::preview_proxy::stands_for(&source_path, recipe)
         && let Some(proxy) = crate::preview_proxy::read_kind(
             &source_path,
             crate::preview_proxy::ProxyKind::Full,
-            &settings,
+            settings,
         )
     {
         let scale = proxy.image.width() as f32 / proxy.full_width.max(1) as f32;
@@ -1297,7 +1323,7 @@ fn load_full_source(
         &bytes,
         &source_str,
         false,
-        &settings,
+        settings,
         None,
         None,
         recipe,
@@ -1366,8 +1392,14 @@ fn prepare_region(
             log::info!("[multi_view] {path}: region from the whole photograph ({reason})")
         }
     }
+    let loading = Instant::now();
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
     let (source, source_scale, facts, source_kind, preview_key) =
-        load_full_source(app_handle, path, recipe)?;
+        load_full_source(app_handle, path, recipe, &settings)?;
+    log::info!(
+        "[multi_view] {path}: {source_kind} source in {:.1} ms",
+        loading.elapsed().as_secs_f64() * 1e3
+    );
     if let Some(base) = region_from_full_decode(
         path,
         &source,
@@ -1448,6 +1480,11 @@ fn known_facts(path: &str) -> Option<Facts> {
     })
 }
 
+/// The full size of `path` the cell worker found, if known.
+pub(crate) fn full_size_of(path: &str) -> Option<(u32, u32)> {
+    known_facts(path).map(|facts| (facts.full_width, facts.full_height))
+}
+
 /// Whether a region of `recipe` at full resolution can be made from the
 /// rows of the source it shows (`image_processing::plan_transformed_region`
 /// says the rest): retouching and masks that read the warped photograph
@@ -1492,12 +1529,7 @@ fn prepare_region_from_rows(
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
     // The source and its true size (the cells' facts may come from a fast
     // decode, whose size is rounded).
-    let decoded = state
-        .decoded_image_cache
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get_measured(&decoded_key(path, recipe))
-        .map(|(image, _, measures)| (image, measures))
+    let decoded = decode_in_memory(&state, path, recipe, &settings)
         .filter(|(image, _)| image.as_rgb32f().is_some());
     let decoded_measures = decoded.as_ref().and_then(|(_, measures)| *measures);
     let decoded = decoded.map(|(image, _)| image);
@@ -1672,10 +1704,16 @@ fn region_from_full_decode(
         (_, Some(key)) => MeasuredOn::Preview(key),
         _ => MeasuredOn::Fresh,
     };
+    let measuring = Instant::now();
     let measures = note_measures(path, recipe, source, on, true);
+    let measured_ms = measuring.elapsed().as_secs_f64() * 1e3;
     let plan = region_plan(facts, area, zoom, recipe, measures).ok()?;
     let rows = image_processing::SourceRows::whole(rgb.as_raw(), full_w, full_h);
     let image = image_processing::transformed_region(&rows, recipe, &plan)?;
+    log::info!(
+        "[multi_view] {path}: measured {measured_ms:.1} ms, region rows warped {:.1} ms",
+        measuring.elapsed().as_secs_f64() * 1e3 - measured_ms
+    );
     Some(region_base(image, &plan, facts, zoom, recipe))
 }
 
@@ -1703,18 +1741,12 @@ fn region_source_ready(
 ) -> bool {
     let state = app_handle.state::<AppState>();
     let (source_path, _) = parse_virtual_path(path);
-    let in_memory = state
-        .decoded_image_cache
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(&decoded_key(path, recipe))
-        .is_some();
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let in_memory = decode_in_memory(&state, path, recipe, &settings).is_some();
     in_memory
-        || (zoom.scale >= 1.0 && {
-            let settings = load_settings(app_handle.clone()).unwrap_or_default();
-            crate::preview_proxy::stands_for(&source_path, recipe)
-                && crate::preview_proxy::has_full(&source_path, &settings)
-        })
+        || (zoom.scale >= 1.0
+            && crate::preview_proxy::stands_for(&source_path, recipe)
+            && crate::preview_proxy::has_full(&source_path, &settings))
 }
 
 /// Develops the region of `path` its cell shows at `zoom`, from a kept base
