@@ -1278,6 +1278,7 @@ fn load_full_source(
     app_handle: &tauri::AppHandle,
     path: &str,
     recipe: &serde_json::Value,
+    settings: &crate::app_settings::AppSettings,
 ) -> Result<FullSource, String> {
     let state = app_handle.state::<AppState>();
     let (source_path, _) = parse_virtual_path(path);
@@ -1293,13 +1294,12 @@ fn load_full_source(
         };
         return Ok((image, 1.0, facts, "decoded", None));
     }
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
     if is_raw
         && crate::preview_proxy::stands_for(&source_path, recipe)
         && let Some(proxy) = crate::preview_proxy::read_kind(
             &source_path,
             crate::preview_proxy::ProxyKind::Full,
-            &settings,
+            settings,
         )
     {
         let scale = proxy.image.width() as f32 / proxy.full_width.max(1) as f32;
@@ -1322,7 +1322,7 @@ fn load_full_source(
         &bytes,
         &source_str,
         false,
-        &settings,
+        settings,
         None,
         None,
         recipe,
@@ -1393,8 +1393,9 @@ fn prepare_region(
     }
     let loading = Instant::now();
     let generation = crate::multi_view_prefetch::decodes_generation();
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
     let (source, source_scale, facts, mut source_kind, preview_key) =
-        load_full_source(app_handle, path, recipe)?;
+        load_full_source(app_handle, path, recipe, &settings)?;
     log::info!(
         "[multi_view] {path}: {source_kind} source in {:.1} ms",
         loading.elapsed().as_secs_f64() * 1e3
@@ -1407,6 +1408,7 @@ fn prepare_region(
             &source,
             facts.measures,
             generation,
+            &settings,
         )
     {
         source_kind = "decoded";

@@ -143,6 +143,22 @@ struct HeldDecode {
     rank: usize,
     /// The [`decodes_generation`] it was made in.
     generation: usize,
+    /// The settings it was decoded with: its previews are labelled with
+    /// them, and written only while the decoder's settings are still those
+    /// (`proxy_key`, what its previews would carry).
+    settings: crate::app_settings::AppSettings,
+    proxy_key: Option<preview_proxy::ProxyKey>,
+}
+
+/// What a held decode's previews are written from (a copy of its entry).
+struct Written {
+    path: String,
+    image: Arc<DynamicImage>,
+    measures: Option<DecodeMeasures>,
+    variant: DecodeVariant,
+    generation: usize,
+    settings: crate::app_settings::AppSettings,
+    proxy_key: Option<preview_proxy::ProxyKey>,
 }
 
 /// The decodes held for their 1:1 previews, oldest first. The shown
@@ -301,6 +317,7 @@ pub(crate) fn adopt(
     image: &Arc<DynamicImage>,
     measures: Option<DecodeMeasures>,
     generation: usize,
+    settings: &crate::app_settings::AppSettings,
 ) -> bool {
     let Some(worker) = WORKER.get() else {
         return false;
@@ -340,6 +357,8 @@ pub(crate) fn adopt(
         written: false,
         rank,
         generation,
+        settings: settings.clone(),
+        proxy_key: preview_proxy::current_key(&source_path, settings, variant),
     });
     worker.wake.notify_one();
     true
@@ -650,6 +669,23 @@ fn make_room(
     held.len() < before
 }
 
+/// Holds `decoded`, a decode just made, unless its photograph is no longer
+/// planned (the multi view ended or moved on meanwhile) or the decoder's
+/// settings changed since it began; with its distance from the primary.
+/// Under the queue's lock, so that neither can change in between.
+fn accept(queue: &Queue, held: &mut VecDeque<HeldDecode>, mut decoded: HeldDecode) -> bool {
+    let rank = queue.rank(&decoded.path);
+    if rank == usize::MAX
+        || decodes_generation() != decoded.generation
+        || held.iter().any(|h| h.key == decoded.key)
+    {
+        return false;
+    }
+    decoded.rank = rank;
+    held.push_back(decoded);
+    true
+}
+
 /// Lets every held decode go, those still to be written back to the front
 /// of `todo` (decoded again later).
 fn let_all_go(held: &mut VecDeque<HeldDecode>, todo: &mut VecDeque<String>) -> bool {
@@ -790,27 +826,55 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                     .install(|| decode(app_handle, &path, (Arc::clone(&worker.cancel), token)));
                 worker.decoding.store(false, Ordering::SeqCst);
                 let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
-                if outcome == Outcome::Cancelled {
-                    // An edit, a zoom: the same photograph again later.
-                    rawtonic_runtime::allocator::release_freed_memory();
-                    continue;
-                }
+                let (decoded, under_way, decoded_ms) = match outcome {
+                    Outcome::Cancelled => {
+                        // An edit, a zoom: the same photograph again later.
+                        drop(queue);
+                        rawtonic_runtime::allocator::release_freed_memory();
+                        continue;
+                    }
+                    Outcome::Skipped => (None, None, 0.0),
+                    Outcome::Decoded(decoded, under_way, ms) => {
+                        (Some(decoded), Some(under_way), ms)
+                    }
+                };
                 // Planned again meanwhile: a decode held stays while its
                 // photograph is shown (plan lets the others go).
                 if queue.generation == generation && queue.todo.front() == Some(&path) {
                     queue.todo.pop_front();
                 }
-                if let Outcome::Held(key) = outcome {
-                    let rank = queue.rank(&path);
-                    if let Some(held) = HELD
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .iter_mut()
-                        .find(|h| h.key == key)
-                    {
-                        held.rank = rank;
-                    }
+                let Some(decoded) = decoded else {
+                    continue;
+                };
+                let image = Arc::clone(&decoded.image);
+                let (accepted, count, bytes) = {
+                    let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+                    let accepted = accept(&queue, &mut held, *decoded);
+                    (accepted, held.len(), held_bytes(&held))
+                };
+                drop(queue);
+                // Waiters (a cell made the primary) find it held now.
+                drop(under_way);
+                if !accepted {
+                    drop(image);
+                    rawtonic_runtime::allocator::release_freed_memory();
+                    continue;
                 }
+                // What a zoom's region from this decode needs of the whole
+                // photograph.
+                let measuring = Instant::now();
+                decode_pool.install(|| {
+                    crate::multi_view::measure_decode(
+                        &path,
+                        &crate::multi_view::stored_recipe(&path),
+                        &image,
+                    )
+                });
+                log::info!(
+                    "[multi_view] {path}: decoded for its 1:1 preview in {decoded_ms:.0} ms, measured {:.0} ms ({count} held, {:.0} MB)",
+                    measuring.elapsed().as_secs_f64() * 1e3,
+                    bytes as f64 / 1e6
+                );
             }
             Step::Write => {
                 let oldest = HELD
@@ -820,19 +884,23 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                     .find(|h| !h.written)
                     .map(|h| {
                         (
-                            h.path.clone(),
                             h.key.clone(),
-                            Arc::clone(&h.image),
-                            h.measures,
-                            h.variant,
-                            h.generation,
+                            Written {
+                                path: h.path.clone(),
+                                image: Arc::clone(&h.image),
+                                measures: h.measures,
+                                variant: h.variant,
+                                generation: h.generation,
+                                settings: h.settings.clone(),
+                                proxy_key: h.proxy_key.clone(),
+                            },
                         )
                     });
-                let Some((path, key, image, measures, variant, generation)) = oldest else {
+                let Some((key, oldest)) = oldest else {
                     continue;
                 };
-                write_pool
-                    .install(|| write(app_handle, &path, &image, measures, variant, generation));
+                write_pool.install(|| write(app_handle, &oldest));
+                let Written { path, image, .. } = oldest;
                 let trimmed = {
                     let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
                     if let Some(written) = held.iter_mut().find(|h| h.key == key) {
@@ -862,10 +930,10 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
     }
 }
 
-#[derive(Debug, PartialEq)]
 enum Outcome {
-    /// Decoded and held (by this decoded cache key) for its previews.
-    Held(String),
+    /// Decoded (in this many ms), to be held for its previews; the decode
+    /// counts as under way until it is (`held_or_pending_decode`).
+    Decoded(Box<HeldDecode>, Decoding, f64),
     Skipped,
     Cancelled,
 }
@@ -895,6 +963,8 @@ fn decode(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, 
     {
         return Outcome::Skipped;
     }
+    // Before the settings are read: a change after makes this decode stale.
+    let generation = decodes_generation();
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
     // The Standard preview too, when missing (cheap from the decode): the
     // cell is then developed from it when the multi view is shown again,
@@ -918,112 +988,102 @@ fn decode(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, 
     if held_decode(&key).is_some() {
         return Outcome::Skipped;
     }
-    // The open photograph's decode in memory serves as it is.
-    let cached = app_handle
-        .state::<AppState>()
-        .decoded_image_cache
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get_measured(&key)
-        .map(|(image, _, measures)| (image, measures));
     let start = Instant::now();
-    let generation = decodes_generation();
     let under_way = Decoding::start(&key);
-    let (image, measures) = match cached {
-        Some(cached) => cached,
-        None => {
-            let Ok(bytes) = read_file_mapped(&source) else {
-                return Outcome::Skipped;
-            };
-            let (tracker, token) = (&cancel.0, cancel.1);
-            match crate::image_loader::load_base_image_measured_for(
-                &bytes,
-                &source_str,
-                false,
-                &settings,
-                Some(cancel.clone()),
-                None,
-                None,
-                Some(variant),
-            ) {
-                Ok((image, measures)) => (Arc::new(image), measures),
-                Err(_) if tracker.load(Ordering::SeqCst) != token => return Outcome::Cancelled,
-                Err(e) => {
-                    log::warn!("[multi_view] 1:1 preview of {path}: decode failed: {e}");
-                    return Outcome::Skipped;
-                }
-            }
+    let Ok(bytes) = read_file_mapped(&source) else {
+        return Outcome::Skipped;
+    };
+    let (tracker, token) = (&cancel.0, cancel.1);
+    // Decoded here, not taken from Develop's cache: a decode held carries
+    // the settings it was made with.
+    let (image, measures) = match crate::image_loader::load_base_image_measured_for(
+        &bytes,
+        &source_str,
+        false,
+        &settings,
+        Some(cancel.clone()),
+        None,
+        None,
+        Some(variant),
+    ) {
+        Ok((image, measures)) => (Arc::new(image), measures),
+        Err(_) if tracker.load(Ordering::SeqCst) != token => return Outcome::Cancelled,
+        Err(e) => {
+            log::warn!("[multi_view] 1:1 preview of {path}: decode failed: {e}");
+            return Outcome::Skipped;
         }
     };
     if cancel.0.load(Ordering::SeqCst) != cancel.1 {
         return Outcome::Cancelled;
     }
     let decoded_ms = start.elapsed().as_secs_f64() * 1e3;
-    let (count, bytes) = {
-        let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
-        // Of settings changed meanwhile.
-        if decodes_generation() != generation {
-            return Outcome::Cancelled;
-        }
-        held.push_back(HeldDecode {
+    let proxy_key = preview_proxy::current_key(&source, &settings, variant);
+    Outcome::Decoded(
+        Box::new(HeldDecode {
             path: path.to_string(),
-            key: key.clone(),
-            image: Arc::clone(&image),
+            key,
+            image,
             measures,
             variant,
             written: false,
             rank: usize::MAX,
             generation,
-        });
-        (held.len(), held_bytes(&held))
-    };
-    drop(under_way);
-    // What a zoom's region from this decode needs of the whole photograph.
-    crate::multi_view::measure_decode(path, &crate::multi_view::stored_recipe(path), &image);
-    log::info!(
-        "[multi_view] {path}: decoded for its 1:1 preview in {decoded_ms:.0} ms, measured {:.0} ms ({count} held, {:.0} MB)",
-        start.elapsed().as_secs_f64() * 1e3 - decoded_ms,
-        bytes as f64 / 1e6
-    );
-    Outcome::Held(key)
+            settings,
+            proxy_key,
+        }),
+        under_way,
+        decoded_ms,
+    )
 }
 
-/// Writes the previews of `path` from its held decode `image`: the
-/// Standard preview when missing and the 1:1 preview, waiting while a zoom
-/// develops its regions.
-fn write(
-    app_handle: &tauri::AppHandle,
-    path: &str,
-    image: &Arc<DynamicImage>,
-    measures: Option<DecodeMeasures>,
-    variant: DecodeVariant,
-    generation: usize,
-) {
+/// Whether previews of `held` labelled with its own settings are current
+/// now (`now`: the key a preview made now would carry): not once the
+/// decoder's settings changed since its decode, saved (`now` differs) or
+/// applied (`forget_decodes`).
+fn labels_hold(held: &Written, now: Option<&preview_proxy::ProxyKey>) -> bool {
+    decodes_generation() == held.generation && now == held.proxy_key.as_ref()
+}
+
+/// Writes the previews of a held decode: the Standard preview when
+/// missing and the 1:1 preview, labelled with the settings it was decoded
+/// with, waiting while a zoom develops its regions. None while the
+/// decoder's settings differ from those (changed since its decode).
+fn write(app_handle: &tauri::AppHandle, held: &Written) {
+    let path = held.path.as_str();
     let (source, _): (PathBuf, _) = parse_virtual_path(path);
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
-    // Made with the decoder's settings of before (forget_decodes): its
-    // previews would be labelled with the new ones.
-    if decodes_generation() != generation {
+    let settings = &held.settings;
+    let now = load_settings(app_handle.clone()).unwrap_or_default();
+    if !labels_hold(
+        held,
+        preview_proxy::current_key(&source, &now, held.variant).as_ref(),
+    ) {
         return;
     }
     let start = Instant::now();
-    let (needs_standard, standard) = standard_needed(app_handle, &source, &settings);
+    let (needs_standard, standard) = standard_needed(app_handle, &source, settings);
     if needs_standard {
-        match preview_proxy::write(&source, image, standard, &settings, variant, measures) {
+        match preview_proxy::write(
+            &source,
+            &held.image,
+            standard,
+            settings,
+            held.variant,
+            held.measures,
+        ) {
             // The thumbnail is then developed from it (as proxy_worker does).
             Ok(_) => crate::file_management::refresh_thumbnail(app_handle, path),
             Err(e) => log::warn!("[multi_view] Standard preview of {path} not written: {e}"),
         }
     }
-    if preview_proxy::has_full(&source, &settings) {
+    if preview_proxy::has_full(&source, settings) {
         return;
     }
     match preview_proxy::write_full_with(
         &source,
-        image,
-        &settings,
-        variant,
-        measures,
+        &held.image,
+        settings,
+        held.variant,
+        held.measures,
         &yield_to_editing,
     ) {
         Ok(()) => log::info!(
@@ -1157,6 +1217,8 @@ mod tests {
                 written: false,
                 rank: 1,
                 generation: decodes_generation(),
+                settings: Default::default(),
+                proxy_key: None,
             });
             drop(under_way);
         });
@@ -1208,7 +1270,65 @@ mod tests {
             written,
             rank,
             generation: 0,
+            settings: Default::default(),
+            proxy_key: None,
         }
+    }
+
+    #[test]
+    fn a_decode_is_held_only_while_its_photograph_is_planned_and_current() {
+        let _statics = STATICS.lock().unwrap_or_else(|e| e.into_inner());
+        let queue = Queue {
+            order: paths(&["p.raf", "a.raf", "b.raf"]),
+            ..Queue::default()
+        };
+        let mut all = VecDeque::new();
+        let current = |key: &str| HeldDecode {
+            generation: decodes_generation(),
+            ..held(key, 1, false, usize::MAX)
+        };
+        // Planned: held, with its distance from the primary.
+        assert!(accept(&queue, &mut all, current("b.raf")));
+        assert_eq!(all.back().unwrap().rank, 3);
+        // Held already: not twice.
+        assert!(!accept(&queue, &mut all, current("b.raf")));
+        // The multi view moved on or ended meanwhile: let go.
+        assert!(!accept(&queue, &mut all, current("x.raf")));
+        assert!(!accept(&Queue::default(), &mut all, current("a.raf")));
+        // Begun before the decoder's settings changed: let go.
+        let stale = current("a.raf");
+        forget_decodes();
+        assert!(!accept(&queue, &mut all, stale));
+        assert_eq!(all.len(), 1);
+        test_worker().queue.lock().unwrap().todo.clear();
+    }
+
+    #[test]
+    fn previews_of_a_decode_are_written_only_with_the_settings_it_was_made_with() {
+        let _statics = STATICS.lock().unwrap_or_else(|e| e.into_inner());
+        let key = |decoder: &str| preview_proxy::ProxyKey {
+            file_size: 1,
+            modified_ns: 2,
+            decoder: decoder.into(),
+            engine: 3,
+        };
+        let held = Written {
+            path: "a.raf".into(),
+            image: Arc::new(DynamicImage::new_rgb32f(1, 1)),
+            measures: None,
+            variant: DecodeVariant::default(),
+            generation: decodes_generation(),
+            settings: Default::default(),
+            proxy_key: Some(key("old")),
+        };
+        assert!(labels_hold(&held, Some(&key("old"))));
+        // New settings saved, the caches not cleared yet: not written.
+        assert!(!labels_hold(&held, Some(&key("new"))));
+        assert!(!labels_hold(&held, None));
+        // Cleared (back to the old settings even): not written either.
+        forget_decodes();
+        assert!(!labels_hold(&held, Some(&key("old"))));
+        test_worker().queue.lock().unwrap().todo.clear();
     }
 
     #[test]
