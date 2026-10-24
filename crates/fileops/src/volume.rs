@@ -417,7 +417,7 @@ pub(crate) fn copy_verified(
     staged: &Path,
     original_mode: Option<u32>,
     tally: &mut Tally,
-    created: &mut dyn FnMut() -> Result<()>,
+    created: &mut dyn FnMut(&File) -> Result<()>,
     in_place: bool,
 ) -> Result<(Stamp, Stamp)> {
     #[cfg(unix)]
@@ -448,7 +448,7 @@ pub(crate) fn copy_file_verified(
     original_mode: Option<u32>,
     posix: (bool, bool),
     tally: &mut Tally,
-    created: &mut dyn FnMut() -> Result<()>,
+    created: &mut dyn FnMut(&File) -> Result<()>,
     in_place: bool,
 ) -> Result<(Stamp, Stamp)> {
     let mut input =
@@ -489,7 +489,13 @@ pub(crate) fn copy_file_verified(
     let mut output = options
         .open(staged)
         .with_context(|| format!("Cannot create {}", staged.display()))?;
-    created()?;
+    // Set first too where the copy is visible: a modification time before
+    // the file's creation moves its creation time back on some volumes
+    // (APFS), so the creation time `created` sees is the one the copy keeps.
+    if in_place && let Ok(modified) = meta.modified() {
+        let _ = output.set_modified(modified);
+    }
+    created(&output)?;
     // The mode it was made with (the umask applied), without the owner's
     // write bit when `mode` has none: what an unrecorded mode ends as.
     #[cfg(unix)]
@@ -569,6 +575,33 @@ pub(crate) fn copy_file_verified(
         source.display()
     );
     Ok((before, Stamp::of(staged)?))
+}
+
+/// Whether `copy` holds nothing its `source` does not: its bytes are the
+/// start of the source's (or all of them) and each of its kept extended
+/// attributes is the source's. Moving such a file to the Trash cannot take
+/// anything from anyone, whoever made it.
+pub(crate) fn holds_only_source(copy: &Path, source: &Path) -> Result<bool> {
+    let mut a = File::open(copy).with_context(|| format!("Cannot read {}", copy.display()))?;
+    let mut b = File::open(source).with_context(|| format!("Cannot read {}", source.display()))?;
+    if a.metadata()?.len() > b.metadata()?.len() {
+        return Ok(false);
+    }
+    let (mut x, mut y) = (vec![0u8; BLOCK], vec![0u8; BLOCK]);
+    loop {
+        let read = a.read(&mut x)?;
+        if read == 0 {
+            break;
+        }
+        b.read_exact(&mut y[..read])?;
+        if x[..read] != y[..read] {
+            return Ok(false);
+        }
+    }
+    let theirs = xattr::read(&b)?;
+    Ok(xattr::read(&a)?
+        .iter()
+        .all(|attribute| theirs.contains(attribute)))
 }
 
 /// Syncs a folder's entries (a new or renamed name in it) to the drive.

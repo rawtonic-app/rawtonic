@@ -1,4 +1,4 @@
-import { createElement, useCallback } from 'react';
+import { createElement, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -129,6 +129,61 @@ async function withCopyProgress<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
+/** Mirrors `KeptCopies` in src-tauri/src/file_operations.rs: copies a
+ * stopped or failed move made on the other drive and left there (they are
+ * never removed by the app on its own; the originals were not touched). */
+export interface KeptCopies {
+  operationId: string;
+  copies: { path: string; source: string; complete: boolean }[];
+}
+
+const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
+
+/** A toast naming the copies a move left, each with Show in Finder and
+ * Move to Trash (only for these very copies: the backend refuses any other
+ * file; not undoable, the system Trash puts it back). `onTrashed` runs
+ * after one went. */
+export function showKeptCopies(kept: KeptCopies, onTrashed: () => void) {
+  const t = i18next.t.bind(i18next);
+  const button = (label: string, onClick: () => void) =>
+    createElement('button', { className: 'ml-3 underline', onClick }, label);
+  const show = (path: string) =>
+    void invoke(Invokes.ShowInFinder, { path }).catch((err) =>
+      toast.error(t('contextMenus.toasts.couldNotShowExplorer', { err })),
+    );
+  const trash = async (path: string) => {
+    try {
+      await invoke(Invokes.TrashKeptCopy, { operationId: kept.operationId, path });
+      toast.success(ops('keptCopyTrashed', { name: fileName(path) }));
+      onTrashed();
+    } catch (err) {
+      toast.error(ops('keptCopyTrashFailed', { name: fileName(path), error: String(err) }));
+    }
+  };
+  const showLabel =
+    useSettingsStore.getState().osPlatform === 'macos'
+      ? t('contextMenus.thumbnail.showFinder')
+      : t('contextMenus.thumbnail.showExplorer');
+  const rows = kept.copies.map((copy) =>
+    createElement(
+      'li',
+      { key: copy.path, title: copy.path },
+      copy.complete ? fileName(copy.path) : ops('keptCopyIncomplete', { name: fileName(copy.path) }),
+      button(showLabel, () => show(copy.path)),
+      button(ops('trashConfirm'), () => void trash(copy.path)),
+    ),
+  );
+  toast.warn(
+    createElement(
+      'div',
+      null,
+      opsCount('keptCopies', kept.copies.length),
+      createElement('ul', { className: 'mt-1 max-h-40 overflow-y-auto' }, rows),
+    ),
+    { autoClose: false, closeOnClick: false },
+  );
+}
+
 /** Tells what a finished operation left for the user to know (originals kept). */
 function warnAboutNote(summary: FileOperationSummary | null | undefined) {
   if (summary?.note) toast.warn(summary.note, { autoClose: false });
@@ -175,6 +230,9 @@ type FileOperationText =
   | 'copyFilesFailed'
   | 'createFolderFailed'
   | 'deleteFailed'
+  | 'keptCopyIncomplete'
+  | 'keptCopyTrashed'
+  | 'keptCopyTrashFailed'
   | 'moveFailed'
   | 'moveFilesFailed'
   | 'moveFolderFailed'
@@ -202,7 +260,7 @@ type FileOperationText =
 const ops = (key: FileOperationText, options: Record<string, unknown> = {}) =>
   i18next.t(`studio.library.fileOperations.${key}`, options);
 /** The texts with a number (plural forms). */
-type FileOperationCount = 'movedTo' | 'trashManyMessage' | 'trashedBoth' | 'trashedSession' | 'trashedSystem';
+type FileOperationCount = 'keptCopies' | 'movedTo' | 'trashManyMessage' | 'trashedBoth' | 'trashedSession' | 'trashedSystem';
 const opsCount = (key: FileOperationCount, count: number, options: Record<string, unknown> = {}) =>
   i18next.t(`studio.library.fileOperations.${key}`, { ...options, count });
 
@@ -312,6 +370,18 @@ export function useFileOperations(
     },
     [handleImageSelect],
   );
+
+  // Copies a stopped or failed move left on the other drive: offered to
+  // show and to move to the Trash.
+  useEffect(() => {
+    const unlisten = listen<KeptCopies>('file-operation-kept-copies', ({ payload }) =>
+      showKeptCopies(payload, () => {
+        void refreshImageList();
+        void refreshAllFolderTrees();
+      }),
+    );
+    return () => void unlisten.then((stop) => stop());
+  }, [refreshImageList, refreshAllFolderTrees]);
 
   const getParentDir = (filePath: string): string => {
     const separator = filePath.includes('/') ? '/' : '\\';

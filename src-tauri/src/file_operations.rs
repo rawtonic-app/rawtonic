@@ -14,7 +14,9 @@
 use crate::file_management::{AlbumItem, add_to_album, get_albums, sync_album_path_changes};
 use crate::formats::is_supported_image_file;
 use rawtonic_catalog::{Library, session_for};
-use rawtonic_fileops::{CopyObserver, Journal, Operation, State, Step, SystemTrash, Target};
+use rawtonic_fileops::{
+    CopyObserver, Journal, KeptCopy, Operation, State, Step, SystemTrash, Target,
+};
 use serde::Serialize;
 use std::{
     cell::Cell,
@@ -474,7 +476,22 @@ pub fn run(
     let progress = ProgressEvents::new(app, label);
     let op = with_journal(app, |journal| {
         progress.start();
-        let op = journal.execute_with(kind, label, steps, &PlatformTrash, &progress)?;
+        let newest = journal.history(1)?.pop().map(|op| op.id);
+        let result = journal.execute_with(kind, label, steps, &PlatformTrash, &progress);
+        // A failed run is the newest operation, if it was journaled.
+        let id = match &result {
+            Ok(op) => Some(op.id.clone()),
+            Err(_) => journal
+                .history(1)
+                .ok()
+                .and_then(|mut ops| ops.pop())
+                .map(|op| op.id)
+                .filter(|id| Some(id) != newest.as_ref()),
+        };
+        if let Some(id) = id {
+            notify_kept(app, journal, &id, &[]);
+        }
+        let op = result?;
         if !memberships.is_empty() {
             journal.set_context(&op.id, serde_json::json!({ "albums": memberships }))?;
         }
@@ -492,7 +509,10 @@ pub fn undo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
     let progress = ProgressEvents::new(app, &last.label);
     let op = with_journal(app, |journal| {
         progress.start();
-        journal.undo_with(&last.id, &PlatformTrash, &progress)
+        let before = journal.kept_copies(&last.id)?;
+        let result = journal.undo_with(&last.id, &PlatformTrash, &progress);
+        notify_kept(app, journal, &last.id, &before);
+        result
     })?;
     sync_pending(app, Some(&op.id));
     Ok(Some(op))
@@ -508,10 +528,84 @@ pub fn redo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
     let progress = ProgressEvents::new(app, &next.label);
     let op = with_journal(app, |journal| {
         progress.start();
-        journal.redo_with(&next.id, &PlatformTrash, &progress)
+        let before = journal.kept_copies(&next.id)?;
+        let result = journal.redo_with(&next.id, &PlatformTrash, &progress);
+        notify_kept(app, journal, &next.id, &before);
+        result
     })?;
     sync_pending(app, Some(&op.id));
     Ok(Some(op))
+}
+
+/// The event naming the copies a run left on the other drive, in place
+/// (ADR 0016): the Library offers to show each one and to move it to the
+/// Trash ([`trash_kept_copy`]).
+pub const FILE_OPERATION_KEPT_COPIES: &str = "file-operation-kept-copies";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct KeptCopies {
+    operation_id: String,
+    copies: Vec<KeptCopyView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct KeptCopyView {
+    path: String,
+    source: String,
+    /// Verified complete (otherwise perhaps only its start).
+    complete: bool,
+}
+
+/// The copies of `after` that were not left before the run (`before`).
+fn newly_kept(id: &str, before: &[KeptCopy], after: Vec<KeptCopy>) -> Option<KeptCopies> {
+    let copies: Vec<_> = after
+        .into_iter()
+        .filter(|copy| !before.contains(copy))
+        .map(|copy| KeptCopyView {
+            path: copy.path.to_string_lossy().into_owned(),
+            source: copy.source.to_string_lossy().into_owned(),
+            complete: copy.complete,
+        })
+        .collect();
+    (!copies.is_empty()).then(|| KeptCopies {
+        operation_id: id.to_string(),
+        copies,
+    })
+}
+
+/// Tells the Library which copies the run of operation `id` left.
+fn notify_kept(app: &AppHandle, journal: &Journal, id: &str, before: &[KeptCopy]) {
+    match journal.kept_copies(id) {
+        Ok(after) => {
+            if let Some(kept) = newly_kept(id, before, after) {
+                let _ = app.emit(FILE_OPERATION_KEPT_COPIES, kept);
+            }
+        }
+        Err(e) => log::warn!("File operation journal could not list kept copies: {e:#}"),
+    }
+}
+
+/// Moves a copy a file operation left on another drive to the system Trash
+/// (the Library's offer after [`FILE_OPERATION_KEPT_COPIES`]); not undoable
+/// (see `Journal::trash_kept_copy`), the Trash's Put Back takes it back.
+/// Refused, changing nothing, for any file the journal does not record as
+/// left by that operation.
+#[tauri::command]
+pub async fn trash_kept_copy(
+    app: AppHandle,
+    operation_id: String,
+    path: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        with_journal(&app, |journal| {
+            journal.trash_kept_copy(&operation_id, Path::new(&path), &PlatformTrash)
+        })
+        .map(drop)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// What the frontend shows when the database could not follow an operation.
@@ -1139,6 +1233,27 @@ mod tests {
         let dir = root.join("Job");
         rawtonic_catalog::Library::create(&dir, "Job", rawtonic_catalog::Mode::Session).unwrap();
         dir.canonicalize().unwrap()
+    }
+
+    /// Only the copies a run left are offered, not those an earlier run
+    /// of the same operation left.
+    #[test]
+    fn only_newly_kept_copies_are_sent() {
+        let copy = |name: &str, secs| KeptCopy {
+            path: PathBuf::from(format!("/Volumes/X/{name}")),
+            source: PathBuf::from(format!("/Photos/{name}")),
+            complete: false,
+            born: rawtonic_fileops::Born { secs, nanos: 0 },
+        };
+        assert_eq!(newly_kept("op", &[], Vec::new()), None);
+        let earlier = vec![copy("A.RAF", 1)];
+        assert_eq!(newly_kept("op", &earlier, earlier.clone()), None);
+        // B is new; A again under its name is another file now.
+        let sent = newly_kept("op", &earlier, vec![copy("A.RAF", 2), copy("B.RAF", 1)]).unwrap();
+        assert_eq!(sent.operation_id, "op");
+        let paths: Vec<_> = sent.copies.iter().map(|c| c.path.as_str()).collect();
+        assert_eq!(paths, ["/Volumes/X/A.RAF", "/Volumes/X/B.RAF"]);
+        assert_eq!(sent.copies[1].source, "/Photos/B.RAF");
     }
 
     /// Stop reaches only the run it names, and only while it runs.

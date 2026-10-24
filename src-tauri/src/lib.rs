@@ -762,6 +762,7 @@ pub fn run() {
             file_operations::session_trash_contents,
             file_operations::empty_session_trash,
             file_operations::stop_file_operation,
+            file_operations::trash_kept_copy,
             export_queue::export_queue_jobs,
             hot_folder::hot_folder_start,
             library_import::library_import_preview,

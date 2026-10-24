@@ -1,4 +1,6 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'react-toastify';
@@ -11,7 +13,9 @@ import {
   describeFileOperation,
   FileOperationSummary,
   formatBytes,
+  type KeptCopies,
   type MovePlan,
+  showKeptCopies,
   undoHint,
   type TrashContents,
   useFileOperations,
@@ -498,6 +502,88 @@ describe('moving photos to another drive', () => {
     expect(toast.warn).toHaveBeenCalledWith('/Users/a/A.xmp changed while it was moved and was kept', {
       autoClose: false,
     });
+  });
+});
+
+describe('copies a stopped or failed move left on the other drive', () => {
+  const kept: KeptCopies = {
+    operationId: 'op-1',
+    copies: [
+      { path: '/Volumes/CARD/2026/A.RAF', source: '/Users/a/A.RAF', complete: false },
+      { path: '/Volumes/CARD/2026/A.xmp', source: '/Users/a/A.xmp', complete: true },
+    ],
+  };
+  const shown = () => {
+    const [element, options] = vi.mocked(toast.warn).mock.calls.at(-1)!;
+    render(element as ReactElement);
+    return options;
+  };
+
+  beforeEach(() => {
+    cleanup();
+    vi.mocked(invoke).mockReset();
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    vi.mocked(toast.warn).mockClear();
+    vi.mocked(toast.error).mockClear();
+    vi.mocked(toast.success).mockClear();
+    useSettingsStore.setState({ osPlatform: 'macos' });
+    useUIStore.setState({ activeView: 'library' });
+  });
+
+  it('names each copy, marks one that may be incomplete, and stays until closed', () => {
+    showKeptCopies(kept, vi.fn());
+    expect(shown()).toEqual({ autoClose: false, closeOnClick: false });
+    expect(screen.getByText(/2 copies stay on the other drive; their originals were not touched/)).toBeTruthy();
+    expect(screen.getByText('A.RAF (maybe incomplete)')).toBeTruthy();
+    expect(screen.getByText('A.xmp')).toBeTruthy();
+    expect(screen.getAllByText('Show in Finder')).toHaveLength(2);
+  });
+
+  it('shows a copy in the Finder', () => {
+    showKeptCopies(kept, vi.fn());
+    shown();
+    fireEvent.click(screen.getAllByText('Show in Finder')[0]);
+    expect(invoke).toHaveBeenCalledWith(Invokes.ShowInFinder, { path: '/Volumes/CARD/2026/A.RAF' });
+  });
+
+  it('moves exactly that copy of that operation to the Trash', async () => {
+    const onTrashed = vi.fn();
+    showKeptCopies(kept, onTrashed);
+    shown();
+    fireEvent.click(screen.getAllByText('Move to Trash')[1]);
+    await waitFor(() => expect(onTrashed).toHaveBeenCalled());
+    expect(invoke).toHaveBeenCalledWith(Invokes.TrashKeptCopy, {
+      operationId: 'op-1',
+      path: '/Volumes/CARD/2026/A.xmp',
+    });
+    expect(toast.success).toHaveBeenCalledWith('A.xmp is in the Trash of its drive; Put Back there takes it back.');
+  });
+
+  it('says why a copy could not go to the Trash', async () => {
+    vi.mocked(invoke).mockRejectedValueOnce('it is no longer the copy the move left');
+    const onTrashed = vi.fn();
+    showKeptCopies(kept, onTrashed);
+    shown();
+    fireEvent.click(screen.getAllByText('Move to Trash')[0]);
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'Could not move A.RAF to the Trash: it is no longer the copy the move left',
+      ),
+    );
+    expect(onTrashed).not.toHaveBeenCalled();
+  });
+
+  it('the Library listens for them and reads the folder again after one went', async () => {
+    vi.mocked(listen).mockClear();
+    const refresh = vi.fn(() => Promise.resolve());
+    renderHook(() => useFileOperations(refresh, vi.fn(() => Promise.resolve()), vi.fn(), vi.fn(), []));
+    const call = vi.mocked(listen).mock.calls.find(([event]) => event === 'file-operation-kept-copies');
+    expect(call).toBeTruthy();
+    const handler = call![1] as (event: { payload: KeptCopies }) => void;
+    handler({ payload: kept });
+    shown();
+    fireEvent.click(screen.getAllByText('Move to Trash')[0]);
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
   });
 });
 
