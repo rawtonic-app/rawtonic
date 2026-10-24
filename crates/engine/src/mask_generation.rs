@@ -85,6 +85,9 @@ pub struct PhotoGeometry {
     size: Option<(f64, f64)>,
     /// Whether `size` is the full decode's own (`with_decoded_size`).
     decoded: bool,
+    /// The photo's EXIF orientation, for Lightroom masks imported without
+    /// it (`with_source_orientation`).
+    orientation: Option<u16>,
 }
 
 impl PhotoGeometry {
@@ -99,6 +102,7 @@ impl PhotoGeometry {
             warp: Some(Arc::new(warp)),
             size: None,
             decoded: false,
+            orientation: None,
         }
     }
 
@@ -121,6 +125,15 @@ impl PhotoGeometry {
         let mut geometry = self.with_photo_size(f64::from(width), f64::from(height));
         geometry.decoded = geometry.size.is_some();
         geometry
+    }
+
+    /// The photo's EXIF orientation (`image_loader::source_orientation`), for
+    /// Lightroom masks that do not record it (imported before imports did,
+    /// or from a preset): exports record it in the recipe first
+    /// (`prepare_recipe_lens`), the editor's renders give it here.
+    pub fn with_source_orientation(mut self, orientation: u16) -> Self {
+        self.orientation = Some(orientation);
+        self
     }
 
     /// The photo as drawn masks are placed on it now.
@@ -161,6 +174,7 @@ impl PhotoGeometry {
             .map(|(w, h)| (w.to_bits(), h.to_bits()))
             .hash(hasher);
         self.decoded.hash(hasher);
+        self.orientation.hash(hasher);
     }
 }
 
@@ -5026,7 +5040,8 @@ pub fn generate_layer_mask(
     }
     if geometry.decoded
         && let Some(size) = geometry.size
-        && let Some(placed) = crate::lightroom_masks::placed_layer(mask_def, size)
+        && let Some(placed) =
+            crate::lightroom_masks::placed_layer(mask_def, size, geometry.orientation)
     {
         return generate_layer_mask(
             &placed,

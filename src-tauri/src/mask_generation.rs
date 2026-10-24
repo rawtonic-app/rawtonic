@@ -116,6 +116,10 @@ fn generate_mask_overlay_bytes(
         crate::adjustment_utils::hydrate_sub_masks(sub_masks, &mut cache);
     }
 
+    let needs_orientation = rawtonic_engine::lightroom_masks::layer_needs_orientation(&mask_def)
+        || js_adjustments
+            .as_ref()
+            .is_some_and(rawtonic_engine::lightroom_retouch::needs_orientation);
     let parsed_mask_def: MaskDefinition = serde_json::from_value(mask_def)
         .map_err(|e| format!("Failed to parse hydrated mask_def: {}", e))?;
 
@@ -139,7 +143,13 @@ fn generate_mask_overlay_bytes(
     let mut geometry =
         PhotoGeometry::from_adjustments(js_adjustments.as_ref().unwrap_or(&Value::Null));
     if let Ok((loaded, _, full_dims)) = crate::editor_preview::preview_source(&state) {
-        geometry = crate::editor_preview::source_size(geometry, &loaded, full_dims);
+        geometry = crate::editor_preview::source_size(
+            &state,
+            geometry,
+            needs_orientation,
+            &loaded,
+            full_dims,
+        );
     }
     if let Some(gray_mask) = generate_mask_bitmap(
         &parsed_mask_def,
@@ -280,7 +290,9 @@ fn mask_thumbnails(
     let small =
         MaskFrame::fitting(&adjustments, full_dims, longest).ok_or("The photograph has no size")?;
     let geometry = crate::editor_preview::source_size(
+        state,
         PhotoGeometry::from_adjustments(&adjustments),
+        rawtonic_engine::lightroom_retouch::needs_orientation(&adjustments),
         &loaded,
         full_dims,
     );

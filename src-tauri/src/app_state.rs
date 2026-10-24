@@ -529,6 +529,9 @@ pub struct AppState {
     pub patch_cache: Mutex<HashMap<String, serde_json::Value>>,
     pub geometry_cache: Mutex<HashMap<u64, DynamicImage>>,
     pub thumbnail_geometry_cache: Mutex<HashMap<String, ThumbnailGeometryEntry>>,
+    /// The EXIF orientation of the last photo asked for
+    /// (`editor_preview::open_orientation`).
+    pub source_orientation: Mutex<Option<(PathBuf, u16)>>,
     pub lens_db: Mutex<Option<Arc<LensDatabase>>>,
     pub load_image_generation: Arc<AtomicUsize>,
     pub preview_generation: AtomicUsize,
@@ -596,6 +599,7 @@ impl Default for AppState {
             patch_cache: Mutex::new(HashMap::new()),
             geometry_cache: Mutex::new(HashMap::new()),
             thumbnail_geometry_cache: Mutex::new(HashMap::new()),
+            source_orientation: Mutex::new(None),
             lens_db: Mutex::new(None),
             load_image_generation: Arc::new(AtomicUsize::new(0)),
             preview_generation: AtomicUsize::new(0),

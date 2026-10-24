@@ -582,8 +582,13 @@ mod tests {
             crate::image_loader::source_orientation(&bytes, &name),
         );
         let out = var("LR_IMPORT_OUT");
-        fs::write(format!("{out}-pending.json"), pending.to_string()).unwrap();
-        fs::write(format!("{out}-placed.json"), placed.to_string()).unwrap();
+        for (suffix, recipe) in [("pending", &pending), ("placed", &placed)] {
+            rawtonic_export::output::write_new_output(
+                format!("{out}-{suffix}.json"),
+                recipe.to_string(),
+            )
+            .unwrap();
+        }
         println!("{}x{}", full.width(), full.height());
     }
 

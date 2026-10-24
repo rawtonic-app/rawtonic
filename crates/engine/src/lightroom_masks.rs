@@ -50,14 +50,24 @@ pub(crate) fn pending_parameters_mut(adjustments: &mut Value) -> impl Iterator<I
         .filter(|p| p.get(PENDING).is_some_and(Value::is_object))
 }
 
-/// Whether a pending mask component lacks its photo's orientation.
+/// Whether a pending mask component of the recipe lacks its photo's
+/// orientation.
 pub(crate) fn needs_orientation(adjustments: &Value) -> bool {
     adjustments
         .get("masks")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter_map(|m| m.get("subMasks").and_then(Value::as_array))
+        .any(layer_needs_orientation)
+}
+
+/// Whether a pending component of the mask layer `layer` lacks its photo's
+/// orientation.
+pub fn layer_needs_orientation(layer: &Value) -> bool {
+    layer
+        .get("subMasks")
+        .and_then(Value::as_array)
+        .into_iter()
         .flatten()
         .map(|sub| &sub["parameters"])
         .any(|p| p.get(PENDING).is_some_and(Value::is_object) && orientation_of(p).is_none())
@@ -242,11 +252,14 @@ pub fn place(adjustments: &mut Value, width: f64, height: f64, orientation: Opti
 }
 
 /// `def` with its pending components placed for a render of a photo whose
-/// full decode is `width` × `height` (see the module comment); None when it
-/// has none that can be placed (no orientation recorded, or no shape).
+/// full decode is `width` × `height` and whose orientation is
+/// `orientation` for components that record none (see the module
+/// comment); None when it has none that can be placed (no orientation, or
+/// no shape).
 pub(crate) fn placed_layer(
     def: &MaskDefinition,
     (width, height): (f64, f64),
+    orientation: Option<u16>,
 ) -> Option<MaskDefinition> {
     let mut placed = None::<MaskDefinition>;
     for (i, sub) in def.sub_masks.iter().enumerate() {
@@ -254,6 +267,7 @@ pub(crate) fn placed_layer(
             continue;
         };
         let Some(parameters) = orientation_of(&sub.parameters)
+            .or(orientation)
             .and_then(|o| placed_parameters(&sub.mask_type, g, width, height, o))
         else {
             continue;
@@ -402,6 +416,14 @@ mod tests {
         assert!(crate::lightroom_retouch::needs_orientation(&recipe));
         let decoded = PhotoGeometry::default().with_decoded_size(300, 200);
         let before = render(&recipe, &decoded);
+        // The editor's renders give the photo's orientation (an undo can
+        // bring such masks back after the editor placed them with it).
+        let mut placed = recipe.clone();
+        assert!(place(&mut placed, 300.0, 200.0, Some(6)));
+        assert_eq!(
+            render(&recipe, &decoded.clone().with_source_orientation(6)),
+            render(&placed, &decoded)
+        );
         crate::lightroom_retouch::set_orientation(&mut recipe, 6);
         assert!(!crate::lightroom_retouch::needs_orientation(&recipe));
         assert_eq!(
@@ -409,8 +431,6 @@ mod tests {
             6
         );
         assert_ne!(render(&recipe, &decoded), before);
-        let mut placed = recipe.clone();
-        place(&mut placed, 300.0, 200.0, None);
         assert_eq!(render(&recipe, &decoded), render(&placed, &decoded));
     }
 
