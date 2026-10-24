@@ -4,7 +4,9 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { toast } from 'react-toastify';
 import { useEditorStore } from '../store/useEditorStore';
-import { useLibraryStore } from '../store/useLibraryStore';
+import { isRawPhoto, useLibraryStore } from '../store/useLibraryStore';
+import i18next from 'i18next';
+import { isDecoderError, offerCameraHelp } from '../components/contribute/CameraHelpDialog';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes, type ImageMetadata, type LoadImageResult } from '../components/ui/AppProperties';
@@ -297,6 +299,13 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
           if (loadImageResult.ai_denoise_error) {
             toast.error(`AI Denoise is not available: ${loadImageResult.ai_denoise_error}`);
           }
+          if (loadImageResult.developed_from_preview) {
+            const name = selectedImage.path.split('?')[0].split(/[\\/]/).pop() ?? '';
+            offerCameraHelp(i18next.t('contribute.cameraHelp.previewNotice', { name }), {
+              path: selectedImage.path,
+              reason: 'preview',
+            });
+          }
           if (published.proxy) {
             // The recipe and history stay, with any edits made on the proxy;
             // only the source becomes the decode. A fast draft decode may
@@ -329,7 +338,11 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
               .getState()
               .imageList.some((image) => image.path === selectedImage.path && image.is_offline);
             if (!offline || useUIStore.getState().activeView === 'editor') {
-              toast.error(loadErrorText(err, selectedImage.path));
+              if (isRawPhoto(selectedImage.path) && isDecoderError(err)) {
+                offerCameraHelp(loadErrorText(err, selectedImage.path), { path: selectedImage.path, reason: 'unreadable' });
+              } else {
+                toast.error(loadErrorText(err, selectedImage.path));
+              }
             }
             setEditor({ selectedImage: null, panelsHeld: false });
           }

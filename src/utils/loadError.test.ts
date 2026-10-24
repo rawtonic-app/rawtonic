@@ -17,3 +17,9 @@ it("names the file and the reason for other failures", () => {
   expect(text).toContain('a.jpg');
   expect(text).toContain('Permission denied');
 });
+
+it("counts a camera the decoder does not know as unreadable", () => {
+  const text = loadErrorText("Error: Unknown camera, model 'ILCE-7M5', make: 'SONY', mode: ''", '/p/a.ARW');
+  expect(text).not.toContain('ILCE');
+  expect(text).toMatch(/damaged|support/i);
+});

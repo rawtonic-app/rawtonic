@@ -43,11 +43,8 @@ Rawtonic otherwise goes online only when you ask it to:
 
 Tethered shooting talks to the camera over its USB cable only; Rawtonic's
 copy of the camera library is built without its network (Wi-Fi/PTP-IP)
-driver. The camera test in the tether panel sends nothing: it shows its
-report (camera model and firmware, system, Rawtonic version, camera driver
-and the test's results and timings — no serial number, file names, folders,
-user name or photos) for you to copy yourself; its GitHub button only opens
-the camera report form in your browser.
+driver. The camera test in the tether panel sends its report only when you
+choose to (below).
 
 Exported files carry the metadata you choose to keep. Under the explicit
 [maintainer decision](docs/decisions/0018-export-rights-retention.md), stripped
@@ -62,7 +59,7 @@ Type), as the EU AI Act requires.
 
 ## Sending reports to Rawtonic's makers
 
-Two optional ways to report problems exist in this version. Each sends only
+Three optional ways to send reports exist in this version. Each sends only
 when you click Send after seeing exactly what goes out ("Review what will be
 sent"; you can go back and change or remove parts), through Rawtonic's own
 small relay service (`relay.rawtonic.cc`, run on Cloudflare; design:
@@ -105,9 +102,25 @@ filed until you submit it there with your own GitHub account.
   records and stops recording at once (Preferences → General turns it back
   on).
   Records are deleted after they are sent or after 30 days.
+- **Camera test result** (tether panel → Camera test… → Send result…): the
+  test's report — camera model and firmware, system, Rawtonic version,
+  camera driver and each step's result and timings; no serial number, file
+  names, folders, user name or photos — with Rawtonic's version, your
+  operating system and its version and the processor type. Its GitHub form is
+  the public camera report form, with the report filled in.
 
-Camera-test results, RAW samples and anonymous usage statistics are not sent
-by this version; each will be described here, in full, in the version that
-adds it.
+**Help support this camera.** When Rawtonic cannot develop a RAW file (an
+unsupported camera or RAW mode), it offers a short guide to sharing a sample
+on raw.pixls.us, a public collection of RAW samples that open-source decoders
+learn new cameras from. Rawtonic sends nothing there: its buttons open
+raw.pixls.us's pages in your browser, and you upload the file there yourself
+under that site's terms (samples there are public, CC0). A RAW file keeps its
+metadata, such as the date, the camera's serial number and a GPS position if
+one was recorded. The same guide can open "Report a problem" for that file
+instead.
+
+RAW sample uploads to Rawtonic and anonymous usage statistics are not part of
+this version; each will be described here, in full, in the version that adds
+it.
 
 Questions: open an issue at https://github.com/rawtonic-app/rawtonic.

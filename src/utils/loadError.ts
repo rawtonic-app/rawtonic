@@ -9,8 +9,15 @@ import i18next from 'i18next';
 export function loadErrorText(error: unknown, path: string): string {
   const name = path.split(/[\\/]/).pop() ?? path;
   const text = String(error);
-  if (/no decoder found|unsupported|not a valid|invalid (raw|tiff|image)|decod/i.test(text)) {
+  if (isUnreadableError(text)) {
     return i18next.t('studio.loadError.unreadable', { name });
   }
   return i18next.t('studio.loadError.failed', { name, error: text.replace(/^Error:\s*/, '') });
+}
+
+/** Whether a load error is the decoder's: a file it cannot read (rawler's
+ * "Unknown camera", "No decoder found", …), not a missing file or a failed
+ * read. */
+export function isUnreadableError(error: unknown): boolean {
+  return /no decoder found|unknown camera|unsupported|not a valid|invalid (raw|tiff|image)|decod/i.test(String(error));
 }

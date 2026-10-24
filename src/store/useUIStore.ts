@@ -199,6 +199,13 @@ export function reconcileWorkspace(savedWorkspace: WorkspaceState | undefined): 
   };
 }
 
+/** A RAW the camera help is offered for: one that failed to decode
+ * ("unreadable") or shows only its embedded camera preview ("preview"). */
+export interface CameraHelpRequest {
+  path: string;
+  reason: 'unreadable' | 'preview';
+}
+
 export interface UIState {
   activeView: string;
   /** Photographs per row of the Library grid while it is shown, else 0
@@ -213,6 +220,10 @@ export interface UIState {
   /** "Report a problem" (src/components/contribute/ContributionHost.tsx). */
   isProblemReportOpen: boolean;
   setProblemReportOpen(open: boolean): void;
+  /** "Help support this camera" for a RAW that could not be developed
+   * (src/components/contribute/CameraHelpDialog.tsx), or null. */
+  cameraHelp: CameraHelpRequest | null;
+  setCameraHelp(request: CameraHelpRequest | null): void;
 
   leftPanelWidth: number;
   rightPanelWidth: number;
@@ -301,6 +312,8 @@ export const useUIStore = create<UIState>((set, get) => ({
   isSettingsOpen: false,
   isProblemReportOpen: false,
   setProblemReportOpen: (open) => set({ isProblemReportOpen: open }),
+  cameraHelp: null,
+  setCameraHelp: (request) => set({ cameraHelp: request }),
 
   leftPanelWidth: DEFAULT_PANEL_WIDTH,
   rightPanelWidth: DEFAULT_PANEL_WIDTH,

@@ -729,6 +729,7 @@ pub fn run() {
             editor_preview::prewarm_mask_source,
             cache_utils::clear_image_caches,
             update_check::check_updates,
+            contribute::contribution_app_info,
             contribute::contribution_available,
             contribute::contribution_prepare,
             contribute::contribution_send,

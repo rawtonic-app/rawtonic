@@ -34,6 +34,8 @@ const CAMERA: TestedCamera = {
 };
 const SETTINGS = [{ key: "iso", label: "ISO", value: "160", choices: ["160", "200"], readOnly: false }];
 
+const APP = { version: "9.9.9", os: "macos", osVersion: "26.0", arch: "aarch64" };
+let relay = true;
 let iso = "160";
 let isoChoices = ["160", "200"];
 /** What the mock camera reports after a set: the value asked for, unless
@@ -46,6 +48,7 @@ let numbered = false;
 let onCapture: (n: number) => void;
 
 beforeEach(() => {
+  relay = true;
   iso = "160";
   isoChoices = ["160", "200"];
   isoAfterSet = (asked) => asked;
@@ -84,6 +87,16 @@ beforeEach(() => {
         // The helper's request number, when the test's events name it
         // (else none: shots are matched by the order of their exposures).
         return Promise.resolve(numbered ? shot : null);
+      case "contribution_app_info":
+        return Promise.resolve(APP);
+      case "contribution_available":
+        return Promise.resolve(relay);
+      case "contribution_prepare": {
+        const { channel, payload } = args as unknown as { channel: string; payload: unknown };
+        return Promise.resolve({ channel, body: JSON.stringify(payload, null, 2), digest: "d" });
+      }
+      case "contribution_send":
+        return Promise.resolve({ id: "ID1", ref: "r" });
       default:
         return Promise.resolve(null);
     }
@@ -95,7 +108,7 @@ afterEach(() => {
   invoke.mockReset();
 });
 
-const report = () => (screen.getByRole("textbox", { name: "Report (exactly what is copied)" }) as HTMLTextAreaElement).value;
+const report = () => (screen.getByRole("textbox", { name: "Report" }) as HTMLTextAreaElement).value;
 const runStep = async (expected: RegExp) => {
   fireEvent.click(screen.getByRole("button", { name: "Run" }));
   await waitFor(() => expect(report()).toMatch(expected), { timeout: 4000 }).catch((e) => {
@@ -164,9 +177,56 @@ it("runs the steps with the camera and reports them without serial number, paths
   expect(text).toContain("- Transfer queue: yes (freeing on)");
   expect(text).toContain("- System: macos 26.0 (aarch64)");
   expect(text).not.toMatch(/93X1234567|someone|Acme|DSCF|\/Users/);
-  fireEvent.click(screen.getByRole("button", { name: "Open a camera report on GitHub" }));
-  expect(openUrl).toHaveBeenCalledWith("https://github.com/rawtonic-app/rawtonic/issues/new?template=camera-report.yml");
 }, 20_000);
+
+it("sends the result only after the review, as the relay's camera-test payload", async () => {
+  render(<TetherCameraTest camera={CAMERA} connectMs={2310} freeCameraCopies onClose={vi.fn()} />);
+  await waitFor(() => expect(report()).toContain("- Rawtonic: 9.9.9"));
+  fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  const send = await screen.findByRole("button", { name: "Send result…" });
+  await waitFor(() => expect((send as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(send);
+  fireEvent.click(await screen.findByRole("button", { name: "Review and send…" }));
+  await screen.findByText(/This is exactly what Rawtonic will send/);
+  expect(invoke.mock.calls.some(([command]) => command === "contribution_send")).toBe(false);
+  const prepared = invoke.mock.calls.find(([command]) => command === "contribution_prepare")?.[1] as {
+    channel: string;
+    payload: { camera: unknown; report: string; app: unknown; schema: number };
+  };
+  expect(prepared.channel).toBe("cameraTest");
+  expect(prepared.payload).toEqual({
+    schema: 1,
+    app: APP,
+    camera: { make: "Fuji", model: "Fuji Fujifilm X-H2S", firmware: "4.10" },
+    report: report(),
+  });
+  expect(JSON.stringify(prepared.payload)).not.toMatch(/93X1234567/);
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await screen.findByText("Sent. Thank you!");
+  expect(screen.getByTestId("report-id").textContent).toBe("ID1");
+});
+
+it("without the relay shares the result: GitHub's camera report form, prefilled after showing its text", async () => {
+  relay = false;
+  render(<TetherCameraTest camera={CAMERA} connectMs={2310} freeCameraCopies onClose={vi.fn()} />);
+  await waitFor(() => expect(report()).toContain("- Rawtonic: 9.9.9"));
+  const share = await screen.findByRole("button", { name: "Share the result…" });
+  await waitFor(() => expect((share as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(share);
+  await screen.findByText(/cannot send reports itself/);
+  expect(screen.queryByRole("button", { name: "Review and send…" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Open on GitHub" }));
+  await screen.findByText(/exactly this title and text/);
+  expect(openUrl).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Open in browser" }));
+  await waitFor(() => expect(openUrl).toHaveBeenCalledTimes(1));
+  const url = new URL(openUrl.mock.calls[0][0] as string);
+  expect(url.origin + url.pathname).toBe("https://github.com/rawtonic-app/rawtonic/issues/new");
+  expect(url.searchParams.get("template")).toBe("camera-report.yml");
+  expect(url.searchParams.get("title")).toBe("Camera report: Fuji Fujifilm X-H2S");
+  expect(url.searchParams.get("report")).toBe(report());
+  expect(url.searchParams.get("body")).toBeNull();
+});
 
 it("fails a shot whose photo did not come in, its message kept out of the report", async () => {
   onCapture = () =>

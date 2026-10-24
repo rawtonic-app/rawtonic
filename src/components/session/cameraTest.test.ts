@@ -3,6 +3,7 @@ import page from "../../../docs/TETHER_CAMERAS.md?raw";
 import {
   COMPATIBILITY,
   buildReport,
+  cameraTestPayload,
   compatibilityOf,
   median,
   percentile,
@@ -111,4 +112,20 @@ it("sets ISO to a plain number: the next one up, or from Auto the lowest from 10
     { key: "whitebalance", value: "Daylight", choices: ["Auto", "Daylight"], readOnly: false },
   ];
   expect(settingToChange(settings)?.setting.key).toBe("whitebalance");
+});
+
+it("names the camera test's camera by the library's model name, its first word the make", () => {
+  const app = { version: "0.1.0-alpha.4", os: "macos", osVersion: "26.5", arch: "aarch64" };
+  expect(cameraTestPayload(app, { model: "Canon EOS R5", firmware: "1.8.1" }, "r")).toEqual({
+    schema: 1,
+    app,
+    camera: { make: "Canon", model: "Canon EOS R5", firmware: "1.8.1" },
+    report: "r",
+  });
+  // One word: no make to tell; no firmware: none sent; markup dropped.
+  expect(cameraTestPayload(app, { model: "Mock<b>", firmware: null }, "r")?.camera).toEqual({
+    make: "unknown",
+    model: "Mockb",
+  });
+  expect(cameraTestPayload(app, { model: "  " }, "r")).toBeNull();
 });

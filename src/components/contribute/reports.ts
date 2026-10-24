@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Problem and crash reports (ADR 0017, channels 1 and 2): their payloads,
-// and the text the no-relay fallbacks use ("Copy report", "Open on GitHub").
+// and the text the no-relay fallbacks use ("Copy report", "Open on GitHub"),
+// also for the camera test's result (channel 3, `cameraTestPayload`).
 // The fallbacks take the scrubbed body the app prepared, never raw input.
 import { invoke } from "@tauri-apps/api/core";
 import { Invokes } from "../ui/AppProperties";
@@ -153,6 +154,9 @@ interface Parsed {
   location?: string;
   backtrace?: string;
   crashedOn?: string;
+  /** A camera test's Markdown report and its camera. */
+  report?: string;
+  camera?: { make?: string; model?: string };
 }
 
 const systemLine = (p: Parsed) => {
@@ -183,6 +187,12 @@ function render(p: Parsed, fit: Fit): string {
     shortened.value = true;
     return fromEnd ? items.slice(items.length - n) : items.slice(0, n);
   };
+  // A camera test's report is complete in itself (the issue template's
+  // field takes it as it is).
+  if (p.report !== undefined) {
+    const kept = p.report.length > fit.textChars ? `${p.report.slice(0, Math.max(0, fit.textChars))}…` : p.report;
+    return kept === p.report ? kept : `${kept}\n\n${SHORTENED_NOTE}`;
+  }
   if (p.message !== undefined) {
     out.push(`Rawtonic quit unexpectedly on ${p.crashedOn ?? "?"} at \`${p.location ?? "?"}\`.`);
     let message = p.message;
@@ -228,17 +238,24 @@ const parse = (body: string): Parsed => {
 export const reportMarkdown = (body: string): string => render(parse(body), FULL);
 
 export const ISSUE_BASE = "https://github.com/rawtonic-app/rawtonic/issues/new";
+/** The camera report issue form (.github/ISSUE_TEMPLATE/camera-report.yml);
+ * its `report` field takes the camera test's report. */
+export const CAMERA_REPORT_TEMPLATE = "camera-report.yml";
 /** Links GitHub and browsers take reliably. */
 export const MAX_URL = 8_000;
 
 const issueTitle = (p: Parsed) => {
+  if (p.report !== undefined) return `Camera report: ${p.camera?.model ?? ""}`.trim();
   const first = (p.message ?? p.text ?? "").split("\n")[0].trim();
   const short = first.length > 70 ? `${first.slice(0, 70)}…` : first;
   return p.message !== undefined ? `Crash: ${short}` : `Problem: ${short}`;
 };
 
-const issueUrl = (title: string, body: string) =>
-  `${ISSUE_BASE}?${new URLSearchParams({ title, body }).toString().replace(/\+/g, "%20")}`;
+const issueUrl = (p: Parsed, title: string, body: string) => {
+  const query: Record<string, string> =
+    p.report !== undefined ? { template: CAMERA_REPORT_TEMPLATE, title, report: body } : { title, body };
+  return `${ISSUE_BASE}?${new URLSearchParams(query).toString().replace(/\+/g, "%20")}`;
+};
 
 export interface GithubIssue {
   title: string;
@@ -257,16 +274,16 @@ export const githubIssue = (body: string): GithubIssue => {
     logLines: p.logTail ? p.logTail.split("\n").length : 0,
     backtraceLines: p.backtrace ? p.backtrace.split("\n").length : 0,
     messageChars: (p.message ?? "").length,
-    textChars: (p.text ?? "").length,
+    textChars: (p.report ?? p.text ?? "").length,
   };
   for (;;) {
     const text = render(p, fit);
-    const url = issueUrl(title, text);
+    const url = issueUrl(p, title, text);
     if (url.length <= MAX_URL) return { title, body: text, url };
     if (fit.logLines > 0) fit.logLines = Math.floor(fit.logLines * 0.8);
     else if (fit.backtraceLines > 0) fit.backtraceLines = Math.floor(fit.backtraceLines * 0.8);
     else if (fit.messageChars > 0) fit.messageChars = Math.floor(fit.messageChars * 0.8);
     else if (fit.textChars > 0) fit.textChars = Math.floor(fit.textChars * 0.8);
-    else return { title, body: SHORTENED_NOTE, url: issueUrl(title, SHORTENED_NOTE) };
+    else return { title, body: SHORTENED_NOTE, url: issueUrl(p, title, SHORTENED_NOTE) };
   }
 };

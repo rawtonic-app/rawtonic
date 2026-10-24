@@ -49,6 +49,14 @@ pub async fn contribution_send(
     })
 }
 
+/// The `app` block every payload carries (version, OS and its major.minor
+/// version, architecture), for channels the frontend fills itself (the
+/// camera test).
+#[tauri::command]
+pub fn contribution_app_info(app_handle: AppHandle) -> AppInfo {
+    app_info(&app_handle)
+}
+
 /// Deletes a submission by the id its receipt gave.
 #[tauri::command]
 pub async fn contribution_delete(app_handle: AppHandle, id: String) -> Result<(), String> {
