@@ -279,6 +279,8 @@
       "openFailed": "Could not open the browser.",
       "pendingCrash": "Rawtonic quit unexpectedly on {{date}} and that crash report was not sent.",
       "photo": "Camera and file type of the open photo",
+      "photoFile": "Attach the photo file itself ({{type}}, for problems with how this photo looks)",
+      "photoFileWarning": "The file is sent exactly as it is. It keeps its metadata — the date, the camera's serial number and the GPS position if one was recorded — and it may show people. It is kept privately, only to find the problem, and deleted with the report (by its id, or after 90 days).",
       "prepareFailed": "The report could not be prepared. It may be too long.",
       "review": "Review and send…",
       "reviewCrash": "Review the crash report",

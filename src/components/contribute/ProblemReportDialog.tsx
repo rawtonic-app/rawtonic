@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // "Report a problem" (ADR 0017, channel 1): the user's text plus, each
 // optional, system details, the log's last lines (editable), the open
-// photo's camera and file type, and a screenshot of the window taken when
-// the dialog opened. Nothing is sent before the review's Send.
+// photo's camera and file type, a screenshot of the window taken when the
+// dialog opened, and the photo's file itself (off by default; sent as it is,
+// with its metadata). Nothing is sent before the review's Send.
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Text from "../ui/Text";
@@ -56,6 +57,7 @@ export default function ProblemReportDialog({
   const [logTail, setLogTail] = useState("");
   const [includePhoto, setIncludePhoto] = useState(true);
   const [includeScreenshot, setIncludeScreenshot] = useState(false);
+  const [includePhotoFile, setIncludePhotoFile] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -64,6 +66,7 @@ export default function ProblemReportDialog({
     setIncludeLog(true);
     setIncludePhoto(true);
     setIncludeScreenshot(false);
+    setIncludePhotoFile(false);
   }, [isOpen]);
 
   useEffect(() => setLogTail(context?.logTail ?? ""), [context]);
@@ -76,11 +79,23 @@ export default function ProblemReportDialog({
             context,
             includeSystem,
             logTail: includeLog ? logTail : null,
-            photo: includePhoto ? photo : null,
+            photo: includePhoto || includePhotoFile ? photo : null,
+            photoFile: includePhotoFile && photo !== null,
             screenshot: includeScreenshot ? screenshot : null,
           })
         : null,
-    [context, includeLog, includePhoto, includeScreenshot, includeSystem, logTail, photo, screenshot, text],
+    [
+      context,
+      includeLog,
+      includePhoto,
+      includePhotoFile,
+      includeScreenshot,
+      includeSystem,
+      logTail,
+      photo,
+      screenshot,
+      text,
+    ],
   );
 
   const gpu = context?.gpu ? [context.gpu.vendor, context.gpu.name].filter(Boolean).join(", ") : null;
@@ -142,6 +157,23 @@ export default function ProblemReportDialog({
           )}
         </span>
       </label>
+      {photo && (
+        <div className="flex flex-col gap-1">
+          <label className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              checked={includePhotoFile}
+              onChange={(e) => setIncludePhotoFile(e.target.checked)}
+            />
+            <span>{t("contribute.report.photoFile", { type: photo.fileType })}</span>
+          </label>
+          {includePhotoFile && (
+            <Text variant={TextVariants.small} color="error" className="ml-6" role="note">
+              {t("contribute.report.photoFileWarning")}
+            </Text>
+          )}
+        </div>
+      )}
       <div className="flex flex-col gap-1">
         <label className="flex items-start gap-2">
           <input

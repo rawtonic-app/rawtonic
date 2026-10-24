@@ -305,6 +305,8 @@
       "openFailed": "Nie udało się otworzyć przeglądarki.",
       "pendingCrash": "Rawtonic nieoczekiwanie zakończył działanie {{date}}, a tamten raport o awarii nie został wysłany.",
       "photo": "Aparat i typ pliku otwartego zdjęcia",
+      "photoFile": "Dołącz sam plik zdjęcia ({{type}}, przy problemach z wyglądem tego zdjęcia)",
+      "photoFileWarning": "Plik jest wysyłany dokładnie taki, jaki jest. Zachowuje metadane — datę, numer seryjny aparatu i pozycję GPS, jeśli została zapisana — i może przedstawiać osoby. Jest przechowywany prywatnie, wyłącznie w celu znalezienia problemu, i usuwany razem ze zgłoszeniem (przez jego identyfikator lub po 90 dniach).",
       "prepareFailed": "Nie udało się przygotować raportu. Może jest za długi.",
       "review": "Przejrzyj i wyślij…",
       "reviewCrash": "Przejrzyj raport o awarii",

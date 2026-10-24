@@ -292,6 +292,8 @@
       "openFailed": "No se pudo abrir el navegador.",
       "pendingCrash": "Rawtonic se cerró inesperadamente el {{date}} y ese informe de fallo no se envió.",
       "photo": "Cámara y tipo de archivo de la foto abierta",
+      "photoFile": "Adjuntar el propio archivo de la foto ({{type}}, para problemas con el aspecto de esta foto)",
+      "photoFileWarning": "El archivo se envía tal cual. Conserva sus metadatos —la fecha, el número de serie de la cámara y la posición GPS si se registró— y puede mostrar personas. Se guarda de forma privada, solo para encontrar el problema, y se elimina con el informe (con su identificador o tras 90 días).",
       "prepareFailed": "No se pudo preparar el informe. Quizá sea demasiado largo.",
       "review": "Revisar y enviar…",
       "reviewCrash": "Revisar el informe de fallo",

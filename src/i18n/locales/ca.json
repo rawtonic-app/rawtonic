@@ -292,6 +292,8 @@
       "openFailed": "No s’ha pogut obrir el navegador.",
       "pendingCrash": "Rawtonic es va tancar inesperadament el {{date}} i aquell informe d’error no es va enviar.",
       "photo": "Càmera i tipus de fitxer de la foto oberta",
+      "photoFile": "Adjunta el fitxer de la foto mateix ({{type}}, per a problemes amb l’aspecte d’aquesta foto)",
+      "photoFileWarning": "El fitxer s’envia tal com és. Conserva les metadades —la data, el número de sèrie de la càmera i la posició GPS si se’n va registrar— i pot mostrar persones. Es guarda en privat, només per trobar el problema, i s’elimina amb l’informe (amb el seu identificador o al cap de 90 dies).",
       "prepareFailed": "No s’ha pogut preparar l’informe. Potser és massa llarg.",
       "review": "Revisa i envia…",
       "reviewCrash": "Revisa l’informe d’error",

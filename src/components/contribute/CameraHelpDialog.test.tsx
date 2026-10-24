@@ -15,7 +15,7 @@ vi.mock('react-toastify', () => ({ toast: { warn: vi.fn(), error: vi.fn() } }));
 
 afterEach(cleanup);
 
-const photo = { make: 'SONY', model: 'ILCE-7M5', fileType: 'ARW' };
+const photo = { make: 'SONY', model: 'ILCE-7M5', fileType: 'ARW', path: '/Volumes/Card/DSC01234.ARW' };
 
 describe('camera help', () => {
   it('guides to raw.pixls.us in the browser and sends nothing itself', async () => {

@@ -279,6 +279,8 @@
       "openFailed": "Der Browser konnte nicht geöffnet werden.",
       "pendingCrash": "Rawtonic wurde am {{date}} unerwartet beendet, und dieser Absturzbericht wurde nicht gesendet.",
       "photo": "Kamera und Dateityp des geöffneten Fotos",
+      "photoFile": "Die Fotodatei selbst anhängen ({{type}}, bei Problemen damit, wie dieses Foto aussieht)",
+      "photoFileWarning": "Die Datei wird genau so gesendet, wie sie ist. Sie behält ihre Metadaten – das Datum, die Seriennummer der Kamera und die GPS-Position, falls eine aufgezeichnet wurde – und kann Personen zeigen. Sie wird privat aufbewahrt, nur um das Problem zu finden, und mit dem Bericht gelöscht (über seine ID oder nach 90 Tagen).",
       "prepareFailed": "Der Bericht konnte nicht vorbereitet werden. Vielleicht ist er zu lang.",
       "review": "Prüfen und senden…",
       "reviewCrash": "Absturzbericht ansehen",

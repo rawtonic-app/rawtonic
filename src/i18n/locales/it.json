@@ -292,6 +292,8 @@
       "openFailed": "Impossibile aprire il browser.",
       "pendingCrash": "Rawtonic si è chiuso inaspettatamente il {{date}} e quel rapporto di arresto anomalo non è stato inviato.",
       "photo": "Fotocamera e tipo di file della foto aperta",
+      "photoFile": "Allega il file della foto stesso ({{type}}, per problemi con l’aspetto di questa foto)",
+      "photoFileWarning": "Il file viene inviato così com’è. Conserva i suoi metadati — la data, il numero di serie della fotocamera e la posizione GPS se registrata — e può mostrare persone. Viene conservato in privato, solo per trovare il problema, ed eliminato con il rapporto (tramite il suo ID o dopo 90 giorni).",
       "prepareFailed": "Impossibile preparare il rapporto. Forse è troppo lungo.",
       "review": "Rivedi e invia…",
       "reviewCrash": "Rivedi il rapporto di arresto anomalo",
