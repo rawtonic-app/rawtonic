@@ -27,6 +27,8 @@ import {
   PanelLeft,
   PanelRight,
   Settings,
+  Ellipsis,
+  MessageSquareWarning,
   Upload,
   LoaderCircle,
   X,
@@ -45,6 +47,7 @@ import {
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useUIStore } from "../../store/useUIStore";
+import { useContextMenu } from "../../context/ContextMenuContext";
 import { useProcessStore } from "../../store/useProcessStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
 import { type ImageFile, Invokes, Panel, SortDirection } from "../ui/AppProperties";
@@ -194,6 +197,7 @@ export default function StudioWorkspace(props: Props) {
     })),
   );
   const { handleSyncSettings: syncSettings, handlePasteFromPrevious: pasteFromPrevious } = useEditorActions();
+  const { showContextMenu } = useContextMenu();
   // Sync settings: the other selected photographs.
   const syncTargets = useLibraryStore(
     (s) => s.multiSelectedPaths.filter((path) => path !== selectedImage?.path).length,
@@ -630,6 +634,24 @@ export default function StudioWorkspace(props: Props) {
         onClick={props.onSettings}
       >
         <Settings size={15} />
+      </button>
+      <button
+        className="studio-bar-icon"
+        title={t("studio.workspace.more")}
+        aria-label={t("studio.workspace.more")}
+        aria-haspopup="menu"
+        onClick={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          showContextMenu(rect.left, rect.bottom, [
+            {
+              label: t("contribute.report.menu"),
+              icon: MessageSquareWarning,
+              onClick: () => useUIStore.getState().setProblemReportOpen(true),
+            },
+          ]);
+        }}
+      >
+        <Ellipsis size={15} />
       </button>
     </>
   );

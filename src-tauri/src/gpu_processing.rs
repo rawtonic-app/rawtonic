@@ -95,6 +95,7 @@ pub fn get_or_init_gpu_context(
         format!("Failed to find a wgpu adapter: {}", e)
     })?;
 
+    crate::contribute::note_gpu(&adapter.get_info());
     let limits = adapter.limits();
 
     let (device, queue) =

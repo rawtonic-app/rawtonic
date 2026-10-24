@@ -136,6 +136,8 @@ pub(crate) fn setup_logging(app_handle: &tauri::AppHandle) {
             |loc| format!("at {}:{}:{}", loc.file(), loc.line(), loc.column()),
         );
         log::error!("PANIC! {} - {}", location, message.trim());
+        // For the crash report on the next start, should the app end now.
+        rawtonic_contribute::crash::note_panic(info);
         flush_logs();
     }));
 

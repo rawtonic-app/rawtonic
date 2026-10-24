@@ -78,6 +78,7 @@ mod tagging;
 mod tagging_utils;
 mod update_check;
 mod upright;
+mod window_capture;
 mod window_customizer;
 mod window_state;
 
@@ -98,7 +99,10 @@ use crate::launch_request::{LaunchRequest, emit_launch_request, parse_launch_arg
 use crate::window_customizer::PinchZoomDisablePlugin;
 
 #[cfg(target_os = "macos")]
-extern "C" fn force_exit(_signal: libc::c_int) {
+extern "C" fn force_exit(signal: libc::c_int) {
+    // An abort while the app runs is a crash for the next start's report;
+    // during a clean exit it is not (`contribute::clean_exit`).
+    rawtonic_contribute::crash::note_signal(signal);
     unsafe {
         libc::_exit(0);
     }
@@ -359,7 +363,21 @@ pub fn run() {
                 }
             }
 
+            // Before the log is replaced: a crash of the previous run keeps
+            // its last lines (ADR 0017, crash report on the next start).
+            let crash_record = if is_headless {
+                None
+            } else {
+                contribute::start_crash_records(&app_handle, settings.crash_reports.unwrap_or(true))
+            };
             startup::setup_logging(&app_handle);
+            if let Some(record) = &crash_record {
+                log::warn!(
+                    "The previous run ended in a crash ({} at {}); its report waits for the user's review.",
+                    record.crashed_on,
+                    record.location
+                );
+            }
             for message in &carried_over.messages {
                 log::info!("{message}");
             }
@@ -715,6 +733,12 @@ pub fn run() {
             contribute::contribution_prepare,
             contribute::contribution_send,
             contribute::contribution_delete,
+            contribute::problem_report_context,
+            contribute::problem_report_screenshot,
+            contribute::crash_reports_pending,
+            contribute::crash_report_mark_asked,
+            contribute::crash_report_remove,
+            contribute::crash_reports_set_enabled,
             app_settings::load_settings,
             app_settings::save_settings,
             ai_commands::generate_ai_depth_mask,
@@ -897,6 +921,7 @@ pub fn run() {
                 // saved its pending edits (app_quit.rs).
                 tauri::RunEvent::ExitRequested { api, code, .. } => {
                     api.prevent_exit();
+                    contribute::clean_exit();
                     window_state::flush();
                     startup::flush_logs();
                     let exit_code = if app_quit::is_restart(code) {
@@ -917,6 +942,7 @@ pub fn run() {
                     std::process::exit(exit_code);
                 }
                 tauri::RunEvent::Exit => {
+                    contribute::clean_exit();
                     window_state::flush();
                     startup::flush_logs();
                     #[cfg(any(target_os = "macos", target_os = "linux"))]
