@@ -1,4 +1,4 @@
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Editor, { type TransformWrapperHandle } from "./Editor";
@@ -35,6 +35,12 @@ describe("Editor zoom", () => {
         disconnect() {}
       },
     );
+    // jsdom has no pointer capture.
+    Object.assign(HTMLElement.prototype, {
+      setPointerCapture: () => {},
+      releasePointerCapture: () => {},
+      hasPointerCapture: () => false,
+    });
     useEditorStore.setState({
       selectedImage: { path: "/a.raw", width: 4000, height: 3000, isReady: true } as never,
       displaySize: { width: 400, height: 300 },
@@ -66,5 +72,18 @@ describe("Editor zoom", () => {
     act(() => ref.current!.setTransform(0, 0, 2));
     expect(ref.current!.instance.targetTransformState.scale).toBe(2);
     expect(ref.current!.instance.transformState.scale).toBe(2);
+  });
+
+  it("forgets the animation's end when a press stops it without moving", () => {
+    const ref = createRef<TransformWrapperHandle>();
+    render(<Editor onContextMenu={() => {}} transformWrapperRef={ref} />);
+    act(() => ref.current!.zoomIn(Math.log(4), 200));
+    const wrapper = ref.current!.instance.wrapperComponent!;
+    // A middle-button press stops the animation where it is; nothing moves.
+    act(() => {
+      fireEvent.pointerDown(wrapper, { pointerType: "mouse", button: 1, pointerId: 1, clientX: 10, clientY: 10 });
+      fireEvent.pointerUp(wrapper, { pointerType: "mouse", button: 1, pointerId: 1, clientX: 10, clientY: 10 });
+    });
+    expect(ref.current!.instance.targetTransformState).toEqual(ref.current!.instance.transformState);
   });
 });

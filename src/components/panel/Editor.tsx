@@ -550,9 +550,17 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     [handleZoomed],
   );
 
+  /** Stops the animation under way, if any, and forgets where it went. */
+  const cancelAnimation = useCallback(() => {
+    if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
+    animationFrameId.current = null;
+    animationTargetRef.current = null;
+  }, []);
+
   const animateTransform = useCallback(
     (targetX: number, targetY: number, targetScale: number, duration: number) => {
       if (physicsFrameId.current) cancelAnimationFrame(physicsFrameId.current);
+      cancelAnimation();
 
       const startX = transformStateRef.current.positionX;
       const startY = transformStateRef.current.positionY;
@@ -585,16 +593,15 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         }
       };
 
-      if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
       animationFrameId.current = requestAnimationFrame(step);
     },
-    [applyTransform, clampToBounds, reportDisplaySize],
+    [applyTransform, cancelAnimation, clampToBounds, reportDisplaySize],
   );
 
   const startPhysicsLoop = useCallback(
     (initialVx: number, initialVy: number) => {
       if (physicsFrameId.current) cancelAnimationFrame(physicsFrameId.current);
-      if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
+      cancelAnimation();
 
       let vx = initialVx;
       let vy = initialVy;
@@ -660,7 +667,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       };
       physicsFrameId.current = requestAnimationFrame(step);
     },
-    [applyTransform, getTransformBounds, clampToBounds],
+    [applyTransform, cancelAnimation, getTransformBounds, clampToBounds],
   );
 
   const zoomToCenter = useCallback(
@@ -770,7 +777,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
     const handleNativeWheel = (e: WheelEvent) => {
       e.preventDefault();
-      if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
+      cancelAnimation();
       if (physicsFrameId.current) cancelAnimationFrame(physicsFrameId.current);
 
       if (isCtrlPressedRef.current && selectedImage) {
@@ -889,6 +896,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     return () => container.removeEventListener('wheel', handleNativeWheel);
   }, [
     applyTransform,
+    cancelAnimation,
     clampToBounds,
     getTransformBounds,
     startPhysicsLoop,
@@ -918,7 +926,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       // Shift-drag straightens, except where a tool takes the pointer (the
       // spot tool's Shift adds to a removal's selection, masks paint).
       if (e.pointerType === 'mouse' && e.button === 0 && e.shiftKey && !isBrushActive && !panningDisabled) {
-        if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
+        cancelAnimation();
         if (physicsFrameId.current) cancelAnimationFrame(physicsFrameId.current);
 
         const rect = e.currentTarget.getBoundingClientRect();
@@ -935,7 +943,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       }
 
       if (e.pointerType === 'mouse' && e.button === 0 && (e.ctrlKey || e.metaKey) && !isBrushActive) {
-        if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
+        cancelAnimation();
         if (physicsFrameId.current) cancelAnimationFrame(physicsFrameId.current);
 
         const now = Date.now();
@@ -980,7 +988,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         isMiddleMousePanning.current = true;
       }
 
-      if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
+      cancelAnimation();
       if (physicsFrameId.current) cancelAnimationFrame(physicsFrameId.current);
 
       panVelocityHistory.current = [];
@@ -1002,6 +1010,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       if (e.pointerType === 'mouse') e.currentTarget.setPointerCapture(e.pointerId);
     },
     [
+      cancelAnimation,
       isPanningDisabled,
       isBrushActive,
       isCropping,

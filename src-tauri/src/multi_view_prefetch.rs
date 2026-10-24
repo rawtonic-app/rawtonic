@@ -141,6 +141,8 @@ struct HeldDecode {
     /// How far its photograph is from the primary (`Queue::rank`): the
     /// farthest written decode is let go first.
     rank: usize,
+    /// The [`decodes_generation`] it was made in.
+    generation: usize,
 }
 
 /// The decodes held for their 1:1 previews, oldest first. The shown
@@ -153,6 +155,46 @@ struct HeldDecode {
 static HELD: Mutex<VecDeque<HeldDecode>> = Mutex::new(VecDeque::new());
 /// Notified when a decode is held or the decode under way ends.
 static HELD_CHANGED: Condvar = Condvar::new();
+/// Raised (under the [`HELD`] lock) when the decoder's settings change: a
+/// decode made before is neither held nor written.
+static DECODES_GENERATION: AtomicUsize = AtomicUsize::new(0);
+
+/// The generation of decodes made now (`forget_decodes`).
+pub(crate) fn decodes_generation() -> usize {
+    DECODES_GENERATION.load(Ordering::SeqCst)
+}
+
+/// The decoder's settings changed (`cache_utils::clear_image_caches`):
+/// the decodes held, the one under way and those still to be written are
+/// of the old settings; let go, cancelled and decoded again.
+pub(crate) fn forget_decodes() {
+    let Some(worker) = WORKER.get() else {
+        DECODES_GENERATION.fetch_add(1, Ordering::SeqCst);
+        return;
+    };
+    let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
+    let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+    DECODES_GENERATION.fetch_add(1, Ordering::SeqCst);
+    // Their previews are of the old settings too: all made again.
+    for path in held
+        .drain(..)
+        .map(|h| h.path)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+    {
+        if !queue.todo.contains(&path) {
+            queue.todo.push_front(path);
+        }
+    }
+    drop(held);
+    queue.generation += 1;
+    worker.cancel.fetch_add(1, Ordering::SeqCst);
+    worker.wake.notify_one();
+    drop(queue);
+    rawtonic_runtime::allocator::release_freed_memory();
+}
+
 /// The decoded cache key of the decode under way, if any.
 static DECODING: Mutex<Option<String>> = Mutex::new(None);
 
@@ -258,6 +300,7 @@ pub(crate) fn adopt(
     key: &str,
     image: &Arc<DynamicImage>,
     measures: Option<DecodeMeasures>,
+    generation: usize,
 ) -> bool {
     let Some(worker) = WORKER.get() else {
         return false;
@@ -278,7 +321,7 @@ pub(crate) fn adopt(
         return false;
     }
     let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
-    if held.iter().any(|h| h.key == key) {
+    if held.iter().any(|h| h.key == key) || decodes_generation() != generation {
         return false;
     }
     let budget = hold_budget();
@@ -296,6 +339,7 @@ pub(crate) fn adopt(
         variant,
         written: false,
         rank,
+        generation,
     });
     worker.wake.notify_one();
     true
@@ -479,12 +523,8 @@ pub(crate) fn plan(app_handle: &tauri::AppHandle, paths: Vec<String>, primary: O
     }
     let worker = worker(app_handle);
     let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
-    if queue.todo.iter().eq(paths.iter()) {
-        return;
-    }
-    queue.generation += 1;
     // Decodes held for photographs no longer shown are let go (the
-    // primary's too, once its cell is gone).
+    // primary's too, once its cell is gone; all when the multi view ends).
     let shown: std::collections::HashSet<String> = paths
         .iter()
         .map(|p| source_of(p))
@@ -501,20 +541,26 @@ pub(crate) fn plan(app_handle: &tauri::AppHandle, paths: Vec<String>, primary: O
         .load(Ordering::SeqCst)
         .then(|| queue.todo.front().cloned())
         .flatten();
-    queue.order = primary
+    let order: Vec<String> = primary
         .into_iter()
         .map(str::to_string)
         .chain(paths.iter().cloned())
         .collect();
     let (todo, cancel) = replanned(paths, &held_paths, decoding.as_deref(), primary);
-    queue.todo = todo;
-    for held in HELD.lock().unwrap_or_else(|e| e.into_inner()).iter_mut() {
-        held.rank = queue.rank(&held.path);
+    // The same plan again (the multi view plans after every change of its
+    // cells): nothing changes.
+    if todo != queue.todo || order != queue.order {
+        queue.generation += 1;
+        queue.order = order;
+        queue.todo = todo;
+        for held in HELD.lock().unwrap_or_else(|e| e.into_inner()).iter_mut() {
+            held.rank = queue.rank(&held.path);
+        }
+        if cancel {
+            worker.cancel.fetch_add(1, Ordering::SeqCst);
+        }
+        worker.wake.notify_one();
     }
-    if cancel {
-        worker.cancel.fetch_add(1, Ordering::SeqCst);
-    }
-    worker.wake.notify_one();
     drop(queue);
     if released {
         rawtonic_runtime::allocator::release_freed_memory();
@@ -604,12 +650,40 @@ fn make_room(
     held.len() < before
 }
 
+/// Lets every held decode go, those still to be written back to the front
+/// of `todo` (decoded again later).
+fn let_all_go(held: &mut VecDeque<HeldDecode>, todo: &mut VecDeque<String>) -> bool {
+    let unwritten: Vec<String> = held
+        .iter()
+        .filter(|h| !h.written && !todo.contains(&h.path))
+        .map(|h| h.path.clone())
+        .collect();
+    for path in unwritten.into_iter().rev() {
+        todo.push_front(path);
+    }
+    let any = !held.is_empty();
+    held.clear();
+    any
+}
+
 /// The next step: decodes while they fit the budget (letting written
 /// decodes go for them), else (or with nothing left to decode) writes the
-/// oldest held decode's previews; None with nothing to do. Under memory
-/// pressure (no budget) the written decodes are let go.
-fn next_step(queue: &Queue) -> Option<Step> {
+/// oldest held decode's previews; None with nothing to do. Short of memory
+/// (no budget) the written decodes are let go; critically short, all (and
+/// nothing starts, `may_start`).
+fn next_step(queue: &mut Queue) -> Option<Step> {
     let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+    if crate::memory_pressure::level_now() == Some(crate::memory_pressure::Level::Critical) {
+        let freed = let_all_go(&mut held, &mut queue.todo);
+        drop(held);
+        if freed {
+            rawtonic_runtime::allocator::release_freed_memory();
+        }
+        return queue
+            .todo
+            .front()
+            .map(|path| Step::Decode(path.clone(), queue.generation));
+    }
     let next = queue
         .todo
         .front()
@@ -664,7 +738,7 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
         let step = {
             let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
             loop {
-                if let Some(step) = next_step(&queue) {
+                if let Some(step) = next_step(&mut queue) {
                     let quiet = since_activity();
                     let busy = busy();
                     // Critical only: a Mac with Capture One and Lightroom
@@ -694,14 +768,10 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                         .0;
                     continue;
                 }
-                // Written decodes held: looked at again now and then, so
-                // they are let go under memory pressure.
-                let written = HELD
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .iter()
-                    .any(|h| h.written);
-                queue = if written {
+                // Decodes held: looked at again now and then, so they are
+                // let go under memory pressure.
+                let holding = !HELD.lock().unwrap_or_else(|e| e.into_inner()).is_empty();
+                queue = if holding {
                     worker
                         .wake
                         .wait_timeout(queue, Duration::from_secs(5))
@@ -755,12 +825,14 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                             Arc::clone(&h.image),
                             h.measures,
                             h.variant,
+                            h.generation,
                         )
                     });
-                let Some((path, key, image, measures, variant)) = oldest else {
+                let Some((path, key, image, measures, variant, generation)) = oldest else {
                     continue;
                 };
-                write_pool.install(|| write(app_handle, &path, &image, measures, variant));
+                write_pool
+                    .install(|| write(app_handle, &path, &image, measures, variant, generation));
                 let trimmed = {
                     let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
                     if let Some(written) = held.iter_mut().find(|h| h.key == key) {
@@ -855,6 +927,7 @@ fn decode(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, 
         .get_measured(&key)
         .map(|(image, _, measures)| (image, measures));
     let start = Instant::now();
+    let generation = decodes_generation();
     let under_way = Decoding::start(&key);
     let (image, measures) = match cached {
         Some(cached) => cached,
@@ -888,6 +961,10 @@ fn decode(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, 
     let decoded_ms = start.elapsed().as_secs_f64() * 1e3;
     let (count, bytes) = {
         let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+        // Of settings changed meanwhile.
+        if decodes_generation() != generation {
+            return Outcome::Cancelled;
+        }
         held.push_back(HeldDecode {
             path: path.to_string(),
             key: key.clone(),
@@ -896,6 +973,7 @@ fn decode(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, 
             variant,
             written: false,
             rank: usize::MAX,
+            generation,
         });
         (held.len(), held_bytes(&held))
     };
@@ -919,9 +997,15 @@ fn write(
     image: &Arc<DynamicImage>,
     measures: Option<DecodeMeasures>,
     variant: DecodeVariant,
+    generation: usize,
 ) {
     let (source, _): (PathBuf, _) = parse_virtual_path(path);
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    // Made with the decoder's settings of before (forget_decodes): its
+    // previews would be labelled with the new ones.
+    if decodes_generation() != generation {
+        return;
+    }
     let start = Instant::now();
     let (needs_standard, standard) = standard_needed(app_handle, &source, &settings);
     if needs_standard {
@@ -1009,8 +1093,50 @@ mod tests {
         assert_eq!(Vec::from(todo), paths(&["b.raf"]));
     }
 
+    /// The tests that use the module's statics (the worker, the decodes
+    /// held) run one at a time.
+    static STATICS: Mutex<()> = Mutex::new(());
+
+    /// The static worker, without its thread (shared by these tests only).
+    fn test_worker() -> Arc<Worker> {
+        WORKER
+            .get_or_init(|| {
+                Arc::new(Worker {
+                    queue: Mutex::new(Queue::default()),
+                    wake: Condvar::new(),
+                    cancel: Arc::new(AtomicUsize::new(0)),
+                    decoding: AtomicBool::new(true),
+                })
+            })
+            .clone()
+    }
+
+    #[test]
+    fn a_change_of_the_decoders_settings_forgets_the_decodes() {
+        let _statics = STATICS.lock().unwrap_or_else(|e| e.into_inner());
+        let worker = test_worker();
+        let (generation, cancel) = (decodes_generation(), worker.cancel.load(Ordering::SeqCst));
+        HELD.lock()
+            .unwrap()
+            .extend([held("x.raf", 1, true, 1), held("y.raf", 1, false, 2)]);
+        forget_decodes();
+        // Neither is held; both are made again (their previews are of the
+        // old settings); the decode under way is cancelled; a decode begun
+        // before is no longer held (`decode`, `adopt`) or written (`write`).
+        assert!(HELD.lock().unwrap().is_empty());
+        let mut queue = worker.queue.lock().unwrap();
+        assert_eq!(
+            &queue.todo.iter().take(2).cloned().collect::<Vec<_>>(),
+            &paths(&["x.raf", "y.raf"])
+        );
+        queue.todo.retain(|p| p != "x.raf" && p != "y.raf");
+        assert_eq!(worker.cancel.load(Ordering::SeqCst), cancel + 1);
+        assert_eq!(decodes_generation(), generation + 1);
+    }
+
     #[test]
     fn a_cell_made_the_primary_opens_on_its_decode_under_way() {
+        let _statics = STATICS.lock().unwrap_or_else(|e| e.into_inner());
         let key = "a cell made the primary";
         let image = Arc::new(DynamicImage::new_rgb32f(2, 2));
         // Nothing under way and nothing held: none, without waiting.
@@ -1030,6 +1156,7 @@ mod tests {
                 variant: DecodeVariant::default(),
                 written: false,
                 rank: 1,
+                generation: decodes_generation(),
             });
             drop(under_way);
         });
@@ -1080,7 +1207,24 @@ mod tests {
             variant: DecodeVariant::default(),
             written,
             rank,
+            generation: 0,
         }
+    }
+
+    #[test]
+    fn critically_short_of_memory_every_decode_goes_and_is_made_again() {
+        let mut all: VecDeque<HeldDecode> = [
+            held("a", 1, true, 1),
+            held("b", 1, false, 2),
+            held("c", 1, false, 3),
+        ]
+        .into();
+        let mut todo: VecDeque<String> = paths(&["d", "c"]).into();
+        assert!(let_all_go(&mut all, &mut todo));
+        assert!(all.is_empty());
+        // The written one has its previews; the others are made again, first.
+        assert_eq!(Vec::from(todo.clone()), paths(&["b", "d", "c"]));
+        assert!(!let_all_go(&mut all, &mut todo));
     }
 
     #[test]
@@ -1125,14 +1269,8 @@ mod tests {
 
     #[test]
     fn an_edit_or_a_zoom_cancels_the_decode_under_way() {
-        let worker = Arc::new(Worker {
-            queue: Mutex::new(Queue::default()),
-            wake: Condvar::new(),
-            cancel: Arc::new(AtomicUsize::new(0)),
-            decoding: AtomicBool::new(true),
-        });
-        // The static worker is shared by the tests of this module only.
-        let worker = WORKER.get_or_init(|| worker).clone();
+        let _statics = STATICS.lock().unwrap_or_else(|e| e.into_inner());
+        let worker = test_worker();
         let before = worker.cancel.load(Ordering::SeqCst);
         {
             let _frame = PreviewFrame::start(false);

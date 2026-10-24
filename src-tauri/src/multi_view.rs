@@ -1392,6 +1392,7 @@ fn prepare_region(
         }
     }
     let loading = Instant::now();
+    let generation = crate::multi_view_prefetch::decodes_generation();
     let (source, source_scale, facts, mut source_kind, preview_key) =
         load_full_source(app_handle, path, recipe)?;
     log::info!(
@@ -1405,6 +1406,7 @@ fn prepare_region(
             &decoded_key(path, recipe),
             &source,
             facts.measures,
+            generation,
         )
     {
         source_kind = "decoded";
