@@ -560,11 +560,27 @@ pub(crate) fn copy_file_verified(
         #[cfg(test)]
         crate::crash::point("copy block written");
     }
+    // A copy made in place is visible: an attribute another program gave
+    // it meanwhile is never replaced (the copy then fails its check).
+    let in_place = written.is_some();
     if let Some(written) = written {
         written.attributes.clone_from(&attributes);
     }
-    xattr::write(&output, &attributes).map_err(|e| {
-        xattr::cannot_keep(staged.parent().unwrap_or(staged), source, &attributes, &e)
+    let set = if in_place {
+        xattr::write_new(&output, &attributes)
+    } else {
+        xattr::write(&output, &attributes)
+    };
+    set.map_err(|e| {
+        if in_place && e.kind() == io::ErrorKind::AlreadyExists {
+            anyhow::anyhow!(
+                "Another program gave {} extended attributes while it was copied; \
+                 nothing was moved",
+                staged.display()
+            )
+        } else {
+            xattr::cannot_keep(staged.parent().unwrap_or(staged), source, &attributes, &e)
+        }
     })?;
     #[cfg(unix)]
     if let Some(mode) = restore_mode {

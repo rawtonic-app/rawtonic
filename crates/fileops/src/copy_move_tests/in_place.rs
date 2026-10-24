@@ -304,6 +304,51 @@ fn an_attribute_given_to_a_copy_in_place_meanwhile_keeps_it() {
     }
 }
 
+/// An attribute the original has, given to its copy in place by another
+/// program meanwhile with another value: never replaced; the move fails and
+/// the copy is kept with that value.
+#[test]
+fn an_attribute_given_to_a_copy_in_place_meanwhile_is_never_replaced() {
+    use super::attributes::{attribute, tag, tags, target_keeps};
+    struct Comment<'a>(&'a Path, Cell<bool>);
+    impl CopyObserver for Comment<'_> {
+        fn copied(&self, _: u64, _: u64) {
+            if !self.1.replace(true) {
+                assert!(tag(self.0, "edited meanwhile"));
+            }
+        }
+    }
+    let _in_place = InPlace::on();
+    let world = World::new();
+    let raw = world.source.join("A.RAF");
+    if !tag(&raw, "red") || !target_keeps(&world) {
+        eprintln!("SKIP: no extended attributes on both volumes");
+        return;
+    }
+    let copy = world.target.join("A.RAF");
+    let journal = world.journal();
+    let error = journal
+        .execute_with(
+            "move",
+            "Move",
+            world.steps(),
+            &world.trash,
+            &Comment(&copy, Cell::new(false)),
+        )
+        .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("Another program"),
+        "{error:#}"
+    );
+    assert_eq!(tags(&copy), attribute("edited meanwhile"));
+    assert_eq!(tags(&raw), attribute("red"));
+    assert_eq!(World::names(&world.target), ["A.RAF"]);
+    assert_eq!(
+        journal.history(1).unwrap().remove(0).state,
+        State::RolledBack
+    );
+}
+
 /// Journaling a creation fails after the file was created: the empty file
 /// is taken back and the move rolls back.
 #[test]

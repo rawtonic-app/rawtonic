@@ -62,7 +62,15 @@ pub(crate) fn read_path(path: &Path) -> io::Result<Vec<Attribute>> {
 pub(crate) fn write(file: &File, attributes: &[Attribute]) -> io::Result<()> {
     attributes
         .iter()
-        .try_for_each(|(name, value)| sys::set(file, name, value))
+        .try_for_each(|(name, value)| sys::set(file, name, value, false))
+}
+
+/// [`write`], failing instead of replacing an attribute `file` has already
+/// (one another program gave a file others can see).
+pub(crate) fn write_new(file: &File, attributes: &[Attribute]) -> io::Result<()> {
+    attributes
+        .iter()
+        .try_for_each(|(name, value)| sys::set(file, name, value, true))
 }
 
 /// Why a move to the drive of `folder` is refused: `source` has
@@ -117,7 +125,7 @@ pub(crate) fn probe(folder: &Path) -> io::Result<()> {
         return Err(io::Error::from(io::ErrorKind::Unsupported));
     }
     let path = folder.join(PROBE_FILE);
-    let result = File::create_new(&path).and_then(|file| sys::set(&file, PROBE_NAME, b"1"));
+    let result = File::create_new(&path).and_then(|file| sys::set(&file, PROBE_NAME, b"1", false));
     let _ = std::fs::remove_file(&path);
     result
 }
@@ -227,18 +235,28 @@ mod sys {
         })
     }
 
-    pub fn set(file: &File, name: &[u8], value: &[u8]) -> io::Result<()> {
+    /// With `create_only` an attribute the file has already is not
+    /// replaced (EEXIST).
+    pub fn set(file: &File, name: &[u8], value: &[u8], create_only: bool) -> io::Result<()> {
         let (fd, name) = (file.as_raw_fd(), c_name(name)?);
+        let flags = if create_only { libc::XATTR_CREATE } else { 0 };
         // SAFETY: a valid descriptor, a NUL-terminated name and a value
         // valid for its length.
         let result = unsafe {
             #[cfg(target_os = "linux")]
             {
-                libc::fsetxattr(fd, name.as_ptr(), value.as_ptr().cast(), value.len(), 0)
+                libc::fsetxattr(fd, name.as_ptr(), value.as_ptr().cast(), value.len(), flags)
             }
             #[cfg(target_vendor = "apple")]
             {
-                libc::fsetxattr(fd, name.as_ptr(), value.as_ptr().cast(), value.len(), 0, 0)
+                libc::fsetxattr(
+                    fd,
+                    name.as_ptr(),
+                    value.as_ptr().cast(),
+                    value.len(),
+                    0,
+                    flags,
+                )
             }
         };
         if result == 0 {
@@ -266,7 +284,7 @@ mod sys {
     pub fn get(_file: &File, _name: &[u8]) -> io::Result<Vec<u8>> {
         Err(io::Error::from(io::ErrorKind::Unsupported))
     }
-    pub fn set(_file: &File, _name: &[u8], _value: &[u8]) -> io::Result<()> {
+    pub fn set(_file: &File, _name: &[u8], _value: &[u8], _create_only: bool) -> io::Result<()> {
         Err(io::Error::from(io::ErrorKind::Unsupported))
     }
     pub fn is_missing(_error: &io::Error) -> bool {
