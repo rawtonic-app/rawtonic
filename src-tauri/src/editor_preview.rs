@@ -283,6 +283,29 @@ pub(crate) fn reduced_preview_base(
     )
 }
 
+/// `reduced_preview_base` of a reduced `source` that stands in only until
+/// the photograph at full resolution is in (`build_reduced_preview_base`
+/// with `interim`).
+pub(crate) fn interim_preview_base(
+    source: &DynamicImage,
+    source_scale: f32,
+    full_width: u32,
+    full_height: u32,
+    adjustments: &serde_json::Value,
+    preview_dim: u32,
+    scale: f32,
+) -> Result<preview_cache::PreviewBase, String> {
+    build_reduced_preview_base(
+        source,
+        source_scale,
+        (full_width, full_height),
+        adjustments,
+        preview_dim,
+        scale,
+        true,
+    )
+}
+
 /// `reduced_preview_base` with `interim`: `source` (a reduced copy) stands
 /// in only until the photograph's decode is in, so its warp does not
 /// measure the automatic lateral CA on it (`warp_image_geometry_interim`).
