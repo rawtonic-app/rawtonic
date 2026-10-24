@@ -253,12 +253,17 @@ struct ExportArgs {
     quality: u8,
     #[arg(long, default_value_t = 16, value_parser = clap::value_parser!(u8).range(8..=16))]
     tiff_bit_depth: u8,
-    /// Copy the source's EXIF and, for photos in a session, its catalog metadata.
+    /// Copy all source EXIF and session metadata. Creator, copyright
+    /// and usage terms are retained even without this flag; contacts require
+    /// --keep-creator-contact when other metadata is stripped.
     #[arg(long)]
     keep_metadata: bool,
     /// With --keep-metadata: leave out GPS positions.
     #[arg(long)]
     strip_gps: bool,
+    /// With other metadata stripped, explicitly include creator contact details.
+    #[arg(long)]
+    keep_creator_contact: bool,
     /// Output colour space: srgb, display-p3, adobe-rgb or prophoto (the
     /// file carries its ICC profile or JPEG XL colour encoding).
     #[arg(long, default_value = "srgb", value_parser = parse_color_space)]
@@ -932,6 +937,7 @@ fn export(args: ExportArgs) -> Result<()> {
         tiff_bit_depth,
         keep_metadata,
         strip_gps,
+        keep_creator_contact,
         color_space,
         lensfun_db,
         models,
@@ -967,6 +973,7 @@ fn export(args: ExportArgs) -> Result<()> {
         color_space,
         preserve_timestamps: true,
         strip_gps,
+        keep_creator_contact,
         filename_template: None,
         sequence_start: None,
         watermark: None,
@@ -1110,7 +1117,7 @@ fn export(args: ExportArgs) -> Result<()> {
             recipe,
             settings: settings.clone(),
             base: rawtonic_engine::image_loader::BaseImageOptions::default(),
-            catalog: keep_metadata.then(|| catalog_metadata(&source)).flatten(),
+            catalog: catalog_metadata(&source),
         });
         match result {
             Ok(()) => written.push(output.clone()),
@@ -1121,7 +1128,7 @@ fn export(args: ExportArgs) -> Result<()> {
         "written": written,
         "failed": failed,
         "seconds": started.elapsed().as_secs_f64(),
-        "metadata": if keep_metadata { "source EXIF and session catalog metadata" } else { "none" },
+        "metadata": if keep_metadata { "source EXIF and session catalog metadata" } else if keep_creator_contact { "creator, copyright, creator contact details and usage terms" } else { "creator, copyright and usage terms" },
     }))?;
     anyhow::ensure!(
         failed.is_empty(),

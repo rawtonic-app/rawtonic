@@ -2179,7 +2179,9 @@
       },
       "metadata": {
         "include": "包含元数据",
+        "keepCreatorContact": "包含作者联系方式",
         "legend": "元数据",
+        "rightsKept": "移除其他元数据的导出仍保留作者、版权和使用条款。作者联系方式（包括邮寄地址）默认不包含，除非在下方启用。",
         "stripGps": "移除位置信息",
         "timestamps": "文件日期设为拍摄时间"
       },
@@ -2880,6 +2882,14 @@
       "importFolder": "导入文件夹…",
       "importFolderTitle": "将文件夹（含子文件夹）中的所有 LUT 作为一个包导入",
       "importTitle": "导入 .cube、.3dl 或 HALD 图像 LUT",
+      "names": {
+        "coolCinema": "冷调电影",
+        "pastel": "粉彩",
+        "softPortrait": "柔和人像",
+        "vivid": "鲜艳",
+        "warm": "暖调",
+        "warmCinema": "暖调电影"
+      },
       "none": "无",
       "remove": "移除",
       "removeTitle": "从 Rawtonic 中移除此导入的 LUT",

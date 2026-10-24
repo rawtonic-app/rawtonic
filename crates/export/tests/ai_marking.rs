@@ -34,6 +34,7 @@ fn kept_metadata_of_a_missing_original_still_marks_generated_areas() {
         "jpeg",
         true,
         false,
+        false,
         32,
         24,
         true,

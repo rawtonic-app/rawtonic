@@ -51,6 +51,16 @@ type SkipKind = (typeof SKIP_KINDS)[number];
  * system's error). */
 const WITH_DETAIL = new Set(["unreadable", "folderUnreadable", "copyFailed"]);
 
+// File names are stable recipe identifiers; only the displayed names change.
+const BUILT_IN_NAMES: Record<string, "softPortrait" | "warmCinema" | "coolCinema" | "pastel" | "vivid" | "warm"> = {
+  "Portrait 400": "softPortrait",
+  "Cinema 250D": "warmCinema",
+  "Cinema 500T": "coolCinema",
+  "Pastel 400": "pastel",
+  "Vivid 100": "vivid",
+  "Warm 200": "warm",
+};
+
 const EXTENSIONS = ["cube", "3dl", "png", "jpg", "jpeg", "tiff"];
 
 /** The imported LUTs by pack, single files first; groups by name. */
@@ -81,6 +91,8 @@ export default function StudioLut({
   onInteraction(active: boolean): void;
 }) {
   const { t } = useTranslation();
+  const label = (entry: LutEntry, language?: string) => entry.isBuiltIn && BUILT_IN_NAMES[entry.name]
+    ? t(`studio.lut.names.${BUILT_IN_NAMES[entry.name]}`, { lng: language }) : entry.name;
   const skipReason = ({ reason, issue }: SkippedLut) => {
     const kind = issue?.kind as SkipKind | undefined;
     if (!issue || !kind || !SKIP_KINDS.includes(kind)) return reason;
@@ -166,7 +178,7 @@ export default function StudioLut({
             onChange={(e) => {
               const entry = entries.find((x) => x.path === e.target.value);
               if (!entry) clear();
-              else void handleLutSelect(entry.path, entry.isBuiltIn);
+              else void handleLutSelect(entry.path, entry.isBuiltIn, entry.isBuiltIn ? label(entry, "en") : undefined);
             }}
           >
             <option value="">{t("studio.lut.none")}</option>
@@ -175,7 +187,7 @@ export default function StudioLut({
               <optgroup label={t("studio.lut.builtIn")}>
                 {builtIn.map((e) => (
                   <option key={e.path} value={e.path}>
-                    {e.name}
+                    {label(e)}
                   </option>
                 ))}
               </optgroup>
@@ -184,7 +196,7 @@ export default function StudioLut({
               <optgroup key={group ?? ""} label={group ?? t("studio.lut.imported")}>
                 {list.map((e) => (
                   <option key={e.path} value={e.path}>
-                    {e.name}
+                    {label(e)}
                   </option>
                 ))}
               </optgroup>

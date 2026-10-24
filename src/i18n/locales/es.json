@@ -2280,7 +2280,9 @@
       },
       "metadata": {
         "include": "Incluir metadatos",
+        "keepCreatorContact": "Incluir datos de contacto del autor",
         "legend": "Metadatos",
+        "rightsKept": "Las exportaciones sin otros metadatos conservan autor, copyright y condiciones de uso. El contacto (incluida la dirección postal) se omite salvo que se active abajo.",
         "stripGps": "Quitar datos de ubicación",
         "timestamps": "Fechar archivos con la hora de captura"
       },
@@ -3043,6 +3045,14 @@
       "importFolder": "Importar carpeta…",
       "importFolderTitle": "Importar todas las LUT de una carpeta (y sus subcarpetas) como un paquete",
       "importTitle": "Importar LUT .cube, .3dl o de imagen HALD",
+      "names": {
+        "coolCinema": "Cine frío",
+        "pastel": "Pastel",
+        "softPortrait": "Retrato suave",
+        "vivid": "Vívido",
+        "warm": "Cálido",
+        "warmCinema": "Cine cálido"
+      },
       "none": "Ninguna",
       "remove": "Quitar",
       "removeTitle": "Quitar esta LUT importada de Rawtonic",

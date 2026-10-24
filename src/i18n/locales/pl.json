@@ -2341,7 +2341,9 @@
       },
       "metadata": {
         "include": "Dołącz metadane",
+        "keepCreatorContact": "Dołącz dane kontaktowe autora",
         "legend": "Metadane",
+        "rightsKept": "Eksport bez pozostałych metadanych zachowuje autora, prawa autorskie i warunki użycia. Dane kontaktowe (w tym adres pocztowy) są pomijane, chyba że zostaną włączone poniżej.",
         "stripGps": "Usuń dane lokalizacji",
         "timestamps": "Ustaw datę plików na czas wykonania"
       },
@@ -3135,6 +3137,14 @@
       "importFolder": "Importuj folder…",
       "importFolderTitle": "Importuj wszystkie LUT z folderu (i podfolderów) jako pakiet",
       "importTitle": "Importuj LUT .cube, .3dl lub obrazy HALD",
+      "names": {
+        "coolCinema": "Chłodne kino",
+        "pastel": "Pastelowy",
+        "softPortrait": "Miękki portret",
+        "vivid": "Żywy",
+        "warm": "Ciepły",
+        "warmCinema": "Ciepłe kino"
+      },
       "none": "Brak",
       "remove": "Usuń",
       "removeTitle": "Usuń tę zaimportowaną LUT z Rawtonic",

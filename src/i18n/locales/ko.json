@@ -2179,7 +2179,9 @@
       },
       "metadata": {
         "include": "메타데이터 포함",
+        "keepCreatorContact": "작성자 연락처 포함",
         "legend": "메타데이터",
+        "rightsKept": "다른 메타데이터를 제외해도 작성자, 저작권 및 이용 조건은 유지됩니다. 연락처(우편 주소 포함)는 아래에서 활성화하지 않으면 제외됩니다.",
         "stripGps": "위치 정보 제거",
         "timestamps": "파일 날짜를 촬영 시간으로 지정"
       },
@@ -2880,6 +2882,14 @@
       "importFolder": "폴더 가져오기…",
       "importFolderTitle": "폴더(하위 폴더 포함)의 모든 LUT를 팩으로 가져옵니다",
       "importTitle": ".cube, .3dl 또는 HALD 이미지 LUT 가져오기",
+      "names": {
+        "coolCinema": "차가운 시네마",
+        "pastel": "파스텔",
+        "softPortrait": "부드러운 인물",
+        "vivid": "선명함",
+        "warm": "따뜻함",
+        "warmCinema": "따뜻한 시네마"
+      },
       "none": "없음",
       "remove": "제거",
       "removeTitle": "가져온 이 LUT를 Rawtonic에서 제거",

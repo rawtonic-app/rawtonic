@@ -49,10 +49,16 @@ and the test's results and timings — no serial number, file names, folders,
 user name or photos) for you to copy yourself; its GitHub button only opens
 the camera report form in your browser.
 
-Exported files carry the metadata you choose to keep. When you strip
-metadata, a photo with areas made by a generative AI tool still records
-that fact (IPTC Digital Source Type), as the EU AI Act requires; nothing
-else is added.
+Exported files carry the metadata you choose to keep. Under the explicit
+[maintainer decision](docs/decisions/0018-export-rights-retention.md), stripped
+exports, including existing strip recipes, retain creator, copyright and usage
+terms. Creator contact details (email, phone, website, street address, city,
+region, postal code and country) are omitted by default. In Export > Metadata,
+"Include creator contact details" explicitly retains them when other metadata
+is stripped; both CLIs offer `--keep-creator-contact`. GPS, camera and serial
+fields are stripped. Rawtonic's creating-tool name is written. A photo with
+areas made by a generative AI tool also records that fact (IPTC Digital Source
+Type), as the EU AI Act requires.
 
 ## Sending reports to Rawtonic's makers
 

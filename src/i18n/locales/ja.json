@@ -2179,7 +2179,9 @@
       },
       "metadata": {
         "include": "メタデータを含める",
+        "keepCreatorContact": "作成者の連絡先を含める",
         "legend": "メタデータ",
+        "rightsKept": "他のメタデータを除外しても、作成者、著作権、使用条件は保持されます。連絡先（郵便住所を含む）は、以下で有効にしない限り除外されます。",
         "stripGps": "位置情報を削除",
         "timestamps": "ファイルの日時を撮影日時にする"
       },
@@ -2880,6 +2882,14 @@
       "importFolder": "フォルダーを読み込む…",
       "importFolderTitle": "フォルダー（サブフォルダーを含む）内のすべてのLUTをパックとして読み込みます",
       "importTitle": ".cube、.3dl、HALD 画像の LUT を取り込み",
+      "names": {
+        "coolCinema": "涼しげなシネマ",
+        "pastel": "パステル",
+        "softPortrait": "柔らかなポートレート",
+        "vivid": "鮮やか",
+        "warm": "暖か",
+        "warmCinema": "暖かなシネマ"
+      },
       "none": "なし",
       "remove": "削除",
       "removeTitle": "取り込んだこの LUT を Rawtonic から削除",

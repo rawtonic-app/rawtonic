@@ -1507,6 +1507,7 @@ pub async fn run_headless_export(
         color_space: session.color_space,
         preserve_timestamps: true,
         strip_gps: false,
+        keep_creator_contact: session.keep_creator_contact,
         filename_template: None,
         sequence_start: None,
         watermark: None,

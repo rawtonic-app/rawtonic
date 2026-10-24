@@ -845,3 +845,15 @@ it("retains specific German translations for known export failures", async () =>
     await i18n.changeLanguage("en");
   }
 });
+
+it("discloses copyright retention and offers opt-in contact retention when stripping metadata", () => {
+  useSettingsStore.setState({ appSettings: { exportPresets: [] } as unknown as AppSettings });
+  render(<StudioExport />);
+  fireEvent.click(screen.getByLabelText("Include metadata"));
+  expect(screen.getByText(/Stripped exports retain creator, copyright/).textContent).toContain("postal address");
+  const include = screen.getByLabelText("Include creator contact details") as HTMLInputElement;
+  expect(include.disabled).toBe(false);
+  expect(include.checked).toBe(false);
+  fireEvent.click(include);
+  expect(include.checked).toBe(true);
+});

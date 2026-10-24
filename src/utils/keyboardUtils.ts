@@ -591,8 +591,8 @@ const symMap: Record<string, string> = {
   PrintScreen: 'PrtSc',
 };
 
-export function normalizeCombo(event: KeyboardEvent, osPlatform?: string): string[] {
-  const isMacDelete = osPlatform === 'macos' && event.code === 'Backspace' && (event.ctrlKey || event.metaKey);
+export function normalizeCombo(event: KeyboardEvent, osPlatform?: string, libraryPlainDelete = false): string[] {
+  const isMacDelete = osPlatform === 'macos' && event.code === 'Backspace' && (event.ctrlKey || event.metaKey || libraryPlainDelete);
   const parts: string[] = [];
   if ((event.ctrlKey || event.metaKey) && !isMacDelete) parts.push('ctrl');
   if (event.shiftKey) parts.push('shift');
@@ -634,7 +634,7 @@ export function formatKeyCode(key: string, osPlatform: string): string {
   if (key === 'ctrl') return osPlatform === 'macos' ? '⌘' : 'Ctrl';
   if (key === 'shift') return 'Shift';
   if (key === 'alt') return osPlatform === 'macos' ? '⌥' : 'Alt';
-  if (key === 'Delete' && osPlatform === 'macos') return 'Delete / ⌘+⌫';
+  if (key === 'Delete' && osPlatform === 'macos') return '⌫ / Delete / ⌘+⌫';
   const label = codeToDisplayLabel(key);
   return label || key;
 }

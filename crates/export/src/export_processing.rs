@@ -138,6 +138,9 @@ pub struct ExportSettings {
     #[serde(default)]
     pub preserve_timestamps: bool,
     pub strip_gps: bool,
+    /// With metadata stripped, explicitly include creator contact details.
+    #[serde(default)]
+    pub keep_creator_contact: bool,
     pub filename_template: Option<String>,
     /// Initial counter for this job. Absent in old recipes and queued jobs.
     #[serde(default)]
@@ -1058,6 +1061,7 @@ pub fn save_export_image(
         &extension,
         export_settings.keep_metadata,
         export_settings.strip_gps,
+        export_settings.keep_creator_contact,
         width,
         height,
         generated,
@@ -2594,6 +2598,76 @@ mod encoding_input_tests {
             None,
         );
         assert!(encoded.is_err());
+    }
+
+    #[test]
+    fn contact_retention_is_opt_in_and_keeps_rights_and_pixels() {
+        let catalog = || {
+            Some(rawtonic_metadata::Metadata {
+                creator: "Creator".into(),
+                copyright: "Copyright".into(),
+                iptc: [
+                    ("creatorEmail".into(), "photo@example.invalid".into()),
+                    ("creatorAddress".into(), "Private address".into()),
+                    ("usageTerms".into(), "Licensed use".into()),
+                ]
+                .into(),
+                ..Default::default()
+            })
+        };
+        let mut pixels = None;
+        for keep in [None, Some(false), Some(true)] {
+            let mut value = serde_json::json!({
+                "jpegQuality": 85, "keepMetadata": false, "stripGps": false,
+            });
+            if let Some(keep) = keep {
+                value["keepCreatorContact"] = serde_json::json!(keep);
+            }
+            let settings: ExportSettings = serde_json::from_value(value).unwrap();
+            let written = Arc::new(std::sync::Mutex::new(None));
+            let write = {
+                let written = written.clone();
+                move |_: &Path, _: &str, bytes: Vec<u8>| {
+                    *written.lock().unwrap() = Some(bytes);
+                    Ok(())
+                }
+            };
+            let output = ExportOutput {
+                path: Path::new("/nowhere/photo.png"),
+                format: "png",
+                exif_sidecar: &|| panic!("catalog rights must avoid reading source metadata"),
+                catalog: &catalog,
+                write: &write,
+            };
+            save_export_image(
+                DynamicImage::new_rgb8(4, 4),
+                "/nowhere/source.jpg",
+                &settings,
+                true,
+                &output,
+            )
+            .unwrap();
+            let bytes = written.lock().unwrap().take().unwrap();
+            // The XMP packet remains plaintext in PNG's iTXt chunk.
+            let text = String::from_utf8_lossy(&bytes);
+            assert!(
+                text.contains("Creator")
+                    && text.contains("Copyright")
+                    && text.contains("Licensed use")
+            );
+            assert!(text.contains(rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI));
+            assert_eq!(
+                text.contains("photo@example.invalid"),
+                keep.unwrap_or(false)
+            );
+            assert_eq!(text.contains("Private address"), keep.unwrap_or(false));
+            let decoded = image::load_from_memory(&bytes).unwrap().into_rgb8();
+            if let Some(expected) = &pixels {
+                assert_eq!(&decoded, expected);
+            } else {
+                pixels = Some(decoded);
+            }
+        }
     }
 
     /// `ExportOutput::format` names the format of a path without extension,

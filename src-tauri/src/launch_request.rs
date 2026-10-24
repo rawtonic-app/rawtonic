@@ -23,6 +23,7 @@ pub struct HeadlessExportSession {
     pub tiff_bit_depth: TiffBitDepth,
     pub color_space: OutputColorSpace,
     pub keep_metadata: bool,
+    pub keep_creator_contact: bool,
     pub adjustments_override: Option<String>,
     /// Upper limit for files exported at the same time (`--jobs`).
     pub max_jobs: Option<usize>,
@@ -55,6 +56,7 @@ pub fn parse_launch_args(args: &[String]) -> LaunchRequest {
         let mut tiff_bit_depth = TiffBitDepth::default();
         let mut color_space = OutputColorSpace::Srgb;
         let mut keep_metadata = false;
+        let mut keep_creator_contact = false;
         let mut adjustments_override = None;
         let mut max_jobs = None;
 
@@ -116,6 +118,7 @@ pub fn parse_launch_args(args: &[String]) -> LaunchRequest {
                     color_space = value;
                 }
                 "--keep-metadata" => keep_metadata = true,
+                "--keep-creator-contact" => keep_creator_contact = true,
                 "--jobs" => {
                     let Some(value) = iter.next() else {
                         return LaunchRequest::InvalidHeadless(
@@ -149,6 +152,7 @@ pub fn parse_launch_args(args: &[String]) -> LaunchRequest {
             tiff_bit_depth,
             color_space,
             keep_metadata,
+            keep_creator_contact,
             adjustments_override,
             max_jobs,
         });
@@ -227,5 +231,25 @@ pub fn emit_launch_request(app_handle: &tauri::AppHandle, request: LaunchRequest
             log::error!("Invalid headless export request: {}", error);
         }
         LaunchRequest::None => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn headless_exports_require_explicit_contact_retention() {
+        for keep in [false, true] {
+            let mut args = vec!["export", "/qa/source.jpg", "--output", "/qa/output.jpg"];
+            if keep {
+                args.push("--keep-creator-contact");
+            }
+            let args: Vec<String> = args.into_iter().map(String::from).collect();
+            let LaunchRequest::HeadlessExport(session) = parse_launch_args(&args) else {
+                panic!("headless export");
+            };
+            assert_eq!(session.keep_creator_contact, keep);
+        }
     }
 }

@@ -593,3 +593,33 @@ describe("arrow keys in the Library grid", () => {
     useUIStore.setState({ gridColumns: 0 });
   });
 });
+
+it.each(["Backspace", "Delete"])("opens the Library delete dialog with plain %s on macOS", (code) => {
+  useEditorStore.setState({ activeMaskContainerId: null });
+  press(code);
+  expect(props.handleDeleteSelected).toHaveBeenCalledOnce();
+});
+
+it.each(["input", "textarea", "select", "div"])("leaves Delete to a focused %s", (tag) => {
+  const field = document.createElement(tag);
+  if (tag === "div") { field.contentEditable = "true"; field.setAttribute("contenteditable", "true"); field.tabIndex = 0; }
+  document.body.append(field);
+  field.focus();
+  press("Backspace");
+  press("Delete");
+  expect(props.handleDeleteSelected).not.toHaveBeenCalled();
+});
+
+it("lets a user disable the default Delete action on macOS", () => {
+  useSettingsStore.setState({ appSettings: { keybinds: { delete_selected: [] } } as unknown as AppSettings });
+  press("Backspace");
+  press("Delete");
+  expect(props.handleDeleteSelected).not.toHaveBeenCalled();
+});
+
+it("does not open photo deletion with plain Backspace in Develop", () => {
+  useUIStore.setState({ activeView: "editor" });
+  useEditorStore.setState({ activeMaskContainerId: null });
+  press("Backspace");
+  expect(props.handleDeleteSelected).not.toHaveBeenCalled();
+});
