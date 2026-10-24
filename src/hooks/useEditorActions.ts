@@ -50,6 +50,7 @@ import { registerQuitFlush } from '../utils/quit';
 import { draftFor, flushSliderDraft, renderDraft, updateDraft } from '../utils/sliderDraft';
 import { saveFailure } from './useLibraryActions';
 import { clampViewerZoom } from '../utils/viewerDisplay';
+import { noteTool } from '../components/contribute/usageStats';
 
 const pendingMetadataSaves = new Map<string, Promise<Adjustments | undefined>>();
 const unsavedRecipes = new Map<string, Adjustments>();
@@ -888,7 +889,10 @@ export function useEditorActions() {
       const { copiedAdjustments, copiedFrom } = useEditorStore.getState();
       const { setProcess } = useProcessStore.getState();
       if (!copiedAdjustments) return;
-      if (Object.keys(copiedAdjustments).length > 0) applyAdjustmentsToPaths(copiedAdjustments, paths, { pasteFrom: copiedFrom, asChosen: true });
+      if (Object.keys(copiedAdjustments).length > 0) {
+        applyAdjustmentsToPaths(copiedAdjustments, paths, { pasteFrom: copiedFrom, asChosen: true });
+        noteTool('copySettings');
+      }
       setProcess({ isPasted: true });
     },
     [applyAdjustmentsToPaths],
@@ -908,7 +912,10 @@ export function useEditorActions() {
       const sync = (choice: SettingsChoice) => {
         rememberChoice(choice, source.path);
         const chosen = withSourceFrames(chosenSettings(source.adjustments, choice.keys, choice.layerIds), source);
-        if (Object.keys(chosen).length > 0) applyAdjustmentsToPaths(chosen, targets, { pasteFrom: source.path, asChosen: true });
+        if (Object.keys(chosen).length > 0) {
+          applyAdjustmentsToPaths(chosen, targets, { pasteFrom: source.path, asChosen: true });
+          noteTool('copySettings');
+        }
       };
       if (quick) sync(rememberedChoice(source));
       else

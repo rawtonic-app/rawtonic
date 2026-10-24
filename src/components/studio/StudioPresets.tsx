@@ -12,6 +12,7 @@ import type { Preset } from "../ui/AppProperties";
 import { ToolGroup } from "./StudioDevelop";
 import { blendPreset } from "../../utils/presetAmount";
 import { withAiDenoiseVersion, withPresetClarityVersion, withDiffractionVersion, withGrainStructure, withLegacyGrainVersion, withLumaNoiseVersion, withSharpenVersion } from "../../utils/adjustments";
+import { noteTool } from "../contribute/usageStats";
 
 type Entry = { folder: { id: string; name: string } | null; presets: Preset[] };
 
@@ -195,6 +196,7 @@ export default function StudioPresets() {
         : null,
     );
     applyAdjustmentsToPaths(withPresetClarityVersion(structuredClone(preset.adjustments)), targets);
+    noteTool("presets");
     setApplied(preset.id);
   };
   const changeAmount = (value: number) => {

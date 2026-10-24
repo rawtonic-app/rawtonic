@@ -1209,6 +1209,7 @@ pub async fn load_image(
             "cached": was_cached, "width": orig_width, "height": orig_height
         })
     );
+    crate::contribute::note_camera(&exif_data);
     let preview_fallback = is_raw
         .then(|| preview_fallback_reason(&source_path_str))
         .flatten();

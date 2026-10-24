@@ -4,6 +4,7 @@ import { CLOSED_MERGE_MODAL, useUIStore } from "../store/useUIStore";
 import { Invokes } from "../components/ui/AppProperties";
 import type { MergeKind, MergeModalState } from "../store/useUIStore";
 import type { CollageSpec } from "../components/modals/CollageModal";
+import { noteTool } from '../components/contribute/usageStats';
 
 // Merge job ids (merges.rs): unique per run, also across a webview reload.
 let lastMergeJob = Date.now();
@@ -48,6 +49,7 @@ export function useProductivityActions(refreshImageList: () => Promise<void>) {
           progressMessage: null,
         },
       }));
+      noteTool('merge');
       invoke(Invokes.MergePhotos, { paths: sourcePaths, kind, options, job }).catch(
         (err) => {
           setMergeStateFor(job, () => ({

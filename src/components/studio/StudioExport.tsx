@@ -39,6 +39,7 @@ import {
   COLOR_SPACE_NAMES,
 } from "../../utils/exportRecipes";
 import { selectOnFocus } from "../../utils/selectOnFocus";
+import { noteTool } from "../contribute/usageStats";
 
 const CHECKED_KEY = "rawtonic.export.recipes";
 const readChecked = (): string[] => {
@@ -377,6 +378,8 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
             progress: { current: 0, total: paths.length * started },
           });
         await invoke(Invokes.ExportImagesBatch, { requests });
+        noteTool("export");
+        if (paths.length > 1) noteTool("batchExport");
       }
       if (started) onStarted?.();
       if (started && (queued || started > 1))

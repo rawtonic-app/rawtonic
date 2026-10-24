@@ -191,6 +191,9 @@ export enum Invokes {
   CrashReportRemove = 'crash_report_remove',
   CrashReportsPending = 'crash_reports_pending',
   CrashReportsSetEnabled = 'crash_reports_set_enabled',
+  UsageStatsNoteTools = 'usage_stats_note_tools',
+  UsageStatsPreview = 'usage_stats_preview',
+  UsageStatsSetEnabled = 'usage_stats_set_enabled',
   LoadSettings = 'load_settings',
   MoveFiles = 'move_files',
   MoveFolder = 'move_folder',
@@ -361,6 +364,8 @@ export interface AppSettings {
   checkForUpdates?: boolean;
   /** Offer a crash report after Rawtonic quit unexpectedly (missing: yes). */
   crashReports?: boolean;
+  /** Anonymous weekly usage statistics (ADR 0017); off unless true. */
+  usageStats?: boolean;
   updatePrereleases?: boolean;
   dismissedUpdateVersion?: string;
   aiConnectorAddress?: string;

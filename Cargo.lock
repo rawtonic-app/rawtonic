@@ -5400,6 +5400,7 @@ dependencies = [
  "base64 0.23.1",
  "gethostname",
  "libc",
+ "log",
  "proptest",
  "rawtonic-metadata",
  "regex",

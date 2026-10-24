@@ -8,3 +8,4 @@ pub mod client;
 pub mod crash;
 pub mod payload;
 pub mod scrub;
+pub mod stats;

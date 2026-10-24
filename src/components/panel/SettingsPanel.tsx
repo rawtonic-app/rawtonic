@@ -42,6 +42,7 @@ import AboutSettings from './AboutSettings';
 import PreviewSettings from './PreviewSettings';
 import UpdateSettings from './UpdateSettings';
 import CrashReportSettings from './CrashReportSettings';
+import UsageStatsSettings from './UsageStatsSettings';
 import DevelopToolsSide from '../studio/DevelopToolsSide';
 import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 import { useOsPlatform } from '../../hooks/useOsPlatform';
@@ -921,6 +922,7 @@ export default function SettingsPanel({
 
                       <UpdateSettings appSettings={appSettings} onSettingsChange={onSettingsChange} />
                       <CrashReportSettings appSettings={appSettings} onSettingsChange={onSettingsChange} />
+                      <UsageStatsSettings appSettings={appSettings} onSettingsChange={onSettingsChange} />
 
                       <SettingItem label={t('settings.general.uiScale')} description={t('settings.general.uiScaleDesc')}>
                         <Dropdown

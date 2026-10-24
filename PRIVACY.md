@@ -1,14 +1,15 @@
 # Privacy
 
 Rawtonic is a desktop app. Photos, catalogs, sessions and edits stay on
-your computer and in the folders you choose. Rawtonic has no accounts,
-analytics or telemetry, and its makers receive no data from it unless you
-send a problem or crash report yourself (below).
+your computer and in the folders you choose. Rawtonic has no accounts or
+telemetry, and its makers receive no data from it unless you send a report
+yourself or switch on anonymous usage statistics (both below).
 
 ## Update checks
 
 At startup, Rawtonic checks for new releases at most once every 24 hours.
-This is on by default and is its only automatic network access. Turn off
+This is on by default and is its only automatic network access, apart from
+the usage statistics if you switch them on (below). Turn off
 “Check for updates at startup” in Preferences → General to stop it. “Check now”
 requests a check even when the startup check is off.
 
@@ -119,8 +120,36 @@ metadata, such as the date, the camera's serial number and a GPS position if
 one was recorded. The same guide can open "Report a problem" for that file
 instead.
 
-RAW sample uploads to Rawtonic and anonymous usage statistics are not part of
-this version; each will be described here, in full, in the version that adds
-it.
+## Anonymous usage statistics
+
+Off unless you switch on "Send anonymous usage statistics once a week" in
+Preferences → General. While it is on, Rawtonic keeps on your computer (in its
+settings folder, `usage-stats.json`), per calendar week (ISO week, UTC), only:
+the camera makes and models of the photos you opened, each once (no counts),
+only for bodies on the camera list of Rawtonic's RAW decoder and by the name
+that list gives (a name a file's metadata was edited to carry is not kept);
+which tools from a fixed list you used at all (yes or no — no counts, values,
+times or photos); Rawtonic's version, your operating system and its version,
+the processor type and the maker of your graphics card (Apple, AMD, Intel,
+NVIDIA, Qualcomm or other). At the first start of a later week Rawtonic sends
+each finished week at most once to its relay (`relay.rawtonic.cc`), about
+30 seconds after the start (a week that could not reach the relay at all is
+tried at the next start); a week not sent within two weeks of its end is
+deleted unsent. A send carries no id, no session or install number, and no time finer
+than the week. The relay only adds one to a counter per value (for example
+"camera Sony ILCE-7M3, week 43") and keeps neither the send itself nor your IP
+address, and its makers see a value only when at least ten sends counted it
+that week. This limits what is kept; it does not make a send anonymous in
+transit: Cloudflare, which runs the relay, sees your IP address like any web
+host, and an unusual combination of cameras and system could stand out
+there. "Show what is sent" in Preferences
+shows every week waiting to be sent at any time, in plain words or as its
+exact data, and the last one sent. Switching it off deletes everything kept and drops a send under
+way (data already handed to the network at that moment may still arrive);
+nothing more is sent, and switching it on again starts from nothing kept. If
+the choice or the deletion cannot be saved, Preferences says so. Statistics cannot be deleted one by one afterwards, as they are only
+counters.
+
+RAW sample uploads to Rawtonic are not part of this version.
 
 Questions: open an issue at https://github.com/rawtonic-app/rawtonic.

@@ -79,6 +79,7 @@ import { runAutoStraighten } from '../utils/autoStraighten';
 import { previewsMenu } from '../utils/previews';
 import { MISSING_VIEW_ID, offlineMenu } from '../utils/offline';
 import { PREVIOUS_IMPORT_VIEW_ID } from '../utils/folderSync';
+import { noteTool } from '../components/contribute/usageStats';
 
 type TaggingSubMenuProps = Omit<ComponentProps<typeof TaggingSubMenu>, 'hideContextMenu'>;
 
@@ -120,8 +121,10 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
   const presetMenu = (items: UserPreset[], paths: string[]): Option => {
     const entry = (preset: { id: string; name: string; adjustments: unknown }): Option => ({
       label: preset.name,
-      onClick: () =>
-        applyAdjustmentsToPaths(withPresetClarityVersion(structuredClone(preset.adjustments) as never), paths),
+      onClick: () => {
+        applyAdjustmentsToPaths(withPresetClarityVersion(structuredClone(preset.adjustments) as never), paths);
+        noteTool('presets');
+      },
     });
     const submenu = items.flatMap((item): Option[] =>
       item.preset
