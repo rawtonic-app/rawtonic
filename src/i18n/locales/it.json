@@ -2612,7 +2612,7 @@
         "keptCopies_many": "{{count}} copie restano sull'altra unità; i loro originali non sono stati toccati:",
         "keptCopies_other": "{{count}} copie restano sull'altra unità; i loro originali non sono stati toccati:",
         "keptCopyIncomplete": "{{name}} (forse incompleta)",
-        "keptCopyTrashed": "{{name}} è nel Cestino della sua unità; «Ripristina» lì lo riporta indietro.",
+        "keptCopyTrashed": "{{name}} è nel Cestino della sua unità; trascinalo fuori dal Cestino per recuperarlo.",
         "keptCopyTrashFailed": "Impossibile spostare {{name}} nel Cestino: {{error}}",
         "movedTo_one": "{{count}} foto spostata in {{folder}}.",
         "movedTo_many": "{{count}} foto spostate in {{folder}}.",

@@ -556,7 +556,7 @@ describe('copies a stopped or failed move left on the other drive', () => {
       operationId: 'op-1',
       path: '/Volumes/CARD/2026/A.xmp',
     });
-    expect(toast.success).toHaveBeenCalledWith('A.xmp is in the Trash of its drive; Put Back there takes it back.');
+    expect(toast.success).toHaveBeenCalledWith('A.xmp is in the Trash of its drive; drag it out of the Trash to get it back.');
   });
 
   it('says why a copy could not go to the Trash', async () => {

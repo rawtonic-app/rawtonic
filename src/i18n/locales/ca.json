@@ -2612,7 +2612,7 @@
         "keptCopies_many": "{{count}} còpies es queden a l'altra unitat; els originals no s'han tocat:",
         "keptCopies_other": "{{count}} còpies es queden a l'altra unitat; els originals no s'han tocat:",
         "keptCopyIncomplete": "{{name}} (potser incompleta)",
-        "keptCopyTrashed": "{{name}} és a la Paperera de la seva unitat; «Retornar» allà el recupera.",
+        "keptCopyTrashed": "{{name}} és a la Paperera de la seva unitat; arrossega'l fora de la Paperera per recuperar-lo.",
         "keptCopyTrashFailed": "No s'ha pogut moure {{name}} a la Paperera: {{error}}",
         "movedTo_one": "S’ha mogut {{count}} foto a {{folder}}.",
         "movedTo_many": "S’han mogut {{count}} fotos a {{folder}}.",

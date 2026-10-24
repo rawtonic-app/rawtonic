@@ -2485,7 +2485,7 @@
         "deleteFailed": "ファイルをゴミ箱に入れられませんでした: {{error}}",
         "keptCopies_other": "{{count}} 個のコピーがもう一方のドライブに残っています。元のファイルは変更されていません：",
         "keptCopyIncomplete": "{{name}}（不完全な可能性があります）",
-        "keptCopyTrashed": "{{name}} はそのドライブのゴミ箱にあります。そこで「戻す」と元に戻せます。",
+        "keptCopyTrashed": "{{name}} はそのドライブのゴミ箱にあります。ゴミ箱からドラッグして取り出すと元に戻せます。",
         "keptCopyTrashFailed": "{{name}} をゴミ箱に入れられませんでした：{{error}}",
         "movedTo_other": "写真 {{count}} 枚を {{folder}} に移動しました。",
         "moveFailed": "移動できませんでした: {{error}}",

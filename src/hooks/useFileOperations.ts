@@ -141,7 +141,7 @@ const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
 /** A toast naming the copies a move left, each with Show in Finder and
  * Move to Trash (only for these very copies: the backend refuses any other
- * file; not undoable, the system Trash puts it back). `onTrashed` runs
+ * file; not undoable: it is taken back by dragging it out of the Trash). `onTrashed` runs
  * after one went. */
 export function showKeptCopies(kept: KeptCopies, onTrashed: () => void) {
   const t = i18next.t.bind(i18next);

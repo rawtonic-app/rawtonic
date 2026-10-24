@@ -2538,7 +2538,7 @@
         "keptCopies_one": "{{count}} copy stays on the other drive; its original was not touched:",
         "keptCopies_other": "{{count}} copies stay on the other drive; their originals were not touched:",
         "keptCopyIncomplete": "{{name}} (maybe incomplete)",
-        "keptCopyTrashed": "{{name}} is in the Trash of its drive; Put Back there takes it back.",
+        "keptCopyTrashed": "{{name}} is in the Trash of its drive; drag it out of the Trash to get it back.",
         "keptCopyTrashFailed": "Could not move {{name}} to the Trash: {{error}}",
         "movedTo_one": "Moved {{count}} photo to {{folder}}.",
         "movedTo_other": "Moved {{count}} photos to {{folder}}.",

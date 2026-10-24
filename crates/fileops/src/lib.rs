@@ -1477,8 +1477,8 @@ impl Journal {
     /// original's, or another extended attribute). Nothing is ever deleted. It is
     /// not an undoable operation: putting it back would be a rename the
     /// volume cannot do without risking replacing a file (exFAT on macOS),
-    /// and a redo could not hold these checks; the system Trash's own Put
-    /// Back takes it back.
+    /// and a redo could not hold these checks; it is taken back by dragging
+    /// it out of the Trash.
     pub fn trash_kept_copy(
         &self,
         id: &str,
