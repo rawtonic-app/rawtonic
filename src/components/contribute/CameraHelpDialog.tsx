@@ -20,7 +20,7 @@ import Button from "../ui/Button";
 import Text from "../ui/Text";
 import { TextVariants } from "../../types/typography";
 import { isUnreadableError } from "../../utils/loadError";
-import { photoInfo, type PhotoInfo } from "./reports";
+import { filePhoto, photoInfo, type PhotoInfo } from "./reports";
 
 /** raw.pixls.us: its start page holds the upload form, `#repo` the list of
  * cameras and modes with samples. There is no machine-readable listing, so
@@ -170,7 +170,7 @@ export default function CameraHelpDialog({
           </Text>
           <div className="rounded bg-bg-primary p-3 text-sm flex flex-col gap-2 items-start">
             <span>{t("contribute.cameraHelp.reportInstead")}</span>
-            <Button variant="ghost" onClick={() => onReport(photo)}>
+            <Button variant="ghost" onClick={() => onReport(photo ?? filePhoto(request.path))}>
               {t("contribute.cameraHelp.report")}
             </Button>
           </div>

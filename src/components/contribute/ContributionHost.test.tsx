@@ -115,7 +115,8 @@ describe('camera help', () => {
     act(() => useUIStore.getState().setCameraHelp({ path: '/p/failed.ARW', reason: 'unreadable' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Report a problem with this file…' }));
     await screen.findByText('What happened? What did you expect?', {}, { timeout: 2000 });
-    expect(screen.getByText(/no photo open/)).toBeTruthy();
+    // Its file, as an unknown camera: the report can still carry it.
+    expect(screen.getByText(/unknown camera \(ARW\)/)).toBeTruthy();
     expect(screen.queryByText(/NIKON Z 6/)).toBeNull();
   });
 });

@@ -37,6 +37,9 @@ export interface PhotoInfo {
   make: string;
   model: string;
   fileType: string;
+  /** The photo's file on this computer: sent only when the user attaches
+   * it (its bytes, never the path). */
+  path: string;
 }
 
 /** A crash the previous run left (src-tauri/src/contribute.rs). */
@@ -90,7 +93,41 @@ export const photoInfo = (
   const dot = name.lastIndexOf(".");
   const fileType = dot > 0 ? name.slice(dot + 1) : "";
   if (!make || !model || !/^[A-Za-z0-9]{1,10}$/.test(fileType)) return null;
-  return { make, model, fileType: fileType.toUpperCase() };
+  return { make, model, fileType: fileType.toUpperCase(), path: photo.path.split("?")[0] };
+};
+
+/** A file whose camera is not known (its metadata could not be read): the
+ * report can still carry it, as an unknown camera. */
+export const filePhoto = (path: string): PhotoInfo | null => {
+  const file = path.split("?")[0];
+  const name = file.split(/[\\/]/).pop() ?? "";
+  const dot = name.lastIndexOf(".");
+  const fileType = dot > 0 ? name.slice(dot + 1) : "";
+  if (!/^[A-Za-z0-9]{1,10}$/.test(fileType)) return null;
+  return { make: "unknown", model: "camera", fileType: fileType.toUpperCase(), path: file };
+};
+
+/** The payload for the text-only ways out (Copy report, Open on GitHub): the
+ * photo's file is not read or hashed for them, as they never carry it. */
+export const textOnly = (payload: Record<string, unknown>): Record<string, unknown> => {
+  const photo = payload.photo as Record<string, unknown> | undefined;
+  if (!photo || photo.path === undefined) return payload;
+  const { path: _path, ...rest } = photo;
+  return { ...payload, photo: rest };
+};
+
+/** A prepared text-only body as the fallbacks render it, noting a photo file
+ * the report would carry (`file`), which they leave out. */
+export const withFileLeftOut = (body: string, payload: Record<string, unknown>): string => {
+  const photo = payload.photo as Record<string, unknown> | undefined;
+  if (!photo || photo.path === undefined) return body;
+  try {
+    const parsed = JSON.parse(body) as { photo?: Record<string, unknown> };
+    if (parsed.photo) parsed.photo.file = true;
+    return JSON.stringify(parsed);
+  } catch {
+    return body;
+  }
 };
 
 export interface ReportChoices {
@@ -100,16 +137,22 @@ export interface ReportChoices {
   /** The log tail as the user left it, or null to leave it out. */
   logTail: string | null;
   photo: PhotoInfo | null;
+  /** Attach the photo's file itself (needs `photo`). */
+  photoFile: boolean;
   screenshot: Screenshot | null;
 }
 
-/** The `POST /report` payload (schema 2) for the user's choices; the
- * screenshot's data becomes an announced attachment in `prepare`. */
+/** The `POST /report` payload (schema 2) for the user's choices. The app
+ * turns `screenshot.data` and `photo.path` into files the body announces by
+ * size and SHA-256 (crates/contribute `prepare`); neither reaches the body. */
 export const reportPayload = (c: ReportChoices): Record<string, unknown> => {
   const payload: Record<string, unknown> = { schema: 2, app: c.context.app, text: c.text.trim() };
   if (c.includeSystem && c.context.gpu) payload.gpu = c.context.gpu;
   if (c.logTail?.trim()) payload.logTail = c.logTail;
-  if (c.photo) payload.photo = c.photo;
+  if (c.photo) {
+    const { make, model, fileType, path } = c.photo;
+    payload.photo = c.photoFile ? { make, model, fileType, path } : { make, model, fileType };
+  }
   if (c.screenshot) payload.screenshot = { mime: c.screenshot.mime, data: c.screenshot.data };
   return payload;
 };
@@ -149,7 +192,7 @@ interface Parsed {
   gpu?: GpuInfo;
   text?: string;
   logTail?: string;
-  photo?: PhotoInfo;
+  photo?: Omit<PhotoInfo, "path"> & { file?: unknown };
   screenshot?: unknown;
   message?: string;
   location?: string;
@@ -214,7 +257,8 @@ function render(p: Parsed, fit: Fit): string {
   const system = systemLine(p);
   if (system) out.push(`**System:** ${system}`);
   if (p.photo) out.push(`**Photo:** ${p.photo.make} ${p.photo.model} (${p.photo.fileType})`);
-  if (p.screenshot) out.push("**Screenshot:** not included here (only the relay takes images).");
+  if (p.screenshot) out.push("**Screenshot:** not included here (only the relay takes files).");
+  if (p.photo?.file) out.push("**Photo file:** not included here (only the relay takes files).");
   if (p.backtrace) {
     const lines = keep(p.backtrace.split("\n"), fit.backtraceLines, false);
     if (lines.length) out.push(`**Backtrace**\n\n${fenced(lines.join("\n"))}`);

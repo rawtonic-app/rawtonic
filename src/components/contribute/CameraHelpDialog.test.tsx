@@ -15,7 +15,7 @@ vi.mock('react-toastify', () => ({ toast: { warn: vi.fn(), error: vi.fn() } }));
 
 afterEach(cleanup);
 
-const photo = { make: 'SONY', model: 'ILCE-7M5', fileType: 'ARW' };
+const photo = { make: 'SONY', model: 'ILCE-7M5', fileType: 'ARW', path: '/Volumes/Card/DSC01234.ARW' };
 
 describe('camera help', () => {
   it('guides to raw.pixls.us in the browser and sends nothing itself', async () => {
@@ -55,6 +55,20 @@ describe('camera help', () => {
     await screen.findByText('Camera: SONY ILCE-7M5 (ARW)');
     fireEvent.click(screen.getByRole('button', { name: 'Report a problem with this file…' }));
     expect(onReport).toHaveBeenCalledWith(photo);
+  });
+
+  it("can still carry the file when its camera is not known or not read yet", () => {
+    const onReport = vi.fn();
+    render(
+      <CameraHelpDialog
+        request={{ path: '/x/DSC01234.ARW?vc=2', reason: 'unreadable' }}
+        onClose={() => {}}
+        onReport={onReport}
+        camera={() => new Promise(() => {})}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Report a problem with this file…' }));
+    expect(onReport).toHaveBeenCalledWith({ make: 'unknown', model: 'camera', fileType: 'ARW', path: '/x/DSC01234.ARW' });
   });
 
   it('is offered for decoder errors only, not for a missing file or a format no open decoder reads', () => {

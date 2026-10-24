@@ -34,7 +34,7 @@ const props = {
   onClose: () => {},
   context,
   screenshot,
-  photo: { make: 'NIKON', model: 'Z 6', fileType: 'NEF' },
+  photo: { make: 'NIKON', model: 'Z 6', fileType: 'NEF', path: '/private/DSC_1.NEF' },
   prepare,
 };
 
@@ -94,6 +94,46 @@ describe('Report a problem', () => {
     await waitFor(() => expect(screen.getByTestId('report-id').textContent).toBe('abcdefghijklmnopqrstuvwxyz'));
     expect(send).toHaveBeenCalledTimes(1);
     expect(screen.getByText(/write to hello@rawtonic\.cc with this id/)).toBeTruthy();
+  });
+
+  it('attaches the photo file only when ticked, with its warning', async () => {
+    render(<ProblemReportDialog {...props} available={() => Promise.resolve(true)} send={vi.fn()} />);
+    const review = await screen.findByRole('button', { name: 'Review and send…' });
+    fireEvent.change(screen.getByPlaceholderText(/the export stops/), { target: { value: 'Colours wrong' } });
+    const file = screen.getByRole('checkbox', { name: /Attach the photo file itself \(NEF/ }) as HTMLInputElement;
+    expect(file.checked).toBe(false);
+    expect(screen.queryByText(/serial number/)).toBeNull();
+    fireEvent.click(review);
+    await screen.findByLabelText('What will be sent');
+    expect((prepare.mock.calls.at(-1)?.[1] as { photo: object }).photo).toEqual({ make: 'NIKON', model: 'Z 6', fileType: 'NEF' });
+    fireEvent.click(screen.getByRole('button', { name: 'Change…' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Attach the photo file itself/ }));
+    expect(screen.getByRole('note').textContent).toMatch(/serial number.*GPS/);
+    fireEvent.click(screen.getByRole('button', { name: 'Review and send…' }));
+    await screen.findByLabelText('What will be sent');
+    expect((prepare.mock.calls.at(-1)?.[1] as { photo: object }).photo).toEqual({
+      make: 'NIKON',
+      model: 'Z 6',
+      fileType: 'NEF',
+      path: '/private/DSC_1.NEF',
+    });
+  });
+
+  it('copies and opens on GitHub without reading the attached file, saying it is left out', async () => {
+    const openUrl = vi.fn((_url: string) => Promise.resolve());
+    render(<ProblemReportDialog {...props} available={() => Promise.resolve(true)} openUrl={openUrl} />);
+    await screen.findByRole('button', { name: 'Review and send…' });
+    fireEvent.change(screen.getByPlaceholderText(/the export stops/), { target: { value: 'Colours wrong' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /Attach the photo file itself/ }));
+    prepare.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: /Copy report/ }));
+    await waitFor(() => expect(clipboard).toHaveBeenCalledTimes(1));
+    expect((prepare.mock.calls[0][1] as { photo: object }).photo).toEqual({ make: 'NIKON', model: 'Z 6', fileType: 'NEF' });
+    expect(clipboard.mock.calls[0][0] as string).toMatch(/Photo file:\*\* not included/);
+    fireEvent.click(screen.getByRole('button', { name: /Open on GitHub/ }));
+    const shown = await screen.findByLabelText('Text for GitHub');
+    expect(shown.textContent).toMatch(/Photo file:\*\* not included/);
+    expect(prepare.mock.calls.every(([, payload]) => !(payload as { photo: { path?: string } }).photo.path)).toBe(true);
   });
 
   it('drops a preparation that arrives after the text changed', async () => {

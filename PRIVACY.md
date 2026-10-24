@@ -68,8 +68,9 @@ small relay service (`relay.rawtonic.cc`, run on Cloudflare; design:
 tries to remove paths, your user and computer name, serial numbers, e-mail
 and IP addresses and GPS positions from the text first; this is best effort,
 so check the text you see. The relay files each report privately for
-Rawtonic's makers (an issue in a private GitHub repository, a screenshot in
-private storage), keeps no IP address, and deletes reports after 90 days.
+Rawtonic's makers (an issue in a private GitHub repository, a screenshot or
+photo file in private storage), keeps no IP address, and deletes reports
+with their files after 90 days.
 After sending you see a report id: "Delete this report now", or an e-mail
 with the id to hello@rawtonic.cc, deletes the report at any time. Cloudflare
 sees your IP address like any web host. Builds made without the relay cannot
@@ -78,14 +79,19 @@ send at all; their dialogs offer only the two ways below.
 Every report dialog can also "Copy report" (to paste where you like; nothing
 is sent) or "Open on GitHub": it first shows the exact title and text, then
 your browser opens GitHub's public issue form with them in its link (no
-screenshot), so GitHub receives that text when the page loads. Nothing is
+screenshot or photo file), so GitHub receives that text when the page loads. Nothing is
 filed until you submit it there with your own GitHub account.
 
 - **Report a problem** (Help menu on macOS, the "…" menu in Library and
   Develop): the text you write, plus, each switchable: system details
   (graphics card), the last 200 lines of Rawtonic's log (editable), the
-  camera make, model and file type of the open photo (not the photo), and a
-  screenshot of Rawtonic's window (macOS; off unless you tick it). Rawtonic's
+  camera make, model and file type of the open photo, a screenshot of
+  Rawtonic's window (macOS; off unless you tick it), and the photo's file
+  itself (off unless you tick "Attach the photo file"). An attached file is
+  uploaded unchanged, with all its metadata — the date, the camera's serial
+  number, a GPS position if one was recorded — and may show people; it is
+  used only to find the problem, never published, and deleted with its
+  report. Rawtonic's
   version, your operating system and its version, and the processor type are
   always included. The screenshot is taken when the dialog opens and is kept
   only in memory.
