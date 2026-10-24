@@ -1388,6 +1388,7 @@ export const pastedAdjustments = (
       key === 'sharpenVersion' ||
       key === 'lumaNoiseVersion' ||
       key === 'grainVersion' ||
+      key === 'clarityVersion' ||
       !Object.prototype.hasOwnProperty.call(copied, key)
     ) {
       continue;
@@ -1396,7 +1397,7 @@ export const pastedAdjustments = (
     if (mode === PasteMode.Merge && sameAdjustmentValue(value, INITIAL_ADJUSTMENTS[key as keyof Adjustments])) continue;
     (picked as Record<string, unknown>)[key] = value;
   }
-  return withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, copied), copied), copied);
+  return withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(picked, copied), copied), copied), copied);
 };
 
 /** Keys whose values mean what the sharpening response makes of them. */
@@ -1472,6 +1473,28 @@ export const withLumaNoiseVersion = <T extends Partial<Adjustments>>(
     return picked;
   }
   return { ...picked, lumaNoiseVersion: source?.lumaNoiseVersion ?? 1 };
+};
+
+/** As `withSharpenVersion` for Clarity: wherever Clarity values are copied
+ * (paste, tool copy, Edit all selected, presets) the Clarity response goes
+ * along explicitly — the source's, else 1 (a source or preset from before
+ * the key), never on its own. Layers count when their Clarity is set. */
+export const withClarityVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>,
+): T & Pick<Partial<Adjustments>, 'clarityVersion'> => {
+  // A change back to a missing key (an undo to a recipe from before it)
+  // would vanish in JSON too: it is version 1.
+  if (Object.prototype.hasOwnProperty.call(picked, 'clarityVersion') && picked.clarityVersion == null) {
+    return { ...picked, clarityVersion: 1 };
+  }
+  const clarity =
+    picked.clarity !== undefined ||
+    (picked.masks ?? []).some((mask) => ((mask?.adjustments?.clarity as number | undefined) ?? 0) !== 0);
+  if (!clarity || picked.clarityVersion != null) {
+    return picked;
+  }
+  return { ...picked, clarityVersion: source?.clarityVersion ?? 1 };
 };
 
 /** Keys whose values render the pattern of the recipe's grain version. */

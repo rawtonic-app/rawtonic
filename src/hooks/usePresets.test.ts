@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { collectPresetAdjustments } from './usePresets';
-import { LUMA_NOISE_VERSION, SHARPEN_VERSION, initialAdjustmentsFor, type Adjustments } from '../utils/adjustments';
+import {
+  CLARITY_VERSION,
+  LUMA_NOISE_VERSION,
+  SHARPEN_VERSION,
+  initialAdjustmentsFor,
+  withClarityVersion,
+  type Adjustments,
+} from '../utils/adjustments';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
 
@@ -35,5 +42,21 @@ describe('collectPresetAdjustments', () => {
       lumaNoiseReduction: 30,
       lumaNoiseVersion: LUMA_NOISE_VERSION,
     });
+  });
+
+  it('takes the Clarity response along with Clarity only', () => {
+    // A Clarity-only tool preset from a current edit keeps version 2 (it is a
+    // new edit's default, so a plain difference would drop it).
+    const now = { ...initialAdjustmentsFor(true), clarity: 40 } as Adjustments;
+    expect(collectPresetAdjustments(now, initialAdjustmentsFor(true), options)).toEqual({
+      clarity: 40,
+      clarityVersion: CLARITY_VERSION,
+    });
+    // An exposure preset from a version-1 photo leaves the Clarity response alone.
+    const old = { ...initialAdjustmentsFor(true), exposure: 0.5, clarity: 0, clarityVersion: 1 } as Adjustments;
+    expect(collectPresetAdjustments(old, initialAdjustmentsFor(true), options)).toEqual({ exposure: 0.5 });
+    // A preset from before the key renders its Clarity with version 1 wherever applied.
+    expect(withClarityVersion({ clarity: 40 } as Partial<Adjustments>)).toEqual({ clarity: 40, clarityVersion: 1 });
+    expect(withClarityVersion({ exposure: 1 } as Partial<Adjustments>)).toEqual({ exposure: 1 });
   });
 });

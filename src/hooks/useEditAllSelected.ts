@@ -10,7 +10,14 @@ import { changedCopyableKeys } from '../utils/multiView';
 import { samePhotograph, withoutDetections } from '../utils/settingsClipboard';
 import { frameDrawnMasks } from '../utils/maskGeometry';
 import { globalImageCache } from '../utils/ImageLRUCache';
-import { sameAdjustmentValue, withGrainVersion, withLumaNoiseVersion, withSharpenVersion, type Adjustments } from '../utils/adjustments';
+import {
+  sameAdjustmentValue,
+  withClarityVersion,
+  withGrainVersion,
+  withLumaNoiseVersion,
+  withSharpenVersion,
+  type Adjustments,
+} from '../utils/adjustments';
 
 /** How long edits of the primary gather before they are written to the
  * other photographs (a slider drag writes once it pauses or ends). */
@@ -73,7 +80,10 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       // (inferred after drawn masks are left out of the live patch).
       const shown = others.length > 0 ? livePatch({ ...inflight, ...pending }) : null;
       const patch = shown
-        ? withGrainVersion(withLumaNoiseVersion(withSharpenVersion(shown, source?.adjustments), source?.adjustments), source?.adjustments)
+        ? withClarityVersion(
+            withGrainVersion(withLumaNoiseVersion(withSharpenVersion(shown, source?.adjustments), source?.adjustments), source?.adjustments),
+            source?.adjustments,
+          )
         : null;
       const key = JSON.stringify(patch);
       if (key === sent) return;
@@ -107,7 +117,7 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       // be one of the others, still opening.
       // The others get the primary's layers, with their AI detections made
       // on each of them (never the primary's bitmaps).
-      const done = applyRef.current(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments), from.adjustments), others, {
+      const done = applyRef.current(withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments), from.adjustments), from.adjustments), others, {
         openingNow: true,
         pasteFrom: from.path,
         replaceLayers: true,

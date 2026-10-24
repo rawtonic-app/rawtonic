@@ -9,6 +9,7 @@ import {
   initialAdjustmentsFor,
   sameAdjustmentValue,
   withAiDenoiseVersion,
+  withClarityVersion,
   withGrainVersion,
   withLumaNoiseVersion,
   withSharpenVersion,
@@ -37,13 +38,13 @@ export function collectPresetAdjustments(
   for (const key of COPYABLE_ADJUSTMENT_KEYS) {
     if (!includeMasks && MASK_KEYS.includes(key)) continue;
     if (!includeCropTransform && GEOMETRY_KEYS.includes(key)) continue;
-    if (key === 'sharpenVersion' || key === 'lumaNoiseVersion' || key === 'grainVersion') continue;
+    if (key === 'sharpenVersion' || key === 'lumaNoiseVersion' || key === 'grainVersion' || key === 'clarityVersion') continue;
     if (!Object.prototype.hasOwnProperty.call(current, key)) continue;
     const currentValue = current[key as keyof Adjustments];
     if (presetType === 'tool' && sameAdjustmentValue(currentValue, defaults[key as keyof Adjustments])) continue;
     presetAdjustments[key] = currentValue;
   }
-  return withGrainVersion(withLumaNoiseVersion(withSharpenVersion(presetAdjustments, current), current), current);
+  return withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(presetAdjustments, current), current), current), current);
 }
 
 export enum PresetListType {

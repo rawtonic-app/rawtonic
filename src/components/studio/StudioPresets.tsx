@@ -11,7 +11,7 @@ import { useContextMenu } from "../../context/ContextMenuContext";
 import type { Preset } from "../ui/AppProperties";
 import { ToolGroup } from "./StudioDevelop";
 import { blendPreset } from "../../utils/presetAmount";
-import { withAiDenoiseVersion, withDiffractionVersion, withGrainStructure, withLegacyGrainVersion, withLumaNoiseVersion, withSharpenVersion } from "../../utils/adjustments";
+import { withAiDenoiseVersion, withClarityVersion, withDiffractionVersion, withGrainStructure, withLegacyGrainVersion, withLumaNoiseVersion, withSharpenVersion } from "../../utils/adjustments";
 
 type Entry = { folder: { id: string; name: string } | null; presets: Preset[] };
 
@@ -161,7 +161,7 @@ export default function StudioPresets() {
       const { selectedImage: image, adjustments: current, setEditor } = useEditorStore.getState();
       if (!image?.isReady) return;
       previewing.current = true;
-      setEditor({ previewOverride: { ...current, ...withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(withGrainStructure(structuredClone(preset.adjustments))))))) } });
+      setEditor({ previewOverride: { ...current, ...withClarityVersion(withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(withGrainStructure(structuredClone(preset.adjustments)))))))) } });
     }, 120);
   };
   useEffect(() => endPreview, []);
@@ -202,7 +202,7 @@ export default function StudioPresets() {
     setAmount({ ...amount, value });
     const blended = blendPreset(
       amount.base,
-      withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(withGrainStructure(amount.preset.adjustments)))))) as unknown as Record<string, unknown>,
+      withClarityVersion(withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(withGrainStructure(amount.preset.adjustments))))))) as unknown as Record<string, unknown>,
       value / 100,
     );
     setAdjustments((current) => ({ ...current, ...amount.base, ...blended }) as typeof current);
