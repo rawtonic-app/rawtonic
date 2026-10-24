@@ -52,7 +52,10 @@ fn attributes_travel_with_a_moved_file_and_back() {
         assert!(world.trash.items().is_empty());
         let sources = vec![world.source.join("A.RAF")];
         let refused = probe_folder(&world.target, &sources).unwrap_err();
-        assert!(format!("{refused:#}").contains("cannot keep"), "{refused:#}");
+        assert!(
+            format!("{refused:#}").contains("cannot keep"),
+            "{refused:#}"
+        );
         probe_folder(&world.target, &[world.source.join("A.xmp")]).unwrap();
         return;
     }
@@ -72,13 +75,20 @@ fn attributes_travel_with_a_moved_file_and_back() {
 fn attributes_of_a_folder_and_of_what_is_in_it_travel_with_it() {
     let world = World::new();
     let (from, to) = world.folder();
-    if !(tag(&from, "folder") && tag(&from.join("Sub/B.NEF"), "nef") && tag(&from.join("Sub"), "sub"))
+    if !(tag(&from, "folder")
+        && tag(&from.join("Sub/B.NEF"), "nef")
+        && tag(&from.join("Sub"), "sub"))
     {
         eprintln!("SKIP: the temporary folder keeps no extended attributes");
         return;
     }
     let journal = world.journal();
-    let result = journal.execute("move", "Move folder", vec![world.folder_step()], &world.trash);
+    let result = journal.execute(
+        "move",
+        "Move folder",
+        vec![world.folder_step()],
+        &world.trash,
+    );
     if !target_keeps(&world) {
         let error = result.unwrap_err();
         assert!(format!("{error:#}").contains("cannot keep"), "{error:#}");
@@ -162,7 +172,10 @@ fn attributes_changed_while_copying_stop_the_move() {
             &TagWhileCopying(&raw, Cell::new(false)),
         )
         .unwrap_err();
-    assert!(format!("{error:#}").contains("changed while it was copied"), "{error:#}");
+    assert!(
+        format!("{error:#}").contains("changed while it was copied"),
+        "{error:#}"
+    );
     assert_eq!(journal.history(1).unwrap()[0].state, State::RolledBack);
     world.assert_at(&world.source, &world.target);
 }
@@ -172,7 +185,11 @@ fn only_attributes_a_program_may_set_are_kept() {
     #[cfg(target_os = "linux")]
     {
         assert!(xattr::kept(b"user.xdg.tags"));
-        for name in ["security.selinux", "system.posix_acl_access", "trusted.overlay.opaque"] {
+        for name in [
+            "security.selinux",
+            "system.posix_acl_access",
+            "trusted.overlay.opaque",
+        ] {
             assert!(!xattr::kept(name.as_bytes()), "{name}");
         }
     }
@@ -186,7 +203,11 @@ fn only_attributes_a_program_may_set_are_kept() {
         ] {
             assert!(xattr::kept(name.as_bytes()), "{name}");
         }
-        for name in ["com.apple.provenance", "com.apple.rootless", "com.apple.system.Security"] {
+        for name in [
+            "com.apple.provenance",
+            "com.apple.rootless",
+            "com.apple.system.Security",
+        ] {
             assert!(!xattr::kept(name.as_bytes()), "{name}");
         }
     }
