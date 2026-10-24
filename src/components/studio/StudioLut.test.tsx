@@ -203,3 +203,16 @@ it("stores a descriptive name with a built-in selection while preserving its ide
   await act(async () => { fireEvent.change(screen.getByRole("combobox", { name: "LUT" }), { target: { value: "/r/Warm 200.cube" } }); });
   expect(useEditorStore.getState().adjustments).toMatchObject({ lutPath: "/r/Warm 200.cube", lutName: "Warm" });
 });
+
+it("stores the same canonical built-in name when selected in another interface language", async () => {
+  invoke.mockImplementation((name: string) => Promise.resolve(name === "list_luts"
+    ? [{ name: "Portrait 400", path: "/r/Portrait 400.cube", isBuiltIn: true }]
+    : name === "load_and_parse_lut" ? { size: 33 } : undefined));
+  await act(async () => { await i18n.changeLanguage("de"); });
+  try {
+    await act(async () => { render(<StudioLut disabled={false} onInteraction={vi.fn()} />); });
+    expect(screen.getByRole("option", { name: "Weiches Porträt" })).toBeTruthy();
+    await act(async () => { fireEvent.change(screen.getByRole("combobox", { name: "LUT" }), { target: { value: "/r/Portrait 400.cube" } }); });
+    expect(useEditorStore.getState().adjustments.lutName).toBe("Soft portrait");
+  } finally { await act(async () => { await i18n.changeLanguage("en"); }); }
+});
