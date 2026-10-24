@@ -46,7 +46,7 @@ import { withOwnBitmapIds } from '../utils/bitmapIds';
 import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { registerQuitFlush } from '../utils/quit';
-import { draftFor, flushSliderDraft, renderDraft } from '../utils/sliderDraft';
+import { draftFor, flushSliderDraft, renderDraft, updateDraft } from '../utils/sliderDraft';
 import { saveFailure } from './useLibraryActions';
 import { clampViewerZoom } from '../utils/viewerDisplay';
 
@@ -242,26 +242,27 @@ async function resolvePastedLens(path: string, pastedStep: Adjustments) {
     () => null,
   );
   if (!lens || lens.lensProfileFor === LENS_UNRESOLVED || !isCurrentEditorImage(path)) return;
-  // A drag's moves since the lookup began become a step first, so they
-  // get the data too and its next move builds on them.
-  flushSliderDraft();
-  debouncedSetHistory.flush();
-  const { history, historyIndex, adjustments } = useEditorStore.getState();
+  const { history, historyIndex, adjustments, historyPending } = useEditorStore.getState();
   const at = history.indexOf(pastedStep);
   if (at < 0) return;
   const unresolved = lensChoice(pastedStep);
   const waiting = (recipe: Adjustments) =>
     recipe.lensProfileFor === LENS_UNRESOLVED && sameAdjustmentValue(lensChoice(recipe), unresolved);
-  const patched = history.map((step, index) => (index >= at && waiting(step) ? { ...step, ...lens } : step));
-  // The recipe shown: its step's, or (a drag's moves not yet a step) with
-  // the same data.
+  const withLens = (recipe: Adjustments) => (waiting(recipe) ? { ...recipe, ...lens } : recipe);
+  const patched = history.map((step, index) => (index >= at ? withLens(step) : step));
+  // The recipe shown: its step's, or (an edit not yet a step) with the
+  // same data; a drag's moves not yet committed get it too, and the drag
+  // stays one step.
   const shown =
     historyIndex < at || !waiting(adjustments)
       ? adjustments
       : history[historyIndex] === adjustments
         ? patched[historyIndex]
         : { ...adjustments, ...lens };
+  if (historyIndex >= at) updateDraft(path, withLens);
   useEditorStore.setState({ history: patched, ...(shown !== adjustments ? { adjustments: shown } : {}) });
+  // Its step still to come is the shown recipe, with the data.
+  if (historyPending && shown !== adjustments) debouncedSetHistory(shown);
 }
 
 /** The settings a copy, sync or Previous takes from: the open photograph's
@@ -797,6 +798,8 @@ export function useEditorActions() {
           const next = withPastedLensUnresolved(merged, current, adjustmentsToApply);
           debouncedSetHistory.flush();
           setAdjustments(() => next);
+          // Its own step also during a drag (not one of its moves).
+          flushSliderDraft();
           debouncedSetHistory.flush();
           const pastedStep = useEditorStore.getState().adjustments;
           if (next !== merged) void resolvePastedLens(open.path, pastedStep);

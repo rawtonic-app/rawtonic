@@ -486,6 +486,41 @@ it("keeps a pasted lens's data when a slider drag started during its lookup comm
     await settle();
     const shown = useEditorStore.getState().adjustments;
     expect([shown.exposure, shown.lensDistortionParams, shown.lensProfileFor]).toEqual([0.7, { k1: 0.3 }, "camera stamp"]);
+    // The drag is one step: one Undo goes back to the paste, with its data.
+    act(() => useEditorStore.getState().undo());
+    const pasted = useEditorStore.getState().adjustments;
+    expect([pasted.exposure, pasted.lensCorrectionMode, pasted.lensDistortionParams]).toEqual([0, "camera", { k1: 0.3 }]);
+    act(() => useEditorStore.getState().undo());
+    expect(useEditorStore.getState().adjustments).toBe(own);
+  } finally {
+    stop();
+  }
+});
+
+it("resolves a lens pasted while a slider is dragged for the pasted choice, as a step of its own", async () => {
+  const lookup = delayedLensLookup();
+  const stop = registerSliderDraftRenderer(() => true);
+  try {
+    const { result } = renderHook(useEditorActions);
+    const own = { ...structuredClone(INITIAL_ADJUSTMENTS), lensCorrectionMode: "manual", lensMaker: "M", lensModel: "35mm",
+      lensDistortionParams: { k1: 0.9 }, lensProfileFor: "own" } as unknown as Adjustments;
+    useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [INITIAL_ADJUSTMENTS, own], historyIndex: 1 });
+    useEditorStore.setState({ copiedAdjustments: { lensCorrectionMode: "camera" } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+    act(() => useEditorStore.setState({ isSliderDragging: true }));
+    act(() => updateAdjustments({ exposure: 0.5 }));
+    act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+    await settle();
+    expect(lookup.asked.map((asked) => [asked.lensCorrectionMode, asked.lensProfileFor])).toEqual([["camera", "unresolved"]]);
+    act(() => updateAdjustments({ exposure: 0.7 }));
+    await act(async () => lookup.release({ lensMaker: null, lensModel: null, lensDistortionParams: { k1: 0.3 } as never, lensProfileFor: "camera stamp" }));
+    await settle();
+    act(() => useEditorStore.setState({ isSliderDragging: false }));
+    await settle();
+    const shown = useEditorStore.getState().adjustments;
+    expect([shown.exposure, shown.lensCorrectionMode, shown.lensDistortionParams]).toEqual([0.7, "camera", { k1: 0.3 }]);
+    act(() => useEditorStore.getState().undo());
+    const pasted = useEditorStore.getState().adjustments;
+    expect([pasted.exposure, pasted.lensCorrectionMode, pasted.lensDistortionParams]).toEqual([0.5, "camera", { k1: 0.3 }]);
   } finally {
     stop();
   }
