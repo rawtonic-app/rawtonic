@@ -348,14 +348,15 @@ export function usePerformanceDiagnostics() {
         window.clearTimeout(finishTimer);
         finishPointerSession(pointerSession);
       }
-      // Sessions cover drags on the canvas and on Develop's sliders.
+      // Sessions cover drags on the canvas, Develop's sliders and its curves.
       const slider = event.target instanceof HTMLInputElement && event.target.type === "range";
-      if (event.button !== 0 || !(slider || event.target instanceof HTMLCanvasElement) ||
+      const curve = event.target instanceof Element && event.target.closest(".studio-curve svg") !== null;
+      if (event.button !== 0 || !(slider || curve || event.target instanceof HTMLCanvasElement) ||
           useUIStore.getState().activeView !== "editor") return;
       startRenderCensus();
       pointerSession = {
         pointerType: event.pointerType,
-        maskType: slider ? "slider" : activeMaskType(),
+        maskType: slider ? "slider" : curve ? "curve" : activeMaskType(),
         started: performance.now(),
         ended: 0,
         moveTimes: [],
