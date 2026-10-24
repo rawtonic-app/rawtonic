@@ -17,6 +17,66 @@ pub struct Lut {
     pub shaper: Option<Shaper>,
 }
 
+/// Why a LUT file is not read, for the import report: `kind` and its
+/// values are what the app translates; the English text is the log's.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum LutIssue {
+    /// A 3D table the earlier reader reads over 0–1 although the file
+    /// names another domain (saved edits keep that reading).
+    ReadDifferently,
+    TableSize {
+        size: usize,
+        max: usize,
+    },
+    NoTable,
+    Incomplete {
+        expected: usize,
+        found: usize,
+    },
+    BadLine {
+        line: usize,
+        #[serde(skip)]
+        detail: String,
+    },
+    DomainOrder,
+    HaldShape {
+        width: u32,
+        height: u32,
+    },
+    NotACube {
+        entries: usize,
+    },
+}
+
+impl std::fmt::Display for LutIssue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ReadDifferently => write!(
+                f,
+                "A 3D table with a domain other than 0–1 (DOMAIN_MIN/MAX or LUT_3D_INPUT_RANGE) is not supported"
+            ),
+            Self::TableSize { size, max } => write!(f, "Table size {size} is outside 2–{max}"),
+            Self::NoTable => write!(f, "Neither LUT_3D_SIZE nor LUT_1D_SIZE found in the file"),
+            Self::Incomplete { expected, found } => write!(
+                f,
+                "LUT data size mismatch. Expected {expected} float values, but found {found}. The file may be corrupt or incomplete."
+            ),
+            Self::BadLine { line, detail } => write!(f, "Line {line}: {detail}"),
+            Self::DomainOrder => write!(f, "A domain maximum is not above its minimum"),
+            Self::HaldShape { width, height } => write!(
+                f,
+                "A HALD image must be square with a cube number of pixels, not {width}x{height}"
+            ),
+            Self::NotACube { entries } => {
+                write!(f, "{entries} table entries do not form a cube")
+            }
+        }
+    }
+}
+
+impl std::error::Error for LutIssue {}
+
 /// Refuses network, device and traversal paths for LUT files.
 pub fn validate_lut_path(path_str: &str) -> anyhow::Result<()> {
     let normalized_path_str = path_str.strip_prefix(r"\\?\").unwrap_or(path_str);
@@ -99,9 +159,7 @@ pub fn parse_lut_bytes_for_import(extension: &str, bytes: Vec<u8>) -> anyhow::Re
         parse_cube_full(BufReader::new(Cursor::new(&bytes))),
     ) {
         (Ok(earlier), Ok(full)) if earlier == full => Ok(earlier),
-        (Ok(_), _) => Err(anyhow!(
-            "A 3D table with a domain other than 0–1 (DOMAIN_MIN/MAX or LUT_3D_INPUT_RANGE) is not supported"
-        )),
+        (Ok(_), _) => Err(LutIssue::ReadDifferently.into()),
         (Err(_), full) => full,
     }
 }
@@ -238,11 +296,12 @@ fn parse_cube_full(reader: impl BufRead) -> anyhow::Result<Lut> {
     let mut range_3d: Option<(f32, f32)> = None;
     let mut data: Vec<f32> = Vec::new();
 
-    let floats = |parts: &[&str], count: usize, line_num: usize| -> anyhow::Result<Vec<f32>> {
+    let bad_line = |line: usize, detail: String| LutIssue::BadLine { line, detail };
+    let floats = |parts: &[&str], count: usize, line_num: usize| -> Result<Vec<f32>, LutIssue> {
         if parts.len() < count {
-            return Err(anyhow!(
-                "Line {line_num}: expected {count} values, found {}",
-                parts.len()
+            return Err(bad_line(
+                line_num,
+                format!("expected {count} values, found {}", parts.len()),
             ));
         }
         parts[..count]
@@ -251,7 +310,7 @@ fn parse_cube_full(reader: impl BufRead) -> anyhow::Result<Lut> {
                 p.parse::<f32>()
                     .ok()
                     .filter(|v| v.is_finite())
-                    .ok_or_else(|| anyhow!("Line {line_num}: '{p}' is not a number"))
+                    .ok_or_else(|| bad_line(line_num, format!("'{p}' is not a number")))
             })
             .collect()
     };
@@ -271,9 +330,13 @@ fn parse_cube_full(reader: impl BufRead) -> anyhow::Result<Lut> {
                 let size: u32 = args
                     .first()
                     .and_then(|v| v.parse().ok())
-                    .ok_or_else(|| anyhow!("Line {line_num}: malformed LUT_3D_SIZE"))?;
+                    .ok_or_else(|| bad_line(line_num, "malformed LUT_3D_SIZE".into()))?;
                 if !(2..=MAX_3D_SIZE).contains(&size) {
-                    return Err(anyhow!("LUT_3D_SIZE {size} is outside 2–{MAX_3D_SIZE}"));
+                    return Err(LutIssue::TableSize {
+                        size: size as usize,
+                        max: MAX_3D_SIZE as usize,
+                    }
+                    .into());
                 }
                 size_3d = Some(size);
             }
@@ -281,9 +344,13 @@ fn parse_cube_full(reader: impl BufRead) -> anyhow::Result<Lut> {
                 let size: usize = args
                     .first()
                     .and_then(|v| v.parse().ok())
-                    .ok_or_else(|| anyhow!("Line {line_num}: malformed LUT_1D_SIZE"))?;
+                    .ok_or_else(|| bad_line(line_num, "malformed LUT_1D_SIZE".into()))?;
                 if !(2..=MAX_1D_SIZE).contains(&size) {
-                    return Err(anyhow!("LUT_1D_SIZE {size} is outside 2–{MAX_1D_SIZE}"));
+                    return Err(LutIssue::TableSize {
+                        size,
+                        max: MAX_1D_SIZE,
+                    }
+                    .into());
                 }
                 size_1d = Some(size);
             }
@@ -325,17 +392,15 @@ fn parse_cube_full(reader: impl BufRead) -> anyhow::Result<Lut> {
     let entries_1d = size_1d.unwrap_or(0);
     let entries_3d = size_3d.map_or(0, |n| (n * n * n) as usize);
     if size_3d.is_none() && size_1d.is_none() {
-        return Err(anyhow!(
-            "Neither LUT_3D_SIZE nor LUT_1D_SIZE found in .cube file"
-        ));
+        return Err(LutIssue::NoTable.into());
     }
     let expected = (entries_1d + entries_3d) * 3;
     if data.len() != expected {
-        return Err(anyhow!(
-            "LUT data size mismatch. Expected {} float values, but found {}. The file may be corrupt or incomplete.",
+        return Err(LutIssue::Incomplete {
             expected,
-            data.len()
-        ));
+            found: data.len(),
+        }
+        .into());
     }
     let unit = ([0.0; 3], [1.0; 3]);
     let from_range = |(lo, hi): (f32, f32)| ([lo; 3], [hi; 3]);
@@ -346,17 +411,12 @@ fn parse_cube_full(reader: impl BufRead) -> anyhow::Result<Lut> {
         .map(from_range)
         .or(if size_1d.is_some() { None } else { domain })
         .unwrap_or(unit);
-    for (axis, (lo, hi)) in [domain_1d, domain_3d]
+    if [domain_1d, domain_3d]
         .iter()
         .flat_map(|(lo, hi)| lo.iter().zip(hi.iter()))
-        .enumerate()
+        .any(|(lo, hi)| hi <= lo)
     {
-        if hi <= lo {
-            return Err(anyhow!(
-                "Domain maximum {hi} is not above its minimum {lo} (channel {})",
-                axis % 3
-            ));
-        }
+        return Err(LutIssue::DomainOrder.into());
     }
 
     let shaper = size_1d.map(|n| Shaper {
@@ -391,7 +451,7 @@ fn parse_cube_full(reader: impl BufRead) -> anyhow::Result<Lut> {
             checked_bake(BAKED_SIZE, &breakpoints(&shaper), |rgb| shaper.apply(rgb))
                 .or_else(|_| Ok(shaper.alone()))
         }
-        (None, None) => Err(anyhow!("No table in .cube file")),
+        (None, None) => Err(LutIssue::NoTable.into()),
     }
 }
 
@@ -622,7 +682,7 @@ pub fn apply_amount(base: [f32; 3], lut: [f32; 3], amount: f32) -> [f32; 3] {
 fn parse_3dl(reader: impl BufRead) -> anyhow::Result<Lut> {
     let mut data: Vec<f32> = Vec::new();
 
-    for line in reader.lines() {
+    for (index, line) in reader.lines().enumerate() {
         let line = line?;
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
@@ -630,27 +690,27 @@ fn parse_3dl(reader: impl BufRead) -> anyhow::Result<Lut> {
         }
         let parts: Vec<&str> = trimmed.split_whitespace().collect();
         if parts.len() == 3 {
-            let r: f32 = parts[0].parse()?;
-            let g: f32 = parts[1].parse()?;
-            let b: f32 = parts[2].parse()?;
-            data.push(r);
-            data.push(g);
-            data.push(b);
+            for part in parts {
+                data.push(part.parse().map_err(|e| LutIssue::BadLine {
+                    line: index + 1,
+                    detail: format!("'{part}': {e}"),
+                })?);
+            }
         }
     }
 
     let total_values = data.len();
     if total_values == 0 {
-        return Err(anyhow!("No data found in 3DL file"));
+        return Err(LutIssue::NoTable.into());
     }
     let num_entries = total_values / 3;
     let size = (num_entries as f64).cbrt().round() as u32;
 
     if size * size * size != num_entries as u32 {
-        return Err(anyhow!(
-            "Invalid 3DL LUT data size: the number of entries ({}) is not a perfect cube.",
-            num_entries
-        ));
+        return Err(LutIssue::NotACube {
+            entries: num_entries,
+        }
+        .into());
     }
 
     Ok(Lut {
@@ -662,22 +722,10 @@ fn parse_3dl(reader: impl BufRead) -> anyhow::Result<Lut> {
 
 fn parse_hald(image: DynamicImage) -> anyhow::Result<Lut> {
     let (width, height) = image.dimensions();
-    if width != height {
-        return Err(anyhow!(
-            "HALD image must be square, but dimensions are {}x{}",
-            width,
-            height
-        ));
-    }
-
     let total_pixels = width * height;
     let size = (total_pixels as f64).cbrt().round() as u32;
-
-    if size * size * size != total_pixels {
-        return Err(anyhow!(
-            "Invalid HALD image dimensions: total pixels ({}) is not a perfect cube.",
-            total_pixels
-        ));
+    if width != height || size * size * size != total_pixels {
+        return Err(LutIssue::HaldShape { width, height }.into());
     }
 
     let mut data = Vec::with_capacity((total_pixels * 3) as usize);
@@ -1011,6 +1059,46 @@ mod tests {
         );
         assert!(reason("LUT_1D_SIZE 2\n0 0 0\n1 x 1\n").contains("not a number"));
         assert!(reason("LUT_1D_SIZE 2\n0 0 0\n1 inf 1\n").contains("not a number"));
+        // Each with the kind the import report translates.
+        let issue = |text: &str| {
+            cube(text)
+                .unwrap_err()
+                .downcast::<LutIssue>()
+                .ok()
+                .map(|issue| serde_json::to_value(issue).unwrap())
+        };
+        assert_eq!(
+            issue("LUT_1D_SIZE 2\n0 0 0\n1 x 1\n"),
+            Some(serde_json::json!({"kind": "badLine", "line": 3}))
+        );
+        assert_eq!(
+            issue("LUT_3D_SIZE 300\n"),
+            Some(serde_json::json!({"kind": "tableSize", "size": 300, "max": 256}))
+        );
+        assert_eq!(
+            issue("LUT_3D_SIZE 2\n0 0 0\n"),
+            Some(serde_json::json!({"kind": "incomplete", "expected": 24, "found": 3}))
+        );
+        assert_eq!(
+            issue("TITLE x\n"),
+            Some(serde_json::json!({"kind": "noTable"}))
+        );
+        let other = |result: anyhow::Result<Lut>| {
+            serde_json::to_value(result.unwrap_err().downcast::<LutIssue>().unwrap()).unwrap()
+        };
+        assert_eq!(
+            other(parse_lut_bytes("3dl", b"0 0 0\n1 1 1\n".to_vec()))["kind"],
+            "notACube"
+        );
+        assert_eq!(
+            other(parse_lut_bytes("3dl", b"0 0 0\n1 y 1\n".to_vec())),
+            serde_json::json!({"kind": "badLine", "line": 2})
+        );
+        let image = DynamicImage::new_rgb8(8, 4);
+        assert_eq!(
+            other(parse_hald(image)),
+            serde_json::json!({"kind": "haldShape", "width": 8, "height": 4})
+        );
     }
 
     #[test]

@@ -35,7 +35,32 @@ pub struct LutImport {
 pub struct SkippedLut {
     /// The file's name, with its path inside an imported folder.
     pub file: String,
+    /// The reason in English (logs; shown beside the translated issue
+    /// when that has no more to say).
     pub reason: String,
+    /// What the frontend translates: `kind` (an engine
+    /// [`rawtonic_engine::lut::LutIssue`], or `tooDeep`, `folderUnreadable`,
+    /// `unreadable`, `copyFailed`) and its values.
+    pub issue: serde_json::Value,
+}
+
+impl SkippedLut {
+    fn new(file: String, reason: String, issue: serde_json::Value) -> Self {
+        Self {
+            file,
+            reason,
+            issue,
+        }
+    }
+
+    /// A folder (or subfolder) that could not be read.
+    fn folder(file: String, error: std::io::Error) -> Self {
+        Self::new(
+            file,
+            error.to_string(),
+            serde_json::json!({"kind": "folderUnreadable"}),
+        )
+    }
 }
 
 #[derive(Serialize)]
@@ -192,10 +217,7 @@ fn import_items(source_paths: &[String]) -> (Vec<ImportItem>, Vec<SkippedLut>) {
         if source.is_dir() {
             let pack = PathBuf::from(folder_name(&name));
             if let Err(error) = walk_folder(source, &pack, &name, 1, &mut items, &mut skipped) {
-                skipped.push(SkippedLut {
-                    file: name,
-                    reason: error.to_string(),
-                });
+                skipped.push(SkippedLut::folder(name, error));
             }
             continue;
         }
@@ -245,18 +267,14 @@ fn walk_folder(
                     items,
                     skipped,
                 ) {
-                    skipped.push(SkippedLut {
-                        file: inner,
-                        reason: error.to_string(),
-                    });
+                    skipped.push(SkippedLut::folder(inner, error));
                 }
             } else {
-                skipped.push(SkippedLut {
-                    file: format!("{label}/{name}"),
-                    reason: format!(
-                        "Folders nested deeper than {MAX_DEPTH} levels are not imported"
-                    ),
-                });
+                skipped.push(SkippedLut::new(
+                    format!("{label}/{name}"),
+                    format!("Folders nested deeper than {MAX_DEPTH} levels are not imported"),
+                    serde_json::json!({"kind": "tooDeep", "max": MAX_DEPTH}),
+                ));
             }
         } else if lut_extension(&path).is_some() {
             items.push(ImportItem {
@@ -281,12 +299,13 @@ pub fn import_luts_to_dir(dir: &Path, source_paths: &[String]) -> anyhow::Result
         match import_one(dir, &item) {
             Ok(()) => imported += 1,
             Err(ImportError::NotALut(_)) if item.found_in_folder && !is_lut_text(&item.source) => {}
-            Err(ImportError::NotALut(error) | ImportError::Failed(error)) => {
+            Err(failure) => {
+                let issue = failure.issue();
+                let (ImportError::NotALut(error)
+                | ImportError::Unreadable(error)
+                | ImportError::Failed(error)) = failure;
                 log::warn!("Skipping LUT '{}': {:#}", item.source.display(), error);
-                skipped.push(SkippedLut {
-                    file: item.label,
-                    reason: format!("{error:#}"),
-                });
+                skipped.push(SkippedLut::new(item.label, format!("{error:#}"), issue));
             }
         }
     }
@@ -301,16 +320,32 @@ fn is_lut_text(path: &Path) -> bool {
     matches!(lut_extension(path).as_deref(), Some("cube" | "3dl"))
 }
 
-/// Why a file was not imported: it does not read as a LUT, or reading or
-/// writing it failed.
+/// Why a file was not imported: it does not read as a LUT, it cannot be
+/// read, or writing its copy failed.
 enum ImportError {
     NotALut(anyhow::Error),
+    Unreadable(anyhow::Error),
     Failed(anyhow::Error),
+}
+
+impl ImportError {
+    /// The report's issue: the parser's own, else that the file could not
+    /// be read (as a LUT) or its copy not written.
+    fn issue(&self) -> serde_json::Value {
+        match self {
+            Self::NotALut(error) => error
+                .downcast_ref::<rawtonic_engine::lut::LutIssue>()
+                .and_then(|issue| serde_json::to_value(issue).ok())
+                .unwrap_or_else(|| serde_json::json!({"kind": "unreadable"})),
+            Self::Unreadable(_) => serde_json::json!({"kind": "unreadable"}),
+            Self::Failed(_) => serde_json::json!({"kind": "copyFailed"}),
+        }
+    }
 }
 
 fn import_one(dir: &Path, item: &ImportItem) -> Result<(), ImportError> {
     let extension = lut_extension(&item.source).unwrap_or_default();
-    let bytes = std::fs::read(&item.source).map_err(|e| ImportError::Failed(e.into()))?;
+    let bytes = std::fs::read(&item.source).map_err(|e| ImportError::Unreadable(e.into()))?;
     rawtonic_engine::lut::parse_lut_bytes_for_import(&extension, bytes.clone())
         .map_err(ImportError::NotALut)?;
     write_copy(dir, item, &extension, &bytes).map_err(ImportError::Failed)
@@ -658,6 +693,10 @@ mod tests {
             "{:?}",
             report.skipped
         );
+        assert_eq!(
+            report.skipped[0].issue,
+            serde_json::json!({"kind": "incomplete", "expected": 24, "found": 3})
+        );
         let listed: Vec<_> = report
             .luts
             .iter()
@@ -814,6 +853,10 @@ mod tests {
         assert_eq!(report.luts[0].group.as_deref(), Some("Pack / a / b / c"));
         assert_eq!(report.skipped.len(), 1);
         assert_eq!(report.skipped[0].file, "Pack/a/b/c/d");
+        assert_eq!(
+            report.skipped[0].issue,
+            serde_json::json!({"kind": "tooDeep", "max": 4})
+        );
     }
 
     #[cfg(unix)]
@@ -841,5 +884,9 @@ mod tests {
         assert_eq!(report.imported, 0);
         let files: Vec<_> = report.skipped.iter().map(|s| s.file.as_str()).collect();
         assert_eq!(files, ["Pack/Hald.png"]);
+        assert_eq!(
+            report.skipped[0].issue,
+            serde_json::json!({"kind": "copyFailed"})
+        );
     }
 }

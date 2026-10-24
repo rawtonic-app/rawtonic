@@ -2793,6 +2793,20 @@
       "none": "なし",
       "remove": "削除",
       "removeTitle": "取り込んだこの LUT を Rawtonic から削除",
+      "skipReasons": {
+        "badLine": "{{line}} 行目を読み取れません。",
+        "copyFailed": "コピーを保存できませんでした。",
+        "domainOrder": "範囲の最大値が最小値を上回っていません。",
+        "folderUnreadable": "フォルダーを読み取れません。",
+        "haldShape": "HALD 画像は正方形で、ピクセル数が立方数である必要があります（{{width}} × {{height}}）。",
+        "incomplete": "テーブルが不完全か破損しています（{{expected}} 個中 {{found}} 個の値）。",
+        "noTable": "ファイルに LUT テーブルがありません。",
+        "notACube": "テーブルのエントリー（{{entries}}）が立方体になりません。",
+        "readDifferently": "0–1 以外の範囲を持つ 3D テーブルは、この形式ではサポートされていません。",
+        "tableSize": "テーブルサイズ {{size}} は 2–{{max}} の範囲外です。",
+        "tooDeep": "{{max}} 階層より深いフォルダーは読み込まれません。",
+        "unreadable": "ファイルを LUT として読み取れません。"
+      },
       "toasts": {
         "importFailed": "LUT を取り込めませんでした。",
         "noneFound": "LUTファイルが見つかりません。",

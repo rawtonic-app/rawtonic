@@ -96,7 +96,17 @@ it("groups imported LUTs by pack and reports the files a folder import left out"
       name === "list_luts"
         ? packs.slice(0, 2)
         : name === "import_luts"
-          ? { luts: packs, imported: 3, skipped: [{ file: "Summer/Broken.cube", reason: "LUT data size mismatch" }] }
+          ? {
+              luts: packs,
+              imported: 3,
+              skipped: [
+                {
+                  file: "Summer/Broken.cube",
+                  reason: "LUT data size mismatch",
+                  issue: { kind: "incomplete", expected: 24, found: 3 },
+                },
+              ],
+            }
           : undefined,
     ),
   );
@@ -122,6 +132,47 @@ it("groups imported LUTs by pack and reports the files a folder import left out"
     ["Summer / Extras", ["Night"]],
   ]);
   expect(toast.warn).toHaveBeenCalledTimes(1);
-  expect(toast.warn.mock.calls[0][0]).toContain("Summer/Broken.cube: LUT data size mismatch");
+  expect(toast.warn.mock.calls[0][0]).toContain(
+    "Summer/Broken.cube: The table is incomplete or damaged (3 of 24 values).",
+  );
   expect(toast.warn.mock.calls[0][0]).toContain("3 imported");
+});
+
+it("translates why files were not imported, with the system's error where it says more", async () => {
+  const { default: i18n } = await import("i18next");
+  invoke.mockImplementation((name: string) =>
+    Promise.resolve(
+      name === "import_luts"
+        ? {
+            luts: [],
+            imported: 0,
+            skipped: [
+              { file: "P/a/b/c/d", reason: "Folders nested deeper", issue: { kind: "tooDeep", max: 4 } },
+              { file: "P/Copy.cube", reason: "Permission denied", issue: { kind: "copyFailed" } },
+              { file: "P/Bad.cube", reason: "Line 3: 'x' is not a number", issue: { kind: "badLine", line: 3 } },
+              { file: "P/New.cube", reason: "A newer reason", issue: { kind: "notKnownYet" } },
+            ],
+          }
+        : [],
+    ),
+  );
+  open.mockResolvedValue(["/home/me/P"]);
+  await i18n.changeLanguage("de");
+  try {
+    await act(async () => {
+      render(<StudioLut disabled={false} onInteraction={vi.fn()} />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Ordner importieren…" }));
+    });
+    const text = toast.warn.mock.calls[0][0] as string;
+    expect(text).toContain("P/a/b/c/d: Ordner, die tiefer als 4 Ebenen verschachtelt sind, werden nicht importiert.");
+    expect(text).toContain("P/Copy.cube: Die Kopie konnte nicht gespeichert werden. (Permission denied)");
+    expect(text).toContain("P/Bad.cube: Zeile 3 kann nicht gelesen werden.");
+    expect(text).not.toContain("is not a number");
+    // A kind this version has no text for keeps the English reason.
+    expect(text).toContain("P/New.cube: A newer reason");
+  } finally {
+    await i18n.changeLanguage("en");
+  }
 });

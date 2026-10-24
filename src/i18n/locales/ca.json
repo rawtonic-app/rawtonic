@@ -2952,6 +2952,20 @@
       "none": "Cap",
       "remove": "Elimina",
       "removeTitle": "Elimina aquesta LUT importada de Rawtonic",
+      "skipReasons": {
+        "badLine": "La línia {{line}} no es pot llegir.",
+        "copyFailed": "No s’ha pogut desar la còpia.",
+        "domainOrder": "Un màxim de domini no supera el seu mínim.",
+        "folderUnreadable": "La carpeta no es pot llegir.",
+        "haldShape": "Una imatge HALD ha de ser quadrada i tenir un nombre cúbic de píxels ({{width}} × {{height}}).",
+        "incomplete": "La taula és incompleta o malmesa ({{found}} de {{expected}} valors).",
+        "noTable": "El fitxer no conté cap taula LUT.",
+        "notACube": "Les entrades de la taula ({{entries}}) no formen un cub.",
+        "readDifferently": "Una taula 3D amb un domini diferent de 0–1 no és compatible en aquesta forma.",
+        "tableSize": "La mida de taula {{size}} és fora de 2–{{max}}.",
+        "tooDeep": "Les carpetes imbricades a més de {{max}} nivells no s’importen.",
+        "unreadable": "El fitxer no es pot llegir com a LUT."
+      },
       "toasts": {
         "importFailed": "No s'ha pogut importar la LUT.",
         "noneFound": "No s’han trobat fitxers LUT.",

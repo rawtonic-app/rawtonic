@@ -2862,6 +2862,20 @@
       "none": "None",
       "remove": "Remove",
       "removeTitle": "Remove this imported LUT from Rawtonic",
+      "skipReasons": {
+        "badLine": "Line {{line}} cannot be read.",
+        "copyFailed": "The copy could not be saved.",
+        "domainOrder": "A domain maximum is not above its minimum.",
+        "folderUnreadable": "The folder cannot be read.",
+        "haldShape": "A HALD image must be square with a cube number of pixels ({{width}} × {{height}}).",
+        "incomplete": "The table is incomplete or damaged ({{found}} of {{expected}} values).",
+        "noTable": "The file holds no LUT table.",
+        "notACube": "The table entries ({{entries}}) do not form a cube.",
+        "readDifferently": "A 3D table with a domain other than 0–1 in this form is not supported.",
+        "tableSize": "Table size {{size}} is outside 2–{{max}}.",
+        "tooDeep": "Folders nested deeper than {{max}} levels are not imported.",
+        "unreadable": "The file cannot be read as a LUT."
+      },
       "toasts": {
         "importFailed": "The LUT could not be imported.",
         "noneFound": "No LUT files found.",
