@@ -968,6 +968,22 @@ const HL_V2_LOWER: f32 = 3.8;
 const HL_V2_SHAPE: f32 = 1.0;
 const HL_V2_AMOUNT_EXPONENT: f32 = 1.7;
 const HL_V2_RESTORE: f32 = 1.4;
+// PROTO v3 key adaptation
+const HL_V3_KEY0: f32 = 5.94;
+const HL_V3_RANGE: f32 = 4.0;
+const HL_V3_UNIT: f32 = 0.0;
+const HL_V3_GAIN: f32 = 0.0;
+const HL_V3_PIVOT: f32 = 0.0;
+
+// EV the frame's key lies below the reference, limited; 0 without a key.
+fn hl_key_darkness() -> f32 {
+    let key = adjustments.global.image_key;
+    if (key <= 0.0) {
+        return 0.0;
+    }
+    let k = log2(key) + adjustments.global.baseline_exposure - log2(CAMERA_RAW_BLACK_NEUTRAL);
+    return clamp(HL_V3_KEY0 - k, 0.0, HL_V3_RANGE);
+}
 const CR_HIGHLIGHTS_DESAT_START: f32 = 0.9;
 const CR_HIGHLIGHTS_DESAT_END: f32 = 2.5;
 const STANDARD_WHITES_RAISE: f32 = 1.7;
@@ -1820,10 +1836,14 @@ fn apply_highlights_adjustment(
     // Version 2 works in units of the look's exposure (baseline applied),
     // so the response sits at the same display levels on every camera.
     var hl_unit = 1.0;
+    var dark = 0.0;
     if (v2) {
-        hl_unit = exp2(adjustments.global.baseline_exposure);
-        l_pivot = HL_V2_PIVOT / hl_unit;
-        lower_gain = HL_V2_LOWER;
+        if (adjustments.global.tone_version > 2.5) {
+            dark = hl_key_darkness();
+        }
+        hl_unit = exp2(adjustments.global.baseline_exposure + HL_V3_UNIT * dark);
+        l_pivot = HL_V2_PIVOT * exp2(-HL_V3_PIVOT * dark) / hl_unit;
+        lower_gain = HL_V2_LOWER * (1.0 + HL_V3_GAIN * dark);
     }
     let highlights_gain = select(
         1.0,

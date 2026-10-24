@@ -3907,11 +3907,12 @@ const TILE_OVERLAP: u32 = 128;
 
 impl GpuProcessor {
     pub fn new(context: GpuContext, max_width: u32, max_height: u32) -> Result<Self, String> {
+        let hl_scratch = std::env::var("HL_SCRATCH_WGSL").ok().and_then(|p| std::fs::read_to_string(p).ok());
         Self::with_shader_source(
             context,
             max_width,
             max_height,
-            include_str!("shaders/shader.wgsl"),
+            hl_scratch.as_deref().unwrap_or(include_str!("shaders/shader.wgsl")),
         )
     }
 

@@ -158,6 +158,7 @@ pub fn apply_base_look(
         .unwrap_or([0.0, 0.0]);
     global.image_key = high;
     global.image_key_low = low;
+    if std::env::var_os("HL_SCRATCH_KEY").is_some() { eprintln!("HLKEY {} {} {}", high, low, global.baseline_exposure); }
 }
 
 /// The DNG BaselineExposure that gives a linear DNG made from `path` (a

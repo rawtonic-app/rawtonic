@@ -6463,7 +6463,7 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// Camera Raw's reach; notes: reference/highlight-recovery-gfx.md, G05).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 2;
+pub const TONE_VERSION: u64 = 3;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.
