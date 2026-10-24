@@ -252,7 +252,7 @@
         "network": "Impossible de joindre le relais de Rawtonic. Vérifiez la connexion et réessayez.",
         "notConfigured": "Cette version de Rawtonic ne peut pas envoyer de rapports.",
         "rateLimited": "Trop de rapports en ce moment. Réessayez plus tard.",
-        "refused": "Le relais n'a pas accepté ce rapport ; rien n'a été enregistré.",
+        "refused": "Le relais n'a pas confirmé ce rapport. Réessayez plus tard.",
         "unapproved": "Le rapport a changé après son affichage et n'a pas été envoyé. Fermez ceci et réessayez."
       },
       "idHint": "Conservez cet identifiant : il permet de faire supprimer ce que vous avez envoyé à tout moment.",

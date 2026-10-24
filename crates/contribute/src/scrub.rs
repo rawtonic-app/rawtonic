@@ -8,9 +8,6 @@ use regex::{Captures, Regex};
 use serde_json::Value;
 use std::sync::LazyLock;
 
-/// Placeholders the scrubber writes; never replaced themselves.
-const PLACEHOLDERS: &[&str] = &["path", "user", "host", "serial", "email", "ip", "gps"];
-
 /// JSON keys whose strings are kept verbatim: binary data and digests,
 /// which hold no text.
 const VERBATIM_KEYS: &[&str] = &["data", "sha256"];
@@ -23,14 +20,23 @@ static QUOTED_PATH: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#""((?:/[^/"\n]|~/|[A-Za-z]:\\|\\\\)[^"\n]*)"|'((?:/[^/'\n]|~/|[A-Za-z]:\\|\\\\)[^'\n]*)'"#)
         .expect("quoted path pattern")
 });
+/// An unquoted Windows path. Names may hold spaces, so it runs to the end
+/// of its line (or a quote); `path_in_text` cuts it at ": " or ":12".
 static WINDOWS_PATH: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?:\b[A-Za-z]:\\|\\\\[^\s\\"'<>|]+\\)[^\s"'<>|]*"#).expect("Windows path pattern")
+    Regex::new(r#"(?:\b[A-Za-z]:\\|\\\\[^\s\\"'<>|]+\\)[^\n"'<>|]*"#).expect("Windows path pattern")
 });
 /// An unquoted POSIX path or `~/` path: starts the text or follows a
-/// space or an opening bracket, and stops at white space.
+/// space or an opening bracket, and runs like a Windows path.
 static POSIX_PATH: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(^|[\s(\[=,])(~?/[^/\s"'<>|][^\s"'<>|]*)"#).expect("POSIX path pattern")
+    Regex::new(r#"(^|[\s(\[=,])(~?/[^/\s"'<>|][^\n"'<>|]*)"#).expect("POSIX path pattern")
 });
+/// Where an unquoted path ends at the latest: a colon before a space, a
+/// digit (line numbers) or the end.
+static PATH_END: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r":(?:\s|\d|$)").expect("path end pattern"));
+/// A file extension at the end of a word.
+static EXTENSION: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\S\.([A-Za-z0-9]{1,8})(?:\s|$)").expect("extension pattern"));
 static SERIAL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r#"(?i)\b((?:body|internal|lens|camera)?\s?serial(?:\s?(?:number|no))?)(["']?\s*[:=]\s*["']?)([^\s"',;}\]]+)"#,
@@ -44,9 +50,9 @@ static IPV4: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}\b")
         .expect("IPv4 pattern")
 });
-static IPV6: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{0,4}){2,7}\b").expect("IPv6 pattern")
-});
+/// IPv6 candidates (hex digits and colons), confirmed by parsing.
+static IPV6: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[0-9A-Fa-f:]{2,39}").expect("IPv6 pattern"));
 static GPS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r#"-?\b\d{1,2}\.\d{3,}\s*,\s*-?\d{1,3}\.\d{3,}\b|\b\d{1,3}\s?(?:deg|°)\s?\d{1,2}'\s?[\d.]+"?\s?[NSEW]\b"#,
@@ -59,12 +65,16 @@ static PATH_TAIL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?:(?::\d+)+|[.,;:!?)\]}])+$").expect("path tail pattern"));
 static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\p{L}\p{N}_.-]+").expect("word"));
 
-/// The placeholder for a path found in running text, with what trails it
-/// (": denied", ":12:5") kept.
+/// The placeholder for an unquoted path found in running text, with what
+/// follows it (": denied", ":12:5", closing punctuation) kept. Everything
+/// else up to the end of the line counts as the path, since names may hold
+/// spaces: a few words too many are dropped rather than a name kept.
 fn path_in_text(found: &str) -> String {
-    let tail = PATH_TAIL.find(found).map_or("", |m| m.as_str());
-    let path = &found[..found.len() - tail.len()];
-    format!("{}{tail}", path_placeholder(path))
+    let end = PATH_END.find(found).map_or(found.len(), |m| m.start());
+    let (path, rest) = found.split_at(end);
+    let tail = PATH_TAIL.find(path).map_or("", |m| m.as_str());
+    let path = &path[..path.len() - tail.len()];
+    format!("{}{tail}{rest}", path_placeholder(path))
 }
 
 /// `<path>` plus what may stay of the last segment: its extension (the file
@@ -82,15 +92,9 @@ fn path_placeholder(path: &str) -> String {
     {
         return format!("<path>/{last}");
     }
-    match last.rsplit_once('.') {
-        Some((stem, ext))
-            if !stem.is_empty()
-                && (1..=8).contains(&ext.len())
-                && ext.chars().all(|c| c.is_ascii_alphanumeric()) =>
-        {
-            format!("<path>.{ext}")
-        }
-        _ => "<path>".to_string(),
+    match EXTENSION.captures_iter(last).last() {
+        Some(c) => format!("<path>.{}", &c[1]),
+        None => "<path>".to_string(),
     }
 }
 
@@ -109,7 +113,9 @@ impl Scrubber {
         let mut names = Vec::new();
         let mut add = |name: &str, placeholder| {
             let name = name.trim();
-            if name.chars().count() >= 2 && !PLACEHOLDERS.contains(&name.to_lowercase().as_str()) {
+            // Every name counts, even one like "user": placeholders are
+            // protected by their brackets (`word_pattern`).
+            if !name.is_empty() {
                 names.push((name.to_string(), placeholder));
             }
         };
@@ -183,19 +189,7 @@ impl Scrubber {
         });
         let text = EMAIL.replace_all(&text, "<email>");
         let text = IPV4.replace_all(&text, "<ip>");
-        let text = IPV6.replace_all(&text, |c: &Captures| {
-            let m = &c[0];
-            // A compressed or full address, not a time ("12:34:56") or a Rust
-            // path ("abc::def"): "::" with three or more colons, or eight groups.
-            let colons = m.matches(':').count();
-            let address = (m.contains("::") && colons >= 3 && !m.contains(":::"))
-                || (colons == 7 && !m.contains("::"));
-            if address && m.chars().any(|ch| ch.is_ascii_digit()) {
-                "<ip>".to_string()
-            } else {
-                m.to_string()
-            }
-        });
+        let text = replace_ipv6(&text);
         let mut text = GPS.replace_all(&text, "<gps>").into_owned();
         for (pattern, placeholder) in &self.names {
             text = replace_word(&text, pattern, placeholder);
@@ -229,6 +223,32 @@ fn word_pattern(name: &str) -> Option<Regex> {
     .ok()
 }
 
+/// Replaces IPv6 addresses: runs of hex digits and colons that stand alone
+/// (not part of a longer word, such as a Rust path `std::fmt`) and parse as
+/// an address with at least one hex digit (not a time, `12:34:56`).
+fn replace_ipv6(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut last = 0;
+    for m in IPV6.find_iter(text) {
+        let before = text[..m.start()].chars().next_back();
+        let after = text[m.end()..].chars().next();
+        let joined =
+            |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.');
+        let candidate = m.as_str();
+        if !joined(before)
+            && !joined(after)
+            && candidate.chars().any(|c| c.is_ascii_hexdigit())
+            && candidate.parse::<std::net::Ipv6Addr>().is_ok()
+        {
+            out.push_str(&text[last..m.start()]);
+            out.push_str("<ip>");
+            last = m.end();
+        }
+    }
+    out.push_str(&text[last..]);
+    out
+}
+
 /// Replaces every match of a `word_pattern` with the placeholder.
 fn replace_word(text: &str, re: &Regex, placeholder: &str) -> String {
     // Adjacent matches share a separator; repeat until none is left.
@@ -260,7 +280,7 @@ mod tests {
         let s = anna();
         assert_eq!(
             s.scrub("open /Users/anna/Pictures/Wedding.CR3 failed"),
-            "open <path>.CR3 failed"
+            "open <path>.CR3"
         );
         assert_eq!(s.scrub("cache ~/Library/Caches/x"), "cache <path>");
         assert_eq!(
@@ -275,7 +295,24 @@ mod tests {
             s.scrub("url file:///Volumes/Card/DCIM/c.RAF"),
             "url <path>.RAF"
         );
-        assert_eq!(s.scrub("folder /Volumes/Anna Card/"), "folder <path> Card/");
+        assert_eq!(s.scrub("folder /Volumes/Anna Card/"), "folder <path>");
+    }
+
+    #[test]
+    fn unquoted_paths_with_spaces_go_whole() {
+        let s = anna();
+        assert_eq!(
+            s.scrub("open /Volumes/Client Jobs/Jane Wedding.CR3 failed"),
+            "open <path>.CR3"
+        );
+        assert_eq!(
+            s.scrub(r"read C:\Users\Jane Doe\Pictures\Jane Wedding.NEF: access denied"),
+            "read <path>.NEF: access denied"
+        );
+        assert_eq!(
+            s.scrub("moved /Volumes/Card One/DCIM/a.ARW\nnext line"),
+            "moved <path>.ARW\nnext line"
+        );
     }
 
     #[test]
@@ -332,6 +369,11 @@ mod tests {
         assert_eq!(s.scrub("mail anna.b@example.org now"), "mail <email> now");
         assert_eq!(s.scrub("from 192.168.1.60:8080"), "from <ip>:8080");
         assert_eq!(s.scrub("v6 fe80::1c2:3ff:fe4d:5e6f"), "v6 <ip>");
+        assert_eq!(
+            s.scrub("ula fdab:cdef:abcd:abcd:abcd:abcd:abcd:abcd up"),
+            "ula <ip> up"
+        );
+        assert_eq!(s.scrub("[::1]:8080"), "[<ip>]:8080");
         assert_eq!(s.scrub("at 52.520008, 13.404954"), "at <gps>");
         assert_eq!(s.scrub(r#"52 deg 31' 12.00" N"#), "<gps>");
     }
@@ -366,10 +408,19 @@ mod tests {
     }
 
     #[test]
-    fn a_user_named_like_a_placeholder_is_not_replaced() {
-        let s = Scrubber::new(Some("path"), None);
-        assert_eq!(s.scrub("/a/b.txt"), "<path>.txt");
-        assert_eq!(s.scrub(&s.scrub("/a/b.txt")), "<path>.txt");
+    fn names_like_placeholders_go_too_and_placeholders_stay() {
+        let s = Scrubber::new(Some("user"), Some("host"));
+        assert_eq!(s.scrub("user on host"), "<user> on <host>");
+        assert_eq!(s.scrub(&s.scrub("user on host")), "<user> on <host>");
+        let s = Scrubber::new(Some("path"), Some("x"));
+        assert_eq!(
+            s.scrub("path saw x: /a/b.txt"),
+            "<user> saw <host>: <path>.txt"
+        );
+        assert_eq!(
+            s.scrub(&s.scrub("path saw x: /a/b.txt")),
+            "<user> saw <host>: <path>.txt"
+        );
     }
 
     proptest! {

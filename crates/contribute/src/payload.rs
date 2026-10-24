@@ -151,11 +151,11 @@ mod tests {
     fn prepares_scrubbed_bytes_with_their_digest() {
         let p = prepare(
             Channel::Report,
-            json!({"schema": 1, "text": "lost /Users/anna/x.CR3 on studio"}),
+            json!({"schema": 1, "text": "studio lost /Users/anna/x.CR3"}),
             &scrubber(),
         )
         .unwrap();
-        assert!(p.body.contains("lost <path>.CR3 on <host>"));
+        assert!(p.body.contains("<host> lost <path>.CR3"));
         assert_eq!(p.digest, sha256_hex(p.body.as_bytes()));
         assert_eq!(approve(&p, &scrubber()), Ok(()));
     }

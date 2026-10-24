@@ -239,7 +239,7 @@
         "network": "Rawtonics Relay-Dienst ist nicht erreichbar. Prüfe die Verbindung und versuche es noch einmal.",
         "notConfigured": "Diese Rawtonic-Version kann keine Berichte senden.",
         "rateLimited": "Gerade zu viele Berichte. Versuche es später noch einmal.",
-        "refused": "Der Relay-Dienst hat diesen Bericht nicht angenommen; nichts wurde gespeichert.",
+        "refused": "Der Relay-Dienst hat diesen Bericht nicht bestätigt. Versuche es später noch einmal.",
         "unapproved": "Der Bericht hat sich nach der Anzeige geändert und wurde nicht gesendet. Schließe dies und versuche es noch einmal."
       },
       "idHint": "Bewahre diese ID auf: Mit ihr kannst du das Gesendete jederzeit löschen lassen.",

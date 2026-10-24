@@ -265,7 +265,7 @@
         "network": "Nie można połączyć się z przekaźnikiem Rawtonic. Sprawdź połączenie i spróbuj ponownie.",
         "notConfigured": "Ta wersja Rawtonic nie może wysyłać zgłoszeń.",
         "rateLimited": "Zbyt wiele zgłoszeń w tej chwili. Spróbuj później.",
-        "refused": "Przekaźnik nie przyjął tego zgłoszenia; nic nie zostało zapisane.",
+        "refused": "Przekaźnik nie potwierdził tego zgłoszenia. Spróbuj później.",
         "unapproved": "Zgłoszenie zmieniło się po wyświetleniu, więc nie zostało wysłane. Zamknij to okno i spróbuj ponownie."
       },
       "idHint": "Zachowaj ten identyfikator: dzięki niemu możesz w każdej chwili zlecić usunięcie tego, co wysłałeś.",

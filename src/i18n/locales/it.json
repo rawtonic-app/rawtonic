@@ -252,7 +252,7 @@
         "network": "Impossibile raggiungere il relay di Rawtonic. Controlla la connessione e riprova.",
         "notConfigured": "Questa versione di Rawtonic non può inviare segnalazioni.",
         "rateLimited": "Troppe segnalazioni al momento. Riprova più tardi.",
-        "refused": "Il relay non ha accettato questa segnalazione; non è stato salvato nulla.",
+        "refused": "Il relay non ha confermato questa segnalazione. Riprova più tardi.",
         "unapproved": "La segnalazione è cambiata dopo essere stata mostrata e non è stata inviata. Chiudi e riprova."
       },
       "idHint": "Conserva questo ID: con esso puoi far eliminare in qualsiasi momento ciò che hai inviato.",

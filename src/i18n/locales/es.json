@@ -252,7 +252,7 @@
         "network": "No se pudo contactar con el relé de Rawtonic. Comprueba la conexión e inténtalo de nuevo.",
         "notConfigured": "Esta versión de Rawtonic no puede enviar informes.",
         "rateLimited": "Demasiados informes ahora mismo. Inténtalo más tarde.",
-        "refused": "El relé no aceptó este informe; no se guardó nada.",
+        "refused": "El relé no confirmó este informe. Inténtalo más tarde.",
         "unapproved": "El informe cambió después de mostrarse, así que no se envió. Cierra esto e inténtalo de nuevo."
       },
       "idHint": "Guarda este ID: con él puedes pedir que se borre lo que enviaste en cualquier momento.",
