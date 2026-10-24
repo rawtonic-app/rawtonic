@@ -1472,7 +1472,9 @@ impl Journal {
     /// the system Trash and forgets it; returns the Trash item. Refused,
     /// changing nothing, for any other file: one the journal does not
     /// record as created by that operation, one that is no longer that
-    /// file, or one whose original is gone. Nothing is ever deleted. It is
+    /// file, one whose original is gone, or one holding anything its
+    /// original does not (bytes beyond or other than the start of the
+    /// original's, or another extended attribute). Nothing is ever deleted. It is
     /// not an undoable operation: putting it back would be a rename the
     /// volume cannot do without risking replacing a file (exFAT on macOS),
     /// and a redo could not hold these checks; the system Trash's own Put
@@ -1504,6 +1506,15 @@ impl Journal {
             "The original {} is gone, so {} may be its only copy; nothing was moved to the Trash",
             kept.source.display(),
             path.display()
+        );
+        // Its creation time tells it only to the volume's step: what
+        // decides is that it holds nothing the original does not.
+        ensure!(
+            volume::holds_only_source(path, &kept.source)?,
+            "{} holds something its original {} does not (another program may have written \
+             into it); nothing was moved to the Trash",
+            path.display(),
+            kept.source.display()
         );
         let item = trash.trash(path)?;
         payload.kept.retain(|k| k.path != path);

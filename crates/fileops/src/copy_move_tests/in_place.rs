@@ -370,9 +370,14 @@ fn the_copies_a_stopped_move_left_can_go_to_the_trash_and_nothing_else() {
     };
     refused(&world.source.join("A.RAF"));
     refused(&world.target.join("B.RAF"));
+    // An attribute its original does not have (where the volume keeps
+    // them): refused too.
+    let xmp = world.target.join("A.xmp");
+    if super::attributes::tag(&xmp, "someone else's") {
+        refused(&xmp);
+    }
     // The same name, another file: created once the volume's clock for
     // creation times moved on (10 ms on exFAT, 2 s on FAT).
-    let xmp = world.target.join("A.xmp");
     let born = |p: &Path| fs::metadata(p).unwrap().created().unwrap();
     let first = born(&xmp);
     fs::remove_file(&xmp).unwrap();
@@ -383,6 +388,18 @@ fn the_copies_a_stopped_move_left_can_go_to_the_trash_and_nothing_else() {
         fs::write(&xmp, b"someone else's").unwrap();
     }
     refused(&xmp);
+    // Written into by someone else, the same file (and so its creation
+    // time) or one made within the same step of the volume's clock: what
+    // it holds beyond the original's bytes is not taken.
+    let rrdata_copy = world.target.join("A.RAF.rrdata");
+    let saved_copy = fs::read(&rrdata_copy).unwrap();
+    let mut changed = saved_copy.clone();
+    changed[0] ^= 1;
+    fs::write(&rrdata_copy, &changed).unwrap();
+    refused(&rrdata_copy);
+    fs::write(&rrdata_copy, [saved_copy.as_slice(), b"more"].concat()).unwrap();
+    refused(&rrdata_copy);
+    fs::write(&rrdata_copy, &saved_copy).unwrap();
     // The original is gone: the copy may be the only one.
     let rrdata = world.source.join("A.RAF.rrdata");
     let saved = fs::read(&rrdata).unwrap();
