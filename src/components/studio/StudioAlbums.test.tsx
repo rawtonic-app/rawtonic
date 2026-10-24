@@ -9,6 +9,7 @@ import { useLibraryStore } from "../../store/useLibraryStore";
 import type { AlbumItem } from "../ui/AppProperties";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
 import { useSmartAlbumEditor } from "./SmartAlbumEditor";
+import { FILE_OPERATIONS_CHANGED } from "../../utils/catalogEvents";
 import { CATALOG_CHANGED, catalogChanged } from "../../utils/catalogWrites";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -541,7 +542,7 @@ describe("Smart albums in the Albums tool", () => {
       });
       expect(select).toHaveBeenCalledTimes(2);
       select.mockClear();
-      // A plain album shown is not reloaded on every write.
+      // Plain albums are not reloaded for a metadata-only write.
       useLibraryStore.setState({ activeAlbumId: "session-album:p" });
       act(() => catalogChanged());
       await act(async () => {
@@ -576,4 +577,41 @@ describe("Built-in album query errors", () => {
     expect(screen.getByText("The operation could not be completed.")).toBeTruthy();
     expect(screen.getByText("Error: EIO: catalog").tagName).toBe("SMALL");
   });
+});
+
+it.each(["session-previous-import", "session-album:p"])("refreshes %s after trash and undo settle", async (activeAlbumId) => {
+  useLibraryStore.setState({ activeAlbumId });
+  let paths = ["/job/Capture/a.arw", "/job/Capture/b.arw"];
+  const base = mockInvoke.getMockImplementation()!;
+  mockInvoke.mockImplementation(async (command, args) => {
+    if (command === "session_previous_import") return { batch: { id: 1, kind: "add", count: paths.length }, paths };
+    if (command === "session_album_paths") return paths;
+    return base(command, args);
+  });
+  const select = await renderTool();
+  paths = ["/job/Capture/b.arw"];
+  await act(async () => window.dispatchEvent(new Event(FILE_OPERATIONS_CHANGED)));
+  expect(select).toHaveBeenLastCalledWith(activeAlbumId, expect.any(String), paths, true);
+  paths = ["/job/Capture/a.arw", "/job/Capture/b.arw"];
+  await act(async () => window.dispatchEvent(new Event(FILE_OPERATIONS_CHANGED)));
+  expect(select).toHaveBeenLastCalledWith(activeAlbumId, expect.any(String), paths, true);
+});
+
+it("does not reopen Previous Import when a trash refresh finishes after navigation", async () => {
+  useLibraryStore.setState({ activeAlbumId: "session-previous-import" });
+  const base = mockInvoke.getMockImplementation()!;
+  let delayed = false;
+  let finish!: (value: unknown) => void;
+  mockInvoke.mockImplementation(async (command, args) => {
+    if (command === "session_previous_import") return delayed
+      ? new Promise((resolve) => { finish = resolve; })
+      : { batch: { id: 1, count: 1 }, paths: ["/job/a.arw"] };
+    return base(command, args);
+  });
+  const select = await renderTool();
+  delayed = true;
+  act(() => window.dispatchEvent(new Event(FILE_OPERATIONS_CHANGED)));
+  act(() => useLibraryStore.setState({ activeAlbumId: null }));
+  await act(async () => finish({ batch: { id: 1, count: 0 }, paths: [] }));
+  expect(select).not.toHaveBeenCalled();
 });

@@ -204,7 +204,7 @@ describe("folders in the library", () => {
   });
 
   it("loads a folder's next level when it is expanded and collapses it again", async () => {
-    useLibraryStore.setState({ folderTrees: [folder("/job", 0, [folder("/job/Capture", 2, [], { hasSubdirs: true })])] as never });
+    useLibraryStore.setState({ catalogFolders: null, folderTrees: [folder("/job", 0, [folder("/job/Capture", 2, [], { hasSubdirs: true })])] as never });
     mockInvoke.mockImplementation(async (command) =>
       command === "get_folder_children" ? [folder("/job/Capture/Day 2", 4)] : undefined,
     );
@@ -526,4 +526,14 @@ it("reports catalog folder persistence failures and retains the last readable gr
   await act(async () => {});
   expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("cache persistence failed"));
   expect(useLibraryStore.getState().catalogFolders).toBe(previous);
+});
+
+it("marks only the session Trash folder with a trash icon, selected or closed", () => {
+  useLibraryStore.setState({ catalogFolders: null, folderTrees: [folder("/job", 0, [folder("/job/Trash"), folder("/job/Selects", 0, [folder("/job/Selects/Trash")])])] as never });
+  const { rerender } = renderNavigation();
+  expect(row("/job/Trash").querySelector(".lucide-trash-2")).toBeTruthy();
+  expect(row("/job/Selects/Trash").querySelector(".lucide-trash-2")).toBeNull();
+  act(() => useLibraryStore.setState({ currentFolderPath: "/job/Trash" }));
+  rerender(<ContextMenuProvider><StudioNavigation onNavigate={vi.fn()} folderActions={actions} /></ContextMenuProvider>);
+  expect(row("/job/Trash").querySelector(".lucide-trash-2")).toBeTruthy();
 });

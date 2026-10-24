@@ -1,12 +1,17 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { createRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Editor, { type TransformWrapperHandle } from "./Editor";
 import { useEditorStore } from "../../store/useEditorStore";
 
-// The viewer's pixels and gestures are not under test: only how a zoom
-// tells the preview the size it ends at.
-vi.mock("./editor/ImageCanvas", () => ({ default: () => null }));
+// Keep the real viewer and targeted pointer surface; replace the renderer.
+// Zoom tests also check the preview size requested at animation start.
+vi.mock("./editor/ImageCanvas", async () => {
+  const { default: TargetedAdjustmentOverlay } = await import("./editor/TargetedAdjustmentOverlay");
+  return { default: () => useEditorStore.getState().tatTarget
+    ? <TargetedAdjustmentOverlay rect={{ left: 0, top: 0, width: 400, height: 300 }} /> : null };
+});
 vi.mock("../../hooks/useImageRenderSize", () => ({
   useImageRenderSize: () => ({
     width: 400,
@@ -41,7 +46,14 @@ describe("Editor zoom", () => {
       releasePointerCapture: () => {},
       hasPointerCapture: () => false,
     });
+    vi.stubGlobal("PointerEvent", class extends MouseEvent {
+      pointerId = 1;
+      pointerType = "mouse";
+    });
     useEditorStore.setState({
+      tatTarget: null,
+      isWbPickerActive: false,
+      colorPickerTarget: null,
       selectedImage: { path: "/a.raw", width: 4000, height: 3000, isReady: true } as never,
       displaySize: { width: 400, height: 300 },
     });
@@ -86,4 +98,33 @@ describe("Editor zoom", () => {
     });
     expect(ref.current!.instance.targetTransformState).toEqual(ref.current!.instance.transformState);
   });
+  it.each(["curve", "regionCurve", "hue", "saturation", "luminance", "grayMixer"] as const)(
+    "gives %s the first drag without capturing, panning or click zooming",
+    async (tatTarget) => {
+      useEditorStore.setState({ tatTarget });
+      const ref = createRef<TransformWrapperHandle>();
+      const { container } = render(<Editor onContextMenu={() => {}} transformWrapperRef={ref} />);
+      const wrapper = ref.current!.instance.wrapperComponent!;
+      const overlay = container.querySelector('[data-testid="targeted-adjustment"]')!;
+      const viewerCapture = vi.spyOn(wrapper, "setPointerCapture");
+      const overlayCapture = vi.spyOn(overlay, "setPointerCapture");
+      const initial = { ...ref.current!.instance.transformState };
+      await act(async () => {
+        fireEvent.pointerDown(overlay, { button: 0, clientX: 100, clientY: 100 });
+        fireEvent.pointerMove(overlay, { button: 0, clientX: 150, clientY: 80 });
+        fireEvent.pointerUp(overlay, { button: 0, clientX: 150, clientY: 80 });
+        fireEvent.click(overlay);
+      });
+      expect(overlayCapture).toHaveBeenCalled();
+      expect(invoke).toHaveBeenCalledWith(
+        tatTarget === "curve" || tatTarget === "regionCurve" ? "sample_curve_input" : "sample_preview_white_balance",
+        expect.objectContaining({ path: "/a.raw" }),
+      );
+      expect(viewerCapture).not.toHaveBeenCalled();
+      expect(ref.current!.instance.transformState).toEqual(initial);
+      expect(ref.current!.instance.targetTransformState).toEqual(initial);
+      expect(wrapper.style.cursor).toBe("ns-resize");
+    },
+  );
+
 });

@@ -27,6 +27,7 @@ import { useProcessStore } from '../store/useProcessStore';
 import { useUIStore } from '../store/useUIStore';
 import { Invokes } from '../components/ui/AppProperties';
 import { OFFLINE_COUNTED } from '../utils/offline';
+import { FILE_OPERATIONS_CHANGED } from '../utils/catalogEvents';
 import { debouncedSave } from './useEditorActions';
 import { INITIAL_ADJUSTMENTS } from '../utils/adjustments';
 
@@ -222,6 +223,8 @@ describe('undo follows the paths it moves back', () => {
     useLibraryStore.setState({ sessionDirectory: '/job' });
     vi.mocked(invoke).mockResolvedValueOnce(undoneRename);
     const counted = vi.fn();
+    const catalog = vi.fn();
+    window.addEventListener(FILE_OPERATIONS_CHANGED, catalog);
     window.addEventListener(OFFLINE_COUNTED, counted);
     const { result } = renderHook(() =>
       useFileOperations(vi.fn(() => Promise.resolve()), vi.fn(() => Promise.resolve()), vi.fn(), vi.fn(), []),
@@ -229,6 +232,8 @@ describe('undo follows the paths it moves back', () => {
     await result.current.handleUndoFileOperation();
     await waitFor(() => expect(counted).toHaveBeenCalled());
     window.removeEventListener(OFFLINE_COUNTED, counted);
+    window.removeEventListener(FILE_OPERATIONS_CHANGED, catalog);
+    expect(catalog).toHaveBeenCalledOnce();
     expect(invoke).toHaveBeenCalledWith(Invokes.SessionOffline, { directory: '/job' });
   });
 });
@@ -370,6 +375,18 @@ describe('moving to the Trash', () => {
   beforeEach(() => {
     vi.mocked(invoke).mockReset();
     vi.mocked(invoke).mockResolvedValue(undefined);
+  });
+
+  it('announces a settled delete so import and album views reload the catalog', async () => {
+    useLibraryStore.setState({ sessionDirectory: '/job' });
+    const changed = vi.fn();
+    window.addEventListener(FILE_OPERATIONS_CHANGED, changed);
+    try {
+      await hook().executeDelete(['/job/Capture/a.RAF']);
+      expect(changed).toHaveBeenCalledOnce();
+    } finally {
+      window.removeEventListener(FILE_OPERATIONS_CHANGED, changed);
+    }
   });
 
   it('saves a pending edit before the photo moves, not afterwards at its old place', async () => {

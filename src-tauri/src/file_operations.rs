@@ -950,7 +950,7 @@ pub fn sync_catalog(op: &Operation, forward: bool) -> Result<(), String> {
         };
         let result = match &change {
             Change::Relocate(a, b) => lib.relocate(a, b).map(|_| ()),
-            Change::Missing(path, missing) => lib.set_missing_at(path, *missing).map(|_| ()),
+            Change::Missing(path, missing) => lib.set_trashed_at(path, *missing).map(|_| ()),
         };
         if let Err(e) = result {
             failures.push(format!("{e:#}"));
@@ -1888,6 +1888,38 @@ mod tests {
         fn contains(&self, item: &str) -> bool {
             Path::new(item).exists()
         }
+    }
+
+    #[test]
+    fn system_trash_sync_hides_album_membership_and_undo_restores_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = session(tmp.path());
+        let photo = dir.join("Capture/A.RAF");
+        fs::write(&photo, "synthetic photo").unwrap();
+        let lib = Library::open(&dir).unwrap();
+        let asset = lib.add_asset(&photo).unwrap();
+        let album = lib.create_collection("Kept", None).unwrap();
+        lib.add_to_collection(&album.id, std::slice::from_ref(&asset.id))
+            .unwrap();
+        let journal = Journal::open(&tmp.path().join("journal.sqlite")).unwrap();
+        let trash = BesideTrash(tmp.path().join(".trash"));
+        let op = journal
+            .execute(
+                "trash",
+                "Delete 1 photo",
+                vec![Step::system_trash(&photo)],
+                &trash,
+            )
+            .unwrap();
+        sync_catalog(&op, true).unwrap();
+        assert!(lib.asset(&asset.id).unwrap().missing);
+        assert!(lib.collection_paths(&album.id).unwrap().is_empty());
+        assert_eq!(lib.collections().unwrap()[0].count, 0);
+        let op = journal.undo(&op.id, &trash).unwrap();
+        sync_catalog(&op, false).unwrap();
+        assert_eq!(lib.collection_paths(&album.id).unwrap(), [photo]);
+        assert_eq!(lib.collections().unwrap()[0].count, 1);
+        assert!(!lib.asset(&asset.id).unwrap().missing);
     }
 
     /// The records follow a folder moved to another drive also when that

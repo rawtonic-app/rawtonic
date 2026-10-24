@@ -34,8 +34,12 @@ pub use volume::Volume;
 
 /// Version of the session/catalog manifest (`session.json`).
 pub const SCHEMA_VERSION: u32 = 1;
+/// Photos visible in library views. Session Trash is listed directly from
+/// disk, so its contents remain available for restoration.
+const VISIBLE_ASSETS: &str = "a.trashed=0 AND NOT (a.root_id='session' AND (a.rel_path='Trash' OR substr(replace(a.rel_path,char(92),'/'),1,6)='Trash/'))";
+
 /// Version of the SQLite schema; older databases are migrated when opened.
-pub const DB_SCHEMA_VERSION: u32 = 15;
+pub const DB_SCHEMA_VERSION: u32 = 16;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -211,6 +215,14 @@ fn manifest_name(mode: Mode) -> &'static str {
 }
 
 impl Library {
+    fn visible_assets(&self) -> &'static str {
+        if self.manifest.mode == Mode::Session {
+            VISIBLE_ASSETS
+        } else {
+            "a.trashed=0"
+        }
+    }
+
     pub fn create(directory: &Path, name: &str, mode: Mode) -> Result<Self> {
         ensure!(
             !name.trim().is_empty() && name.len() <= 255,
@@ -254,6 +266,7 @@ impl Library {
         conn.execute_batch(include_str!("../migrations/0013.sql"))?;
         conn.execute_batch(include_str!("../migrations/0014.sql"))?;
         conn.execute_batch(include_str!("../migrations/0015.sql"))?;
+        conn.execute_batch(include_str!("../migrations/0016.sql"))?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],
@@ -378,6 +391,9 @@ impl Library {
         if version < 15 {
             tx.execute_batch(include_str!("../migrations/0015.sql"))?;
         }
+        if version < 16 {
+            tx.execute_batch(include_str!("../migrations/0016.sql"))?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -427,11 +443,14 @@ impl Library {
 
     pub fn summary(&self) -> Result<Summary> {
         let (assets,picked,rated,pending) = self.conn.query_row("SELECT count(*),coalesce(sum(flag=1),0),coalesce(sum(rating>0),0),coalesce(sum(xmp_status!='synced'),0) FROM metadata", [], |r| Ok((r.get::<_,i64>(0)? as usize,r.get::<_,i64>(1)? as usize,r.get::<_,i64>(2)? as usize,r.get::<_,i64>(3)? as usize)))?;
-        let missing: i64 =
-            self.conn
-                .query_row("SELECT count(*) FROM assets WHERE missing=1", [], |r| {
-                    r.get(0)
-                })?;
+        let missing: i64 = self.conn.query_row(
+            &format!(
+                "SELECT count(*) FROM assets a WHERE a.missing=1 AND {}",
+                self.visible_assets()
+            ),
+            [],
+            |r| r.get(0),
+        )?;
         Ok(Summary {
             directory: self.directory.clone(),
             manifest: self.manifest.clone(),
@@ -623,8 +642,8 @@ impl Library {
     /// how many its rules match now; damaged rules: none).
     pub fn collections(&self) -> Result<Vec<Collection>> {
         let mut query = self.conn.prepare(
-            "SELECT c.id,c.name,c.parent,(SELECT COUNT(*) FROM collection_assets ca WHERE ca.collection_id=c.id),c.kind,c.position,c.rules \
-             FROM collections c ORDER BY c.position, c.name COLLATE NOCASE, c.id",
+            &format!("SELECT c.id,c.name,c.parent,(SELECT COUNT(*) FROM collection_assets ca JOIN assets a ON a.id=ca.asset_id WHERE ca.collection_id=c.id AND {}),c.kind,c.position,c.rules \
+             FROM collections c ORDER BY c.position, c.name COLLATE NOCASE, c.id", self.visible_assets()),
         )?;
         let rows = query.query_map([], |r| {
             let rules: Option<String> = r.get(6)?;
@@ -1463,7 +1482,7 @@ impl Library {
     /// `verify_paths` or file operation), in path order, with the drive it
     /// is on when that drive is disconnected.
     pub fn offline_assets(&self) -> Result<Vec<OfflineAsset>> {
-        self.offline_rows("a.missing=1", &[])
+        self.offline_rows(&format!("a.missing=1 AND {}", self.visible_assets()), &[])
     }
 
     /// A registered photograph whose file is gone and that has the content
@@ -1722,14 +1741,30 @@ impl Library {
         Ok((report, moved))
     }
 
-    /// Marks the asset registered at `path`, or every asset below it when it
-    /// was a folder (sent to the system Trash, or put back from it), as
-    /// missing or present. Returns how many matched.
+    /// Marks the asset registered at `path`, or every asset below that folder,
+    /// as missing or present without changing its deliberate trash state.
+    /// Returns how many matched.
     pub fn set_missing_at(&self, path: &Path, missing: bool) -> Result<usize> {
+        self.set_path_status(path, missing, false)
+    }
+
+    /// System Trash and undo keep identity/memberships while hiding the
+    /// deleted photograph, independently of whether its drive is mounted.
+    pub fn set_trashed_at(&self, path: &Path, trashed: bool) -> Result<usize> {
+        self.set_path_status(path, trashed, true)
+    }
+
+    fn set_path_status(&self, path: &Path, missing: bool, trash_operation: bool) -> Result<usize> {
+        let status = if trash_operation {
+            "missing=?1,trashed=?1"
+        } else {
+            "missing=?1"
+        };
         let path = resolve_moved(path);
         let like = |prefix: &str| {
+            let prefix = format!("{prefix}{}", std::path::MAIN_SEPARATOR);
             format!(
-                "{}/%",
+                "{}%",
                 prefix
                     .replace('\\', "\\\\")
                     .replace('%', "\\%")
@@ -1739,8 +1774,10 @@ impl Library {
         let changed = if let Ok(relative) = path.strip_prefix(&self.directory) {
             let rel = relative.to_string_lossy();
             self.conn.execute(
-                "UPDATE assets SET missing=? WHERE root_id='session'
-                   AND (rel_path=? OR rel_path LIKE ? ESCAPE '\\')",
+                &format!(
+                    "UPDATE assets SET {status} WHERE root_id='session'
+                   AND (rel_path=? OR rel_path LIKE ? ESCAPE '\\')"
+                ),
                 params![missing, rel.as_ref(), like(&rel)],
             )?
         } else {
@@ -1748,10 +1785,12 @@ impl Library {
             let parent = path.parent().context("No parent")?.to_string_lossy();
             let name = path.file_name().context("No filename")?.to_string_lossy();
             self.conn.execute(
-                "UPDATE assets SET missing=? WHERE
+                &format!(
+                    "UPDATE assets SET {status} WHERE
                    (rel_path=? AND root_id IN (SELECT id FROM roots WHERE external=1 AND path=?))
                    OR root_id IN (SELECT id FROM roots WHERE external=1
-                                  AND (path=? OR path LIKE ? ESCAPE '\\'))",
+                                  AND (path=? OR path LIKE ? ESCAPE '\\'))"
+                ),
                 params![
                     missing,
                     name.as_ref(),

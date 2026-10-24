@@ -1257,7 +1257,7 @@ impl Library {
     fn compile(&self, rule: &Rule) -> Result<Compiled> {
         rule.validate()?;
         let mut compiler = Compiler::new(&self.directory, Some(self));
-        let condition = compiler.rule(rule)?;
+        let condition = format!("({}) AND ({})", self.visible_assets(), compiler.rule(rule)?);
         Ok(Compiled {
             condition,
             params: compiler.params,

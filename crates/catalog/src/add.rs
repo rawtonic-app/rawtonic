@@ -548,9 +548,9 @@ impl Library {
         let row: Option<(i64, String, String, i64)> = self
             .conn
             .query_row(
-                "SELECT b.id,b.kind,b.created_at,
-                        (SELECT count(*) FROM asset_imports ai WHERE ai.batch_id=b.id)
-                 FROM import_batches b ORDER BY b.id DESC LIMIT 1",
+                &format!("SELECT b.id,b.kind,b.created_at,
+                        (SELECT count(*) FROM asset_imports ai JOIN assets a ON a.id=ai.asset_id WHERE ai.batch_id=b.id AND {})
+                 FROM import_batches b ORDER BY b.id DESC LIMIT 1", self.visible_assets()),
                 [],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
@@ -571,10 +571,11 @@ impl Library {
     pub fn previous_import_assets(&self) -> Result<Vec<Asset>> {
         let ids: Vec<String> = self
             .conn
-            .prepare(
+            .prepare(&format!(
                 "SELECT a.id FROM asset_imports ai JOIN assets a ON a.id=ai.asset_id
-                 WHERE ai.batch_id=(SELECT max(id) FROM import_batches) ORDER BY a.rel_path",
-            )?
+                 WHERE ai.batch_id=(SELECT max(id) FROM import_batches) AND {} ORDER BY a.rel_path",
+                self.visible_assets()
+            ))?
             .query_map([], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?;
         ids.iter().map(|id| self.asset(id)).collect()
@@ -668,6 +669,73 @@ mod tests {
         // B's XMP is the metadata the library holds: nothing to write back.
         assert_eq!(lib.summary().unwrap().xmp_pending, 2);
         assert!(lib.assets(Some("harbour")).unwrap().len() == 1);
+    }
+
+    #[test]
+    fn trashed_photographs_leave_imports_and_albums_until_restored() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = session(d.path());
+        let paths = photos(&lib);
+        {
+            let _batch = lib.import_batch(ImportKind::Add);
+            lib.add_files(&paths).unwrap();
+        }
+        let ids: Vec<_> = paths
+            .iter()
+            .map(|p| lib.asset_at(p).unwrap().unwrap().id)
+            .collect();
+        let album = lib.create_collection("Picks", None).unwrap();
+        lib.add_to_collection(&album.id, &ids).unwrap();
+        let smart = lib
+            .create_smart_collection("All", None, &crate::query::Rule::everything())
+            .unwrap();
+
+        let trash = lib.directory.join("Trash/A.ARW");
+        fs::rename(&paths[0], &trash).unwrap();
+        lib.relocate(&paths[0], &trash).unwrap();
+        // A disconnected or externally missing original remains in its albums.
+        lib.set_missing_at(&paths[1], true).unwrap();
+        assert_eq!(lib.previous_import_assets().unwrap().len(), 2);
+        assert_eq!(lib.previous_import().unwrap().unwrap().count, 2);
+        assert_eq!(lib.collection_paths(&album.id).unwrap().len(), 2);
+        assert_eq!(lib.collection_paths(&smart.id).unwrap().len(), 2);
+        let facets = lib
+            .facets(
+                &crate::query::Rule::everything(),
+                &[crate::query::Field::Rating],
+            )
+            .unwrap();
+        assert_eq!(
+            facets[&crate::query::Field::Rating]
+                .iter()
+                .map(|v| v.count)
+                .sum::<usize>(),
+            2
+        );
+
+        assert!(lib.collections().unwrap().iter().all(|a| a.count == 2));
+        assert_eq!(
+            lib.search_count(&crate::query::Rule::everything()).unwrap(),
+            2
+        );
+        fs::rename(&trash, &paths[0]).unwrap();
+        lib.relocate(&trash, &paths[0]).unwrap();
+        assert_eq!(lib.previous_import_assets().unwrap().len(), 3);
+        assert_eq!(lib.collection_paths(&album.id).unwrap().len(), 3);
+        assert!(lib.collections().unwrap().iter().all(|a| a.count == 3));
+        lib.set_trashed_at(&paths[0], true).unwrap();
+        // A file check changing missing state must not untrash a record.
+        lib.set_missing_at(&paths[0], false).unwrap();
+        assert_eq!(lib.previous_import_assets().unwrap().len(), 2);
+        assert_eq!(lib.previous_import().unwrap().unwrap().count, 2);
+        assert_eq!(lib.collection_paths(&album.id).unwrap().len(), 2);
+        assert_eq!(
+            lib.search_count(&crate::query::Rule::everything()).unwrap(),
+            2
+        );
+        lib.set_trashed_at(&paths[0], false).unwrap();
+        assert_eq!(lib.previous_import_assets().unwrap().len(), 3);
+        assert_eq!(lib.collection_paths(&album.id).unwrap().len(), 3);
     }
 
     #[test]
@@ -790,6 +858,7 @@ mod tests {
         // Back to schema 5: batches limited to ingest, add and sync.
         lib.conn
             .execute_batch(concat!(
+                include_str!("../tests/undo_0016.sql"),
                 include_str!("../tests/undo_0015.sql"),
                 include_str!("../tests/undo_0014.sql"),
                 include_str!("../tests/undo_0013.sql"),
