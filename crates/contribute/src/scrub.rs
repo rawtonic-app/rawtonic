@@ -185,7 +185,7 @@ impl Scrubber {
         let mut last = 0;
         for url in WEB_URL.find_iter(text) {
             out.push_str(&self.scrub_text(&text[last..url.start()]));
-            out.push_str(&self.scrub_values(url.as_str()));
+            out.push_str(&self.scrub_url(url.as_str()));
             last = url.end();
         }
         out.push_str(&self.scrub_text(&text[last..]));
@@ -205,6 +205,24 @@ impl Scrubber {
             format!("{}{}", &c[1], path_in_text(&c[2]))
         });
         self.scrub_values(&text)
+    }
+
+    /// A web link keeps only its scheme and host (scrubbed like text: an IP
+    /// address goes); anything after the host — path, query, fragment —
+    /// becomes `/<path>`, since a filesystem path, a name or a serial may be
+    /// in it in any encoding. Fail-closed, like the path rule.
+    fn scrub_url(&self, url: &str) -> String {
+        let after_scheme = url.find("://").map_or(0, |i| i + 3);
+        let host_end = url[after_scheme..]
+            .find(['/', '?', '#'])
+            .map_or(url.len(), |i| after_scheme + i);
+        let host = self.scrub_values(&url[..host_end]);
+        match &url[host_end..] {
+            // A bare slash hides nothing (and is what a scrubbed link's
+            // `/<path>` leaves for the link pattern, which stops at `<`).
+            "" | "/" => format!("{host}{}", &url[host_end..]),
+            _ => format!("{host}/<path>"),
+        }
     }
 
     /// Every rule but the path rule.
@@ -389,8 +407,14 @@ mod tests {
     #[test]
     fn urls_are_not_paths() {
         let s = anna();
-        let text = "see https://github.com/rawtonic-app/rawtonic/issues";
-        assert_eq!(s.scrub(text), text);
+        assert_eq!(
+            s.scrub("see https://github.com/rawtonic-app/rawtonic/issues"),
+            "see https://github.com/<path>"
+        );
+        assert_eq!(
+            s.scrub("https://example.org/?file=/Volumes/Clients/Jane-Wedding.CR3"),
+            "https://example.org/<path>"
+        );
     }
 
     #[test]
@@ -536,7 +560,7 @@ mod tests {
         );
         assert_eq!(
             s.scrub("see https://github.com/rawtonic-app/rawtonic"),
-            "see https://github.com/rawtonic-app/rawtonic"
+            "see https://github.com/<path>"
         );
         assert_eq!(
             s.scrub("see https://example.org then /Volumes/Client Jobs/Jane Wedding.CR3"),
@@ -544,7 +568,7 @@ mod tests {
         );
         assert_eq!(
             s.scrub("see https://example.org/anna then C:/Jobs/Jane Wedding.NEF"),
-            "see https://example.org/<user> then <path>.NEF"
+            "see https://example.org/<path> then <path>.NEF"
         );
         assert_eq!(
             s.scrub("smb://nas/Clients/Jane Wedding.CR3"),
@@ -556,7 +580,7 @@ mod tests {
         );
         assert_eq!(
             s.scrub("https://example.org/?SerialNumber=AB12345"),
-            "https://example.org/?SerialNumber=<serial>"
+            "https://example.org/<path>"
         );
         assert_eq!(
             s.scrub(r#"serial_number: Some("AB12345")"#),

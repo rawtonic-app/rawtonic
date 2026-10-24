@@ -79,7 +79,17 @@ impl std::error::Error for SendError {}
 pub fn pow_stamp(body: &[u8], seconds: u64, bits: u32) -> String {
     let body_hash = sha256_hex(body);
     let prefix = format!("rawtonic-pow-1:{seconds}:{body_hash}:");
-    for nonce in 0u64.. {
+    // A random start, so two clients sending the same body in the same
+    // second do not find the same stamp (the relay refuses a stamp seen
+    // before).
+    let start = {
+        use std::hash::{BuildHasher, Hasher};
+        std::collections::hash_map::RandomState::new()
+            .build_hasher()
+            .finish()
+    };
+    for step in 0u64.. {
+        let nonce = start.wrapping_add(step);
         let digest = <sha2::Sha256 as sha2::Digest>::digest(format!("{prefix}{nonce}").as_bytes());
         if leading_zero_bits(&digest) >= bits {
             return format!("{seconds}.{nonce}");
@@ -419,6 +429,13 @@ mod tests {
             RelayClient::from_build("1").is_some(),
             BUILD_RELAY_URL.is_some()
         );
+    }
+
+    #[test]
+    fn the_same_body_in_the_same_second_gets_different_stamps() {
+        let stamps: std::collections::HashSet<_> =
+            (0..8).map(|_| pow_stamp(b"{}", 1_800_000_000, 4)).collect();
+        assert!(stamps.len() > 1);
     }
 
     #[test]
