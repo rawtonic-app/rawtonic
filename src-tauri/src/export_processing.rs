@@ -1706,13 +1706,8 @@ fn estimate_sizes(
             &adjustments_clone,
             &mask_definitions,
         )?;
-        let mask_geometry = crate::editor_preview::open_orientation(
-            &state,
-            PhotoGeometry::from_adjustments(&adjustments_clone)
-                .with_decoded_size(loaded_image.image.width(), loaded_image.image.height()),
-            rawtonic_engine::lightroom_retouch::needs_orientation(&adjustments_clone),
-            &loaded_image.path,
-        );
+        let mask_geometry = PhotoGeometry::from_adjustments(&adjustments_clone)
+            .with_decoded_size(loaded_image.image.width(), loaded_image.image.height());
         let mask_bitmaps: Vec<Arc<MaskBitmap>> = mask_definitions
             .iter()
             .filter_map(|def| {

@@ -1624,8 +1624,8 @@ pub fn prepare_recipe_lens(recipe: &mut Value, source: &Path) -> Result<(), Stri
     resolved
 }
 
-/// Records the photo's orientation in Lightroom spots, red eye corrections
-/// and masks imported before imports recorded it
+/// Records the photo's orientation in Lightroom spots and red eye
+/// corrections imported before imports recorded it
 /// (`lightroom_retouch::needs_orientation`), so they render.
 pub fn record_lightroom_orientation(recipe: &mut Value, source: &Path) {
     if rawtonic_engine::lightroom_retouch::needs_orientation(recipe)

@@ -7,13 +7,16 @@
 //! As for spots (`lightroom_retouch`), an import knows the photo's EXIF
 //! orientation but not its decoded size. The catalog import records the
 //! orientation in each pending component (`orientation` inside
-//! `lrNormalized`); a render that knows the full decode's size
-//! (`PhotoGeometry::with_decoded_size`) then places such a layer with
-//! [`placed_parameters`] before drawing it, so a photo exported (app,
-//! batch, CLI) before it is ever opened renders its masks as the editor
-//! does once it places them (`place`): both run the same placement on the
-//! same size. Select Subject and Select Sky need a model and keep waiting
-//! for the open photo.
+//! `lrNormalized`, [`set_orientation`]); a render that knows the full
+//! decode's size (`PhotoGeometry::with_decoded_size`) then places such a
+//! layer with [`placed_parameters`] before drawing it, so a photo exported
+//! (app, batch, CLI) before it is ever opened renders its masks as the
+//! editor does once it places them (`place`): both run the same placement
+//! on the same size. The recorded orientation is also what gates this:
+//! components imported before it was recorded render as they always did
+//! (left out) until the editor places them, or until the catalog is
+//! imported again. Select Subject and Select Sky need a model and keep
+//! waiting for the open photo.
 
 use serde_json::{Value, json};
 
@@ -29,7 +32,7 @@ fn dab_coverage(flow: f64) -> f64 {
 }
 
 /// The orientation recorded in a pending component's `parameters`.
-pub(crate) fn orientation_of(parameters: &Value) -> Option<u16> {
+fn orientation_of(parameters: &Value) -> Option<u16> {
     parameters[PENDING][ORIENTATION]
         .as_u64()
         .and_then(|o| u16::try_from(o).ok())
@@ -38,7 +41,7 @@ pub(crate) fn orientation_of(parameters: &Value) -> Option<u16> {
 
 /// The `parameters` of the recipe's mask components still in Lightroom's
 /// form.
-pub(crate) fn pending_parameters_mut(adjustments: &mut Value) -> impl Iterator<Item = &mut Value> {
+fn pending_parameters_mut(adjustments: &mut Value) -> impl Iterator<Item = &mut Value> {
     adjustments
         .get_mut("masks")
         .and_then(Value::as_array_mut)
@@ -52,25 +55,27 @@ pub(crate) fn pending_parameters_mut(adjustments: &mut Value) -> impl Iterator<I
 
 /// Whether a pending mask component of the recipe lacks its photo's
 /// orientation.
-pub(crate) fn needs_orientation(adjustments: &Value) -> bool {
+pub fn needs_orientation(adjustments: &Value) -> bool {
     adjustments
         .get("masks")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .any(layer_needs_orientation)
-}
-
-/// Whether a pending component of the mask layer `layer` lacks its photo's
-/// orientation.
-pub fn layer_needs_orientation(layer: &Value) -> bool {
-    layer
-        .get("subMasks")
-        .and_then(Value::as_array)
-        .into_iter()
+        .filter_map(|m| m.get("subMasks").and_then(Value::as_array))
         .flatten()
         .map(|sub| &sub["parameters"])
         .any(|p| p.get(PENDING).is_some_and(Value::is_object) && orientation_of(p).is_none())
+}
+
+/// Records `orientation` (the photo's, `image_loader::source_orientation`)
+/// in the pending mask components that lack one: done by the catalog
+/// import, which makes renders place them (see the module comment).
+pub fn set_orientation(adjustments: &mut Value, orientation: u16) {
+    for parameters in pending_parameters_mut(adjustments) {
+        if orientation_of(parameters).is_none() {
+            parameters[PENDING][ORIENTATION] = json!(orientation);
+        }
+    }
 }
 
 /// Lightroom's geometry `g` of a component of kind `kind` placed in a photo
@@ -252,14 +257,11 @@ pub fn place(adjustments: &mut Value, width: f64, height: f64, orientation: Opti
 }
 
 /// `def` with its pending components placed for a render of a photo whose
-/// full decode is `width` × `height` and whose orientation is
-/// `orientation` for components that record none (see the module
-/// comment); None when it has none that can be placed (no orientation, or
-/// no shape).
+/// full decode is `width` × `height` (see the module comment); None when it
+/// has none that can be placed (no orientation recorded, or no shape).
 pub(crate) fn placed_layer(
     def: &MaskDefinition,
     (width, height): (f64, f64),
-    orientation: Option<u16>,
 ) -> Option<MaskDefinition> {
     let mut placed = None::<MaskDefinition>;
     for (i, sub) in def.sub_masks.iter().enumerate() {
@@ -267,7 +269,6 @@ pub(crate) fn placed_layer(
             continue;
         };
         let Some(parameters) = orientation_of(&sub.parameters)
-            .or(orientation)
             .and_then(|o| placed_parameters(&sub.mask_type, g, width, height, o))
         else {
             continue;
@@ -411,27 +412,30 @@ mod tests {
     }
 
     #[test]
-    fn masks_without_their_photos_orientation_wait_for_it() {
+    fn masks_imported_without_their_photos_orientation_render_as_before() {
+        // Imported before imports recorded it: left out as they always
+        // were, whatever the render knows, until the editor places them.
         let mut recipe = imported(None);
-        assert!(crate::lightroom_retouch::needs_orientation(&recipe));
+        assert!(needs_orientation(&recipe));
         let decoded = PhotoGeometry::default().with_decoded_size(300, 200);
-        let before = render(&recipe, &decoded);
-        // The editor's renders give the photo's orientation (an undo can
-        // bring such masks back after the editor placed them with it).
-        let mut placed = recipe.clone();
-        assert!(place(&mut placed, 300.0, 200.0, Some(6)));
-        assert_eq!(
-            render(&recipe, &decoded.clone().with_source_orientation(6)),
-            render(&placed, &decoded)
-        );
+        let reduced = PhotoGeometry::default().with_photo_size(300.0, 200.0);
+        assert_eq!(render(&recipe, &decoded), render(&recipe, &reduced));
+        // Spots' orientation (recorded for every render of an older import)
+        // leaves masks alone.
         crate::lightroom_retouch::set_orientation(&mut recipe, 6);
-        assert!(!crate::lightroom_retouch::needs_orientation(&recipe));
+        assert!(needs_orientation(&recipe));
+        assert_eq!(render(&recipe, &decoded), render(&recipe, &reduced));
+        // The import records it.
+        set_orientation(&mut recipe, 6);
+        assert!(!needs_orientation(&recipe));
         assert_eq!(
             recipe["masks"][2]["subMasks"][0]["parameters"][PENDING][ORIENTATION],
             6
         );
-        assert_ne!(render(&recipe, &decoded), before);
+        let mut placed = recipe.clone();
+        assert!(place(&mut placed, 300.0, 200.0, None));
         assert_eq!(render(&recipe, &decoded), render(&placed, &decoded));
+        assert_ne!(render(&recipe, &decoded), render(&recipe, &reduced));
     }
 
     #[test]

@@ -981,65 +981,17 @@ pub(crate) fn preview_source(state: &AppState) -> Result<(LoadedImage, f32, (u32
 
 /// `geometry` with the photo's size for a render from `preview_source`:
 /// the full decode's own when `loaded` is it (which also places imported
-/// Lightroom masks, `PhotoGeometry::with_decoded_size`, with
-/// `open_orientation`), else the size a preview proxy records.
+/// Lightroom masks, `PhotoGeometry::with_decoded_size`), else the size a
+/// preview proxy records.
 pub(crate) fn source_size(
-    state: &AppState,
     geometry: PhotoGeometry,
-    needs_orientation: bool,
     loaded: &LoadedImage,
     full_dims: (u32, u32),
 ) -> PhotoGeometry {
     if loaded.image.dimensions() == full_dims {
-        open_orientation(
-            state,
-            geometry.with_decoded_size(full_dims.0, full_dims.1),
-            needs_orientation,
-            &loaded.path,
-        )
+        geometry.with_decoded_size(full_dims.0, full_dims.1)
     } else {
         geometry.with_photo_size(full_dims.0 as f64, full_dims.1 as f64)
-    }
-}
-
-/// `geometry` with the EXIF orientation of the photo at `path` when the
-/// render holds Lightroom items imported without it (`needs_orientation`,
-/// `lightroom_retouch::needs_orientation`): exports record it first
-/// (`prepare_recipe_lens`), and the editor holds such items (older
-/// imports, presets) until it places them. Read once per photo.
-pub(crate) fn open_orientation(
-    state: &AppState,
-    geometry: PhotoGeometry,
-    needs_orientation: bool,
-    path: &str,
-) -> PhotoGeometry {
-    if !needs_orientation {
-        return geometry;
-    }
-    let (source, _) = parse_virtual_path(path);
-    let known = state
-        .source_orientation
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(&source)
-        .copied();
-    let orientation = known.or_else(|| {
-        let bytes = read_file_mapped(&source).ok()?;
-        let orientation =
-            crate::image_loader::source_orientation(&bytes, &source.to_string_lossy());
-        let mut known = state
-            .source_orientation
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if known.len() >= 256 {
-            known.clear();
-        }
-        known.insert(source.clone(), orientation);
-        Some(orientation)
-    });
-    match orientation {
-        Some(orientation) => geometry.with_source_orientation(orientation),
-        None => geometry,
     }
 }
 
@@ -1254,9 +1206,7 @@ fn preview_mask_bitmaps(
         masks,
     )?;
     let mask_geometry = source_size(
-        state,
         PhotoGeometry::from_adjustments(recipe),
-        rawtonic_engine::lightroom_retouch::needs_orientation(recipe),
         loaded_image,
         full_dims,
     );
@@ -1530,9 +1480,7 @@ pub(crate) fn process_preview_job(
         &mask_definitions,
     )?;
     let mask_geometry = source_size(
-        &state,
         PhotoGeometry::from_adjustments(&adjustments_clone),
-        rawtonic_engine::lightroom_retouch::needs_orientation(&adjustments_clone),
         &loaded_image,
         full_dims,
     );
@@ -2572,14 +2520,9 @@ pub(crate) async fn generate_uncropped_preview(
             &mask_definitions,
         )?;
         // This frame is oriented and flipped but not straightened.
-        let mask_geometry = open_orientation(
-            &state,
-            PhotoGeometry::from_adjustments(&adjustments_clone)
-                .unrotated()
-                .with_decoded_size(loaded_image.image.width(), loaded_image.image.height()),
-            rawtonic_engine::lightroom_retouch::needs_orientation(&adjustments_clone),
-            &path,
-        );
+        let mask_geometry = PhotoGeometry::from_adjustments(&adjustments_clone)
+            .unrotated()
+            .with_decoded_size(loaded_image.image.width(), loaded_image.image.height());
         let mask_bitmaps: Vec<Arc<MaskBitmap>> = mask_definitions
             .iter()
             .filter_map(|def| {
@@ -2662,17 +2605,13 @@ pub async fn original_source(
 #[tauri::command]
 pub(crate) async fn generate_preview_for_path(
     path: String,
-    mut js_adjustments: Value,
+    js_adjustments: Value,
     app_handle: tauri::AppHandle,
 ) -> Result<Response, String> {
     tokio::task::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
         let context = get_or_init_gpu_context(&state, &app_handle)?;
         let (source_path, _) = parse_virtual_path(&path);
-        rawtonic_export::exif_processing::record_lightroom_orientation(
-            &mut js_adjustments,
-            &source_path,
-        );
         let source_path_str = source_path.to_string_lossy().to_string();
         let is_raw = is_raw_file(&source_path_str);
         let settings = load_settings(app_handle.clone()).unwrap_or_default();

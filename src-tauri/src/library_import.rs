@@ -231,14 +231,15 @@ fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, boo
     // its own geometry once they know the photo's orientation, a fact of
     // the file (`rawtonic_engine::lightroom_retouch`, `lightroom_masks`):
     // exports of photos never opened keep them.
-    if let Some(adjustments) = adjustments
-        .as_mut()
-        .filter(|a| rawtonic_engine::lightroom_retouch::needs_orientation(a))
-        && let Ok(bytes) = std::fs::read(&photo.path)
+    if let Some(adjustments) = adjustments.as_mut().filter(|a| {
+        rawtonic_engine::lightroom_retouch::needs_orientation(a)
+            || rawtonic_engine::lightroom_masks::needs_orientation(a)
+    }) && let Ok(bytes) = std::fs::read(&photo.path)
     {
         let orientation =
             crate::image_loader::source_orientation(&bytes, &photo.path.to_string_lossy());
         rawtonic_engine::lightroom_retouch::set_orientation(adjustments, orientation);
+        rawtonic_engine::lightroom_masks::set_orientation(adjustments, orientation);
     }
     // The photograph, its translated edit and its metadata are stored in one
     // transaction: a failure leaves none of them, a retry imports it whole.
@@ -536,7 +537,7 @@ mod tests {
             assert_eq!(sub["parameters"]["lrNormalized"]["orientation"], 8, "{sub}");
         }
         // Renders place them without the editor: the photo is never opened.
-        assert!(!rawtonic_engine::lightroom_retouch::needs_orientation(
+        assert!(!rawtonic_engine::lightroom_masks::needs_orientation(
             &state["adjustments"]
         ));
         assert_eq!(masks[1]["subMasks"][0]["type"], "ai-foreground");
