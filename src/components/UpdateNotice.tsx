@@ -8,12 +8,15 @@ import { useSettingsStore } from '../store/useSettingsStore';
 export default function UpdateNotice() {
   const { t } = useTranslation();
   const update = useUpdateStore((s) => s.update);
+  const settingsReady = useSettingsStore((s) => s.appSettings !== null);
   useEffect(() => { void useUpdateStore.getState().check(false); }, []);
-  if (!update) return null;
+  // Dismissal saves a version in settings; never offer it before those are loaded.
+  if (!update || !settingsReady) return null;
   const dismiss = async () => {
-    useUpdateStore.getState().dismiss();
     const { appSettings, handleSettingsChange } = useSettingsStore.getState();
-    if (appSettings) await handleSettingsChange({ ...appSettings, dismissedUpdateVersion: update.version });
+    if (!appSettings) return;
+    useUpdateStore.getState().dismiss();
+    await handleSettingsChange({ ...appSettings, dismissedUpdateVersion: update.version });
   };
   return (
     <aside role="status" className="fixed bottom-4 right-4 z-[100] max-w-md rounded-lg border border-border bg-bg-secondary p-4 text-sm text-text-primary shadow-lg">
