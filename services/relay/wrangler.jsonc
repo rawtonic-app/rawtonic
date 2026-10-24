@@ -20,11 +20,12 @@
       "binding": "DB",
       "database_name": "rawtonic-relay",
       // Paste the id `wrangler d1 create rawtonic-relay` prints.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "14bf249f-73a7-44ef-b96e-d33f885268c4",
       "migrations_dir": "migrations"
     }
   ],
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "rawtonic-contributions" }],
   // Every 10 minutes: expired limits and tokens, statistics weeks, then a budgeted batch of retention deletions (src/index.ts, SWEEP_BUDGET).
+  "routes": [{ "pattern": "relay.rawtonic.cc", "custom_domain": true }],
   "triggers": { "crons": ["*/10 * * * *"] }
 }
