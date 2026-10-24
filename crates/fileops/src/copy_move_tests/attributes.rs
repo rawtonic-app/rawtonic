@@ -212,3 +212,36 @@ fn only_attributes_a_program_may_set_are_kept() {
         }
     }
 }
+
+/// Only the copies staged in a folder decide whether its drive must keep
+/// attributes: undoing a move whose photos came from two drives probes
+/// each for its own photos (a tagged photo from one drive does not make
+/// the other refuse an untagged one).
+#[test]
+fn each_destination_needs_attributes_only_for_its_own_copies() {
+    let world = World::new();
+    if !tag(&world.source.join("A.RAF"), "red") || !target_keeps(&world) {
+        eprintln!("SKIP: no extended attributes on both volumes");
+        return;
+    }
+    // A second source folder whose drive keeps no attributes (simulated).
+    let other = world.source.parent().unwrap().join("Card");
+    fs::create_dir(&other).unwrap();
+    fs::write(other.join("B.RAF"), b"untagged").unwrap();
+    let mut steps = world.steps();
+    steps.push(if world.two_volumes {
+        Step::moving(other.join("B.RAF"), world.target.join("B.RAF")).unwrap()
+    } else {
+        Step::other_volume(other.join("B.RAF"), world.target.join("B.RAF"))
+    });
+    let journal = world.journal();
+    let op = journal
+        .execute("move", "Move", steps, &world.trash)
+        .unwrap();
+    xattr::NONE_BELOW.set(Some(other.clone()));
+    let undone = journal.undo(&op.id, &world.trash);
+    xattr::NONE_BELOW.set(None);
+    undone.unwrap();
+    assert_eq!(tags(&world.source.join("A.RAF")), attribute("red"));
+    assert_eq!(fs::read(other.join("B.RAF")).unwrap(), b"untagged");
+}

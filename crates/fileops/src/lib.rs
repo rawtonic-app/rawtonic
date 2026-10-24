@@ -545,14 +545,23 @@ impl Journal {
         observer: &dyn CopyObserver,
     ) -> Result<()> {
         let pairs = copy_pairs(&payload.steps, direction);
-        let attributes = first_with_attributes(&pairs)?;
         for dir in &payload.staging_dirs {
             fs::create_dir(dir)
                 .with_context(|| format!("Cannot create the folder {}", dir.display()))?;
             probe_exclusive_rename(dir)?;
-            // Found out before anything is copied.
-            if let Some((file, attributes)) = &attributes {
-                xattr::probe(dir).map_err(|e| xattr::cannot_keep(dir, file, attributes, &e))?;
+            // Found out before anything is copied, for the copies staged
+            // here only.
+            let here: Vec<_> = payload
+                .steps
+                .iter()
+                .filter(|s| {
+                    matches!(&s.to, Target::OtherVolume { copy, .. }
+                        if copy.staged.as_deref().and_then(Path::parent) == Some(dir.as_path()))
+                })
+                .filter_map(|s| copy_ends(s, direction))
+                .collect();
+            if let Some((file, attributes)) = first_with_attributes(&here)? {
+                xattr::probe(dir).map_err(|e| xattr::cannot_keep(dir, &file, &attributes, &e))?;
             }
         }
         let total = pairs.iter().map(|(source, _)| bytes_of(source)).sum();

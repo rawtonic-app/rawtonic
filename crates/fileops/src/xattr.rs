@@ -106,10 +106,21 @@ pub(crate) fn same(a: &Path, b: &Path) -> bool {
 /// Whether a file in the folder `folder` (one only this operation writes
 /// in) can be given an attribute a copy keeps. The probe file is removed.
 pub(crate) fn probe(folder: &Path) -> io::Result<()> {
+    #[cfg(test)]
+    if NONE_BELOW.with_borrow(|below| below.as_ref().is_some_and(|b| folder.starts_with(b))) {
+        return Err(io::Error::from_raw_os_error(libc::ENOTSUP));
+    }
     let path = folder.join(PROBE_FILE);
     let result = File::create_new(&path).and_then(|file| sys::set(&file, PROBE_NAME, b"1"));
     let _ = std::fs::remove_file(&path);
     result
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: the folder below which no drive keeps attributes.
+    pub(crate) static NONE_BELOW: std::cell::RefCell<Option<std::path::PathBuf>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 pub(crate) const PROBE_FILE: &str = ".rawtonic-probe-attributes";
