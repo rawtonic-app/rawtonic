@@ -32,6 +32,13 @@ const SAVE_TIMEOUT: Duration = Duration::from_secs(30);
 #[cfg(target_os = "macos")]
 const QUIT_MENU_ID: &str = "rawtonic-quit";
 
+/// "Report a Problem…" in the Help menu (macOS); the webview opens the
+/// report (src/components/contribute/ContributionHost.tsx).
+#[cfg(target_os = "macos")]
+const REPORT_MENU_ID: &str = "rawtonic-report-problem";
+#[cfg(target_os = "macos")]
+const REPORT_EVENT: &str = "report-problem-requested";
+
 /// The quit was decided: the window may close and the app exit.
 static QUITTING: AtomicBool = AtomicBool::new(false);
 /// A request waits for the webview; further requests are ignored meanwhile.
@@ -273,6 +280,7 @@ mod system_terminate {
             return;
         }
         let end = || {
+            crate::contribute::clean_exit();
             crate::window_state::flush();
             crate::startup::flush_logs();
             unsafe { libc::_exit(0) };
@@ -358,6 +366,11 @@ pub fn menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<tauri::menu::Menu<R
             app_menu.insert(&quit, index)?;
         }
     }
+    if let Some(MenuItemKind::Submenu(help)) = menu.get(tauri::menu::HELP_SUBMENU_ID) {
+        let report =
+            MenuItem::with_id(app, REPORT_MENU_ID, "Report a Problem…", true, None::<&str>)?;
+        help.append(&report)?;
+    }
     Ok(menu)
 }
 
@@ -365,5 +378,7 @@ pub fn menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<tauri::menu::Menu<R
 pub fn on_menu_event<R: Runtime>(app: &AppHandle<R>, event: tauri::menu::MenuEvent) {
     if event.id() == QUIT_MENU_ID {
         request_quit(app);
+    } else if event.id() == REPORT_MENU_ID {
+        let _ = app.emit_to("main", REPORT_EVENT, ());
     }
 }

@@ -2,8 +2,8 @@
 
 Rawtonic is a desktop app. Photos, catalogs, sessions and edits stay on
 your computer and in the folders you choose. Rawtonic has no accounts,
-analytics, telemetry or crash reporting, and its makers
-receive no data from it.
+analytics or telemetry, and its makers receive no data from it unless you
+send a problem or crash report yourself (below).
 
 ## Update checks
 
@@ -54,17 +54,51 @@ metadata, a photo with areas made by a generative AI tool still records
 that fact (IPTC Digital Source Type), as the EU AI Act requires; nothing
 else is added.
 
-## Sending reports to Rawtonic's makers (not in this version)
+## Sending reports to Rawtonic's makers
 
-Rawtonic does not yet send problem reports, crash reports, camera-test
-results, RAW samples or usage statistics; nothing of the kind exists in this
-version. They are planned as separate, optional ways to help (design:
-`docs/decisions/0017-contribution-channels.md`): each would send only when you
-click Send after seeing exactly what goes out, through Rawtonic's own small
-relay service without an account, with Rawtonic trying to remove paths,
-your user name and serial numbers (best effort: you see the exact text first), a report id that deletes your report, and reports deleted
-after 90 days. Anonymous usage statistics would be off unless you switch them
-on in Preferences. Each one will be described here, in full, in the version
-that adds it.
+Two optional ways to report problems exist in this version. Each sends only
+when you click Send after seeing exactly what goes out ("Review what will be
+sent"; you can go back and change or remove parts), through Rawtonic's own
+small relay service (`relay.rawtonic.cc`, run on Cloudflare; design:
+`docs/decisions/0017-contribution-channels.md`), without an account. Rawtonic
+tries to remove paths, your user and computer name, serial numbers, e-mail
+and IP addresses and GPS positions from the text first; this is best effort,
+so check the text you see. The relay files each report privately for
+Rawtonic's makers (an issue in a private GitHub repository, a screenshot in
+private storage), keeps no IP address, and deletes reports after 90 days.
+After sending you see a report id: "Delete this report now", or an e-mail
+with the id to hello@rawtonic.cc, deletes the report at any time. Cloudflare
+sees your IP address like any web host. Builds made without the relay cannot
+send at all; their dialogs offer only the two ways below.
+
+Every report dialog can also "Copy report" (to paste where you like) or
+"Open on GitHub", which opens GitHub's public issue form in your browser with
+the text filled in (no screenshot) for you to edit and submit there with
+your own account; Rawtonic itself sends nothing in either case.
+
+- **Report a problem** (Help menu on macOS, the "…" menu in Library and
+  Develop): the text you write, plus, each switchable: system details
+  (graphics card), the last 200 lines of Rawtonic's log (editable), the
+  camera make, model and file type of the open photo (not the photo), and a
+  screenshot of Rawtonic's window (macOS; off unless you tick it). Rawtonic's
+  version, your operating system and its version, and the processor type are
+  always included. The screenshot is taken when the dialog opens and is kept
+  only in memory.
+- **Crash report on the next start.** When Rawtonic stops because of an error
+  in its own code (a Rust panic) or a fatal error signal, it keeps a crash
+  record on your computer, in its settings folder (`crash-reports`): the
+  version, operating system, graphics card, the error message and the place
+  in the source code where it happened, the names of the functions that were
+  running with their source file names (no folders), and the last 200 lines
+  of the log of that run, with the same removal of personal data. A quit
+  forced from outside or a power loss leaves no record. At the next start
+  Rawtonic asks once per crash whether to send it. "Not now" keeps the record
+  (you can still send it from "Report a problem"), "Never" deletes all
+  records and stops keeping them (Preferences → General turns it back on).
+  Records are deleted after they are sent or after 30 days.
+
+Camera-test results, RAW samples and anonymous usage statistics are not sent
+by this version; each will be described here, in full, in the version that
+adds it.
 
 Questions: open an issue at https://github.com/rawtonic-app/rawtonic.

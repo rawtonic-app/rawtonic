@@ -5398,12 +5398,15 @@ name = "rawtonic-contribute"
 version = "0.1.0"
 dependencies = [
  "gethostname",
+ "libc",
  "proptest",
+ "rawtonic-metadata",
  "regex",
  "reqwest",
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "tempfile",
  "tokio",
 ]
 

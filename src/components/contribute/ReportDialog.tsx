@@ -1,0 +1,201 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// The frame of the problem and crash report forms (ADR 0017): the form,
+// then "Review and send…" into ReviewSendDialog, which shows the exact body;
+// "Copy report" and "Open on GitHub" work without the relay. Every way out
+// uses the body the app prepared (scrubbed), never the raw input.
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
+import { open } from "@tauri-apps/plugin-shell";
+import { Check, ClipboardCopy, ExternalLink } from "lucide-react";
+import { useModalFocus } from "../../hooks/useModalFocus";
+import Button from "../ui/Button";
+import Text from "../ui/Text";
+import { TextVariants } from "../../types/typography";
+import ReviewSendDialog from "./ReviewSendDialog";
+import {
+  contributionAvailable,
+  prepareContribution,
+  type ContributionChannel,
+  type ContributionReceipt,
+  type PreparedContribution,
+} from "./relay";
+import { githubIssueUrl, reportMarkdown } from "./reports";
+
+interface ReportDialogProps {
+  isOpen: boolean;
+  title: string;
+  channel: ContributionChannel;
+  /** The payload for the form's current choices, or null while it is not
+   * complete (the actions are disabled then). */
+  payload: Record<string, unknown> | null;
+  children: ReactNode;
+  onClose(): void;
+  onSent?(receipt: ContributionReceipt): void;
+  /** Tests replace the app's calls. */
+  prepare?(channel: ContributionChannel, payload: Record<string, unknown>): Promise<PreparedContribution>;
+  available?(): Promise<boolean>;
+  openUrl?(url: string): Promise<void>;
+  send?(prepared: PreparedContribution): Promise<ContributionReceipt>;
+}
+
+export default function ReportDialog({
+  isOpen,
+  title,
+  channel,
+  payload,
+  children,
+  onClose,
+  onSent,
+  prepare = prepareContribution,
+  available = contributionAvailable,
+  openUrl = open,
+  send,
+}: ReportDialogProps) {
+  const { t } = useTranslation();
+  const [relay, setRelay] = useState<boolean | null>(null);
+  const [prepared, setPrepared] = useState<PreparedContribution | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  useModalFocus(panel, isOpen && prepared === null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setPrepared(null);
+    setCopied(false);
+    setError(null);
+    let live = true;
+    available()
+      .then((yes) => live && setRelay(yes))
+      .catch(() => live && setRelay(false));
+    return () => {
+      live = false;
+    };
+  }, [available, isOpen]);
+
+  useEffect(() => setCopied(false), [payload]);
+
+  const scrubbed = useCallback(async () => {
+    if (!payload) return null;
+    setError(null);
+    try {
+      return await prepare(channel, payload);
+    } catch {
+      setError(t("contribute.report.prepareFailed"));
+      return null;
+    }
+  }, [channel, payload, prepare, t]);
+
+  const review = async () => {
+    const body = await scrubbed();
+    if (body) setPrepared(body);
+  };
+
+  const copy = async () => {
+    const body = await scrubbed();
+    if (!body) return;
+    try {
+      await navigator.clipboard.writeText(reportMarkdown(body.body));
+      setCopied(true);
+    } catch {
+      setError(t("contribute.report.copyFailed"));
+    }
+  };
+
+  const github = async () => {
+    const body = await scrubbed();
+    if (!body) return;
+    try {
+      await openUrl(githubIssueUrl(body.body));
+    } catch {
+      setError(t("contribute.report.openFailed"));
+    }
+  };
+
+  if (!isOpen) return null;
+
+  if (prepared) {
+    return (
+      <ReviewSendDialog
+        isOpen
+        title={title}
+        prepared={prepared}
+        onClose={onClose}
+        onBack={() => setPrepared(null)}
+        onSent={onSent}
+        {...(send ? { send } : {})}
+      />
+    );
+  }
+
+  const content = (
+    <div
+      aria-labelledby="report-dialog-title"
+      aria-modal="true"
+      className="fixed inset-0 flex items-center justify-center z-[9999] bg-black/30 backdrop-blur-xs"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+      role="dialog"
+    >
+      <div
+        className="bg-surface rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[85vh] flex flex-col text-text-primary"
+        ref={panel}
+        tabIndex={-1}
+      >
+        <Text variant={TextVariants.title} id="report-dialog-title" className="mb-3">
+          {title}
+        </Text>
+        <div className="min-h-0 flex-1 overflow-auto flex flex-col gap-3 pr-1">{children}</div>
+        {relay === false && (
+          <Text variant={TextVariants.small} color="secondary" className="mt-3">
+            {t("contribute.report.noRelay")}
+          </Text>
+        )}
+        <Text variant={TextVariants.small} color="secondary" className="mt-2">
+          {t("contribute.report.githubPublic")}
+        </Text>
+        {error && (
+          <Text color="error" className="mt-2" role="alert">
+            {error}
+          </Text>
+        )}
+        <div className="flex flex-wrap items-center justify-end gap-3 mt-4">
+          <Button variant="ghost" onClick={() => void copy()} disabled={!payload}>
+            <span className="flex items-center gap-2">
+              {copied ? <Check size={16} /> : <ClipboardCopy size={16} />}
+              {copied ? t("contribute.report.copied") : t("contribute.report.copy")}
+            </span>
+          </Button>
+          <Button variant="ghost" onClick={() => void github()} disabled={!payload}>
+            <span className="flex items-center gap-2">
+              <ExternalLink size={16} />
+              {t("contribute.report.github")}
+            </span>
+          </Button>
+          <span className="flex-1" />
+          <Button
+            className="bg-bg-primary shadow-transparent hover:bg-bg-primary text-white shadow-none"
+            variant="ghost"
+            onClick={onClose}
+            data-autofocus
+          >
+            {t("contribute.review.cancel")}
+          </Button>
+          {relay && (
+            <Button onClick={() => void review()} disabled={!payload}>
+              {t("contribute.report.review")}
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  return typeof document !== "undefined" ? createPortal(content, document.body) : content;
+}
