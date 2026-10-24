@@ -188,7 +188,7 @@ export default function ReviewSendDialog({
         )}
         <div className="flex justify-end gap-3 mt-5">
           {phase.kind === "sent" ? (
-            <Button onClick={onClose} autoFocus>
+            <Button onClick={onClose} data-autofocus>
               {t("contribute.review.close")}
             </Button>
           ) : (
@@ -198,7 +198,7 @@ export default function ReviewSendDialog({
                 variant="ghost"
                 onClick={close}
                 disabled={phase.kind === "sending"}
-                autoFocus
+                data-autofocus
               >
                 {t("contribute.review.cancel")}
               </Button>

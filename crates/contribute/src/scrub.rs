@@ -177,15 +177,15 @@ impl Scrubber {
         text
     }
 
-    /// One pass: web links (http/https) are cut out and only checked for
-    /// names and e-mail addresses; the text between them gets every rule.
+    /// One pass: web links (http/https) get every rule but the path rule
+    /// (their slashes are not a path); the text between them gets all.
     /// (Other schemes — smb://, afp://, nfs:// — are paths to shares.)
     fn scrub_once(&self, text: &str) -> String {
         let mut out = String::with_capacity(text.len());
         let mut last = 0;
         for url in WEB_URL.find_iter(text) {
             out.push_str(&self.scrub_text(&text[last..url.start()]));
-            out.push_str(&self.scrub_names(&EMAIL.replace_all(url.as_str(), "<email>")));
+            out.push_str(&self.scrub_values(url.as_str()));
             last = url.end();
         }
         out.push_str(&self.scrub_text(&text[last..]));
@@ -204,7 +204,12 @@ impl Scrubber {
         let text = PATH.replace_all(text, |c: &Captures| {
             format!("{}{}", &c[1], path_in_text(&c[2]))
         });
-        let text = SERIAL.replace_all(&text, |c: &Captures| {
+        self.scrub_values(&text)
+    }
+
+    /// Every rule but the path rule.
+    fn scrub_values(&self, text: &str) -> String {
+        let text = SERIAL.replace_all(text, |c: &Captures| {
             if &c[3] == "<serial>" {
                 c[0].to_string()
             } else {
@@ -544,6 +549,14 @@ mod tests {
         assert_eq!(
             s.scrub("smb://nas/Clients/Jane Wedding.CR3"),
             "smb:<path>.CR3"
+        );
+        assert_eq!(
+            s.scrub("Failed to connect to http://203.0.113.42:8188"),
+            "Failed to connect to http://<ip>:8188"
+        );
+        assert_eq!(
+            s.scrub("https://example.org/?SerialNumber=AB12345"),
+            "https://example.org/?SerialNumber=<serial>"
         );
         assert_eq!(
             s.scrub(r#"serial_number: Some("AB12345")"#),

@@ -80,6 +80,18 @@ describe('ReviewSendDialog focus', () => {
     expect(dialog.contains(document.activeElement)).toBe(true);
     outside.remove();
   });
+
+  it('gives the focus back to the control that opened it', () => {
+    const opener = document.createElement('button');
+    opener.textContent = 'Report a problem';
+    document.body.appendChild(opener);
+    opener.focus();
+    const view = render(<ReviewSendDialog isOpen title="Report" prepared={prepared({ schema: 1 })} onClose={() => {}} send={vi.fn()} />);
+    expect(document.activeElement?.textContent).toBe('Cancel');
+    view.rerender(<ReviewSendDialog isOpen={false} title="Report" prepared={prepared({ schema: 1 })} onClose={() => {}} send={vi.fn()} />);
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+  });
 });
 
 describe('reviewView', () => {
