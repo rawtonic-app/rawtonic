@@ -234,14 +234,22 @@ fn walk_folder(
             // `depth` counts the pack folders down to `folder`, as the
             // listing counts groups.
             if depth < MAX_DEPTH {
-                walk_folder(
+                // A subfolder that cannot be read is reported on its own;
+                // its siblings are still imported.
+                let inner = format!("{label}/{name}");
+                if let Err(error) = walk_folder(
                     &path,
                     &folder.join(folder_name(&name)),
-                    &format!("{label}/{name}"),
+                    &inner,
                     depth + 1,
                     items,
                     skipped,
-                )?;
+                ) {
+                    skipped.push(SkippedLut {
+                        file: inner,
+                        reason: error.to_string(),
+                    });
+                }
             } else {
                 skipped.push(SkippedLut {
                     file: format!("{label}/{name}"),
@@ -708,6 +716,27 @@ mod tests {
             std::fs::read_to_string(luts.join("Downloads").join("A (1).cube")).unwrap(),
             cube(0.9)
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_subfolder_is_reported_and_its_siblings_imported() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let luts = temp.path().join("luts");
+        std::fs::create_dir(&luts).unwrap();
+        let pack = temp.path().join("Pack");
+        std::fs::create_dir_all(pack.join("A")).unwrap();
+        std::fs::write(pack.join("A").join("Hidden.cube"), cube(0.1)).unwrap();
+        std::fs::write(pack.join("Z.cube"), cube(0.2)).unwrap();
+        std::fs::set_permissions(pack.join("A"), std::fs::Permissions::from_mode(0o000)).unwrap();
+        let report = import_luts_to_dir(&luts, &strings(&[&pack]));
+        std::fs::set_permissions(pack.join("A"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        let report = report.unwrap();
+        assert_eq!(report.imported, 1);
+        assert_eq!(report.luts[0].name, "Z");
+        let files: Vec<_> = report.skipped.iter().map(|s| s.file.as_str()).collect();
+        assert_eq!(files, ["Pack/A"]);
     }
 
     #[test]

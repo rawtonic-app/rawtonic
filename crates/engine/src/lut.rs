@@ -207,21 +207,20 @@ fn parse_cube_3d(reader: impl BufRead) -> anyhow::Result<Lut> {
 /// table.
 const MAX_3D_SIZE: u32 = 256;
 const MAX_1D_SIZE: usize = 65536;
-/// Grid a 1D table or a shaper is baked into. A 1D curve sampled on the 3D
+/// Grid a 1D table is baked into. A 1D curve sampled on the 3D
 /// grid is interpolated linearly per channel between grid points
 /// (tetrahedral interpolation of a per-channel curve is linear per
 /// channel); [`checked_bake`] refuses a file whose curve that misses.
 const BAKED_SIZE: u32 = 65;
 
 /// Reads a .cube file (Adobe's Cube LUT Specification 1.0 and the
-/// shaper form Resolve writes): a 3D table (`LUT_3D_SIZE`), a 1D table
-/// (`LUT_1D_SIZE`) or both, a 1D shaper applied before the 3D table, with
-/// `DOMAIN_MIN`/`DOMAIN_MAX` (per channel) or `LUT_1D_INPUT_RANGE` /
-/// `LUT_3D_INPUT_RANGE` (all channels). A plain 3D table over the unit
-/// domain is used as written; anything else is baked into a
-/// [`BAKED_SIZE`]³ table over the unit domain (checked against the file's
-/// reading), which the pipeline samples like any other. Other keywords
-/// are ignored.
+/// shaper form Resolve writes): a 3D table (`LUT_3D_SIZE`) over the unit
+/// domain, used as written, or a 1D table (`LUT_1D_SIZE`) with
+/// `DOMAIN_MIN`/`DOMAIN_MAX` (per channel) or `LUT_1D_INPUT_RANGE` (all
+/// channels), baked into a [`BAKED_SIZE`]³ table over the unit domain
+/// (checked against the file's reading), which the pipeline samples like
+/// any other. A 3D table after a shaper or over another range is refused
+/// with the reason. Other keywords are ignored.
 fn parse_cube_full(reader: impl BufRead) -> anyhow::Result<Lut> {
     let mut size_3d: Option<u32> = None;
     let mut size_1d: Option<usize> = None;
@@ -362,19 +361,20 @@ fn parse_cube_full(reader: impl BufRead) -> anyhow::Result<Lut> {
         data: data[entries_1d * 3..].to_vec(),
     });
     match (shaper, table) {
-        // As written (the parser before shapers and domains read these).
+        // As written (the parser before 1D tables read these).
         (None, Some(table)) if domain_3d == unit => Ok(table),
-        (shaper, table) => checked_bake(
-            BAKED_SIZE.max(table.as_ref().map_or(0, |t| t.size)),
-            &breakpoints(shaper.as_ref(), table.as_ref().map(|t| (t.size, domain_3d))),
-            |rgb| {
-                let rgb = shaper.as_ref().map_or(rgb, |s| s.apply(rgb));
-                match &table {
-                    Some(table) => table.sample(normalize(rgb, domain_3d)),
-                    None => rgb,
-                }
-            },
-        ),
+        // Baked into one grid, a 3D table read over another grid (a
+        // shaper's output or another range) can stray anywhere inside its
+        // cells, beyond what a check can bound; it needs a shaper stage in
+        // the shader.
+        (None, Some(_)) => Err(anyhow!(
+            "A 3D table with an input range other than 0–1 is not supported"
+        )),
+        (Some(_), Some(_)) => Err(anyhow!("A 3D table after a 1D shaper is not supported")),
+        (Some(shaper), None) => {
+            checked_bake(BAKED_SIZE, &breakpoints(&shaper), |rgb| shaper.apply(rgb))
+        }
+        (None, None) => Err(anyhow!("No table in .cube file")),
     }
 }
 
@@ -411,49 +411,26 @@ fn normalize(rgb: [f32; 3], (lo, hi): Domain) -> [f32; 3] {
 /// output values: one 8-bit code.
 const MAX_BAKE_ERROR: f32 = 1.0 / 255.0;
 
-/// The inputs (unit cube, per channel) where the file's reading bends along
-/// a channel: the shaper's entries, the points where a shaper channel
-/// crosses one of the 3D table's grid levels, and without a shaper the
-/// table's grid levels themselves.
-fn breakpoints(shaper: Option<&Shaper>, table: Option<(u32, Domain)>) -> [Vec<f32>; 3] {
+/// The inputs (unit cube, per channel) where a 1D table bends: its
+/// entries.
+fn breakpoints(shaper: &Shaper) -> [Vec<f32>; 3] {
     std::array::from_fn(|c| {
-        let mut points = Vec::new();
-        let levels: Vec<f32> = table.map_or(Vec::new(), |(n, (lo, hi))| {
-            (0..n)
-                .map(|k| lo[c] + (hi[c] - lo[c]) * k as f32 / (n - 1) as f32)
-                .collect()
-        });
-        match shaper {
-            Some(shaper) => {
-                let (lo, hi) = (shaper.domain.0[c], shaper.domain.1[c]);
-                let at = |i: usize| lo + (hi - lo) * i as f32 / (shaper.size - 1) as f32;
-                for i in 0..shaper.size {
-                    points.push(at(i));
-                    if i + 1 == shaper.size {
-                        continue;
-                    }
-                    let (a, b) = (shaper.data[i * 3 + c], shaper.data[(i + 1) * 3 + c]);
-                    for &level in &levels {
-                        if a != b && (level - a) * (level - b) <= 0.0 {
-                            points.push(at(i) + (at(i + 1) - at(i)) * (level - a) / (b - a));
-                        }
-                    }
-                }
-            }
-            None => points = levels,
-        }
-        points.retain(|x| (0.0..=1.0).contains(x));
-        points
+        let (lo, hi) = (shaper.domain.0[c], shaper.domain.1[c]);
+        (0..shaper.size)
+            .map(|i| lo + (hi - lo) * i as f32 / (shaper.size - 1) as f32)
+            .filter(|x| (0.0..=1.0).contains(x))
+            .collect()
     })
 }
 
 /// [`bake`], refused when the table strays from `transform` by more than
 /// [`MAX_BAKE_ERROR`] (a curve too steep for the grid, such as a square
-/// root near black). Measured at every breakpoint of the file's reading
-/// along each channel (`breakpoints`; on the grey axis there and with the
-/// other channels scattered) and at 4096 grey and 4096 scattered colours.
-/// For a 1D table that is its largest error: both readings are linear
-/// between their breakpoints and the grid's own points carry no error.
+/// root near black). Measured at every entry of the 1D table
+/// (`breakpoints`; on the grey axis there and with the other channels
+/// scattered) and at 4096 grey and 4096 scattered colours. That is its
+/// largest error: each output channel follows its own input channel only,
+/// both readings are linear between their breakpoints, and the grid's own
+/// points carry no error.
 fn checked_bake(
     size: u32,
     breakpoints: &[Vec<f32>; 3],
@@ -787,25 +764,32 @@ mod tests {
     }
 
     #[test]
-    fn a_shaper_feeds_the_3d_table() {
-        // Resolve's form: a square-root shaper, then a 3D table that
-        // squares its input back; together near the identity.
-        let mut text =
-            "LUT_1D_SIZE 1024\nLUT_1D_INPUT_RANGE 0 1\nLUT_3D_SIZE 33\nLUT_3D_INPUT_RANGE 0 1\n"
-                .to_string();
-        for i in 0..1024 {
-            let v = (i as f32 / 1023.0).sqrt();
-            text.push_str(&format!("{v} {v} {v}\n"));
-        }
-        let table = table_3d(33, "", 0.0, 1.0, |rgb| rgb.map(|v| v * v));
-        text.push_str(table.split_once("LUT_3D_SIZE 33\n").unwrap().1);
-        let lut = cube(&text).unwrap();
-        for &x in &[0.05, 0.25, 0.5, 0.75, 1.0] {
-            let got = lut.sample([x, x, x]);
-            assert!(close(got, [x; 3], 2e-3), "{x}: {got:?}");
-        }
-        // Without the shaper the same table would square the input.
-        assert!(lut.sample([0.5; 3])[0] > 0.45);
+    fn a_3d_table_after_a_shaper_or_over_another_range_is_refused() {
+        // Resolve's form: a shaper, then a 3D table. Baked into one grid
+        // such a table can stray anywhere inside its cells (a lone lit
+        // entry read through a near-linear shaper: off by 0.5 between the
+        // points), so it is refused until the shader has a shaper stage.
+        let mut text = "LUT_1D_SIZE 2\nLUT_1D_INPUT_RANGE 0 1\nLUT_3D_SIZE 9\n".to_string();
+        text.push_str("0.0078125 0.0078125 0.0078125\n1 1 1\n");
+        let table = table_3d(9, "", 0.0, 1.0, |rgb| rgb);
+        text.push_str(table.split_once("LUT_3D_SIZE 9\n").unwrap().1);
+        assert!(cube(&text).unwrap_err().to_string().contains("shaper"));
+        let ranged = table_3d(9, "LUT_3D_INPUT_RANGE -0.25 1.25\n", -0.25, 1.25, |rgb| rgb);
+        // The earlier reader ignored the range line: saved edits keep that
+        // reading, an import refuses it.
+        assert!(cube(&ranged).is_ok());
+        assert!(import(&ranged).is_err());
+        let after_size = ranged.replacen(
+            "LUT_3D_INPUT_RANGE -0.25 1.25\nLUT_3D_SIZE 9\n",
+            "LUT_3D_SIZE 9\nLUT_3D_INPUT_RANGE -0.25 1.25\n",
+            1,
+        );
+        assert!(
+            cube(&after_size)
+                .unwrap_err()
+                .to_string()
+                .contains("input range")
+        );
     }
 
     #[test]
