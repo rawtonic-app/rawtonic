@@ -1,26 +1,23 @@
 # ADR 0018: Retain rights in stripped exports
 
-- Status: Accepted (maintainer decision, 2026-10-24, CX8 task)
+- Status: Accepted (maintainer clarification, 2026-10-24, CX8 task)
 
 ## Decision
 
-The maintainer explicitly requested creator/copyright, plus contact details and
-usage terms when present, in every recipe that strips metadata. This includes
-Fast (Web) and existing user recipes. This is a change to export defaults;
-existing recipe files must not be silently migrated or rewritten.
+Every recipe that strips metadata retains creator, copyright notice and
+rights/usage terms by default. This includes Fast (Web) and existing user
+recipes. Existing recipe files must not be silently migrated or rewritten.
 
-The requested contact retention includes the photographer's email, telephone,
-website and full postal address (street, city, region, postal code, country).
-**Accepting this default means existing strip recipes can publish those personal
-contact details where they previously published none.** Copyright and licensing
-contacts remain with client deliverables by default. This is the maintainer's
-explicit product choice, rather than a claim that contact information is safe
-for every publication or that stripping means anonymous output.
+Creator contact details are **opt-in**: email, telephone, website and full
+postal address (street, city, region, postal code, country). A web deliverable
+must not gain those fields unless the user explicitly chooses to include them.
+This clarification supersedes the original, broader CX8 request to retain
+contacts alongside copyright in every stripping recipe.
 
-Export discloses this default before export. Its Metadata section offers an
-explicit Remove creator contact details option, saved in recipes; both CLIs
-accept `--strip-creator-contact`. That option removes contacts when other
-metadata is stripped, while retaining creator, copyright and usage terms.
+Export discloses the copyright-only default. Its Metadata section offers
+Include creator contact details, saved in recipes; both CLIs accept
+`--keep-creator-contact`. An absent option in an old recipe means contacts are
+omitted. Creator, copyright and usage terms remain regardless of this option.
 PRIVACY and CHANGELOG must describe the default and its effect on existing
 recipes. GPS, camera identifiers, serials and other descriptive metadata remain
 stripped. Mandatory generated-content marking remains present.

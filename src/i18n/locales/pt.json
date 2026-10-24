@@ -2235,9 +2235,9 @@
       },
       "metadata": {
         "include": "Incluir metadados",
+        "keepCreatorContact": "Incluir os contatos do autor",
         "legend": "Metadados",
-        "rightsKept": "As exportações sem outros metadados mantêm autor, copyright, termos de uso e contatos (incluindo endereço postal), salvo remoção abaixo.",
-        "stripCreatorContact": "Remover os contatos do autor",
+        "rightsKept": "As exportações sem outros metadados mantêm autor, copyright e termos de uso. Os contatos (incluindo endereço postal) são omitidos, salvo ativação abaixo.",
         "stripGps": "Remover dados de localização",
         "timestamps": "Datar arquivos com a hora da captura"
       },

@@ -1225,8 +1225,9 @@ fn stripped_export_metadata(
 
 /// The EXIF and XMP an export carries. `exif_sidecar` returns the source's
 /// cached EXIF map (the app's `.rrdata`/EXIF cache), `catalog` the session's
-/// metadata for the source. Stripped exports retain only creator, copyright,
-/// creator contact details and usage terms.
+/// metadata for the source. Stripped packets allow only creator, copyright,
+/// usage terms and creator contacts explicitly supplied by the caller (the
+/// export settings filter contacts out unless opted in).
 /// `generated` marks a photo with areas made by a generative model in its
 /// XMP (IPTC Digital Source Type), also when other metadata is stripped.
 #[allow(clippy::too_many_arguments)]

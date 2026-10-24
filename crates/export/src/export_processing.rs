@@ -138,9 +138,9 @@ pub struct ExportSettings {
     #[serde(default)]
     pub preserve_timestamps: bool,
     pub strip_gps: bool,
-    /// With metadata stripped, remove creator contact details too (not copyright).
+    /// With metadata stripped, explicitly include creator contact details.
     #[serde(default)]
-    pub strip_creator_contact: bool,
+    pub keep_creator_contact: bool,
     pub filename_template: Option<String>,
     /// Initial counter for this job. Absent in old recipes and queued jobs.
     #[serde(default)]
@@ -1058,7 +1058,7 @@ pub fn save_export_image(
     let (width, height) = image.dimensions();
     let catalog = || {
         let mut metadata = (output.catalog)()?;
-        if !export_settings.keep_metadata && export_settings.strip_creator_contact {
+        if !export_settings.keep_metadata && !export_settings.keep_creator_contact {
             metadata.iptc.retain(|key, _| {
                 !matches!(
                     rawtonic_metadata::iptc_field(key),
@@ -2612,7 +2612,7 @@ mod encoding_input_tests {
     }
 
     #[test]
-    fn explicit_contact_stripping_removes_contacts_but_keeps_rights_and_pixels() {
+    fn contact_retention_is_opt_in_and_keeps_rights_and_pixels() {
         let catalog = || {
             Some(rawtonic_metadata::Metadata {
                 creator: "Creator".into(),
@@ -2627,12 +2627,14 @@ mod encoding_input_tests {
             })
         };
         let mut pixels = None;
-        for strip in [false, true] {
-            let settings: ExportSettings = serde_json::from_value(serde_json::json!({
+        for keep in [None, Some(false), Some(true)] {
+            let mut value = serde_json::json!({
                 "jpegQuality": 85, "keepMetadata": false, "stripGps": false,
-                "stripCreatorContact": strip,
-            }))
-            .unwrap();
+            });
+            if let Some(keep) = keep {
+                value["keepCreatorContact"] = serde_json::json!(keep);
+            }
+            let settings: ExportSettings = serde_json::from_value(value).unwrap();
             let written = Arc::new(std::sync::Mutex::new(None));
             let write = {
                 let written = written.clone();
@@ -2665,8 +2667,11 @@ mod encoding_input_tests {
                     && text.contains("Licensed use")
             );
             assert!(text.contains(rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI));
-            assert_eq!(text.contains("photo@example.invalid"), !strip);
-            assert_eq!(text.contains("Private address"), !strip);
+            assert_eq!(
+                text.contains("photo@example.invalid"),
+                keep.unwrap_or(false)
+            );
+            assert_eq!(text.contains("Private address"), keep.unwrap_or(false));
             let decoded = image::load_from_memory(&bytes).unwrap().into_rgb8();
             if let Some(expected) = &pixels {
                 assert_eq!(&decoded, expected);

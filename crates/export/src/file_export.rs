@@ -37,7 +37,8 @@ pub struct FileExport<'a> {
     pub base: BaseImageOptions,
     /// The session's metadata for the source (creator, copyright, keywords…),
     /// written with `settings.keep_metadata`; rights and creator contacts are
-    /// also retained when other metadata is stripped.
+    /// retained when other metadata is stripped. Creator contacts require
+    /// `settings.keep_creator_contact` in that mode.
     pub catalog: Option<rawtonic_metadata::Metadata>,
 }
 

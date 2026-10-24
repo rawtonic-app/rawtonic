@@ -298,7 +298,7 @@ pub struct ExportPreset {
     pub keep_metadata: bool,
     pub strip_gps: bool,
     #[serde(default)]
-    pub strip_creator_contact: bool,
+    pub keep_creator_contact: bool,
     pub filename_template: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sequence_start: Option<u32>,
@@ -375,7 +375,7 @@ pub fn default_export_presets() -> Vec<ExportPreset> {
             dont_enlarge: true,
             keep_metadata: true,
             strip_gps: false,
-            strip_creator_contact: false,
+            keep_creator_contact: false,
             filename_template: "{original_filename}".to_string(),
             sequence_start: None,
             enable_watermark: false,
@@ -420,7 +420,7 @@ pub fn default_export_presets() -> Vec<ExportPreset> {
             dont_enlarge: true,
             keep_metadata: false,
             strip_gps: true,
-            strip_creator_contact: false,
+            keep_creator_contact: false,
             filename_template: "{original_filename}_web".to_string(),
             sequence_start: None,
             enable_watermark: false,

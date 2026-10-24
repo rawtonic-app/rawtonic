@@ -846,14 +846,14 @@ it("retains specific German translations for known export failures", async () =>
   }
 });
 
-it("discloses retained contacts and offers explicit contact removal when stripping metadata", () => {
+it("discloses copyright retention and offers opt-in contact retention when stripping metadata", () => {
   useSettingsStore.setState({ appSettings: { exportPresets: [] } as unknown as AppSettings });
   render(<StudioExport />);
   fireEvent.click(screen.getByLabelText("Include metadata"));
   expect(screen.getByText(/Stripped exports retain creator, copyright/).textContent).toContain("postal address");
-  const remove = screen.getByLabelText("Remove creator contact details") as HTMLInputElement;
-  expect(remove.disabled).toBe(false);
-  expect(remove.checked).toBe(false);
-  fireEvent.click(remove);
-  expect(remove.checked).toBe(true);
+  const include = screen.getByLabelText("Include creator contact details") as HTMLInputElement;
+  expect(include.disabled).toBe(false);
+  expect(include.checked).toBe(false);
+  fireEvent.click(include);
+  expect(include.checked).toBe(true);
 });

@@ -2174,9 +2174,9 @@
       },
       "metadata": {
         "include": "Include metadata",
+        "keepCreatorContact": "Include creator contact details",
         "legend": "Metadata",
-        "rightsKept": "Stripped exports retain creator, copyright, usage terms and creator contacts (including postal address), unless removed below.",
-        "stripCreatorContact": "Remove creator contact details",
+        "rightsKept": "Stripped exports retain creator, copyright and usage terms. Creator contacts (including postal address) are omitted unless enabled below.",
         "stripGps": "Remove location data",
         "timestamps": "Date files with the capture time"
       },

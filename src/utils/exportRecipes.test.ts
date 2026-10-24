@@ -163,7 +163,7 @@ it("builds the export_images settings from the form", () => {
     keepMetadata: false,
     preserveTimestamps: false,
     stripGps: true,
-    stripCreatorContact: false,
+    keepCreatorContact: false,
     resize: { mode: "megapixels", value: 2.5, dontEnlarge: false },
     border: {
       basis: "eachEdge",
@@ -326,10 +326,10 @@ it("returns stable subfolder validation kinds", () => {
   expect(subfolderProblem("C:\\Exports")).toBe("fullPath");
 });
 
-it("keeps explicit contact stripping through recipe save and export, with retention as the old default", () => {
-  const preset = presetFromDraft({ ...draft, stripCreatorContact: true }, "r1", "Anonymous contacts");
-  expect(draftFromPreset(preset).stripCreatorContact).toBe(true);
-  expect(exportSettingsFromPreset(preset).settings.stripCreatorContact).toBe(true);
-  delete preset.stripCreatorContact;
-  expect(exportSettingsFromPreset(preset).settings.stripCreatorContact).toBe(false);
+it("keeps explicit contact retention through recipes and export, with omission as the old default", () => {
+  const preset = presetFromDraft({ ...draft, keepCreatorContact: true }, "r1", "Anonymous contacts");
+  expect(draftFromPreset(preset).keepCreatorContact).toBe(true);
+  expect(exportSettingsFromPreset(preset).settings.keepCreatorContact).toBe(true);
+  delete preset.keepCreatorContact;
+  expect(exportSettingsFromPreset(preset).settings.keepCreatorContact).toBe(false);
 });

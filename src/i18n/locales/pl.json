@@ -2296,9 +2296,9 @@
       },
       "metadata": {
         "include": "Dołącz metadane",
+        "keepCreatorContact": "Dołącz dane kontaktowe autora",
         "legend": "Metadane",
-        "rightsKept": "Eksport bez pozostałych metadanych zachowuje autora, prawa autorskie, warunki użycia i dane kontaktowe (w tym adres pocztowy), chyba że zostaną usunięte poniżej.",
-        "stripCreatorContact": "Usuń dane kontaktowe autora",
+        "rightsKept": "Eksport bez pozostałych metadanych zachowuje autora, prawa autorskie i warunki użycia. Dane kontaktowe (w tym adres pocztowy) są pomijane, chyba że zostaną włączone poniżej.",
         "stripGps": "Usuń dane lokalizacji",
         "timestamps": "Ustaw datę plików na czas wykonania"
       },

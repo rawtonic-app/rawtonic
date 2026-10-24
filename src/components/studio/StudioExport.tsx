@@ -880,11 +880,11 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
         <label className="studio-check">
           <input
             type="checkbox"
-            checked={!!draft.stripCreatorContact}
+            checked={!!draft.keepCreatorContact}
             disabled={draft.metadata}
-            onChange={(e) => set({ stripCreatorContact: e.target.checked })}
+            onChange={(e) => set({ keepCreatorContact: e.target.checked })}
           />
-          {t("studio.export.metadata.stripCreatorContact")}
+          {t("studio.export.metadata.keepCreatorContact")}
         </label>
         <label className="studio-check">
           <input

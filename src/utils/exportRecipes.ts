@@ -49,7 +49,7 @@ export interface RecipeDraft {
   dontEnlarge: boolean;
   metadata: boolean;
   stripGps: boolean;
-  stripCreatorContact?: boolean;
+  keepCreatorContact?: boolean;
   template: string;
   sequenceStart: number;
   /** Session Output folder, next to the originals, or a folder. */
@@ -113,7 +113,7 @@ export const DEFAULT_RECIPE_DRAFT: RecipeDraft = {
   dontEnlarge: true,
   metadata: true,
   stripGps: true,
-  stripCreatorContact: false,
+  keepCreatorContact: false,
   template: '{original_filename}-edited',
   sequenceStart: 1,
   where: 'choose',
@@ -204,7 +204,7 @@ export function presetFromDraft(draft: RecipeDraft, id: string, name: string, ba
     dontEnlarge: draft.dontEnlarge,
     keepMetadata: draft.metadata,
     stripGps: draft.stripGps,
-    stripCreatorContact: !!draft.stripCreatorContact,
+    keepCreatorContact: !!draft.keepCreatorContact,
     filenameTemplate: draft.template,
     sequenceStart: draft.sequenceStart,
     destinationType:
@@ -262,7 +262,7 @@ export function draftFromPreset(preset: ExportPreset): RecipeDraft {
     dontEnlarge: preset.dontEnlarge ?? d.dontEnlarge,
     metadata: !!preset.keepMetadata,
     stripGps: !!preset.stripGps,
-    stripCreatorContact: !!preset.stripCreatorContact,
+    keepCreatorContact: !!preset.keepCreatorContact,
     template: preset.filenameTemplate || '{original_filename}',
     sequenceStart: validSequenceStart(preset.sequenceStart ?? 1) ? (preset.sequenceStart ?? 1) : 1,
     where:
@@ -320,7 +320,7 @@ export function exportSettingsFromDraft(draft: RecipeDraft): { settings: ExportS
       keepMetadata: draft.metadata,
       preserveTimestamps: draft.preserveTimestamps,
       stripGps: draft.stripGps,
-      stripCreatorContact: !!draft.stripCreatorContact,
+      keepCreatorContact: !!draft.keepCreatorContact,
       resize: draft.resize
         ? {
             mode: draft.resizeMode,
