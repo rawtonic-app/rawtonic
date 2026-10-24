@@ -10359,6 +10359,34 @@ fn the_large_blur_has_its_whole_radius_at_tile_seams() {
     );
 }
 
+/// The blurs Clarity version 2 reads are exact where it reads them on every
+/// render version, at any photo size (a seam render above a 17280-pixel short
+/// side, where the small blur outgrows the overlap, is too large to test).
+#[test]
+fn clarity_version_2_blurs_have_their_whole_radius_on_every_render_version() {
+    let overlap = TILE_OVERLAP;
+    for (index, radius) in [(2usize, 8 * 18), (3, 40 * 18)] {
+        // Render version 1, no Clarity version 2: blurs stop at the overlap.
+        assert_eq!(blur_rows_beyond(index, radius, false, 0), 0);
+        // Clarity version 2 on render version 1: the whole radius, and the
+        // large blur its reach beyond the tile too.
+        let reach = 120;
+        let extra = if index == 3 { reach } else { 0 };
+        assert_eq!(
+            blur_rows_beyond(index, radius, false, reach),
+            radius + extra - overlap
+        );
+        assert_eq!(
+            blur_rows_beyond(index, radius, true, reach),
+            radius + extra - overlap
+        );
+        assert_eq!(blur_rows_beyond(index, radius, true, 0), radius - overlap);
+    }
+    // Blurs Clarity version 2 does not read keep their render version's rows.
+    assert_eq!(blur_rows_beyond(1, 300, false, 120), 0);
+    assert_eq!(blur_rows_beyond(4, 300, true, 120), 300 - overlap);
+}
+
 /// Clarity version 2 samples the large blur up to 120 pixels beyond a pixel
 /// (`clarity_base`): within the tiles' 128-pixel overlap, so rows next to a
 /// tile seam render as the same content inside a tile.

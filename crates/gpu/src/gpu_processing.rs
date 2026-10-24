@@ -3412,6 +3412,24 @@ fn clarity_reach(adjustments: &AllAdjustments, scale: f32) -> u32 {
     2 * (10.0 * scale).clamp(1.0, 60.0).round() as u32
 }
 
+/// Rows the vertical pass of blur `index` (radius `radius`) blurs beyond a
+/// tile's input region, so its values are exact where they are read: with
+/// the whole blur radius (`renderVersion` 2 on) every blur up to the tile
+/// edge; the blurs Clarity version 2 reads (`reach` > 0: the small one at the
+/// pixel, the large one up to `reach` beyond it) on every render version.
+fn blur_rows_beyond(index: usize, radius: u32, whole_blur_radius: bool, reach: u32) -> u32 {
+    let clarity_v2_reads = reach > 0 && (index == 2 || index == 3);
+    if !whole_blur_radius && !clarity_v2_reads {
+        return 0;
+    }
+    let beyond_tile = if clarity_v2_reads && index == 3 {
+        reach
+    } else {
+        0
+    };
+    (radius + beyond_tile).saturating_sub(TILE_OVERLAP)
+}
+
 fn required_blurs(adjustments: &AllAdjustments) -> [bool; 5] {
     let g = &adjustments.global;
     // Structure uses the small blur (index 2) and Clarity the large one
@@ -6819,14 +6837,7 @@ impl GpuProcessor {
                     let radius = (base_radius * scale).ceil().max(1.0) as u32;
                     // The vertical pass reads the rows the horizontal one
                     // blurred: beyond the overlap where the radius is larger.
-                    // Clarity version 2 reads the large blur up to `reach`
-                    // rows beyond the tile, whatever the render version.
-                    let reach = if index == 3 { reach } else { 0 };
-                    let beyond = if whole_blur_radius || reach > 0 {
-                        (radius + reach).saturating_sub(TILE_OVERLAP)
-                    } else {
-                        0
-                    };
+                    let beyond = blur_rows_beyond(index, radius, whole_blur_radius, reach);
                     let rows_above = beyond.min(input_y_start);
                     let blurred_rows = input_height + rows_above + beyond.min(height - input_y_end);
                     let ping_pong_view = if blurred_rows > self.tile_output_size.height {
