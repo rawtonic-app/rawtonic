@@ -243,7 +243,7 @@
         "unapproved": "Der Bericht hat sich nach der Anzeige geändert und wurde nicht gesendet. Schließe dies und versuche es noch einmal."
       },
       "idHint": "Bewahre diese ID auf: Mit ihr kannst du das Gesendete jederzeit löschen lassen.",
-      "intro": "Genau das sendet Rawtonic an seinen Relay-Dienst, der es privat für die Macher von Rawtonic ablegt. Pfade, dein Benutzername und Seriennummern wurden entfernt. Nichts wird gesendet, bevor du auf Senden klickst.",
+      "intro": "Genau das sendet Rawtonic an seinen Relay-Dienst, der es privat für die Macher von Rawtonic ablegt. Rawtonic hat versucht, Pfade, deinen Benutzernamen und Seriennummern zu entfernen – prüfe den Text unten, er kann noch etwas enthalten, das du nicht senden willst. Nichts wird gesendet, bevor du auf Senden klickst.",
       "screenshot": "Bildschirmfoto, das gesendet wird",
       "screenshotSize": "Bildschirmfoto, {{size}}",
       "send": "Senden",

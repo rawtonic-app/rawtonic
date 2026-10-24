@@ -243,7 +243,7 @@
         "unapproved": "The report changed after it was shown, so it was not sent. Close this and try again."
       },
       "idHint": "Keep this id: with it you can have what you sent deleted at any time.",
-      "intro": "This is exactly what Rawtonic will send to its relay, which files it privately for Rawtonic's makers. Paths, your user name and serial numbers have been removed. Nothing is sent until you click Send.",
+      "intro": "This is exactly what Rawtonic will send to its relay, which files it privately for Rawtonic's makers. Rawtonic has tried to remove paths, your user name and serial numbers — check the text below, it may still contain something you do not want to send. Nothing is sent until you click Send.",
       "screenshot": "Screenshot that will be sent",
       "screenshotSize": "Screenshot, {{size}}",
       "send": "Send",

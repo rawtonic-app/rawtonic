@@ -256,7 +256,7 @@
         "unapproved": "La segnalazione è cambiata dopo essere stata mostrata e non è stata inviata. Chiudi e riprova."
       },
       "idHint": "Conserva questo ID: con esso puoi far eliminare in qualsiasi momento ciò che hai inviato.",
-      "intro": "Questo è esattamente ciò che Rawtonic invierà al suo relay, che lo archivia in privato per gli autori di Rawtonic. Percorsi, nome utente e numeri di serie sono stati rimossi. Nulla viene inviato finché non fai clic su Invia.",
+      "intro": "Questo è esattamente ciò che Rawtonic invierà al suo relay, che lo archivia in privato per gli autori di Rawtonic. Rawtonic ha cercato di rimuovere percorsi, nome utente e numeri di serie: controlla il testo qui sotto, potrebbe contenere ancora qualcosa che non vuoi inviare. Nulla viene inviato finché non fai clic su Invia.",
       "screenshot": "Screenshot che verrà inviato",
       "screenshotSize": "Screenshot, {{size}}",
       "send": "Invia",

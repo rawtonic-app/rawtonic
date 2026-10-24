@@ -79,10 +79,10 @@ static IPV4: LazyLock<Regex> = LazyLock::new(|| {
 });
 /// IPv6 candidates (hex digits and colons), confirmed by parsing.
 static IPV6: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[0-9A-Fa-f:]{2,39}").expect("IPv6 pattern"));
+    LazyLock::new(|| Regex::new(r"[0-9A-Fa-f:.]{2,45}").expect("IPv6 pattern"));
 static GPS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r#"-?\b\d{1,2}\.\d{3,}\s*,\s*-?\d{1,3}\.\d{3,}\b|\b\d{1,3}\s?(?:deg|°)\s?\d{1,2}'\s?[\d.]+"?\s?[NSEW]\b"#,
+        r#"-?\b\d{1,3}\.\d{2,}\s*,\s*-?\d{1,3}\.\d{2,}\b|\b\d{1,3}\s?(?:deg|°)\s?\d{1,2}'\s?[\d.]+"?\s?[NSEW]\b"#,
     )
     .expect("GPS pattern")
 });
@@ -181,14 +181,51 @@ impl Scrubber {
     /// (their slashes are not a path); the text between them gets all.
     /// (Other schemes — smb://, afp://, nfs:// — are paths to shares.)
     fn scrub_once(&self, text: &str) -> String {
-        let mut out = String::with_capacity(text.len());
-        let mut last = 0;
-        for url in WEB_URL.find_iter(text) {
-            out.push_str(&self.scrub_text(&text[last..url.start()]));
-            out.push_str(&self.scrub_url(url.as_str()));
-            last = url.end();
+        text.split_inclusive('\n')
+            .map(|line| self.scrub_line(line))
+            .collect()
+    }
+
+    /// One line: a serial key redacts the rest of the line; so does the
+    /// first path that starts outside a web link (links in between too);
+    /// before it, links keep scheme and host, and the text between them gets
+    /// every other rule.
+    fn scrub_line(&self, line: &str) -> String {
+        let (body, newline) = line.strip_suffix('\n').map_or((line, ""), |b| (b, "\n"));
+        let body = SERIAL.replace(body, |c: &Captures| {
+            if &c[3] == "<serial>" {
+                c[0].to_string()
+            } else {
+                format!("{}{}<serial>", &c[1], &c[2])
+            }
+        });
+        let urls: Vec<std::ops::Range<usize>> =
+            WEB_URL.find_iter(&body).map(|m| m.range()).collect();
+        let mut from = 0;
+        let mut path_start = None;
+        while let Some(c) = PATH.captures_at(&body, from) {
+            let start = c.get(2).expect("path group").start();
+            match urls.iter().find(|r| r.contains(&start)) {
+                Some(url) => from = url.end,
+                None => {
+                    path_start = Some(start);
+                    break;
+                }
+            }
         }
-        out.push_str(&self.scrub_text(&text[last..]));
+        let head_end = path_start.unwrap_or(body.len());
+        let mut out = String::with_capacity(line.len());
+        let mut last = 0;
+        for url in urls.iter().filter(|r| r.end <= head_end) {
+            out.push_str(&self.scrub_values(&body[last..url.start]));
+            out.push_str(&self.scrub_url(&body[url.clone()]));
+            last = url.end;
+        }
+        out.push_str(&self.scrub_values(&body[last..head_end]));
+        if let Some(start) = path_start {
+            out.push_str(&path_in_text(&body[start..]));
+        }
+        out.push_str(newline);
         out
     }
 
@@ -200,13 +237,6 @@ impl Scrubber {
         text
     }
 
-    fn scrub_text(&self, text: &str) -> String {
-        let text = PATH.replace_all(text, |c: &Captures| {
-            format!("{}{}", &c[1], path_in_text(&c[2]))
-        });
-        self.scrub_values(&text)
-    }
-
     /// A web link keeps only its scheme and host (scrubbed like text: an IP
     /// address goes); anything after the host — path, query, fragment —
     /// becomes `/<path>`, since a filesystem path, a name or a serial may be
@@ -216,7 +246,15 @@ impl Scrubber {
         let host_end = url[after_scheme..]
             .find(['/', '?', '#'])
             .map_or(url.len(), |i| after_scheme + i);
-        let host = self.scrub_values(&url[..host_end]);
+        // Credentials ("user:secret@") go; only scheme and host stay.
+        let host_start = url[after_scheme..host_end]
+            .rfind('@')
+            .map_or(after_scheme, |i| after_scheme + i + 1);
+        let host = format!(
+            "{}{}",
+            &url[..after_scheme],
+            self.scrub_values(&url[host_start..host_end])
+        );
         match &url[host_end..] {
             // A bare slash hides nothing (and is what a scrubbed link's
             // `/<path>` leaves for the link pattern, which stops at `<`).
@@ -227,16 +265,10 @@ impl Scrubber {
 
     /// Every rule but the path rule.
     fn scrub_values(&self, text: &str) -> String {
-        let text = SERIAL.replace_all(text, |c: &Captures| {
-            if &c[3] == "<serial>" {
-                c[0].to_string()
-            } else {
-                format!("{}{}<serial>", &c[1], &c[2])
-            }
-        });
-        let text = EMAIL.replace_all(&text, "<email>");
-        let text = IPV4.replace_all(&text, "<ip>");
+        let text = EMAIL.replace_all(text, "<email>");
+        // IPv6 first: a mixed address ends in IPv4 form.
         let text = replace_ipv6(&text);
+        let text = IPV4.replace_all(&text, "<ip>");
         let text = GPS.replace_all(&text, "<gps>");
         self.scrub_names(&text)
     }
@@ -288,7 +320,7 @@ fn replace_ipv6(text: &str) -> String {
         // A colon of the sentence may follow ("fe80::1: failed"): try the
         // run without its trailing colons too.
         let full = m.as_str();
-        let trimmed = full.trim_end_matches(':');
+        let trimmed = full.trim_end_matches([':', '.']);
         let address = [full, trimmed].into_iter().find(|c| {
             c.chars().any(|ch| ch.is_ascii_hexdigit()) && c.parse::<std::net::Ipv6Addr>().is_ok()
         });
@@ -580,7 +612,7 @@ mod tests {
         );
         assert_eq!(
             s.scrub("https://example.org/?SerialNumber=AB12345"),
-            "https://example.org/<path>"
+            "https://example.org/<path><serial>"
         );
         assert_eq!(
             s.scrub(r#"serial_number: Some("AB12345")"#),
@@ -594,6 +626,28 @@ mod tests {
             s.scrub("BODY-SERIAL-NUMBER=1 2 3"),
             "BODY-SERIAL-NUMBER=<serial>"
         );
+    }
+
+    #[test]
+    fn round_ten_inputs() {
+        let s = anna();
+        assert_eq!(
+            s.scrub("see https://alice:secret@localhost:8188/api"),
+            "see https://localhost:8188/<path>"
+        );
+        assert_eq!(
+            s.scrub("open /Volumes/Clients/https://example.org/Jane Wedding.CR3"),
+            "open <path>.CR3"
+        );
+        assert_eq!(
+            s.scrub("SerialNumber: AB https://example.org/ CD12345"),
+            "SerialNumber: <serial>"
+        );
+        assert_eq!(
+            s.scrub("at 2001:db8:1234:5678:abcd:ffff:192.0.2.1 now"),
+            "at <ip> now"
+        );
+        assert_eq!(s.scrub("at 52.52, 13.40"), "at <gps>");
     }
 
     #[test]
