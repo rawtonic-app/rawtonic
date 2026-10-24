@@ -6,6 +6,7 @@ import {
   SHARPEN_VERSION,
   initialAdjustmentsFor,
   withClarityVersion,
+  withPresetClarityVersion,
   type Adjustments,
 } from '../utils/adjustments';
 
@@ -62,5 +63,8 @@ describe('collectPresetAdjustments', () => {
     const layers = { masks: [{ id: 'm', adjustments: { clarity: 30 }, subMasks: [] }] } as unknown as Partial<Adjustments>;
     expect('clarityVersion' in withClarityVersion(layers)).toBe(false);
     expect(withClarityVersion(layers, { clarityVersion: 2 } as Partial<Adjustments>).clarityVersion).toBe(2);
+    // A preset from before the key with Clarity on a layer only: version 1 where applied.
+    expect(withPresetClarityVersion(layers).clarityVersion).toBe(1);
+    expect(withPresetClarityVersion({ ...layers, clarityVersion: 2 }).clarityVersion).toBe(2);
   });
 });

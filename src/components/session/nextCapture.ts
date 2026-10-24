@@ -1,4 +1,4 @@
-import { withAiDenoiseVersion, withClarityVersion, withDiffractionVersion, withGrainStructure, withLegacyGrainVersion, withLumaNoiseVersion, withSharpenVersion } from "../../utils/adjustments";
+import { withAiDenoiseVersion, withPresetClarityVersion, withDiffractionVersion, withGrainStructure, withLegacyGrainVersion, withLumaNoiseVersion, withSharpenVersion } from "../../utils/adjustments";
 
 /** Mirrors `hot_folder::NextCapture`. */
 export type NextCapture =
@@ -57,7 +57,7 @@ export function nextCaptureOf(
 ): { nextCapture: NextCapture; metadata: NextCaptureMetadata } {
   const preset = presets.find((p) => `preset:${p.id}` === form.choice);
   const nextCapture: NextCapture = preset
-    ? { mode: "preset", name: preset.name, adjustments: withClarityVersion(withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(withGrainStructure(preset.adjustments))))))) }
+    ? { mode: "preset", name: preset.name, adjustments: withPresetClarityVersion(withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(withGrainStructure(preset.adjustments))))))) }
     : form.choice === "copyFromLast"
       ? { mode: "copyFromLast" }
       : { mode: "defaults" };

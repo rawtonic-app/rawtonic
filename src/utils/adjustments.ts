@@ -1500,6 +1500,12 @@ export const withClarityVersion = <T extends Partial<Adjustments>>(
   return { ...picked, clarityVersion: source?.clarityVersion ?? 1 };
 };
 
+/** A preset's settings with its Clarity response stated: the preset is its
+ * own source, so Clarity on its layers alone (a preset from before the key)
+ * renders with version 1 wherever it is previewed or applied. */
+export const withPresetClarityVersion = <T extends Partial<Adjustments>>(preset: T) =>
+  withClarityVersion(preset, preset);
+
 /** Keys whose values render the pattern of the recipe's grain version. */
 const GRAIN_KEYS = ['grainAmount', 'grainSize', 'grainRoughness', 'grainStructure'] as const;
 
