@@ -35,19 +35,20 @@ describe('report payloads', () => {
   it('holds only what the user chose', () => {
     const shot = { mime: 'image/jpeg' as const, data: 'AAAA', width: 2, height: 1 };
     expect(
-      reportPayload({ text: ' It froze ', context, includeSystem: false, logTail: null, photo: null, screenshot: null }),
-    ).toEqual({ schema: 1, app: context.app, text: 'It froze' });
+      reportPayload({ text: ' It froze ', context, includeSystem: false, logTail: null, photo: null, photoFile: false, screenshot: null }),
+    ).toEqual({ schema: 2, app: context.app, text: 'It froze' });
     expect(
       reportPayload({
         text: 'It froze',
         context,
         includeSystem: true,
         logTail: 'edited',
-        photo: { make: 'Nikon', model: 'Z 6', fileType: 'NEF' },
+        photo: { make: 'Nikon', model: 'Z 6', fileType: 'NEF', path: '/p/DSC_1.NEF' },
+        photoFile: false,
         screenshot: shot,
       }),
     ).toEqual({
-      schema: 1,
+      schema: 2,
       app: context.app,
       gpu: context.gpu,
       text: 'It froze',
@@ -55,6 +56,18 @@ describe('report payloads', () => {
       photo: { make: 'Nikon', model: 'Z 6', fileType: 'NEF' },
       screenshot: { mime: 'image/jpeg', data: 'AAAA' },
     });
+    // The photo's file goes by its path, which the app turns into an upload.
+    expect(
+      reportPayload({
+        text: 'Wrong colours',
+        context,
+        includeSystem: false,
+        logTail: null,
+        photo: { make: 'Nikon', model: 'Z 6', fileType: 'NEF', path: '/p/DSC_1.NEF' },
+        photoFile: true,
+        screenshot: null,
+      }).photo,
+    ).toEqual({ make: 'Nikon', model: 'Z 6', fileType: 'NEF', path: '/p/DSC_1.NEF' });
   });
 
   it('builds a crash payload with the backtrace and log removable', () => {
@@ -80,8 +93,11 @@ describe('report payloads', () => {
       make: 'NIKON',
       model: 'Z 6',
       fileType: 'NEF',
+      path: '/Users/anna/Pictures/DSC_1.nef',
     });
-    expect(photoInfo({ path: 'C:\\p\\IMG_1.CR3?vc=2', exif: { Make: 'Canon', Model: 'EOS R5' } })?.fileType).toBe('CR3');
+    const copy = photoInfo({ path: 'C:\\p\\IMG_1.CR3?vc=2', exif: { Make: 'Canon', Model: 'EOS R5' } });
+    expect(copy?.fileType).toBe('CR3');
+    expect(copy?.path).toBe('C:\\p\\IMG_1.CR3');
     expect(photoInfo({ path: '/x/no-extension', exif: { Make: 'Canon', Model: 'EOS R5' } })).toBeNull();
     expect(photoInfo({ path: '/x/a.jpg', exif: null })).toBeNull();
     expect(photoInfo(null)).toBeNull();
@@ -90,12 +106,21 @@ describe('report payloads', () => {
 
 describe('the no-relay fallbacks', () => {
   it('copies the prepared body as text, with fences no content can close', () => {
-    const body = JSON.stringify({ schema: 1, app: context.app, text: 'Broken', logTail: 'a ``` b', screenshot: { mime: 'image/jpeg', data: 'AAAA' } });
+    const file = { size: 3, sha256: 'a'.repeat(64) };
+    const body = JSON.stringify({
+      schema: 2,
+      app: context.app,
+      text: 'Broken',
+      logTail: 'a ``` b',
+      photo: { make: 'Nikon', model: 'Z 6', fileType: 'NEF', file },
+      screenshot: { mime: 'image/jpeg', ...file },
+    });
     const text = reportMarkdown(body);
     expect(text).toContain('Broken');
     expect(text).toContain('Rawtonic 0.1.0-alpha.4 · macos 26.5 (aarch64)');
     expect(text).toContain('````\na ``` b\n````');
-    expect(text).not.toContain('AAAA');
+    expect(text).toContain('**Screenshot:** not included here');
+    expect(text).toContain('**Photo file:** not included here');
     const crash = reportMarkdown(JSON.stringify(crashPayload(record, { includeBacktrace: true, logTail: 'x' })));
     expect(crash).toContain('Rawtonic quit unexpectedly on 2026-10-23 at `decode.rs:12:5`.');
     expect(crash).toContain('rawdecode::open');

@@ -274,6 +274,8 @@
       "openFailed": "Não foi possível abrir o navegador.",
       "pendingCrash": "O Rawtonic fechou inesperadamente em {{date}} e esse relatório de falha não foi enviado.",
       "photo": "Câmara e tipo de ficheiro da foto aberta",
+      "photoFile": "Anexar o próprio ficheiro da foto ({{type}}, para problemas com o aspeto desta foto)",
+      "photoFileWarning": "O ficheiro é enviado tal como está. Mantém os metadados — a data, o número de série da câmara e a posição GPS, se tiver sido registada — e pode mostrar pessoas. É guardado em privado, apenas para encontrar o problema, e apagado com o relatório (pelo seu ID ou após 90 dias).",
       "prepareFailed": "Não foi possível preparar o relatório. Talvez seja demasiado longo.",
       "review": "Rever e enviar…",
       "reviewCrash": "Rever o relatório de falha",

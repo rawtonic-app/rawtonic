@@ -274,6 +274,8 @@
       "openFailed": "Impossible d’ouvrir le navigateur.",
       "pendingCrash": "Rawtonic s’est fermé de manière inattendue le {{date}} et ce rapport de plantage n’a pas été envoyé.",
       "photo": "Appareil et type de fichier de la photo ouverte",
+      "photoFile": "Joindre le fichier de la photo lui-même ({{type}}, pour un problème d’apparence de cette photo)",
+      "photoFileWarning": "Le fichier est envoyé tel quel. Il conserve ses métadonnées — la date, le numéro de série de l’appareil et la position GPS si elle a été enregistrée — et peut montrer des personnes. Il est conservé en privé, uniquement pour trouver le problème, et supprimé avec le rapport (par son identifiant ou après 90 jours).",
       "prepareFailed": "Le rapport n’a pas pu être préparé. Il est peut-être trop long.",
       "review": "Vérifier et envoyer…",
       "reviewCrash": "Voir le rapport de plantage",

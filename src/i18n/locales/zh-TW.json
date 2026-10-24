@@ -261,6 +261,8 @@
       "openFailed": "無法開啟瀏覽器。",
       "pendingCrash": "Rawtonic 於 {{date}} 意外結束，那份當機報告尚未傳送。",
       "photo": "目前照片的相機和檔案類型",
+      "photoFile": "附加照片檔案本身（{{type}}，用於此照片顯示效果的問題）",
+      "photoFileWarning": "檔案將依原樣傳送。它保留中繼資料——日期、相機序號以及有記錄時的 GPS 位置——並可能拍到人物。它僅用於找出問題並私下保存，隨報告一起刪除（透過其 ID 或 90 天後）。",
       "prepareFailed": "無法準備報告，可能太長了。",
       "review": "檢查並傳送…",
       "reviewCrash": "檢視當機報告",

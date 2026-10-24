@@ -261,6 +261,8 @@
       "openFailed": "无法打开浏览器。",
       "pendingCrash": "Rawtonic 于 {{date}} 意外退出，那份崩溃报告尚未发送。",
       "photo": "当前照片的相机和文件类型",
+      "photoFile": "附加照片文件本身（{{type}}，用于此照片显示效果的问题）",
+      "photoFileWarning": "文件将按原样发送。它保留元数据——日期、相机序列号以及记录过的 GPS 位置——并可能包含人物。它仅用于查找问题并私下保存，随报告一起删除（通过其 ID 或 90 天后）。",
       "prepareFailed": "无法准备报告，可能太长了。",
       "review": "检查并发送…",
       "reviewCrash": "查看崩溃报告",
