@@ -527,8 +527,9 @@ async fn release_after_run<T, E>(
 /// One pool per worker, never one shared: a pool thread holding the GPU
 /// processor that waits for its parallel work may meanwhile run other jobs
 /// of its pool, which would be another photo waiting for that processor.
-/// So no job of a worker's pool waits for it, and renders hand their work
-/// to other pools as before (`mark_private_pool_thread`).
+/// So no job of a worker's pool waits for it, and its renders keep their
+/// parallel work in it, off the pool the Develop view's frames use
+/// (`mark_private_pool_thread`).
 struct ExportLanes {
     pools: Vec<rayon::ThreadPool>,
     free: Mutex<Vec<usize>>,

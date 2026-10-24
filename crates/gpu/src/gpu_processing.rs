@@ -2162,7 +2162,7 @@ const INPUT_UPLOAD_BAND_ROWS: u32 = 256;
 
 /// Threads for CPU work under the GPU processor lock (input conversion,
 /// the colour noise pyramid) of callers outside rayon (the
-/// preview, export and multi view workers), apart from the global pool.
+/// preview and multi view workers), apart from the global pool.
 fn upload_pool() -> &'static rayon::ThreadPool {
     static POOL: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
     POOL.get_or_init(|| {
@@ -2191,8 +2191,8 @@ thread_local! {
 
 /// Marks the calling thread as one of a rayon pool none of whose jobs waits
 /// for the GPU processor (an export worker's own pool, which runs one photo
-/// at a time): its renders hand work to other pools as callers outside rayon
-/// do. Call it from the pool's start handler.
+/// at a time): its renders keep their parallel work in it. Call it from the
+/// pool's start handler.
 pub fn mark_private_pool_thread() {
     PRIVATE_POOL.set(true);
 }
@@ -2206,12 +2206,14 @@ fn in_shared_pool() -> bool {
 }
 
 /// Runs `work`, which holds the GPU processor lock and may use rayon (the
-/// colour noise pyramid), off the global pool for callers outside a shared
-/// pool: its threads may all be waiting for that lock (thumbnail batches),
-/// so its parallel work would never run. A worker of a shared pool runs it
-/// in place, as before.
+/// colour noise pyramid), off the global pool for callers outside rayon:
+/// its threads may all be waiting for that lock (thumbnail batches), so its
+/// parallel work would never run. A worker of a shared pool runs it in
+/// place, as before; so does an export worker's own pool, at the export's
+/// lower priority: in the upload pool the Develop view's frames waited
+/// behind it (notes: parity-gaps/G44).
 fn off_global_pool<R: Send>(work: impl FnOnce() -> R + Send) -> R {
-    if in_shared_pool() {
+    if rayon::current_thread_index().is_some() {
         work()
     } else {
         upload_pool().install(work)
@@ -2303,6 +2305,9 @@ fn create_window_texture(
             for (row, texels) in texels.chunks_mut(row_texels).enumerate() {
                 rgba_f16_row(image, window_x, window_y + y + row as u32, texels);
             }
+        } else if rayon::current_thread_index().is_some() {
+            // An export worker's own pool (`off_global_pool`).
+            convert(texels);
         } else {
             // Not the global pool: its threads may all be waiting for the
             // processor lock this caller holds (thumbnail batches), and the
