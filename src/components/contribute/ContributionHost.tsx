@@ -21,6 +21,7 @@ import CameraHelpDialog from "./CameraHelpDialog";
 import CrashReportDialog from "./CrashReportDialog";
 import ProblemReportDialog from "./ProblemReportDialog";
 import {
+  filePhoto,
   markCrashReportAsked,
   pendingCrashReports,
   photoInfo,
@@ -202,7 +203,11 @@ export default function ContributionHost() {
         onClose={() => setOpen(false)}
         context={context}
         screenshot={screenshot}
-        photo={helpReport ? helpReport.photo : photoInfo(selectedImage)}
+        photo={
+          helpReport
+            ? helpReport.photo
+            : (photoInfo(selectedImage) ?? (selectedImage ? filePhoto(selectedImage.path) : null))
+        }
         pendingCrash={crashes[0] ?? null}
         onReviewCrash={() => {
           setReviewing(crashes[0] ?? null);
