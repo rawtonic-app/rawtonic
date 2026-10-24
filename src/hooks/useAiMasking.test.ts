@@ -518,16 +518,14 @@ describe("automatic AI masks from imported presets", () => {
     expect(invoke).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves Lightroom geometry an undo brings back pending, keeping redo", async () => {
+  it("places Lightroom geometry in every history step, adding none: undo and redo keep it placed", async () => {
+    const placedParameters = { centerX: 1, centerY: 2, radiusX: 3, radiusY: 4, rotation: 0, feather: 0.5 };
     invoke.mockImplementation(async (command: string, args: { adjustments: { masks: { subMasks: { id: string }[] }[] } }) =>
       command === "place_lightroom_masks"
         ? {
             masks: [
               {
-                subMasks: args.adjustments.masks[0].subMasks.map((sub) => ({
-                  ...sub,
-                  parameters: { centerX: 1, centerY: 2, radiusX: 3, radiusY: 4, rotation: 0, feather: 0.5 },
-                })),
+                subMasks: args.adjustments.masks[0].subMasks.map((sub) => ({ ...sub, parameters: placedParameters })),
               },
             ],
           }
@@ -535,21 +533,33 @@ describe("automatic AI masks from imported presets", () => {
     );
     const pending = layer("radial", { lrNormalized: { top: 0.2, left: 0.3, bottom: 0.6, right: 0.7 } });
     const initial = { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [pending] as never };
+    // An edit made on the preview proxy before the decode came in.
+    const edited = { ...initial, exposure: 0.5 };
     useEditorStore.setState({
       selectedImage: { path: "/s/a.NEF", isReady: true, isDecoded: true, isRaw: true, width: 6000, height: 4000 } as never,
-      adjustments: initial,
-      history: [initial],
-      historyIndex: 0,
+      adjustments: edited,
+      history: [initial, edited],
+      historyIndex: 1,
     });
     renderHook(() => useAiMasking());
-    await waitFor(() => expect(useEditorStore.getState().historyIndex).toBe(1));
-    const placed = useEditorStore.getState().adjustments;
+    const subOf = (adjustments: { masks: { subMasks: { parameters: unknown }[] }[] }) =>
+      adjustments.masks[0].subMasks[0].parameters;
+    await waitFor(() => expect(subOf(useEditorStore.getState().adjustments)).toEqual(placedParameters));
+    const state = useEditorStore.getState();
+    expect(state.adjustments.exposure).toBe(0.5);
+    expect(state.history).toHaveLength(2);
+    expect(state.historyIndex).toBe(1);
+    expect(state.history.map(subOf)).toEqual([placedParameters, placedParameters]);
+    // Undo reaches the step before the edit with the geometry placed (the
+    // editing tools need the placed form), and redo the edit.
     act(() => useEditorStore.getState().undo());
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    expect(invoke).toHaveBeenCalledTimes(1);
-    expect(useEditorStore.getState().history).toHaveLength(2);
+    expect(useEditorStore.getState().adjustments.exposure).toBe(0);
+    expect(subOf(useEditorStore.getState().adjustments)).toEqual(placedParameters);
     act(() => useEditorStore.getState().redo());
-    expect(useEditorStore.getState().adjustments).toEqual(placed);
+    expect(useEditorStore.getState().adjustments.exposure).toBe(0.5);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(useEditorStore.getState().history).toHaveLength(2);
+    expect(invoke).toHaveBeenCalledTimes(1);
   });
 
   it("asks again for Lightroom geometry whose placement came back for another photo", async () => {

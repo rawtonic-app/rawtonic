@@ -810,10 +810,22 @@ fn develop_rgba(
         .get("masks")
         .and_then(|m| serde_json::from_value(m.clone()).ok())
         .unwrap_or_default();
-    let geometry = PhotoGeometry::from_adjustments(recipe).with_photo_size(
-        input.facts.full_width as f64,
-        input.facts.full_height as f64,
-    );
+    // A full decode (or a proxy as large) places imported Lightroom masks
+    // as exports do (`PhotoGeometry::with_decoded_size`).
+    let geometry = PhotoGeometry::from_adjustments(recipe);
+    let geometry = if (width, height) == (input.facts.full_width, input.facts.full_height) {
+        crate::editor_preview::open_orientation(
+            &state,
+            geometry.with_decoded_size(width, height),
+            rawtonic_engine::lightroom_retouch::needs_orientation(recipe),
+            input.path,
+        )
+    } else {
+        geometry.with_photo_size(
+            input.facts.full_width as f64,
+            input.facts.full_height as f64,
+        )
+    };
     let mask_bitmaps: Vec<Arc<MaskBitmap>> = masks
         .iter()
         .filter_map(|def| {

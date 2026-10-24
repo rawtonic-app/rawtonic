@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { isPhotoChanged, noteBackgroundAiError, toastAiError } from '../utils/aiErrors';
 import { DETECT_PENDING } from '../utils/settingsClipboard';
-import { useEditorStore } from '../store/useEditorStore';
+import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { useUIStore } from '../store/useUIStore';
 import { useEditorActions } from './useEditorActions';
@@ -501,8 +501,9 @@ export function useAiMasking() {
   const [askAgain, setAskAgain] = useState(0);
   const requestedPlacements = useRef(new Set<string>());
   const [placeMasksAgain, setPlaceMasksAgain] = useState(0);
+  const sliderDragging = useEditorStore((s) => s.isSliderDragging);
   useEffect(() => {
-    if (!selectedImageDecoded) return;
+    if (!selectedImageDecoded || sliderDragging) return;
     const { selectedImage } = useEditorStore.getState();
     const masks = useEditorStore.getState().adjustments.masks ?? [];
     if (!selectedImage) return;
@@ -517,6 +518,7 @@ export function useAiMasking() {
     if (unplaced.length === 0) return;
     // Per photo: copied settings keep component ids.
     const keys = unplaced.map((sub: SubMask) => `${path}:${sub.id}`);
+    const asked = new Map(unplaced.map((sub: SubMask) => [sub.id, JSON.stringify(sub.parameters)]));
     keys.forEach((key) => requestedPlacements.current.add(key));
     /** Asked again: at once when the photo is open and decoded, else when it is. */
     const askAgainLater = () => {
@@ -531,22 +533,49 @@ export function useAiMasking() {
       height: selectedImage.height,
     })
       .then((placed) => {
-        if (useEditorStore.getState().selectedImage?.path !== path) {
+        const now = useEditorStore.getState();
+        // A drag holds its own draft of the recipe: placed when it ends.
+        if (now.selectedImage?.path !== path || now.isSliderDragging) {
           askAgainLater();
           return;
         }
-        for (const sub of placed.masks?.[0]?.subMasks ?? []) {
-          if (!(sub.parameters as { lrNormalized?: unknown } | undefined)?.lrNormalized) {
-            // Once per photo: brought back pending by an undo, it stays so
-            // (renders place it the same way), as placing it again would add
-            // a history step and cut off redo.
-            updateSubMask(sub.id, { parameters: sub.parameters });
-          }
-        }
+        const placedParameters = new Map(
+          (placed.masks?.[0]?.subMasks ?? [])
+            .filter((sub) => !(sub.parameters as { lrNormalized?: unknown } | undefined)?.lrNormalized)
+            .map((sub) => [sub.id, sub.parameters]),
+        );
+        if (placedParameters.size === 0) return;
+        /** `adjustments` with the asked components, where still as asked, placed. */
+        const placeIn = (adjustments: Adjustments): Adjustments => {
+          let changed = false;
+          const masks = (adjustments.masks ?? []).map((container: MaskContainer) => {
+            let own = false;
+            const subMasks = container.subMasks.map((sub: SubMask) => {
+              const parameters = placedParameters.get(sub.id);
+              if (!parameters || JSON.stringify(sub.parameters) !== asked.get(sub.id)) return sub;
+              own = true;
+              return { ...sub, parameters };
+            });
+            if (!own) return container;
+            changed = true;
+            return { ...container, subMasks };
+          });
+          return changed ? { ...adjustments, masks } : adjustments;
+        };
+        // No history step of its own: the placed form replaces the imported
+        // one in the recipe and in every step that holds it, so an undo never
+        // brings back the imported form (which the editing tools cannot use)
+        // and redo stays. An edit still waiting to become a step is settled
+        // first, so it is replaced too.
+        debouncedSetHistory.flush();
+        now.setEditor((state) =>
+          state.selectedImage?.path !== path
+            ? state
+            : { adjustments: placeIn(state.adjustments), history: state.history.map(placeIn) },
+        );
       })
       .catch((error) => console.error('Placing Lightroom masks failed:', error));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedImageDecoded, masksKey, placeMasksAgain]);
+  }, [selectedImageDecoded, sliderDragging, masksKey, placeMasksAgain]);
   useEffect(() => {
     if (!selectedImageReady) return;
     const { selectedImage } = useEditorStore.getState();

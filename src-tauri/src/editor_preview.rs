@@ -1005,8 +1005,8 @@ pub(crate) fn source_size(
 /// `geometry` with the EXIF orientation of the photo at `path` when the
 /// render holds Lightroom items imported without it (`needs_orientation`,
 /// `lightroom_retouch::needs_orientation`): exports record it first
-/// (`prepare_recipe_lens`), and the editor holds such items until it places
-/// them, or again after an undo. Read once per photo.
+/// (`prepare_recipe_lens`), and the editor holds such items (older
+/// imports, presets) until it places them. Read once per photo.
 pub(crate) fn open_orientation(
     state: &AppState,
     geometry: PhotoGeometry,
@@ -1021,17 +1021,20 @@ pub(crate) fn open_orientation(
         .source_orientation
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
-        .filter(|(at, _)| *at == source)
-        .map(|(_, orientation)| *orientation);
+        .get(&source)
+        .copied();
     let orientation = known.or_else(|| {
         let bytes = read_file_mapped(&source).ok()?;
         let orientation =
             crate::image_loader::source_orientation(&bytes, &source.to_string_lossy());
-        *state
+        let mut known = state
             .source_orientation
             .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some((source.clone(), orientation));
+            .unwrap_or_else(|e| e.into_inner());
+        if known.len() >= 256 {
+            known.clear();
+        }
+        known.insert(source.clone(), orientation);
         Some(orientation)
     });
     match orientation {
