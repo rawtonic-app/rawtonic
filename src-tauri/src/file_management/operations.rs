@@ -622,8 +622,21 @@ fn plan_folder_move(
             marker.path().display()
         ));
     }
-    let step = rawtonic_fileops::Step::moving(folder, destination.join(name))
-        .map_err(|e| format!("{e:#}"))?;
+    // Photos leaving a session are kept there as missing (an undo brings
+    // them back); a folder moves only within its session or outside any.
+    let target = destination.join(name);
+    let (from_session, to_session) = (
+        rawtonic_catalog::session_for(folder),
+        rawtonic_catalog::session_for(&target),
+    );
+    if from_session != to_session {
+        let session = from_session.or(to_session).unwrap_or_default();
+        return Err(format!(
+            "A folder can be moved within its session only, not into or out of one ({}).",
+            session.display()
+        ));
+    }
+    let step = rawtonic_fileops::Step::moving(folder, target).map_err(|e| format!("{e:#}"))?;
     let label = format!(
         "Move folder {} to {}",
         name.to_string_lossy(),
@@ -1027,6 +1040,14 @@ mod tests {
         refused(&folder, &folder.join("Day 1"), "into itself");
         refused(&folder.join("Day 1"), &folder, "already in that folder");
         refused(&folder.join("Day 1/A.RAF"), &dest, "is not a folder");
+        // Into or out of a session, never; within one, yes.
+        let job = root.join("Job");
+        write(&job.join("session.json"), "{}");
+        write(&job.join("Capture/Day 2/B.RAF"), "b");
+        fs::create_dir_all(job.join("Selects")).unwrap();
+        refused(&folder, &job.join("Selects"), "within its session only");
+        refused(&job.join("Capture/Day 2"), &dest, "within its session only");
+        plan_folder_move(&job.join("Capture/Day 2"), &job.join("Selects")).unwrap();
         // A session (or catalog) inside: its database may be open.
         write(&folder.join("Day 1/Job/session.json"), "{}");
         refused(&folder, &dest, "holds a Rawtonic session or catalog");

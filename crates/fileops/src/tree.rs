@@ -283,7 +283,14 @@ pub(crate) fn same(a: &Path, b: &Path) -> Result<bool> {
             return Ok(false);
         }
     }
-    Ok(true)
+    // Nothing added or removed while the bytes were compared.
+    let same_listing = |l: &[TreeEntry], m: &[TreeEntry]| {
+        l.len() == m.len()
+            && l.iter()
+                .zip(m)
+                .all(|(p, q)| p.path == q.path && p.folder == q.folder)
+    };
+    Ok(same_listing(&x, &list(a)?) && same_listing(&y, &list(b)?))
 }
 
 #[cfg(all(test, unix))]

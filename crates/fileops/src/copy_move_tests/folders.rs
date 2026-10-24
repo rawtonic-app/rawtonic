@@ -556,3 +556,65 @@ fn an_original_folder_whose_copy_lost_a_file_is_kept() {
     assert_whole(&from);
     assert!(world.trash.items().is_empty());
 }
+
+/// Taking a published folder back never deletes what was added to it: an
+/// addition before the comparison keeps the copy where it is (both kept),
+/// and staging cleanup removes only paths the moved folder has.
+#[test]
+fn rolling_a_published_folder_back_never_deletes_what_was_added_to_it() {
+    struct AddAndStopOncePublished<'a>(&'a Path, Cell<bool>);
+    impl CopyObserver for AddAndStopOncePublished<'_> {
+        fn cancelled(&self) -> bool {
+            if exists(self.0) && !self.1.replace(true) {
+                fs::write(self.0.join("Sub/added.jpg"), b"added there").unwrap();
+            }
+            self.1.get()
+        }
+    }
+    let world = World::new();
+    let step = world.folder_step();
+    let (from, to) = world.folder();
+    let journal = world.journal();
+    let error = journal
+        .execute_with(
+            "move",
+            "Move folder",
+            vec![step],
+            &world.trash,
+            &AddAndStopOncePublished(&to, Cell::new(false)),
+        )
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("Stopped"), "{error:#}");
+    let op = journal.history(1).unwrap().remove(0);
+    assert_eq!(op.state, State::RolledBack);
+    assert!(op.note.unwrap().contains("both were kept"));
+    assert_eq!(fs::read(to.join("Sub/added.jpg")).unwrap(), b"added there");
+    assert_whole(&from);
+
+    // A file that reached the staged copy after its comparison stays.
+    let world = World::new();
+    let (from, _) = world.folder();
+    let staging = world.target.join(format!("{MOVE_STAGING_PREFIX}x"));
+    let staged = staging.join("0");
+    fs::create_dir_all(staged.join("Sub")).unwrap();
+    fs::write(staged.join("A.RAF"), b"a copy").unwrap();
+    fs::write(staged.join("Sub/late.jpg"), b"not a copy").unwrap();
+    let mut step = Step::other_volume(&from, world.target.join("Shoot"));
+    if let Target::OtherVolume { copy, .. } = &mut step.to {
+        copy.folder = true;
+        copy.staged = Some(staged.clone());
+    }
+    let payload = Payload {
+        steps: vec![step],
+        staging_dirs: vec![staging],
+        ..Payload::default()
+    };
+    let error = remove_staging(&payload).unwrap_err();
+    assert!(format!("{error:#}").contains("not copies"), "{error:#}");
+    assert!(!exists(&staged.join("A.RAF")));
+    assert_eq!(
+        fs::read(staged.join("Sub/late.jpg")).unwrap(),
+        b"not a copy"
+    );
+    assert_whole(&from);
+}

@@ -1974,11 +1974,10 @@ fn remove_staging(payload: &Payload) -> Result<()> {
                         problems.push(format!("Cannot remove {}: {e}", staged.display()));
                     }
                 }
-                // A folder's copy, with everything in it (links in it are
-                // removed, never followed).
+                // A folder's copy: only what is a copy of the moved folder.
                 Ok(meta) if meta.is_dir() && copy.folder => {
-                    if let Err(e) = fs::remove_dir_all(staged) {
-                        problems.push(format!("Cannot remove {}: {e}", staged.display()));
+                    if let Err(e) = remove_staged_folder(staged, step) {
+                        problems.push(format!("{e:#}"));
                     }
                 }
                 Ok(_) => problems.push(format!("{} is not a copy; it was left", staged.display())),
@@ -2062,7 +2061,56 @@ fn unpublish(step: &Step, direction: Direction) -> Result<()> {
         source.display()
     );
     rename_exclusive(destination, staged)
-        .with_context(|| format!("Cannot take the copy at {} back", destination.display()))
+        .with_context(|| format!("Cannot take the copy at {} back", destination.display()))?;
+    // Something written to it while it was compared stays where it was.
+    if !same_entry(source, staged, copy.folder).unwrap_or(false) {
+        rename_exclusive(staged, destination).with_context(|| {
+            format!(
+                "{} changed while it was taken back and stays at {}",
+                destination.display(),
+                staged.display()
+            )
+        })?;
+        bail!(
+            "{} changed while it was taken back; both were kept",
+            destination.display()
+        );
+    }
+    Ok(())
+}
+
+/// Removes a folder's staged copy: only the files below it that are at a
+/// path the moved folder has (recorded with its copy, or there now at
+/// either end), then the folders that are empty then. Anything else stays,
+/// and with it the staged folder, which the error names.
+fn remove_staged_folder(staged: &Path, step: &Step) -> Result<()> {
+    let Target::OtherVolume { path, copy } = &step.to else {
+        bail!("Not a copy move");
+    };
+    let mut known: HashSet<PathBuf> = copy.tree.iter().flatten().map(|e| e.path.clone()).collect();
+    for end in [&step.from, path] {
+        if let Ok(entries) = tree::list(end) {
+            known.extend(entries.into_iter().map(|e| e.path));
+        }
+    }
+    let entries = tree::list(staged)
+        .with_context(|| format!("{} was left: it holds more than a copy", staged.display()))?;
+    for entry in entries.iter().rev() {
+        let below = staged.join(&entry.path);
+        if entry.folder {
+            let _ = fs::remove_dir(&below);
+        } else if known.contains(&entry.path) {
+            fs::remove_file(&below)
+                .with_context(|| format!("Cannot remove {}", below.display()))?;
+        }
+    }
+    fs::remove_dir(staged).with_context(|| {
+        format!(
+            "{} was left: it holds files that are not copies of {}",
+            staged.display(),
+            step.from.display()
+        )
+    })
 }
 
 /// Undo of one step: renames back, puts back from the Trash, publishes a
