@@ -975,7 +975,7 @@ export const useKeyboardShortcuts = ({
       // Read per key press so that edited keybinds apply at once. Cursor tool
       // keys (tool_*) are handled by the studio workspace.
       const comboMap = buildComboMap(state.settings.appSettings?.keybinds);
-      const normalized = normalizeCombo(event, state.settings.osPlatform);
+      const normalized = normalizeCombo(event, state.settings.osPlatform, state.ui.activeView === 'library');
       for (const action of comboMap.get(normalized.join('+')) ?? []) {
         if (rangeFocused && action !== 'undo' && action !== 'redo') continue;
         const handler = actions[action];

@@ -254,7 +254,8 @@ struct ExportArgs {
     #[arg(long, default_value_t = 16, value_parser = clap::value_parser!(u8).range(8..=16))]
     tiff_bit_depth: u8,
     /// Copy all source EXIF and session metadata. Creator, copyright, contact
-    /// details and usage terms are always retained, even without this flag.
+    /// details and usage terms are retained even without this flag. Contact
+    /// details can be omitted with --strip-creator-contact.
     #[arg(long)]
     keep_metadata: bool,
     /// With --keep-metadata: leave out GPS positions.

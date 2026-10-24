@@ -49,7 +49,8 @@ and the test's results and timings — no serial number, file names, folders,
 user name or photos) for you to copy yourself; its GitHub button only opens
 the camera report form in your browser.
 
-Exported files carry the metadata you choose to keep. Stripped exports,
+Exported files carry the metadata you choose to keep. Under the explicit
+[maintainer decision](docs/decisions/0018-export-rights-retention.md), stripped exports,
 including existing strip recipes, retain creator, copyright, usage terms and
 creator contact details: email, phone, website, street address, city, region,
 postal code and country. In Export > Metadata, "Remove creator contact details"

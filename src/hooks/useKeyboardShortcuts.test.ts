@@ -616,3 +616,10 @@ it("lets a user disable the default Delete action on macOS", () => {
   press("Delete");
   expect(props.handleDeleteSelected).not.toHaveBeenCalled();
 });
+
+it("keeps the new plain Backspace photo-delete alias in the Library", () => {
+  useUIStore.setState({ activeView: "editor" });
+  useEditorStore.setState({ activeMaskContainerId: null });
+  press("Backspace");
+  expect(props.handleDeleteSelected).not.toHaveBeenCalled();
+});

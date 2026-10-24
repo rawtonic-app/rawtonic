@@ -91,8 +91,8 @@ export default function StudioLut({
   onInteraction(active: boolean): void;
 }) {
   const { t } = useTranslation();
-  const label = (entry: LutEntry) => entry.isBuiltIn && BUILT_IN_NAMES[entry.name]
-    ? t(`studio.lut.names.${BUILT_IN_NAMES[entry.name]}`) : entry.name;
+  const label = (entry: LutEntry, language?: string) => entry.isBuiltIn && BUILT_IN_NAMES[entry.name]
+    ? t(`studio.lut.names.${BUILT_IN_NAMES[entry.name]}`, { lng: language }) : entry.name;
   const skipReason = ({ reason, issue }: SkippedLut) => {
     const kind = issue?.kind as SkipKind | undefined;
     if (!issue || !kind || !SKIP_KINDS.includes(kind)) return reason;
@@ -178,7 +178,7 @@ export default function StudioLut({
             onChange={(e) => {
               const entry = entries.find((x) => x.path === e.target.value);
               if (!entry) clear();
-              else void handleLutSelect(entry.path, entry.isBuiltIn, entry.isBuiltIn ? label(entry) : undefined);
+              else void handleLutSelect(entry.path, entry.isBuiltIn, entry.isBuiltIn ? label(entry, "en") : undefined);
             }}
           >
             <option value="">{t("studio.lut.none")}</option>
