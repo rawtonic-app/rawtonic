@@ -584,8 +584,9 @@ static RECORDING: AtomicBool = AtomicBool::new(false);
 /// period noted its first panic.
 static NOTE_LOCK: Mutex<bool> = Mutex::new(false);
 
-/// The note lock, waiting at most ~0.2 s: a panic while it is held (in the
-/// note's own write, say) must not hang the panicking thread.
+/// The note lock for the panic hook, waiting at most ~0.2 s: a panic while
+/// it is held (in the note's own write, say) must not hang the panicking
+/// thread; it then writes nothing.
 fn note_lock() -> Option<std::sync::MutexGuard<'static, bool>> {
     for _ in 0..200 {
         match NOTE_LOCK.try_lock() {
@@ -601,13 +602,14 @@ fn note_lock() -> Option<std::sync::MutexGuard<'static, bool>> {
 
 /// Turns the notes on or off (Never, or the preference). Off also deletes
 /// the notes this run already wrote; on starts a new period whose first
-/// panic is noted again.
+/// panic is noted again. Waits for a note being written (however long its
+/// write takes), so nothing is written after it returns with off.
 pub fn set_recording(store: &CrashStore, on: bool) {
-    let guard = note_lock();
+    let mut noted = NOTE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     RECORDING.store(on, Ordering::SeqCst);
-    if let Some(mut noted) = guard {
-        *noted = false;
-    }
+    *noted = false;
     if !on {
         store.remove_notes();
     }
@@ -828,6 +830,14 @@ mod tests {
     }
 
     const DAY: u64 = 86_400;
+
+    /// Tests that switch the process-wide recording run one at a time.
+    static GLOBAL_SWITCH: Mutex<()> = Mutex::new(());
+    fn exclusive() -> std::sync::MutexGuard<'static, ()> {
+        GLOBAL_SWITCH
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
     const T0: u64 = 1_792_800_000; // 2026-10-24
 
     #[test]
@@ -1063,6 +1073,7 @@ mod tests {
     /// the next start turns into a record.
     #[test]
     fn the_panic_hook_notes_the_first_panic() {
+        let _serial = exclusive();
         let (_dir, store) = store();
         store
             .start(
@@ -1133,6 +1144,32 @@ mod tests {
             .unwrap();
         assert_eq!(record.message, "boom at <path>.NEF");
         assert!(record.location.starts_with("crash.rs:"));
+    }
+
+    /// Off waits for a note whose write stalls (longer than the hook's own
+    /// wait), then deletes it.
+    #[test]
+    fn off_waits_for_a_stalled_note_write() {
+        let _serial = exclusive();
+        let (_dir, store) = store();
+        std::fs::create_dir_all(store.dir()).unwrap();
+        let path = store.path(PANIC_NOTE);
+        let (held, wait) = std::sync::mpsc::channel();
+        let writer = {
+            let path = path.clone();
+            std::thread::spawn(move || {
+                let _guard = NOTE_LOCK
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                held.send(()).unwrap();
+                std::thread::sleep(std::time::Duration::from_millis(400));
+                std::fs::write(&path, "{}").unwrap();
+            })
+        };
+        wait.recv().unwrap();
+        set_recording(&store, false);
+        writer.join().unwrap();
+        assert!(!path.exists());
     }
 
     /// A fatal signal in a child process leaves the signal note (the child

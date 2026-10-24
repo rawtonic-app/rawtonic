@@ -120,5 +120,14 @@ describe('the no-relay fallbacks', () => {
     // Even a text at the relay's cap fits.
     const long = githubIssue(JSON.stringify({ schema: 1, app: context.app, text: 'é'.repeat(10_000) })).url;
     expect(long.length).toBeLessThanOrEqual(MAX_URL);
+    // A crash keeps its place, date and system when its message is shortened.
+    const crash = githubIssue(
+      JSON.stringify(crashPayload({ ...record, message: '異'.repeat(2_000) }, { includeBacktrace: true, logTail: 'x\ny' })),
+    );
+    expect(crash.url.length).toBeLessThanOrEqual(MAX_URL);
+    expect(crash.body).toContain('at `decode.rs:12:5`');
+    expect(crash.body).toContain('2026-10-23');
+    expect(crash.body).toContain('Rawtonic 0.1.0-alpha.4');
+    expect(crash.body).toContain('異異');
   });
 });

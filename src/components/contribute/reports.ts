@@ -168,10 +168,11 @@ const systemLine = (p: Parsed) => {
 interface Fit {
   logLines: number;
   backtraceLines: number;
+  messageChars: number;
   textChars: number;
 }
 
-const FULL: Fit = { logLines: Infinity, backtraceLines: Infinity, textChars: Infinity };
+const FULL: Fit = { logLines: Infinity, backtraceLines: Infinity, messageChars: Infinity, textChars: Infinity };
 const SHORTENED_NOTE = "(Shortened to fit a link. Use “Copy report” in Rawtonic for the full text.)";
 
 function render(p: Parsed, fit: Fit): string {
@@ -184,7 +185,12 @@ function render(p: Parsed, fit: Fit): string {
   };
   if (p.message !== undefined) {
     out.push(`Rawtonic quit unexpectedly on ${p.crashedOn ?? "?"} at \`${p.location ?? "?"}\`.`);
-    out.push(fenced(p.message));
+    let message = p.message;
+    if (message.length > fit.messageChars) {
+      message = `${message.slice(0, Math.max(0, fit.messageChars))}…`;
+      shortened.value = true;
+    }
+    out.push(fenced(message));
   }
   if (p.text !== undefined) {
     let text = p.text;
@@ -243,13 +249,14 @@ export interface GithubIssue {
 
 /** A prefilled GitHub issue for the prepared body, text only, within
  * [`MAX_URL`]: the log's oldest lines go first, then the backtrace's
- * deepest frames, then the end of the text. */
+ * deepest frames, then the end of the crash message or the text. */
 export const githubIssue = (body: string): GithubIssue => {
   const p = parse(body);
   const title = issueTitle(p);
   const fit: Fit = {
     logLines: p.logTail ? p.logTail.split("\n").length : 0,
     backtraceLines: p.backtrace ? p.backtrace.split("\n").length : 0,
+    messageChars: (p.message ?? "").length,
     textChars: (p.text ?? "").length,
   };
   for (;;) {
@@ -258,6 +265,7 @@ export const githubIssue = (body: string): GithubIssue => {
     if (url.length <= MAX_URL) return { title, body: text, url };
     if (fit.logLines > 0) fit.logLines = Math.floor(fit.logLines * 0.8);
     else if (fit.backtraceLines > 0) fit.backtraceLines = Math.floor(fit.backtraceLines * 0.8);
+    else if (fit.messageChars > 0) fit.messageChars = Math.floor(fit.messageChars * 0.8);
     else if (fit.textChars > 0) fit.textChars = Math.floor(fit.textChars * 0.8);
     else return { title, body: SHORTENED_NOTE, url: issueUrl(title, SHORTENED_NOTE) };
   }
