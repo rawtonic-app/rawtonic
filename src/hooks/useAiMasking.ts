@@ -537,9 +537,10 @@ export function useAiMasking() {
         }
         for (const sub of placed.masks?.[0]?.subMasks ?? []) {
           if (!(sub.parameters as { lrNormalized?: unknown } | undefined)?.lrNormalized) {
+            // Once per photo: brought back pending by an undo, it stays so
+            // (renders place it the same way), as placing it again would add
+            // a history step and cut off redo.
             updateSubMask(sub.id, { parameters: sub.parameters });
-            // Placed: brought back pending (an undo), it is placed again.
-            requestedPlacements.current.delete(`${path}:${sub.id}`);
           }
         }
       })

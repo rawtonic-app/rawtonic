@@ -516,9 +516,40 @@ describe("automatic AI masks from imported presets", () => {
     });
     rerender();
     expect(invoke).toHaveBeenCalledTimes(1);
-    // Brought back pending (an undo): placed again.
-    useEditorStore.setState((state) => ({ adjustments: { ...state.adjustments, masks: [pending] as never } }));
-    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
+  });
+
+  it("leaves Lightroom geometry an undo brings back pending, keeping redo", async () => {
+    invoke.mockImplementation(async (command: string, args: { adjustments: { masks: { subMasks: { id: string }[] }[] } }) =>
+      command === "place_lightroom_masks"
+        ? {
+            masks: [
+              {
+                subMasks: args.adjustments.masks[0].subMasks.map((sub) => ({
+                  ...sub,
+                  parameters: { centerX: 1, centerY: 2, radiusX: 3, radiusY: 4, rotation: 0, feather: 0.5 },
+                })),
+              },
+            ],
+          }
+        : null,
+    );
+    const pending = layer("radial", { lrNormalized: { top: 0.2, left: 0.3, bottom: 0.6, right: 0.7 } });
+    const initial = { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [pending] as never };
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isDecoded: true, isRaw: true, width: 6000, height: 4000 } as never,
+      adjustments: initial,
+      history: [initial],
+      historyIndex: 0,
+    });
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(useEditorStore.getState().historyIndex).toBe(1));
+    const placed = useEditorStore.getState().adjustments;
+    act(() => useEditorStore.getState().undo());
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(useEditorStore.getState().history).toHaveLength(2);
+    act(() => useEditorStore.getState().redo());
+    expect(useEditorStore.getState().adjustments).toEqual(placed);
   });
 
   it("asks again for Lightroom geometry whose placement came back for another photo", async () => {
