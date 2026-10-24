@@ -527,7 +527,7 @@ describe("automatic AI masks from imported presets", () => {
       command === "place_lightroom_retouch" ? placeRetouch(command, args) : null,
     );
     useEditorStore.setState({
-      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true, width: 6000, height: 4000 } as never,
+      selectedImage: { path: "/s/a.NEF", isReady: true, isDecoded: true, isRaw: true, width: 6000, height: 4000 } as never,
       adjustments: {
         ...structuredClone(INITIAL_ADJUSTMENTS),
         spots: [pendingSpot, ownSpot] as never,
@@ -557,9 +557,9 @@ describe("automatic AI masks from imported presets", () => {
     );
     return answers;
   };
-  const openWithPendingSpot = (path: string, isReady = true) =>
+  const openWithPendingSpot = (path: string, isDecoded = true) =>
     useEditorStore.setState({
-      selectedImage: { path, isReady, isRaw: true, width: 6000, height: 4000 } as never,
+      selectedImage: { path, isReady: true, isDecoded, isRaw: true, width: 6000, height: 4000 } as never,
       adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), spots: [pendingSpot] as never },
     });
   const placeCalls = () => invoke.mock.calls.filter(([command]) => command === "place_lightroom_retouch");
@@ -632,6 +632,20 @@ describe("automatic AI masks from imported presets", () => {
       useEditorStore.setState((state) => ({ adjustments: { ...state.adjustments, transformDistortion: 10 } }));
     });
     await waitFor(() => expect(placeCalls()).toHaveLength(2));
+  });
+
+  it("places on the full decode: not from the preview proxy, at once when the decode is in", async () => {
+    invoke.mockImplementation(async (command: string, args: never) =>
+      command === "place_lightroom_retouch" ? placeRetouch(command, args) : null,
+    );
+    openWithPendingSpot("/s/a.NEF", false);
+    renderHook(() => useAiMasking());
+    await act(async () => {});
+    expect(placeCalls()).toHaveLength(0);
+    act(() => {
+      useEditorStore.setState((state) => ({ selectedImage: { ...state.selectedImage!, isDecoded: true } }));
+    });
+    await waitFor(() => expect(useEditorStore.getState().adjustments.spots?.[0]).toMatchObject({ id: "placed-spot" }));
   });
 
   it("leaves masks that already carry data alone", async () => {

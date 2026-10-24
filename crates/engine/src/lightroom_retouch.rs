@@ -177,7 +177,7 @@ pub fn placed_spot(
     placed.insert("radius".into(), json!(round(radius)));
     placed.insert("sourceX".into(), json!(round(source.0)));
     placed.insert("sourceY".into(), json!(round(source.1)));
-    placed.insert("visible".into(), json!(true));
+    placed.entry("visible").or_insert(json!(true));
     if spot.path.len() > 1 {
         let points: Option<Vec<Value>> = spot
             .path
@@ -578,6 +578,22 @@ mod tests {
                 "{geometry}"
             );
         }
+    }
+
+    #[test]
+    fn a_hidden_pending_spot_stays_hidden_rendered_and_placed() {
+        let base = photo(120, 160, (60.0, 40.0), (90.0, 120.0));
+        let spot = |x: f64, visible: bool| {
+            json!({"mode": "heal", "visible": visible, PENDING: {"x": x, "y": 0.5,
+                "radius": 0.04, "sourceX": 0.25, "sourceY": 0.25, ORIENTATION: 6}})
+        };
+        let shown = json!({"spots": [spot(0.7, true)]});
+        let both = json!({"spots": [spot(0.25, false), spot(0.7, true)]});
+        assert_eq!(rendered(&base, &both), rendered(&base, &shown));
+        let mut placed = both.clone();
+        assert!(place(&mut placed, 120, 160, None));
+        assert_eq!(placed["spots"][0]["visible"], false);
+        assert_eq!(rendered(&base, &placed), rendered(&base, &shown));
     }
 
     #[test]

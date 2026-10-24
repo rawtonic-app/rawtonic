@@ -587,13 +587,15 @@ export function useAiMasking() {
   // is for the photo, its geometry and its pending items (`retouchBasis`): a
   // placement that comes back for another one is asked for again against the
   // current recipe; items the geometry cannot show are asked for again when
-  // it changes, and items brought back (an undo) as well.
+  // it changes, and items brought back (an undo) as well. Placement waits for
+  // the full decode (it places on it), not the preview proxy.
+  const selectedImageDecoded = useEditorStore((s) => !!s.selectedImage?.isDecoded);
   const retouchBasisKey = useEditorStore((s) => retouchBasis(s.adjustments));
   const requestedRetouchPlacements = useRef(new Set<string>());
   const [placeRetouchAgain, setPlaceRetouchAgain] = useState(0);
   useEffect(() => {
     const { selectedImage, adjustments } = useEditorStore.getState();
-    if (!selectedImageReady || !selectedImage || !retouchBasisKey) return;
+    if (!selectedImageDecoded || !selectedImage || !retouchBasisKey) return;
     const sent = { spots: adjustments.spots ?? [], redEyes: adjustments.redEyes ?? [] };
     const sentBasis = retouchBasis(adjustments);
     const path = selectedImage.path;
@@ -601,11 +603,11 @@ export function useAiMasking() {
     if (requestedRetouchPlacements.current.has(key)) return;
     requestedRetouchPlacements.current.add(key);
     const done = () => requestedRetouchPlacements.current.delete(key);
-    /** Asked again: at once when the photo is open, else when it opens. */
+    /** Asked again: at once when the photo is open and decoded, else when it is. */
     const askAgain = () => {
       done();
       const now = useEditorStore.getState().selectedImage;
-      if (now?.path === path && now.isReady) setPlaceRetouchAgain((n) => n + 1);
+      if (now?.path === path && now.isDecoded) setPlaceRetouchAgain((n) => n + 1);
     };
     /** `current` with its pending items replaced by the placed ones `got` holds for `asked`. */
     const merged = <T>(current: T[], asked: T[], got: T[] | undefined): T[] => {
@@ -649,7 +651,7 @@ export function useAiMasking() {
         console.error('Placing Lightroom spots and red eye corrections failed:', error);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedImageReady, retouchBasisKey, placeRetouchAgain]);
+  }, [selectedImageDecoded, retouchBasisKey, placeRetouchAgain]);
 
   // SAM encodes the open photo in the background, so a click or box only
   // runs the decoder: after Subject and Sky where those are computed ahead
