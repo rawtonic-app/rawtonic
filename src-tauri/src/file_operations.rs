@@ -2037,7 +2037,7 @@ mod tests {
             .collect();
         // Only the sidecar the edit made there after the move stays (no
         // step of the move; the edit itself is in the library).
-        assert_eq!(left, [sidecar.clone()], "left on the drive");
+        assert_eq!(left, std::slice::from_ref(&sidecar), "left on the drive");
         assert_eq!(
             lib.editor_state(&asset.id).unwrap().unwrap()["adjustments"]["exposure"],
             2.5
