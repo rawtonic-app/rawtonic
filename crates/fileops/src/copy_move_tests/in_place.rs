@@ -369,11 +369,18 @@ fn the_copies_a_stopped_move_left_can_go_to_the_trash_and_nothing_else() {
     };
     refused(&world.source.join("A.RAF"));
     refused(&world.target.join("B.RAF"));
-    // The same name, another file.
+    // The same name, another file: created once the volume's clock for
+    // creation times moved on (10 ms on exFAT, 2 s on FAT).
     let xmp = world.target.join("A.xmp");
+    let born = |p: &Path| fs::metadata(p).unwrap().created().unwrap();
+    let first = born(&xmp);
     fs::remove_file(&xmp).unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(20));
     fs::write(&xmp, b"someone else's").unwrap();
+    while born(&xmp) == first {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        fs::remove_file(&xmp).unwrap();
+        fs::write(&xmp, b"someone else's").unwrap();
+    }
     refused(&xmp);
     // The original is gone: the copy may be the only one.
     let rrdata = world.source.join("A.RAF.rrdata");

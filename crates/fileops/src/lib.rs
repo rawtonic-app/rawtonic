@@ -2459,6 +2459,9 @@ pub struct KeptCopy {
 impl KeptCopy {
     /// The file at `path` is still the one the direction created (a file,
     /// not a link, with that creation time), whatever was written into it.
+    /// Creation times resolve to the volume's step (10 ms on exFAT, 2 s on
+    /// FAT): a file made under the name within that step of the copy's
+    /// removal is not told apart.
     pub fn is_there(&self) -> bool {
         fs::symlink_metadata(&self.path)
             .is_ok_and(|m| m.is_file() && Born::of(&m) == Some(self.born))
