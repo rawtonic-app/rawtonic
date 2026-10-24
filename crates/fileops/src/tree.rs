@@ -61,6 +61,18 @@ fn walk(
             continue;
         }
         if meta.is_dir() {
+            // Another drive mounted inside would escape the checks of the
+            // folder's own drive (network, permissions, free space).
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                ensure!(
+                    meta.dev() == fs::symlink_metadata(root)?.dev(),
+                    "{} is another drive mounted inside the folder; a folder holding one \
+                     cannot be moved to another drive",
+                    root.join(&path).display()
+                );
+            }
             entries.push(TreeEntry {
                 path: path.clone(),
                 folder: true,
@@ -304,6 +316,19 @@ mod tests {
         assert!(!companion("._C.RAF"), "not AppleDouble");
         assert!(!companion("._Shoot"), "a folder");
         assert!(!companion("A.RAF"));
+    }
+
+    /// A folder with another drive mounted in it, when the environment
+    /// names one (`RAWTONIC_TEST_FOLDER_WITH_MOUNT`, e.g. the folder a
+    /// desktop mounts drives in, with a drive attached): refused.
+    #[test]
+    fn a_folder_with_another_drive_mounted_inside_is_refused() {
+        let Some(folder) = std::env::var_os("RAWTONIC_TEST_FOLDER_WITH_MOUNT") else {
+            eprintln!("SKIP: RAWTONIC_TEST_FOLDER_WITH_MOUNT not set");
+            return;
+        };
+        let error = list(Path::new(&folder)).unwrap_err();
+        assert!(format!("{error:#}").contains("mounted inside"), "{error:#}");
     }
 
     #[test]
