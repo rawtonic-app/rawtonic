@@ -2485,7 +2485,7 @@
         "deleteFailed": "無法將檔案移到垃圾桶：{{error}}",
         "keptCopies_other": "{{count}} 個副本留在另一個磁碟上；原始檔未被更動：",
         "keptCopyIncomplete": "{{name}}（可能不完整）",
-        "keptCopyTrashed": "{{name}} 在其磁碟的垃圾桶中；在那裡「放回原處」即可復原。",
+        "keptCopyTrashed": "{{name}} 在其磁碟的垃圾桶中；將它從垃圾桶中拖出即可取回。",
         "keptCopyTrashFailed": "無法將 {{name}} 移到垃圾桶：{{error}}",
         "movedTo_other": "已將 {{count}} 張照片移到 {{folder}}。",
         "moveFailed": "無法移動：{{error}}",

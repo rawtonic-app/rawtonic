@@ -2485,7 +2485,7 @@
         "deleteFailed": "无法将文件移到废纸篓：{{error}}",
         "keptCopies_other": "{{count}} 个副本留在另一个驱动器上；原件未被改动：",
         "keptCopyIncomplete": "{{name}}（可能不完整）",
-        "keptCopyTrashed": "{{name}} 在其驱动器的废纸篓中；在那里“放回原处”即可恢复。",
+        "keptCopyTrashed": "{{name}} 在其驱动器的废纸篓中；将它从废纸篓中拖出即可取回。",
         "keptCopyTrashFailed": "无法将 {{name}} 移到废纸篓：{{error}}",
         "movedTo_other": "已将 {{count}} 张照片移到 {{folder}}。",
         "moveFailed": "无法移动：{{error}}",

@@ -2612,7 +2612,7 @@
         "keptCopies_many": "{{count}} copias quedan en la otra unidad; sus originales no se han tocado:",
         "keptCopies_other": "{{count}} copias quedan en la otra unidad; sus originales no se han tocado:",
         "keptCopyIncomplete": "{{name}} (quizá incompleta)",
-        "keptCopyTrashed": "{{name}} está en la Papelera de su unidad; «Devolver» allí lo recupera.",
+        "keptCopyTrashed": "{{name}} está en la Papelera de su unidad; arrástralo fuera de la Papelera para recuperarlo.",
         "keptCopyTrashFailed": "No se pudo mover {{name}} a la Papelera: {{error}}",
         "movedTo_one": "Se movió {{count}} foto a {{folder}}.",
         "movedTo_many": "Se movieron {{count}} fotos a {{folder}}.",

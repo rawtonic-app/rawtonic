@@ -589,7 +589,8 @@ fn notify_kept(app: &AppHandle, journal: &Journal, id: &str, before: &[KeptCopy]
 
 /// Moves a copy a file operation left on another drive to the system Trash
 /// (the Library's offer after [`FILE_OPERATION_KEPT_COPIES`]); not undoable
-/// (see `Journal::trash_kept_copy`), the Trash's Put Back takes it back.
+/// (see `Journal::trash_kept_copy`); it is taken back by dragging it out
+/// of the Trash.
 /// Refused, changing nothing, for any file the journal does not record as
 /// left by that operation.
 #[tauri::command]
