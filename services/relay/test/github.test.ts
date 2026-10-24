@@ -28,20 +28,22 @@ describe("GitHub tracker", () => {
     ).rejects.toThrow("HTTP 500");
   });
 
-  it("finds issues by their marker in the full issue list, and refuses to guess", async () => {
-    const asked: string[] = [];
-    const page = (n: number) =>
-      Array.from({ length: n }, (_, i) => ({ body: `x <!-- rawtonic-relay:${i === 3 ? "aa" : "bb"} -->`, node_id: `I_${n}_${i}` }));
+  it("lists the oldest issues, oldest first, without pull requests", async () => {
+    let asked = "";
     const fetcher = async (url: string) => {
-      asked.push(url);
-      return Response.json(asked.length === 1 ? page(100) : [...page(5), { body: "rawtonic-relay:aa", node_id: "PR", pull_request: {} }]);
+      asked = url;
+      return Response.json([
+        { node_id: "I_1", created_at: "2026-01-01T00:00:00Z" },
+        { node_id: "PR_2", created_at: "2026-01-02T00:00:00Z", pull_request: {} },
+        { node_id: "I_3", created_at: "2026-01-03T00:00:00Z" },
+      ]);
     };
-    expect(await new GitHubTracker("t", "a/b", fetcher).findByMarker("rawtonic-relay:aa", 0)).toEqual(["I_100_3", "I_5_3"]);
-    expect(asked[0]).toContain("/repos/a/b/issues?state=all&since=1970-01-01T00%3A00%3A00.000Z&per_page=100&page=1");
-    expect(asked[1]).toContain("page=2");
-    const failing = new GitHubTracker("t", "a/b", async () => new Response("", { status: 502 }));
-    await expect(failing.findByMarker("m", 0)).rejects.toThrow("HTTP 502");
-    const endless = new GitHubTracker("t", "a/b", async () => Response.json(page(100)));
-    await expect(endless.findByMarker("m", 0)).rejects.toThrow("too many");
+    expect(await new GitHubTracker("t", "a/b", fetcher).listOldest(20)).toEqual([
+      { nodeId: "I_1", createdAt: Date.UTC(2026, 0, 1) },
+      { nodeId: "I_3", createdAt: Date.UTC(2026, 0, 3) },
+    ]);
+    expect(asked).toBe("https://api.github.com/repos/a/b/issues?state=all&sort=created&direction=asc&per_page=20");
+    const failing = new GitHubTracker("t", "a/b", async () => new Response("", { status: 401 }));
+    await expect(failing.listOldest(20)).rejects.toThrow("HTTP 401");
   });
 });

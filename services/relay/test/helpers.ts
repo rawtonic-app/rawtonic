@@ -19,7 +19,8 @@ export const migrate = async () => {
 
 /** An issue tracker in memory. */
 export class FakeTracker implements IssueTracker {
-  issues = new Map<string, NewIssue & FiledIssue>();
+  issues = new Map<string, NewIssue & FiledIssue & { createdAt: number }>();
+  clock = () => 0;
   next = 1;
   failCreate = false;
   failDelete = false;
@@ -27,7 +28,7 @@ export class FakeTracker implements IssueTracker {
     if (this.failCreate) throw new Error("GitHub down");
     const filed = { number: this.next, nodeId: `I_${this.next}` };
     this.next++;
-    this.issues.set(filed.nodeId, { ...issue, ...filed });
+    this.issues.set(filed.nodeId, { ...issue, ...filed, createdAt: this.clock() });
     return filed;
   }
   /** create() files the issue but then fails, as a lost answer would. */
@@ -42,9 +43,12 @@ export class FakeTracker implements IssueTracker {
     if (this.failDelete) throw new Error("GitHub down");
     this.issues.delete(nodeId);
   }
-  async findByMarker(marker: string) {
+  async listOldest(count: number) {
     if (this.failList) throw new Error("list unavailable");
-    return [...this.issues.values()].filter((i) => i.body.includes(marker)).map((i) => i.nodeId);
+    return [...this.issues.values()]
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(0, count)
+      .map((i) => ({ nodeId: i.nodeId, createdAt: i.createdAt }));
   }
 }
 
@@ -77,6 +81,7 @@ export const makeDeps = (tracker = new FakeTracker(), now = NOW) => {
     at: now,
     now: () => deps.at,
   };
+  tracker.clock = () => deps.at;
   return deps;
 };
 

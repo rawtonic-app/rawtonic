@@ -17,10 +17,10 @@ export interface IssueTracker {
   /** Deletes the issue for good (edit history included). Resolves when it
    * is gone, also when it was already deleted. */
   delete(nodeId: string): Promise<void>;
-  /** Node ids of the issues (any state) updated since `since` whose body
-   * carries `marker`. Reads the issue list, which is consistent, not the
-   * search index; throws when it cannot read all of it. */
-  findByMarker(marker: string, since: number, maxPages: number): Promise<string[]>;
+  /** The oldest issues (any state), oldest first: retention reads the
+   * repository itself, so an issue whose filing got no answer (never
+   * recorded) still goes after 90 days. */
+  listOldest(count: number): Promise<{ nodeId: string; createdAt: number }[]>;
 }
 
 export class GitHubError extends Error {}
@@ -62,25 +62,18 @@ export class GitHubTracker implements IssueTracker {
     return { number: created.number, nodeId: created.node_id };
   }
 
-  async findByMarker(marker: string, since: number, maxPages = 10): Promise<string[]> {
-    const found: string[] = [];
-    const after = new Date(since).toISOString();
-    for (let page = 1; page <= maxPages; page++) {
-      const response = await this.fetcher(
-        `${this.api}/repos/${this.repo}/issues?state=all&since=${encodeURIComponent(after)}&per_page=100&page=${page}`,
-        { method: "GET", headers: this.headers(), signal: AbortSignal.timeout(10_000) },
-      );
-      if (response.status !== 200) throw new GitHubError(`list issues: HTTP ${response.status}`);
-      const items = (await response.json()) as { body?: unknown; node_id?: unknown; pull_request?: unknown }[];
-      if (!Array.isArray(items)) throw new GitHubError("list issues: unexpected response");
-      for (const item of items) {
-        if (!item.pull_request && typeof item.body === "string" && item.body.includes(marker) && typeof item.node_id === "string") {
-          found.push(item.node_id);
-        }
-      }
-      if (items.length < 100) return found;
-    }
-    throw new GitHubError("list issues: too many to read");
+  async listOldest(count: number): Promise<{ nodeId: string; createdAt: number }[]> {
+    const response = await this.fetcher(
+      `${this.api}/repos/${this.repo}/issues?state=all&sort=created&direction=asc&per_page=${count}`,
+      { method: "GET", headers: this.headers(), signal: AbortSignal.timeout(10_000) },
+    );
+    if (response.status !== 200) throw new GitHubError(`list issues: HTTP ${response.status}`);
+    const items = (await response.json()) as { node_id?: unknown; created_at?: unknown; pull_request?: unknown }[];
+    if (!Array.isArray(items)) throw new GitHubError("list issues: unexpected response");
+    return items
+      .filter((i) => !i.pull_request && typeof i.node_id === "string" && typeof i.created_at === "string")
+      .map((i) => ({ nodeId: i.node_id as string, createdAt: Date.parse(i.created_at as string) }))
+      .filter((i) => Number.isFinite(i.createdAt));
   }
 
   async delete(nodeId: string): Promise<void> {

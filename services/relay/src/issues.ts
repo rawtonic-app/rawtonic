@@ -7,70 +7,113 @@ import type { App, CameraTest, Crash, Gpu, Report } from "./schema";
 import type { NewIssue } from "./github";
 import { fence } from "./util";
 
+/** GitHub refuses issue bodies above 65,536 characters; a margin below. */
+export const BODY_LIMIT = 65_000;
+
 const system = (app: App, gpu?: Gpu) =>
   [
     `- Rawtonic ${app.version}, ${app.os} ${app.osVersion} (${app.arch})`,
     gpu ? `- GPU: ${gpu.vendor}${gpu.name ? ` — ${gpu.name}` : ""}` : null,
   ].filter((line) => line !== null);
 
-/** The marker that finds an issue again whose number was never recorded:
- * the full hash of the submission's id (the id itself is never stored). */
-export const marker = (idHash: string) => `rawtonic-relay:${idHash}`;
+const footer = (ref: string) =>
+  `\n---\nReference ${ref}. Filed by the Rawtonic relay (ADR 0017); deleted after 90 days or when the sender deletes it by its id.`;
 
-const footer = (s: Ids) =>
-  `\n---\nReference ${s.ref}. Filed by the Rawtonic relay (ADR 0017); deleted after 90 days or when the sender deletes it by its id.\n<!-- ${marker(s.idHash)} -->`;
-
-export interface Ids {
-  ref: string;
-  idHash: string;
+/** A long part of the body and which end of it matters (a log's last
+ * lines, a backtrace's first frames). */
+interface Part {
+  text: string;
+  keep: "start" | "end";
 }
 
-export const reportIssue = (r: Report, ids: Ids, screenshotKey?: string): NewIssue => ({
-  title: `Problem report ${ids.ref} · Rawtonic ${r.app.version} · ${r.app.os}`,
+/** Renders the body, shortening its longest part by a quarter until it
+ * fits (fences grow with the backtick runs inside, so the rendered length
+ * is what counts). */
+const fit = <K extends string>(
+  parts: Record<K, Part | undefined>,
+  render: (texts: Record<K, string | undefined>) => string,
+): string => {
+  const current = { ...parts };
+  for (;;) {
+    const entries = Object.entries(current) as [K, Part | undefined][];
+    const texts = Object.fromEntries(entries.map(([k, p]) => [k, p?.text])) as Record<K, string | undefined>;
+    const body = render(texts);
+    if (body.length <= BODY_LIMIT) return body;
+    const [key, longest] = entries
+      .filter((entry): entry is [K, Part] => entry[1] !== undefined)
+      .sort((a, b) => b[1].text.length - a[1].text.length)[0];
+    const keep = Math.floor(longest.text.length * 0.75);
+    const note = `[${longest.text.length - keep} characters left out]`;
+    current[key] = {
+      keep: longest.keep,
+      text:
+        longest.keep === "end"
+          ? `${note}\n${longest.text.slice(longest.text.length - keep)}`
+          : `${longest.text.slice(0, keep)}\n${note}`,
+    };
+  }
+};
+
+export const reportIssue = (r: Report, ref: string, screenshotKey?: string): NewIssue => ({
+  title: `Problem report ${ref} · Rawtonic ${r.app.version} · ${r.app.os}`,
   labels: ["report"],
-  body: [
-    "## System",
-    ...system(r.app, r.gpu),
-    r.photo ? `- Photo: ${r.photo.make} ${r.photo.model}, ${r.photo.fileType}` : null,
-    screenshotKey ? `- Screenshot: R2 \`${screenshotKey}\`` : null,
-    "",
-    "## What happened",
-    fence(r.text),
-    r.logTail ? `\n## Log (last lines, scrubbed)\n${fence(r.logTail)}` : null,
-    footer(ids),
-  ]
-    .filter((line) => line !== null)
-    .join("\n"),
+  body: fit(
+    { text: { text: r.text, keep: "start" }, log: r.logTail ? { text: r.logTail, keep: "end" } : undefined },
+    ({ text, log }) =>
+      [
+        "## System",
+        ...system(r.app, r.gpu),
+        r.photo ? `- Photo: ${r.photo.make} ${r.photo.model}, ${r.photo.fileType}` : null,
+        screenshotKey ? `- Screenshot: R2 \`${screenshotKey}\`` : null,
+        "",
+        "## What happened",
+        fence(text ?? ""),
+        log ? `\n## Log (last lines, scrubbed)\n${fence(log)}` : null,
+        footer(ref),
+      ]
+        .filter((line) => line !== null)
+        .join("\n"),
+  ),
 });
 
-export const crashIssue = (c: Crash, ids: Ids): NewIssue => ({
-  title: `Crash ${ids.ref} · Rawtonic ${c.app.version} · ${c.app.os}`,
+export const crashIssue = (c: Crash, ref: string): NewIssue => ({
+  title: `Crash ${ref} · Rawtonic ${c.app.version} · ${c.app.os}`,
   labels: ["crash"],
-  body: [
-    "## System",
-    ...system(c.app, c.gpu),
-    `- Crashed on ${c.crashedOn}`,
-    "",
-    "## Panic",
-    fence(`${c.message}\n${c.location}`),
-    c.backtrace ? `\n## Backtrace\n${fence(c.backtrace)}` : null,
-    c.logTail ? `\n## Log (last lines, scrubbed)\n${fence(c.logTail)}` : null,
-    footer(ids),
-  ]
-    .filter((line) => line !== null)
-    .join("\n"),
+  body: fit(
+    {
+      panic: { text: `${c.message}\n${c.location}`, keep: "start" },
+      backtrace: c.backtrace ? { text: c.backtrace, keep: "start" } : undefined,
+      log: c.logTail ? { text: c.logTail, keep: "end" } : undefined,
+    },
+    ({ panic, backtrace, log }) =>
+      [
+        "## System",
+        ...system(c.app, c.gpu),
+        `- Crashed on ${c.crashedOn}`,
+        "",
+        "## Panic",
+        fence(panic ?? ""),
+        backtrace ? `\n## Backtrace\n${fence(backtrace)}` : null,
+        log ? `\n## Log (last lines, scrubbed)\n${fence(log)}` : null,
+        footer(ref),
+      ]
+        .filter((line) => line !== null)
+        .join("\n"),
+  ),
 });
 
-export const cameraTestIssue = (t: CameraTest, ids: Ids): NewIssue => ({
-  title: `Camera test ${ids.ref} · ${t.camera.make} ${t.camera.model}`,
+export const cameraTestIssue = (t: CameraTest, ref: string): NewIssue => ({
+  title: `Camera test ${ref} · ${t.camera.make} ${t.camera.model}`,
   labels: ["camera-test"],
-  body: [
-    "## System",
-    ...system(t.app),
-    `- Camera: ${t.camera.make} ${t.camera.model}${t.camera.firmware ? `, firmware ${t.camera.firmware}` : ""}`,
-    "",
-    "## Result",
-    fence(t.report, "markdown"),
-    footer(ids),
-  ].join("\n"),
+  body: fit({ report: { text: t.report, keep: "start" } }, ({ report }) =>
+    [
+      "## System",
+      ...system(t.app),
+      `- Camera: ${t.camera.make} ${t.camera.model}${t.camera.firmware ? `, firmware ${t.camera.firmware}` : ""}`,
+      "",
+      "## Result",
+      fence(report ?? "", "markdown"),
+      footer(ref),
+    ].join("\n"),
+  ),
 });

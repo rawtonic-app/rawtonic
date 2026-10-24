@@ -5,7 +5,7 @@
 // retention. Deployment: docs/RELAY.md.
 
 import { GitHubTracker, type IssueTracker } from "./github";
-import { cameraTestIssue, crashIssue, marker, reportIssue, type Ids } from "./issues";
+import { cameraTestIssue, crashIssue, reportIssue } from "./issues";
 import { allow, checkPow, takeGlobal, type Kind } from "./limits";
 import {
   BODY_CAPS,
@@ -40,21 +40,18 @@ export interface Deps {
   now: () => number;
 }
 
-export const RETENTION_DAYS: Record<string, number> = {
-  report: 90,
-  crash: 90,
-  "camera-test": 90,
-  "raw-sample": 730,
-};
+/** Reports, crashes and camera tests (their issues and records) are kept
+ * 90 days, RAW samples two years (ADR 0017). */
+const ISSUE_DAYS = 90;
+const SAMPLE_DAYS = 730;
 const UPLOAD_VALID_MS = HOUR_MS;
-/** What one scheduled run may spend on removals, in GitHub requests: a
- * recorded issue costs 2 (its deletion, the bucket), an unresolved filing
- * up to 12 (a 10-page issue list too). Keeps a run within the Workers
- * Free plan's 50 subrequests and 50 D1 queries per invocation (each
- * removal is one D1 batch); the cron runs every 10 minutes. */
-const SWEEP_BUDGET = 36;
-const LIST_PAGES = 10;
-
+/** Issues one scheduled run deletes by age at most (one list request plus
+ * one request each), and records it removes at most (their objects in one
+ * bucket call, each record one D1 statement): within the Workers Free
+ * plan's 50 subrequests and 50 D1 queries per invocation. The cron runs
+ * every 10 minutes (~2,000 records and ~2,800 issues a day). */
+const ISSUES_PER_SWEEP = 20;
+const RECORDS_PER_SWEEP = 15;
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const error = (status: number, code: string, field?: string) => json(status, field ? { error: code, field } : { error: code });
@@ -133,13 +130,14 @@ const accept = async <T>(
 };
 
 /** Row states: `filing` (recorded before anything external is written;
- * the id is not given out yet; its issue may exist without its number
- * recorded), `pending` (RAW sample announced), `uploading` (its bytes are
- * being written) and `filed`. Removal never changes a row's state: it
- * deletes the external things first and the row last, only if the row is
- * still as it was read, so an interrupted removal leaves the row as it was
- * for the next try. Rows left in `filing`, `uploading` or `pending` are
- * removed by the scheduled run once their request is long over. */
+ * the id is not given out yet), `pending` (RAW sample announced),
+ * `uploading` (its bytes are being written) and `filed`. Removal never
+ * changes a row's state: it deletes the external things first and the row
+ * last, only if the row is still as it was read, so an interrupted removal
+ * leaves the row as it was for the next try. Rows left in `filing`,
+ * `uploading` or `pending` are removed by the scheduled run once their
+ * request is long over; an issue GitHub created without answering is not
+ * looked for: it goes with the age-based issue retention. */
 type State = "filing" | "pending" | "uploading" | "filed";
 
 interface Row {
@@ -160,7 +158,7 @@ const file = async (
   env: Env,
   deps: Deps,
   kind: string,
-  build: (s: Ids & { keys: string[] }) => Parameters<IssueTracker["create"]>[0],
+  build: (s: { ref: string; keys: string[] }) => Parameters<IssueTracker["create"]>[0],
   objects: { key: string; data: Uint8Array; type: string }[] = [],
 ) => {
   const now = deps.now();
@@ -187,10 +185,11 @@ const file = async (
   }
   let issue: { number: number; nodeId: string };
   try {
-    issue = await deps.tracker.create(build({ ref: s.ref, idHash: s.idHash, keys }));
+    issue = await deps.tracker.create(build({ ref: s.ref, keys }));
   } catch {
-    // GitHub may have created it without answering: the row stays in
-    // `filing` and the scheduled run looks for the issue's marker later.
+    // GitHub may have created it without answering: the row and objects
+    // go with the scheduled run, the issue (if any) with the age-based
+    // issue retention. The sender gets no id for it.
     return error(502, "not-filed");
   }
   try {
@@ -233,7 +232,7 @@ const postReport = async (request: Request, env: Env, deps: Deps) => {
     env,
     deps,
     "report",
-    (ids) => reportIssue(report, ids, ids.keys[0]),
+    ({ ref, keys }) => reportIssue(report, ref, keys[0]),
     objects,
   );
 };
@@ -241,13 +240,13 @@ const postReport = async (request: Request, env: Env, deps: Deps) => {
 const postCrash = async (request: Request, env: Env, deps: Deps) => {
   const crash = await accept(request, env, deps, "crash", parseCrash);
   if (crash instanceof Response) return crash;
-  return file(env, deps, "crash", (ids) => crashIssue(crash, ids));
+  return file(env, deps, "crash", ({ ref }) => crashIssue(crash, ref));
 };
 
 const postCameraTest = async (request: Request, env: Env, deps: Deps) => {
   const test = await accept(request, env, deps, "camera-test", parseCameraTest);
   if (test instanceof Response) return test;
-  return file(env, deps, "camera-test", (ids) => cameraTestIssue(test, ids));
+  return file(env, deps, "camera-test", ({ ref }) => cameraTestIssue(test, ref));
 };
 
 const sampleKey = (idHash: string, s: RawSample) =>
@@ -326,18 +325,12 @@ const postStats = async (request: Request, env: Env, deps: Deps) => {
   return new Response(null, { status: 204 });
 };
 
-/** Deletes everything stored for one submission: its issue (a `filing`
- * row without a recorded number: every issue carrying its marker, from the
- * consistent issue list; an unreadable list throws), its objects, then the
- * row — only if it is still in the state it was read in. False when the
- * row changed meanwhile (an upload started, say); it is then kept. */
+/** Deletes everything stored for one submission: its recorded issue, its
+ * objects, then the row — only if it is still in the state it was read
+ * in. False when the row changed meanwhile (an upload started, say); it is
+ * then kept. */
 const remove = async (env: Env, deps: Deps, row: Row): Promise<boolean> => {
-  const issues = row.issue_node_id
-    ? [row.issue_node_id]
-    : row.state === "filing"
-      ? await deps.tracker.findByMarker(marker(row.id_hash), row.received_at - 10 * 60_000, LIST_PAGES)
-      : [];
-  for (const nodeId of issues) await deps.tracker.delete(nodeId);
+  if (row.issue_node_id) await deps.tracker.delete(row.issue_node_id);
   const objects = JSON.parse(row.objects) as string[];
   if (objects.length) await env.BUCKET.delete(objects);
   const [, deleted] = await env.DB.batch([
@@ -394,9 +387,11 @@ export const handle = async (request: Request, env: Env, deps: Deps): Promise<Re
   return error(404, "not-found");
 };
 
-/** The scheduled run: housekeeping first (so it always runs), then as many
- * removals as its budget allows — retention, then rows whose request
- * stopped half-way (two hours after it began). */
+/** The scheduled run, in three independent steps (a failure in one never
+ * holds up the others): housekeeping; records and their objects by age
+ * (retention, and rows whose request stopped half-way two hours ago),
+ * without GitHub; and issues by age, read from the repository itself,
+ * oldest first. */
 export const sweep = async (env: Env, deps: Deps) => {
   const now = deps.now();
   await env.DB.batch([
@@ -405,29 +400,38 @@ export const sweep = async (env: Env, deps: Deps) => {
     env.DB.prepare("DELETE FROM uploads WHERE expires < ?1").bind(now),
   ]);
   await closeWeeks(env.DB, now);
-  const due: Row[] = [];
-  for (const [kind, days] of Object.entries(RETENTION_DAYS)) {
-    const { results } = await env.DB.prepare(`${ROW} WHERE kind = ?1 AND state = 'filed' AND received_at < ?2 LIMIT 18`)
-      .bind(kind, now - days * DAY_MS)
+  try {
+    const { results } = await env.DB.prepare(
+      `${ROW} WHERE (state = 'filed' AND ((kind = 'raw-sample' AND received_at < ?1) OR (kind != 'raw-sample' AND received_at < ?2))) ` +
+        `OR (state IN ('pending', 'filing', 'uploading') AND received_at < ?3) ORDER BY received_at LIMIT ${RECORDS_PER_SWEEP}`,
+    )
+      .bind(now - SAMPLE_DAYS * DAY_MS, now - ISSUE_DAYS * DAY_MS, now - UPLOAD_VALID_MS - HOUR_MS)
       .all<Row>();
-    due.push(...results);
-  }
-  const { results: stale } = await env.DB.prepare(
-    `${ROW} WHERE state IN ('pending', 'filing', 'uploading') AND received_at < ?1 LIMIT 18`,
-  )
-    .bind(now - UPLOAD_VALID_MS - HOUR_MS)
-    .all<Row>();
-  due.push(...stale);
-  let budget = SWEEP_BUDGET;
-  for (const row of due) {
-    const cost = row.state === "filing" && !row.issue_node_id ? 2 + LIST_PAGES : 2;
-    if (cost > budget) continue;
-    budget -= cost;
-    try {
-      await remove(env, deps, row);
-    } catch {
-      // Tried again next run.
+    // Objects first (one call), then each record only if unchanged since
+    // it was read; their upload tokens, if any, expired long ago.
+    const keys = results.flatMap((row) => JSON.parse(row.objects) as string[]);
+    if (keys.length) await env.BUCKET.delete(keys);
+    if (results.length) {
+      await env.DB.batch(
+        results.map((row) =>
+          env.DB.prepare("DELETE FROM submissions WHERE id_hash = ?1 AND state = ?2 AND objects = ?3").bind(
+            row.id_hash,
+            row.state,
+            row.objects,
+          ),
+        ),
+      );
     }
+  } catch {
+    // Tried again next run.
+  }
+  try {
+    for (const issue of await deps.tracker.listOldest(ISSUES_PER_SWEEP)) {
+      if (issue.createdAt >= now - ISSUE_DAYS * DAY_MS) break;
+      await deps.tracker.delete(issue.nodeId);
+    }
+  } catch {
+    // GitHub unreachable or the token expired: tried again next run.
   }
 };
 

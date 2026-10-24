@@ -100,22 +100,23 @@ describe("reports", () => {
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
   });
 
-  it("finds and deletes an unrecorded issue on the next run when cleaning up failed", async () => {
+  it("leaves an issue it could not remove to the age-based retention", async () => {
     const deps = makeDeps();
     deps.tracker.failDelete = true;
     const response = await post("/report", report(), deps, {}, failingDb(/SET state = 'filed'/));
     expect(response.status).toBe(502);
     expect(deps.tracker.issues.size).toBe(1);
     deps.tracker.failDelete = false;
-    await sweep(env, deps);
-    expect(deps.tracker.issues.size).toBe(1); // its request may still be running
     deps.at += 3 * 3_600_000;
     await sweep(env, deps);
-    expect(deps.tracker.issues.size).toBe(0);
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
+    expect(deps.tracker.issues.size).toBe(1);
+    deps.at += 90 * DAY_MS;
+    await sweep(env, deps);
+    expect(deps.tracker.issues.size).toBe(0);
   });
 
-  it("cleans up an issue GitHub created without answering, once its request is long over", async () => {
+  it("removes the record of a filing GitHub did not answer, and its issue with retention", async () => {
     const deps = makeDeps();
     deps.tracker.createThenThrow = true;
     const response = await post("/report", report({ screenshot: { mime: "image/png", data: b64(PNG) } }), deps);
@@ -123,47 +124,42 @@ describe("reports", () => {
     expect(deps.tracker.issues.size).toBe(1);
     deps.at += 3_600_000;
     await sweep(env, deps);
-    expect(deps.tracker.issues.size).toBe(1); // too early: GitHub may still be filing it
+    expect((await env.BUCKET.list()).objects).toHaveLength(1); // its request may still be running
     deps.at += 2 * 3_600_000;
     await sweep(env, deps);
-    expect(deps.tracker.issues.size).toBe(0);
     expect((await env.BUCKET.list()).objects).toHaveLength(0);
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
+    expect(deps.tracker.issues.size).toBe(1);
+    deps.at += 90 * DAY_MS;
+    await sweep(env, deps);
+    expect(deps.tracker.issues.size).toBe(0);
   });
 
-  it("keeps an unresolved filing while the issue list cannot be read", async () => {
+  it("keeps removing old records and samples while GitHub fails", async () => {
     const deps = makeDeps();
-    deps.tracker.createThenThrow = true;
     await post("/report", report(), deps);
+    await env.DB.prepare(
+      "INSERT INTO submissions (id_hash, kind, ref, state, objects, received_at) VALUES ('h', 'raw-sample', 'h', 'filed', ?2, ?1)",
+    )
+      .bind(deps.at, JSON.stringify(["raw-samples/h/x.RAF"]))
+      .run();
+    await env.BUCKET.put("raw-samples/h/x.RAF", "x");
+    deps.tracker.failDelete = true;
     deps.tracker.failList = true;
-    deps.at += 3 * 3_600_000;
+    deps.at += 731 * DAY_MS;
     await sweep(env, deps);
-    const row = await env.DB.prepare("SELECT state FROM submissions").first<{ state: string }>();
-    expect(row?.state).toBe("filing");
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
+    expect((await env.BUCKET.list()).objects).toHaveLength(0);
+    expect(deps.tracker.issues.size).toBe(1);
+    deps.tracker.failDelete = false;
     deps.tracker.failList = false;
     await sweep(env, deps);
     expect(deps.tracker.issues.size).toBe(0);
-    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
-  });
-
-  it("keeps the record when a cleanup stops half-way, and finishes it next run", async () => {
-    const deps = makeDeps();
-    deps.tracker.createThenThrow = true;
-    await post("/report", report(), deps);
-    deps.tracker.failDelete = true;
-    deps.at += 3 * 3_600_000;
-    await sweep(env, deps);
-    expect(deps.tracker.issues.size).toBe(1);
-    expect((await env.DB.prepare("SELECT state FROM submissions").first<{ state: string }>())?.state).toBe("filing");
-    deps.tracker.failDelete = false;
-    await sweep(env, deps);
-    expect(deps.tracker.issues.size).toBe(0);
-    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
   });
 
   it("files the largest accepted crash within GitHub's issue body limit", async () => {
     const deps = makeDeps();
-    const big = "é`".repeat(12 * 1024);
+    const big = "`".repeat(24 * 1024);
     const response = await post(
       "/crash",
       { schema: 1, app: APP, message: "m".repeat(2000), location: "l".repeat(300), backtrace: big, logTail: big, crashedOn: "2026-10-24" },
@@ -185,10 +181,12 @@ describe("reports", () => {
     for (let i = 0; i < 25; i++) await post("/report", report(), deps, { ip: `198.51.100.${i}` });
     deps.at += 91 * DAY_MS;
     await sweep(env, deps);
-    expect(deps.tracker.issues.size).toBe(25 - 18);
+    expect(deps.tracker.issues.size).toBe(25 - 20);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(25 - 15);
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM rate").first<{ n: number }>())!.n).toBe(0);
     await sweep(env, deps);
     expect(deps.tracker.issues.size).toBe(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
   });
 
   it("never deletes another submission's issue that shares the short reference", async () => {
