@@ -20,7 +20,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
     set({ checking: true, started: true, checked: false, failed: false });
     try {
       const update = await invoke<UpdateInfo | null>(Invokes.CheckUpdates, { manual });
-      set({ update, checked: manual });
+      set({ update, checked: manual && update === null });
     } catch (error) {
       console.debug('Update check failed:', error);
       set({ failed: manual });

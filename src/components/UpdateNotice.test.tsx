@@ -86,3 +86,22 @@ it('a failed manual check never claims there is no newer release', async () => {
   expect(screen.queryByText('updates.noUpdate')).toBeNull();
   expect(screen.getByText('updates.failed')).toBeTruthy();
 });
+
+it('dismissing a known newer release never claims there is no newer release', async () => {
+  render(<><UpdateNotice /><UpdateSettings appSettings={{} as AppSettings} onSettingsChange={vi.fn()} /></>);
+  await act(async () => {});
+  fireEvent.click(screen.getByText('updates.checkNow'));
+  await act(async () => {});
+  fireEvent.click(screen.getByText('updates.notNow'));
+  await act(async () => {});
+  expect(screen.queryByText('updates.noUpdate')).toBeNull();
+});
+
+it('reports no newer release only after a successful empty manual result', async () => {
+  vi.mocked(invoke).mockResolvedValue(null);
+  render(<UpdateSettings appSettings={{} as AppSettings} onSettingsChange={vi.fn()} />);
+  fireEvent.click(screen.getByText('updates.checkNow'));
+  await act(async () => {});
+  expect(screen.getByText('updates.noUpdate')).toBeTruthy();
+  expect(screen.queryByText('updates.failed')).toBeNull();
+});
