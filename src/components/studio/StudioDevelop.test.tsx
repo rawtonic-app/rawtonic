@@ -798,7 +798,7 @@ describe("selections, ranges and components (Lightroom's mask menu)", () => {
     // A face seen in profile has no lips to select.
     expect((screen.getByRole("checkbox", { name: "Lips" }) as HTMLInputElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("checkbox", { name: "Face skin" }));
-    expect(last().subMasks[0].parameters.parts).toEqual(["entirePerson", "faceSkin"]);
+    expect(last().subMasks[0].parameters.parts).toEqual(["faceSkin"]);
     vi.mocked(invoke).mockImplementation(
       (name: string) => Promise.resolve(name === "load_metadata" ? {} : undefined) as never,
     );

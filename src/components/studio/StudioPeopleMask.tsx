@@ -61,8 +61,16 @@ export default function StudioPeopleMask({ sub, setParameters, onInteraction }: 
   const chosen = person === null ? null : people?.find((p) => p.index === person);
   const featuresMissing = Boolean(chosen && !chosen.hasFeatures);
   const choose = (patch: Record<string, unknown>) => setParameters({ ...patch, maskDataBase64: null });
+  // The entire person holds every part: a part ticked beside it would change
+  // nothing on the photo, so a part replaces it and it replaces the parts.
   const togglePart = (part: PeoplePart) =>
-    choose({ parts: parts.includes(part) ? parts.filter((p) => p !== part) : [...parts, part] });
+    choose({
+      parts: parts.includes(part)
+        ? parts.filter((p) => p !== part)
+        : part === "entirePerson"
+          ? [part]
+          : [...parts.filter((p) => p !== "entirePerson"), part],
+    });
 
   return (
     <div className="studio-people" role="group" aria-label={t("studio.people.aria")}>

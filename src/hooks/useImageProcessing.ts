@@ -12,6 +12,7 @@ import { stripSentRelightData } from '../utils/relight';
 import { Adjustments, AiPatch, MaskContainer } from '../utils/adjustments';
 import { Invokes, Panel, canRenderSource } from '../components/ui/AppProperties';
 import type { SubMask } from '../components/panel/right/Masks';
+import { referToSentMaskBitmaps } from '../utils/bitmapIds';
 import type { TransformWrapperHandle } from '../components/panel/Editor';
 import { debouncedSave, registerScheduledRecipe } from './useEditorActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
@@ -854,27 +855,8 @@ export function withViewStates(adjustments: Adjustments): Adjustments {
  */
 function stripSentBitmaps(payload: Adjustments, sent: Set<string>): Set<string> {
   const newlySent = new Set<string>();
-  const processSubMasks = (subMasks: SubMask[]) => {
-    if (!Array.isArray(subMasks)) return;
-    subMasks.forEach((sm: SubMask) => {
-      if (sm.id && sm.parameters) {
-        const keys = ['mask_data_base64', 'maskDataBase64'];
-        let foundMaskData = false;
-
-        for (const key of keys) {
-          if (sm.parameters[key] !== undefined && sm.parameters[key] !== null) {
-            foundMaskData = true;
-            if (sent.has(sm.id)) {
-              sm.parameters[key] = null;
-            }
-          }
-        }
-        if (foundMaskData && !sent.has(sm.id)) {
-          newlySent.add(sm.id);
-        }
-      }
-    });
-  };
+  const processSubMasks = (subMasks: SubMask[]) =>
+    referToSentMaskBitmaps(subMasks, sent).forEach((id) => newlySent.add(id));
 
   if (payload.aiPatches && Array.isArray(payload.aiPatches)) {
     payload.aiPatches.forEach((p: AiPatch) => {

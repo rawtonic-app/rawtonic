@@ -5,6 +5,7 @@ import { useMaskOverlay } from './useMaskOverlay';
 import type { SelectedImage } from '../components/ui/AppProperties';
 import type { SubMask } from '../components/panel/right/Masks';
 import type { Adjustments, MaskContainer } from '../utils/adjustments';
+import { CACHED_BITMAP } from '../utils/bitmapIds';
 
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
@@ -71,7 +72,7 @@ describe('binary mask overlays', () => {
     const source = { ...mask('active'), subMasks: [{ id: 'cached', parameters: { maskDataBase64: 'large-data' } } as SubMask] };
     const { result, unmount } = renderHook(() => useMaskOverlay());
     act(() => result.current.requestMaskOverlay(source, size, { masks: [source] } as Adjustments));
-    expect(invoke.mock.calls[0][1].maskDef.subMasks[0].parameters.maskDataBase64).toBeNull();
+    expect(invoke.mock.calls[0][1].maskDef.subMasks[0].parameters.maskDataBase64).toBe(CACHED_BITMAP);
     expect(source.subMasks[0].parameters.maskDataBase64).toBe('large-data');
     unmount();
     await act(async () => resolve(bytes()));

@@ -5,6 +5,7 @@ import { Invokes } from '../components/ui/AppProperties';
 import type { SubMask } from '../components/panel/right/Masks';
 import type { Adjustments, AiPatch, MaskAdjustments, MaskContainer } from '../utils/adjustments';
 import { LatestPreviewQueue } from '../utils/latestPreviewQueue';
+import { referToSentMaskBitmaps } from '../utils/bitmapIds';
 import { epochOf, forgetMaskOverlayLoad, notePointerSessionFrame, performanceDiagnosticsEnabled, registerDiagnosticQueue, reportPerformance, trackMaskOverlayLoad } from './usePerformanceDiagnostics';
 
 /** The mask layer drawn by `generate_mask_overlay`, which reads it as
@@ -35,15 +36,9 @@ export interface MaskOverlayStyle {
   opacity?: number;
 }
 
-/** Drops the bitmaps the backend already holds (it hydrates them by id). */
+/** Refers to the bitmaps the backend already holds (it hydrates them by id). */
 function stripSentMaskData(subMasks: SubMask[]) {
-  if (!Array.isArray(subMasks)) return;
-  const { patchesSentToBackend } = useEditorStore.getState();
-  for (const sm of subMasks) {
-    if (!sm.id || !sm.parameters || !patchesSentToBackend.has(sm.id)) continue;
-    if (sm.parameters.mask_data_base64 !== undefined) sm.parameters.mask_data_base64 = null;
-    if (sm.parameters.maskDataBase64 !== undefined) sm.parameters.maskDataBase64 = null;
-  }
+  referToSentMaskBitmaps(subMasks, useEditorStore.getState().patchesSentToBackend);
 }
 
 /** A copy of the adjustments for the mask commands (`generate_mask_overlay`,

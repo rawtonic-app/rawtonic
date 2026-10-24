@@ -7,6 +7,17 @@ use crate::image_processing::{
     apply_rotation, fused_spatial_transform,
 };
 
+/// What the editor sends in a mask component's bitmap field for a bitmap it
+/// sent before under the component's id: the native side fills it in from
+/// its cache. A null field means the component has no bitmap (its inputs
+/// select nothing, or its detection is still running) and renders nothing.
+pub const CACHED_BITMAP: &str = "cached";
+
+/// Fills in the mask bitmaps `sub_masks` refer to as `CACHED_BITMAP` from
+/// `cache` and remembers the ones they carry, by component id. A component
+/// whose bitmap is null drops the one cached under its id, so a bitmap of
+/// earlier inputs never comes back; a reference the cache cannot fill
+/// becomes null.
 pub fn hydrate_sub_masks(
     sub_masks: &mut Vec<serde_json::Value>,
     cache: &mut HashMap<String, serde_json::Value>,
@@ -36,17 +47,16 @@ pub fn hydrate_sub_masks(
             {
                 continue;
             }
-            let keys_to_check = ["mask_data_base64", "maskDataBase64"];
-            for key in keys_to_check {
-                if params.contains_key(key) {
-                    let val = params.get(key).unwrap();
-                    if !val.is_null() {
-                        cache.insert(id.clone(), val.clone());
-                    } else {
-                        if let Some(cached_data) = cache.get(&id) {
-                            params.insert(key.to_string(), cached_data.clone());
-                        }
-                    }
+            for key in ["mask_data_base64", "maskDataBase64"] {
+                let Some(val) = params.get_mut(key) else {
+                    continue;
+                };
+                if val.as_str() == Some(CACHED_BITMAP) {
+                    *val = cache.get(&id).cloned().unwrap_or(serde_json::Value::Null);
+                } else if val.is_null() {
+                    cache.remove(&id);
+                } else {
+                    cache.insert(id.clone(), val.clone());
                 }
             }
         }
@@ -214,14 +224,14 @@ pub fn apply_all_transformations<'a, I: IntoCowImage<'a>>(
 }
 
 #[cfg(test)]
-mod relight_hydration_tests {
+mod hydration_tests {
     #[test]
     fn a_pasted_selection_waiting_for_its_detection_takes_no_cached_bitmap() {
         let mut cache = HashMap::new();
         cache.insert("sky-c".to_string(), serde_json::json!("data:source"));
         let mut subs = vec![
             serde_json::json!({"id": "sky-c", "parameters": {"maskDataBase64": null, "detectPending": true}}),
-            serde_json::json!({"id": "sky-c", "parameters": {"maskDataBase64": null}}),
+            serde_json::json!({"id": "sky-c", "parameters": {"maskDataBase64": CACHED_BITMAP}}),
         ];
         hydrate_sub_masks(&mut subs, &mut cache);
         assert_eq!(
@@ -233,6 +243,33 @@ mod relight_hydration_tests {
 
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_component_without_a_bitmap_renders_none_and_drops_the_cached_one() {
+        let mut cache = HashMap::new();
+        let mut first = vec![json!({"id": "p", "parameters": {"maskDataBase64": "data:lips"}})];
+        hydrate_sub_masks(&mut first, &mut cache);
+
+        // Its last part unticked: no bitmap, and none under its id afterwards.
+        let mut cleared =
+            vec![json!({"id": "p", "parameters": {"maskDataBase64": null, "parts": []}})];
+        hydrate_sub_masks(&mut cleared, &mut cache);
+        assert_eq!(cleared[0]["parameters"]["maskDataBase64"], json!(null));
+        assert!(!cache.contains_key("p"));
+        let mut stale = vec![json!({"id": "p", "parameters": {"maskDataBase64": CACHED_BITMAP}})];
+        hydrate_sub_masks(&mut stale, &mut cache);
+        assert_eq!(stale[0]["parameters"]["maskDataBase64"], json!(null));
+    }
+
+    #[test]
+    fn a_sent_bitmap_is_referred_to_by_its_component_id() {
+        let mut cache = HashMap::new();
+        let mut first = vec![json!({"id": "p", "parameters": {"maskDataBase64": "data:lips"}})];
+        hydrate_sub_masks(&mut first, &mut cache);
+        let mut later = vec![json!({"id": "p", "parameters": {"maskDataBase64": CACHED_BITMAP}})];
+        hydrate_sub_masks(&mut later, &mut cache);
+        assert_eq!(later, first);
+    }
 
     #[test]
     fn relight_bitmaps_are_sent_once_and_restored_by_name() {
