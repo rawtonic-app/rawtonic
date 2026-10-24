@@ -1,5 +1,6 @@
 refs/
 node_modules/
+.wrangler/
 target/
 dist/
 .DS_Store

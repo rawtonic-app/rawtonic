@@ -26,6 +26,8 @@ module.exports = [
       'src-tauri/gen/**',
       'src-tauri/rawler/**',
       '.claude/**',
+      // The relay has its own package and checks (services/relay, scripts/check.sh).
+      'services/**',
     ],
   },
   jsRecommendedForTs,
