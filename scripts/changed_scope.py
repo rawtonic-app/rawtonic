@@ -11,6 +11,7 @@ branch for stacked work) and prints shell assignments:
                   on it (space-separated names); empty with RUST=1 means the
                   whole workspace (root manifests, lockfile, vendored patches, ...)
   DEPS=0|1        cargo deny (manifests, lockfile, deny.toml, vendor/)
+  RELAY=0|1       the contribution relay's typecheck and tests (services/relay/)
 
 Files it cannot place select every gate, so the scope errs on the safe side.
 """
@@ -66,15 +67,18 @@ def workspace():
 
 def main():
     files = changed_files()
-    frontend = rust = deps = False
+    frontend = rust = deps = relay = False
     rust_all = False
     pkgs = set()
     dirs = users = None
     if files is None:
-        frontend = rust = deps = rust_all = True
+        frontend = rust = deps = relay = rust_all = True
         files = []
     for f in files:
         name = Path(f).name
+        if f.startswith("services/relay/"):
+            relay = True
+            continue
         if f in FRONTEND_FILES or f.startswith(FRONTEND_PREFIXES):
             frontend = True
             continue
@@ -93,7 +97,7 @@ def main():
         if f.startswith(DOC_PREFIXES) or (f.endswith(".md") and "/" not in f) or f in {"LICENSE", "NOTICE"}:
             continue
         # scripts/, unknown files: run everything.
-        frontend = rust = deps = rust_all = True
+        frontend = rust = deps = relay = rust_all = True
     if rust and not rust_all:
         todo = list(pkgs)
         while todo:
@@ -105,6 +109,7 @@ def main():
     print(f"RUST={int(rust)}")
     print("RUST_PKGS='" + ("" if rust_all else " ".join(sorted(pkgs))) + "'")
     print(f"DEPS={int(deps)}")
+    print(f"RELAY={int(relay)}")
 
 
 if __name__ == "__main__":

@@ -58,6 +58,10 @@ jobs:
       - run: npm test
       - run: npm run i18n:check
       - run: npm run build
+      # The contribution relay (services/relay, ADR 0017).
+      - run: npm ci --prefix services/relay --no-audit --no-fund
+      - run: npm --prefix services/relay run typecheck
+      - run: npm --prefix services/relay test
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       # The tether helper with camera support (links libgphoto2, ADR 0012).

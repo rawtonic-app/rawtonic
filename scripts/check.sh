@@ -27,15 +27,15 @@ for arg in "$@"; do
   esac
 done
 
-FRONTEND=1; RUST=1; RUST_PKGS=''; DEPS=1
+FRONTEND=1; RUST=1; RUST_PKGS=''; DEPS=1; RELAY=1
 # The pass stamp written at the end names the commit the gates ran on, so the
 # run must start and end on that commit with a clean tree.
 START_HEAD=$(git rev-parse HEAD)
 START_CLEAN=0; [ -n "$(git status --porcelain)" ] || START_CLEAN=1
 if [ "$CHANGED" = 1 ]; then
   eval "$(python3 scripts/changed_scope.py)"
-  printf 'changed scope: frontend=%s rust=%s deps=%s packages=%s\n' \
-    "$FRONTEND" "$RUST" "$DEPS" "${RUST_PKGS:-all}"
+  printf 'changed scope: frontend=%s rust=%s deps=%s relay=%s packages=%s\n' \
+    "$FRONTEND" "$RUST" "$DEPS" "$RELAY" "${RUST_PKGS:-all}"
 fi
 
 LOGDIR=$(mktemp -d "${TMPDIR:-/tmp}/rawtonic-check.XXXXXX")
@@ -68,6 +68,15 @@ legal() {
     python3 scripts/third_party_licenses.py --check
 }
 frontend_build() { npm run -s build >/dev/null; }
+# The contribution relay (ADR 0017) is its own npm package; install it only
+# when its lockfile changed since the last install.
+relay_install() {
+  if [ -f services/relay/node_modules/.package-lock.json ] &&
+    [ ! services/relay/package-lock.json -nt services/relay/node_modules/.package-lock.json ]; then
+    return 0
+  fi
+  npm ci --prefix services/relay --no-audit --no-fund
+}
 # Rust always builds the whole workspace: selecting packages with -p resolves
 # other features and rebuilds dependencies (measured slower than a warm full
 # run). --changed only narrows which tests nextest runs.
@@ -114,6 +123,11 @@ if [ "$RUST" = 1 ]; then
     printf 'skip %-45s (no libgphoto2; brew install libgphoto2 / apt install libgphoto2-dev)\n' "rust: tether helper with libgphoto2"
   fi
   if [ "$QUICK" = 0 ]; then run "rust: tests" rust_tests; fi
+fi
+if [ "$RELAY" = 1 ]; then
+  run "relay: install" relay_install
+  run "relay: typecheck" npm --prefix services/relay run -s typecheck
+  run "relay: tests" npm --prefix services/relay test --silent
 fi
 run "scripts: ship.sh test" sh scripts/ship_test.sh
 if command -v shellcheck >/dev/null 2>&1; then

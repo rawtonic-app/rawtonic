@@ -1,0 +1,30 @@
+// Rawtonic contribution relay (ADR 0017). Deployment: docs/RELAY.md.
+// No secrets here: GITHUB_TOKEN, IP_HASH_KEY and ADMIN_TOKEN are set with
+// `wrangler secret put`.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "rawtonic-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  // Request logs would hold IP addresses and bodies: off.
+  "observability": { "enabled": false },
+  "vars": {
+    // The private repository issues are filed in (owner/name).
+    "GITHUB_REPO": "rawtonic-app/rawtonic-reports",
+    // Proof-of-work bits; 0 = off (ADR 0017). Raise to ~20 under spam.
+    "POW_BITS": "0"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "rawtonic-relay",
+      // Paste the id `wrangler d1 create rawtonic-relay` prints.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "rawtonic-contributions" }],
+  // Every 10 minutes: expired limits and tokens, statistics weeks, then a budgeted batch of retention deletions (src/index.ts, SWEEP_BUDGET).
+  "triggers": { "crons": ["*/10 * * * *"] }
+}
