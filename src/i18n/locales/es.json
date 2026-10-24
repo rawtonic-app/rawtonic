@@ -3175,7 +3175,8 @@
       "eyeTitle": "Mostrar u ocultar; {{alt}}-clic muestra solo esta máscara",
       "hints": {
         "color": "Haz clic en el color que quieres seleccionar.",
-        "object": "Arrastra un recuadro alrededor del objeto."
+        "object": "Arrastra un recuadro alrededor del objeto.",
+        "objectMore": "{{shift}}-clic o -arrastrar añade otro objeto, {{alt}}-clic o -arrastrar excluye una parte, {{undo}} deshace el último."
       },
       "intersectTitle": "Conservar solo donde este componente y la máscara coinciden",
       "invertTitle": "Invertir este componente",

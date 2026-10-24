@@ -3011,7 +3011,8 @@
       "eyeTitle": "显示或隐藏；{{alt}}-单击仅显示此蒙版",
       "hints": {
         "color": "点击要选择的颜色。",
-        "object": "围绕对象拖出一个框。"
+        "object": "围绕对象拖出一个框。",
+        "objectMore": "{{shift}}+单击或拖动可添加另一个对象，{{alt}}+单击或拖动可排除一部分，{{undo}} 撤销最后一个。"
       },
       "intersectTitle": "仅保留此组件与蒙版重叠的部分",
       "invertTitle": "反转此组件",

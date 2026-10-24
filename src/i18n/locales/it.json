@@ -3175,7 +3175,8 @@
       "eyeTitle": "Mostra o nascondi; {{alt}}-clic mostra solo questa maschera",
       "hints": {
         "color": "Fai clic sul colore da selezionare.",
-        "object": "Trascina un riquadro attorno all'oggetto."
+        "object": "Trascina un riquadro attorno all'oggetto.",
+        "objectMore": "{{shift}}-clic o -trascina aggiunge un altro oggetto, {{alt}}-clic o -trascina ne esclude una parte, {{undo}} annulla l'ultimo."
       },
       "intersectTitle": "Mantieni solo dove questo componente e la maschera si sovrappongono",
       "invertTitle": "Inverti questo componente",

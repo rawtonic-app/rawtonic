@@ -11,6 +11,7 @@ import { Adjustments, MaskContainer, Coord } from '../utils/adjustments';
 import { SubMask } from '../components/panel/right/Masks';
 import { Invokes, Panel } from '../components/ui/AppProperties';
 import { GEOMETRY_KEYS, ORIENTATION_KEYS } from '../utils/geometryKeys';
+import type { ObjectPrompt } from '../utils/objectPrompts';
 
 /** The adjustments that warp the photo before its orientation (the engine's
  * `GEOMETRY_KEYS`): AI masks are computed in, and record, this frame. Upright
@@ -35,6 +36,15 @@ const retouchBasis = (a: Adjustments) => {
  * then `precompute_ai_sky_mask`): the photo and geometry asked for, the task
  * that runs now, and whether the run is still going. */
 let maskPrecompute: { key: string; taskId: string; running: boolean; cancelled: boolean } | null = null;
+
+/** The newest Object selection request per component (later ones win). */
+const objectRequests = new Map<string, number>();
+/** The prompts of an Object selection's request in flight: the next Shift or
+ * Alt press builds on them, not on the stored ones. */
+const objectPromptsInFlight = new Map<string, ObjectPrompt[]>();
+
+/** The prompts of a request for this component still running, if any. */
+export const pendingObjectPrompts = (subMaskId: string) => objectPromptsInFlight.get(subMaskId);
 
 /** Set once the masking tools were used; read by later launches. */
 const MASKS_USED_KEY = 'rawtonic.masks.used';
@@ -315,11 +325,22 @@ export function useAiMasking() {
     return true;
   };
 
-  /** An Object selection by its box; resolves to whether the result was
-   * dropped because the photo changed (here, or in the backend). */
-  const handleGenerateAiMask = async (subMaskId: string, startPoint: Coord, endPoint: Coord): Promise<boolean> => {
+  /** An Object selection by its prompts (or, without them, one box or
+   * click); the prompts and their mask become one history step when the
+   * mask arrives, and a newer request for the same selection wins. Resolves
+   * to whether the result was dropped because the photo changed (here, or in
+   * the backend). */
+  const handleGenerateAiMask = async (
+    subMaskId: string,
+    startPoint: Coord,
+    endPoint: Coord,
+    prompts?: ObjectPrompt[],
+  ): Promise<boolean> => {
     const { selectedImage, adjustments } = useEditorStore.getState();
     if (!selectedImage?.path) return false;
+    const request = (objectRequests.get(subMaskId) ?? 0) + 1;
+    objectRequests.set(subMaskId, request);
+    if (prompts) objectPromptsInFlight.set(subMaskId, prompts);
     registerAiTask(subMaskId, 'subject');
 
     try {
@@ -331,17 +352,28 @@ export function useAiMasking() {
         flipVertical: adjustments.flipVertical,
         orientationSteps: adjustments.orientationSteps,
         path: selectedImage.path,
+        prompts: prompts ?? null,
         rotation: adjustments.rotation,
         startPoint: [startPoint.x, startPoint.y],
         taskId: subMaskId,
       });
 
-      return !applyAiResult(selectedImage.path, subMaskId, newParameters);
+      if (objectRequests.get(subMaskId) !== request) return false;
+      // One step per prompt: an edit pending before stays its own, and the
+      // next prompt does not merge into this one.
+      debouncedSetHistory.flush();
+      const applied = applyAiResult(selectedImage.path, subMaskId, prompts ? { ...newParameters, prompts } : newParameters);
+      debouncedSetHistory.flush();
+      return !applied;
     } catch (error) {
       if (isPhotoChanged(error)) return true;
-      toastAiError(error, `AI Mask Failed: ${error}`);
+      if (objectRequests.get(subMaskId) === request) toastAiError(error, `AI Mask Failed: ${error}`);
       return false;
     } finally {
+      if (objectRequests.get(subMaskId) === request) {
+        objectRequests.delete(subMaskId);
+        objectPromptsInFlight.delete(subMaskId);
+      }
       unregisterAiTask(subMaskId);
     }
   };

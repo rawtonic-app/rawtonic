@@ -3082,7 +3082,8 @@
       "eyeTitle": "Ein- oder ausblenden; {{alt}}-Klick zeigt nur diese Maske",
       "hints": {
         "color": "Klicken Sie auf die Farbe, die ausgewählt werden soll.",
-        "object": "Ziehen Sie einen Rahmen um das Objekt."
+        "object": "Klicken Sie auf das Objekt oder ziehen Sie einen Rahmen darum.",
+        "objectMore": "{{shift}}-Klick oder -Rahmen fügt ein weiteres Objekt hinzu, {{alt}}-Klick oder -Rahmen schließt einen Teil aus, {{undo}} nimmt den letzten zurück."
       },
       "intersectTitle": "Nur behalten, wo sich diese Komponente und die Maske überschneiden",
       "invertTitle": "Diese Komponente umkehren",

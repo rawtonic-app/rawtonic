@@ -3175,7 +3175,8 @@
       "eyeTitle": "Mostra o amaga; {{alt}}-clic mostra només aquesta màscara",
       "hints": {
         "color": "Fes clic al color que vols seleccionar.",
-        "object": "Arrossega un requadre al voltant de l'objecte."
+        "object": "Arrossega un requadre al voltant de l'objecte.",
+        "objectMore": "{{shift}}-clic o -arrossegar afegeix un altre objecte, {{alt}}-clic o -arrossegar n'exclou una part, {{undo}} desfà l'últim."
       },
       "intersectTitle": "Conserva només on coincideixen aquest component i la màscara",
       "invertTitle": "Inverteix aquest component",

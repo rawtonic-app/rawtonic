@@ -879,6 +879,7 @@
 /* One-click new layers above the list: selections | drawn shapes. */
 .studio-layer-quick {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
   margin: 2px 0 4px;

@@ -9,10 +9,11 @@ use image::{GrayImage, ImageFormat};
 use crate::ai_lifecycle::LIFECYCLE;
 use crate::ai_processing::{
     AI_MASKS_KEPT, AiDepthMaskParameters, AiForegroundMaskParameters, AiSkyMaskParameters,
-    AiSubjectMaskParameters, CachedDepthMap, CachedMask, ImageEmbeddings, SamModels,
+    AiSubjectMaskParameters, CachedDepthMap, CachedMask, ImageEmbeddings, SamModels, SamPrompt,
     generate_image_embeddings, get_or_init_depth_model, get_or_init_sam_models,
     get_or_init_sky_model, get_or_init_subject_model, mask_model_installed,
-    run_depth_anything_model, run_sam_decoder, run_sky_seg_model, run_subject_model,
+    run_depth_anything_model, run_sam_decoder, run_sam_decoder_prompts, run_sky_seg_model,
+    run_subject_model,
 };
 use crate::app_state::{AiTaskGuard, AiTaskToken, AppState};
 use crate::cache_utils::GEOMETRY_KEYS;
@@ -254,6 +255,29 @@ pub async fn generate_ai_depth_mask(
     })
 }
 
+/// One prompt of an Object selection as the canvas made it (the recipe's
+/// `prompts`, in the turned photo's pixels): a click or a box; `exclude`
+/// takes it out.
+#[derive(serde::Deserialize, Debug, Clone, Copy)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ObjectPrompt {
+    Point {
+        x: f64,
+        y: f64,
+        #[serde(default)]
+        exclude: bool,
+    },
+    #[serde(rename_all = "camelCase")]
+    Box {
+        start_x: f64,
+        start_y: f64,
+        end_x: f64,
+        end_y: f64,
+        #[serde(default)]
+        exclude: bool,
+    },
+}
+
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn generate_ai_subject_mask(
@@ -261,6 +285,9 @@ pub async fn generate_ai_subject_mask(
     path: String,
     start_point: (f64, f64),
     end_point: (f64, f64),
+    // Several prompts (Shift adds, Alt excludes); without them the box or
+    // click of `start_point`/`end_point`, as recipes always had it.
+    prompts: Option<Vec<ObjectPrompt>>,
     rotation: f32,
     flip_horizontal: bool,
     flip_vertical: bool,
@@ -316,11 +343,6 @@ pub async fn generate_ai_subject_mask(
 
     let center = (coarse_rotated_w / 2.0, coarse_rotated_h / 2.0);
 
-    let p1 = start_point;
-    let p2 = (start_point.0, end_point.1);
-    let p3 = end_point;
-    let p4 = (end_point.0, start_point.1);
-
     let angle_rad = (rotation as f64).to_radians();
     let cos_a = angle_rad.cos();
     let sin_a = angle_rad.sin();
@@ -332,11 +354,6 @@ pub async fn generate_ai_subject_mask(
         let new_py = -px * sin_a + py * cos_a + center.1;
         (new_px, new_py)
     };
-
-    let up1 = unrotate(p1);
-    let up2 = unrotate(p2);
-    let up3 = unrotate(p3);
-    let up4 = unrotate(p4);
 
     let unflip = |p: (f64, f64)| {
         let mut new_px = p.0;
@@ -350,11 +367,6 @@ pub async fn generate_ai_subject_mask(
         (new_px, new_py)
     };
 
-    let ufp1 = unflip(up1);
-    let ufp2 = unflip(up2);
-    let ufp3 = unflip(up3);
-    let ufp4 = unflip(up4);
-
     let un_coarse_rotate = |p: (f64, f64)| -> (f64, f64) {
         match orientation_steps {
             0 => p,
@@ -365,28 +377,63 @@ pub async fn generate_ai_subject_mask(
         }
     };
 
-    let ucrp1 = un_coarse_rotate(ufp1);
-    let ucrp2 = un_coarse_rotate(ufp2);
-    let ucrp3 = un_coarse_rotate(ufp3);
-    let ucrp4 = un_coarse_rotate(ufp4);
-
-    let min_x = ucrp1.0.min(ucrp2.0).min(ucrp3.0).min(ucrp4.0);
-    let min_y = ucrp1.1.min(ucrp2.1).min(ucrp3.1).min(ucrp4.1);
-    let max_x = ucrp1.0.max(ucrp2.0).max(ucrp3.0).max(ucrp4.0);
-    let max_y = ucrp1.1.max(ucrp2.1).max(ucrp3.1).max(ucrp4.1);
-
-    let unrotated_start_point = (min_x, min_y);
-    let unrotated_end_point = (max_x, max_y);
+    // From the turned photo to the decoded one's pixels.
+    let to_photo = |p: (f64, f64)| un_coarse_rotate(unflip(unrotate(p)));
+    // A box's corners there: the turned box's four corners' bounds.
+    let photo_box = |start: (f64, f64), end: (f64, f64)| {
+        let ucrp1 = to_photo(start);
+        let ucrp2 = to_photo((start.0, end.1));
+        let ucrp3 = to_photo(end);
+        let ucrp4 = to_photo((end.0, start.1));
+        let min_x = ucrp1.0.min(ucrp2.0).min(ucrp3.0).min(ucrp4.0);
+        let min_y = ucrp1.1.min(ucrp2.1).min(ucrp3.1).min(ucrp4.1);
+        let max_x = ucrp1.0.max(ucrp2.0).max(ucrp3.0).max(ucrp4.0);
+        let max_y = ucrp1.1.max(ucrp2.1).max(ucrp3.1).max(ucrp4.1);
+        ((min_x, min_y), (max_x, max_y))
+    };
 
     let decode_start = std::time::Instant::now();
-    let mask_bitmap = run_sam_decoder(
-        &models.decoder,
-        &embeddings,
-        unrotated_start_point,
-        unrotated_end_point,
-        Some(warped_image.as_ref()),
-        source_is_raw,
-    )
+    let mask_bitmap = match prompts.as_deref() {
+        Some(prompts) if !prompts.is_empty() => {
+            let prompts: Vec<SamPrompt> = prompts
+                .iter()
+                .map(|prompt| match *prompt {
+                    ObjectPrompt::Point { x, y, exclude } => SamPrompt::Point {
+                        at: to_photo((x, y)),
+                        exclude,
+                    },
+                    ObjectPrompt::Box {
+                        start_x,
+                        start_y,
+                        end_x,
+                        end_y,
+                        exclude,
+                    } => {
+                        let (min, max) = photo_box((start_x, start_y), (end_x, end_y));
+                        SamPrompt::Box { min, max, exclude }
+                    }
+                })
+                .collect();
+            run_sam_decoder_prompts(
+                &models.decoder,
+                &embeddings,
+                &prompts,
+                Some(warped_image.as_ref()),
+                source_is_raw,
+            )
+        }
+        _ => {
+            let (unrotated_start_point, unrotated_end_point) = photo_box(start_point, end_point);
+            run_sam_decoder(
+                &models.decoder,
+                &embeddings,
+                unrotated_start_point,
+                unrotated_end_point,
+                Some(warped_image.as_ref()),
+                source_is_raw,
+            )
+        }
+    }
     .map_err(|e| e.to_string())?;
     let mask_ms = decode_start.elapsed().as_millis();
 
@@ -397,7 +444,8 @@ pub async fn generate_ai_subject_mask(
     let png_start = std::time::Instant::now();
     let base64_data = encode_to_base64_png(&mask_bitmap)?;
     log::info!(
-        "AI object mask: {path} {img_w}x{img_h} (raw {source_is_raw}): models and embedding ready after {ready} ms, mask {mask_ms} ms, PNG {} ms, total {} ms",
+        "AI object mask: {path} {img_w}x{img_h} (raw {source_is_raw}), {} prompts: models and embedding ready after {ready} ms, mask {mask_ms} ms, PNG {} ms, total {} ms",
+        prompts.as_ref().map_or(1, Vec::len),
         png_start.elapsed().as_millis(),
         started.elapsed().as_millis()
     );

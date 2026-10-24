@@ -3175,7 +3175,8 @@
       "eyeTitle": "Afficher ou masquer ; {{alt}}-clic n'affiche que ce masque",
       "hints": {
         "color": "Cliquez sur la couleur à sélectionner.",
-        "object": "Tracez un cadre autour de l'objet."
+        "object": "Tracez un cadre autour de l'objet.",
+        "objectMore": "{{shift}}-clic ou -glisser ajoute un autre objet, {{alt}}-clic ou -glisser en exclut une partie, {{undo}} annule le dernier."
       },
       "intersectTitle": "Ne garder que la zone commune à ce composant et au masque",
       "invertTitle": "Inverser ce composant",
