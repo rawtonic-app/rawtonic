@@ -3,9 +3,10 @@
 //! the user's review, one attempt per call: no retries, no queue, no
 //! redirects followed, and nothing at all in a build without a relay URL.
 
-use crate::payload::{Prepared, Unapproved, approve, sha256_hex};
+use crate::payload::{Prepared, Slot, Unapproved, approve, sha256_hex};
 use crate::scrub::Scrubber;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// The relay this build sends to, fixed at build time (docs/RELAY.md).
@@ -19,17 +20,29 @@ pub const POW_BITS: u32 = 20;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const TIMEOUT: Duration = Duration::from_secs(30);
 
+/// An upload may take 30 s plus 1 s per MiB (ADR 0017).
+fn upload_timeout(size: u64) -> Duration {
+    TIMEOUT + Duration::from_secs(size.div_ceil(1024 * 1024))
+}
+
 /// What the relay answers to a stored submission.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Receipt {
-    /// Deletes the submission (`DELETE /report/:id`); shown to the user.
+    /// Deletes the submission (`DELETE /report/:id`) with its files; shown
+    /// to the user.
     pub id: Option<String>,
     #[serde(rename = "ref")]
     pub reference: Option<String>,
-    /// RAW samples: where the file goes next, and until when.
-    pub upload_url: Option<String>,
-    pub expires_at: Option<String>,
+    /// The one-time upload URL of each announced file (the client uses
+    /// them; they are of no use afterwards).
+    #[serde(default, skip_serializing)]
+    pub uploads: BTreeMap<Slot, String>,
+    /// Files the report announced whose upload was not confirmed (refused,
+    /// or no answer: a file may still have arrived). The report itself is
+    /// stored and deleted by its id, with whatever of them arrived.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub not_uploaded: Vec<Slot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -159,14 +172,27 @@ impl RelayClient {
         self.base.join(path).expect("relay paths are relative")
     }
 
-    /// Sends a reviewed body, once. Refuses a body that is not the reviewed
-    /// one or that scrubbing would still change.
+    /// Sends a reviewed body, once, then each attached file's bytes to its
+    /// upload slot. Refuses a body that is not the reviewed one or that
+    /// scrubbing would still change, and files whose bytes are no longer
+    /// the announced ones (before anything is sent). A file that does not
+    /// arrive is named in the receipt's `not_uploaded`; the report stays.
     pub async fn send(
         &self,
         prepared: &Prepared,
         scrubber: &Scrubber,
     ) -> Result<Receipt, SendError> {
         approve(prepared, scrubber).map_err(SendError::Unapproved)?;
+        let attachments = prepared.attachments.clone();
+        let files = tokio::task::spawn_blocking(move || {
+            attachments
+                .iter()
+                .map(|a| a.bytes().map(|bytes| (a.slot, bytes)))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .await
+        .map_err(|e| SendError::Network(e.to_string()))?
+        .map_err(SendError::Unapproved)?;
         let seconds = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| SendError::Network(e.to_string()))?
@@ -191,14 +217,58 @@ impl RelayClient {
             .bytes()
             .await
             .map_err(|e| SendError::Network(e.without_url().to_string()))?;
-        match status {
-            201 => serde_json::from_slice(&bytes).map_err(|_| SendError::Refused {
+        let mut receipt = match status {
+            201 => serde_json::from_slice::<Receipt>(&bytes).map_err(|_| SendError::Refused {
                 status,
                 code: "bad-answer".into(),
-            }),
-            204 => Ok(Receipt::default()),
-            _ => Err(refusal(status, &bytes)),
+            })?,
+            204 => Receipt::default(),
+            _ => return Err(refusal(status, &bytes)),
+        };
+        for (slot, bytes) in files {
+            let sent = match receipt.uploads.get(&slot) {
+                Some(url) => self.upload(url, bytes).await,
+                None => Err(SendError::Refused {
+                    status,
+                    code: "no-upload-slot".into(),
+                }),
+            };
+            if sent.is_err() {
+                receipt.not_uploaded.push(slot);
+            }
         }
+        Ok(receipt)
+    }
+
+    /// Sends a file's bytes to an upload URL the relay answered; only to
+    /// the relay itself (same scheme, host and port), never elsewhere.
+    async fn upload(&self, url: &str, bytes: Vec<u8>) -> Result<(), SendError> {
+        let url = reqwest::Url::parse(url).map_err(|_| SendError::Refused {
+            status: 201,
+            code: "bad-answer".into(),
+        })?;
+        if url.origin() != self.base.origin() {
+            return Err(SendError::Refused {
+                status: 201,
+                code: "bad-answer".into(),
+            });
+        }
+        let response = self
+            .http
+            .put(url)
+            .timeout(upload_timeout(bytes.len() as u64))
+            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+            .header("x-rawtonic-client", &self.version)
+            .body(bytes)
+            .send()
+            .await
+            .map_err(|e| SendError::Network(e.without_url().to_string()))?;
+        let status = response.status().as_u16();
+        if status == 204 {
+            return Ok(());
+        }
+        let body = response.bytes().await.unwrap_or_default();
+        Err(refusal(status, &body))
     }
 
     /// Deletes a submission by the id its receipt gave.
@@ -251,12 +321,28 @@ mod tests {
     /// A relay stand-in answering every connection with `answer`; returns its
     /// base URL and the requests it saw (head and body as text).
     async fn relay(answer: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
+        relay_answering(&[answer]).await
+    }
+
+    /// A relay stand-in answering its connections in turn with `answers`
+    /// (the last one from then on); `{base}` in an answer is its base URL
+    /// and `{len}` the length of the answer's body.
+    async fn relay_answering(answers: &[&'static str]) -> (String, Arc<Mutex<Vec<String>>>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}/", listener.local_addr().unwrap());
+        let answers: Vec<String> = answers
+            .iter()
+            .map(|a| {
+                let a = a.replace("{base}", &base);
+                let body = a.split_once("\r\n\r\n").map_or(0, |(_, b)| b.len());
+                a.replace("{len}", &body.to_string())
+            })
+            .collect();
         let seen = Arc::new(Mutex::new(Vec::new()));
         let log = seen.clone();
         tokio::spawn(async move {
-            loop {
+            for n in 0.. {
+                let answer = &answers[n.min(answers.len() - 1)];
                 let Ok((mut socket, _)) = listener.accept().await else {
                     return;
                 };
@@ -301,10 +387,105 @@ mod tests {
     fn report() -> Prepared {
         prepare(
             Channel::Report,
-            json!({"schema": 1, "text": "hello"}),
+            json!({"schema": 2, "text": "hello"}),
             &scrubber(),
         )
         .unwrap()
+    }
+
+    const SHOT: &[u8] = b"screenshot bytes";
+
+    fn report_with_screenshot() -> Prepared {
+        use base64::Engine as _;
+        prepare(
+            Channel::Report,
+            json!({"schema": 2, "text": "hello", "screenshot": {
+                "mime": "image/png",
+                "data": base64::engine::general_purpose::STANDARD.encode(SHOT),
+            }}),
+            &scrubber(),
+        )
+        .unwrap()
+    }
+
+    const FILED_WITH_SLOT: &str = "HTTP/1.1 201 Created\r\ncontent-type: application/json\r\ncontent-length: {len}\r\nconnection: close\r\n\r\n{\"id\":\"abcdefghijklmnopqrstuvwxyz\",\"ref\":\"0123abcd\",\"uploads\":{\"screenshot\":\"{base}upload/tok\"},\"expiresAt\":\"2026-10-24T13:00:00.000Z\"}";
+    const NO_CONTENT: &str = "HTTP/1.1 204 No Content\r\nconnection: close\r\n\r\n";
+
+    #[tokio::test]
+    async fn sends_the_report_then_the_screenshot_bytes_to_its_slot() {
+        let (base, seen) = relay_answering(&[FILED_WITH_SLOT, NO_CONTENT]).await;
+        let client = RelayClient::new(&base, "1").unwrap().with_pow_bits(0);
+        let p = report_with_screenshot();
+        let receipt = client.send(&p, &scrubber()).await.unwrap();
+        assert_eq!(receipt.id.as_deref(), Some("abcdefghijklmnopqrstuvwxyz"));
+        assert!(receipt.not_uploaded.is_empty());
+        // The upload URLs stay inside the client.
+        assert!(
+            !serde_json::to_string(&receipt)
+                .unwrap()
+                .contains("upload/tok")
+        );
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert!(seen[0].starts_with("POST /report HTTP/1.1"));
+        assert!(seen[0].ends_with(&p.body));
+        assert!(seen[1].starts_with("PUT /upload/tok HTTP/1.1"));
+        let lower = seen[1].to_ascii_lowercase();
+        assert!(lower.contains("content-type: application/octet-stream"));
+        assert!(lower.contains(&format!("content-length: {}", SHOT.len())));
+        assert!(seen[1].ends_with("\r\n\r\nscreenshot bytes"));
+    }
+
+    #[tokio::test]
+    async fn keeps_the_report_when_its_file_does_not_arrive() {
+        let (base, seen) = relay_answering(&[
+            FILED_WITH_SLOT,
+            "HTTP/1.1 422 Unprocessable Entity\r\ncontent-length: 24\r\nconnection: close\r\n\r\n{\"error\":\"not-stored\"}",
+        ])
+        .await;
+        let client = RelayClient::new(&base, "1").unwrap().with_pow_bits(0);
+        let receipt = client
+            .send(&report_with_screenshot(), &scrubber())
+            .await
+            .unwrap();
+        assert_eq!(receipt.id.as_deref(), Some("abcdefghijklmnopqrstuvwxyz"));
+        assert_eq!(receipt.not_uploaded, vec![Slot::Screenshot]);
+        assert_eq!(seen.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn sends_files_only_to_the_relay_itself() {
+        let (base, seen) = relay_answering(&[
+            "HTTP/1.1 201 Created\r\ncontent-length: {len}\r\nconnection: close\r\n\r\n{\"id\":\"abcdefghijklmnopqrstuvwxyz\",\"uploads\":{\"screenshot\":\"http://127.0.0.2:9/upload/tok\"}}",
+        ])
+        .await;
+        let client = RelayClient::new(&base, "1").unwrap().with_pow_bits(0);
+        let receipt = client
+            .send(&report_with_screenshot(), &scrubber())
+            .await
+            .unwrap();
+        assert_eq!(receipt.not_uploaded, vec![Slot::Screenshot]);
+        assert_eq!(seen.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn sends_nothing_when_a_file_changed_after_the_review() {
+        use base64::Engine as _;
+        let (base, seen) = relay_answering(&[FILED_WITH_SLOT, NO_CONTENT]).await;
+        let client = RelayClient::new(&base, "1").unwrap().with_pow_bits(0);
+        let mut p = report_with_screenshot();
+        p.attachments[0].data = Some(base64::engine::general_purpose::STANDARD.encode(b"other"));
+        assert_eq!(
+            client.send(&p, &scrubber()).await,
+            Err(SendError::Unapproved(Unapproved::Attachment))
+        );
+        assert!(seen.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn uploads_get_a_second_more_per_mib() {
+        assert_eq!(upload_timeout(0), Duration::from_secs(30));
+        assert_eq!(upload_timeout(100 * 1024 * 1024), Duration::from_secs(130));
     }
 
     #[tokio::test]

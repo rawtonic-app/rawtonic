@@ -79,7 +79,7 @@ describe('Report a problem', () => {
     const body = await screen.findByLabelText('What will be sent');
     const payload = prepare.mock.calls.at(-1)?.[1] as Record<string, unknown>;
     expect(payload).toEqual({
-      schema: 1,
+      schema: 2,
       app: context.app,
       gpu: context.gpu,
       text: 'Crops vanish',

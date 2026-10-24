@@ -36,7 +36,7 @@ describe('report payloads', () => {
     const shot = { mime: 'image/jpeg' as const, data: 'AAAA', width: 2, height: 1 };
     expect(
       reportPayload({ text: ' It froze ', context, includeSystem: false, logTail: null, photo: null, screenshot: null }),
-    ).toEqual({ schema: 1, app: context.app, text: 'It froze' });
+    ).toEqual({ schema: 2, app: context.app, text: 'It froze' });
     expect(
       reportPayload({
         text: 'It froze',
@@ -47,7 +47,7 @@ describe('report payloads', () => {
         screenshot: shot,
       }),
     ).toEqual({
-      schema: 1,
+      schema: 2,
       app: context.app,
       gpu: context.gpu,
       text: 'It froze',

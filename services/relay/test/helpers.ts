@@ -11,7 +11,7 @@ export const testEnv = env;
 export const migrate = async () => {
   await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
   await env.DB.batch(
-    ["submissions", "uploads", "rate", "pow_seen", "stats", "stats_closed"].map((t) => env.DB.prepare(`DELETE FROM ${t}`)),
+    ["submissions", "uploads", "rate", "pow_seen", "stats", "stats_closed", "sweep_state"].map((t) => env.DB.prepare(`DELETE FROM ${t}`)),
   );
   const { objects } = await env.BUCKET.list();
   if (objects.length) await env.BUCKET.delete(objects.map((o: R2Object) => o.key));
@@ -63,8 +63,14 @@ export const failingDb = (pattern: RegExp, e: Env = env): Env => ({
           const fail = async () => {
             throw new Error("D1 unavailable");
           };
-          const statement = { run: fail, first: fail, all: fail, bind: () => statement };
+          const statement = { run: fail, first: fail, all: fail, bind: () => statement, failing: true };
           return statement;
+        };
+      }
+      if (key === "batch") {
+        return async (statements: (D1PreparedStatement & { failing?: boolean })[]) => {
+          if (statements.some((s) => s.failing)) throw new Error("D1 unavailable");
+          return target.batch(statements);
         };
       }
       const value = Reflect.get(target, key);

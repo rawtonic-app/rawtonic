@@ -6,21 +6,36 @@
 import { invoke } from "@tauri-apps/api/core";
 import { Invokes } from "../ui/AppProperties";
 
-export type ContributionChannel = "report" | "crash" | "cameraTest" | "rawSample" | "stats";
+export type ContributionChannel = "report" | "crash" | "cameraTest" | "stats";
 
-/** A scrubbed body exactly as it will be sent, with its SHA-256. */
+/** A file sent after the body, as it is; the body names its size and
+ * SHA-256. */
+export interface ContributionAttachment {
+  slot: "screenshot" | "photo";
+  size: number;
+  sha256: string;
+  /** A screenshot's bytes, base64. */
+  data?: string;
+  /** The photo's file on this computer (not sent, only its bytes). */
+  path?: string;
+}
+
+/** A scrubbed body exactly as it will be sent, with its SHA-256, and the
+ * files that follow it. */
 export interface PreparedContribution {
   channel: ContributionChannel;
   body: string;
   digest: string;
+  attachments?: ContributionAttachment[];
 }
 
 export interface ContributionReceipt {
-  /** Deletes the submission; shown to the user. */
+  /** Deletes the submission with its files; shown to the user. */
   id?: string | null;
   ref?: string | null;
-  uploadUrl?: string | null;
-  expiresAt?: string | null;
+  /** Announced files whose upload was not confirmed (one may still have
+   * arrived; it goes with the report). */
+  notUploaded?: ContributionAttachment["slot"][];
 }
 
 /** Error codes the send and delete commands answer with. */
@@ -42,27 +57,24 @@ export const sendContribution = (prepared: PreparedContribution) =>
 
 export const deleteContribution = (id: string) => invoke<void>(Invokes.ContributionDelete, { id });
 
-/** The body as the dialog shows it: verbatim, except that a screenshot's
- * base64 data is named instead of printed (the image is shown below). */
-export const reviewView = (body: string): { text: string; screenshot?: { src: string; bytes: number } } => {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(body);
-  } catch {
-    return { text: body };
+/** The files the dialog shows below the body: the screenshot as an image,
+ * the photo's file by its size. */
+export const attachmentsView = (
+  prepared: PreparedContribution,
+): { screenshot?: { src: string; bytes: number }; photo?: { bytes: number } } => {
+  const view: ReturnType<typeof attachmentsView> = {};
+  for (const a of prepared.attachments ?? []) {
+    if (a.slot === "photo") view.photo = { bytes: a.size };
+    if (a.slot === "screenshot" && a.data) {
+      let mime = "image/png";
+      try {
+        const announced = (JSON.parse(prepared.body) as { screenshot?: { mime?: unknown } }).screenshot?.mime;
+        if (announced === "image/jpeg") mime = announced;
+      } catch {
+        // The body is shown as it is either way.
+      }
+      view.screenshot = { src: `data:${mime};base64,${a.data}`, bytes: a.size };
+    }
   }
-  const shot = (parsed as { screenshot?: { mime?: unknown; data?: unknown } } | null)?.screenshot;
-  if (!shot || typeof shot.data !== "string" || typeof shot.mime !== "string") return { text: body };
-  // The data's own place in the body: after the screenshot's key, its
-  // "data" field (serde_json prints keys sorted), never an equal value
-  // elsewhere (a log tail, say).
-  const quoted = JSON.stringify(shot.data);
-  const shotKey = body.indexOf('"screenshot":');
-  const at = shotKey < 0 ? -1 : body.indexOf(`"data": ${quoted}`, shotKey);
-  if (at < 0) return { text: body };
-  const bytes = Math.floor((shot.data.length * 3) / 4) - (shot.data.match(/=+$/)?.[0].length ?? 0);
-  return {
-    text: `${body.slice(0, at)}"data": "‹image, shown below›"${body.slice(at + `"data": ${quoted}`.length)}`,
-    screenshot: { src: `data:${shot.mime};base64,${shot.data}`, bytes },
-  };
+  return view;
 };

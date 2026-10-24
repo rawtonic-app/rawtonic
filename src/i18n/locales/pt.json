@@ -320,6 +320,8 @@
       },
       "idHint": "Guarde este ID: com ele pode pedir que o que enviou seja apagado a qualquer momento.",
       "intro": "Isto é exatamente o que o Rawtonic enviará ao seu relay, que o arquiva de forma privada para os criadores do Rawtonic. O Rawtonic tentou remover caminhos, o seu nome de utilizador e números de série: verifique o texto abaixo, pode ainda conter algo que não queira enviar. Nada é enviado até clicar em Enviar.",
+      "notUploaded": "Enviado, mas não foi possível confirmar o carregamento de um ficheiro anexado. Se tiver chegado, é eliminado com o relatório.",
+      "photoFile": "Ficheiro da foto, {{size}}, enviado sem alterações",
       "screenshot": "Captura de ecrã que será enviada",
       "screenshotSize": "Captura de ecrã, {{size}}",
       "send": "Enviar",

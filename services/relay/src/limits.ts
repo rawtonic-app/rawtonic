@@ -4,7 +4,7 @@
 
 import { DAY_MS, HOUR_MS, hmacHex, isoWeek, sha256Hex, utcDay, weekEnd } from "./util";
 
-export type Kind = "report" | "crash" | "camera-test" | "raw-sample" | "stats" | "delete";
+export type Kind = "report" | "crash" | "camera-test" | "stats" | "delete";
 
 interface Window {
   /** The window's id (it is mixed into the IP hash) and its end. */
@@ -39,13 +39,12 @@ export const LIMITS: Record<Kind, Window[]> = {
   report: [hourly(5), daily(20)],
   crash: [daily(10)],
   "camera-test": [daily(10)],
-  "raw-sample": [daily(3)],
   stats: [weekly(2)],
   delete: [hourly(30)],
 };
 
 /** For everyone together, per UTC day. */
-export const GLOBAL_CAPS = { issues: 400, samples: 200, uploadBytes: 5 * 1024 * 1024 * 1024 };
+export const GLOBAL_CAPS = { issues: 400, uploadBytes: 5 * 1024 * 1024 * 1024 };
 
 /** Adds `amount` to a counter and returns the new value. Rows live until
  * their window ends (the scheduled run deletes them). */

@@ -320,6 +320,8 @@
       },
       "idHint": "Guarda aquest ID: amb ell pots demanar que s'esborri el que has enviat en qualsevol moment.",
       "intro": "Això és exactament el que Rawtonic enviarà al seu relé, que ho arxiva de manera privada per als creadors de Rawtonic. Rawtonic ha intentat treure els camins, el teu nom d'usuari i els números de sèrie: revisa el text de sota, encara pot contenir alguna cosa que no vulguis enviar. No s'envia res fins que facis clic a Envia.",
+      "notUploaded": "Enviat, però no s'ha pogut confirmar la pujada d'un fitxer adjunt. Si ha arribat, s'elimina amb l'informe.",
+      "photoFile": "Fitxer de la foto, {{size}}, s'envia sense canvis",
       "screenshot": "Captura de pantalla que s'enviarà",
       "screenshotSize": "Captura de pantalla, {{size}}",
       "send": "Envia",
