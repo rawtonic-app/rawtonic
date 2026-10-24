@@ -246,6 +246,29 @@ pub fn log_tail(log: &str, scrubber: &Scrubber) -> Option<String> {
     (!kept.trim().is_empty()).then_some(kept)
 }
 
+/// The end of a log file, at most `max_bytes` from its end (whole lines
+/// only): enough for [`LOG_LINES`] lines without reading a long log whole.
+pub fn read_log_end(path: &Path, max_bytes: u64) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let start = len.saturating_sub(max_bytes);
+    file.seek(SeekFrom::Start(start)).ok()?;
+    let mut bytes = Vec::new();
+    file.take(max_bytes).read_to_end(&mut bytes).ok()?;
+    let text = String::from_utf8_lossy(&bytes);
+    // A cut first line is not shown.
+    let text = if start > 0 {
+        text.split_once('\n').map_or("", |(_, rest)| rest)
+    } else {
+        &text
+    };
+    Some(text.to_string())
+}
+
+/// Bytes read for a log tail: 200 lines of up to ~1 KiB each.
+pub const LOG_READ_BYTES: u64 = 256 * 1024;
+
 /// A source path reduced to its file name: `src/a/b.rs:12:5` → `b.rs:12:5`.
 pub fn file_name_only(location: &str) -> String {
     let name = location.rsplit(['/', '\\']).next().unwrap_or(location);
@@ -940,6 +963,27 @@ mod tests {
                 .is_ascii_digit()
         );
         assert_eq!(log_tail("\n\n", &scrubber()), None);
+    }
+
+    #[test]
+    fn only_the_end_of_a_long_log_is_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.log");
+        let log: String = (0..100_000).map(|n| format!("line {n}\n")).collect();
+        std::fs::write(&path, &log).unwrap();
+        let end = read_log_end(&path, 4096).unwrap();
+        assert!(end.len() <= 4096);
+        assert!(
+            end.starts_with("line "),
+            "a cut line is dropped: {:?}",
+            &end[..20]
+        );
+        assert!(end.ends_with("line 99999\n"));
+        let tail = log_tail(&end, &scrubber()).unwrap();
+        assert!(tail.ends_with("line 99999"));
+        std::fs::write(&path, "short\nlog\n").unwrap();
+        assert_eq!(read_log_end(&path, 4096).as_deref(), Some("short\nlog\n"));
+        assert_eq!(read_log_end(&dir.path().join("missing"), 4096), None);
     }
 
     fn store() -> (tempfile::TempDir, CrashStore) {

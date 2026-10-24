@@ -1,6 +1,6 @@
 import '../../i18n';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import ProblemReportDialog from './ProblemReportDialog';
 import type { ContributionChannel, PreparedContribution } from './relay';
 import type { ReportContext, Screenshot } from './reports';
@@ -94,6 +94,24 @@ describe('Report a problem', () => {
     await waitFor(() => expect(screen.getByTestId('report-id').textContent).toBe('abcdefghijklmnopqrstuvwxyz'));
     expect(send).toHaveBeenCalledTimes(1);
     expect(screen.getByText(/write to hello@rawtonic\.cc with this id/)).toBeTruthy();
+  });
+
+  it('drops a preparation that arrives after the text changed', async () => {
+    let finish: (body: PreparedContribution) => void = () => {};
+    const slow = vi.fn(
+      () => new Promise<PreparedContribution>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    render(<ProblemReportDialog {...props} prepare={slow} available={() => Promise.resolve(true)} send={vi.fn()} />);
+    const review = await screen.findByRole('button', { name: 'Review and send…' });
+    const text = screen.getByPlaceholderText(/the export stops/);
+    fireEvent.change(text, { target: { value: 'first' } });
+    fireEvent.click(review);
+    fireEvent.change(text, { target: { value: 'first, then more' } });
+    await act(async () => finish({ channel: 'report', body: '{"schema":1,"text":"first"}', digest: 'd'.repeat(64) }));
+    expect(screen.queryByLabelText('What will be sent')).toBeNull();
+    expect((screen.getByPlaceholderText(/the export stops/) as HTMLTextAreaElement).value).toBe('first, then more');
   });
 
   it('deletes a sent report on request', async () => {
