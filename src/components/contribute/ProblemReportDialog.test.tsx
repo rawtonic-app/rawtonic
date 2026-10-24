@@ -119,6 +119,23 @@ describe('Report a problem', () => {
     });
   });
 
+  it('copies and opens on GitHub without reading the attached file, saying it is left out', async () => {
+    const openUrl = vi.fn((_url: string) => Promise.resolve());
+    render(<ProblemReportDialog {...props} available={() => Promise.resolve(true)} openUrl={openUrl} />);
+    await screen.findByRole('button', { name: 'Review and send…' });
+    fireEvent.change(screen.getByPlaceholderText(/the export stops/), { target: { value: 'Colours wrong' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /Attach the photo file itself/ }));
+    prepare.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: /Copy report/ }));
+    await waitFor(() => expect(clipboard).toHaveBeenCalledTimes(1));
+    expect((prepare.mock.calls[0][1] as { photo: object }).photo).toEqual({ make: 'NIKON', model: 'Z 6', fileType: 'NEF' });
+    expect(clipboard.mock.calls[0][0] as string).toMatch(/Photo file:\*\* not included/);
+    fireEvent.click(screen.getByRole('button', { name: /Open on GitHub/ }));
+    const shown = await screen.findByLabelText('Text for GitHub');
+    expect(shown.textContent).toMatch(/Photo file:\*\* not included/);
+    expect(prepare.mock.calls.every(([, payload]) => !(payload as { photo: { path?: string } }).photo.path)).toBe(true);
+  });
+
   it('drops a preparation that arrives after the text changed', async () => {
     let finish: (body: PreparedContribution) => void = () => {};
     const slow = vi.fn(

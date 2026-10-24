@@ -57,6 +57,20 @@ describe('camera help', () => {
     expect(onReport).toHaveBeenCalledWith(photo);
   });
 
+  it("can still carry the file when its camera is not known or not read yet", () => {
+    const onReport = vi.fn();
+    render(
+      <CameraHelpDialog
+        request={{ path: '/x/DSC01234.ARW?vc=2', reason: 'unreadable' }}
+        onClose={() => {}}
+        onReport={onReport}
+        camera={() => new Promise(() => {})}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Report a problem with this file…' }));
+    expect(onReport).toHaveBeenCalledWith({ make: 'unknown', model: 'camera', fileType: 'ARW', path: '/x/DSC01234.ARW' });
+  });
+
   it('is offered for decoder errors only, not for a missing file or a format no open decoder reads', () => {
     expect(isDecoderError("Error: Unknown camera, model 'ILCE-7M5', make: 'SONY', mode: ''")).toBe(true);
     expect(isDecoderError('No decoder found')).toBe(true);

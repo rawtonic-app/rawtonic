@@ -96,6 +96,40 @@ export const photoInfo = (
   return { make, model, fileType: fileType.toUpperCase(), path: photo.path.split("?")[0] };
 };
 
+/** A file whose camera is not known (its metadata could not be read): the
+ * report can still carry it, as an unknown camera. */
+export const filePhoto = (path: string): PhotoInfo | null => {
+  const file = path.split("?")[0];
+  const name = file.split(/[\\/]/).pop() ?? "";
+  const dot = name.lastIndexOf(".");
+  const fileType = dot > 0 ? name.slice(dot + 1) : "";
+  if (!/^[A-Za-z0-9]{1,10}$/.test(fileType)) return null;
+  return { make: "unknown", model: "camera", fileType: fileType.toUpperCase(), path: file };
+};
+
+/** The payload for the text-only ways out (Copy report, Open on GitHub): the
+ * photo's file is not read or hashed for them, as they never carry it. */
+export const textOnly = (payload: Record<string, unknown>): Record<string, unknown> => {
+  const photo = payload.photo as Record<string, unknown> | undefined;
+  if (!photo || photo.path === undefined) return payload;
+  const { path: _path, ...rest } = photo;
+  return { ...payload, photo: rest };
+};
+
+/** A prepared text-only body as the fallbacks render it, noting a photo file
+ * the report would carry (`file`), which they leave out. */
+export const withFileLeftOut = (body: string, payload: Record<string, unknown>): string => {
+  const photo = payload.photo as Record<string, unknown> | undefined;
+  if (!photo || photo.path === undefined) return body;
+  try {
+    const parsed = JSON.parse(body) as { photo?: Record<string, unknown> };
+    if (parsed.photo) parsed.photo.file = true;
+    return JSON.stringify(parsed);
+  } catch {
+    return body;
+  }
+};
+
 export interface ReportChoices {
   text: string;
   context: ReportContext;

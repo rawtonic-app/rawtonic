@@ -20,7 +20,7 @@ import {
   type ContributionReceipt,
   type PreparedContribution,
 } from "./relay";
-import { githubIssue, reportMarkdown, type GithubIssue } from "./reports";
+import { githubIssue, reportMarkdown, textOnly, withFileLeftOut, type GithubIssue } from "./reports";
 
 interface ReportDialogProps {
   isOpen: boolean;
@@ -86,12 +86,13 @@ export default function ReportDialog({
     setCopied(false);
   }, [payload, isOpen]);
 
-  const scrubbed = useCallback(async () => {
+  /** `text`: for Copy report / Open on GitHub, which carry no files. */
+  const scrubbed = useCallback(async (text = false) => {
     if (!payload) return null;
     const asked = generation.current;
     setError(null);
     try {
-      const body = await prepare(channel, payload);
+      const body = await prepare(channel, text ? textOnly(payload) : payload);
       return generation.current === asked ? body : null;
     } catch {
       if (generation.current === asked) setError(t("contribute.report.prepareFailed"));
@@ -107,9 +108,9 @@ export default function ReportDialog({
   // WebKit takes clipboard writes only within the click: the write starts
   // at once with the text still being prepared (a promised ClipboardItem).
   const copy = async () => {
-    const text = scrubbed().then((body) => {
-      if (!body) throw new Error("not prepared");
-      return reportMarkdown(body.body);
+    const text = scrubbed(true).then((body) => {
+      if (!body || !payload) throw new Error("not prepared");
+      return reportMarkdown(withFileLeftOut(body.body, payload));
     });
     try {
       if (typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
@@ -127,8 +128,8 @@ export default function ReportDialog({
   };
 
   const reviewGithub = async () => {
-    const body = await scrubbed();
-    if (body) setGithub(githubIssue(body.body));
+    const body = await scrubbed(true);
+    if (body && payload) setGithub(githubIssue(withFileLeftOut(body.body, payload)));
   };
 
   const openGithub = async () => {
