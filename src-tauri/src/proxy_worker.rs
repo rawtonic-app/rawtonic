@@ -8,10 +8,13 @@
 //!   edits of the open photograph as the multi view's prefetch does: an
 //!   interactive preview frame (a slider or brush drag) cancels the decode
 //!   under way, which is done again later, and none starts until the app
-//!   was quiet for `multi_view_prefetch::QUIET`. On a six-core laptop with
-//!   an integrated GPU the decodes slowed a drag's GPU work by ~70 % (the
-//!   shared memory and power budget, not CPU time: a lower thread priority
-//!   did not help).
+//!   was quiet for `multi_view_prefetch::QUIET`, nor while the open
+//!   photograph is being decoded or developed (`multi_view_prefetch::busy`).
+//!   On a six-core laptop with an integrated GPU the decodes slowed a drag's
+//!   GPU work by ~70 % (the shared memory and power budget, not CPU time: a
+//!   lower thread priority did not help), and on a first start they slowed
+//!   the shader compile the first Develop frame waits for (AMD Radeon 680M:
+//!   first frame 4.3–4.8 s after the click instead of 3.4–3.5 s).
 //! - Builds: Standard or 1:1 previews the user asked for (Lightroom's Build
 //!   Previews, Capture One's preview files for a whole session), at full
 //!   speed, with progress, a Stop and the reasons for what could not be
@@ -228,15 +231,17 @@ impl PrefetchGate {
     }
 
     /// The cancel token of a decode that may start now, None while the app
-    /// is not quiet. The token is taken before the quiet time is read: an
-    /// interactive frame after it cancels the decode, one before it is seen
-    /// as activity.
+    /// is not quiet or the open photograph is `busy` (its decode, or a frame
+    /// under way, which on a first start waits for its shader compile). The
+    /// token is taken before the quiet time is read: an interactive frame
+    /// after it cancels the decode, one before it is seen as activity.
     fn start(
         &self,
         since_activity: impl FnOnce() -> Duration,
+        busy: impl FnOnce() -> bool,
     ) -> Option<(Arc<AtomicUsize>, usize)> {
         let token = self.0.load(Ordering::SeqCst);
-        (since_activity() >= crate::multi_view_prefetch::QUIET)
+        (since_activity() >= crate::multi_view_prefetch::QUIET && !busy())
             .then(|| (Arc::clone(&self.0), token))
     }
 
@@ -312,9 +317,10 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
         let job = {
             let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
             loop {
-                let start = worker
-                    .prefetch_gate
-                    .start(crate::multi_view_prefetch::since_activity);
+                let start = worker.prefetch_gate.start(
+                    crate::multi_view_prefetch::since_activity,
+                    crate::multi_view_prefetch::busy,
+                );
                 if let Some(job) = queue.next(start.is_some()) {
                     break (job, queue.prefetch_generation, start);
                 }
@@ -874,22 +880,36 @@ mod tests {
     #[test]
     fn an_interactive_frame_while_a_prefetch_starts_is_never_lost() {
         let gate = PrefetchGate::default();
+        let idle = || false;
         // Recorded as activity before the quiet time is read: no start.
-        assert!(gate.start(|| Duration::ZERO).is_none());
+        assert!(gate.start(|| Duration::ZERO, idle).is_none());
         // Lands after the token was taken, before its activity is seen:
         // the decode starts but is already cancelled.
         let (_, token) = gate
-            .start(|| {
-                gate.interaction();
-                Duration::MAX
-            })
+            .start(
+                || {
+                    gate.interaction();
+                    Duration::MAX
+                },
+                idle,
+            )
             .expect("quiet");
         assert!(gate.cancelled(token));
         // Quiet and no frame since: the decode runs.
-        let (_, token) = gate.start(|| Duration::MAX).expect("quiet");
+        let (_, token) = gate.start(|| Duration::MAX, idle).expect("quiet");
         assert!(!gate.cancelled(token));
         gate.interaction();
         assert!(gate.cancelled(token));
+    }
+
+    #[test]
+    fn no_prefetch_starts_while_the_open_photograph_is_decoded_or_developed() {
+        // Quiet (no slider frame yet), but the open photograph's decode or
+        // its first frame (on a first start waiting for its shader compile)
+        // is under way: the neighbours wait.
+        let gate = PrefetchGate::default();
+        assert!(gate.start(|| Duration::MAX, || true).is_none());
+        assert!(gate.start(|| Duration::MAX, || false).is_some());
     }
 
     #[test]

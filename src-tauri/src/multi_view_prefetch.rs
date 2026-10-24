@@ -499,7 +499,7 @@ impl Drop for PrimaryDecode {
 }
 
 /// Zoomed regions, the primary's decode or frame want the cores.
-fn busy() -> bool {
+pub(crate) fn busy() -> bool {
     REGIONS_BUSY.load(Ordering::SeqCst) > 0
         || PRIMARY_DECODES.load(Ordering::SeqCst) > 0
         || PREVIEW_FRAMES.load(Ordering::SeqCst) > 0
