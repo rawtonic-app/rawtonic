@@ -2946,13 +2946,19 @@
       "builtIn": "Integrades",
       "import": "Importa…",
       "imported": "Importades",
+      "importFolder": "Importa una carpeta…",
+      "importFolderTitle": "Importa totes les LUT d’una carpeta (i les subcarpetes) com un paquet",
       "importTitle": "Importa LUT .cube, .3dl o d’imatge HALD",
       "none": "Cap",
       "remove": "Elimina",
       "removeTitle": "Elimina aquesta LUT importada de Rawtonic",
       "toasts": {
         "importFailed": "No s'ha pogut importar la LUT.",
-        "removeFailed": "No s'ha pogut eliminar la LUT."
+        "noneFound": "No s’han trobat fitxers LUT.",
+        "removeFailed": "No s'ha pogut eliminar la LUT.",
+        "skipped_one": "{{count}} fitxer no s’ha importat ({{imported}} importats):\n{{files}}",
+        "skipped_many": "{{count}} fitxers no s’han importat ({{imported}} importats):\n{{files}}",
+        "skipped_other": "{{count}} fitxers no s’han importat ({{imported}} importats):\n{{files}}"
       }
     },
     "masks": {

@@ -2787,13 +2787,18 @@
       "builtIn": "内蔵",
       "import": "取り込み…",
       "imported": "取り込み済み",
+      "importFolder": "フォルダーを読み込む…",
+      "importFolderTitle": "フォルダー（サブフォルダーを含む）内のすべてのLUTをパックとして読み込みます",
       "importTitle": ".cube、.3dl、HALD 画像の LUT を取り込み",
       "none": "なし",
       "remove": "削除",
       "removeTitle": "取り込んだこの LUT を Rawtonic から削除",
       "toasts": {
         "importFailed": "LUT を取り込めませんでした。",
-        "removeFailed": "LUT を削除できませんでした。"
+        "noneFound": "LUTファイルが見つかりません。",
+        "removeFailed": "LUT を削除できませんでした。",
+        "skipped_one": "{{count}} 件のファイルを読み込めませんでした（{{imported}} 件読み込み済み）:\n{{files}}",
+        "skipped_other": "{{count}} 件のファイルを読み込めませんでした（{{imported}} 件読み込み済み）:\n{{files}}"
       }
     },
     "masks": {

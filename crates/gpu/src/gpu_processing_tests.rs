@@ -739,6 +739,116 @@ fn diffraction_correction_sharpens_without_shifting_the_level() {
 }
 
 #[test]
+#[ignore = "requires a native GPU; LUT amount"]
+fn lut_amount_mixes_to_100_percent_and_extrapolates_above() {
+    let context = context();
+    let (width, height) = (256, 128);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 11);
+    // A look: more contrast, warmer, a little less saturated.
+    let size = 17u32;
+    let mut data = Vec::new();
+    for b in 0..size {
+        for g in 0..size {
+            for r in 0..size {
+                let [r, g, b] = [r, g, b].map(|v| v as f32 / (size - 1) as f32);
+                let s = |x: f32| 0.6 * x * x * (3.0 - 2.0 * x) + 0.4 * x;
+                let rgb = [s(r) + 0.03, s(g), s(b) - 0.03];
+                let mean = (rgb[0] + rgb[1] + rgb[2]) / 3.0;
+                data.extend(rgb.map(|c| (mean + (c - mean) * 0.85).clamp(0.0, 1.0)));
+            }
+        }
+    }
+    let lut = Arc::new(Lut { size, data });
+    for scene in [false, true] {
+        let render = |amount: Option<f64>| {
+            let recipe = match amount {
+                Some(amount) => json!({
+                    "exposure": -1.5, "lutPath": "/look.cube",
+                    "lutIntensity": amount, "lutIsSceneReferred": scene,
+                }),
+                None => json!({"exposure": -1.5}),
+            };
+            let adjustments = get_all_adjustments_from_json(&recipe, true, Some(3));
+            let (pixels, ..) = processor
+                .run(
+                    &view,
+                    width,
+                    height,
+                    RenderRequest {
+                        adjustments,
+                        mask_bitmaps: &[],
+                        lut: amount.map(|_| lut.clone()),
+                        roi: None,
+                    },
+                    false,
+                    RenderOutputPrecision::SixteenBit,
+                )
+                .unwrap();
+            let RenderedPixels::U16(pixels) = pixels else {
+                unreachable!()
+            };
+            let channels = pixels.len() / (width * height) as usize;
+            pixels
+                .chunks(channels)
+                .map(|p| [0, 1, 2].map(|c| p[c] as f32 / 65535.0))
+                .collect::<Vec<[f32; 3]>>()
+        };
+        let base = render(None);
+        let full = render(Some(100.0));
+        assert_eq!(render(Some(0.0)), base, "scene {scene}: 0 %");
+        let changed = base.iter().zip(&full).filter(|(a, b)| a != b).count();
+        assert!(
+            changed > base.len() / 2,
+            "scene {scene}: the LUT had no effect"
+        );
+        for amount in [40.0, 150.0, 200.0, 300.0] {
+            let got = render(Some(amount));
+            let a = (amount as f32 / 100.0).min(2.0);
+            // Colours beyond the cube are clipped by the output, after
+            // the amount; compare where the colour without the LUT and
+            // with it at 100 % are inside.
+            let inside = |p: &[f32; 3]| p.iter().all(|v| (0.002..0.998).contains(v));
+            let mut worst = 0.0f32;
+            let mut compared = 0;
+            for ((got, base), full) in got.iter().zip(&base).zip(&full) {
+                assert!(got.iter().all(|v| (0.0..=1.0).contains(v)));
+                if !inside(base) || !inside(full) {
+                    continue;
+                }
+                compared += 1;
+                let want = crate::lut::apply_amount(*base, *full, a);
+                for c in 0..3 {
+                    worst = worst.max((got[c] - want[c]).abs());
+                }
+            }
+            assert!(
+                compared > base.len() / 2,
+                "scene {scene}: {compared} compared"
+            );
+            // Outputs are 16-bit and the inputs to the amount are those
+            // of the shader, not the rounded outputs.
+            assert!(
+                worst < 2.0 / 255.0,
+                "scene {scene} {amount} %: off by {worst}"
+            );
+        }
+        let far = render(Some(200.0));
+        let moved = |x: &[[f32; 3]]| -> f32 {
+            x.iter()
+                .zip(&base)
+                .map(|(x, b)| (0..3).map(|c| (x[c] - b[c]).abs()).sum::<f32>())
+                .sum::<f32>()
+        };
+        let ratio = moved(&far) / moved(&full);
+        assert!(
+            ratio > 1.5 && ratio < 2.1,
+            "scene {scene}: 200 % moved {ratio}x"
+        );
+    }
+}
+
+#[test]
 #[ignore = "requires a native GPU; camera profile matrix and HSV tables"]
 fn camera_profile_matrix_and_tables_act_on_the_gpu() {
     let context = context();

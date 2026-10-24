@@ -2787,13 +2787,18 @@
       "builtIn": "기본 제공",
       "import": "가져오기…",
       "imported": "가져옴",
+      "importFolder": "폴더 가져오기…",
+      "importFolderTitle": "폴더(하위 폴더 포함)의 모든 LUT를 팩으로 가져옵니다",
       "importTitle": ".cube, .3dl 또는 HALD 이미지 LUT 가져오기",
       "none": "없음",
       "remove": "제거",
       "removeTitle": "가져온 이 LUT를 Rawtonic에서 제거",
       "toasts": {
         "importFailed": "LUT를 가져올 수 없습니다.",
-        "removeFailed": "LUT를 제거할 수 없습니다."
+        "noneFound": "LUT 파일을 찾을 수 없습니다.",
+        "removeFailed": "LUT를 제거할 수 없습니다.",
+        "skipped_one": "파일 {{count}}개를 가져오지 못했습니다({{imported}}개 가져옴):\n{{files}}",
+        "skipped_other": "파일 {{count}}개를 가져오지 못했습니다({{imported}}개 가져옴):\n{{files}}"
       }
     },
     "masks": {
