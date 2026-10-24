@@ -1,10 +1,17 @@
 import '../../i18n';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import CameraHelpDialog, { RAW_PIXLS_LIST_URL, RAW_PIXLS_URL, isDecoderError } from './CameraHelpDialog';
+import { toast } from 'react-toastify';
+import CameraHelpDialog, {
+  RAW_PIXLS_LIST_URL,
+  RAW_PIXLS_URL,
+  isDecoderError,
+  warnPreviewFallback,
+} from './CameraHelpDialog';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.reject(new Error('no IPC in tests'))) }));
 vi.mock('@tauri-apps/plugin-shell', () => ({ open: vi.fn() }));
+vi.mock('react-toastify', () => ({ toast: { warn: vi.fn(), error: vi.fn() } }));
 
 afterEach(cleanup);
 
@@ -59,5 +66,20 @@ describe('camera help', () => {
         'Nikon High Efficiency RAW cannot be developed in Rawtonic: the format is patented and has no open decoder.',
       ),
     ).toBe(false);
+  });
+
+  it('warns about every preview shown instead of a development, offering help only where a sample helps', () => {
+    warnPreviewFallback('/x/DSC_0001.NEF', false);
+    expect(vi.mocked(toast.warn)).toHaveBeenCalledWith(
+      expect.stringContaining('“DSC_0001.NEF”'),
+      expect.objectContaining({ toastId: 'camera-help:/x/DSC_0001.NEF' }),
+    );
+    vi.mocked(toast.warn).mockClear();
+    warnPreviewFallback('/x/DSC01234.ARW', true);
+    const [content] = vi.mocked(toast.warn).mock.calls[0];
+    expect(typeof content).not.toBe('string');
+    render(<>{content as React.ReactNode}</>);
+    expect(screen.getByRole('button', { name: 'Help support this camera…' })).toBeTruthy();
+    expect(screen.getByText(/“DSC01234.ARW”/)).toBeTruthy();
   });
 });

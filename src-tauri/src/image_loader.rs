@@ -46,9 +46,11 @@ pub struct LoadImageResult {
     /// 3); None for preview data.
     pub dead_pixel_adjacent: Option<bool>,
     /// The RAW data could not be developed and the camera's embedded preview
-    /// is shown instead (an unsupported camera or RAW mode, a damaged file):
-    /// Develop offers camera help.
+    /// is shown instead (an unsupported camera or RAW mode, a damaged file).
     pub developed_from_preview: bool,
+    /// ... and a camera sample could help (Develop offers camera help): not
+    /// for a format no open decoder reads.
+    pub camera_help: bool,
 }
 
 pub fn load_and_composite(
@@ -1207,6 +1209,9 @@ pub async fn load_image(
             "cached": was_cached, "width": orig_width, "height": orig_height
         })
     );
+    let preview_fallback = is_raw
+        .then(|| preview_fallback_reason(&source_path_str))
+        .flatten();
     Ok(LoadImageResult {
         width: orig_width,
         height: orig_height,
@@ -1219,7 +1224,10 @@ pub async fn load_image(
         offline: None,
         color_noise_multiscale: Some(variant.multiscale),
         dead_pixel_adjacent: Some(variant.dead_test == DeadTest::Adjacent),
-        developed_from_preview: is_raw && ensure_raw_developed(&source_path_str).is_err(),
+        developed_from_preview: preview_fallback.is_some(),
+        camera_help: preview_fallback
+            .as_deref()
+            .is_some_and(|reason| !reason.contains(NO_OPEN_DECODER)),
     })
 }
 
@@ -1309,6 +1317,7 @@ async fn open_offline(
             color_noise_multiscale: None,
             dead_pixel_adjacent: None,
             developed_from_preview: false,
+            camera_help: false,
         }));
     }
     let remembered = state
@@ -1361,6 +1370,7 @@ async fn open_offline(
         color_noise_multiscale: None,
         dead_pixel_adjacent: None,
         developed_from_preview: false,
+        camera_help: false,
     }))
 }
 

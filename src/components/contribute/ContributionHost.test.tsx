@@ -90,3 +90,32 @@ describe('the crash question at start', () => {
     expect(screen.getByRole('checkbox', { name: /Backtrace/ })).toBeTruthy();
   });
 });
+
+describe('camera help', () => {
+  it("reports the failed file's camera, never the open photo's when that is not known", async () => {
+    const { useEditorStore } = await import('../../store/useEditorStore');
+    const { useUIStore } = await import('../../store/useUIStore');
+    useEditorStore.setState({
+      selectedImage: { path: '/p/other.NEF', exif: { Make: 'NIKON', Model: 'Z 6' } } as never,
+    });
+    vi.mocked(invoke).mockImplementation((command: string) => {
+      if (command === 'crash_reports_pending') return Promise.resolve([]);
+      if (command === 'contribution_available') return Promise.resolve(false);
+      if (command === 'read_exif_for_paths') return Promise.resolve({});
+      if (command === 'problem_report_context')
+        return Promise.resolve({
+          app: { version: '0.1.0-alpha.4', os: 'macos', osVersion: '26.5', arch: 'aarch64' },
+          gpu: null,
+          logTail: null,
+          screenshotAvailable: false,
+        });
+      return Promise.resolve(null);
+    });
+    await start();
+    act(() => useUIStore.getState().setCameraHelp({ path: '/p/failed.ARW', reason: 'unreadable' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Report a problem with this file…' }));
+    await screen.findByText('What happened? What did you expect?', {}, { timeout: 2000 });
+    expect(screen.getByText(/no photo open/)).toBeTruthy();
+    expect(screen.queryByText(/NIKON Z 6/)).toBeNull();
+  });
+});

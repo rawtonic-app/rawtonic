@@ -12,6 +12,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-shell";
 import { ExternalLink } from "lucide-react";
 import { toast } from "react-toastify";
+import i18next from "i18next";
 import { useModalFocus } from "../../hooks/useModalFocus";
 import { useUIStore, type CameraHelpRequest } from "../../store/useUIStore";
 import { Invokes } from "../ui/AppProperties";
@@ -28,8 +29,10 @@ export const RAW_PIXLS_URL = "https://raw.pixls.us/";
 export const RAW_PIXLS_LIST_URL = "https://raw.pixls.us/#repo";
 
 /** Whether a load error is the decoder's (a file it cannot read) rather
- * than a missing file or a cancelled load (`isUnreadableError`). A format no open decoder reads (Nikon's High Efficiency
- * NEF, its error says so) is left out: a sample does not help there. */
+ * than a missing file or a cancelled load (`isUnreadableError`). A format
+ * no open decoder reads (Nikon's High Efficiency NEF; its error says so,
+ * `NO_OPEN_DECODER` in crates/engine/src/image_loader.rs) is left out: a
+ * sample does not help there. */
 export const isDecoderError = (error: unknown) =>
   isUnreadableError(error) && !/no open decoder/i.test(String(error));
 
@@ -53,6 +56,16 @@ function CameraHelpNotice({ text, request }: { text: string; request: CameraHelp
 export const offerCameraHelp = (text: string, request: CameraHelpRequest) => {
   const show = request.reason === "preview" ? toast.warn : toast.error;
   show(<CameraHelpNotice text={text} request={request} />, { toastId: `camera-help:${request.path}` });
+};
+
+/** The warning for a RAW shown through its embedded camera preview (it is
+ * not developed and cannot be exported), with camera help where a sample
+ * could help. */
+export const warnPreviewFallback = (path: string, cameraHelp: boolean) => {
+  const name = path.split("?")[0].split(/[\\/]/).pop() ?? "";
+  const text = i18next.t("contribute.cameraHelp.previewNotice", { name });
+  if (cameraHelp) offerCameraHelp(text, { path, reason: "preview" });
+  else toast.warn(text, { toastId: `camera-help:${path}` });
 };
 
 const readCamera = async (path: string): Promise<PhotoInfo | null> => {

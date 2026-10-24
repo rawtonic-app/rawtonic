@@ -5,8 +5,7 @@ import { listen } from '@tauri-apps/api/event';
 import { toast } from 'react-toastify';
 import { useEditorStore } from '../store/useEditorStore';
 import { isRawPhoto, useLibraryStore } from '../store/useLibraryStore';
-import i18next from 'i18next';
-import { isDecoderError, offerCameraHelp } from '../components/contribute/CameraHelpDialog';
+import { isDecoderError, offerCameraHelp, warnPreviewFallback } from '../components/contribute/CameraHelpDialog';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes, type ImageMetadata, type LoadImageResult } from '../components/ui/AppProperties';
@@ -300,11 +299,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             toast.error(`AI Denoise is not available: ${loadImageResult.ai_denoise_error}`);
           }
           if (loadImageResult.developed_from_preview) {
-            const name = selectedImage.path.split('?')[0].split(/[\\/]/).pop() ?? '';
-            offerCameraHelp(i18next.t('contribute.cameraHelp.previewNotice', { name }), {
-              path: selectedImage.path,
-              reason: 'preview',
-            });
+            warnPreviewFallback(selectedImage.path, loadImageResult.camera_help ?? false);
           }
           if (published.proxy) {
             // The recipe and history stay, with any edits made on the proxy;
