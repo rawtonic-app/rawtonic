@@ -17,6 +17,7 @@ import {
   initialAdjustmentsFor,
   COPYABLE_ADJUSTMENT_KEYS,
   normalizeLoadedAdjustments,
+  sameAdjustmentValue,
   withAiDenoiseVersion,
   withDiffractionVersion,
   withLumaNoiseVersion,
@@ -196,6 +197,68 @@ function pastedOpen(
   }
   const shown = opened ? editorRecipe(merged, open.isRaw, opened.width, opened.height, opened.camera) : merged;
   return withOwnBitmapIds(shown, current);
+}
+
+/** The settings that choose a lens correction; its data
+ * (`lensDistortionParams`) is each photograph's own (its camera, lens,
+ * focal length). */
+const LENS_CHOICE_KEYS = ['lensCorrectionMode', 'lensMaker', 'lensModel', 'cameraCaVersion', 'lensDistortionParams'];
+
+/** `lensProfileFor` of a recipe whose lens data is not resolved for its lens
+ * choice yet (`lens_recipe::LENS_UNRESOLVED`): every save and render
+ * resolves it (`prepare_recipe_lens`). */
+const LENS_UNRESOLVED = 'unresolved';
+
+/** A recipe's lens choice with its data, as `lens_recipe::lens_profile_stamp`
+ * tells them apart. */
+function lensChoice(recipe: Adjustments): unknown[] {
+  const field = (key: string) => (recipe as unknown as Record<string, unknown>)[key] ?? null;
+  const mode = field('lensCorrectionMode') ?? 'manual';
+  return mode === 'camera'
+    ? [mode, field('cameraCaVersion'), field('lensDistortionParams')]
+    : [mode, field('lensMaker'), field('lensModel'), field('lensDistortionParams')];
+}
+
+/** `next` (`current` with `pasted`, for the open photograph): a pasted lens
+ * choice that changes its lens without its data, marked unresolved, so an
+ * export or save before `resolvePastedLens` brought its data resolves it
+ * for this photograph rather than render the source's or the previous
+ * lens's data. */
+function withPastedLensUnresolved(next: Adjustments, current: Adjustments, pasted: Partial<Adjustments>): Adjustments {
+  if (!LENS_CHOICE_KEYS.some((key) => key in pasted)) return next;
+  if (sameAdjustmentValue(lensChoice(next), lensChoice(current))) return next;
+  return { ...next, lensDistortionParams: null, lensProfileFor: LENS_UNRESOLVED };
+}
+
+/** Resolves the lens data of a lens choice pasted onto the open photograph
+ * `path` (`pastedStep`, its paste's history step) as its save does, and
+ * puts it into that step and the steps after it (undone ones included) that
+ * still have that choice unresolved; a later lens edit is left alone.
+ * Nothing while that step is gone from the history (a new edit after
+ * undoing it; its save resolves it anyway) or the data cannot be resolved
+ * yet (export and save try again). */
+async function resolvePastedLens(path: string, pastedStep: Adjustments) {
+  const lens = await invoke<Partial<Adjustments>>(Invokes.ResolvePastedLens, { path, adjustments: pastedStep }).catch(
+    () => null,
+  );
+  if (!lens || lens.lensProfileFor === LENS_UNRESOLVED || !isCurrentEditorImage(path)) return;
+  debouncedSetHistory.flush();
+  const { history, historyIndex, adjustments } = useEditorStore.getState();
+  const at = history.indexOf(pastedStep);
+  if (at < 0) return;
+  const unresolved = lensChoice(pastedStep);
+  const waiting = (recipe: Adjustments) =>
+    recipe.lensProfileFor === LENS_UNRESOLVED && sameAdjustmentValue(lensChoice(recipe), unresolved);
+  const patched = history.map((step, index) => (index >= at && waiting(step) ? { ...step, ...lens } : step));
+  // The recipe shown: its step's, or (a drag's moves not yet a step) with
+  // the same data.
+  const shown =
+    historyIndex < at || !waiting(adjustments)
+      ? adjustments
+      : history[historyIndex] === adjustments
+        ? patched[historyIndex]
+        : { ...adjustments, ...lens };
+  useEditorStore.setState({ history: patched, ...(shown !== adjustments ? { adjustments: shown } : {}) });
 }
 
 /** The settings a copy, sync or Previous takes from: the open photograph's
@@ -725,11 +788,15 @@ export function useEditorActions() {
         // At once, as one step: a drag's moves since the last commit are
         // part of the edit it is pasted onto.
         flushSliderDraft();
-        const next = pastedOpen(open, useEditorStore.getState().adjustments, adjustmentsToApply, paste);
-        if (next) {
+        const current = useEditorStore.getState().adjustments;
+        const merged = pastedOpen(open, current, adjustmentsToApply, paste);
+        if (merged) {
+          const next = withPastedLensUnresolved(merged, current, adjustmentsToApply);
           debouncedSetHistory.flush();
           setAdjustments(() => next);
           debouncedSetHistory.flush();
+          const pastedStep = useEditorStore.getState().adjustments;
+          if (next !== merged) void resolvePastedLens(open.path, pastedStep);
         }
       } else if (open) {
         setAdjustments({ ...adjustments, ...adjustmentsToApply });

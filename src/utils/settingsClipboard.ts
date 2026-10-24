@@ -32,22 +32,6 @@ export interface SettingsGroup {
  * which a never-edited photograph gets with the current one. */
 const TOOL_VERSIONS = new Set(['cameraCaVersion']);
 
-/** The Lens Correction section is not copied, pasted or synced yet: its
- * lens data belongs to each photograph (its camera, lens, focal length) and
- * has to be resolved there (G27 follow-up). The picker says so. */
-const NOT_PASTED_GROUP = 'modals.copyPaste.groups.lensCorrection';
-const NOT_PASTED_KEYS = new Set(
-  Object.values(ADJUSTMENT_GROUPS)
-    .flat()
-    .filter((group) => group.label === NOT_PASTED_GROUP)
-    .flatMap((group) => group.keys)
-    .filter((key) => !/Version$/.test(key) || TOOL_VERSIONS.has(key)),
-);
-/** The picker section that would hold Lens Correction, where it says so. */
-export const NOT_PASTED_SECTION = Object.entries(ADJUSTMENT_GROUPS).find(([, groups]) =>
-  groups.some((group) => group.label === NOT_PASTED_GROUP),
-)?.[0];
-
 /** The photo-wide processing versions (responses) settings are rendered
  * with: Lightroom's Process Version, an entry of its own in the picker, off
  * by default. Unchosen, a photograph keeps its own and pasted values render
@@ -68,14 +52,12 @@ const MISSING_RESPONSES: Record<string, number> = { fringeVersion: 0, autoCaVers
 export const RESPONSES_CHOSEN = 'processingVersions';
 
 /** The groups the Copy and Sync settings picker offers, by section, without
- * the processing versions (`RESPONSE_KEYS`), the local layers (chosen on
- * their own) and Lens Correction (not pasted). */
+ * the processing versions (`RESPONSE_KEYS`) and the local layers (chosen
+ * on their own). */
 export const SETTINGS_GROUPS: SettingsGroup[] = Object.entries(ADJUSTMENT_GROUPS)
   .filter(([section]) => section !== 'masks')
   .flatMap(([section, groups]) =>
-    groups
-      .filter((group) => group.label !== NOT_PASTED_GROUP)
-      .map((group) => ({ section, label: group.label, keys: group.keys.filter((key) => !RESPONSE_KEYS.includes(key)) })),
+    groups.map((group) => ({ section, label: group.label, keys: group.keys.filter((key) => !RESPONSE_KEYS.includes(key)) })),
   )
   .filter((group) => group.keys.length > 0);
 
@@ -92,13 +74,12 @@ export function groupModified(group: SettingsGroup, adjustments: Adjustments, is
  * no layers). A chosen setting the source does not have (As Shot white
  * balance has no custom one) is `null`: the destination loses its own too
  * (`pasted_metadata`). Processing versions only when chosen (`RESPONSE_KEYS`
- * among `keys`), each as the source has it. Lens Correction never, also
- * when remembered from before the picker. */
+ * among `keys`), each as the source has it. */
 export function chosenSettings(source: Adjustments, keys: string[], layerIds: string[]): Partial<Adjustments> {
   const chosen: Record<string, unknown> = {};
   const values = source as unknown as Record<string, unknown>;
   for (const key of keys) {
-    if (key === 'masks' || NOT_PASTED_KEYS.has(key)) continue;
+    if (key === 'masks') continue;
     if (values[key] !== undefined && values[key] !== null) chosen[key] = structuredClone(values[key]);
     // A processing version the source lacks, which a never-edited
     // photograph would get anyway: what the renderer reads for it missing.

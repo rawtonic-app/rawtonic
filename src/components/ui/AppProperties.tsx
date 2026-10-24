@@ -74,6 +74,7 @@ export enum Invokes {
   CancelThumbnailGeneration = 'cancel_thumbnail_generation',
   LoadAndParseLut = 'load_and_parse_lut',
   ApplyAutoLensCorrectionToPaths = 'apply_auto_lens_correction_to_paths',
+  ResolvePastedLens = 'resolve_pasted_lens',
   UpdateThumbnailQueue = 'update_thumbnail_queue',
   BeginImageListing = 'begin_image_listing',
   NextImageListingPage = 'next_image_listing_page',
