@@ -6,10 +6,12 @@ import { useEditorStore } from "../store/useEditorStore";
 import { useUIStore } from "../store/useUIStore";
 import { useSettingsStore } from "../store/useSettingsStore";
 import { useLibraryStore } from "../store/useLibraryStore";
+import { useMultiViewStore } from "../store/useMultiViewStore";
 import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER } from "../utils/adjustments";
 import { Invokes, Panel } from "../components/ui/AppProperties";
 import { debouncedSave } from "./useEditorActions";
 import { toast } from "react-toastify";
+import { flushSliderDraft, renderDraft } from "../utils/sliderDraft";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("./useEditorActions", () => ({ debouncedSave: vi.fn(), registerScheduledRecipe: vi.fn(() => () => {}) }));
@@ -81,6 +83,7 @@ beforeEach(() => {
   useUIStore.setState({ activeView: "editor" });
   useSettingsStore.setState({ appSettings: null });
   useLibraryStore.setState({ multiSelectedPaths: [] });
+  useMultiViewStore.setState({ active: false, editAll: false });
 });
 
 it("rerenders browser previews when clipping and soft proof change without saving the recipe", async () => {
@@ -404,5 +407,42 @@ describe("AI Denoise busy note", () => {
     );
     await act(async () => first.reject("Load cancelled"));
     expect(useEditorStore.getState().aiDenoiseBusy).toBe(true);
+  });
+});
+
+describe("slider drafts with many photographs selected", () => {
+  const selectAll = () => {
+    useLibraryStore.setState({ multiSelectedPaths: Array.from({ length: 200 }, (_, i) => (i ? `/p${i}.dng` : "/first.dng")) });
+    useMultiViewStore.setState({ active: true });
+  };
+  const drag = () => {
+    const commit = vi.fn();
+    const rendered = [1, 2].map((exposure) =>
+      renderDraft("/first.dng", { ...INITIAL_ADJUSTMENTS, exposure }, commit),
+    );
+    flushSliderDraft();
+    return { rendered, commit };
+  };
+
+  it("renders a drag's moves as drafts in the multi view", async () => {
+    selectAll();
+    mount();
+    await finish();
+    const { rendered, commit } = drag();
+    // Rendered without a store commit per move: the commit takes the last.
+    expect(rendered).toEqual([true, true]);
+    expect(calls().slice(1).map(([, a]) => (a as { jsAdjustments: { exposure: number } }).jsAdjustments.exposure)).toEqual([1, 2]);
+    expect(commit).toHaveBeenCalledExactlyOnceWith("/first.dng", expect.objectContaining({ exposure: 2 }));
+  });
+
+  it("commits every move while Edit all selected is on", async () => {
+    selectAll();
+    useMultiViewStore.setState({ editAll: true });
+    mount();
+    await finish();
+    const { rendered, commit } = drag();
+    expect(rendered).toEqual([false, false]);
+    expect(calls()).toHaveLength(1);
+    expect(commit).not.toHaveBeenCalled();
   });
 });

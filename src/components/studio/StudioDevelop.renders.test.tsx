@@ -21,6 +21,10 @@ let useEditorStore: typeof import("../../store/useEditorStore").useEditorStore;
 let debouncedSetHistory: typeof import("../../hooks/useEditorActions").debouncedSetHistory;
 let sliderDraft: typeof import("../../utils/sliderDraft");
 let INITIAL_ADJUSTMENTS: typeof import("../../utils/adjustments").INITIAL_ADJUSTMENTS;
+let ImageProcessingManager: typeof import("../managers/ImageProcessingManager").default;
+let useMultiViewStore: typeof import("../../store/useMultiViewStore").useMultiViewStore;
+let useLibraryStore: typeof import("../../store/useLibraryStore").useLibraryStore;
+let useUIStore: typeof import("../../store/useUIStore").useUIStore;
 beforeAll(async () => {
   await import("../../i18n");
   rtl = await import("@testing-library/react");
@@ -35,6 +39,10 @@ beforeAll(async () => {
   ({ debouncedSetHistory } = await import("../../hooks/useEditorActions"));
   sliderDraft = await import("../../utils/sliderDraft");
   ({ INITIAL_ADJUSTMENTS } = await import("../../utils/adjustments"));
+  ImageProcessingManager = (await import("../managers/ImageProcessingManager")).default;
+  ({ useMultiViewStore } = await import("../../store/useMultiViewStore"));
+  ({ useLibraryStore } = await import("../../store/useLibraryStore"));
+  ({ useUIStore } = await import("../../store/useUIStore"));
 });
 
 let stopDrafts = () => {};
@@ -43,7 +51,6 @@ beforeEach(async () => {
   vi.stubGlobal("requestAnimationFrame", (fn: FrameRequestCallback) => setTimeout(() => fn(0), 16));
   vi.stubGlobal("cancelAnimationFrame", clearTimeout);
   vi.stubGlobal("PointerEvent", MouseEvent);
-  const { useUIStore } = await import("../../store/useUIStore");
   const { Panel } = await import("../ui/AppProperties");
   useEditorStore.setState({
     ...useEditorStore.getInitialState(),
@@ -56,6 +63,9 @@ beforeEach(async () => {
 });
 afterEach(() => {
   takeRenderCensus();
+  useMultiViewStore.setState({ active: false, editAll: false });
+  useLibraryStore.setState({ multiSelectedPaths: [] });
+  useUIStore.setState({ activeView: "library" });
   stopDrafts();
   rtl.cleanup();
   debouncedSetHistory.cancel();
@@ -185,5 +195,53 @@ describe("Tools with their own subscription", () => {
     startRenderCensus();
     setAdjustments(own);
     expect(takeRenderCensus()[name]).toBeGreaterThan(0);
+  });
+});
+
+describe("Develop renders during a slider drag with 200 photographs selected", () => {
+  // The multi view of the selection, with the preview pipeline's own draft
+  // renderer (not the stand-in above).
+  const develop = () => {
+    const ref = <T,>(current: T) => ({ current });
+    useLibraryStore.setState({
+      multiSelectedPaths: Array.from({ length: 200 }, (_, i) => (i ? `/qa/photo-${i}.dng` : "/qa/photo.dng")),
+    });
+    useMultiViewStore.setState({ active: true });
+    useUIStore.setState({ activeView: "editor" });
+    rtl.render(
+      <>
+        <ImageProcessingManager
+          transformWrapperRef={ref(null)}
+          prevAdjustmentsRef={ref(null)}
+          previewJobIdRef={ref(0)}
+          latestRenderedJobIdRef={ref(0)}
+          currentResRef={ref(1920)}
+        />
+        <StudioDevelop />
+      </>,
+    );
+    return rtl.screen.getByRole("slider", { name: "Exposure" });
+  };
+  const drag = (slider: HTMLElement) => {
+    rtl.fireEvent.pointerDown(slider, { button: 0 });
+    startRenderCensus();
+    for (let i = 1; i <= 12; i++) move(slider, i / 10);
+    const during = takeRenderCensus();
+    rtl.fireEvent.pointerUp(slider, { button: 0 });
+    expect(useEditorStore.getState().adjustments.exposure).toBe(1.2);
+    return during;
+  };
+
+  it("renders Develop and the preview hooks on the drag's commits, not on every move", () => {
+    const during = drag(develop());
+    // 12 moves over 200 ms: one store commit at most (COMMIT_INTERVAL_MS).
+    expect(during.StudioDevelop ?? 0).toBeLessThanOrEqual(1);
+    expect(during.ImageProcessingManager ?? 0).toBeLessThanOrEqual(1);
+  });
+
+  it("commits every move while Edit all selected is on", () => {
+    useMultiViewStore.setState({ editAll: true });
+    const during = drag(develop());
+    expect(during.StudioDevelop).toBe(12);
   });
 });

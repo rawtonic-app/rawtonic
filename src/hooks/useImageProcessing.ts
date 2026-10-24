@@ -45,6 +45,12 @@ import {
 } from '../utils/maskParameterRefs';
 import { useOsPlatform } from './useOsPlatform';
 
+/** Edit all selected is on in the multi view on screen. */
+function editsAllSelected() {
+  const { active, editAll } = useMultiViewStore.getState();
+  return active && editAll;
+}
+
 interface PreviewRequest {
   path: string;
   adjustments: Adjustments;
@@ -660,8 +666,11 @@ export function useImageProcessing(
   ]);
 
   // A slider drag's moves between store commits (utils/sliderDraft.ts), as
-  // the drag branch of the effect below would render them. Multi view and
-  // other views keep committing every move.
+  // the drag branch of the effect below would render them, in the multi view
+  // too: committing every move re-rendered Develop, the viewer and the image
+  // hooks per move with several photographs selected. Edit all selected
+  // (useEditAllSelected follows every committed move and writes once they
+  // pause) and other views keep committing every move.
   const calculateTargetResRef = useRef(calculateTargetRes);
   calculateTargetResRef.current = calculateTargetRes;
   const activeViewRef = useRef(activeView);
@@ -674,7 +683,7 @@ export function useImageProcessing(
           image?.path !== path ||
           !canRenderSource(image) ||
           activeViewRef.current !== 'editor' ||
-          useMultiViewStore.getState().active ||
+          editsAllSelected() ||
           useSettingsStore.getState().appSettings?.enableLivePreviews === false
         ) {
           return false;
