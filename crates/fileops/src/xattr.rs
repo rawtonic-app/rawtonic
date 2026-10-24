@@ -176,7 +176,7 @@ mod sys {
                 (_, n) => {
                     assert!(n >= 6);
                     // SAFETY: the buffer is valid for `n` bytes.
-                    unsafe { std::ptr::copy_nonoverlapping(b"grown\0".as_ptr(), buffer.cast(), 6) };
+                    unsafe { std::ptr::copy_nonoverlapping(c"grown".as_ptr(), buffer.cast(), 6) };
                     6
                 }
             }
