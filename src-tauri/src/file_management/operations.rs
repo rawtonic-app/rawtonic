@@ -625,14 +625,17 @@ fn plan_folder_move(
     // Photos leaving a session are kept there as missing (an undo brings
     // them back); a folder moves only within its session or outside any.
     let target = destination.join(name);
-    // Catalogs keep originals anywhere (`relocate` follows them out).
+    // Catalogs keep originals anywhere (`relocate` follows them out). By
+    // the real places: a link may lead into or out of a session.
     let session_of = |path: &Path| {
         path.ancestors()
-            .skip(1)
             .find(|p| p.join("session.json").is_file())
             .map(Path::to_path_buf)
     };
-    let (from_session, to_session) = (session_of(folder), session_of(&target));
+    let (from_session, to_session) = (
+        session_of(real(folder)?.parent().unwrap_or(Path::new(""))),
+        session_of(&real(destination)?),
+    );
     if from_session != to_session {
         let session = from_session.or(to_session).unwrap_or_default();
         return Err(format!(
@@ -1052,6 +1055,18 @@ mod tests {
         refused(&folder, &job.join("Selects"), "within its session only");
         refused(&job.join("Capture/Day 2"), &dest, "within its session only");
         plan_folder_move(&job.join("Capture/Day 2"), &job.join("Selects")).unwrap();
+        // By the real places: links into and out of the session.
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&dest, job.join("Selects/Out")).unwrap();
+            std::os::unix::fs::symlink(job.join("Selects"), root.join("In")).unwrap();
+            refused(
+                &job.join("Capture/Day 2"),
+                &job.join("Selects/Out"),
+                "within its session only",
+            );
+            refused(&folder, &root.join("In"), "within its session only");
+        }
         // A catalog's folders go anywhere.
         let catalog = root.join("Catalog");
         write(&catalog.join("catalog.json"), "{}");

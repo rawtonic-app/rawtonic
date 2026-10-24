@@ -275,7 +275,6 @@ fn a_crash_at_any_step_of_a_folder_move_undo_or_redo_loses_nothing() {
             assert_eq!(journal.operation(&op.id).unwrap().state, op.state);
             match op.state {
                 _ if both && op.state != State::Done => {}
-                State::Done if both && phase == Phase::Undo => {}
                 State::Done => {
                     journal.undo(&op.id, &world.trash).unwrap();
                     world.assert_folder_at(&world.source, &world.target, false);

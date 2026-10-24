@@ -862,6 +862,7 @@ impl Journal {
                     note.push_str(&format!("; {e:#}"));
                 }
                 payload.note = Some(note);
+                keep_folders_published_back(&mut payload);
                 self.store(id, State::Done, &payload)?;
                 return Err(error.context("Nothing was undone"));
             }
@@ -1175,6 +1176,7 @@ impl Journal {
                         problems.push(format!("{e:#}"));
                     }
                 }
+                keep_folders_published_back(&mut payload);
             } else {
                 for step in payload.steps.iter().rev() {
                     if let Err(e) = restore_if_moved(step, trash) {
@@ -2075,22 +2077,27 @@ fn unpublish(step: &Step, direction: Direction) -> Result<()> {
         source.display()
     );
     rename_exclusive(destination, staged)
-        .with_context(|| format!("Cannot take the copy at {} back", destination.display()))?;
-    // Something written to it while it was compared stays where it was.
-    if !same_entry(source, staged, copy.folder).unwrap_or(false) {
-        rename_exclusive(staged, destination).with_context(|| {
-            format!(
-                "{} changed while it was taken back and stays at {}",
-                destination.display(),
-                staged.display()
-            )
-        })?;
-        bail!(
-            "{} changed while it was taken back; both were kept",
-            destination.display()
-        );
+        .with_context(|| format!("Cannot take the copy at {} back", destination.display()))
+}
+
+/// An undo rolled back after it published a folder back: that copy is
+/// never taken back (see `unpublish`), so both folders stay and the move
+/// counts as having kept its original, as when its original could not go
+/// to the Trash: a later undo trashes only the moved folder, while the two
+/// are the same.
+fn keep_folders_published_back(payload: &mut Payload) {
+    for step in &mut payload.steps {
+        let from = step.from.clone();
+        if let Target::OtherVolume { path, copy } = &mut step.to
+            && copy.folder
+            && copy.copied
+            && copy.staged.as_deref().is_some_and(|s| !exists(s))
+            && is_kind(&from, true)
+            && is_kind(path, true)
+        {
+            copy.kept = true;
+        }
     }
-    Ok(())
 }
 
 /// Removes a folder's staged copy: only the files below it that are at a
