@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'react-toastify';
 import '../i18n';
+import { open } from '@tauri-apps/plugin-dialog';
 import {
+  describeCrossVolumeFolderMove,
   describeCrossVolumeMove,
   describeEmptyTrash,
   describeFileOperation,
@@ -26,6 +28,7 @@ import { INITIAL_ADJUSTMENTS } from '../utils/adjustments';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(() => Promise.resolve(null)) }));
 vi.mock('react-toastify', () => ({
   toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warn: vi.fn(), update: vi.fn(), dismiss: vi.fn() },
 }));
@@ -495,5 +498,84 @@ describe('moving photos to another drive', () => {
     expect(toast.warn).toHaveBeenCalledWith('/Users/a/A.xmp changed while it was moved and was kept', {
       autoClose: false,
     });
+  });
+});
+
+describe('moving a folder', () => {
+  const plan = (part: Partial<MovePlan>): MovePlan => ({
+    crossVolume: true,
+    photos: 3,
+    files: 9,
+    bytes: 98_700_000,
+    drive: 'Archive SSD',
+    freeBytes: 1_900_000_000_000,
+    sourceDrives: ['Macintosh HD'],
+    refusal: null,
+    ...part,
+  });
+  const moved = summary({
+    kind: 'moveFolder',
+    label: 'Move folder Day 1 to 2026',
+    moves: [{ from: '/Users/a/Day 1', to: '/Volumes/Archive SSD/2026/Day 1' }],
+  });
+  const hook = () => renderHook(() => useFileOperations(vi.fn(), vi.fn(), vi.fn(), vi.fn(), []));
+
+  beforeEach(() => {
+    vi.mocked(invoke).mockReset();
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    vi.mocked(open).mockReset();
+    vi.mocked(toast.error).mockClear();
+    useUIStore.setState({ confirmModalState: { isOpen: false } });
+    useLibraryStore.setState({ currentFolderPath: '/Users/a/Day 1/Picks' });
+  });
+
+  it('asks where to, then asks before copying it to another drive, naming what it holds', async () => {
+    vi.mocked(open).mockResolvedValueOnce('/Volumes/Archive SSD/2026');
+    vi.mocked(invoke).mockResolvedValueOnce(plan({})).mockResolvedValueOnce(moved);
+    const { result } = hook();
+    await result.current.handleMoveFolder('/Users/a/Day 1');
+    expect(vi.mocked(open)).toHaveBeenCalledWith(expect.objectContaining({ directory: true, title: 'Move “Day 1” to' }));
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.PlanMoveFolder, {
+      path: '/Users/a/Day 1',
+      destinationFolder: '/Volumes/Archive SSD/2026',
+    });
+    expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(Invokes.MoveFolder, expect.anything());
+    const asked = useUIStore.getState().confirmModalState;
+    expect(asked.title).toBe('Move to Archive SSD?');
+    expect(asked.message).toBe(describeCrossVolumeFolderMove(plan({}), 'Day 1'));
+    expect(asked.message).toContain('The folder “Day 1” with everything in it (3 photos, 9 files, 98.7 MB)');
+    expect(asked.message).toContain('the Trash of Macintosh HD');
+    asked.onConfirm?.();
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.MoveFolder, {
+        path: '/Users/a/Day 1',
+        destinationFolder: '/Volumes/Archive SSD/2026',
+      }),
+    );
+    // The shown folder follows it.
+    await waitFor(() =>
+      expect(useLibraryStore.getState().currentFolderPath).toBe('/Volumes/Archive SSD/2026/Day 1/Picks'),
+    );
+  });
+
+  it('moves on one drive without asking, and nothing when no folder was picked', async () => {
+    const { result } = hook();
+    await result.current.handleMoveFolder('/Users/a/Day 1');
+    expect(vi.mocked(invoke)).not.toHaveBeenCalled();
+    vi.mocked(invoke).mockResolvedValueOnce(plan({ crossVolume: false })).mockResolvedValueOnce(moved);
+    await result.current.handleMoveFolder('/Users/a/Day 1', '/Users/a/2026');
+    expect(useUIStore.getState().confirmModalState.isOpen).toBe(false);
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.MoveFolder, {
+      path: '/Users/a/Day 1',
+      destinationFolder: '/Users/a/2026',
+    });
+  });
+
+  it('says why a folder cannot go to that drive and moves nothing', async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(plan({ refusal: '/Users/a/Day 1/x is a link or special file' }));
+    const { result } = hook();
+    await result.current.handleMoveFolder('/Users/a/Day 1', '/Volumes/Archive SSD');
+    expect(toast.error).toHaveBeenCalledWith('Could not move the folder: /Users/a/Day 1/x is a link or special file');
+    expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(Invokes.MoveFolder, expect.anything());
   });
 });

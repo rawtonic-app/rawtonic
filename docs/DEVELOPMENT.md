@@ -129,7 +129,7 @@ The copy-move tests of `rawtonic-fileops` (ADR 0016) run on two file systems whe
 ```sh
 hdiutil create -size 512m -fs "MS-DOS FAT32" -volname FAT -layout GPTSPUD fat.dmg   # also -fs APFS, -fs ExFAT
 hdiutil attach -nobrowse -mountpoint /path/mnt/fat fat.dmg
-RAWTONIC_TEST_OTHER_VOLUME=/path/mnt/fat cargo test -p rawtonic-fileops --locked --lib copy_move
+RAWTONIC_TEST_OTHER_VOLUME=/path/mnt/fat cargo test -p rawtonic-fileops --locked --lib copy_move -- --test-threads=1   # serially on FAT/exFAT images
 RAWTONIC_TEST_EXFAT_DIR=/path/mnt/exfat cargo test -p rawtonic-fileops --locked --lib exfat
 RAWTONIC_TEST_TRASH_DIR=/path/mnt/fat cargo test -p rawtonic-app --locked --lib platform_trash_round_trip -- --ignored
 hdiutil detach /path/mnt/fat

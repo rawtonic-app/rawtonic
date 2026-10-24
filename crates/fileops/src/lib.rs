@@ -29,7 +29,9 @@ use std::{
 
 #[cfg(test)]
 mod copy_move_tests;
+mod tree;
 mod volume;
+pub use tree::TreeEntry;
 pub use volume::{
     CopyObserver, SPACE_RESERVE, Stamp, Unobserved, VolumeInfo, probe_exclusive_rename,
     rename_exclusive, volume_info,
@@ -44,9 +46,10 @@ pub enum Target {
     Path { path: PathBuf },
     /// The system Trash; `item` identifies the trashed file once it is there.
     SystemTrash { item: Option<String> },
-    /// A file moved to another volume (ADR 0016): copied into a staging
-    /// folder next to `path`, verified byte for byte, renamed to `path`
-    /// without replacing anything, then the source goes to the system Trash.
+    /// A file or folder moved to another volume (ADR 0016): copied into a
+    /// staging folder next to `path`, verified byte for byte, renamed to
+    /// `path` without replacing anything, then the source goes to the
+    /// system Trash.
     OtherVolume {
         path: PathBuf,
         #[serde(default)]
@@ -63,6 +66,15 @@ pub struct CopyState {
     /// None for old journals and file systems that synthesize these bits.
     #[serde(default)]
     pub original_mode: Option<u32>,
+    /// The step moves a folder with everything in it (kept across
+    /// undo/redo).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub folder: bool,
+    /// A folder: the first source's Unix permission bits of each entry
+    /// below it, by its path there (kept across undo/redo, like
+    /// `original_mode`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub modes: BTreeMap<PathBuf, u32>,
     /// Where this direction's copy is staged, recorded before it is made.
     #[serde(default)]
     pub staged: Option<PathBuf>,
@@ -78,6 +90,10 @@ pub struct CopyState {
     /// to the Trash only while its copy is still there unchanged.
     #[serde(default)]
     pub copy_stamp: Option<Stamp>,
+    /// A folder: every entry below it with the stamps a file's `stamp` and
+    /// `copy_stamp` hold (for the folder itself these stay empty).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree: Option<Vec<TreeEntry>>,
     /// The Trash item of the source this direction trashed.
     #[serde(default)]
     pub trashed: Option<String>,
@@ -405,11 +421,19 @@ impl Journal {
         observer: &dyn CopyObserver,
     ) -> Result<Operation> {
         ensure!(!steps.is_empty(), "Nothing to do");
+        for step in &mut steps {
+            if let Target::OtherVolume { copy, .. } = &mut step.to {
+                copy.folder = fs::symlink_metadata(&step.from).is_ok_and(|m| m.is_dir());
+            }
+        }
         validate(&steps)?;
         #[cfg(unix)]
         for step in &mut steps {
             if let Target::OtherVolume { copy, .. } = &mut step.to {
                 copy.original_mode = volume::unix_mode(&step.from)?;
+                if copy.folder {
+                    copy.modes = tree::modes(&step.from)?;
+                }
             }
         }
         check_copies(&copy_pairs(&steps, Direction::Forward))?;
@@ -520,7 +544,7 @@ impl Journal {
         }
         let total = copy_pairs(&payload.steps, direction)
             .iter()
-            .map(|(source, _)| fs::metadata(source).map(|m| m.len()).unwrap_or(0))
+            .map(|(source, _)| bytes_of(source))
             .sum();
         let mut tally = Tally {
             observer,
@@ -539,12 +563,26 @@ impl Journal {
                 Direction::Forward => step.from.clone(),
                 Direction::Back => path.clone(),
             };
-            let (stamp, copy_stamp) =
-                copy_verified(&source, &staged, copy.original_mode, &mut tally)?;
-            if let Target::OtherVolume { copy, .. } = &mut payload.steps[index].to {
-                copy.copied = true;
-                copy.stamp = Some(stamp);
-                copy.copy_stamp = Some(copy_stamp);
+            if copy.folder {
+                let entries = tree::copy_verified(
+                    &source,
+                    &staged,
+                    copy.original_mode,
+                    &copy.modes,
+                    &mut tally,
+                )?;
+                if let Target::OtherVolume { copy, .. } = &mut payload.steps[index].to {
+                    copy.copied = true;
+                    copy.tree = Some(entries);
+                }
+            } else {
+                let (stamp, copy_stamp) =
+                    copy_verified(&source, &staged, copy.original_mode, &mut tally)?;
+                if let Target::OtherVolume { copy, .. } = &mut payload.steps[index].to {
+                    copy.copied = true;
+                    copy.stamp = Some(stamp);
+                    copy.copy_stamp = Some(copy_stamp);
+                }
             }
             self.store_keeping_sync(id, state, payload)?;
             #[cfg(test)]
@@ -591,11 +629,11 @@ impl Journal {
             if copy.trashed.is_some() || (forward && copy.kept) || !exists(&source) {
                 continue;
             }
-            let copy_there = fs::symlink_metadata(&destination).is_ok_and(|m| m.is_file())
+            let copy_there = is_kind(&destination, copy.folder)
                 && if copy.staged.is_none() {
-                    same_content(&source, &destination, false, None).unwrap_or(false)
+                    same_entry(&source, &destination, copy.folder).unwrap_or(false)
                 } else {
-                    Stamp::of(&destination).ok() == copy.copy_stamp
+                    copy_unchanged(copy, &destination)
                 };
             if !copy_there {
                 copy.kept = true;
@@ -604,7 +642,7 @@ impl Journal {
                     source.display(),
                     destination.display()
                 ));
-            } else if Stamp::of(&source).ok() != copy.stamp {
+            } else if !source_unchanged(copy, &source) {
                 copy.kept = true;
                 kept.push(format!(
                     "{} changed while it was moved and was kept",
@@ -726,14 +764,15 @@ impl Journal {
                 }
                 Target::OtherVolume { path, copy } => {
                     ensure!(
-                        fs::symlink_metadata(path).is_ok_and(|m| m.is_file()),
+                        is_kind(path, copy.folder),
                         "{} is no longer there; nothing was undone",
                         path.display()
                     );
                     if copy.kept {
                         // Both copies stayed: only the moved one goes.
                         ensure!(
-                            exists(&step.from) && same_content(&step.from, path, false, None)?,
+                            is_kind(&step.from, copy.folder)
+                                && same_entry(&step.from, path, copy.folder)?,
                             "{} and {} differ now; nothing was undone",
                             step.from.display(),
                             path.display()
@@ -757,7 +796,7 @@ impl Journal {
             if let Target::OtherVolume { path, copy } = &mut step.to
                 && copy.staged.is_none()
             {
-                copy.stamp = Some(Stamp::of(path)?);
+                record_source(copy, path)?;
             }
         }
         let mut payload = Payload {
@@ -876,13 +915,14 @@ impl Journal {
                     // refused) is the copy again, if it is still a file
                     // with the original's bytes; anything else at the
                     // destination is refused below as an existing file.
-                    let file = |p: &Path| fs::symlink_metadata(p).is_ok_and(|m| m.is_file());
                     let present = copy.kept
-                        && file(path)
-                        && file(&from)
-                        && same_content(&from, path, false, None).unwrap_or(false);
+                        && is_kind(path, copy.folder)
+                        && is_kind(&from, copy.folder)
+                        && same_entry(&from, path, copy.folder).unwrap_or(false);
                     *copy = CopyState {
                         original_mode: copy.original_mode,
+                        folder: copy.folder,
+                        modes: std::mem::take(&mut copy.modes),
                         present,
                         ..CopyState::default()
                     };
@@ -898,7 +938,7 @@ impl Journal {
             if let Target::OtherVolume { copy, .. } = &mut step.to
                 && copy.present
             {
-                copy.stamp = Some(Stamp::of(&step.from)?);
+                record_source(copy, &step.from)?;
             }
         }
         let mut payload = Payload {
@@ -1516,6 +1556,24 @@ fn validate(steps: &[Step]) -> Result<()> {
             }
         }
     }
+    // A folder copied to another volume is checked as a whole: no other
+    // step may take something out of it or put something into it.
+    for folder in steps
+        .iter()
+        .filter(|s| matches!(&s.to, Target::OtherVolume { copy, .. } if copy.folder))
+    {
+        for other in steps.iter().filter(|s| !std::ptr::eq(*s, folder)) {
+            let inside = |p: &Path| {
+                p.starts_with(&folder.from) || folder.target().is_some_and(|t| p.starts_with(t))
+            };
+            ensure!(
+                !inside(&other.from) && !other.target().is_some_and(inside),
+                "{} is inside the folder {}, which moves as a whole",
+                other.from.display(),
+                folder.from.display()
+            );
+        }
+    }
     // A target that is another step's source would depend on step order.
     for target in &targets {
         ensure!(
@@ -1639,6 +1697,59 @@ fn copy_ends(step: &Step, direction: Direction) -> Option<(PathBuf, PathBuf)> {
     })
 }
 
+/// Whether `path` is what a copy move's step moves: a file, or for a
+/// folder step a real folder (never a link).
+fn is_kind(path: &Path, folder: bool) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|m| if folder { m.is_dir() } else { m.is_file() })
+}
+
+/// Whether two files, or two folders with everything in them, hold the
+/// same bytes.
+fn same_entry(a: &Path, b: &Path, folder: bool) -> Result<bool> {
+    if folder {
+        tree::same(a, b)
+    } else {
+        same_content(a, b, false, None)
+    }
+}
+
+/// The bytes a copy of `path` (a file or a folder) writes; 0 when unknown.
+fn bytes_of(path: &Path) -> u64 {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() => tree::size(path).map(|(bytes, _)| bytes).unwrap_or(0),
+        Ok(meta) => meta.len(),
+        Err(_) => 0,
+    }
+}
+
+/// Records how a source that is not copied looks now (an original an undo
+/// leaves in place, a copy a redo takes over): its stamp, or a folder's
+/// entries with theirs.
+fn record_source(copy: &mut CopyState, path: &Path) -> Result<()> {
+    if copy.folder {
+        copy.tree = Some(tree::list(path)?);
+    } else {
+        copy.stamp = Some(Stamp::of(path)?);
+    }
+    Ok(())
+}
+
+/// Whether a source is as recorded when its copy was verified.
+fn source_unchanged(copy: &CopyState, path: &Path) -> bool {
+    match &copy.tree {
+        Some(entries) => tree::unchanged(path, entries).unwrap_or(false),
+        None => Stamp::of(path).ok() == copy.stamp,
+    }
+}
+
+/// Whether a verified copy is still there as it was verified.
+fn copy_unchanged(copy: &CopyState, path: &Path) -> bool {
+    match &copy.tree {
+        Some(entries) => tree::copy_unchanged(path, entries),
+        None => Stamp::of(path).ok() == copy.copy_stamp,
+    }
+}
+
 /// A redo rolled back: the copies it was to take over are copies its undo
 /// kept again, so the next redo takes them over too.
 fn keep_present_copies(payload: &mut Payload) {
@@ -1700,24 +1811,25 @@ pub struct CopyNeed {
 }
 
 /// The volumes a set of (source, destination) copies writes to and what
-/// each needs, refusing what a copy move does not support: a source that
-/// is not a regular file (a folder or a link), and sources or destinations
-/// on network drives.
+/// each needs (a folder's: every file in it), refusing what a copy move
+/// does not support: a source that is neither a regular file nor a folder
+/// (a link), a folder with such an entry in it, and sources or
+/// destinations on network drives.
 pub fn copy_needs(pairs: &[(PathBuf, PathBuf)]) -> Result<Vec<CopyNeed>> {
     let mut needs: BTreeMap<PathBuf, CopyNeed> = BTreeMap::new();
     for (source, destination) in pairs {
         let meta = fs::symlink_metadata(source)
             .with_context(|| format!("{} was not found", source.display()))?;
         ensure!(
-            !meta.is_dir(),
-            "{} is a folder; moving folders to another drive is not supported yet",
+            meta.is_file() || meta.is_dir(),
+            "{} is a link or special file; only files and folders can be moved to another drive",
             source.display()
         );
-        ensure!(
-            meta.is_file(),
-            "{} is a link or special file; only files can be moved to another drive",
-            source.display()
-        );
+        let (bytes, files) = if meta.is_dir() {
+            tree::size(source)?
+        } else {
+            (meta.len(), 1)
+        };
         let from = volume_info(source)?;
         ensure!(
             !from.network,
@@ -1738,8 +1850,8 @@ pub fn copy_needs(pairs: &[(PathBuf, PathBuf)]) -> Result<Vec<CopyNeed>> {
                 bytes: 0,
                 files: 0,
             });
-        need.bytes += meta.len();
-        need.files += 1;
+        need.bytes += bytes;
+        need.files += files;
     }
     Ok(needs.into_values().collect())
 }
@@ -1790,6 +1902,7 @@ fn plan_staging(steps: &mut [Step], direction: Direction) -> Result<Vec<PathBuf>
         copy.copied = false;
         copy.stamp = None;
         copy.copy_stamp = None;
+        copy.tree = None;
         copy.staged = None;
         copy.trashed = None;
         let destination = match direction {
@@ -1858,6 +1971,13 @@ fn remove_staging(payload: &Payload) -> Result<()> {
             match fs::symlink_metadata(staged) {
                 Ok(meta) if meta.is_file() => {
                     if let Err(e) = fs::remove_file(staged) {
+                        problems.push(format!("Cannot remove {}: {e}", staged.display()));
+                    }
+                }
+                // A folder's copy, with everything in it (links in it are
+                // removed, never followed).
+                Ok(meta) if meta.is_dir() && copy.folder => {
+                    if let Err(e) = fs::remove_dir_all(staged) {
                         problems.push(format!("Cannot remove {}: {e}", staged.display()));
                     }
                 }
@@ -1930,13 +2050,13 @@ fn unpublish(step: &Step, direction: Direction) -> Result<()> {
     // The source must be a file of its own: not gone, not a link (or a
     // hard link) to the copy, which would then be the only one left.
     ensure!(
-        fs::symlink_metadata(source).is_ok_and(|m| m.is_file()) && !same_file(source, destination),
+        is_kind(source, copy.folder) && !same_file(source, destination),
         "{} is gone or not a file of its own; its copy stays at {}",
         source.display(),
         destination.display()
     );
     ensure!(
-        same_content(source, destination, false, None)?,
+        same_entry(source, destination, copy.folder)?,
         "{} differs from {} now; both were kept",
         destination.display(),
         source.display()

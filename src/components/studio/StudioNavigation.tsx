@@ -75,6 +75,9 @@ import {
  * trash (useFileOperations); the library list itself never touches disk. */
 export interface FolderActions {
   moveHere(paths: string[], folder: string): void;
+  /** Moves the folder with everything in it to a folder the user picks
+   * (to another drive: copied and checked first). */
+  moveFolder?(folder: string): void;
   trash(folder: string): void;
   /** Empties the session's Trash folder for good (asks first; not undoable). */
   emptyTrash?(): void;
@@ -227,6 +230,16 @@ function FolderRow({
             disabled: fixed,
             onClick: () => setUI({ folderActionTarget: path, isRenameFolderModalOpen: true }),
           },
+          ...(actions.moveFolder
+            ? [
+                {
+                  label: t("studio.library.folders.menu.moveFolder"),
+                  icon: FolderInput,
+                  disabled: fixed,
+                  onClick: () => actions.moveFolder?.(path),
+                },
+              ]
+            : []),
           {
             label: t("studio.library.folders.menu.trashFolder"),
             icon: Trash2,

@@ -469,17 +469,28 @@ fn plan_move_files_blocking(
     destination_folder: &str,
 ) -> Result<MovePlan, String> {
     let (steps, images, _) = plan_move(source_paths, destination_folder)?;
+    Ok(other_drive_plan(&steps, images.len(), destination_folder))
+}
+
+/// What the copy moves among `steps` involve (none: a plan that is not
+/// across drives): the files and bytes copied, the drives, and why the
+/// move cannot be done.
+fn other_drive_plan(
+    steps: &[rawtonic_fileops::Step],
+    photos: usize,
+    destination_folder: &str,
+) -> MovePlan {
     let pairs: Vec<(PathBuf, PathBuf)> = steps
         .iter()
         .filter(|step| matches!(step.to, rawtonic_fileops::Target::OtherVolume { .. }))
         .filter_map(|step| Some((step.from.clone(), step.target()?.to_path_buf())))
         .collect();
     if pairs.is_empty() {
-        return Ok(MovePlan::default());
+        return MovePlan::default();
     }
     let mut plan = MovePlan {
         cross_volume: true,
-        photos: images.len(),
+        photos,
         files: pairs.len(),
         ..MovePlan::default()
     };
@@ -498,6 +509,7 @@ fn plan_move_files_blocking(
         Ok(needs) => {
             if let Some(need) = needs.first() {
                 plan.bytes = need.bytes;
+                plan.files = need.files;
                 plan.drive = drive_name(&need.volume.mount_point, need.volume.name.clone());
                 plan.free_bytes = need.volume.free_bytes;
                 if need.volume.free_bytes
@@ -520,7 +532,107 @@ fn plan_move_files_blocking(
     {
         plan.refusal = Some(format!("{e:#}"));
     }
-    Ok(plan)
+    plan
+}
+
+#[tauri::command]
+pub async fn move_folder(
+    path: String,
+    destination_folder: String,
+    app_handle: AppHandle,
+) -> Result<crate::file_operations::OperationSummary, String> {
+    crate::file_management::blocking(move || {
+        let (step, label) = plan_folder_move(Path::new(&path), Path::new(&destination_folder))?;
+        let op = crate::file_operations::run(&app_handle, "moveFolder", &label, vec![step])?;
+        Ok((&op).into())
+    })
+    .await?
+}
+
+/// What moving a folder involves, for the Library to ask first when it
+/// goes to another drive (`photos`: the photographs in it).
+#[tauri::command]
+pub async fn plan_move_folder(
+    path: String,
+    destination_folder: String,
+) -> Result<MovePlan, String> {
+    crate::file_management::blocking(move || {
+        let (step, _) = plan_folder_move(Path::new(&path), Path::new(&destination_folder))?;
+        let steps = [step];
+        if !matches!(steps[0].to, rawtonic_fileops::Target::OtherVolume { .. }) {
+            return Ok(MovePlan::default());
+        }
+        let photos = WalkDir::new(&path)
+            .follow_links(false)
+            .into_iter()
+            .flatten()
+            .filter(|e| {
+                e.file_type().is_file() && crate::formats::is_supported_image_file(e.path())
+            })
+            .count();
+        Ok(other_drive_plan(&steps, photos, &destination_folder))
+    })
+    .await?
+}
+
+/// The step and label of moving the folder `folder`, with everything in
+/// it, into `destination`: a rename on the same drive, a copy move of the
+/// whole folder to another (ADR 0016). A folder that holds a session or
+/// catalog is refused: its database is open and its own paths are relative.
+fn plan_folder_move(
+    folder: &Path,
+    destination: &Path,
+) -> Result<(rawtonic_fileops::Step, String), String> {
+    let meta = fs::symlink_metadata(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
+    if !meta.is_dir() {
+        return Err(format!("{} is not a folder.", folder.display()));
+    }
+    if !destination.is_dir() {
+        return Err(format!(
+            "Destination is not a folder: {}",
+            destination.display()
+        ));
+    }
+    let name = folder
+        .file_name()
+        .ok_or_else(|| format!("{} has no name.", folder.display()))?;
+    if folder.parent() == Some(destination) {
+        return Err("The folder is already in that folder.".to_string());
+    }
+    let real = |p: &Path| {
+        p.canonicalize()
+            .map_err(|e| format!("{}: {e}", p.display()))
+    };
+    if real(destination)?.starts_with(real(folder)?) {
+        return Err("A folder cannot be moved into itself.".to_string());
+    }
+    if let Some(marker) = WalkDir::new(folder)
+        .follow_links(false)
+        .into_iter()
+        .flatten()
+        .find(|e| {
+            e.file_type().is_file()
+                && ["session.json", "catalog.json"]
+                    .contains(&e.file_name().to_string_lossy().as_ref())
+        })
+    {
+        return Err(format!(
+            "{} holds a Rawtonic session or catalog ({}); moving it from the Library is not supported.",
+            folder.display(),
+            marker.path().display()
+        ));
+    }
+    let step = rawtonic_fileops::Step::moving(folder, destination.join(name))
+        .map_err(|e| format!("{e:#}"))?;
+    let label = format!(
+        "Move folder {} to {}",
+        name.to_string_lossy(),
+        destination
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+    );
+    Ok((step, label))
 }
 
 #[tauri::command]
@@ -894,6 +1006,30 @@ mod tests {
 
     fn read(path: &Path) -> String {
         fs::read_to_string(path).unwrap()
+    }
+
+    #[test]
+    fn a_folder_move_is_one_step_and_refuses_what_cannot_move() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let (folder, dest) = (root.join("Shoot"), root.join("Archive"));
+        write(&folder.join("Day 1/A.RAF"), "a");
+        fs::create_dir(&dest).unwrap();
+        let (step, label) = plan_folder_move(&folder, &dest).unwrap();
+        assert_eq!(step.from, folder);
+        assert_eq!(step.target(), Some(dest.join("Shoot").as_path()));
+        assert!(matches!(step.to, rawtonic_fileops::Target::Path { .. }));
+        assert_eq!(label, "Move folder Shoot to Archive");
+        let refused = |from: &Path, to: &Path, expected: &str| {
+            let error = plan_folder_move(from, to).unwrap_err();
+            assert!(error.contains(expected), "{error}");
+        };
+        refused(&folder, &folder.join("Day 1"), "into itself");
+        refused(&folder.join("Day 1"), &folder, "already in that folder");
+        refused(&folder.join("Day 1/A.RAF"), &dest, "is not a folder");
+        // A session (or catalog) inside: its database may be open.
+        write(&folder.join("Day 1/Job/session.json"), "{}");
+        refused(&folder, &dest, "holds a Rawtonic session or catalog");
     }
 
     /// A Trash folder that records what it was given (and refuses `refuse`).
