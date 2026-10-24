@@ -3,6 +3,7 @@
 //! verified file by file, and listed again before the original folder goes
 //! to the Trash, so that nothing in it is left out or changed unseen.
 use crate::volume::{self, Stamp, Tally, same_content, sync_folder};
+use crate::xattr::{self, Attribute};
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -183,12 +184,19 @@ pub(crate) fn copy_verified(
     );
     #[cfg(not(unix))]
     let posix = (false, false);
-    make_folder(source, staged, root_mode, posix.0)?;
+    // Each folder's kept attributes, checked on its copy at the end.
+    let mut folders = vec![(
+        PathBuf::new(),
+        make_folder(source, staged, root_mode, posix.0)?,
+    )];
     for entry in &mut entries {
         let (from, to) = (source.join(&entry.path), staged.join(&entry.path));
         let recorded = modes.get(&entry.path).copied();
         if entry.folder {
-            make_folder(&from, &to, recorded, posix.0)?;
+            folders.push((
+                entry.path.clone(),
+                make_folder(&from, &to, recorded, posix.0)?,
+            ));
             continue;
         }
         let (stamp, copy_stamp) = volume::copy_file_verified(&from, &to, recorded, posix, tally)?;
@@ -204,16 +212,34 @@ pub(crate) fn copy_verified(
     }
     sync_folder(staged)?;
     sync_folder(parent)?;
+    for (path, attributes) in &folders {
+        ensure!(
+            xattr::copied(&staged.join(path), attributes)?,
+            "The extended attributes of the copy of {} differ from the original's after \
+             writing them; nothing was moved",
+            source.join(path).display()
+        );
+    }
+    let mut same_attributes = true;
+    for (path, attributes) in &folders {
+        same_attributes &= xattr::read_path(&source.join(path))? == *attributes;
+    }
     ensure!(
-        unchanged(source, &entries)?,
+        same_attributes && unchanged(source, &entries)?,
         "{} changed while it was copied; nothing was moved",
         source.display()
     );
     Ok(entries)
 }
 
-/// Makes the folder `to` (never an existing one) for the folder `from`.
-fn make_folder(from: &Path, to: &Path, recorded: Option<u32>, posix_source: bool) -> Result<()> {
+/// Makes the folder `to` (never an existing one) for the folder `from`,
+/// with `from`'s kept extended attributes, which it returns.
+fn make_folder(
+    from: &Path,
+    to: &Path,
+    recorded: Option<u32>,
+    posix_source: bool,
+) -> Result<Vec<Attribute>> {
     let mut builder = fs::DirBuilder::new();
     #[cfg(unix)]
     {
@@ -229,7 +255,15 @@ fn make_folder(from: &Path, to: &Path, recorded: Option<u32>, posix_source: bool
     let _ = (from, recorded, posix_source);
     builder
         .create(to)
-        .with_context(|| format!("Cannot create the folder {}", to.display()))
+        .with_context(|| format!("Cannot create the folder {}", to.display()))?;
+    let attributes = xattr::read_path(from)
+        .with_context(|| format!("Cannot read the extended attributes of {}", from.display()))?;
+    if !attributes.is_empty() {
+        let folder = fs::File::open(to)?;
+        xattr::write(&folder, &attributes)
+            .map_err(|e| xattr::cannot_keep(to, from, &attributes, &e))?;
+    }
+    Ok(attributes)
 }
 
 /// A copied folder's mode before the umask: its recorded and live modes
@@ -268,23 +302,53 @@ pub(crate) fn copy_unchanged(root: &Path, entries: &[TreeEntry]) -> bool {
 }
 
 /// Whether the folders `a` and `b` hold the same files and folders with
-/// the same bytes.
+/// the same bytes and kept extended attributes.
 pub(crate) fn same(a: &Path, b: &Path) -> Result<bool> {
     let (x, y) = (list(a)?, list(b)?);
     if x.len() != y.len()
         || x.iter()
             .zip(&y)
             .any(|(p, q)| p.path != q.path || p.folder != q.folder)
+        || !xattr::same(a, b)
     {
         return Ok(false);
     }
-    for entry in x.iter().filter(|e| !e.folder) {
-        if !same_content(&a.join(&entry.path), &b.join(&entry.path), false, None)? {
+    for entry in &x {
+        let (p, q) = (a.join(&entry.path), b.join(&entry.path));
+        if !xattr::same(&p, &q) || (!entry.folder && !same_content(&p, &q, false, None)?) {
             return Ok(false);
         }
     }
     // Nothing added, removed or changed while the bytes were compared.
     Ok(list(a)? == x && list(b)? == y)
+}
+
+/// Whether the file or folder `a` and its copy `b` (for a folder: each
+/// entry `entries` lists) have the same kept extended attributes.
+pub(crate) fn same_attributes(a: &Path, b: &Path, entries: Option<&[TreeEntry]>) -> bool {
+    xattr::same(a, b)
+        && entries
+            .unwrap_or_default()
+            .iter()
+            .all(|e| xattr::same(&a.join(&e.path), &b.join(&e.path)))
+}
+
+/// The first file or folder at or below `path` (a file or a folder) with
+/// extended attributes a copy keeps, and those attributes.
+pub(crate) fn with_attributes(path: &Path) -> Result<Option<(PathBuf, Vec<Attribute>)>> {
+    let below = if fs::symlink_metadata(path)?.is_dir() {
+        list(path)?
+    } else {
+        Vec::new()
+    };
+    for p in std::iter::once(path.to_path_buf()).chain(below.iter().map(|e| path.join(&e.path))) {
+        let attributes = xattr::read_path(&p)
+            .with_context(|| format!("Cannot read the extended attributes of {}", p.display()))?;
+        if !attributes.is_empty() {
+            return Ok(Some((p, attributes)));
+        }
+    }
+    Ok(None)
 }
 
 #[cfg(all(test, unix))]
