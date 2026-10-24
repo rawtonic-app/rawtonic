@@ -299,7 +299,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
           if (loadImageResult.ai_denoise_error) {
             toast.error(`AI Denoise is not available: ${loadImageResult.ai_denoise_error}`);
           }
-          if (loadImageResult.developed_from_preview) {
+          if (loadImageResult.camera_help) {
             const name = selectedImage.path.split('?')[0].split(/[\\/]/).pop() ?? '';
             offerCameraHelp(i18next.t('contribute.cameraHelp.previewNotice', { name }), {
               path: selectedImage.path,

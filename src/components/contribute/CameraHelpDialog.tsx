@@ -28,8 +28,10 @@ export const RAW_PIXLS_URL = "https://raw.pixls.us/";
 export const RAW_PIXLS_LIST_URL = "https://raw.pixls.us/#repo";
 
 /** Whether a load error is the decoder's (a file it cannot read) rather
- * than a missing file or a cancelled load (`isUnreadableError`). A format no open decoder reads (Nikon's High Efficiency
- * NEF, its error says so) is left out: a sample does not help there. */
+ * than a missing file or a cancelled load (`isUnreadableError`). A format
+ * no open decoder reads (Nikon's High Efficiency NEF; its error says so,
+ * `NO_OPEN_DECODER` in crates/engine/src/image_loader.rs) is left out: a
+ * sample does not help there. */
 export const isDecoderError = (error: unknown) =>
   isUnreadableError(error) && !/no open decoder/i.test(String(error));
 

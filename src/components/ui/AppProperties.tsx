@@ -637,8 +637,11 @@ export interface LoadImageResult {
    * (`renderVersion` 3); null for preview data. */
   dead_pixel_adjacent?: boolean | null;
   /** The RAW data could not be developed; the camera's embedded preview is
-   * shown (Develop offers camera help). */
+   * shown. */
   developed_from_preview?: boolean;
+  /** ... and a camera sample could help (not for a format no open decoder
+   * reads): Develop offers camera help. */
+  camera_help?: boolean;
 }
 
 /** Which preview an offline photograph shows: its 1:1 preview (full

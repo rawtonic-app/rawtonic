@@ -99,9 +99,10 @@ export default function ContributionHost() {
   const selectedImage = useEditorStore((s) => s.selectedImage);
   const cameraHelp = useUIStore((s) => s.cameraHelp);
   const setCameraHelp = useUIStore((s) => s.setCameraHelp);
-  // The file camera help opened the report for (it may not be the open
-  // photo: a RAW that failed to load leaves none open).
-  const [reportPhoto, setReportPhoto] = useState<PhotoInfo | null>(null);
+  // The report camera help opened, for its file (it may not be the open
+  // photo: a RAW that failed to load leaves none open), with that file's
+  // camera or none when it is not known — never the open photo's.
+  const [helpReport, setHelpReport] = useState<{ photo: PhotoInfo | null } | null>(null);
   const settingsLoaded = useSettingsStore((s) => s.appSettings !== null);
   const [context, setContext] = useState<ReportContext | null>(null);
   const [screenshot, setScreenshot] = useState<Screenshot | null>(null);
@@ -139,7 +140,7 @@ export default function ContributionHost() {
   // log read; both stay in memory and go only into a report the user sends.
   useEffect(() => {
     if (!isOpen) {
-      setReportPhoto(null);
+      setHelpReport(null);
       setShown(false);
       setContext(null);
       setScreenshot(null);
@@ -201,7 +202,7 @@ export default function ContributionHost() {
         onClose={() => setOpen(false)}
         context={context}
         screenshot={screenshot}
-        photo={reportPhoto ?? photoInfo(selectedImage)}
+        photo={helpReport ? helpReport.photo : photoInfo(selectedImage)}
         pendingCrash={crashes[0] ?? null}
         onReviewCrash={() => {
           setReviewing(crashes[0] ?? null);
@@ -213,7 +214,7 @@ export default function ContributionHost() {
         onClose={() => setCameraHelp(null)}
         onReport={(photo) => {
           setCameraHelp(null);
-          setReportPhoto(photo);
+          setHelpReport({ photo });
           setOpen(true);
         }}
       />

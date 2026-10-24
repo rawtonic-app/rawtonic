@@ -497,6 +497,20 @@ pub fn ensure_raw_developed(path: &str) -> Result<()> {
     }
 }
 
+/// Part of the error for a RAW format no open decoder reads (Nikon High
+/// Efficiency): a camera sample does not help there.
+pub const NO_OPEN_DECODER: &str = "has no open decoder";
+
+/// Why `path` shows its embedded camera preview instead of a development,
+/// if it does.
+pub fn preview_fallback_reason(path: &str) -> Option<String> {
+    preview_fallbacks()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(path)
+        .cloned()
+}
+
 pub fn classify_raw_develop_error(path: &str, err: anyhow::Error) -> anyhow::Error {
     let error_text = err.to_string();
     let lowered = error_text.to_ascii_lowercase();
@@ -508,7 +522,7 @@ pub fn classify_raw_develop_error(path: &str, err: anyhow::Error) -> anyhow::Err
     // RAW library reads.
     if unsupported_compression && lowered.contains("highefficency") {
         return anyhow!(
-            "Nikon High Efficiency RAW cannot be developed in Rawtonic: the format is patented and has no open decoder. Record Lossless compressed RAW in the camera, or convert these files to DNG with Nikon NX Studio or Adobe DNG Converter and open the DNGs ('{}')",
+            "Nikon High Efficiency RAW cannot be developed in Rawtonic: the format is patented and {NO_OPEN_DECODER}. Record Lossless compressed RAW in the camera, or convert these files to DNG with Nikon NX Studio or Adobe DNG Converter and open the DNGs ('{}')",
             path
         );
     }
@@ -1936,6 +1950,7 @@ mod private_preview_tests {
         .to_string();
         assert!(error.contains("Nikon High Efficiency RAW"));
         assert!(error.contains("Lossless compressed") && error.contains("DNG"));
+        assert!(error.contains(super::NO_OPEN_DECODER));
         let other = super::classify_raw_develop_error(
             "/photos/DSC_0002.NEF",
             anyhow::anyhow!("NEF compression Some(Lossy) is not supported"),
@@ -1951,8 +1966,13 @@ mod private_preview_tests {
         super::note_preview_fallback(path, Some("unsupported compression".to_string()));
         let error = super::ensure_raw_developed(path).unwrap_err().to_string();
         assert!(error.contains("unsupported compression") && error.contains("export refused"));
+        assert_eq!(
+            super::preview_fallback_reason(path).as_deref(),
+            Some("unsupported compression")
+        );
         super::note_preview_fallback(path, None);
         assert!(super::ensure_raw_developed(path).is_ok());
+        assert_eq!(super::preview_fallback_reason(path), None);
     }
 }
 
