@@ -67,6 +67,9 @@ static SERIAL: LazyLock<Regex> = LazyLock::new(|| {
     )
     .expect("serial pattern")
 });
+/// A web link, kept apart from path scrubbing (its slashes are not a path).
+static WEB_URL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?i)\bhttps?://[^\s"'<>]*"#).expect("web URL pattern"));
 static EMAIL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b").expect("e-mail pattern")
 });
@@ -174,15 +177,32 @@ impl Scrubber {
         text
     }
 
+    /// One pass: web links (http/https) are cut out and only checked for
+    /// names and e-mail addresses; the text between them gets every rule.
+    /// (Other schemes — smb://, afp://, nfs:// — are paths to shares.)
     fn scrub_once(&self, text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut last = 0;
+        for url in WEB_URL.find_iter(text) {
+            out.push_str(&self.scrub_text(&text[last..url.start()]));
+            out.push_str(&self.scrub_names(&EMAIL.replace_all(url.as_str(), "<email>")));
+            last = url.end();
+        }
+        out.push_str(&self.scrub_text(&text[last..]));
+        out
+    }
+
+    fn scrub_names(&self, text: &str) -> String {
+        let mut text = text.to_string();
+        for (pattern, placeholder) in &self.names {
+            text = replace_word(&text, pattern, placeholder);
+        }
+        text
+    }
+
+    fn scrub_text(&self, text: &str) -> String {
         let text = PATH.replace_all(text, |c: &Captures| {
-            // Any non-word character but a placeholder's ">" may precede a
-            // path ("path:/x", "{/x}"), but "scheme://host" is a URL, not a path.
-            if &c[1] == ":" && c[2].starts_with("//") {
-                c[0].to_string()
-            } else {
-                format!("{}{}", &c[1], path_in_text(&c[2]))
-            }
+            format!("{}{}", &c[1], path_in_text(&c[2]))
         });
         let text = SERIAL.replace_all(&text, |c: &Captures| {
             if &c[3] == "<serial>" {
@@ -194,11 +214,8 @@ impl Scrubber {
         let text = EMAIL.replace_all(&text, "<email>");
         let text = IPV4.replace_all(&text, "<ip>");
         let text = replace_ipv6(&text);
-        let mut text = GPS.replace_all(&text, "<gps>").into_owned();
-        for (pattern, placeholder) in &self.names {
-            text = replace_word(&text, pattern, placeholder);
-        }
-        text
+        let text = GPS.replace_all(&text, "<gps>");
+        self.scrub_names(&text)
     }
 
     /// Scrubs every string in a JSON value, except binary data and digests.
@@ -515,6 +532,18 @@ mod tests {
         assert_eq!(
             s.scrub("see https://github.com/rawtonic-app/rawtonic"),
             "see https://github.com/rawtonic-app/rawtonic"
+        );
+        assert_eq!(
+            s.scrub("see https://example.org then /Volumes/Client Jobs/Jane Wedding.CR3"),
+            "see https://example.org then <path>.CR3"
+        );
+        assert_eq!(
+            s.scrub("see https://example.org/anna then C:/Jobs/Jane Wedding.NEF"),
+            "see https://example.org/<user> then <path>.NEF"
+        );
+        assert_eq!(
+            s.scrub("smb://nas/Clients/Jane Wedding.CR3"),
+            "smb:<path>.CR3"
         );
         assert_eq!(
             s.scrub(r#"serial_number: Some("AB12345")"#),
