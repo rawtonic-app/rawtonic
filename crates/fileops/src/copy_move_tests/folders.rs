@@ -498,20 +498,21 @@ fn a_folder_with_a_link_in_it_is_refused_before_copying() {
 }
 
 #[test]
-fn nothing_else_may_move_in_or_out_of_a_folder_moving_as_a_whole() {
+fn a_folder_moves_to_another_drive_on_its_own() {
     let world = World::new();
     let step = world.folder_step();
     let (from, _) = world.folder();
     let inner = Step::other_volume(from.join("A.RAF"), world.target.join("A.RAF"));
-    let error = world
-        .journal()
-        .execute("move", "Move", vec![step, inner], &world.trash)
-        .unwrap_err();
-    assert!(
-        format!("{error:#}").contains("moves as a whole"),
-        "{error:#}"
-    );
+    let beside = Step::rename(world.source.join("A.xmp"), world.source.join("B.xmp"));
+    for other in [inner, beside] {
+        let error = world
+            .journal()
+            .execute("move", "Move", vec![step.clone(), other], &world.trash)
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("of its own"), "{error:#}");
+    }
     assert_whole(&from);
+    assert!(exists(&world.source.join("A.xmp")));
 }
 
 /// Permission bits travel with the folder and back (owner access kept),
@@ -640,4 +641,52 @@ fn rolling_a_published_folder_back_never_deletes_what_was_added_to_it() {
         b"not a copy"
     );
     assert_whole(&from);
+}
+
+/// Undo or redo stopped after it published a folder: the error names the
+/// folder that stays, and a retry takes it over.
+#[test]
+fn undo_and_redo_stopped_after_publishing_a_folder_say_so_and_can_be_retried() {
+    struct StopWhen<'a>(&'a Path);
+    impl CopyObserver for StopWhen<'_> {
+        fn cancelled(&self) -> bool {
+            exists(self.0)
+        }
+    }
+    let world = World::new();
+    let journal = world.journal();
+    let (from, to) = world.folder();
+    let op = journal
+        .execute(
+            "move",
+            "Move folder",
+            vec![world.folder_step()],
+            &world.trash,
+        )
+        .unwrap();
+    let error = journal
+        .undo_with(&op.id, &world.trash, &StopWhen(&from))
+        .unwrap_err();
+    let text = format!("{error:#}");
+    assert!(
+        text.contains("Not everything was put back") && text.contains("stays at"),
+        "{text}"
+    );
+    assert_eq!(journal.operation(&op.id).unwrap().state, State::Done);
+    assert_whole(&from);
+    assert_whole(&to);
+    journal.undo(&op.id, &world.trash).unwrap();
+    world.assert_folder_at(&world.source, &world.target, false);
+
+    let error = journal
+        .redo_with(&op.id, &world.trash, &StopWhen(&to))
+        .unwrap_err();
+    let text = format!("{error:#}");
+    assert!(
+        text.contains("Not everything was put back") && text.contains("stays at"),
+        "{text}"
+    );
+    assert_eq!(journal.operation(&op.id).unwrap().state, State::Undone);
+    journal.redo(&op.id, &world.trash).unwrap();
+    world.assert_folder_at(&world.target, &world.source, false);
 }

@@ -862,9 +862,9 @@ impl Journal {
                     note.push_str(&format!("; {e:#}"));
                 }
                 payload.note = Some(note);
-                keep_folders_published_back(&mut payload);
+                let kept = keep_published_folders(&mut payload, Direction::Back);
                 self.store(id, State::Done, &payload)?;
-                return Err(error.context("Nothing was undone"));
+                return Err(error.context(rolled_back("Nothing was undone", &kept)));
             }
             #[cfg(test)]
             crash::point("reversed");
@@ -964,8 +964,9 @@ impl Journal {
                 *note = format!("Redo failed: {note}");
             }
             keep_present_copies(&mut payload);
+            let kept = keep_published_folders(&mut payload, Direction::Forward);
             self.store_keeping_sync(id, State::Undone, &payload)?;
-            return Err(error.context("Nothing was redone"));
+            return Err(error.context(rolled_back("Nothing was redone", &kept)));
         }
         if payload.has_copies() {
             let tx = self.conn.unchecked_transaction()?;
@@ -1176,7 +1177,7 @@ impl Journal {
                         problems.push(format!("{e:#}"));
                     }
                 }
-                keep_folders_published_back(&mut payload);
+                keep_published_folders(&mut payload, Direction::Back);
             } else {
                 for step in payload.steps.iter().rev() {
                     if let Err(e) = restore_if_moved(step, trash) {
@@ -1210,6 +1211,7 @@ impl Journal {
                     // Back to undone: the records follow it as far as they
                     // did before the redo began.
                     keep_present_copies(&mut payload);
+                    keep_published_folders(&mut payload, Direction::Forward);
                     self.store_keeping_sync(&id, State::Undone, &payload)?;
                 }
                 _ => {
@@ -1564,24 +1566,15 @@ fn validate(steps: &[Step]) -> Result<()> {
             }
         }
     }
-    // A folder copied to another volume is checked as a whole: no other
-    // step may take something out of it or put something into it.
-    for folder in steps
-        .iter()
-        .filter(|s| matches!(&s.to, Target::OtherVolume { copy, .. } if copy.folder))
-    {
-        for other in steps.iter().filter(|s| !std::ptr::eq(*s, folder)) {
-            let inside = |p: &Path| {
-                p.starts_with(&folder.from) || folder.target().is_some_and(|t| p.starts_with(t))
-            };
-            ensure!(
-                !inside(&other.from) && !other.target().is_some_and(inside),
-                "{} is inside the folder {}, which moves as a whole",
-                other.from.display(),
-                folder.from.display()
-            );
-        }
-    }
+    // A folder copied to another volume moves on its own: what keeps its
+    // published copy (see `unpublish`) need not care for other steps.
+    ensure!(
+        steps.len() == 1
+            || !steps
+                .iter()
+                .any(|s| matches!(&s.to, Target::OtherVolume { copy, .. } if copy.folder)),
+        "A folder moves to another drive in an operation of its own"
+    );
     // A target that is another step's source would depend on step order.
     for target in &targets {
         ensure!(
@@ -2080,23 +2073,43 @@ fn unpublish(step: &Step, direction: Direction) -> Result<()> {
         .with_context(|| format!("Cannot take the copy at {} back", destination.display()))
 }
 
-/// An undo rolled back after it published a folder back: that copy is
-/// never taken back (see `unpublish`), so both folders stay and the move
-/// counts as having kept its original, as when its original could not go
-/// to the Trash: a later undo trashes only the moved folder, while the two
-/// are the same.
-fn keep_folders_published_back(payload: &mut Payload) {
+/// A direction rolled back after it published a folder: that copy is
+/// never taken back (see `unpublish`), so both folders stay and the step
+/// counts as having kept its original, as when an original could not go to
+/// the Trash: a later undo trashes only the moved folder (while the two are
+/// the same), a later redo takes the folder there as its copy. Returns what
+/// stays where, for the error.
+fn keep_published_folders(payload: &mut Payload, direction: Direction) -> Vec<String> {
+    let mut kept = Vec::new();
     for step in &mut payload.steps {
-        let from = step.from.clone();
-        if let Target::OtherVolume { path, copy } = &mut step.to
+        let Some((source, destination)) = copy_ends(step, direction) else {
+            continue;
+        };
+        if let Target::OtherVolume { copy, .. } = &mut step.to
             && copy.folder
             && copy.copied
             && copy.staged.as_deref().is_some_and(|s| !exists(s))
-            && is_kind(&from, true)
-            && is_kind(path, true)
+            && is_kind(&source, true)
+            && is_kind(&destination, true)
         {
             copy.kept = true;
+            kept.push(format!(
+                "the complete copy of {} stays at {}",
+                source.display(),
+                destination.display()
+            ));
         }
+    }
+    kept
+}
+
+/// The context of a rolled-back direction's error: nothing changed, or
+/// what stays (`kept`).
+fn rolled_back(nothing: &str, kept: &[String]) -> String {
+    if kept.is_empty() {
+        nothing.to_string()
+    } else {
+        format!("Not everything was put back: {}", kept.join("; "))
     }
 }
 
