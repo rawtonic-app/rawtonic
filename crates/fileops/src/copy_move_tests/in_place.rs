@@ -565,6 +565,43 @@ fn an_in_place_copy_written_by_someone_else_is_left_with_its_original() {
     world.assert_sources_untouched();
 }
 
+/// The accepted residual risk (ADR 0016): another program writing into a
+/// copy being made in place *ahead of* the copy's position has its bytes
+/// overwritten by the rest of the copy without any trace; the read-back
+/// then matches the source and the move completes. Pinned here so the
+/// documentation keeps saying what happens.
+#[test]
+fn a_write_ahead_of_an_in_place_copy_is_overwritten_undetected() {
+    struct WriteAhead<'a>(&'a Path, Cell<bool>);
+    impl CopyObserver for WriteAhead<'_> {
+        fn copied(&self, _: u64, _: u64) {
+            if !self.1.replace(true) {
+                use std::io::{Seek, SeekFrom, Write};
+                let mut file = fs::OpenOptions::new().write(true).open(self.0).unwrap();
+                file.seek(SeekFrom::Start(volume::BLOCK as u64 + 10))
+                    .unwrap();
+                file.write_all(b"XXXX").unwrap();
+            }
+        }
+    }
+    let _in_place = InPlace::on();
+    let world = World::new();
+    let journal = world.journal();
+    let raw = world.target.join("A.RAF");
+    let op = journal
+        .execute_with(
+            "move",
+            "Move",
+            world.steps(),
+            &world.trash,
+            &WriteAhead(&raw, Cell::new(false)),
+        )
+        .unwrap();
+    assert_eq!(op.state, State::Done);
+    assert_eq!(fs::read(&raw).unwrap(), content("A.RAF", FILES[0].1));
+    world.assert_at(&world.target, &world.source);
+}
+
 /// A folder cannot be published in place as a whole: refused before
 /// anything is copied, and the Library's probe says so too.
 #[test]
