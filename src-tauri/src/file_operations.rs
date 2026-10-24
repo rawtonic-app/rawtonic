@@ -700,8 +700,14 @@ fn recorded_library(op: &Operation) -> Option<PathBuf> {
         .get("library")?
         .as_str()
         .map(PathBuf::from)
-        .filter(|dir| dir.join("session.json").is_file() || dir.join("catalog.json").is_file())
 }
+
+fn is_library(dir: &Path) -> bool {
+    dir.join("session.json").is_file() || dir.join("catalog.json").is_file()
+}
+
+/// Why an operation's catalog sync waits for the library it recorded.
+const LIBRARY_AWAY: &str = "the library holding these photographs is not available:";
 
 /// Why an operation's catalog sync waits for a library to open.
 const NO_LIBRARY_OPEN: &str = "no library is open yet to follow these files";
@@ -967,25 +973,43 @@ pub fn sync_catalog(op: &Operation, forward: bool) -> Result<(), String> {
         if !(folder || is_supported_image_file(&b)) {
             continue;
         }
-        // A folder by what was below it, also when it is gone from there.
-        let owner = |path: &Path| {
+        // The library whose folder holds either end; else the one the
+        // operation recorded (its photographs outside every library folder,
+        // whatever library is open now); else, for operations journaled
+        // without one, what the open library manages (a folder by what
+        // was below it, also when it is gone from there).
+        let above = |path: &Path| {
+            session_for(&if folder {
+                path.join("_")
+            } else {
+                path.to_path_buf()
+            })
+        };
+        let open = |path: &Path| {
             if folder {
                 crate::session_bridge::library_dir_for_folder(path)
             } else {
                 crate::session_bridge::library_dir_for(path)
             }
         };
-        let library = owner(&a)
-            .or_else(|| owner(&b))
-            .or_else(|| recorded_library(op));
-        if let Some(dir) = library {
-            changes.push((dir, Change::Relocate(a, b)));
-        } else if !crate::session_bridge::library_open() {
-            // Outside every library folder only the open session knows its
-            // photographs (start-up recovery runs before one opens): the
-            // records follow when a library opens (`after_library_opened`).
-            return Err(NO_LIBRARY_OPEN.to_string());
-        }
+        let library = match (above(&a).or_else(|| above(&b)), recorded_library(op)) {
+            (Some(dir), _) => dir,
+            (None, Some(dir)) if is_library(&dir) => dir,
+            (None, Some(dir)) => {
+                // Its drive is away: the records follow when it is back.
+                return Err(format!("{LIBRARY_AWAY} {}", dir.display()));
+            }
+            (None, None) => match open(&a).or_else(|| open(&b)) {
+                Some(dir) => dir,
+                None if !crate::session_bridge::library_open() => {
+                    // Start-up recovery runs before a library opens: the
+                    // records follow when one does (`after_library_opened`).
+                    return Err(NO_LIBRARY_OPEN.to_string());
+                }
+                None => continue,
+            },
+        };
+        changes.push((library, Change::Relocate(a, b)));
     }
     for path in op.trashed() {
         // Photos and folders; sidecars have no record of their own.
@@ -2158,10 +2182,27 @@ mod tests {
                 &rawtonic_fileops::Unobserved,
             )
             .unwrap();
-        crate::session_bridge::set_active_for_test(Some(
-            tmp.path().join("Other/Job").canonicalize().unwrap(),
-        ));
+        // An open catalog would claim any path outside libraries.
+        let catalog = tmp.path().canonicalize().unwrap().join("Catalog");
+        Library::create(&catalog, "Catalog", rawtonic_catalog::Mode::Catalog).unwrap();
+        crate::session_bridge::set_active_for_test(Some(catalog.clone()));
+        // While the session's drive is away, the records wait for it.
+        let away = tmp.path().join("Job away");
+        fs::rename(&dir, &away).unwrap();
+        assert!(
+            sync_catalog(&op, true)
+                .unwrap_err()
+                .starts_with(LIBRARY_AWAY)
+        );
+        fs::rename(&away, &dir).unwrap();
         sync_catalog(&op, true).unwrap();
+        assert!(
+            Library::open(&catalog)
+                .unwrap()
+                .assets(None)
+                .unwrap()
+                .is_empty()
+        );
         let later_photo = later.join("Shoots/DSC_0001.NEF");
         assert_eq!(lib.asset_at(&later_photo).unwrap().unwrap().id, asset.id);
         assert!(!lib.asset(&asset.id).unwrap().missing);
