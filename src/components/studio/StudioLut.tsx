@@ -91,6 +91,8 @@ export default function StudioLut({
   onInteraction(active: boolean): void;
 }) {
   const { t } = useTranslation();
+  const label = (entry: LutEntry) => entry.isBuiltIn && BUILT_IN_NAMES[entry.name]
+    ? t(`studio.lut.names.${BUILT_IN_NAMES[entry.name]}`) : entry.name;
   const skipReason = ({ reason, issue }: SkippedLut) => {
     const kind = issue?.kind as SkipKind | undefined;
     if (!issue || !kind || !SKIP_KINDS.includes(kind)) return reason;
@@ -176,7 +178,7 @@ export default function StudioLut({
             onChange={(e) => {
               const entry = entries.find((x) => x.path === e.target.value);
               if (!entry) clear();
-              else void handleLutSelect(entry.path, entry.isBuiltIn);
+              else void handleLutSelect(entry.path, entry.isBuiltIn, entry.isBuiltIn ? label(entry) : undefined);
             }}
           >
             <option value="">{t("studio.lut.none")}</option>
@@ -185,7 +187,7 @@ export default function StudioLut({
               <optgroup label={t("studio.lut.builtIn")}>
                 {builtIn.map((e) => (
                   <option key={e.path} value={e.path}>
-                    {e.isBuiltIn && BUILT_IN_NAMES[e.name] ? t(`studio.lut.names.${BUILT_IN_NAMES[e.name]}`) : e.name}
+                    {label(e)}
                   </option>
                 ))}
               </optgroup>
@@ -194,7 +196,7 @@ export default function StudioLut({
               <optgroup key={group ?? ""} label={group ?? t("studio.lut.imported")}>
                 {list.map((e) => (
                   <option key={e.path} value={e.path}>
-                    {e.isBuiltIn && BUILT_IN_NAMES[e.name] ? t(`studio.lut.names.${BUILT_IN_NAMES[e.name]}`) : e.name}
+                    {label(e)}
                   </option>
                 ))}
               </optgroup>

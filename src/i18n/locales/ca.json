@@ -2236,6 +2236,8 @@
       "metadata": {
         "include": "Inclou les metadades",
         "legend": "Metadades",
+        "rightsKept": "Les exportacions sense altres metadades conserven autor, copyright, condicions d’ús i contacte (adreça postal inclosa), tret que s’eliminin a continuació.",
+        "stripCreatorContact": "Elimina les dades de contacte de l’autor",
         "stripGps": "Treu les dades d'ubicació",
         "timestamps": "Data els fitxers amb l'hora de captura"
       },

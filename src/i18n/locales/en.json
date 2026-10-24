@@ -2175,6 +2175,8 @@
       "metadata": {
         "include": "Include metadata",
         "legend": "Metadata",
+        "rightsKept": "Stripped exports retain creator, copyright, usage terms and creator contacts (including postal address), unless removed below.",
+        "stripCreatorContact": "Remove creator contact details",
         "stripGps": "Remove location data",
         "timestamps": "Date files with the capture time"
       },

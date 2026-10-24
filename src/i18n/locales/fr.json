@@ -2236,6 +2236,8 @@
       "metadata": {
         "include": "Inclure les métadonnées",
         "legend": "Métadonnées",
+        "rightsKept": "Les exports sans autres métadonnées conservent le créateur, le copyright, les conditions d’utilisation et ses coordonnées (adresse postale incluse), sauf suppression ci-dessous.",
+        "stripCreatorContact": "Supprimer les coordonnées du créateur",
         "stripGps": "Supprimer les données de localisation",
         "timestamps": "Dater les fichiers à l'heure de prise de vue"
       },

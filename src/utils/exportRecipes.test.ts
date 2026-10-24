@@ -163,6 +163,7 @@ it("builds the export_images settings from the form", () => {
     keepMetadata: false,
     preserveTimestamps: false,
     stripGps: true,
+    stripCreatorContact: false,
     resize: { mode: "megapixels", value: 2.5, dontEnlarge: false },
     border: {
       basis: "eachEdge",
@@ -323,4 +324,12 @@ it("persists counter starts in recipes, including zero, and defaults older recip
 it("returns stable subfolder validation kinds", () => {
   expect(subfolderProblem("../elsewhere")).toBe("outside");
   expect(subfolderProblem("C:\\Exports")).toBe("fullPath");
+});
+
+it("keeps explicit contact stripping through recipe save and export, with retention as the old default", () => {
+  const preset = presetFromDraft({ ...draft, stripCreatorContact: true }, "r1", "Anonymous contacts");
+  expect(draftFromPreset(preset).stripCreatorContact).toBe(true);
+  expect(exportSettingsFromPreset(preset).settings.stripCreatorContact).toBe(true);
+  delete preset.stripCreatorContact;
+  expect(exportSettingsFromPreset(preset).settings.stripCreatorContact).toBe(false);
 });

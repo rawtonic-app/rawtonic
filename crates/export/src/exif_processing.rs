@@ -1111,6 +1111,118 @@ impl ExportMetadata {
     }
 }
 
+/// A fresh rights-only packet. Do not copy source EXIF or source XMP: these
+/// may carry camera identifiers and locations. Catalog rights avoid any source
+/// read; otherwise inspect just Artist/Copyright in the cached map or source.
+fn stripped_export_metadata(
+    source: &str,
+    generated: bool,
+    exif_sidecar: &dyn Fn() -> Option<HashMap<String, String>>,
+    catalog: &dyn Fn() -> Option<rawtonic_metadata::Metadata>,
+) -> Option<ExportMetadata> {
+    let mut kept = catalog().unwrap_or_default();
+    if kept.creator.trim().is_empty() || kept.copyright.trim().is_empty() {
+        let (artist, copyright) = if let Some(map) = exif_sidecar() {
+            let value = |key| {
+                map.get(key)
+                    .filter(|s| s.as_str() != "...")
+                    .map(|s| s.replace('"', "").trim().to_string())
+                    .unwrap_or_default()
+            };
+            (value("Artist"), value("Copyright"))
+        } else {
+            let mut rights = (String::new(), String::new());
+            if let Ok(file) = std::fs::File::open(source)
+                && let Ok(exif) =
+                    exif::Reader::new().read_from_container(&mut std::io::BufReader::new(file))
+            {
+                let text = |tag| {
+                    exif.get_field(tag, exif::In::PRIMARY)
+                        .and_then(|f| match &f.value {
+                            exif::Value::Ascii(values) => Some(
+                                values
+                                    .iter()
+                                    .map(|v| {
+                                        String::from_utf8_lossy(v).trim_matches('\0').to_string()
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(" "),
+                            ),
+                            _ => None,
+                        })
+                        .unwrap_or_default()
+                };
+                rights = (text(exif::Tag::Artist), text(exif::Tag::Copyright));
+            } else if is_raw_file(source) {
+                let loader = rawler::RawLoader::new();
+                if let Ok(raw_source) = rawler::rawsource::RawSource::new(Path::new(source))
+                    && let Ok(decoder) = loader.get_decoder(&raw_source)
+                    && let Ok(meta) = decoder.raw_metadata(&raw_source, &Default::default())
+                {
+                    rights = (
+                        meta.exif.artist.unwrap_or_default(),
+                        meta.exif.copyright.unwrap_or_default(),
+                    );
+                }
+            }
+            rights
+        };
+        if kept.creator.trim().is_empty() {
+            kept.creator = artist;
+        }
+        if kept.copyright.trim().is_empty() {
+            kept.copyright = copyright;
+        }
+    }
+    kept = rawtonic_metadata::Metadata {
+        creator: kept.creator,
+        copyright: kept.copyright,
+        iptc: kept
+            .iptc
+            .into_iter()
+            .filter(|(key, _)| {
+                key == "usageTerms"
+                    || matches!(
+                        rawtonic_metadata::iptc_field(key),
+                        Some((_, _, rawtonic_metadata::IptcKind::Contact))
+                    )
+            })
+            .collect(),
+        ..Default::default()
+    };
+    if kept.creator.trim().is_empty()
+        && kept.copyright.trim().is_empty()
+        && kept.iptc.values().all(|v| v.trim().is_empty())
+    {
+        return generated
+            .then(ExportMetadata::marking_only)
+            .and_then(|r| r.ok());
+    }
+    let mut exif = Metadata::new();
+    if !kept.creator.trim().is_empty() {
+        exif.set_tag(ExifTag::Artist(kept.creator.trim().to_string()));
+    }
+    if !kept.copyright.trim().is_empty() {
+        exif.set_tag(ExifTag::Copyright(kept.copyright.trim().to_string()));
+    }
+    exif.set_tag(ExifTag::Software(SOFTWARE.to_string()));
+    let xmp = rawtonic_metadata::export_xmp_with_source(
+        &kept,
+        SOFTWARE,
+        generated.then_some(rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI),
+    )
+    .map_err(|e| log::warn!("Export rights XMP not written: {e}"))
+    .ok();
+    if generated && xmp.is_none() {
+        return ExportMetadata::marking_only().ok();
+    }
+    Some(ExportMetadata {
+        exif,
+        xmp,
+        generated,
+    })
+}
+
 /// The EXIF and XMP an export carries. `exif_sidecar` returns the source's
 /// cached EXIF map (the app's `.rrdata`/EXIF cache), `catalog` the session's
 /// metadata for the source. Stripped exports retain only creator, copyright,
@@ -1143,11 +1255,11 @@ pub fn export_metadata_with(
             .then(ExportMetadata::marking_only)
             .and_then(|made| made.map_err(|e| log::warn!("{e}")).ok())
     };
-    // Read the existing sources, then build a fresh allowlisted packet below.
-    // In particular no opaque EXIF, maker notes or source XMP may escape stripping.
-    let strip_gps = strip_gps || !keep_metadata;
+    if !keep_metadata {
+        return stripped_export_metadata(original_path_str, generated, exif_sidecar, catalog);
+    }
     let original_path = Path::new(original_path_str);
-    if keep_metadata && !original_path.exists() {
+    if !original_path.exists() {
         return marking_only();
     }
 
@@ -1450,7 +1562,7 @@ pub fn export_metadata_with(
     // inherited sidecar's values, as in Lightroom: Creator → Artist,
     // Copyright → Copyright, Description → ImageDescription. Empty fields keep
     // what the file already carries.
-    let mut catalog = catalog().unwrap_or_default();
+    let catalog = catalog().unwrap_or_default();
     for (value, tag) in [
         (&catalog.creator, ExifTag::Artist as fn(String) -> ExifTag),
         (&catalog.copyright, ExifTag::Copyright),
@@ -1459,70 +1571,6 @@ pub fn export_metadata_with(
         if !value.trim().is_empty() {
             metadata.set_tag(tag(value.trim().to_string()));
         }
-    }
-
-    if !keep_metadata {
-        let mut rights = Metadata::new();
-        for ifd in metadata.get_ifds() {
-            for tag in ifd.get_tags() {
-                match tag {
-                    ExifTag::Artist(value) => {
-                        if catalog.creator.trim().is_empty() {
-                            catalog.creator = value.clone();
-                        }
-                        rights.set_tag(tag.clone());
-                    }
-                    ExifTag::Copyright(value) => {
-                        if catalog.copyright.trim().is_empty() {
-                            catalog.copyright = value.clone();
-                        }
-                        rights.set_tag(tag.clone());
-                    }
-                    _ => {}
-                }
-            }
-        }
-        let rights_catalog = rawtonic_metadata::Metadata {
-            creator: catalog.creator,
-            copyright: catalog.copyright,
-            iptc: catalog
-                .iptc
-                .into_iter()
-                .filter(|(key, _)| {
-                    key == "usageTerms"
-                        || matches!(
-                            rawtonic_metadata::iptc_field(key),
-                            Some((_, _, rawtonic_metadata::IptcKind::Contact))
-                        )
-                })
-                .collect(),
-            ..Default::default()
-        };
-        if rights_catalog.creator.trim().is_empty()
-            && rights_catalog.copyright.trim().is_empty()
-            && rights_catalog
-                .iptc
-                .values()
-                .all(|value| value.trim().is_empty())
-        {
-            return marking_only();
-        }
-        rights.set_tag(ExifTag::Software(SOFTWARE.to_string()));
-        let xmp = rawtonic_metadata::export_xmp_with_source(
-            &rights_catalog,
-            SOFTWARE,
-            digital_source_type,
-        )
-        .map_err(|e| log::warn!("Export rights XMP not written: {e}"))
-        .ok();
-        if generated && xmp.is_none() {
-            return marking_only();
-        }
-        return Some(ExportMetadata {
-            exif: rights,
-            xmp,
-            generated,
-        });
     }
 
     metadata.set_tag(ExifTag::Software(SOFTWARE.to_string()));

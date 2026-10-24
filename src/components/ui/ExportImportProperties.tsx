@@ -62,6 +62,7 @@ export interface ExportSettings {
     color: string;
   } | null;
   stripGps: boolean;
+  stripCreatorContact?: boolean;
   watermark: WatermarkSettings | null;
   exportMasks?: boolean;
   preserveFolders?: boolean;
@@ -156,6 +157,7 @@ export interface ExportPreset {
   keepMetadata: boolean;
   preserveTimestamps: boolean;
   stripGps: boolean;
+  stripCreatorContact?: boolean;
   exportMasks?: boolean;
   preserveFolders?: boolean;
   filenameTemplate: string;

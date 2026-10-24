@@ -197,3 +197,9 @@ it("translates all built-in names without changing their saved paths or imported
   }
   await act(async () => { await i18n.changeLanguage("en"); });
 });
+
+it("stores a descriptive name with a built-in selection while preserving its identifier", async () => {
+  await act(async () => { render(<StudioLut disabled={false} onInteraction={vi.fn()} />); });
+  await act(async () => { fireEvent.change(screen.getByRole("combobox", { name: "LUT" }), { target: { value: "/r/Warm 200.cube" } }); });
+  expect(useEditorStore.getState().adjustments).toMatchObject({ lutPath: "/r/Warm 200.cube", lutName: "Warm" });
+});

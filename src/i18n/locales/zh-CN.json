@@ -2135,6 +2135,8 @@
       "metadata": {
         "include": "包含元数据",
         "legend": "元数据",
+        "rightsKept": "移除其他元数据的导出仍保留作者、版权、使用条款及作者联系方式（包括邮寄地址），除非在下方移除。",
+        "stripCreatorContact": "移除作者联系方式",
         "stripGps": "移除位置信息",
         "timestamps": "文件日期设为拍摄时间"
       },

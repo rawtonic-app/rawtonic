@@ -609,3 +609,10 @@ it.each(["input", "textarea", "select", "div"])("leaves Delete to a focused %s",
   press("Delete");
   expect(props.handleDeleteSelected).not.toHaveBeenCalled();
 });
+
+it("lets a user disable the default Delete action on macOS", () => {
+  useSettingsStore.setState({ appSettings: { keybinds: { delete_selected: [] } } as unknown as AppSettings });
+  press("Backspace");
+  press("Delete");
+  expect(props.handleDeleteSelected).not.toHaveBeenCalled();
+});

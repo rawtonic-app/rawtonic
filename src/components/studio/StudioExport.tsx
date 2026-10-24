@@ -864,6 +864,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
         </small>
       </fieldset>
       </details>
+      {!draft.metadata && <small>{t("studio.export.metadata.rightsKept")}</small>}
       <details className="studio-export-section">
         <summary>{t("studio.export.metadata.legend")}</summary>
       <fieldset disabled={choosing}>
@@ -875,6 +876,15 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
             onChange={(e) => set({ metadata: e.target.checked })}
           />
           {t("studio.export.metadata.include")}
+        </label>
+        <label className="studio-check">
+          <input
+            type="checkbox"
+            checked={!!draft.stripCreatorContact}
+            disabled={draft.metadata}
+            onChange={(e) => set({ stripCreatorContact: e.target.checked })}
+          />
+          {t("studio.export.metadata.stripCreatorContact")}
         </label>
         <label className="studio-check">
           <input

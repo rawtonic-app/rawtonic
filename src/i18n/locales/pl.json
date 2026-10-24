@@ -2297,6 +2297,8 @@
       "metadata": {
         "include": "Dołącz metadane",
         "legend": "Metadane",
+        "rightsKept": "Eksport bez pozostałych metadanych zachowuje autora, prawa autorskie, warunki użycia i dane kontaktowe (w tym adres pocztowy), chyba że zostaną usunięte poniżej.",
+        "stripCreatorContact": "Usuń dane kontaktowe autora",
         "stripGps": "Usuń dane lokalizacji",
         "timestamps": "Ustaw datę plików na czas wykonania"
       },

@@ -398,5 +398,31 @@ fn avif_export_carries_the_ai_marking_and_kept_metadata() {
                 .to_rgba8(),
             "{space}: pixels unchanged with rights metadata"
         );
+        let none = rawtonic_export::exif_processing::export_metadata_with(
+            source.to_str().unwrap(),
+            "avif",
+            false,
+            false,
+            96,
+            64,
+            false,
+            &|| None,
+            &|| None,
+        );
+        assert!(
+            none.is_none(),
+            "no rights and no AI marking means no metadata"
+        );
+        let no_rights = rawtonic_export::export_processing::encode_with_metadata(
+            test_image(),
+            "avif",
+            &export_settings(false, space),
+            none.as_ref(),
+        )
+        .unwrap();
+        assert_eq!(
+            no_rights, plain,
+            "{space}: no-rights stripping stays byte-identical"
+        );
     }
 }

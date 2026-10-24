@@ -605,12 +605,12 @@ export function useEditorActions() {
   }, [setEditor]);
 
   const handleLutSelect = useCallback(
-    async (path: string, isBuiltIn: boolean = false) => {
+    async (path: string, isBuiltIn: boolean = false, displayName?: string) => {
       const image = useEditorStore.getState().selectedImage;
       if (!image?.isReady) return;
       try {
         const result: { size: number } = await invoke(Invokes.LoadAndParseLut, { path });
-        const name = path.split(/[\\/]/).pop() || 'LUT';
+        const name = displayName ?? (path.split(/[\\/]/).pop() || 'LUT');
         if (!isCurrentEditorImage(image.path)) return;
         setAdjustments((prev: Adjustments) => ({
           ...prev,

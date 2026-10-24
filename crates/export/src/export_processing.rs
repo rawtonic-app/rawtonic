@@ -138,6 +138,9 @@ pub struct ExportSettings {
     #[serde(default)]
     pub preserve_timestamps: bool,
     pub strip_gps: bool,
+    /// With metadata stripped, remove creator contact details too (not copyright).
+    #[serde(default)]
+    pub strip_creator_contact: bool,
     pub filename_template: Option<String>,
     /// Initial counter for this job. Absent in old recipes and queued jobs.
     #[serde(default)]
@@ -1053,6 +1056,18 @@ pub fn save_export_image(
         .to_lowercase();
 
     let (width, height) = image.dimensions();
+    let catalog = || {
+        let mut metadata = (output.catalog)()?;
+        if !export_settings.keep_metadata && export_settings.strip_creator_contact {
+            metadata.iptc.retain(|key, _| {
+                !matches!(
+                    rawtonic_metadata::iptc_field(key),
+                    Some((_, _, rawtonic_metadata::IptcKind::Contact))
+                )
+            });
+        }
+        Some(metadata)
+    };
     let metadata = crate::exif_processing::export_metadata_with(
         source_path_str,
         &extension,
@@ -1062,7 +1077,7 @@ pub fn save_export_image(
         height,
         generated,
         output.exif_sidecar,
-        output.catalog,
+        &catalog,
     );
     let image_bytes = encode_with_metadata(image, &extension, export_settings, metadata.as_ref())?;
     #[cfg(feature = "performance-profiling")]
@@ -2594,6 +2609,71 @@ mod encoding_input_tests {
             None,
         );
         assert!(encoded.is_err());
+    }
+
+    #[test]
+    fn explicit_contact_stripping_removes_contacts_but_keeps_rights_and_pixels() {
+        let catalog = || {
+            Some(rawtonic_metadata::Metadata {
+                creator: "Creator".into(),
+                copyright: "Copyright".into(),
+                iptc: [
+                    ("creatorEmail".into(), "photo@example.invalid".into()),
+                    ("creatorAddress".into(), "Private address".into()),
+                    ("usageTerms".into(), "Licensed use".into()),
+                ]
+                .into(),
+                ..Default::default()
+            })
+        };
+        let mut pixels = None;
+        for strip in [false, true] {
+            let settings: ExportSettings = serde_json::from_value(serde_json::json!({
+                "jpegQuality": 85, "keepMetadata": false, "stripGps": false,
+                "stripCreatorContact": strip,
+            }))
+            .unwrap();
+            let written = Arc::new(std::sync::Mutex::new(None));
+            let write = {
+                let written = written.clone();
+                move |_: &Path, _: &str, bytes: Vec<u8>| {
+                    *written.lock().unwrap() = Some(bytes);
+                    Ok(())
+                }
+            };
+            let output = ExportOutput {
+                path: Path::new("/nowhere/photo.png"),
+                format: "png",
+                exif_sidecar: &|| panic!("catalog rights must avoid reading source metadata"),
+                catalog: &catalog,
+                write: &write,
+            };
+            save_export_image(
+                DynamicImage::new_rgb8(4, 4),
+                "/nowhere/source.jpg",
+                &settings,
+                true,
+                &output,
+            )
+            .unwrap();
+            let bytes = written.lock().unwrap().take().unwrap();
+            // The XMP packet remains plaintext in PNG's iTXt chunk.
+            let text = String::from_utf8_lossy(&bytes);
+            assert!(
+                text.contains("Creator")
+                    && text.contains("Copyright")
+                    && text.contains("Licensed use")
+            );
+            assert!(text.contains(rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI));
+            assert_eq!(text.contains("photo@example.invalid"), !strip);
+            assert_eq!(text.contains("Private address"), !strip);
+            let decoded = image::load_from_memory(&bytes).unwrap().into_rgb8();
+            if let Some(expected) = &pixels {
+                assert_eq!(&decoded, expected);
+            } else {
+                pixels = Some(decoded);
+            }
+        }
     }
 
     /// `ExportOutput::format` names the format of a path without extension,
