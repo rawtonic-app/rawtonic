@@ -492,7 +492,7 @@ const EXPORT_MEMORY_RESERVE: u64 = 2 << 30;
 
 /// Exports keep their GPU processor (its textures and compiled pipelines)
 /// between runs until the system runs short of memory; one that a render
-/// holds stays.
+/// holds stays, and goes when its run ends (`release_if_short_of_memory`).
 pub(crate) fn release_processor_under_pressure(app_handle: &tauri::AppHandle) {
     let app_handle = app_handle.clone();
     crate::memory_pressure::watch(Arc::new(move |_| {
@@ -501,6 +501,16 @@ pub(crate) fn release_processor_under_pressure(app_handle: &tauri::AppHandle) {
             log::info!("Memory pressure: released the exports' GPU processor");
         }
     }));
+}
+
+/// At the end of an export run: pressure is reported once on entering it,
+/// so pressure that came while a render held the processor would otherwise
+/// leave it allocated for as long as memory stays short.
+fn release_if_short_of_memory<T>(
+    processor: &crate::gpu_processing::ProcessorSlot<Option<T>>,
+    short_of_memory: impl FnOnce() -> bool,
+) -> bool {
+    short_of_memory() && processor.take_if_idle().is_some()
 }
 
 /// The thread pools an export's photos run in, one per export worker.
@@ -841,6 +851,12 @@ pub(crate) async fn export_images_impl(
             }
         }
 
+        if release_if_short_of_memory(
+            &app_handle.state::<AppState>().export_gpu_processor,
+            crate::memory_pressure::under_pressure,
+        ) {
+            log::info!("Memory pressure: released the exports' GPU processor after the run");
+        }
         // Render and encode buffers of the last exports.
         crate::allocator::release_freed_memory();
         let errors: Vec<String> = results.into_iter().filter_map(Result::err).collect();
@@ -1955,6 +1971,24 @@ mod tests {
         let going_on = [true, true, false];
         assert_eq!(super::admitted(vec![0, 2], |i| going_on[i]), vec![0]);
         assert!(super::admitted(vec![2], |i| going_on[i]).is_empty());
+    }
+
+    /// Pressure reported while a render held the exports' processor left
+    /// it; the end of the run frees it if memory is still short.
+    #[test]
+    fn the_end_of_a_run_frees_a_processor_pressure_found_in_use() {
+        use crate::gpu_processing::ProcessorSlot;
+        let processor = ProcessorSlot::background(Some("processor"));
+        let render = processor.lock().unwrap();
+        assert_eq!(processor.take_if_idle(), None, "the watch leaves it");
+        drop(render);
+        assert!(!super::release_if_short_of_memory(&processor, || false));
+        assert!(
+            processor.lock().unwrap().is_some(),
+            "kept with memory to spare"
+        );
+        assert!(super::release_if_short_of_memory(&processor, || true));
+        assert!(processor.lock().unwrap().is_none());
     }
 
     #[test]
