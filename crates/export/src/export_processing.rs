@@ -1056,28 +1056,17 @@ pub fn save_export_image(
         .to_lowercase();
 
     let (width, height) = image.dimensions();
-    let catalog = || {
-        let mut metadata = (output.catalog)()?;
-        if !export_settings.keep_metadata && !export_settings.keep_creator_contact {
-            metadata.iptc.retain(|key, _| {
-                !matches!(
-                    rawtonic_metadata::iptc_field(key),
-                    Some((_, _, rawtonic_metadata::IptcKind::Contact))
-                )
-            });
-        }
-        Some(metadata)
-    };
     let metadata = crate::exif_processing::export_metadata_with(
         source_path_str,
         &extension,
         export_settings.keep_metadata,
         export_settings.strip_gps,
+        export_settings.keep_creator_contact,
         width,
         height,
         generated,
         output.exif_sidecar,
-        &catalog,
+        output.catalog,
     );
     let image_bytes = encode_with_metadata(image, &extension, export_settings, metadata.as_ref())?;
     #[cfg(feature = "performance-profiling")]

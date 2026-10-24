@@ -1117,6 +1117,7 @@ impl ExportMetadata {
 fn stripped_export_metadata(
     source: &str,
     generated: bool,
+    keep_creator_contact: bool,
     exif_sidecar: &dyn Fn() -> Option<HashMap<String, String>>,
     catalog: &dyn Fn() -> Option<rawtonic_metadata::Metadata>,
 ) -> Option<ExportMetadata> {
@@ -1182,10 +1183,11 @@ fn stripped_export_metadata(
             .into_iter()
             .filter(|(key, _)| {
                 key == "usageTerms"
-                    || matches!(
-                        rawtonic_metadata::iptc_field(key),
-                        Some((_, _, rawtonic_metadata::IptcKind::Contact))
-                    )
+                    || (keep_creator_contact
+                        && matches!(
+                            rawtonic_metadata::iptc_field(key),
+                            Some((_, _, rawtonic_metadata::IptcKind::Contact))
+                        ))
             })
             .collect(),
         ..Default::default()
@@ -1226,8 +1228,7 @@ fn stripped_export_metadata(
 /// The EXIF and XMP an export carries. `exif_sidecar` returns the source's
 /// cached EXIF map (the app's `.rrdata`/EXIF cache), `catalog` the session's
 /// metadata for the source. Stripped packets allow only creator, copyright,
-/// usage terms and creator contacts explicitly supplied by the caller (the
-/// export settings filter contacts out unless opted in).
+/// usage terms and creator contacts only when `keep_creator_contact` is true.
 /// `generated` marks a photo with areas made by a generative model in its
 /// XMP (IPTC Digital Source Type), also when other metadata is stripped.
 #[allow(clippy::too_many_arguments)]
@@ -1236,6 +1237,7 @@ pub fn export_metadata_with(
     output_format: &str,
     keep_metadata: bool,
     strip_gps: bool,
+    keep_creator_contact: bool,
     width: u32,
     height: u32,
     generated: bool,
@@ -1257,7 +1259,13 @@ pub fn export_metadata_with(
             .and_then(|made| made.map_err(|e| log::warn!("{e}")).ok())
     };
     if !keep_metadata {
-        return stripped_export_metadata(original_path_str, generated, exif_sidecar, catalog);
+        return stripped_export_metadata(
+            original_path_str,
+            generated,
+            keep_creator_contact,
+            exif_sidecar,
+            catalog,
+        );
     }
     let original_path = Path::new(original_path_str);
     if !original_path.exists() {
@@ -1863,6 +1871,7 @@ mod tests {
                 "jpeg",
                 false,
                 false,
+                true,
                 8,
                 8,
                 generated,
@@ -1901,6 +1910,7 @@ mod tests {
             "jpeg",
             false,
             false,
+            false,
             8,
             8,
             false,
@@ -1913,6 +1923,40 @@ mod tests {
         assert_eq!(kept.copyright, "Camera copyright");
     }
     #[test]
+    fn stripped_packet_builder_itself_requires_contact_opt_in() {
+        let catalog = || {
+            Some(rawtonic_metadata::Metadata {
+                creator: "Creator".into(),
+                copyright: "Copyright".into(),
+                iptc: [
+                    ("creatorEmail".into(), "photo@example.invalid".into()),
+                    ("usageTerms".into(), "Licensed use".into()),
+                ]
+                .into(),
+                ..Default::default()
+            })
+        };
+        let metadata = super::export_metadata_with(
+            "/nonexistent.jpg",
+            "jpeg",
+            false,
+            false,
+            false,
+            4,
+            4,
+            false,
+            &|| None,
+            &catalog,
+        )
+        .unwrap();
+        let (kept, _) = rawtonic_metadata::read_xmp(&metadata.xmp.unwrap()).unwrap();
+        assert_eq!(kept.creator, "Creator");
+        assert_eq!(kept.copyright, "Copyright");
+        assert_eq!(kept.iptc["usageTerms"], "Licensed use");
+        assert!(!kept.iptc.contains_key("creatorEmail"));
+    }
+
+    #[test]
     fn generated_areas_are_marked_even_without_metadata() {
         let none = || None;
         let marked = |keep| {
@@ -1920,6 +1964,7 @@ mod tests {
                 "/nonexistent/photo.jpg",
                 "jpeg",
                 keep,
+                false,
                 false,
                 8,
                 8,
@@ -1938,6 +1983,7 @@ mod tests {
         let plain = super::export_metadata_with(
             "/nonexistent/photo.jpg",
             "jpeg",
+            false,
             false,
             false,
             8,

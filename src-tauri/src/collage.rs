@@ -212,18 +212,7 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
         )
     };
     let first = parse_virtual_path(&spec.cells[0].path).0;
-    let metadata = rawtonic_export::exif_processing::export_metadata_with(
-        &first.to_string_lossy(),
-        extension,
-        false,
-        true,
-        spec.width,
-        spec.height,
-        generated,
-        &|| None,
-        &|| None,
-    );
-    let bytes = encode_with_metadata(image, extension, &export_settings, metadata.as_ref())?;
+    let bytes = encode_collage(image, extension, &export_settings, generated)?;
     for attempt in 0..100 {
         let path = output_path(&first, extension, attempt)?;
         match crate::session_bridge::write_new_output(&path, &bytes) {
@@ -235,9 +224,50 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
     Err("Too many collages with this name".to_string())
 }
 
+/// A collage has several sources: never attribute it to only its first cell.
+/// Preserve the pre-existing metadata policy: no source metadata, only the
+/// mandatory AI marking when any cell contains generated areas.
+fn encode_collage(
+    image: image::DynamicImage,
+    extension: &str,
+    settings: &ExportSettings,
+    generated: bool,
+) -> Result<Vec<u8>, String> {
+    let metadata = generated
+        .then(rawtonic_export::exif_processing::ExportMetadata::marking_only)
+        .transpose()?;
+    encode_with_metadata(image, extension, settings, metadata.as_ref())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::coverage;
+    use super::{coverage, encode_collage};
+
+    #[test]
+    fn collage_encoding_preserves_marking_only_policy_and_plain_bytes() {
+        use rawtonic_export::export_processing::{ExportSettings, encode_with_metadata};
+        let settings: ExportSettings = serde_json::from_value(serde_json::json!({
+            "jpegQuality": 85, "keepMetadata": false, "stripGps": true,
+        }))
+        .unwrap();
+        for extension in ["jpeg", "tiff"] {
+            let image = image::DynamicImage::new_rgb8(4, 4);
+            let plain = encode_with_metadata(image.clone(), extension, &settings, None).unwrap();
+            assert_eq!(
+                encode_collage(image.clone(), extension, &settings, false).unwrap(),
+                plain
+            );
+            let marked = encode_collage(image, extension, &settings, true).unwrap();
+            assert!(
+                String::from_utf8_lossy(&marked)
+                    .contains(rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI)
+            );
+            assert_eq!(
+                image::load_from_memory(&marked).unwrap().to_rgb16(),
+                image::load_from_memory(&plain).unwrap().to_rgb16()
+            );
+        }
+    }
 
     #[test]
     fn rounded_corners_are_antialiased() {

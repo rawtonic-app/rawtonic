@@ -22,6 +22,9 @@ PRIVACY and CHANGELOG must describe the default and its effect on existing
 recipes. GPS, camera identifiers, serials and other descriptive metadata remain
 stripped. Mandatory generated-content marking remains present.
 
+Collages combine several sources and keep their previous policy: no source
+rights attribution, only the mandatory generated-content marking when needed.
+
 ## Constraints
 
 - No original files are changed.

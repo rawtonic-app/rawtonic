@@ -309,6 +309,7 @@ fn export_avif(
         "avif",
         keep_metadata,
         false,
+        false,
         image.width(),
         image.height(),
         generated,
@@ -401,6 +402,7 @@ fn avif_export_carries_the_ai_marking_and_kept_metadata() {
         let none = rawtonic_export::exif_processing::export_metadata_with(
             source.to_str().unwrap(),
             "avif",
+            false,
             false,
             false,
             96,

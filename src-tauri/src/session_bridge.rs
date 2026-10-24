@@ -2247,6 +2247,7 @@ mod tests {
                 "jpeg",
                 true,
                 false,
+                false,
                 8,
                 8,
                 false,
