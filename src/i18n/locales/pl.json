@@ -3800,6 +3800,7 @@
     "checking": "Sprawdzanie…",
     "checkNow": "Sprawdź teraz",
     "download": "Pobierz",
+    "failed": "Nie udało się sprawdzić aktualizacji. Spróbuj ponownie później.",
     "notNow": "Nie teraz",
     "noUpdate": "Nie znaleziono nowszej wersji.",
     "prereleases": "Uwzględniaj wersje wstępne",

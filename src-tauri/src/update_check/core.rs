@@ -12,7 +12,7 @@ pub fn when_due<T>(
     manual: bool,
     action: impl FnOnce() -> T,
 ) -> Option<T> {
-    (manual || (enabled && last.is_none_or(|last| now.saturating_sub(last) >= INTERVAL)))
+    (manual || (enabled && last.is_none_or(|last| last > now || now - last >= INTERVAL)))
         .then(action)
 }
 
@@ -90,7 +90,7 @@ mod tests {
             (false, None, 100000, false, false),
             (true, Some(10), 86409, false, false),
             (true, Some(10), 86410, false, true),
-            (true, Some(100000), 1, false, false),
+            (true, Some(100000), 1, false, true),
             (false, Some(10), 11, true, true),
         ] {
             let mut requests = 0;

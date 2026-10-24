@@ -3588,6 +3588,7 @@
     "checking": "Wird geprüft…",
     "checkNow": "Jetzt prüfen",
     "download": "Herunterladen",
+    "failed": "Updates konnten nicht geprüft werden. Versuche es später erneut.",
     "notNow": "Nicht jetzt",
     "noUpdate": "Keine neuere Version gefunden.",
     "prereleases": "Vorabversionen einschließen",

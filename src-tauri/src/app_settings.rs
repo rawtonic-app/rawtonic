@@ -1058,6 +1058,51 @@ pub fn save_settings(mut settings: AppSettings, app_handle: AppHandle) -> Result
     Ok(())
 }
 
+/// Frontend snapshots must never roll back the backend's throttle timestamp.
+fn write_settings_file(path: &Path, settings: &mut AppSettings) -> Result<(), String> {
+    settings.last_update_check = read_settings_file(path)?.last_update_check;
+    persist_settings_file(path, settings)
+}
+
+fn persist_settings_file(path: &Path, settings: &AppSettings) -> Result<(), String> {
+    let json = serde_json::to_vec_pretty(settings).map_err(|e| e.to_string())?;
+    may_replace_settings(path)?;
+    rawtonic_metadata::atomic_write(path, json).map_err(|e| e.to_string())
+}
+
+/// Reserve an attempt before any network access; failed attempts are throttled too.
+pub(crate) fn reserve_update_check(
+    app: &AppHandle,
+    manual: bool,
+    now: u64,
+) -> Result<Option<AppSettings>, String> {
+    let _guard = SETTINGS_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let path = get_settings_path(app)?;
+    reserve_update_check_at(&path, manual, now)
+}
+
+fn reserve_update_check_at(
+    path: &Path,
+    manual: bool,
+    now: u64,
+) -> Result<Option<AppSettings>, String> {
+    let mut settings = read_settings_file(path)?;
+    crate::update_check::core::when_due(
+        settings.check_for_updates.unwrap_or(true),
+        settings.last_update_check,
+        now,
+        manual,
+        || {
+            settings.last_update_check = Some(now);
+            persist_settings_file(path, &settings)?;
+            Ok(settings)
+        },
+    )
+    .transpose()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1227,57 +1272,6 @@ mod tests {
             }
         }
     }
-}
-
-/// Frontend snapshots must never roll back the backend's throttle timestamp.
-fn write_settings_file(path: &Path, settings: &mut AppSettings) -> Result<(), String> {
-    settings.last_update_check = read_settings_file(path)?.last_update_check;
-    let json = serde_json::to_vec_pretty(settings).map_err(|e| e.to_string())?;
-    may_replace_settings(path)?;
-    rawtonic_metadata::atomic_write(path, json).map_err(|e| e.to_string())
-}
-
-/// Reserve an attempt before any network access; failed attempts are throttled too.
-pub(crate) fn reserve_update_check(
-    app: &AppHandle,
-    manual: bool,
-    now: u64,
-) -> Result<Option<AppSettings>, String> {
-    let _guard = SETTINGS_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let path = get_settings_path(app)?;
-    reserve_update_check_at(&path, manual, now)
-}
-
-fn reserve_update_check_at(
-    path: &Path,
-    manual: bool,
-    now: u64,
-) -> Result<Option<AppSettings>, String> {
-    let mut settings = read_settings_file(path)?;
-    crate::update_check::core::when_due(
-        settings.check_for_updates.unwrap_or(true),
-        settings.last_update_check,
-        now,
-        manual,
-        || {
-            settings.last_update_check = Some(now);
-            may_replace_settings(path)?;
-            rawtonic_metadata::atomic_write(
-                path,
-                serde_json::to_vec_pretty(&settings).map_err(|e| e.to_string())?,
-            )
-            .map_err(|e| e.to_string())?;
-            Ok(settings)
-        },
-    )
-    .transpose()
-}
-
-#[cfg(test)]
-mod update_check_tests {
-    use super::*;
 
     #[test]
     fn attempt_is_persisted_before_fetch_and_failure_does_not_retry_at_next_launch() {

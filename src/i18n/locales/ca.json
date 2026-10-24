@@ -3694,6 +3694,7 @@
     "checking": "S’està comprovant…",
     "checkNow": "Comprova ara",
     "download": "Baixa",
+    "failed": "No s’han pogut comprovar les actualitzacions. Torna-ho a provar més tard.",
     "notNow": "Ara no",
     "noUpdate": "No s’ha trobat cap versió més nova.",
     "prereleases": "Inclou versions preliminars",

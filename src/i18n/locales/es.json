@@ -3694,6 +3694,7 @@
     "checking": "Comprobando…",
     "checkNow": "Comprobar ahora",
     "download": "Descargar",
+    "failed": "No se han podido comprobar las actualizaciones. Inténtalo más tarde.",
     "notNow": "Ahora no",
     "noUpdate": "No se ha encontrado una versión más reciente.",
     "prereleases": "Incluir versiones preliminares",

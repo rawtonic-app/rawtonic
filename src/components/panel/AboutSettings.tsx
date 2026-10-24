@@ -253,8 +253,8 @@ export default function AboutSettings() {
             and presets Rawtonic can import.
           </Text>
           <Text>
-            Photos are processed on this computer. Rawtonic has no accounts,
-            telemetry. An optional startup update check contacts GitHub at most once
+            Photos are processed on this computer. Rawtonic has no accounts
+            or telemetry. An optional startup update check contacts GitHub at most once
             per day; turn it off in Preferences. It otherwise goes online when you ask it to:
             to download an AI model the first time you use an AI tool, to show a
             photo&apos;s location on OpenStreetMap, or to send a photo to a

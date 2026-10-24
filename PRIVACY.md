@@ -13,10 +13,10 @@ This is on by default and is its only automatic network access. Turn off
 requests a check even when the startup check is off.
 
 Each check sends one GET to GitHub's public Releases API for
-`rawtonic-app/rawtonic`. GitHub receives your IP address and a User-Agent of
+`rawtonic-app/rawtonic`, considering the ten most recent releases. GitHub receives your IP address and a User-Agent of
 `Rawtonic/<version>`; no cookies, identifiers, photos, paths or settings are sent.
-Requests time out after 10 seconds; failures are silent and count toward the
-24-hour interval. Alpha/beta builds include pre-releases; stable builds ignore
+Requests time out after 10 seconds; failures count toward the 24-hour interval.
+Startup failures are silent; a failed manual check shows a short message. Alpha/beta builds include pre-releases; stable builds ignore
 them by default. “Download” opens the release page in your browser. Rawtonic
 never downloads or installs an update itself.
 

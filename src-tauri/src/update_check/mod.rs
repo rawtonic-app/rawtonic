@@ -5,12 +5,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
 
 #[tauri::command]
-pub async fn check_updates(app_handle: AppHandle, manual: bool) -> Option<UpdateInfo> {
+pub async fn check_updates(app_handle: AppHandle, manual: bool) -> Result<Option<UpdateInfo>, ()> {
     match check(app_handle, manual).await {
-        Ok(update) => update,
+        Ok(update) => Ok(update),
         Err(error) => {
             log::debug!("Update check failed: {error}");
-            None
+            Err(())
         }
     }
 }
@@ -36,6 +36,8 @@ async fn check(app: AppHandle, manual: bool) -> Result<Option<UpdateInfo>, Strin
         .user_agent(format!("Rawtonic/{version}"))
         .build()
         .map_err(|e| e.to_string())?;
+    // User decision 2026-10-24: exactly one request for the ten most recent releases,
+    // including pre-releases. Do not paginate or add a /latest request.
     let response = client
         .get("https://api.github.com/repos/rawtonic-app/rawtonic/releases?per_page=10")
         .header(reqwest::header::ACCEPT, "application/vnd.github+json")

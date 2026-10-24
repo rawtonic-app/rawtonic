@@ -3588,6 +3588,7 @@
     "checking": "Checking…",
     "checkNow": "Check now",
     "download": "Download",
+    "failed": "Could not check for updates. Try again later.",
     "notNow": "Not now",
     "noUpdate": "No newer release found.",
     "prereleases": "Include pre-releases",

@@ -3504,6 +3504,7 @@
     "checking": "正在檢查…",
     "checkNow": "立即檢查",
     "download": "下載",
+    "failed": "無法檢查更新。請稍後再試。",
     "notNow": "暫時不要",
     "noUpdate": "未找到較新的版本。",
     "prereleases": "包含預先發行版本",

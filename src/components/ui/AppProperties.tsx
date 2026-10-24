@@ -344,7 +344,6 @@ export type CropGrid = 'always' | 'drag' | 'off';
 export interface AppSettings {
   checkForUpdates?: boolean;
   updatePrereleases?: boolean;
-  lastUpdateCheck?: number;
   dismissedUpdateVersion?: string;
   aiConnectorAddress?: string;
   aiProvider?: string;

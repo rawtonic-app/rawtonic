@@ -17,7 +17,7 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, args
 const release = { version: '0.1.0-alpha.4', releaseUrl: 'https://github.com/rawtonic-app/rawtonic/releases/tag/v0.1.0-alpha.4', appImage: false };
 beforeEach(() => {
   vi.clearAllMocks();
-  useUpdateStore.setState({ update: null, checking: false, checked: false, started: false });
+  useUpdateStore.setState({ update: null, checking: false, checked: false, failed: false, started: false });
   useSettingsStore.setState({ appSettings: {} as AppSettings });
   vi.mocked(invoke).mockImplementation(async (cmd) => cmd === Invokes.CheckUpdates ? release : undefined);
 });
@@ -76,4 +76,13 @@ it('defaults pre-releases on for alpha builds and saves an explicit choice', asy
   expect(toggle.checked).toBe(true);
   fireEvent.click(toggle);
   expect(onSettingsChange).toHaveBeenCalledWith({ updatePrereleases: false });
+});
+
+it('a failed manual check never claims there is no newer release', async () => {
+  vi.mocked(invoke).mockRejectedValue(new Error('offline'));
+  render(<UpdateSettings appSettings={{} as AppSettings} onSettingsChange={vi.fn()} />);
+  fireEvent.click(screen.getByText('updates.checkNow'));
+  await act(async () => {});
+  expect(screen.queryByText('updates.noUpdate')).toBeNull();
+  expect(screen.getByText('updates.failed')).toBeTruthy();
 });
