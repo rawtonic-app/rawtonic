@@ -3697,7 +3697,8 @@ fn apply_sharpen_v5(
         let m_mean = m_sum / m_w;
         let mask_spread = sqrt(max(m_sq / m_w - m_mean * m_mean, 0.0));
         let t_mask = masking * sqrt(masking / 50.0) * SHARPEN_MASK_SCALE * SHARPEN_V4_MASK_SCALE;
-        let q = mask_spread / (SHARPEN_V5_MASK_HALF * t_mask);
+        // The floor keeps q³ finite for Masking near 0 (below about 0.1).
+        let q = mask_spread / max(SHARPEN_V5_MASK_HALF * t_mask, 1e-6);
         let q3 = q * q * q;
         gate *= q3 / (1.0 + q3);
     }

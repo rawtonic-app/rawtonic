@@ -1706,6 +1706,12 @@ fn sharpen_version_4_keeps_low_contrast_texture_at_radius_and_masking() {
         texture_5 > 1.2 * texture_4 && texture_5 < texture_all,
         "Masking 50: {texture_5} against response 4's {texture_4} and no masking's {texture_all}"
     );
+    // Masking near 0 (fractional values from imports) keeps all of it.
+    let barely = change(&texture, json!({"sharpenMasking": 1e-7}), 5);
+    assert!(
+        (barely / texture_all - 1.0).abs() < 0.01,
+        "Masking 1e-7: {barely} against no masking's {texture_all}"
+    );
     let (grain_4, grain_5) = (
         change(&grain, json!({"sharpenMasking": 50}), 4),
         change(&grain, json!({"sharpenMasking": 50}), 5),
