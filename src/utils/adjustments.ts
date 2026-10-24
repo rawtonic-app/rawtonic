@@ -622,7 +622,8 @@ export interface Adjustments {
    * it = every colour in range near an edge loses chroma. Photo-wide. */
   defringeVersion?: number;
   /** Sharpening response (crates/engine/src/image_processing.rs
-   * `SHARPEN_VERSION`): 5 = 4 with Masking's ramp after Camera Raw's (wider:
+   * `SHARPEN_VERSION`): 6 = 5, and for JPEGs and other non-RAW photos
+   * stronger above Amount 40 (closer to Camera Raw's; RAW photos render as 5); 5 = 4 with Masking's ramp after Camera Raw's (wider:
    * more moderate texture, no more flat noise; renders as 4 without Masking); 4 = 3 with Radius and Masking after Camera Raw's
    * (renders as 3 from Radius 1 up without Masking); 3 = 2 weighted by lightness (little sharpening in
    * the shadows, more in the highlights, as Camera Raw's); 2 = halos nearly
@@ -1272,7 +1273,7 @@ export const FRINGE_VERSION = 4;
 export const DEFRINGE_VERSION = 2;
 
 /** The sharpening response new edits start with (notes: reference/detail.md). */
-export const SHARPEN_VERSION = 5;
+export const SHARPEN_VERSION = 6;
 
 /** The luminance noise reduction new edits start with (notes: reference/luma-noise-reference.md). */
 export const LUMA_NOISE_VERSION = 2;

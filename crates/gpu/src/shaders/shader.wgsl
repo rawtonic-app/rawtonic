@@ -3740,6 +3740,24 @@ fn apply_sharpen_v5(
     return srgb_to_linear(max(color_enc * ratio_lr, vec3<f32>(0.0)));
 }
 
+// Response 6 (`sharpenVersion` 6, notes: reference/detail.md "Sharpening
+// response 6"): response 5, and for JPEGs and other non-RAW sources above
+// Amount 40 the change grows by (amount / 40)^0.15. On JPEGs both editors
+// sharpen the same pixels; response 5 gave 9–31 % less fine detail than
+// Camera Raw from Amount 80 to 150 (median of eight frames) with halos
+// 1.5–4 below its. Scaling the change equals scaling the gain and the halo
+// ceiling together (the limiter is homogeneous in them), so it is done on
+// the sharpened result, in the sRGB-encoded space the non-RAW sharpening
+// works in. RAW photos render as response 5.
+const SHARPEN_V6_NON_RAW_REACH: f32 = 0.15;
+
+fn sharpen_v6_reach(before: vec3<f32>, sharpened: vec3<f32>, amount: f32) -> vec3<f32> {
+    let f = pow(amount / 0.8, SHARPEN_V6_NON_RAW_REACH);
+    let base = linear_to_srgb_extended(before);
+    let change = linear_to_srgb_extended(sharpened) - base;
+    return srgb_to_linear(max(base + f * change, vec3<f32>(0.0)));
+}
+
 fn apply_centre_local_contrast(
     color_in: vec3<f32>,
     centre_amount: f32,
@@ -6776,7 +6794,11 @@ fn detail_stage(
             let uv = (vec2<f32>(absolute_coord_i) / dims - 0.5) * 2.0;
             amount *= 1.0 + FALLOFF_GAIN * falloff * falloff * dot(uv, uv);
         }
+        let unsharpened = rgb;
         rgb = apply_sharpen(rgb, sharpness_blurred, tonal_blurred, absolute_coord_i, amount, sharp_thresh, is_raw);
+        if (adjustments.global.sharpen_falloff.w >= 6.0 && is_raw == 0u && amount > 0.8) {
+            rgb = sharpen_v6_reach(unsharpened, rgb, amount);
+        }
     }
     if (adjustments.global.sharpen_falloff.z > 0.0) {
         rgb = apply_diffraction_correction(rgb, absolute_coord_i, is_raw);

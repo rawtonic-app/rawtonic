@@ -1733,6 +1733,71 @@ fn sharpen_version_4_keeps_low_contrast_texture_at_radius_and_masking() {
     }
 }
 
+#[test]
+#[ignore = "requires a native GPU; compares sharpening responses 5 and 6"]
+fn sharpen_version_6_reaches_further_on_non_raw_photos() {
+    // A textured mid-grey (a 6 px pattern, ±20 %) as a JPEG and as a RAW.
+    let (width, height) = (128u32, 128u32);
+    let texture: Vec<f16> = (0..width * height)
+        .flat_map(|i| {
+            let phase = |c: u32| (c as f32 * std::f32::consts::TAU / 6.0).sin();
+            let v = f16::from_f32(0.4 * (1.0 + 0.2 * phase(i % width) * phase(i / width)));
+            [v, v, v, f16::ONE]
+        })
+        .collect();
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input_from(&context, width, height, &texture);
+    let render = |amount: f64, version: u64, is_raw: bool| {
+        let profile = json!({"sharpness": amount, "lumaNoiseReduction": 0, "colorNoiseReduction": 0,
+            "sharpenVersion": version});
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments: get_all_adjustments_from_json(&profile, is_raw, Some(1)),
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels,
+            _ => unreachable!(),
+        }
+    };
+    let change = |amount: f64, version: u64| {
+        let (flat, pixels) = (render(0.0, version, false), render(amount, version, false));
+        let mut sum = 0.0f64;
+        for y in 8..height - 8 {
+            for x in 8..width - 8 {
+                let i = ((y * width + x) * 4) as usize;
+                sum += (pixels[i] as f64 - flat[i] as f64).abs();
+            }
+        }
+        sum
+    };
+    // RAW photos and amounts up to 40: response 5, bit for bit.
+    assert_eq!(render(80.0, 6, true), render(80.0, 5, true));
+    for amount in [20.0, 40.0] {
+        assert_eq!(render(amount, 6, false), render(amount, 5, false));
+    }
+    // Above 40 the change grows by (amount / 40)^0.15.
+    for amount in [80.0, 150.0] {
+        let ratio = change(amount, 6) / change(amount, 5);
+        let expected = (amount / 40.0f64).powf(0.15);
+        assert!(
+            (ratio / expected - 1.0).abs() < 0.03,
+            "Amount {amount}: change ×{ratio} against response 5, expected ×{expected}"
+        );
+    }
+}
+
 fn context() -> GpuContext {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter =
