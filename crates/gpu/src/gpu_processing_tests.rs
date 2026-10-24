@@ -10135,6 +10135,8 @@ fn multiscale_color_noise_matches_its_cpu_reference() {
         (8, 25, 50),
         (9, 25, 50),
         (9, 15, 65),
+        (10, 25, 50),
+        (10, 15, 65),
     ];
     for (version, color, detail) in cases {
         let gpu = render_source(
@@ -10286,6 +10288,15 @@ fn multiscale_color_noise_at_zero_or_without_version_is_unchanged() {
         render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 9})),
         render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 8}))
     );
+    // So does version 10.
+    assert_eq!(
+        render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 10})),
+        render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 9}))
+    );
+    assert_ne!(
+        render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 10})),
+        render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 9}))
+    );
     // Version 3 keeps more of the quiet coarse levels than version 2.
     assert_ne!(
         render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 3})),
@@ -10368,19 +10379,21 @@ fn multiscale_color_noise_version_8_judges_specks_after_luminance_noise_reductio
         chroma_at(7, &specks),
         chroma_at(8, &specks),
     );
-    let (p7, p8, p9) = (
+    let (p7, p8, p9, p10) = (
         chroma_at(7, &points),
         chroma_at(8, &points),
         chroma_at(9, &points),
+        chroma_at(10, &points),
     );
     println!(
-        "speck chroma v6 {s6:.4}, v7 {s7:.4}, v8 {s8:.4}; bright points v7 {p7:.4}, v8 {p8:.4}, v9 {p9:.4}"
+        "speck chroma v6 {s6:.4}, v7 {s7:.4}, v8 {s8:.4}; bright points v7 {p7:.4}, v8 {p8:.4}, v9 {p9:.4}, v10 {p10:.4}"
     );
     assert!(s7 > 0.8 * s6, "version 7 changed: {s6} -> {s7}");
     assert!(s8 < 0.7 * s7, "version 8 left the specks: {s7} -> {s8}");
     assert!(p8 > 0.95 * p7, "bright points lost colour: {p7} -> {p8}");
     // Version 9's range clamp fades out for points this far beyond it.
     assert!(p9 > 0.95 * p8, "bright points lost colour: {p8} -> {p9}");
+    assert!(p10 > 0.95 * p8, "bright points lost colour: {p8} -> {p10}");
     // Without luminance noise reduction the gate reads the input's
     // luminance: version 8 renders as version 7 (the CPU reference).
     let render = |version: u64| {
@@ -10445,10 +10458,17 @@ fn multiscale_color_noise_version_8_keeps_wide_gamut_points() {
             / points.len() as f32
     };
     let (v6, v7, v8, v9) = (chroma_at(6), chroma_at(7), chroma_at(8), chroma_at(9));
-    println!("wide-gamut point chroma v6 {v6:.4}, v7 {v7:.4}, v8 {v8:.4}, v9 {v9:.4}");
+    let v10 = chroma_at(10);
+    println!(
+        "wide-gamut point chroma v6 {v6:.4}, v7 {v7:.4}, v8 {v8:.4}, v9 {v9:.4}, v10 {v10:.4}"
+    );
     assert!(
         v9 > 0.95 * v8,
         "wide-gamut points lost colour: {v8} -> {v9}"
+    );
+    assert!(
+        v10 > 0.95 * v8,
+        "wide-gamut points lost colour: {v8} -> {v10}"
     );
     assert!(v7 > 0.95 * v6, "version 7 changed: {v6} -> {v7}");
     assert!(
@@ -10521,10 +10541,17 @@ fn multiscale_color_noise_version_9_keeps_chroma_within_the_neighbourhood() {
         let (a, b) = (column(61), column(66));
         (off, (b[0] - a[0]).hypot(b[1] - a[1]))
     };
-    let ((s8, e8), (s9, e9)) = (measure(8), measure(9));
-    println!("speck chroma v8 {s8:.4}, v9 {s9:.4}; edge step v8 {e8:.4}, v9 {e9:.4}");
+    let ((s8, e8), (s9, e9), (s10, e10)) = (measure(8), measure(9), measure(10));
+    println!(
+        "speck chroma v8 {s8:.4}, v9 {s9:.4}, v10 {s10:.4}; edge step v8 {e8:.4}, v9 {e9:.4}, v10 {e10:.4}"
+    );
     assert!(s9 < 0.6 * s8, "version 9 left the specks: {s8} -> {s9}");
     assert!((e9 / e8 - 1.0).abs() < 0.01, "edge step {e8} -> {e9}");
+    assert!(
+        s10 <= s9 * 1.01,
+        "version 10 kept more of the specks: {s9} -> {s10}"
+    );
+    assert!((e10 / e8 - 1.0).abs() < 0.01, "edge step {e8} -> {e10}");
 }
 
 #[test]
@@ -10628,7 +10655,7 @@ fn multiscale_color_noise_latency_probe() {
     let cache = Mutex::new(None);
     // Twice, so the first pass compiles the pipelines and fills the caches.
     for pass in 0..3 {
-        for version in 1..=9 {
+        for version in 1..=10 {
             for slider in ["exposure", "colorNoiseReduction"] {
                 let mut times = Vec::new();
                 for frame in 0..24 {
