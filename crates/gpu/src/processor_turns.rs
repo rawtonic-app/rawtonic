@@ -53,7 +53,7 @@ impl<T> ProcessorSlot<T> {
         }
     }
 
-    /// A slot only background renders use (the app's exports): a render
+    /// A slot only background renders use (exports): a render
     /// on it takes no turn and pauses between its tiles for foreground
     /// renders, which it cannot hold up.
     pub const fn background(value: T) -> Self {
@@ -61,6 +61,13 @@ impl<T> ProcessorSlot<T> {
             slot: Mutex::new(value),
             background_only: true,
         }
+    }
+}
+
+impl<T> ProcessorSlot<T> {
+    /// Whether only background renders (exports) use this slot.
+    pub fn background_only(&self) -> bool {
+        self.background_only
     }
 }
 
@@ -84,7 +91,7 @@ pub(super) struct ProcessorTurns {
     changed: Condvar,
 }
 
-/// The app's one GPU processor slot (the CLI's too) takes its turns here.
+/// The app's Develop processor slot takes its turns here.
 pub(super) static TURNS: ProcessorTurns = ProcessorTurns::new();
 
 impl ProcessorTurns {
