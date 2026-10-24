@@ -331,6 +331,9 @@ struct AllAdjustments {
 
 @group(0) @binding(4) var lut_texture: texture_3d<f32>;
 @group(0) @binding(5) var lut_sampler: sampler;
+// A LUT's shaper stage (`lut_shaper_data`): entry count (0: none), the
+// curve's domain minima and maxima, the 3D table's, then the entries.
+@group(0) @binding(26) var<storage, read> lut_shaper: array<vec4<f32>>;
 
 @group(0) @binding(6) var sharpness_blur_texture: texture_2d<f32>;
 @group(0) @binding(7) var tonal_blur_texture: texture_2d<f32>;
@@ -5591,6 +5594,29 @@ fn get_mask_influence(mask_index: u32, coords: vec2<u32>) -> f32 {
     return textureLoad(mask_textures, vec2<i32>(coords) - vec2<i32>(adjustments.source_window.xy), i32(mask_index), 0).r;
 }
 
+// Where the 3D table is read for `rgb`: through the LUT's shaper when it
+// has one, a per-channel curve linear between its entries, mapped from the
+// table's domain to the unit cube (engine `lut::Shaper::table_input`).
+fn lut_table_input(rgb: vec3<f32>) -> vec3<f32> {
+    let count = u32(lut_shaper[0].x);
+    if (count == 0u) {
+        return rgb;
+    }
+    let lo = lut_shaper[1].xyz;
+    let x = clamp((rgb - lo) / (lut_shaper[2].xyz - lo), vec3<f32>(0.0), vec3<f32>(1.0));
+    let position = x * f32(count - 1u);
+    let index = min(vec3<u32>(floor(position)), vec3<u32>(count - 2u));
+    let f = position - vec3<f32>(index);
+    var shaped: vec3<f32>;
+    for (var c = 0u; c < 3u; c = c + 1u) {
+        let a = lut_shaper[5u + index[c]][c];
+        let b = lut_shaper[6u + index[c]][c];
+        shaped[c] = a + (b - a) * f[c];
+    }
+    let table_lo = lut_shaper[3].xyz;
+    return clamp((shaped - table_lo) / (lut_shaper[4].xyz - table_lo), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
 fn sample_lut_tetrahedral(uv: vec3<f32>) -> vec3<f32> {
     let dims = vec3<f32>(textureDimensions(lut_texture));
     let size = dims - vec3<f32>(1.0);
@@ -7010,7 +7036,7 @@ fn main(
 
     if (is_scene_lut) {
         let vlog_encoded = linear_to_vlog(composite_rgb_linear);
-        let lut_color = sample_lut_tetrahedral(vlog_encoded);
+        let lut_color = sample_lut_tetrahedral(lut_table_input(vlog_encoded));
         base_srgb = lut_amount(default_tonemapped, lut_color, adjustments.global.lut_intensity);
     } else {
         base_srgb = default_tonemapped;
@@ -7100,7 +7126,7 @@ fn main(
 
     if (adjustments.global.has_lut == 1u && adjustments.global.lut_is_scene_referred == 0u) {
         let lut_input = clamp(final_rgb, vec3<f32>(0.0), vec3<f32>(1.0));
-        let lut_color = carry_beyond_srgb(final_rgb, lut_input, sample_lut_tetrahedral(lut_input));
+        let lut_color = carry_beyond_srgb(final_rgb, lut_input, sample_lut_tetrahedral(lut_table_input(lut_input)));
         final_rgb = lut_amount(final_rgb, lut_color, adjustments.global.lut_intensity);
     }
 

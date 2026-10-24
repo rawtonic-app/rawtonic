@@ -759,7 +759,11 @@ fn lut_amount_mixes_to_100_percent_and_extrapolates_above() {
             }
         }
     }
-    let lut = Arc::new(Lut { size, data });
+    let lut = Arc::new(Lut {
+        size,
+        data,
+        shaper: None,
+    });
     for scene in [false, true] {
         let render = |amount: Option<f64>| {
             let recipe = match amount {
@@ -844,6 +848,132 @@ fn lut_amount_mixes_to_100_percent_and_extrapolates_above() {
         assert!(
             ratio > 1.5 && ratio < 2.1,
             "scene {scene}: 200 % moved {ratio}x"
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; LUT shaper stage"]
+fn a_lut_shaper_reads_on_the_gpu_as_the_engine_reads_it() {
+    let context = context();
+    let (width, height) = (256, 128);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 11);
+    let render = |lut: Option<&Arc<Lut>>, scene: bool| {
+        let recipe = match lut {
+            Some(_) => json!({
+                "exposure": -1.0, "lutPath": "/look.cube",
+                "lutIntensity": 100.0, "lutIsSceneReferred": scene,
+            }),
+            None => json!({"exposure": -1.0}),
+        };
+        let adjustments = get_all_adjustments_from_json(&recipe, true, Some(3));
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: lut.cloned(),
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        let RenderedPixels::U16(pixels) = pixels else {
+            unreachable!()
+        };
+        let channels = pixels.len() / (width * height) as usize;
+        pixels
+            .chunks(channels)
+            .map(|p| [0, 1, 2].map(|c| p[c] as f32 / 65535.0))
+            .collect::<Vec<[f32; 3]>>()
+    };
+    // A 17³ look (contrast, warmer, less saturated) read through a
+    // log-style shaper of 1024 entries over -0.05..1.1, whose output the
+    // table reads over 0.05..0.95.
+    let size = 17u32;
+    let mut data = Vec::new();
+    for b in 0..size {
+        for g in 0..size {
+            for r in 0..size {
+                let [r, g, b] = [r, g, b].map(|v| v as f32 / (size - 1) as f32);
+                let s = |x: f32| 0.6 * x * x * (3.0 - 2.0 * x) + 0.4 * x;
+                let rgb = [s(r) + 0.03, s(g), s(b) - 0.03];
+                let mean = (rgb[0] + rgb[1] + rgb[2]) / 3.0;
+                data.extend(rgb.map(|c| (mean + (c - mean) * 0.85).clamp(0.0, 1.0)));
+            }
+        }
+    }
+    let log = |x: f32| 0.05 + 0.9 * (1.0 + 63.0 * x.max(0.0)).log2() / 6.0;
+    let entries = 1024;
+    let shaper = crate::lut::Shaper {
+        size: entries,
+        data: (0..entries)
+            .flat_map(|i| {
+                let x = -0.05 + 1.15 * i as f32 / (entries - 1) as f32;
+                [log(x), log(x * 0.95), log(x * 1.05)]
+            })
+            .collect(),
+        domain: ([-0.05; 3], [1.1; 3]),
+        table_domain: ([0.05; 3], [0.95; 3]),
+    };
+    let lut = Arc::new(Lut {
+        size,
+        data: data.clone(),
+        shaper: Some(shaper),
+    });
+    // Display LUT: where the colour without it is inside the cube (no
+    // colour carried beyond it), the render is the engine's reading of
+    // that colour.
+    let base = render(None, false);
+    let full = render(Some(&lut), false);
+    let inside = |p: &[f32; 3]| p.iter().all(|v| (0.002..0.998).contains(v));
+    let (mut worst, mut compared) = (0.0f32, 0);
+    for (base, got) in base.iter().zip(&full) {
+        if !inside(base) {
+            continue;
+        }
+        compared += 1;
+        let want = lut.sample(*base);
+        for c in 0..3 {
+            worst = worst.max((got[c] - want[c]).abs());
+        }
+    }
+    assert!(compared > base.len() / 2, "{compared} compared");
+    assert!(worst < 2.0 / 255.0, "display: off by {worst}");
+    // Without the shaper the render differs: the stage is applied.
+    let plain = Arc::new(Lut {
+        size,
+        data: data.clone(),
+        shaper: None,
+    });
+    assert!(render(Some(&plain), false) != full);
+    // Scene LUT: a straight shaper over the table's own domain reads the
+    // table as the plain one does.
+    for scene in [false, true] {
+        let straight = Arc::new(Lut {
+            size,
+            data: data.clone(),
+            shaper: Some(crate::lut::Shaper {
+                size: 2,
+                data: vec![0.2, 0.1, 0.3, 0.8, 1.6, 0.9],
+                domain: ([0.0; 3], [1.0; 3]),
+                table_domain: ([0.2, 0.1, 0.3], [0.8, 1.6, 0.9]),
+            }),
+        });
+        let (a, b) = (render(Some(&straight), scene), render(Some(&plain), scene));
+        let worst = a
+            .iter()
+            .zip(&b)
+            .flat_map(|(a, b)| (0..3).map(move |c| (a[c] - b[c]).abs()))
+            .fold(0.0f32, f32::max);
+        assert!(
+            worst < 1.0 / 255.0,
+            "scene {scene}: straight shaper off by {worst}"
         );
     }
 }
