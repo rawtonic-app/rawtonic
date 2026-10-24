@@ -225,7 +225,7 @@ const BAKED_SIZE: u32 = 65;
 fn parse_cube_full(reader: impl BufRead) -> anyhow::Result<Lut> {
     let mut size_3d: Option<u32> = None;
     let mut size_1d: Option<usize> = None;
-    let mut domain: Option<([f32; 3], [f32; 3])> = None;
+    let mut domain: Option<Domain> = None;
     let (mut domain_min, mut domain_max) = (None, None);
     let mut range_1d: Option<(f32, f32)> = None;
     let mut range_3d: Option<(f32, f32)> = None;
@@ -378,12 +378,15 @@ fn parse_cube_full(reader: impl BufRead) -> anyhow::Result<Lut> {
     }
 }
 
+/// A per-channel input range: minima and maxima.
+type Domain = ([f32; 3], [f32; 3]);
+
 /// A per-channel curve of `size` entries over `domain`, linearly
 /// interpolated; inputs outside the domain take its end values.
 struct Shaper {
     size: usize,
     data: Vec<f32>,
-    domain: ([f32; 3], [f32; 3]),
+    domain: Domain,
 }
 
 impl Shaper {
@@ -400,7 +403,7 @@ impl Shaper {
 }
 
 /// `rgb` mapped from `domain` to the unit cube, clamped.
-fn normalize(rgb: [f32; 3], (lo, hi): ([f32; 3], [f32; 3])) -> [f32; 3] {
+fn normalize(rgb: [f32; 3], (lo, hi): Domain) -> [f32; 3] {
     std::array::from_fn(|c| ((rgb[c] - lo[c]) / (hi[c] - lo[c])).clamp(0.0, 1.0))
 }
 
@@ -412,10 +415,7 @@ const MAX_BAKE_ERROR: f32 = 1.0 / 255.0;
 /// a channel: the shaper's entries, the points where a shaper channel
 /// crosses one of the 3D table's grid levels, and without a shaper the
 /// table's grid levels themselves.
-fn breakpoints(
-    shaper: Option<&Shaper>,
-    table: Option<(u32, ([f32; 3], [f32; 3]))>,
-) -> [Vec<f32>; 3] {
+fn breakpoints(shaper: Option<&Shaper>, table: Option<(u32, Domain)>) -> [Vec<f32>; 3] {
     std::array::from_fn(|c| {
         let mut points = Vec::new();
         let levels: Vec<f32> = table.map_or(Vec::new(), |(n, (lo, hi))| {
