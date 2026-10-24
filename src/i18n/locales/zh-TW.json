@@ -1089,6 +1089,7 @@
       "flagsSavedRefreshFailed": "旗標已儲存；無法重新整理專案摘要：{{error}}",
       "hotFolderFailed": "監看資料夾：{{file}}：{{error}}",
       "hotFolderResumeFailed": "無法繼續監看資料夾：{{error}}",
+      "importAiMasksOnOpen_other": "{{count}} 張相片的 AI 遮色片會在「顯影」中開啟時計算",
       "importCopiesSkipped_other": "{{count}} 個虛擬副本未匯入",
       "imported_other": "已匯入 {{count}} 張照片（{{withSettings}} 張有調整，{{albums}} 個相簿）",
       "importNotFound_other": "{{count}} 張找不到",

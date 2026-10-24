@@ -64,7 +64,9 @@ pub(crate) fn emit_thumbnail_cache_setup_error(app_handle: &AppHandle, path: &st
 /// offline photograph (its file and maybe its sidecar are gone) the
 /// library's.
 /// Lens parameters saved while the photo could not be read are resolved here
-/// once it can be, so the render and its persistent cache key both change.
+/// once it can be, and Lightroom items imported before their photo's
+/// orientation was recorded get it, so the render and its persistent cache
+/// key both change.
 fn thumbnail_metadata(source: &Path, sidecar: &Path) -> Option<ImageMetadata> {
     let mut metadata: ImageMetadata = if let Ok(content) = fs::read_to_string(sidecar) {
         serde_json::from_str(&content).ok()?
@@ -76,6 +78,10 @@ fn thumbnail_metadata(source: &Path, sidecar: &Path) -> Option<ImageMetadata> {
             .and_then(|state| serde_json::from_value(state).ok())?
     };
     let _ = rawtonic_export::exif_processing::resolve_unresolved_lens(
+        &mut metadata.adjustments,
+        source,
+    );
+    rawtonic_export::exif_processing::record_lightroom_orientation(
         &mut metadata.adjustments,
         source,
     );
@@ -306,9 +312,16 @@ pub(crate) fn develop_thumbnail(
             .iter()
             .any(MaskDefinition::requires_warped_image);
 
-        let cached_base: Option<(Arc<DynamicImage>, f32, Option<ParametricMaskSource>)> = {
+        #[allow(clippy::type_complexity)]
+        let cached_base: Option<(
+            Arc<DynamicImage>,
+            f32,
+            Option<ParametricMaskSource>,
+            Option<(u32, u32)>,
+        )> = {
             let cache = state.thumbnail_geometry_cache.lock().unwrap();
-            if let Some((cached_hash, img, scale, mask_source)) = cache.get(cache_key) {
+            if let Some((cached_hash, img, scale, mask_source, decoded_size)) = cache.get(cache_key)
+            {
                 let mut sufficient_resolution = true;
                 if let Some(c) = &crop_data
                     && c.width > 0.0
@@ -325,7 +338,7 @@ pub(crate) fn develop_thumbnail(
                     && sufficient_resolution
                     && (!needs_mask_source || mask_source.is_some())
                 {
-                    Some((Arc::clone(img), *scale, mask_source.clone()))
+                    Some((Arc::clone(img), *scale, mask_source.clone(), *decoded_size))
                 } else {
                     None
                 }
@@ -334,7 +347,9 @@ pub(crate) fn develop_thumbnail(
             }
         };
 
-        let (processing_base_arc, total_scale, mask_source) = if let Some(cached) = cached_base {
+        let (processing_base_arc, total_scale, mask_source, decoded_size) = if let Some(cached) =
+            cached_base
+        {
             cached
         } else {
             let mut raw_scale_factor = 1.0f32;
@@ -399,6 +414,9 @@ pub(crate) fn develop_thumbnail(
             };
             let composite_image =
                 image_loader::composite_patches_for_render(&pristine_source, &retouch)?;
+            // A full decode's size places Lightroom masks still in their
+            // imported form, as for exports (`lightroom_masks`).
+            let decoded_size = (raw_scale_factor == 1.0).then(|| pristine_source.dimensions());
 
             let warped_image = apply_geometry_warp(composite_image, &meta.adjustments);
 
@@ -481,10 +499,11 @@ pub(crate) fn develop_thumbnail(
                     Arc::clone(&base_arc),
                     total_scale,
                     mask_source.clone(),
+                    decoded_size,
                 ),
             );
 
-            (base_arc, total_scale, mask_source)
+            (base_arc, total_scale, mask_source, decoded_size)
         };
 
         let rotation_degrees = meta.adjustments["rotation"].as_f64().unwrap_or(0.0) as f32;
@@ -529,11 +548,14 @@ pub(crate) fn develop_thumbnail(
                 (base_w, base_h)
             };
         let mask_geometry =
-            crate::mask_generation::PhotoGeometry::from_adjustments(&meta.adjustments)
-                .with_photo_size(
-                    base_w as f64 / total_scale as f64,
-                    base_h as f64 / total_scale as f64,
-                );
+            crate::mask_generation::PhotoGeometry::from_adjustments(&meta.adjustments);
+        let mask_geometry = match decoded_size {
+            Some((width, height)) => mask_geometry.with_decoded_size(width, height),
+            None => mask_geometry.with_photo_size(
+                base_w as f64 / total_scale as f64,
+                base_h as f64 / total_scale as f64,
+            ),
+        };
         let mask_bitmaps: Vec<Arc<MaskBitmap>> = mask_definitions
             .iter()
             .filter_map(|def| {

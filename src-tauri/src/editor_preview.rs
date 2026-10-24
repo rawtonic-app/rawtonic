@@ -979,6 +979,22 @@ pub(crate) fn preview_source(state: &AppState) -> Result<(LoadedImage, f32, (u32
     })
 }
 
+/// `geometry` with the photo's size for a render from `preview_source`:
+/// the full decode's own when `loaded` is it (which also places imported
+/// Lightroom masks, `PhotoGeometry::with_decoded_size`), else the size a
+/// preview proxy records.
+pub(crate) fn source_size(
+    geometry: PhotoGeometry,
+    loaded: &LoadedImage,
+    full_dims: (u32, u32),
+) -> PhotoGeometry {
+    if loaded.image.dimensions() == full_dims {
+        geometry.with_decoded_size(full_dims.0, full_dims.1)
+    } else {
+        geometry.with_photo_size(full_dims.0 as f64, full_dims.1 as f64)
+    }
+}
+
 fn is_offline(state: &AppState, loaded_image: &LoadedImage) -> bool {
     state
         .offline_source
@@ -1189,8 +1205,11 @@ fn preview_mask_bitmaps(
         recipe,
         masks,
     )?;
-    let mask_geometry = PhotoGeometry::from_adjustments(recipe)
-        .with_photo_size(full_dims.0 as f64, full_dims.1 as f64);
+    let mask_geometry = source_size(
+        PhotoGeometry::from_adjustments(recipe),
+        loaded_image,
+        full_dims,
+    );
     let crop_offset = (
         unscaled_crop_offset.0 * scale,
         unscaled_crop_offset.1 * scale,
@@ -1460,8 +1479,11 @@ pub(crate) fn process_preview_job(
         &adjustments_clone,
         &mask_definitions,
     )?;
-    let mask_geometry = PhotoGeometry::from_adjustments(&adjustments_clone)
-        .with_photo_size(full_dims.0 as f64, full_dims.1 as f64);
+    let mask_geometry = source_size(
+        PhotoGeometry::from_adjustments(&adjustments_clone),
+        &loaded_image,
+        full_dims,
+    );
     // The native display draws the edited layer's mask over this frame. Like
     // Capture One, it shows the mask itself: layer opacity scales the
     // adjustment, not the overlay. Taken first: below 100% the layer's own
@@ -2500,10 +2522,7 @@ pub(crate) async fn generate_uncropped_preview(
         // This frame is oriented and flipped but not straightened.
         let mask_geometry = PhotoGeometry::from_adjustments(&adjustments_clone)
             .unrotated()
-            .with_photo_size(
-                loaded_image.image.width() as f64,
-                loaded_image.image.height() as f64,
-            );
+            .with_decoded_size(loaded_image.image.width(), loaded_image.image.height());
         let mask_bitmaps: Vec<Arc<MaskBitmap>> = mask_definitions
             .iter()
             .filter_map(|def| {
@@ -2645,10 +2664,8 @@ pub(crate) async fn generate_preview_for_path(
             .any(MaskDefinition::requires_warped_image)
             .then(|| prepare_parametric_mask_source(&pristine_source, is_raw, 1.0, &js_adjustments))
             .transpose()?;
-        let mask_geometry = PhotoGeometry::from_adjustments(&js_adjustments).with_photo_size(
-            pristine_source.width() as f64,
-            pristine_source.height() as f64,
-        );
+        let mask_geometry = PhotoGeometry::from_adjustments(&js_adjustments)
+            .with_decoded_size(pristine_source.width(), pristine_source.height());
         let mask_bitmaps: Vec<Arc<MaskBitmap>> = mask_definitions
             .iter()
             .filter_map(|def| {

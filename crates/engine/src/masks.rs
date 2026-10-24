@@ -81,6 +81,7 @@ impl MaskDefinition {
                             p["lines"]
                                 .as_array()
                                 .is_some_and(|lines| lines.iter().any(|l| l["autoMask"] == true))
+                                || crate::lightroom_masks::has_auto_mask_stroke(p)
                         }))
             })
     }

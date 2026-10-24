@@ -1089,6 +1089,7 @@
       "flagsSavedRefreshFailed": "플래그를 저장했지만 프로젝트 요약을 새로 고칠 수 없습니다: {{error}}",
       "hotFolderFailed": "감시 폴더: {{file}}: {{error}}",
       "hotFolderResumeFailed": "감시 폴더를 다시 시작할 수 없습니다: {{error}}",
+      "importAiMasksOnOpen_other": "사진 {{count}}개의 AI 마스크는 현상에서 열 때 계산됩니다",
       "importCopiesSkipped_other": "가상 복사본 {{count}}개는 가져오지 않음",
       "imported_other": "사진 {{count}}장을 가져왔습니다(조정됨 {{withSettings}}장, 앨범 {{albums}}개)",
       "importNotFound_other": "{{count}}장 찾을 수 없음",

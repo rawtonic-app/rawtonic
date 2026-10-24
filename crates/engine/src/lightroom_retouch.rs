@@ -78,17 +78,24 @@ fn orientation_of(item: &Value) -> Option<u16> {
         .filter(|o| (1..=8).contains(o))
 }
 
-/// Whether a pending item lacks its photo's orientation (imported before it
-/// was recorded), so it cannot render until it is given one.
+/// Whether a pending item or mask component (`lightroom_masks`) lacks its
+/// photo's orientation (imported before it was recorded), so it cannot
+/// render until it is given one.
 pub fn needs_orientation(adjustments: &Value) -> bool {
     ["spots", "redEyes"]
         .iter()
         .any(|key| pending_items(adjustments, key).any(|item| orientation_of(item).is_none()))
+        || crate::lightroom_masks::needs_orientation(adjustments)
 }
 
 /// Records `orientation` (the photo's, `image_loader::source_orientation`)
-/// in the pending items that lack one.
+/// in the pending items and mask components that lack one.
 pub fn set_orientation(adjustments: &mut Value, orientation: u16) {
+    for parameters in crate::lightroom_masks::pending_parameters_mut(adjustments) {
+        if crate::lightroom_masks::orientation_of(parameters).is_none() {
+            parameters[PENDING][ORIENTATION] = json!(orientation);
+        }
+    }
     for key in ["spots", "redEyes"] {
         let Some(items) = adjustments.get_mut(key).and_then(Value::as_array_mut) else {
             continue;

@@ -1268,8 +1268,8 @@ pub fn prepare_export_render(
         .then(|| prepare_parametric_mask_source(&source.pristine, is_raw, 1.0, js_adjustments))
         .transpose()?;
     let (photo_w, photo_h) = source.pristine.dimensions();
-    let mask_geometry = PhotoGeometry::from_adjustments(js_adjustments)
-        .with_photo_size(photo_w as f64, photo_h as f64);
+    let mask_geometry =
+        PhotoGeometry::from_adjustments(js_adjustments).with_decoded_size(photo_w, photo_h);
     // The layers a render uses, in order.
     let layers: Vec<&MaskDefinition> = mask_definitions
         .iter()

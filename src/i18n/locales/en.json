@@ -1116,6 +1116,8 @@
       "flagsSavedRefreshFailed": "Flags saved; project summary could not refresh: {{error}}",
       "hotFolderFailed": "Hot folder: {{file}}: {{error}}",
       "hotFolderResumeFailed": "The hot folder could not resume: {{error}}",
+      "importAiMasksOnOpen_one": "AI masks of {{count}} photo are computed when it is opened in Develop",
+      "importAiMasksOnOpen_other": "AI masks of {{count}} photos are computed when each is opened in Develop",
       "importCopiesSkipped_one": "{{count}} virtual copy not imported",
       "importCopiesSkipped_other": "{{count}} virtual copies not imported",
       "imported_one": "{{count}} photograph imported ({{withSettings}} with edits, {{albums}} albums)",

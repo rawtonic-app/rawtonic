@@ -1089,6 +1089,7 @@
       "flagsSavedRefreshFailed": "旗标已保存；无法刷新项目摘要：{{error}}",
       "hotFolderFailed": "监视文件夹：{{file}}：{{error}}",
       "hotFolderResumeFailed": "无法继续监视文件夹：{{error}}",
+      "importAiMasksOnOpen_other": "{{count}} 张照片的 AI 蒙版将在“显影”中打开时计算",
       "importCopiesSkipped_other": "{{count}} 个虚拟副本未导入",
       "imported_other": "已导入 {{count}} 张照片（{{withSettings}} 张有调整，{{albums}} 个相册）",
       "importNotFound_other": "{{count}} 张未找到",

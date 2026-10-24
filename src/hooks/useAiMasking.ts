@@ -482,9 +482,13 @@ export function useAiMasking() {
 
   // Imported Lightroom masks: automatic AI masks without data (Select Sky,
   // Select Subject) are computed for the open photo, once each; geometry
-  // kept in normalised raw coordinates (gradients, brushes) is placed in its
-  // pixels by the backend, which knows the photo's EXIF orientation.
+  // kept in normalised raw coordinates (gradients, brushes, colour ranges)
+  // is placed in its pixels by the backend, which knows the photo's EXIF
+  // orientation. Renders that know the full decode's size place it the same
+  // way before (`rawtonic_engine::lightroom_masks`), so placement waits for
+  // the full decode and uses its size: opening the photo changes no pixel.
   const selectedImageReady = useEditorStore((s) => !!s.selectedImage?.isReady);
+  const selectedImageDecoded = useEditorStore((s) => !!s.selectedImage?.isDecoded);
   const masksKey = useEditorStore((s) => s.adjustments.masks);
   /** Whether the open photograph's component `id` holds its bitmap now. */
   const componentHasData = (id: string) => {
@@ -496,36 +500,56 @@ export function useAiMasking() {
   const requestedAutoMasks = useRef(new Set<string>());
   const [askAgain, setAskAgain] = useState(0);
   const requestedPlacements = useRef(new Set<string>());
+  const [placeMasksAgain, setPlaceMasksAgain] = useState(0);
   useEffect(() => {
-    if (!selectedImageReady) return;
+    if (!selectedImageDecoded) return;
     const { selectedImage } = useEditorStore.getState();
     const masks = useEditorStore.getState().adjustments.masks ?? [];
+    if (!selectedImage) return;
+    const path = selectedImage.path;
     const unplaced = masks
       .flatMap((m: MaskContainer) => m.subMasks)
       .filter(
         (sub: SubMask) =>
           (sub.parameters as { lrNormalized?: unknown } | undefined)?.lrNormalized &&
-          !requestedPlacements.current.has(sub.id),
+          !requestedPlacements.current.has(`${path}:${sub.id}`),
       );
-    if (unplaced.length > 0 && selectedImage) {
-      unplaced.forEach((sub: SubMask) => requestedPlacements.current.add(sub.id));
-      const path = selectedImage.path;
-      void invoke<{ masks?: MaskContainer[] }>(Invokes.PlaceLightroomMasks, {
-        path,
-        adjustments: { masks: [{ subMasks: unplaced }] },
-        width: selectedImage.width,
-        height: selectedImage.height,
-      })
-        .then((placed) => {
-          if (useEditorStore.getState().selectedImage?.path !== path) return;
-          for (const sub of placed.masks?.[0]?.subMasks ?? []) {
-            if (!(sub.parameters as { lrNormalized?: unknown } | undefined)?.lrNormalized) {
-              updateSubMask(sub.id, { parameters: sub.parameters });
-            }
+    if (unplaced.length === 0) return;
+    // Per photo: copied settings keep component ids.
+    const keys = unplaced.map((sub: SubMask) => `${path}:${sub.id}`);
+    keys.forEach((key) => requestedPlacements.current.add(key));
+    /** Asked again: at once when the photo is open and decoded, else when it is. */
+    const askAgainLater = () => {
+      keys.forEach((key) => requestedPlacements.current.delete(key));
+      const now = useEditorStore.getState().selectedImage;
+      if (now?.path === path && now.isDecoded) setPlaceMasksAgain((n) => n + 1);
+    };
+    void invoke<{ masks?: MaskContainer[] }>(Invokes.PlaceLightroomMasks, {
+      path,
+      adjustments: { masks: [{ subMasks: unplaced }] },
+      width: selectedImage.width,
+      height: selectedImage.height,
+    })
+      .then((placed) => {
+        if (useEditorStore.getState().selectedImage?.path !== path) {
+          askAgainLater();
+          return;
+        }
+        for (const sub of placed.masks?.[0]?.subMasks ?? []) {
+          if (!(sub.parameters as { lrNormalized?: unknown } | undefined)?.lrNormalized) {
+            updateSubMask(sub.id, { parameters: sub.parameters });
+            // Placed: brought back pending (an undo), it is placed again.
+            requestedPlacements.current.delete(`${path}:${sub.id}`);
           }
-        })
-        .catch((error) => console.error('Placing Lightroom masks failed:', error));
-    }
+        }
+      })
+      .catch((error) => console.error('Placing Lightroom masks failed:', error));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedImageDecoded, masksKey, placeMasksAgain]);
+  useEffect(() => {
+    if (!selectedImageReady) return;
+    const { selectedImage } = useEditorStore.getState();
+    const masks = useEditorStore.getState().adjustments.masks ?? [];
     for (const sub of masks.flatMap((m: MaskContainer) => m.subMasks)) {
       if ((sub.parameters as { lrNormalized?: unknown } | undefined)?.lrNormalized) continue;
       // A People mask computes again whenever its parts or person change
@@ -589,7 +613,6 @@ export function useAiMasking() {
   // current recipe; items the geometry cannot show are asked for again when
   // it changes, and items brought back (an undo) as well. Placement waits for
   // the full decode (it places on it), not the preview proxy.
-  const selectedImageDecoded = useEditorStore((s) => !!s.selectedImage?.isDecoded);
   const retouchBasisKey = useEditorStore((s) => retouchBasis(s.adjustments));
   const requestedRetouchPlacements = useRef(new Set<string>());
   const [placeRetouchAgain, setPlaceRetouchAgain] = useState(0);

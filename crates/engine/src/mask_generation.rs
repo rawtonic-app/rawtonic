@@ -83,6 +83,8 @@ pub struct PhotoGeometry {
     /// `ShapeFrame`); None: unknown (shapes are placed with their frame's
     /// size, as before).
     size: Option<(f64, f64)>,
+    /// Whether `size` is the full decode's own (`with_decoded_size`).
+    decoded: bool,
 }
 
 impl PhotoGeometry {
@@ -96,6 +98,7 @@ impl PhotoGeometry {
             warp_key: warp_key(&warp),
             warp: Some(Arc::new(warp)),
             size: None,
+            decoded: false,
         }
     }
 
@@ -105,7 +108,19 @@ impl PhotoGeometry {
     pub fn with_photo_size(mut self, width: f64, height: f64) -> Self {
         self.size = (width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0)
             .then_some((width, height));
+        self.decoded = false;
         self
+    }
+
+    /// `with_photo_size` with the size of the photo's full decode, exactly as
+    /// the editor knows it: Lightroom masks still in their imported form
+    /// are then placed for the render (`lightroom_masks`), as the editor
+    /// places them. Reduced copies, which know the size only roughly, use
+    /// `with_photo_size` and leave them out.
+    pub fn with_decoded_size(self, width: u32, height: u32) -> Self {
+        let mut geometry = self.with_photo_size(f64::from(width), f64::from(height));
+        geometry.decoded = geometry.size.is_some();
+        geometry
     }
 
     /// The photo as drawn masks are placed on it now.
@@ -145,6 +160,7 @@ impl PhotoGeometry {
         self.size
             .map(|(w, h)| (w.to_bits(), h.to_bits()))
             .hash(hasher);
+        self.decoded.hash(hasher);
     }
 }
 
@@ -5007,6 +5023,20 @@ pub fn generate_layer_mask(
 ) -> Option<MaskBitmap> {
     if !mask_def.produces_bitmap() {
         return None;
+    }
+    if geometry.decoded
+        && let Some(size) = geometry.size
+        && let Some(placed) = crate::lightroom_masks::placed_layer(mask_def, size)
+    {
+        return generate_layer_mask(
+            &placed,
+            width,
+            height,
+            scale,
+            crop_offset,
+            geometry,
+            warped_image,
+        );
     }
     if mask_def.precise() && precise::needs_wide(mask_def) {
         return Some(precise::layer_mask(
