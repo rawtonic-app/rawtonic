@@ -529,14 +529,11 @@ mod tests {
             let mut placed = recipe.clone();
             assert!(place(&mut placed, 120, 160, None));
             assert!(placed["spots"][0].get(PENDING).is_none(), "{placed}");
-            let (a, b) = (rendered(&base, &recipe), rendered(&base, &placed));
-            let worst = a
-                .iter()
-                .zip(&b)
-                .map(|(x, y)| (x - y).abs())
-                .fold(0.0, f32::max);
-            assert!(worst < 1e-4, "{geometry}: {worst}");
-            assert_eq!(a, imported, "{geometry}");
+            let a = rendered(&base, &recipe);
+            // On the same pixels of the photo, and opening the photo
+            // changes none.
+            assert!(at(&a, 60, 40) > 0.2 && at(&a, 90, 120) < 0.2, "{geometry}");
+            assert_eq!(a, rendered(&base, &placed), "{geometry}");
         }
         // Without its orientation an item cannot be placed and renders
         // nothing, as before imports recorded it.
@@ -550,6 +547,37 @@ mod tests {
             .unwrap()
             .remove(ORIENTATION);
         assert!(!crate::image_loader::has_base_retouch(&unknown));
+    }
+
+    #[test]
+    fn a_clone_copies_the_same_pixels_before_and_after_placement() {
+        // Base x 1000.1 and source 1500.6 on a 6000-pixel-wide photo: an
+        // offset of 500.5 in f64, which the placed spot's f32 geometry may
+        // round to the other whole pixel. The pending spot renders as placed.
+        let base =
+            image::DynamicImage::ImageRgb32F(image::ImageBuffer::from_fn(6000, 40, |x, y| {
+                let v = ((x * 31 + y * 17) % 97) as f32 / 97.0;
+                image::Rgb([v, 1.0 - v, 0.5])
+            }));
+        let pending = json!({"spots": [{"mode": "clone", PENDING: {"x": 0.166683, "y": 0.5,
+            "radius": 0.002, "sourceX": 0.2501, "sourceY": 0.5, ORIENTATION: 1}}]});
+        for geometry in [
+            json!({}),
+            json!({"rotation": 0.3}),
+            json!({"transformAspect": 30.0}),
+        ] {
+            let mut recipe = pending.clone();
+            for (k, v) in geometry.as_object().unwrap() {
+                recipe[k] = v.clone();
+            }
+            let mut placed = recipe.clone();
+            assert!(place(&mut placed, 6000, 40, None), "{geometry}");
+            assert_eq!(
+                rendered(&base, &recipe),
+                rendered(&base, &placed),
+                "{geometry}"
+            );
+        }
     }
 
     #[test]

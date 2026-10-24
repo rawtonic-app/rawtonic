@@ -559,7 +559,9 @@ fn apply_stroke(
 /// without visible spots.
 ///
 /// Lightroom's imported spots not yet placed (`lightroom_retouch`) apply
-/// where they stand in the list, placed on this base image directly.
+/// where they stand in the list, placed on this base image exactly as the
+/// editor will place them (`placed_spot`), so opening the photo changes no
+/// pixel; one the geometry cannot show is applied at its base pixels.
 pub fn apply_spots(base: &DynamicImage, adjustments: &Value) -> Option<DynamicImage> {
     let (width, height) = (base.width(), base.height());
     let frame = mask_frame(adjustments, width, height);
@@ -569,40 +571,32 @@ pub fn apply_spots(base: &DynamicImage, adjustments: &Value) -> Option<DynamicIm
         .into_iter()
         .flatten()
         .filter_map(|item| {
-            if item.get(crate::lightroom_retouch::PENDING).is_none() {
-                let spot = serde_json::from_value::<Spot>(item.clone()).ok()?;
-                let centre = to_base(adjustments, frame, spot.x, spot.y);
-                let edge = to_base(adjustments, frame, spot.x + spot.radius, spot.y);
-                let base = BaseSpot {
-                    centre,
-                    radius: (edge.0 - centre.0).hypot(edge.1 - centre.1),
-                    source: to_base(adjustments, frame, spot.source_x, spot.source_y),
-                    path: if spot.points.len() >= 2 {
-                        spot.points
-                            .iter()
-                            .map(|p| to_base(adjustments, frame, p.x, p.y))
-                            .collect()
-                    } else {
-                        Vec::new()
-                    },
-                };
-                return Some((spot, base));
-            }
-            let base = crate::lightroom_retouch::base_spot(
-                item,
-                f64::from(width),
-                f64::from(height),
-                None,
-            )?;
-            // Its settings with the placed geometry, for the filter below.
-            let mut settings = item.clone();
-            settings["x"] = base.centre.0.into();
-            settings["y"] = base.centre.1.into();
-            settings["radius"] = base.radius.into();
-            settings["sourceX"] = base.source.0.into();
-            settings["sourceY"] = base.source.1.into();
-            settings["points"] = Value::Array(Vec::new());
-            Some((serde_json::from_value::<Spot>(settings).ok()?, base))
+            let placed = if item.get(crate::lightroom_retouch::PENDING).is_some() {
+                match crate::lightroom_retouch::placed_spot(item, adjustments, width, height, None)
+                {
+                    Some(placed) => placed,
+                    None => return unplaceable(item, width, height),
+                }
+            } else {
+                item.clone()
+            };
+            let spot = serde_json::from_value::<Spot>(placed).ok()?;
+            let centre = to_base(adjustments, frame, spot.x, spot.y);
+            let edge = to_base(adjustments, frame, spot.x + spot.radius, spot.y);
+            let base = BaseSpot {
+                centre,
+                radius: (edge.0 - centre.0).hypot(edge.1 - centre.1),
+                source: to_base(adjustments, frame, spot.source_x, spot.source_y),
+                path: if spot.points.len() >= 2 {
+                    spot.points
+                        .iter()
+                        .map(|p| to_base(adjustments, frame, p.x, p.y))
+                        .collect()
+                } else {
+                    Vec::new()
+                },
+            };
+            Some((spot, base))
         })
         .filter(|(s, _)| s.visible && s.radius > 0.5 && s.opacity > 0.0)
         .collect();
@@ -641,6 +635,22 @@ pub fn apply_spots(base: &DynamicImage, adjustments: &Value) -> Option<DynamicIm
         );
     }
     Some(DynamicImage::ImageRgb32F(image))
+}
+
+/// A pending Lightroom spot the geometry cannot show in the mask frame, at
+/// its base pixels (`apply_spots`).
+fn unplaceable(item: &Value, width: u32, height: u32) -> Option<(Spot, BaseSpot)> {
+    let base =
+        crate::lightroom_retouch::base_spot(item, f64::from(width), f64::from(height), None)?;
+    // Its settings with the base geometry, for the visibility filter.
+    let mut settings = item.clone();
+    settings["x"] = base.centre.0.into();
+    settings["y"] = base.centre.1.into();
+    settings["radius"] = base.radius.into();
+    settings["sourceX"] = base.source.0.into();
+    settings["sourceY"] = base.source.1.into();
+    settings["points"] = Value::Array(Vec::new());
+    Some((serde_json::from_value::<Spot>(settings).ok()?, base))
 }
 
 /// Mean squared difference (working space) between the surroundings of a

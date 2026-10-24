@@ -19,6 +19,18 @@ import { GEOMETRY_KEYS, ORIENTATION_KEYS } from '../utils/geometryKeys';
 export const getTransformAdjustments = (adj: Adjustments) =>
   Object.fromEntries(GEOMETRY_KEYS.map((key) => [key, adj[key]])) as Pick<Adjustments, (typeof GEOMETRY_KEYS)[number]>;
 
+/** An imported Lightroom spot or red eye correction not yet placed (`lrNormalized`). */
+const isUnplacedRetouch = (item: unknown) => !!(item as { lrNormalized?: unknown } | undefined)?.lrNormalized;
+
+/** What placing a photo's pending Lightroom spots and red eyes depends on:
+ * its geometry and those items; empty without any. */
+const retouchBasis = (a: Adjustments) => {
+  const spots = (a.spots ?? []).filter(isUnplacedRetouch);
+  const redEyes = (a.redEyes ?? []).filter(isUnplacedRetouch);
+  if (spots.length === 0 && redEyes.length === 0) return '';
+  return JSON.stringify([getTransformAdjustments(a), ORIENTATION_KEYS.map((key) => a[key]), spots, redEyes]);
+};
+
 /** The Subject and Sky masks computed ahead (`precompute_ai_foreground_mask`,
  * then `precompute_ai_sky_mask`): the photo and geometry asked for, the task
  * that runs now, and whether the run is still going. */
@@ -571,46 +583,35 @@ export function useAiMasking() {
   // Lightroom Heal/Clone spots and Red Eye corrections imported from a
   // catalog keep Lightroom's geometry (renders place them on the photo
   // themselves) until their photo is open: the backend then places them on
-  // its decode for editing, each where it stands in its list. A placement
-  // that came back for another photo, another geometry (a turn while it ran)
-  // or other pending items is asked for again against the current recipe.
-  const spotsKey = useEditorStore((s) => s.adjustments.spots);
-  const redEyesKey = useEditorStore((s) => s.adjustments.redEyes);
+  // its decode for editing, each where it stands in its list. Each request
+  // is for the photo, its geometry and its pending items (`retouchBasis`): a
+  // placement that comes back for another one is asked for again against the
+  // current recipe; items the geometry cannot show are asked for again when
+  // it changes, and items brought back (an undo) as well.
+  const retouchBasisKey = useEditorStore((s) => retouchBasis(s.adjustments));
   const requestedRetouchPlacements = useRef(new Set<string>());
   const [placeRetouchAgain, setPlaceRetouchAgain] = useState(0);
   useEffect(() => {
     const { selectedImage, adjustments } = useEditorStore.getState();
-    if (!selectedImageReady || !selectedImage) return;
-    const isUnplaced = (item: unknown) => !!(item as { lrNormalized?: unknown } | undefined)?.lrNormalized;
-    /** What a placement was computed for: the geometry and the pending items. */
-    const basis = (a: Adjustments) =>
-      JSON.stringify([
-        getTransformAdjustments(a),
-        ORIENTATION_KEYS.map((key) => a[key]),
-        (a.spots ?? []).filter(isUnplaced),
-        (a.redEyes ?? []).filter(isUnplaced),
-      ]);
+    if (!selectedImageReady || !selectedImage || !retouchBasisKey) return;
     const sent = { spots: adjustments.spots ?? [], redEyes: adjustments.redEyes ?? [] };
-    const sentBasis = basis(adjustments);
+    const sentBasis = retouchBasis(adjustments);
     const path = selectedImage.path;
-    if (
-      !(sent.spots.some(isUnplaced) || sent.redEyes.some(isUnplaced)) ||
-      requestedRetouchPlacements.current.has(path)
-    ) {
-      return;
-    }
-    requestedRetouchPlacements.current.add(path);
+    const key = `${path}\n${sentBasis}`;
+    if (requestedRetouchPlacements.current.has(key)) return;
+    requestedRetouchPlacements.current.add(key);
+    const done = () => requestedRetouchPlacements.current.delete(key);
     /** Asked again: at once when the photo is open, else when it opens. */
     const askAgain = () => {
-      requestedRetouchPlacements.current.delete(path);
+      done();
       const now = useEditorStore.getState().selectedImage;
       if (now?.path === path && now.isReady) setPlaceRetouchAgain((n) => n + 1);
     };
     /** `current` with its pending items replaced by the placed ones `got` holds for `asked`. */
     const merged = <T>(current: T[], asked: T[], got: T[] | undefined): T[] => {
-      const placed = (got ?? []).filter((_, i) => isUnplaced(asked[i]));
+      const placed = (got ?? []).filter((_, i) => isUnplacedRetouch(asked[i]));
       let next = 0;
-      return current.map((item) => (isUnplaced(item) ? placed[next++] : item));
+      return current.map((item) => (isUnplacedRetouch(item) ? placed[next++] : item));
     };
     void invoke<{ spots?: Adjustments['spots']; redEyes?: Adjustments['redEyes'] } | null>(
       Invokes.PlaceLightroomRetouch,
@@ -621,18 +622,20 @@ export function useAiMasking() {
         if (
           !placed ||
           now.selectedImage?.path !== path ||
-          basis(now.adjustments) !== sentBasis ||
+          retouchBasis(now.adjustments) !== sentBasis ||
           placed.spots?.length !== sent.spots.length ||
           placed.redEyes?.length !== sent.redEyes.length
         ) {
           askAgain();
           return;
         }
-        const pending = (items: unknown[] | undefined) => (items ?? []).filter(isUnplaced).length;
-        // Nothing the geometry could show: no edit to record.
+        const pending = (items: unknown[] | undefined) => (items ?? []).filter(isUnplacedRetouch).length;
+        // Nothing the geometry could show: no edit to record, and not asked
+        // again until the geometry or the items change.
         if (pending(placed.spots) + pending(placed.redEyes) === pending(sent.spots) + pending(sent.redEyes)) return;
+        done();
         setAdjustments((prev: Adjustments) =>
-          basis(prev) !== sentBasis
+          retouchBasis(prev) !== sentBasis
             ? prev
             : {
                 ...prev,
@@ -642,11 +645,11 @@ export function useAiMasking() {
         );
       })
       .catch((error) => {
-        requestedRetouchPlacements.current.delete(path);
+        done();
         console.error('Placing Lightroom spots and red eye corrections failed:', error);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedImageReady, spotsKey, redEyesKey, placeRetouchAgain]);
+  }, [selectedImageReady, retouchBasisKey, placeRetouchAgain]);
 
   // SAM encodes the open photo in the background, so a click or box only
   // runs the decoder: after Subject and Sky where those are computed ahead

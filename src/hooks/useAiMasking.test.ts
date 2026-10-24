@@ -601,6 +601,39 @@ describe("automatic AI masks from imported presets", () => {
     await waitFor(() => expect(useEditorStore.getState().adjustments.spots?.[0]).toMatchObject({ id: "placed-spot" }));
   });
 
+  it("places pending items again when an undo brings them back", async () => {
+    invoke.mockImplementation(async (command: string, args: never) =>
+      command === "place_lightroom_retouch" ? placeRetouch(command, args) : null,
+    );
+    openWithPendingSpot("/s/a.NEF");
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(useEditorStore.getState().adjustments.spots?.[0]).toMatchObject({ id: "placed-spot" }));
+    // An undo restores the recipe from before the placement.
+    act(() => {
+      useEditorStore.setState((state) => ({ adjustments: { ...state.adjustments, spots: [pendingSpot] as never } }));
+    });
+    await waitFor(() => expect(placeCalls()).toHaveLength(2));
+    await waitFor(() => expect(useEditorStore.getState().adjustments.spots?.[0]).toMatchObject({ id: "placed-spot" }));
+  });
+
+  it("asks again for items the geometry could not show once the geometry changes", async () => {
+    // The backend keeps them pending (nothing it could show).
+    invoke.mockImplementation(async (command: string, args: { jsAdjustments: { spots: object[]; redEyes: object[] } }) =>
+      command === "place_lightroom_retouch" ? { spots: args.jsAdjustments.spots, redEyes: args.jsAdjustments.redEyes } : null,
+    );
+    openWithPendingSpot("/s/a.NEF");
+    const { rerender } = renderHook(() => useAiMasking());
+    await waitFor(() => expect(placeCalls()).toHaveLength(1));
+    rerender();
+    await act(async () => {});
+    expect(placeCalls()).toHaveLength(1);
+    expect(useEditorStore.getState().adjustments.spots?.[0]).toEqual(pendingSpot);
+    act(() => {
+      useEditorStore.setState((state) => ({ adjustments: { ...state.adjustments, transformDistortion: 10 } }));
+    });
+    await waitFor(() => expect(placeCalls()).toHaveLength(2));
+  });
+
   it("leaves masks that already carry data alone", async () => {
     useEditorStore.setState({
       selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true } as never,
