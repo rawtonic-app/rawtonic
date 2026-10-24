@@ -74,6 +74,9 @@ fn attributes_travel_with_a_moved_file_and_back() {
 #[test]
 fn attributes_of_a_folder_and_of_what_is_in_it_travel_with_it() {
     let world = World::new();
+    if world.publishes_in_place() {
+        return;
+    }
     let (from, to) = world.folder();
     if !(tag(&from, "folder")
         && tag(&from.join("Sub/B.NEF"), "nef")
@@ -122,6 +125,9 @@ fn an_original_whose_attributes_changed_after_its_copy_is_kept() {
         }
     }
     let world = World::new();
+    if world.publishes_in_place() {
+        return;
+    }
     let raw = world.source.join("A.RAF");
     if !tag(&raw, "red") || !target_keeps(&world) {
         eprintln!("SKIP: no extended attributes on both volumes");

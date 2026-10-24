@@ -645,6 +645,7 @@ impl Journal {
                 }
                 let original_mode = copy.original_mode;
                 let journaled = std::cell::Cell::new(false);
+                let mut written = volume::Written::default();
                 let copied = copy_verified(
                     &source,
                     &destination,
@@ -659,10 +660,24 @@ impl Journal {
                         crash::point("in place created");
                         Ok(())
                     },
+                    Some(&mut written),
                 );
+                // A failed copy holding just what this direction wrote is
+                // taken back here while its source is still a file of its
+                // own, also when it is no longer the start of that source
+                // (changed while it was copied).
+                let taken_back = copied.is_err()
+                    && journaled.get()
+                    && is_kind(&source, false)
+                    && !same_file(&source, &destination)
+                    && written.is_in(&destination).unwrap_or(false)
+                    && fs::remove_file(&destination).is_ok();
+                if taken_back && let Some(parent) = destination.parent() {
+                    let _ = sync_folder(parent);
+                }
                 if let Target::OtherVolume { copy, .. } = &mut payload.steps[index].to {
                     // A failure after the creation leaves a file to take back.
-                    copy.created = journaled.get();
+                    copy.created = journaled.get() && !taken_back;
                 }
                 let (stamp, copy_stamp) = copied?;
                 if let Target::OtherVolume { copy, .. } = &mut payload.steps[index].to {
@@ -677,6 +692,7 @@ impl Journal {
                     copy.original_mode,
                     &mut tally,
                     &mut || Ok(()),
+                    None,
                 )?;
                 if let Target::OtherVolume { copy, .. } = &mut payload.steps[index].to {
                     copy.copied = true;

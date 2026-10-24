@@ -404,6 +404,42 @@ fn safe_copy_mode(recorded: Option<u32>, live: Option<u32>) -> u32 {
 
 pub(crate) const BLOCK: usize = 1 << 20;
 
+/// The bytes a copy wrote, as their length and a hash valid in this
+/// process only: tells a copy made in place that holds just what this move
+/// wrote from one something else wrote into.
+#[derive(Default)]
+pub(crate) struct Written {
+    hasher: std::hash::DefaultHasher,
+    len: u64,
+}
+
+impl Written {
+    fn add(&mut self, bytes: &[u8]) {
+        std::hash::Hasher::write(&mut self.hasher, bytes);
+        self.len += bytes.len() as u64;
+    }
+
+    /// Whether the file at `path` holds exactly the bytes written.
+    pub(crate) fn is_in(&self, path: &Path) -> Result<bool> {
+        use std::hash::Hasher;
+        let mut file =
+            File::open(path).with_context(|| format!("Cannot read {}", path.display()))?;
+        if file.metadata()?.len() != self.len {
+            return Ok(false);
+        }
+        uncached(&file);
+        let mut hasher = std::hash::DefaultHasher::new();
+        let mut buffer = vec![0u8; BLOCK];
+        loop {
+            let n = read_full(&mut file, &mut buffer)?;
+            if n == 0 {
+                return Ok(hasher.finish() == self.hasher.finish());
+            }
+            hasher.write(&buffer[..n]);
+        }
+    }
+}
+
 /// Copies `source` into a new file `staged` (never an existing one) with
 /// its recorded permissions (without execute/special bits), or 0644 masked
 /// by umask when unrecorded, its modification time and the extended
@@ -418,6 +454,7 @@ pub(crate) fn copy_verified(
     original_mode: Option<u32>,
     tally: &mut Tally,
     created: &mut dyn FnMut() -> Result<()>,
+    written: Option<&mut Written>,
 ) -> Result<(Stamp, Stamp)> {
     #[cfg(unix)]
     let posix = (
@@ -426,12 +463,21 @@ pub(crate) fn copy_verified(
     );
     #[cfg(not(unix))]
     let posix = (false, false);
-    copy_file_verified(source, staged, original_mode, posix, tally, created)
+    copy_file_verified(
+        source,
+        staged,
+        original_mode,
+        posix,
+        tally,
+        created,
+        written,
+    )
 }
 
 /// [`copy_verified`] with whether the source's and the copy's volumes
 /// keep Unix modes (`posix`) known; `created` runs once the new file
-/// exists, before anything is written to it.
+/// exists, before anything is written to it, and `written` records what is
+/// written to it.
 pub(crate) fn copy_file_verified(
     source: &Path,
     staged: &Path,
@@ -439,6 +485,7 @@ pub(crate) fn copy_file_verified(
     posix: (bool, bool),
     tally: &mut Tally,
     created: &mut dyn FnMut() -> Result<()>,
+    mut written: Option<&mut Written>,
 ) -> Result<(Stamp, Stamp)> {
     let mut input =
         File::open(source).with_context(|| format!("Cannot read {}", source.display()))?;
@@ -498,6 +545,9 @@ pub(crate) fn copy_file_verified(
         output
             .write_all(&buffer[..read])
             .with_context(|| format!("Cannot write {}", staged.display()))?;
+        if let Some(written) = written.as_deref_mut() {
+            written.add(&buffer[..read]);
+        }
         tally.done += read as u64;
         tally.observer.copied(tally.done, tally.total);
         #[cfg(test)]

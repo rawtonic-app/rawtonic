@@ -162,6 +162,20 @@ impl World {
     fn journal(&self) -> Journal {
         Journal::open(&self.journal_path).unwrap()
     }
+    /// Whether the target volume publishes copies in place (exFAT on
+    /// macOS), printing SKIP: tests of staged copies and of folders then
+    /// stop (`in_place` covers that mode).
+    fn publishes_in_place(&self) -> bool {
+        let probe = self.target.join(".publish-probe");
+        fs::create_dir(&probe).unwrap();
+        let mode = publish_mode(&probe).unwrap();
+        fs::remove_dir(&probe).unwrap();
+        let in_place = mode == Publish::InPlace;
+        if in_place {
+            eprintln!("SKIP: the target volume publishes copies in place");
+        }
+        in_place
+    }
     fn steps(&self) -> Vec<Step> {
         FILES
             .iter()
@@ -431,6 +445,9 @@ fn the_originals_stay_untouched_until_the_verified_copies_exist() {
         }
     }
     let world = World::new();
+    if world.publishes_in_place() {
+        return;
+    }
     let watch = Watch(&world, Cell::new(0));
     world
         .journal()
@@ -447,6 +464,9 @@ fn a_crash_at_any_step_of_a_move_loses_nothing() {
     let mut points = 0;
     for n in 0.. {
         let world = World::new();
+        if world.publishes_in_place() {
+            return;
+        }
         crash::arm(n);
         let run = catch_unwind(AssertUnwindSafe(|| {
             world
@@ -536,6 +556,9 @@ fn a_crash_at_any_step_of_a_redo_loses_nothing() {
     let mut points = 0;
     for n in 0.. {
         let world = World::new();
+        if world.publishes_in_place() {
+            return;
+        }
         let journal = world.journal();
         let op = journal
             .execute("move", "Move", world.steps(), &world.trash)

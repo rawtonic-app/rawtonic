@@ -183,6 +183,72 @@ fn stop_while_copying_in_place_takes_the_start_of_the_copy_back() {
     world.assert_at(&world.source, &world.target);
 }
 
+/// An original changed while it is copied in place stops the move, and the
+/// copy (holding only what this move wrote, no longer the start of the
+/// changed original) is taken back: nothing is left under its final name.
+#[test]
+fn a_source_changed_while_copying_in_place_leaves_nothing_behind() {
+    struct Edit<'a>(&'a Path, Cell<bool>);
+    impl CopyObserver for Edit<'_> {
+        fn copied(&self, _: u64, _: u64) {
+            if !self.1.replace(true) {
+                let mut bytes = fs::read(self.0).unwrap();
+                bytes[0] ^= 1;
+                fs::write(self.0, bytes).unwrap();
+            }
+        }
+    }
+    let _in_place = InPlace::on();
+    let world = World::new();
+    let raw = world.source.join("A.RAF");
+    let error = world
+        .journal()
+        .execute_with(
+            "move",
+            "Move",
+            world.steps(),
+            &world.trash,
+            &Edit(&raw, Cell::new(false)),
+        )
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("A.RAF"), "{error:#}");
+    assert!(World::names(&world.target).is_empty());
+    assert_eq!(
+        fs::read(&raw).unwrap()[1..],
+        content("A.RAF", FILES[0].1)[1..]
+    );
+}
+
+/// An original removed while it is copied in place: the move fails and
+/// its complete copy, now the only one, stays under its final name.
+#[test]
+fn a_copy_in_place_whose_source_vanished_stays() {
+    struct Remove<'a>(&'a Path, Cell<bool>);
+    impl CopyObserver for Remove<'_> {
+        fn copied(&self, _: u64, _: u64) {
+            if !self.1.replace(true) {
+                fs::remove_file(self.0).unwrap();
+            }
+        }
+    }
+    let _in_place = InPlace::on();
+    let world = World::new();
+    let raw = world.source.join("A.RAF");
+    let result = world.journal().execute_with(
+        "move",
+        "Move",
+        world.steps(),
+        &world.trash,
+        &Remove(&raw, Cell::new(false)),
+    );
+    assert!(result.is_err());
+    assert!(!exists(&raw));
+    assert_eq!(
+        fs::read(world.target.join("A.RAF")).unwrap(),
+        content("A.RAF", FILES[0].1)
+    );
+}
+
 /// A name taken before its creation is never touched; what was created
 /// is taken back.
 #[test]
