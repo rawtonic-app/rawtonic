@@ -12,6 +12,7 @@ import { TextVariants } from "../../types/typography";
 import { formatFileSize } from "../../utils/formatFileSize";
 import {
   attachmentsView,
+  deleteContribution,
   sendContribution,
   type ContributionError,
   type ContributionReceipt,
@@ -28,13 +29,20 @@ interface ReviewSendDialogProps {
   onSent?(receipt: ContributionReceipt): void;
   /** Sends the reviewed body (tests replace it). */
   send?(prepared: PreparedContribution): Promise<ContributionReceipt>;
+  /** Back to the form that made the body, to change or remove parts. */
+  onBack?(): void;
+  /** Deletes a sent submission by its id (tests replace it). */
+  remove?(id: string): Promise<void>;
 }
 
 type Phase =
   | { kind: "review" }
   | { kind: "sending" }
-  | { kind: "sent"; receipt: ContributionReceipt }
+  | { kind: "sent"; receipt: ContributionReceipt; deletion?: "deleting" | "deleted" | "failed" }
   | { kind: "failed"; code: ContributionError | "unknown" };
+
+/** Where people can ask for a submission to be deleted (PRIVACY.md). */
+export const CONTACT = "hello@rawtonic.cc";
 
 const ERROR_CODES: ContributionError[] = ["not-configured", "unapproved", "rate-limited", "not-found", "refused", "network"];
 
@@ -45,6 +53,8 @@ export default function ReviewSendDialog({
   onClose,
   onSent,
   send = sendContribution,
+  onBack,
+  remove = deleteContribution,
 }: ReviewSendDialogProps) {
   const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>({ kind: "review" });
@@ -99,6 +109,17 @@ export default function ReviewSendDialog({
   const size = new TextEncoder().encode(prepared.body).length;
   const id = phase.kind === "sent" ? phase.receipt.id : null;
   const notUploaded = phase.kind === "sent" && (phase.receipt.notUploaded?.length ?? 0) > 0;
+
+  const deleteNow = async () => {
+    if (!id || phase.kind !== "sent" || phase.deletion === "deleting") return;
+    setPhase({ ...phase, deletion: "deleting" });
+    try {
+      await remove(id);
+      setPhase({ ...phase, deletion: "deleted" });
+    } catch {
+      setPhase({ ...phase, deletion: "failed" });
+    }
+  };
 
   const copyId = async () => {
     if (!id) return;
@@ -155,6 +176,24 @@ export default function ReviewSendDialog({
                   </Button>
                 </div>
                 <Text color="secondary">{t("contribute.review.idHint")}</Text>
+                <Text color="secondary">{t("contribute.review.deleteHint", { email: CONTACT })}</Text>
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant="ghost"
+                    onClick={() => void deleteNow()}
+                    disabled={phase.deletion === "deleting" || phase.deletion === "deleted"}
+                  >
+                    {t("contribute.review.deleteNow")}
+                  </Button>
+                  {phase.deletion === "deleted" && (
+                    <Text role="status">{t("contribute.review.deleted")}</Text>
+                  )}
+                  {phase.deletion === "failed" && (
+                    <Text color="error" role="alert">
+                      {t("contribute.review.deleteFailed", { email: CONTACT })}
+                    </Text>
+                  )}
+                </div>
               </>
             )}
           </div>
@@ -204,6 +243,11 @@ export default function ReviewSendDialog({
             </Button>
           ) : (
             <>
+              {onBack && (
+                <Button variant="ghost" onClick={onBack} disabled={phase.kind === "sending"}>
+                  {t("contribute.review.change")}
+                </Button>
+              )}
               <Button
                 className="bg-bg-primary shadow-transparent hover:bg-bg-primary text-white shadow-none"
                 variant="ghost"

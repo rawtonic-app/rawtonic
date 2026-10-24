@@ -8,6 +8,7 @@ description = "Contribution channels' shared core: scrubbing, the reviewed paylo
 [dependencies]
 base64 = "0.23"
 gethostname = "1.1"
+rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
 regex = "1.13.1"
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 serde.workspace = true
@@ -15,6 +16,10 @@ serde_json.workspace = true
 sha2.workspace = true
 tokio = { version = "1", features = ["rt"] }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.189"
+
 [dev-dependencies]
+tempfile.workspace = true
 proptest = "1"
 tokio = { version = "1", features = ["rt", "macros", "net", "io-util"] }

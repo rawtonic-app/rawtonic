@@ -210,6 +210,9 @@ export interface UIState {
   isLayoutReady: boolean;
   uiVisibility: UiVisibility;
   isSettingsOpen: boolean;
+  /** "Report a problem" (src/components/contribute/ContributionHost.tsx). */
+  isProblemReportOpen: boolean;
+  setProblemReportOpen(open: boolean): void;
 
   leftPanelWidth: number;
   rightPanelWidth: number;
@@ -296,6 +299,8 @@ export const useUIStore = create<UIState>((set, get) => ({
   isLayoutReady: false,
   uiVisibility: { filmstrip: true, leftPanel: true, rightPanel: true, quickFilter: false },
   isSettingsOpen: false,
+  isProblemReportOpen: false,
+  setProblemReportOpen: (open) => set({ isProblemReportOpen: open }),
 
   leftPanelWidth: DEFAULT_PANEL_WIDTH,
   rightPanelWidth: DEFAULT_PANEL_WIDTH,

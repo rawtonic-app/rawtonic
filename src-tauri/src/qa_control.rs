@@ -477,114 +477,12 @@ mod native {
         Some((frame.size.x, frame.size.y))
     }
 
-    #[link(name = "CoreGraphics", kind = "framework")]
-    unsafe extern "C" {
-        fn CGWindowListCreateImage(
-            bounds: NSRect,
-            list: u32,
-            window: u32,
-            options: u32,
-        ) -> *mut c_void;
-        fn CGImageGetWidth(image: *mut c_void) -> usize;
-        fn CGImageGetHeight(image: *mut c_void) -> usize;
-        fn CGImageRelease(image: *mut c_void);
-        fn CGColorSpaceCreateWithName(name: *const c_void) -> *mut c_void;
-        fn CGColorSpaceRelease(space: *mut c_void);
-        fn CGBitmapContextCreate(
-            data: *mut c_void,
-            width: usize,
-            height: usize,
-            bits_per_component: usize,
-            bytes_per_row: usize,
-            space: *mut c_void,
-            info: u32,
-        ) -> *mut c_void;
-        fn CGContextDrawImage(context: *mut c_void, rect: NSRect, image: *mut c_void);
-        fn CGContextRelease(context: *mut c_void);
-        static kCGColorSpaceSRGB: *const c_void;
-        static kCGColorSpaceDisplayP3: *const c_void;
-    }
-
-    // CGWindowListOption / CGWindowImageOption / CGBitmapInfo values.
-    const INCLUDING_WINDOW: u32 = 1 << 3;
-    const IGNORE_FRAMING: u32 = 1 << 0;
-    const BEST_RESOLUTION: u32 = 1 << 3;
-    const NOMINAL_RESOLUTION: u32 = 1 << 4;
-    const PREMULTIPLIED_LAST: u32 = 1;
-
-    /// PNG (base64) of the main window as the window server composites it,
-    /// so the native GPU layer under the transparent webview is included.
-    /// A process may capture its own windows without Screen Recording
-    /// permission. Main thread only.
+    /// PNG (base64) of the main window as the window server composites it
+    /// (`window_capture`). Main thread only.
     pub(super) fn capture(window: &WebviewWindow, best: bool, p3: bool) -> Result<Value, String> {
         use base64::Engine as _;
-        let number = window_number(window).as_i64().ok_or("no window number")?;
-        let null_rect = NSRect {
-            origin: NSPoint {
-                x: f64::INFINITY,
-                y: f64::INFINITY,
-            },
-            size: NSPoint { x: 0.0, y: 0.0 },
-        };
-        let options = IGNORE_FRAMING
-            | if best {
-                BEST_RESOLUTION
-            } else {
-                NOMINAL_RESOLUTION
-            };
-        // SAFETY: CoreGraphics calls with owned references released below;
-        // the bitmap context draws into `pixels`, which outlives it.
-        let (width, height, mut pixels) = unsafe {
-            let image =
-                CGWindowListCreateImage(null_rect, INCLUDING_WINDOW, number as u32, options);
-            if image.is_null() {
-                return Err("the window server returned no image".into());
-            }
-            let (width, height) = (CGImageGetWidth(image), CGImageGetHeight(image));
-            let mut pixels = vec![0u8; width * height * 4];
-            let space = CGColorSpaceCreateWithName(if p3 {
-                kCGColorSpaceDisplayP3
-            } else {
-                kCGColorSpaceSRGB
-            });
-            let context = CGBitmapContextCreate(
-                pixels.as_mut_ptr().cast(),
-                width,
-                height,
-                8,
-                width * 4,
-                space,
-                PREMULTIPLIED_LAST,
-            );
-            if !context.is_null() {
-                let rect = NSRect {
-                    origin: NSPoint { x: 0.0, y: 0.0 },
-                    size: NSPoint {
-                        x: width as f64,
-                        y: height as f64,
-                    },
-                };
-                CGContextDrawImage(context, rect, image);
-                CGContextRelease(context);
-            }
-            CGColorSpaceRelease(space);
-            CGImageRelease(image);
-            if context.is_null() {
-                return Err("could not create a bitmap context".into());
-            }
-            (width, height, pixels)
-        };
-        // Undo premultiplication so the PNG shows what the window shows.
-        for pixel in pixels.as_chunks_mut::<4>().0 {
-            let alpha = u32::from(pixel[3]);
-            if alpha != 0 && alpha != 255 {
-                for channel in &mut pixel[..3] {
-                    *channel = ((u32::from(*channel) * 255 + alpha / 2) / alpha).min(255) as u8;
-                }
-            }
-        }
-        let image = image::RgbaImage::from_raw(width as u32, height as u32, pixels)
-            .ok_or("bitmap size mismatch")?;
+        let image = crate::window_capture::capture_rgba(window, best, p3)?;
+        let (width, height) = image.dimensions();
         let mut png = Vec::new();
         image
             .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
@@ -684,15 +582,7 @@ mod native {
     }
 
     pub(super) fn window_number(window: &WebviewWindow) -> Value {
-        let Ok(ns_window) = window.ns_window() else {
-            return Value::Null;
-        };
-        if ns_window.is_null() {
-            return Value::Null;
-        }
-        // SAFETY: called on the main thread with the live NSWindow.
-        let number: isize = unsafe { msg_send![ns_window.cast::<Object>(), windowNumber] };
-        Value::from(number as i64)
+        crate::window_capture::window_number(window).map_or(Value::Null, Value::from)
     }
 
     /// Activates the app and makes the main window key. Main thread only.

@@ -172,6 +172,8 @@ export enum Invokes {
   BuildPreviews = 'build_previews',
   StopPreviewBuild = 'stop_preview_build',
   PreviewBuildProgress = 'preview_build_progress',
+  ProblemReportContext = 'problem_report_context',
+  ProblemReportScreenshot = 'problem_report_screenshot',
   DiscardPreviews = 'discard_previews',
   PreviewCacheUsage = 'preview_cache_usage',
   ClearPreviewCache = 'clear_preview_cache',
@@ -184,6 +186,10 @@ export enum Invokes {
   ContributionDelete = 'contribution_delete',
   ContributionPrepare = 'contribution_prepare',
   ContributionSend = 'contribution_send',
+  CrashReportMarkAsked = 'crash_report_mark_asked',
+  CrashReportRemove = 'crash_report_remove',
+  CrashReportsPending = 'crash_reports_pending',
+  CrashReportsSetEnabled = 'crash_reports_set_enabled',
   LoadSettings = 'load_settings',
   MoveFiles = 'move_files',
   MoveFolder = 'move_folder',
@@ -352,6 +358,8 @@ export type CropGrid = 'always' | 'drag' | 'off';
 
 export interface AppSettings {
   checkForUpdates?: boolean;
+  /** Offer a crash report after Rawtonic quit unexpectedly (missing: yes). */
+  crashReports?: boolean;
   updatePrereleases?: boolean;
   dismissedUpdateVersion?: string;
   aiConnectorAddress?: string;

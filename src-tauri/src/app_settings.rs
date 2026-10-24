@@ -575,6 +575,10 @@ pub struct AppSettings {
     pub last_update_check: Option<u64>,
     #[serde(default)]
     pub dismissed_update_version: Option<String>,
+    /// Offer to send a crash report after Rawtonic quit unexpectedly
+    /// (missing: yes; false: Never, and no crash records are kept).
+    #[serde(default)]
+    pub crash_reports: Option<bool>,
     pub last_root_path: Option<String>,
     #[serde(default)]
     pub root_folders: Vec<String>,
@@ -785,6 +789,7 @@ impl Default for AppSettings {
             update_prereleases: None,
             last_update_check: None,
             dismissed_update_version: None,
+            crash_reports: None,
             last_root_path: None,
             root_folders: Vec::new(),
             pinned_folders: Vec::new(),
