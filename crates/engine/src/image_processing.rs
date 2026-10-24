@@ -3256,7 +3256,7 @@ pub struct GlobalAdjustments {
     /// x: Capture One's Sharpness Falloff (0–1): extra sharpening towards
     /// the corners, up to twice the amount there. y, z: diffraction
     /// correction radius (original pixels) and amount (diffraction.rs).
-    /// w: the recipe's sharpening response (`sharpenVersion`, 1 to 4).
+    /// w: the recipe's sharpening response (`sharpenVersion`, 1 to 5).
     pub sharpen_falloff: [f32; 4],
     /// Camera profile (camera_profile.rs). Before the base look: x = key of
     /// the recipe's `cameraProfile`. After it: x = 1 when applied, y = key
@@ -4697,7 +4697,13 @@ fn defringe_settings(adjustments: &serde_json::Value) -> [[f32; 4]; 2] {
 
 /// The recipe key naming the sharpening response a recipe was made with.
 pub const SHARPEN_VERSION_KEY: &str = "sharpenVersion";
-/// The newest response: 4 (2026-10-23) is 3 with Radius and Masking after
+/// The newest response: 5 (2026-10-24) is 4 with Masking's ramp after
+/// Camera Raw's: wider, with less sharpening on flat noise, more on
+/// moderate texture and a longer tail on strong texture (Masking's texture
+/// error against Camera Raw 0.055 → 0.046 on the tuning frames, 0.12 →
+/// 0.10 on the hold-outs, flat noise not above it); without Masking it
+/// renders as 4 (notes: reference/detail.md "Sharpening response 5").
+/// 4 (2026-10-23) is 3 with Radius and Masking after
 /// Camera Raw's: below Radius 1 the Threshold gate and part of the gain
 /// follow the narrower kernel (Radius 0.5 kept 15–57 % too little fine
 /// detail), and Masking reads a 3 px neighbourhood that tells texture from
@@ -4716,7 +4722,7 @@ pub const SHARPEN_VERSION_KEY: &str = "sharpenVersion";
 /// at Amount 40 with Radius, Detail and Masking at their defaults it renders
 /// as 1. Photo-wide: layers' sharpening amounts follow it. Recipes without
 /// the key keep version 1.
-pub const SHARPEN_VERSION: u64 = 4;
+pub const SHARPEN_VERSION: u64 = 5;
 
 /// The recipe's sharpening response, 1 when missing, never newer than this
 /// renderer knows.
@@ -6988,6 +6994,7 @@ mod editing_tool_tests {
         assert_eq!(version(json!({"sharpness": 80, "sharpenVersion": 2})), 2.0);
         assert_eq!(version(json!({"sharpness": 80, "sharpenVersion": 3})), 3.0);
         assert_eq!(version(json!({"sharpness": 80, "sharpenVersion": 4})), 4.0);
+        assert_eq!(version(json!({"sharpness": 80, "sharpenVersion": 5})), 5.0);
         assert_eq!(
             version(json!({"sharpenVersion": 9})),
             SHARPEN_VERSION as f32
