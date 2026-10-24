@@ -54,4 +54,17 @@ metadata, a photo with areas made by a generative AI tool still records
 that fact (IPTC Digital Source Type), as the EU AI Act requires; nothing
 else is added.
 
+## Sending reports to Rawtonic's makers (not in this version)
+
+Rawtonic does not yet send problem reports, crash reports, camera-test
+results, RAW samples or usage statistics; nothing of the kind exists in this
+version. They are planned as separate, optional ways to help (design:
+`docs/decisions/0017-contribution-channels.md`): each would send only when you
+click Send after seeing exactly what goes out, through Rawtonic's own small
+relay service without an account, with paths, your user name and serial
+numbers removed, a report id that deletes your report, and reports deleted
+after 90 days. Anonymous usage statistics would be off unless you switch them
+on in Preferences. Each one will be described here, in full, in the version
+that adds it.
+
 Questions: open an issue at https://github.com/rawtonic-app/rawtonic.
