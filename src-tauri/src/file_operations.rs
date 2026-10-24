@@ -665,6 +665,15 @@ fn notify_caught_up(app: &AppHandle, labels: Vec<String>) {
     let _ = app.emit(FILE_OPERATIONS_CAUGHT_UP, labels);
 }
 
+/// Why an operation's catalog sync waits for a library to open.
+const NO_LIBRARY_OPEN: &str = "no library is open yet to follow these files";
+
+/// Brings the records in line with operations whose sync waited (for a
+/// library to open, among others): called when a library opens.
+pub(crate) fn after_library_opened(app: &AppHandle) {
+    sync_pending(app, None);
+}
+
 /// Why an operation's catalog sync waits (`sync_in_order`).
 const WAITS_FOR_EARLIER: &str =
     "an earlier change to these files is not in the catalog yet; both follow together";
@@ -931,6 +940,11 @@ pub fn sync_catalog(op: &Operation, forward: bool) -> Result<(), String> {
         let library = owner(&a).or_else(|| owner(&b));
         if let Some(dir) = library {
             changes.push((dir, Change::Relocate(a, b)));
+        } else if !crate::session_bridge::library_open() {
+            // Outside every library folder only the open session knows its
+            // photographs (start-up recovery runs before one opens): the
+            // records follow when a library opens (`after_library_opened`).
+            return Err(NO_LIBRARY_OPEN.to_string());
         }
     }
     for path in op.trashed() {
@@ -2064,6 +2078,11 @@ mod tests {
                 &trash,
             )
             .unwrap();
+        // No library open yet (start-up recovery): the records wait.
+        crate::session_bridge::set_active_for_test(None);
+        assert_eq!(sync_catalog(&op, true).unwrap_err(), NO_LIBRARY_OPEN);
+        assert!(lib.asset(&asset.id).unwrap().path.starts_with(&drive));
+        crate::session_bridge::set_active_for_test(Some(dir.clone()));
         sync_catalog(&op, true).unwrap();
         let there = archive.join("Shoots/DSC_0001.NEF");
         assert_eq!(lib.asset_at(&there).unwrap().unwrap().id, asset.id);

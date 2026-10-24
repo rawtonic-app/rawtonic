@@ -125,6 +125,11 @@ fn library_for_folder(folder: &Path) -> Option<PathBuf> {
     })
 }
 
+/// Whether a library is open.
+pub(crate) fn library_open() -> bool {
+    active().lock().is_ok_and(|dir| dir.is_some())
+}
+
 /// Makes `dir` the active library, as opening it does (tests).
 #[cfg(test)]
 pub(crate) fn set_active_for_test(dir: Option<PathBuf>) {
@@ -521,6 +526,7 @@ fn follow_verified_moves(lib: &Library, new: &[PathBuf]) -> anyhow::Result<HashS
 fn remember(app: &tauri::AppHandle, dir: &Path) -> Result<(), String> {
     *active().lock().map_err(|e| e.to_string())? = Some(dir.into());
     refresh_outside_photos();
+    crate::file_operations::after_library_opened(app);
     let cache = app.path().app_config_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
     rawtonic_metadata::atomic_write(
