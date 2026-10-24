@@ -65,63 +65,78 @@ fn registered_form(source: &Path) -> PathBuf {
 fn library_for(source: &Path) -> Option<PathBuf> {
     session_for(source).or_else(|| {
         let dir = active().lock().ok()?.clone()?;
-        (dir.join("catalog.json").is_file() || outside_of_active_session(&dir, source))
-            .then_some(dir)
+        (dir.join("catalog.json").is_file()
+            || outside_of_active_session(&dir, source, false)
+            || outside_of_active_session(&dir, source, true) && source.is_dir())
+        .then_some(dir)
     })
 }
 
-/// The folders outside the active session's own folder where it keeps
-/// photographs (the app moved them there, e.g. to another drive; ADR 0016),
-/// read from its records when it opens and after each file operation's
-/// records followed (`refresh_outside_folders`).
-static OUTSIDE_FOLDERS: Mutex<Option<(PathBuf, Vec<PathBuf>)>> = Mutex::new(None);
+/// The photographs (with their companion JPEGs) the active session keeps
+/// outside its own folder (the app moved them there, e.g. to another drive;
+/// ADR 0016), read from its records when it opens, after each file
+/// operation's records followed and after each library write
+/// (`refresh_outside_photos`). Only these are the session's there: other
+/// files in their folders stay files of no project.
+static OUTSIDE_PHOTOS: Mutex<Option<(PathBuf, HashSet<PathBuf>)>> = Mutex::new(None);
 
-/// Whether `path` is a photograph (or a folder holding some) the session
-/// `dir` keeps outside its own folder.
-fn outside_of_active_session(dir: &Path, path: &Path) -> bool {
-    let Ok(cache) = OUTSIDE_FOLDERS.lock() else {
+/// Whether `path` is a photograph the session `dir` keeps outside its own
+/// folder, or (`folder`) a folder holding some.
+fn outside_of_active_session(dir: &Path, path: &Path, folder: bool) -> bool {
+    let Ok(cache) = OUTSIDE_PHOTOS.lock() else {
         return false;
     };
-    let Some((_, folders)) = cache.as_ref().filter(|(s, f)| s == dir && !f.is_empty()) else {
+    let Some((_, photos)) = cache.as_ref().filter(|(s, p)| s == dir && !p.is_empty()) else {
         return false;
     };
     let holds = |path: &Path| {
-        folders
-            .iter()
-            .any(|folder| path.parent() == Some(folder) || folder.starts_with(path))
+        if folder {
+            photos.iter().any(|photo| photo.starts_with(path))
+        } else {
+            photos.contains(path)
+        }
     };
     holds(path) || holds(&registered_form(path))
+}
+
+/// The session or open catalog that manages the photographs in `folder`.
+fn library_for_folder(folder: &Path) -> Option<PathBuf> {
+    session_for(&folder.join("_")).or_else(|| {
+        let dir = active().lock().ok()?.clone()?;
+        (dir.join("catalog.json").is_file() || outside_of_active_session(&dir, folder, true))
+            .then_some(dir)
+    })
 }
 
 /// Makes `dir` the active library, as opening it does (tests).
 #[cfg(test)]
 pub(crate) fn set_active_for_test(dir: Option<PathBuf>) {
     *active().lock().unwrap() = dir;
-    refresh_outside_folders();
+    refresh_outside_photos();
 }
 
-/// Reads again where the active session keeps photographs outside its
+/// Reads again which photographs the active session keeps outside its
 /// folder (none for a catalog: it manages every path).
-pub(crate) fn refresh_outside_folders() {
+pub(crate) fn refresh_outside_photos() {
     let Some(dir) = active().lock().ok().and_then(|dir| dir.clone()) else {
-        if let Ok(mut cache) = OUTSIDE_FOLDERS.lock() {
+        if let Ok(mut cache) = OUTSIDE_PHOTOS.lock() {
             *cache = None;
         }
         return;
     };
-    let folders = if dir.join("session.json").is_file() {
-        match Library::open(&dir).and_then(|lib| lib.folders()) {
-            Ok(folders) => folders.into_iter().map(|folder| folder.path).collect(),
+    let photos = if dir.join("session.json").is_file() {
+        match Library::open(&dir).and_then(|lib| lib.outside_photos()) {
+            Ok(photos) => photos.into_iter().collect(),
             Err(e) => {
-                log::warn!("Folders outside {} not read: {e:#}", dir.display());
+                log::warn!("Photographs outside {} not read: {e:#}", dir.display());
                 return;
             }
         }
     } else {
-        Vec::new()
+        HashSet::new()
     };
-    if let Ok(mut cache) = OUTSIDE_FOLDERS.lock() {
-        *cache = Some((dir, folders));
+    if let Ok(mut cache) = OUTSIDE_PHOTOS.lock() {
+        *cache = Some((dir, photos));
     }
 }
 
@@ -484,7 +499,7 @@ fn follow_verified_moves(lib: &Library, new: &[PathBuf]) -> anyhow::Result<HashS
 
 fn remember(app: &tauri::AppHandle, dir: &Path) -> Result<(), String> {
     *active().lock().map_err(|e| e.to_string())? = Some(dir.into());
-    refresh_outside_folders();
+    refresh_outside_photos();
     let cache = app.path().app_config_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
     rawtonic_metadata::atomic_write(
@@ -1197,7 +1212,13 @@ pub(crate) fn with_library<T: Send + 'static>(
             None
         };
         let lib = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
-        work(&lib)
+        let result = work(&lib);
+        if write {
+            // A relink, folder sync or check may have moved records out of
+            // the session folder or back.
+            refresh_outside_photos();
+        }
+        result
     })
 }
 
@@ -1451,7 +1472,7 @@ pub(crate) fn adopt_virtual_copies(found: &[(PathBuf, String, PathBuf)]) {
 /// `recursive`) whose file is not there, so the folder keeps listing them
 /// (Lightroom's missing-photo badge; Capture One's offline images).
 pub(crate) fn offline_in_folder(folder: &Path, recursive: bool) -> Vec<OfflineEntry> {
-    let Some(dir) = library_for(&folder.join("_")) else {
+    let Some(dir) = library_for_folder(folder) else {
         return Vec::new();
     };
     let Ok(lib) = Library::open(&dir) else {
@@ -1479,7 +1500,7 @@ pub(crate) fn companions_in_folder(folder: &Path) -> HashSet<PathBuf> {
     type Checked = HashMap<(PathBuf, String), (u64, std::time::SystemTime, bool)>;
     static CHECKED: std::sync::LazyLock<Mutex<Checked>> =
         std::sync::LazyLock::new(Default::default);
-    let Some(dir) = library_for(&folder.join("_")) else {
+    let Some(dir) = library_for_folder(folder) else {
         return HashSet::new();
     };
     let (Ok(lib), Ok(canonical)) = (Library::open(&dir), folder.canonicalize()) else {
@@ -1717,6 +1738,9 @@ pub(crate) fn rederive(lib: &Library, id: &str) {
 /// photographs that came back up to date.
 fn check_files(lib: &Library) -> anyhow::Result<usize> {
     let check = lib.check_files()?;
+    if !check.followed.is_empty() {
+        refresh_outside_photos();
+    }
     // A drive followed to another mount point keeps its previews.
     for (from, to) in &check.followed {
         crate::preview_proxy::carry_over(from, to);

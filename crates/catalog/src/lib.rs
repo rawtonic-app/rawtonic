@@ -448,6 +448,13 @@ impl Library {
     /// files; catalogs register an external root. `add_files` also brings
     /// each file's sidecar edits and XMP metadata, in the same transaction.
     pub fn add_asset(&self, path: &Path) -> Result<Asset> {
+        // Registered already, also where a new file could not be added (a
+        // session photograph moved out of the session).
+        if path.is_file()
+            && let Some(asset) = self.asset_at(path)?
+        {
+            return Ok(asset);
+        }
         let planned = self.plan_add(path, Contents::default())?;
         if let Some(id) = self.registered_id(&planned.root, &planned.rel)? {
             return self.asset(&id);
@@ -1381,6 +1388,39 @@ impl Library {
         } else {
             None
         })
+    }
+
+    /// The photographs a session keeps outside its folder (the app moved
+    /// them there) and their recorded companion files (a RAW's JPEG); for
+    /// a catalog every photograph outside its folder. Nothing is read from
+    /// disk.
+    pub fn outside_photos(&self) -> Result<Vec<PathBuf>> {
+        let mut query = self.conn.prepare(
+            "SELECT a.id,a.rel_path,r.path FROM assets a JOIN roots r ON r.id=a.root_id WHERE r.external=1",
+        )?;
+        let mut ids = HashSet::new();
+        let mut paths = Vec::new();
+        for row in query.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })? {
+            let (id, relative, root) = row?;
+            ids.insert(id);
+            paths.push(PathBuf::from(root).join(relative));
+        }
+        drop(query);
+        if !ids.is_empty() {
+            paths.extend(
+                self.companion_records()?
+                    .into_iter()
+                    .filter(|record| ids.contains(&record.owner))
+                    .map(|record| record.path),
+            );
+        }
+        Ok(paths)
     }
 
     /// Where an asset moved to `path` is recorded: as `place_for`, and for a
