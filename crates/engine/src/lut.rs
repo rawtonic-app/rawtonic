@@ -21,11 +21,15 @@ pub fn validate_lut_path(path_str: &str) -> anyhow::Result<()> {
         return Err(anyhow!("Network paths (UNC) are not allowed for LUTs"));
     }
 
-    if path_str.contains("..") {
+    // A `..` component, not two dots inside a name (`Tone..v2.cube`).
+    let path = std::path::Path::new(path_str);
+    if path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
         return Err(anyhow!("Directory traversal (..) is not allowed"));
     }
 
-    let path = std::path::Path::new(path_str);
     if let Some(std::path::Component::Prefix(prefix)) = path.components().next() {
         match prefix.kind() {
             std::path::Prefix::UNC(_, _)
@@ -362,6 +366,7 @@ fn parse_cube_full(reader: impl BufRead) -> anyhow::Result<Lut> {
         (None, Some(table)) if domain_3d == unit => Ok(table),
         (shaper, table) => checked_bake(
             BAKED_SIZE.max(table.as_ref().map_or(0, |t| t.size)),
+            &breakpoints(shaper.as_ref(), table.as_ref().map(|t| (t.size, domain_3d))),
             |rgb| {
                 let rgb = shaper.as_ref().map_or(rgb, |s| s.apply(rgb));
                 match &table {
@@ -403,12 +408,57 @@ fn normalize(rgb: [f32; 3], (lo, hi): ([f32; 3], [f32; 3])) -> [f32; 3] {
 /// output values: one 8-bit code.
 const MAX_BAKE_ERROR: f32 = 1.0 / 255.0;
 
+/// The inputs (unit cube, per channel) where the file's reading bends along
+/// a channel: the shaper's entries, the points where a shaper channel
+/// crosses one of the 3D table's grid levels, and without a shaper the
+/// table's grid levels themselves.
+fn breakpoints(
+    shaper: Option<&Shaper>,
+    table: Option<(u32, ([f32; 3], [f32; 3]))>,
+) -> [Vec<f32>; 3] {
+    std::array::from_fn(|c| {
+        let mut points = Vec::new();
+        let levels: Vec<f32> = table.map_or(Vec::new(), |(n, (lo, hi))| {
+            (0..n)
+                .map(|k| lo[c] + (hi[c] - lo[c]) * k as f32 / (n - 1) as f32)
+                .collect()
+        });
+        match shaper {
+            Some(shaper) => {
+                let (lo, hi) = (shaper.domain.0[c], shaper.domain.1[c]);
+                let at = |i: usize| lo + (hi - lo) * i as f32 / (shaper.size - 1) as f32;
+                for i in 0..shaper.size {
+                    points.push(at(i));
+                    if i + 1 == shaper.size {
+                        continue;
+                    }
+                    let (a, b) = (shaper.data[i * 3 + c], shaper.data[(i + 1) * 3 + c]);
+                    for &level in &levels {
+                        if a != b && (level - a) * (level - b) <= 0.0 {
+                            points.push(at(i) + (at(i + 1) - at(i)) * (level - a) / (b - a));
+                        }
+                    }
+                }
+            }
+            None => points = levels,
+        }
+        points.retain(|x| (0.0..=1.0).contains(x));
+        points
+    })
+}
+
 /// [`bake`], refused when the table strays from `transform` by more than
 /// [`MAX_BAKE_ERROR`] (a curve too steep for the grid, such as a square
-/// root near black), measured along the grey axis at 4096 points (where a
-/// per-channel curve's error shows on every channel) and at 4096 scattered
-/// colours.
-fn checked_bake(size: u32, transform: impl Fn([f32; 3]) -> [f32; 3]) -> anyhow::Result<Lut> {
+/// root near black). Measured at every breakpoint of the file's reading
+/// along each channel (`breakpoints`; on the grey axis there and with the
+/// other channels scattered) and at 4096 grey and 4096 scattered colours.
+/// For a 1D table that is its largest error: both readings are linear
+/// between their breakpoints and the grid's own points carry no error.
+fn checked_bake(
+    size: u32,
+    breakpoints: &[Vec<f32>; 3],
+    transform: impl Fn([f32; 3]) -> [f32; 3],
+) -> anyhow::Result<Lut> {
     let lut = bake(size, &transform);
     let mut seed = 0x9e37_79b9u32;
     let mut next = || {
@@ -417,10 +467,18 @@ fn checked_bake(size: u32, transform: impl Fn([f32; 3]) -> [f32; 3]) -> anyhow::
         seed ^= seed << 5;
         (seed >> 8) as f32 / (1u32 << 24) as f32
     };
-    let grey = (0..4096).map(|i| [i as f32 / 4095.0; 3]);
-    let scattered: Vec<[f32; 3]> = (0..4096).map(|_| [next(), next(), next()]).collect();
-    let error = grey
-        .chain(scattered)
+    let mut probes: Vec<[f32; 3]> = (0..4096).map(|i| [i as f32 / 4095.0; 3]).collect();
+    probes.extend((0..4096).map(|_| [next(), next(), next()]));
+    for (c, points) in breakpoints.iter().enumerate() {
+        for &x in points {
+            probes.push([x; 3]);
+            let mut scattered = [next(), next(), next()];
+            scattered[c] = x;
+            probes.push(scattered);
+        }
+    }
+    let error = probes
+        .into_iter()
         .map(|rgb| {
             let (got, want) = (lut.sample(rgb), transform(rgb));
             (0..3)
@@ -712,6 +770,13 @@ mod tests {
         let reason = cube(&text).unwrap_err().to_string();
         assert!(reason.contains("too steep"), "{reason}");
         assert!(import(&text).is_err());
+        // A spike between the grid's points (65536 entries, one red entry
+        // lit) is found, though no fixed probe meets it.
+        let mut spike = "LUT_1D_SIZE 65536\n".to_string();
+        for i in 0..65536 {
+            spike.push_str(if i == 1000 { "1 0 0\n" } else { "0 0 0\n" });
+        }
+        assert!(cube(&spike).unwrap_err().to_string().contains("too steep"));
         // A gentle curve (gamma 1/1.2) is within the bound.
         let mut text = "LUT_1D_SIZE 1025\n".to_string();
         for i in 0..1025 {
@@ -755,6 +820,14 @@ mod tests {
         );
         assert!(reason("LUT_1D_SIZE 2\n0 0 0\n1 x 1\n").contains("not a number"));
         assert!(reason("LUT_1D_SIZE 2\n0 0 0\n1 inf 1\n").contains("not a number"));
+    }
+
+    #[test]
+    fn only_parent_folder_components_count_as_traversal() {
+        assert!(validate_lut_path("/luts/Pack..v2/Tone..v2.cube").is_ok());
+        assert!(validate_lut_path("/luts/../photo.cube").is_err());
+        assert!(validate_lut_path("../photo.cube").is_err());
+        assert!(validate_lut_path("/luts/a/..").is_err());
     }
 
     #[test]

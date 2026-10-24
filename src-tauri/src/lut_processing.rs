@@ -117,7 +117,10 @@ fn collect_luts(
             {
                 let mut inner = group.to_vec();
                 inner.push(name.to_string());
-                collect_luts(&path, &inner, is_built_in, entries)?;
+                // A pack that cannot be read is left out, not the library.
+                if let Err(error) = collect_luts(&path, &inner, is_built_in, entries) {
+                    log::warn!("Cannot list LUT pack '{}': {error}", path.display());
+                }
             }
             continue;
         }
@@ -705,6 +708,40 @@ mod tests {
             std::fs::read_to_string(luts.join("Downloads").join("A (1).cube")).unwrap(),
             cube(0.9)
         );
+    }
+
+    #[test]
+    fn names_with_two_dots_import_and_load() {
+        let temp = tempfile::tempdir().unwrap();
+        let luts = temp.path().join("luts");
+        std::fs::create_dir(&luts).unwrap();
+        let pack = temp.path().join("Pack..v2");
+        std::fs::create_dir(&pack).unwrap();
+        std::fs::write(pack.join("Tone..v2.cube"), cube(0.4)).unwrap();
+        let report = import_luts_to_dir(&luts, &strings(&[&pack])).unwrap();
+        assert_eq!(report.imported, 1);
+        let lut = super::parse_lut_file(&report.luts[0].path).unwrap();
+        assert_eq!(lut.data[0], 0.4);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_pack_leaves_the_others_listed() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let luts = temp.path().join("luts");
+        std::fs::create_dir_all(luts.join("Locked")).unwrap();
+        std::fs::create_dir_all(luts.join("Open")).unwrap();
+        std::fs::write(luts.join("Locked").join("A.cube"), cube(0.1)).unwrap();
+        std::fs::write(luts.join("Open").join("B.cube"), cube(0.2)).unwrap();
+        std::fs::write(luts.join("C.cube"), cube(0.3)).unwrap();
+        std::fs::set_permissions(luts.join("Locked"), std::fs::Permissions::from_mode(0o000))
+            .unwrap();
+        let listed = super::list_luts_in_dir(&luts, false);
+        std::fs::set_permissions(luts.join("Locked"), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+        let names: Vec<_> = listed.unwrap().into_iter().map(|e| e.name).collect();
+        assert_eq!(names, ["C", "B"]);
     }
 
     #[test]
