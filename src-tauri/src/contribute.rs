@@ -89,8 +89,8 @@ pub async fn problem_report_context(app_handle: AppHandle) -> Result<ReportConte
     tauri::async_runtime::spawn_blocking(move || {
         crate::startup::flush_logs();
         let log_tail = log_path(&app_handle)
-            .and_then(|path| std::fs::read(path).ok())
-            .and_then(|bytes| crash::log_tail(&String::from_utf8_lossy(&bytes), &SCRUBBER));
+            .and_then(|path| crash::read_log_end(&path, crash::LOG_READ_BYTES))
+            .and_then(|log| crash::log_tail(&log, &SCRUBBER));
         ReportContext {
             app: app_info(&app_handle),
             gpu: GPU.get().cloned(),
@@ -196,11 +196,8 @@ pub(crate) fn start_crash_records(app: &AppHandle, keep: bool) -> Option<CrashRe
         app: app_info(app),
         now: crash::now_secs(),
     };
-    let previous_log = || {
-        log_path(app)
-            .and_then(|path| std::fs::read(path).ok())
-            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-    };
+    let previous_log =
+        || log_path(app).and_then(|path| crash::read_log_end(&path, crash::LOG_READ_BYTES));
     let record = store
         .start(
             &run,

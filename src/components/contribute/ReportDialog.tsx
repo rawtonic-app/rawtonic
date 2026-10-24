@@ -61,6 +61,9 @@ export default function ReportDialog({
   const [github, setGithub] = useState<GithubIssue | null>(null);
   const [error, setError] = useState<string | null>(null);
   const panel = useRef<HTMLDivElement>(null);
+  // A preparation answers for the form as it was asked: one that arrives
+  // after the form changed, closed or opened again is dropped.
+  const generation = useRef(0);
   useModalFocus(panel, isOpen && prepared === null);
 
   useEffect(() => {
@@ -78,15 +81,20 @@ export default function ReportDialog({
     };
   }, [available, isOpen]);
 
-  useEffect(() => setCopied(false), [payload]);
+  useEffect(() => {
+    generation.current += 1;
+    setCopied(false);
+  }, [payload, isOpen]);
 
   const scrubbed = useCallback(async () => {
     if (!payload) return null;
+    const asked = generation.current;
     setError(null);
     try {
-      return await prepare(channel, payload);
+      const body = await prepare(channel, payload);
+      return generation.current === asked ? body : null;
     } catch {
-      setError(t("contribute.report.prepareFailed"));
+      if (generation.current === asked) setError(t("contribute.report.prepareFailed"));
       return null;
     }
   }, [channel, payload, prepare, t]);
