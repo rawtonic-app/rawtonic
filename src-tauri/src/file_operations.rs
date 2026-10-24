@@ -588,21 +588,21 @@ fn notify_kept(app: &AppHandle, journal: &Journal, id: &str, before: &[KeptCopy]
 }
 
 /// Moves a copy a file operation left on another drive to the system Trash
-/// (the Library's offer after [`FILE_OPERATION_KEPT_COPIES`]), as an
-/// undoable operation. Refused, changing nothing, for any file the journal
-/// does not record as left by that operation.
+/// (the Library's offer after [`FILE_OPERATION_KEPT_COPIES`]); not undoable
+/// (see `Journal::trash_kept_copy`), the Trash's Put Back takes it back.
+/// Refused, changing nothing, for any file the journal does not record as
+/// left by that operation.
 #[tauri::command]
 pub async fn trash_kept_copy(
     app: AppHandle,
     operation_id: String,
     path: String,
-) -> Result<OperationSummary, String> {
+) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let op = with_journal(&app, |journal| {
+        with_journal(&app, |journal| {
             journal.trash_kept_copy(&operation_id, Path::new(&path), &PlatformTrash)
-        })?;
-        sync_pending(&app, Some(&op.id));
-        Ok(OperationSummary::from(&op))
+        })
+        .map(drop)
     })
     .await
     .map_err(|e| e.to_string())?

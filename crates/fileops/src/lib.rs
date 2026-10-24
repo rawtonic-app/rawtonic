@@ -1469,17 +1469,21 @@ impl Journal {
     }
 
     /// Moves a copy the operation `id` left ([`Journal::kept_copies`]) to
-    /// the system Trash, as an operation of its own (undoable). Refused,
+    /// the system Trash and forgets it; returns the Trash item. Refused,
     /// changing nothing, for any other file: one the journal does not
-    /// record as created by that operation, or one that is no longer that
-    /// file. Nothing is ever deleted.
+    /// record as created by that operation, one that is no longer that
+    /// file, or one whose original is gone. Nothing is ever deleted. It is
+    /// not an undoable operation: putting it back would be a rename the
+    /// volume cannot do without risking replacing a file (exFAT on macOS),
+    /// and a redo could not hold these checks; the system Trash's own Put
+    /// Back takes it back.
     pub fn trash_kept_copy(
         &self,
         id: &str,
         path: &Path,
         trash: &dyn SystemTrash,
-    ) -> Result<Operation> {
-        let payload = self.payload(id)?;
+    ) -> Result<String> {
+        let mut payload = self.payload(id)?;
         let kept = payload
             .kept
             .iter()
@@ -1501,16 +1505,13 @@ impl Journal {
             kept.source.display(),
             path.display()
         );
-        let name = path
-            .file_name()
-            .unwrap_or(path.as_os_str())
-            .to_string_lossy();
-        self.execute(
-            "trash",
-            &format!("Move the copy {name} to the Trash"),
-            vec![Step::system_trash(path)],
-            trash,
-        )
+        let item = trash.trash(path)?;
+        payload.kept.retain(|k| k.path != path);
+        self.conn.execute(
+            "UPDATE operations SET payload=? WHERE id=?",
+            params![serde_json::to_string(&payload)?, id],
+        )?;
+        Ok(item)
     }
 
     fn payload(&self, id: &str) -> Result<Payload> {

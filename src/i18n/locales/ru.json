@@ -2686,7 +2686,7 @@
         "keptCopies_many": "{{count}} копий остаются на другом диске; оригиналы не тронуты:",
         "keptCopies_other": "{{count}} копии остаются на другом диске; оригиналы не тронуты:",
         "keptCopyIncomplete": "{{name}} (возможно, неполная)",
-        "keptCopyTrashed": "{{name}} в Корзине. {{hint}}",
+        "keptCopyTrashed": "{{name}} в Корзине своего диска; «Вернуть» там восстанавливает его.",
         "keptCopyTrashFailed": "Не удалось переместить {{name}} в Корзину: {{error}}",
         "movedTo_one": "{{count}} фото перемещено в {{folder}}.",
         "movedTo_few": "{{count}} фото перемещены в {{folder}}.",

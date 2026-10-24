@@ -2686,7 +2686,7 @@
         "keptCopies_many": "{{count}} kopii zostaje na drugim dysku; ich oryginały nie zostały zmienione:",
         "keptCopies_other": "{{count}} kopii zostaje na drugim dysku; ich oryginały nie zostały zmienione:",
         "keptCopyIncomplete": "{{name}} (może niekompletna)",
-        "keptCopyTrashed": "{{name}} jest w Koszu. {{hint}}",
+        "keptCopyTrashed": "{{name}} jest w Koszu swojego dysku; „Odłóż” tam przywraca plik.",
         "keptCopyTrashFailed": "Nie można przenieść {{name}} do Kosza: {{error}}",
         "movedTo_one": "Przeniesiono {{count}} zdjęcie do {{folder}}.",
         "movedTo_few": "Przeniesiono {{count}} zdjęcia do {{folder}}.",

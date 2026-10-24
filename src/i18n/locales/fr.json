@@ -2612,7 +2612,7 @@
         "keptCopies_many": "{{count}} copies restent sur l'autre disque ; leurs originaux n'ont pas été touchés :",
         "keptCopies_other": "{{count}} copies restent sur l'autre disque ; leurs originaux n'ont pas été touchés :",
         "keptCopyIncomplete": "{{name}} (peut-être incomplète)",
-        "keptCopyTrashed": "{{name}} est dans la Corbeille. {{hint}}",
+        "keptCopyTrashed": "{{name}} est dans la Corbeille de son disque ; « Remettre » l'y récupère.",
         "keptCopyTrashFailed": "Impossible de placer {{name}} dans la Corbeille : {{error}}",
         "movedTo_one": "{{count}} photo déplacée vers {{folder}}.",
         "movedTo_many": "{{count}} photos déplacées vers {{folder}}.",

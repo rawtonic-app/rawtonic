@@ -310,10 +310,11 @@ fn tells_creation(dir: &Path) -> bool {
     fs::metadata(dir).and_then(|m| m.created()).is_ok()
 }
 
-/// The copies a stopped move left are recorded; each can go to the Trash
-/// on its own, as an undoable operation, while nothing else can: not an
-/// original, not a file the move did not leave, not a file created later
-/// under a kept copy's name, not a copy whose original is gone.
+/// The copies a stopped move left are recorded; each can go to the system
+/// Trash on its own (not as an undoable operation), while nothing else
+/// can: not an original, not a file the move did not leave, not a file
+/// created later under a kept copy's name, not a copy whose original is
+/// gone.
 #[test]
 fn the_copies_a_stopped_move_left_can_go_to_the_trash_and_nothing_else() {
     struct StopBeforePublishing(Cell<u64>);
@@ -390,12 +391,17 @@ fn the_copies_a_stopped_move_left_can_go_to_the_trash_and_nothing_else() {
     fs::write(&rrdata, saved).unwrap();
 
     let raw = world.target.join("A.RAF");
-    let trashed = journal.trash_kept_copy(&op.id, &raw, &world.trash).unwrap();
-    assert_eq!(trashed.kind, "trash");
+    let undoable = journal.last_undoable().unwrap().map(|op| op.id);
+    let item = journal.trash_kept_copy(&op.id, &raw, &world.trash).unwrap();
     assert!(!raw.exists());
     let items = world.trash.items();
-    assert_eq!(items.len(), 1);
+    assert_eq!(items, [PathBuf::from(&item)]);
     assert_eq!(fs::read(&items[0]).unwrap(), content("A.RAF", FILES[0].1));
+    // Not an operation of its own: nothing to undo or redo (a put-back
+    // would be a rename the volume cannot do safely).
+    assert_eq!(journal.last_undoable().unwrap().map(|op| op.id), undoable);
+    assert_eq!(journal.history(1).unwrap()[0].id, op.id);
+    // Forgotten, also once put back by hand.
     assert!(
         !journal
             .kept_copies(&op.id)
@@ -405,16 +411,9 @@ fn the_copies_a_stopped_move_left_can_go_to_the_trash_and_nothing_else() {
     );
     world.assert_sources_untouched();
     refused(&raw);
-    // Undone, the copy is back, and it is the copy the move left again.
-    journal.undo(&trashed.id, &world.trash).unwrap();
-    assert!(
-        journal
-            .kept_copies(&op.id)
-            .unwrap()
-            .iter()
-            .any(|k| k.path == raw)
-    );
-    world.assert_sources_untouched();
+    fs::rename(&items[0], &raw).unwrap();
+    refused(&raw);
+    assert!(raw.exists());
 }
 
 /// What an undo stopped while copying back in place left is recorded

@@ -546,7 +546,7 @@ describe('copies a stopped or failed move left on the other drive', () => {
     expect(invoke).toHaveBeenCalledWith(Invokes.ShowInFinder, { path: '/Volumes/CARD/2026/A.RAF' });
   });
 
-  it('moves exactly that copy of that operation to the Trash, undoably', async () => {
+  it('moves exactly that copy of that operation to the Trash', async () => {
     const onTrashed = vi.fn();
     showKeptCopies(kept, onTrashed);
     shown();
@@ -556,7 +556,7 @@ describe('copies a stopped or failed move left on the other drive', () => {
       operationId: 'op-1',
       path: '/Volumes/CARD/2026/A.xmp',
     });
-    expect(toast.success).toHaveBeenCalledWith('A.xmp is in the Trash. ⌘Z undoes it.');
+    expect(toast.success).toHaveBeenCalledWith('A.xmp is in the Trash of its drive; Put Back there takes it back.');
   });
 
   it('says why a copy could not go to the Trash', async () => {

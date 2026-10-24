@@ -141,7 +141,8 @@ const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
 /** A toast naming the copies a move left, each with Show in Finder and
  * Move to Trash (only for these very copies: the backend refuses any other
- * file; Trash is undoable). `onTrashed` runs after one went. */
+ * file; not undoable, the system Trash puts it back). `onTrashed` runs
+ * after one went. */
 export function showKeptCopies(kept: KeptCopies, onTrashed: () => void) {
   const t = i18next.t.bind(i18next);
   const button = (label: string, onClick: () => void) =>
@@ -152,8 +153,8 @@ export function showKeptCopies(kept: KeptCopies, onTrashed: () => void) {
     );
   const trash = async (path: string) => {
     try {
-      await invoke<FileOperationSummary>(Invokes.TrashKeptCopy, { operationId: kept.operationId, path });
-      toast.success(ops('keptCopyTrashed', { name: fileName(path), hint: undoHint() }));
+      await invoke(Invokes.TrashKeptCopy, { operationId: kept.operationId, path });
+      toast.success(ops('keptCopyTrashed', { name: fileName(path) }));
       onTrashed();
     } catch (err) {
       toast.error(ops('keptCopyTrashFailed', { name: fileName(path), error: String(err) }));

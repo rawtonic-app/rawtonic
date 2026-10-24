@@ -2612,7 +2612,7 @@
         "keptCopies_many": "{{count}} cópias ficam na outra unidade; os originais não foram tocados:",
         "keptCopies_other": "{{count}} cópias ficam na outra unidade; os originais não foram tocados:",
         "keptCopyIncomplete": "{{name}} (talvez incompleta)",
-        "keptCopyTrashed": "{{name}} está no Lixo. {{hint}}",
+        "keptCopyTrashed": "{{name}} está no Lixo da sua unidade; «Pôr de volta» lá recupera-o.",
         "keptCopyTrashFailed": "Não foi possível mover {{name}} para o Lixo: {{error}}",
         "movedTo_one": "{{count}} foto movida para {{folder}}.",
         "movedTo_many": "{{count}} fotos movidas para {{folder}}.",

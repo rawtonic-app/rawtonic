@@ -2538,7 +2538,7 @@
         "keptCopies_one": "{{count}} Kopie bleibt auf dem anderen Laufwerk; ihr Original blieb unberührt:",
         "keptCopies_other": "{{count}} Kopien bleiben auf dem anderen Laufwerk; ihre Originale blieben unberührt:",
         "keptCopyIncomplete": "{{name}} (vielleicht unvollständig)",
-        "keptCopyTrashed": "{{name}} ist im Papierkorb. {{hint}}",
+        "keptCopyTrashed": "{{name}} ist im Papierkorb seines Laufwerks; „Zurücklegen“ dort holt es zurück.",
         "keptCopyTrashFailed": "{{name}} konnte nicht in den Papierkorb gelegt werden: {{error}}",
         "movedTo_one": "{{count}} Foto nach {{folder}} verschoben.",
         "movedTo_other": "{{count}} Fotos nach {{folder}} verschoben.",
