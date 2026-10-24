@@ -34,8 +34,8 @@ mod volume;
 mod xattr;
 pub use tree::TreeEntry;
 pub use volume::{
-    CopyObserver, SPACE_RESERVE, Stamp, Unobserved, VolumeInfo, probe_exclusive_rename,
-    rename_exclusive, volume_info,
+    CopyObserver, Publish, SPACE_RESERVE, Stamp, Unobserved, VolumeInfo, probe_exclusive_rename,
+    publish_mode, rename_exclusive, volume_info,
 };
 use volume::{Tally, copy_verified, same_content, sync_folder};
 
@@ -95,6 +95,18 @@ pub struct CopyState {
     /// `copy_stamp` hold (for the folder itself these stay empty).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tree: Option<Vec<TreeEntry>>,
+    /// This direction copies straight into the final name, created
+    /// exclusively (`Publish::InPlace`: its volume cannot rename
+    /// exclusively); `staged` is then not used. Journaled before the file
+    /// is created.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub in_place: bool,
+    /// The file under the final name was created by this direction
+    /// (journaled before anything is written to it). It is visible from
+    /// then on, so it is never removed again: a direction rolled back keeps
+    /// it and its note names it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub created: bool,
     /// The Trash item of the source this direction trashed.
     #[serde(default)]
     pub trashed: Option<String>,
@@ -523,8 +535,16 @@ impl Journal {
         let cleaned = remove_staging(payload);
         remove_created_dirs(&payload.created_dirs);
         let mut note = format!("{error:#}");
+        // Copies made in place stay (see `kept_in_place`).
+        let mut kept = kept_in_place(&payload.steps, Direction::Forward);
         if let Err(e) = reversed {
-            note.push_str(&format!("; could not reverse every step: {e:#}"));
+            kept.insert(0, format!("{e:#}"));
+        }
+        if !kept.is_empty() {
+            note.push_str(&format!(
+                "; could not reverse every step: {}",
+                kept.join("; ")
+            ));
         }
         if let Err(e) = cleaned {
             note.push_str(&format!("; {e:#}"));
@@ -545,10 +565,13 @@ impl Journal {
         observer: &dyn CopyObserver,
     ) -> Result<()> {
         let pairs = copy_pairs(&payload.steps, direction);
+        let mut in_place = Vec::new();
         for dir in &payload.staging_dirs {
             fs::create_dir(dir)
                 .with_context(|| format!("Cannot create the folder {}", dir.display()))?;
-            probe_exclusive_rename(dir)?;
+            if publish_mode(dir)? == Publish::InPlace {
+                in_place.push(dir.clone());
+            }
             // Found out before anything is copied, for the copies staged
             // here only.
             let here: Vec<_> = payload
@@ -563,6 +586,26 @@ impl Journal {
             if let Some((file, attributes)) = first_with_attributes(&here)? {
                 xattr::probe(dir).map_err(|e| xattr::cannot_keep(dir, &file, &attributes, &e))?;
             }
+        }
+        if !in_place.is_empty() {
+            for step in &mut payload.steps {
+                let Target::OtherVolume { copy, .. } = &mut step.to else {
+                    continue;
+                };
+                if copy
+                    .staged
+                    .as_deref()
+                    .and_then(Path::parent)
+                    .is_some_and(|dir| in_place.iter().any(|d| d == dir))
+                {
+                    ensure!(!copy.folder, "{}", folder_in_place_refusal(&step.from));
+                    copy.in_place = true;
+                }
+            }
+            // Before any final name is created.
+            self.store_keeping_sync(id, state, payload)?;
+            #[cfg(test)]
+            crash::point("in place planned");
         }
         let total = pairs.iter().map(|(source, _)| bytes_of(source)).sum();
         let mut tally = Tally {
@@ -594,9 +637,56 @@ impl Journal {
                     copy.copied = true;
                     copy.tree = Some(entries);
                 }
+            } else if copy.in_place {
+                let destination = match direction {
+                    Direction::Forward => path.clone(),
+                    Direction::Back => step.from.clone(),
+                };
+                // Journaled as created before a byte is written to it.
+                let mut created = payload.clone();
+                if let Target::OtherVolume { copy, .. } = &mut created.steps[index].to {
+                    copy.created = true;
+                }
+                let original_mode = copy.original_mode;
+                let opened = std::cell::Cell::new(false);
+                let copied = copy_verified(
+                    &source,
+                    &destination,
+                    original_mode,
+                    &mut tally,
+                    &mut || {
+                        opened.set(true);
+                        #[cfg(test)]
+                        crash::point("in place opened");
+                        #[cfg(test)]
+                        crash::fail("in place journaled")?;
+                        self.store_keeping_sync(id, state, &created)?;
+                        #[cfg(test)]
+                        crash::point("in place created");
+                        Ok(())
+                    },
+                    true,
+                );
+                if let Target::OtherVolume { copy, .. } = &mut payload.steps[index].to {
+                    // A failure after the creation leaves a file that stays
+                    // and is named, also when journaling its creation failed.
+                    copy.created = opened.get();
+                }
+                let (stamp, copy_stamp) = copied?;
+                if let Target::OtherVolume { copy, .. } = &mut payload.steps[index].to {
+                    copy.copied = true;
+                    copy.stamp = Some(stamp);
+                    copy.copy_stamp = Some(copy_stamp);
+                }
             } else {
-                let (stamp, copy_stamp) =
-                    copy_verified(&source, &staged, copy.original_mode, &mut tally)?;
+                let (stamp, copy_stamp) = copy_verified(
+                    &source,
+                    &staged,
+                    copy.original_mode,
+                    &mut tally,
+                    &mut || Ok(()),
+                    false,
+                )?;
                 if let Target::OtherVolume { copy, .. } = &mut payload.steps[index].to {
                     copy.copied = true;
                     copy.stamp = Some(stamp);
@@ -834,12 +924,14 @@ impl Journal {
             self.stage_copies(id, State::Undoing, &mut payload, Direction::Back, observer)
         {
             let cleaned = remove_staging(&payload);
-            payload.note = Some(match cleaned {
-                Ok(()) => format!("Undo failed: {error:#}"),
-                Err(e) => format!("Undo failed: {error:#}; {e:#}"),
-            });
+            let kept = kept_in_place(&payload.steps, Direction::Back);
+            let mut note = format!("Undo failed: {error:#}");
+            for problem in cleaned.err().map(|e| format!("{e:#}")).iter().chain(&kept) {
+                note.push_str(&format!("; {problem}"));
+            }
+            payload.note = Some(note);
             self.store(id, State::Done, &payload)?;
-            return Err(error.context("Nothing was undone"));
+            return Err(error.context(rolled_back("Nothing was undone", &kept)));
         }
         let total = payload.steps.len();
         // One more round after the last step: Stop is honoured until the
@@ -876,8 +968,13 @@ impl Journal {
                 if let Err(e) = cleaned {
                     note.push_str(&format!("; {e:#}"));
                 }
+                let mut kept = keep_published_folders(&mut payload, Direction::Back);
+                let in_place = kept_in_place(&payload.steps, Direction::Back);
+                for kept in &in_place {
+                    note.push_str(&format!("; {kept}"));
+                }
+                kept.extend(in_place);
                 payload.note = Some(note);
-                let kept = keep_published_folders(&mut payload, Direction::Back);
                 self.store(id, State::Done, &payload)?;
                 return Err(error.context(rolled_back("Nothing was undone", &kept)));
             }
@@ -979,7 +1076,8 @@ impl Journal {
                 *note = format!("Redo failed: {note}");
             }
             keep_present_copies(&mut payload);
-            let kept = keep_published_folders(&mut payload, Direction::Forward);
+            let mut kept = keep_published_folders(&mut payload, Direction::Forward);
+            kept.extend(kept_in_place(&payload.steps, Direction::Forward));
             self.store_keeping_sync(id, State::Undone, &payload)?;
             return Err(error.context(rolled_back("Nothing was redone", &kept)));
         }
@@ -1193,12 +1291,16 @@ impl Journal {
                     }
                 }
                 keep_published_folders(&mut payload, Direction::Back);
+                problems.extend(kept_in_place(&payload.steps, Direction::Back));
+                note_unjournaled_in_place(&payload.steps, Direction::Back, &mut problems);
             } else {
                 for step in payload.steps.iter().rev() {
                     if let Err(e) = restore_if_moved(step, trash) {
                         problems.push(format!("{e:#}"));
                     }
                 }
+                problems.extend(kept_in_place(&payload.steps, Direction::Forward));
+                note_unjournaled_in_place(&payload.steps, Direction::Forward, &mut problems);
             }
             if let Err(e) = remove_staging(&payload) {
                 problems.push(format!("{e:#}"));
@@ -1919,6 +2021,8 @@ fn plan_staging(steps: &mut [Step], direction: Direction) -> Result<Vec<PathBuf>
         copy.stamp = None;
         copy.copy_stamp = None;
         copy.tree = None;
+        copy.in_place = false;
+        copy.created = false;
         copy.staged = None;
         copy.trashed = None;
         let destination = match direction {
@@ -1946,7 +2050,14 @@ fn plan_staging(steps: &mut [Step], direction: Direction) -> Result<Vec<PathBuf>
 pub fn probe_folder(folder: &Path, sources: &[PathBuf]) -> Result<()> {
     let dir = folder.join(format!("{MOVE_STAGING_PREFIX}{}", uuid::Uuid::new_v4()));
     fs::create_dir(&dir).with_context(|| format!("Cannot write in {}", folder.display()))?;
-    let result = probe_exclusive_rename(&dir).and_then(|()| {
+    let result = publish_mode(&dir).and_then(|mode| {
+        if mode == Publish::InPlace
+            && let Some(folder) = sources
+                .iter()
+                .find(|s| fs::symlink_metadata(s).is_ok_and(|m| m.is_dir()))
+        {
+            bail!("{}", folder_in_place_refusal(folder));
+        }
         let pairs: Vec<_> = sources.iter().map(|s| (s.clone(), dir.clone())).collect();
         match first_with_attributes(&pairs)? {
             Some((file, attributes)) => {
@@ -1958,6 +2069,16 @@ pub fn probe_folder(folder: &Path, sources: &[PathBuf]) -> Result<()> {
     volume::remove_probe(&dir);
     let _ = fs::remove_dir(&dir);
     result
+}
+
+/// Why a folder cannot be moved to a volume that publishes in place.
+fn folder_in_place_refusal(folder: &Path) -> String {
+    format!(
+        "The drive cannot rename files without risking replacing one (such as exFAT \
+         drives on macOS), so the folder {} cannot be moved to it as a whole; its photos \
+         can be moved; nothing was moved",
+        folder.display()
+    )
 }
 
 /// The first file or folder of the copies' sources (in a folder, at any
@@ -2050,6 +2171,10 @@ fn publish(step: &Step, direction: Direction) -> Result<()> {
         return Ok(());
     };
     ensure!(copy.copied, "{} was not copied", staged.display());
+    if copy.in_place {
+        // Verified under its final name already.
+        return Ok(());
+    }
     rename_exclusive(staged, destination).with_context(|| {
         format!(
             "Cannot put the copy of {} at {}",
@@ -2080,6 +2205,10 @@ fn unpublish(step: &Step, direction: Direction) -> Result<()> {
     let Some(staged) = copy.staged.as_deref() else {
         return Ok(());
     };
+    if copy.in_place {
+        // Never taken back (see `kept_in_place`).
+        return Ok(());
+    }
     if !copy.copied || exists(staged) || !exists(destination) {
         // Never published (a file there now is someone else's).
         return Ok(());
@@ -2182,6 +2311,62 @@ fn remove_staged_folder(staged: &Path, step: &Step) -> Result<()> {
             step.from.display()
         )
     })
+}
+
+/// What a rolled-back direction leaves of the copies it made in place
+/// (`CopyState::in_place`), for its note and error. Such a file is visible
+/// from its creation on, so another program may have written into it or
+/// opened it meanwhile; it is never removed again (ADR 0016), complete or
+/// not, while its source was never touched.
+fn kept_in_place(steps: &[Step], direction: Direction) -> Vec<String> {
+    let mut kept = Vec::new();
+    for step in steps {
+        let Some((source, destination)) = copy_ends(step, direction) else {
+            continue;
+        };
+        if let Target::OtherVolume { copy, .. } = &step.to
+            && copy.in_place
+            && copy.created
+            && fs::symlink_metadata(&destination).is_ok_and(|m| m.is_file())
+        {
+            kept.push(if copy.copied {
+                format!(
+                    "the verified copy of {} stays at {}; the original was not touched",
+                    source.display(),
+                    destination.display()
+                )
+            } else {
+                format!(
+                    "a copy of {}, maybe incomplete, stays at {}; the original was not touched",
+                    source.display(),
+                    destination.display()
+                )
+            });
+        }
+    }
+    kept
+}
+
+/// After a crash: a copy to be made in place whose creation was not
+/// journaled may have left an empty file under its final name (the crash
+/// came between creating and journaling it). Such a name may also be
+/// someone else's, so it is not removed; the note says so.
+fn note_unjournaled_in_place(steps: &[Step], direction: Direction, problems: &mut Vec<String>) {
+    for step in steps {
+        let Some((_, destination)) = copy_ends(step, direction) else {
+            continue;
+        };
+        if let Target::OtherVolume { copy, .. } = &step.to
+            && copy.in_place
+            && !copy.created
+            && fs::symlink_metadata(&destination).is_ok_and(|m| m.is_file() && m.len() == 0)
+        {
+            problems.push(format!(
+                "{} may be an empty file the interrupted move left; it was not removed",
+                destination.display()
+            ));
+        }
+    }
 }
 
 /// Undo of one step: renames back, puts back from the Trash, publishes a
@@ -2324,6 +2509,7 @@ pub(crate) mod crash {
     thread_local! {
         static COUNTDOWN: Cell<Option<usize>> = const { Cell::new(None) };
         static AT_LABEL: Cell<Option<&'static str>> = const { Cell::new(None) };
+        static FAIL_AT: Cell<Option<&'static str>> = const { Cell::new(None) };
     }
     /// Crash at the `n`-th point reached from now (0 = the next).
     pub fn arm(n: usize) {
@@ -2336,6 +2522,18 @@ pub(crate) mod crash {
     /// Whether the armed crash has not happened (and disarms it).
     pub fn disarm() -> bool {
         AT_LABEL.take().is_some() | COUNTDOWN.take().is_some()
+    }
+    /// Fail (an error, not a crash) at the first point named `label`.
+    pub fn fail_at(label: &'static str) {
+        FAIL_AT.set(Some(label));
+    }
+    /// An error where [`fail_at`] named this point.
+    pub fn fail(label: &str) -> anyhow::Result<()> {
+        if FAIL_AT.get() == Some(label) {
+            FAIL_AT.set(None);
+            anyhow::bail!("simulated failure at {label}");
+        }
+        Ok(())
     }
     pub fn point(label: &str) {
         if AT_LABEL.get() == Some(label) {

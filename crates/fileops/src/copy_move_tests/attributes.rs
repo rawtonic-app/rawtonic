@@ -11,21 +11,21 @@ const NAME: &str = "cc.rawtonic.test";
 #[cfg(not(target_vendor = "apple"))]
 const NAME: &str = "user.rawtonic.test";
 
-fn attribute(value: &str) -> Vec<Attribute> {
+pub(super) fn attribute(value: &str) -> Vec<Attribute> {
     vec![(NAME.as_bytes().to_vec(), value.as_bytes().to_vec())]
 }
 
 /// Gives `path` the test attribute; false where its volume cannot.
-fn tag(path: &Path, value: &str) -> bool {
+pub(super) fn tag(path: &Path, value: &str) -> bool {
     xattr::write(&fs::File::open(path).unwrap(), &attribute(value)).is_ok()
 }
 
-fn tags(path: &Path) -> Vec<Attribute> {
+pub(super) fn tags(path: &Path) -> Vec<Attribute> {
     xattr::read_path(path).unwrap()
 }
 
 /// Whether the target volume keeps attributes (else the move is refused).
-fn target_keeps(world: &World) -> bool {
+pub(super) fn target_keeps(world: &World) -> bool {
     let probe = world.target.join("probe");
     fs::create_dir(&probe).unwrap();
     let keeps = xattr::probe(&probe).is_ok();
@@ -74,6 +74,9 @@ fn attributes_travel_with_a_moved_file_and_back() {
 #[test]
 fn attributes_of_a_folder_and_of_what_is_in_it_travel_with_it() {
     let world = World::new();
+    if world.publishes_in_place() {
+        return;
+    }
     let (from, to) = world.folder();
     if !(tag(&from, "folder")
         && tag(&from.join("Sub/B.NEF"), "nef")
@@ -122,6 +125,9 @@ fn an_original_whose_attributes_changed_after_its_copy_is_kept() {
         }
     }
     let world = World::new();
+    if world.publishes_in_place() {
+        return;
+    }
     let raw = world.source.join("A.RAF");
     if !tag(&raw, "red") || !target_keeps(&world) {
         eprintln!("SKIP: no extended attributes on both volumes");
@@ -177,6 +183,7 @@ fn attributes_changed_while_copying_stop_the_move() {
         "{error:#}"
     );
     assert_eq!(journal.history(1).unwrap()[0].state, State::RolledBack);
+    world.remove_kept_in_place(&format!("{error:#}"));
     world.assert_at(&world.source, &world.target);
 }
 

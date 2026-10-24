@@ -107,6 +107,9 @@ fn assert_whole(root: &Path) {
 #[test]
 fn a_folder_moves_whole_and_goes_to_the_trash_as_one_item() {
     let world = World::new();
+    if world.publishes_in_place() {
+        return;
+    }
     let step = world.folder_step();
     let (from, to) = world.folder();
     let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
@@ -147,6 +150,9 @@ fn a_folder_moves_whole_and_goes_to_the_trash_as_one_item() {
 #[test]
 fn undo_copies_the_folder_back_as_it_is_now_and_redo_moves_it_again() {
     let world = World::new();
+    if world.publishes_in_place() {
+        return;
+    }
     let journal = world.journal();
     let (from, to) = world.folder();
     let op = journal
@@ -185,6 +191,9 @@ fn undo_copies_the_folder_back_as_it_is_now_and_redo_moves_it_again() {
 #[test]
 fn undo_refuses_when_the_folders_place_is_taken_again() {
     let world = World::new();
+    if world.publishes_in_place() {
+        return;
+    }
     let journal = world.journal();
     let (from, to) = world.folder();
     let op = journal
@@ -217,6 +226,9 @@ fn a_crash_at_any_step_of_a_folder_move_undo_or_redo_loses_nothing() {
         let mut points = 0;
         for n in 0.. {
             let world = World::new();
+            if world.publishes_in_place() {
+                return;
+            }
             let step = world.folder_step();
             let id = match phase {
                 Phase::Move => None,
@@ -303,6 +315,9 @@ fn nothing_appears_under_the_folders_name_until_its_whole_copy_is_verified() {
         }
     }
     let world = World::new();
+    if world.publishes_in_place() {
+        return;
+    }
     let step = world.folder_step();
     let (from, to) = world.folder();
     let watch = Watch(&from, &to, Cell::new(0));
@@ -329,6 +344,9 @@ fn an_original_folder_that_changed_after_its_copy_is_kept() {
         }
     }
     let world = World::new();
+    if world.publishes_in_place() {
+        return;
+    }
     let step = world.folder_step();
     let (from, to) = world.folder();
     let journal = world.journal();
@@ -371,6 +389,9 @@ fn a_folder_changed_while_copying_stops_the_move() {
         }
     }
     let world = World::new();
+    if world.publishes_in_place() {
+        return;
+    }
     let step = world.folder_step();
     let (from, to) = world.folder();
     let journal = world.journal();
@@ -405,6 +426,9 @@ fn stop_while_copying_a_folder_rolls_back() {
         }
     }
     let world = World::new();
+    if world.publishes_in_place() {
+        return;
+    }
     let step = world.folder_step();
     let error = world
         .journal()
@@ -433,6 +457,9 @@ fn a_folder_name_taken_while_copying_is_never_replaced() {
         }
     }
     let world = World::new();
+    if world.publishes_in_place() {
+        return;
+    }
     let step = world.folder_step();
     let (from, to) = world.folder();
     let error = world
@@ -455,6 +482,9 @@ fn a_folder_name_taken_while_copying_is_never_replaced() {
 #[test]
 fn a_folder_that_cannot_go_to_the_trash_is_kept() {
     let world = World::new();
+    if world.publishes_in_place() {
+        return;
+    }
     world.trash.refuse.set(true);
     let journal = world.journal();
     let op = journal
@@ -558,6 +588,9 @@ fn an_original_folder_whose_copy_lost_a_file_is_kept() {
         }
     }
     let world = World::new();
+    if world.publishes_in_place() {
+        return;
+    }
     let step = world.folder_step();
     let (from, to) = world.folder();
     let op = world
@@ -591,6 +624,9 @@ fn rolling_a_published_folder_back_never_deletes_what_was_added_to_it() {
         }
     }
     let world = World::new();
+    if world.publishes_in_place() {
+        return;
+    }
     let step = world.folder_step();
     let (from, to) = world.folder();
     let journal = world.journal();
@@ -654,6 +690,9 @@ fn undo_and_redo_stopped_after_publishing_a_folder_say_so_and_can_be_retried() {
         }
     }
     let world = World::new();
+    if world.publishes_in_place() {
+        return;
+    }
     let journal = world.journal();
     let (from, to) = world.folder();
     let op = journal
