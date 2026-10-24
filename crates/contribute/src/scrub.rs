@@ -41,8 +41,10 @@ const VERBATIM_KEYS: &[&str] = &[
 /// spelling (review rounds 1–4), dropping the rest of the line rather than
 /// keeping part of a name.
 static PATH: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(^|[\s(\[=,"'`<])((?:file:/+|~/|/+[^/\s]|[A-Za-z]:[\\/]|\\\\[^\s\\])[^\n]*)"#)
-        .expect("path pattern")
+    Regex::new(
+        r#"(^|[^\p{L}\p{N}_./~\\>-])((?:file:/+|~/|/+[^/\s]|[A-Za-z]:[\\/]|\\\\[^\s\\])[^\n]*)"#,
+    )
+    .expect("path pattern")
 });
 /// A backtrace frame's source file with line and column, the whole rest of
 /// its line: its name stays (`<path>/lib.rs:12:5`).
@@ -61,7 +63,7 @@ static EXTENSION: LazyLock<Regex> =
 static SERIAL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         // The value is the rest of the line: serials may hold spaces.
-        r#"(?i)\b((?:body|internal|lens|camera)?\s?serial(?:\s?(?:number|no))?)(["']?\s*[:=]\s*["']?)([^\n]+)"#,
+        r#"(?i)(?:\b|_)((?:body|internal|lens|camera)?[\s_-]?serial(?:[\s_-]?(?:number|no))?)(["']?\s*[:=]\s*["']?)([^\n]+)"#,
     )
     .expect("serial pattern")
 });
@@ -174,7 +176,13 @@ impl Scrubber {
 
     fn scrub_once(&self, text: &str) -> String {
         let text = PATH.replace_all(text, |c: &Captures| {
-            format!("{}{}", &c[1], path_in_text(&c[2]))
+            // Any non-word character but a placeholder's ">" may precede a
+            // path ("path:/x", "{/x}"), but "scheme://host" is a URL, not a path.
+            if &c[1] == ":" && c[2].starts_with("//") {
+                c[0].to_string()
+            } else {
+                format!("{}{}", &c[1], path_in_text(&c[2]))
+            }
         });
         let text = SERIAL.replace_all(&text, |c: &Captures| {
             if &c[3] == "<serial>" {
@@ -491,6 +499,35 @@ mod tests {
         );
         let s = Scrubber::new(Some("user"), None);
         assert_eq!(s.scrub("<user> and user"), "<user> and <user>");
+    }
+
+    #[test]
+    fn any_boundary_starts_a_path_and_serial_keys_may_use_underscores() {
+        let s = anna();
+        assert_eq!(
+            s.scrub("path:/Volumes/Clients/Jane Wedding.CR3"),
+            "path:<path>.CR3"
+        );
+        assert_eq!(
+            s.scrub("failed {/Volumes/Clients/Jane Wedding.CR3}"),
+            "failed {<path>.CR3"
+        );
+        assert_eq!(
+            s.scrub("see https://github.com/rawtonic-app/rawtonic"),
+            "see https://github.com/rawtonic-app/rawtonic"
+        );
+        assert_eq!(
+            s.scrub(r#"serial_number: Some("AB12345")"#),
+            "serial_number: <serial>"
+        );
+        assert_eq!(
+            s.scrub(r#"lens_serial_number: Some("CD67890")"#),
+            "lens_serial_number: <serial>"
+        );
+        assert_eq!(
+            s.scrub("BODY-SERIAL-NUMBER=1 2 3"),
+            "BODY-SERIAL-NUMBER=<serial>"
+        );
     }
 
     #[test]
