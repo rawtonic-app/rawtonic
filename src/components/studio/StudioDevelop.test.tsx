@@ -186,6 +186,34 @@ describe("Develop tool contracts", () => {
     }
   });
 
+  it("offers sharpening amounts to 150 from response 2 on, layers to 100", () => {
+    const sharpening = () => {
+      fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "Detail" }));
+      openGroups();
+      return within(screen.getByRole("slider", { name: "Threshold" }).closest("details")!);
+    };
+    const amountMax = () => +(sharpening().getByRole("slider", { name: "Amount" }) as HTMLInputElement).max;
+    useEditorStore.setState({ adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), sharpenVersion: 5 } });
+    mount();
+    expect(amountMax()).toBe(150);
+    const input = sharpening().getByRole("textbox", { name: "Amount value" });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "140" } });
+    fireEvent.blur(input);
+    expect(useEditorStore.getState().adjustments.sharpness).toBe(140);
+    cleanup();
+    // Response 1 (recipes without the key): its halos grew with the amount.
+    useEditorStore.setState({ adjustments: structuredClone(INITIAL_ADJUSTMENTS) });
+    mount();
+    expect(amountMax()).toBe(100);
+    cleanup();
+    useEditorStore.setState({ adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), sharpenVersion: 5 } });
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Layers & masks" }));
+    fireEvent.click(screen.getByRole("button", { name: "New linear gradient layer" }));
+    expect(amountMax()).toBe(100);
+  });
+
   it("makes brightness fine-grained, preserves stored units and isolates local edits", () => {
     useEditorStore.setState({
       adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), brightness: 0.4 },
