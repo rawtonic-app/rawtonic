@@ -35,6 +35,10 @@ struct State {
     waiting: usize,
     /// When the last foreground render ended.
     ended: Option<Instant>,
+    /// Background renders blocked in `wait_for_foreground`; lets tests
+    /// release a foreground render only once a waiter is really waiting.
+    #[cfg(test)]
+    background_waiting: usize,
 }
 
 /// A GPU processor slot and whether foreground renders use it.
@@ -95,6 +99,8 @@ impl ProcessorTurns {
                 foreground_runs: false,
                 waiting: 0,
                 ended: None,
+                #[cfg(test)]
+                background_waiting: 0,
             }),
             changed: Condvar::new(),
         }
@@ -169,6 +175,10 @@ impl ProcessorTurns {
                 return (state, waited);
             }
             waited = true;
+            #[cfg(test)]
+            {
+                state.background_waiting += 1;
+            }
             state = if taken || state.waiting > 0 {
                 self.changed
                     .wait(state)
@@ -179,6 +189,10 @@ impl ProcessorTurns {
                     .unwrap_or_else(PoisonError::into_inner)
                     .0
             };
+            #[cfg(test)]
+            {
+                state.background_waiting -= 1;
+            }
         }
     }
 }
@@ -422,6 +436,11 @@ mod tests {
             assert!(turns.pause_for_foreground());
             sent.send(Instant::now()).unwrap();
         });
+        // Release the frame only once the tile thread waits for it: on a
+        // loaded machine the thread can start later than the pause after it.
+        while turns.state().background_waiting == 0 {
+            std::thread::sleep(Duration::from_millis(1));
+        }
         assert!(resumed.recv_timeout(Duration::from_millis(50)).is_err());
         drop(frame);
         let ended = Instant::now();
