@@ -240,25 +240,85 @@ const PROBE_B: &str = ".rawtonic-probe-b";
 /// taken name is refused, both without replacing anything. The probe files
 /// are removed again.
 pub fn probe_exclusive_rename(folder: &Path) -> Result<()> {
+    let result = probe_rename(folder);
+    remove_probe(folder);
+    result.map_err(|e| cannot_publish(folder, &e))
+}
+
+fn probe_rename(folder: &Path) -> io::Result<()> {
     let (a, b) = (folder.join(PROBE_A), folder.join(PROBE_B));
-    let result = (|| -> io::Result<()> {
-        File::create_new(&a)?;
-        rename_exclusive(&a, &b)?;
-        File::create_new(&a)?;
-        match rename_exclusive(&a, &b) {
+    File::create_new(&a)?;
+    rename_exclusive(&a, &b)?;
+    File::create_new(&a)?;
+    match rename_exclusive(&a, &b) {
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+        Err(e) => Err(e),
+        Ok(()) => Err(io::Error::other("it replaced an existing file")),
+    }
+}
+
+fn cannot_publish(folder: &Path, error: &io::Error) -> anyhow::Error {
+    anyhow::anyhow!(
+        "The drive of {} cannot rename or create files without risking replacing one \
+         ({error}); moving photos to it is not supported",
+        folder.display()
+    )
+}
+
+/// How copies are put under their final names on a volume (ADR 0016).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Publish {
+    /// Staged, verified, then renamed exclusively.
+    Rename,
+    /// Created exclusively under the final name and copied and verified
+    /// there: for volumes that cannot rename exclusively (exFAT on macOS).
+    /// Files only; a folder is refused.
+    InPlace,
+}
+
+/// How copies are published in `folder` (a folder only this operation
+/// writes in): by exclusive rename where the volume has one; on Unix
+/// volumes that answer it as unsupported, by exclusive creation, when that
+/// holds (a second creation of a name is refused). Anything else, such as
+/// a rename that replaced a file, refuses the volume. The probe files are
+/// removed again.
+pub fn publish_mode(folder: &Path) -> Result<Publish> {
+    #[cfg(test)]
+    if FORCE_IN_PLACE.get() {
+        return Ok(Publish::InPlace);
+    }
+    let renamed = probe_rename(folder);
+    remove_probe(folder);
+    let error = match renamed {
+        Ok(()) => return Ok(Publish::Rename),
+        Err(e) => e,
+    };
+    #[cfg(unix)]
+    if error.kind() == io::ErrorKind::Unsupported
+        || matches!(
+            error.raw_os_error(),
+            Some(libc::ENOTSUP | libc::EINVAL | libc::ENOSYS)
+        )
+    {
+        let a = folder.join(PROBE_A);
+        let created = File::create_new(&a).and_then(|_| match File::create_new(&a) {
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
             Err(e) => Err(e),
-            Ok(()) => Err(io::Error::other("it replaced an existing file")),
-        }
-    })();
-    remove_probe(folder);
-    result.map_err(|e| {
-        anyhow::anyhow!(
-            "The drive of {} cannot rename files without risking replacing one ({e}); \
-             moving photos to it is not supported (such as exFAT drives on macOS)",
-            folder.display()
-        )
-    })
+            Ok(_) => Err(io::Error::other("it created an existing file again")),
+        });
+        remove_probe(folder);
+        return match created {
+            Ok(()) => Ok(Publish::InPlace),
+            Err(e) => Err(cannot_publish(folder, &e)),
+        };
+    }
+    Err(cannot_publish(folder, &error))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: every volume publishes in place.
+    pub(crate) static FORCE_IN_PLACE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Removes what [`probe_exclusive_rename`] may have left in `folder`.
@@ -357,6 +417,7 @@ pub(crate) fn copy_verified(
     staged: &Path,
     original_mode: Option<u32>,
     tally: &mut Tally,
+    created: &mut dyn FnMut() -> Result<()>,
 ) -> Result<(Stamp, Stamp)> {
     #[cfg(unix)]
     let posix = (
@@ -365,17 +426,19 @@ pub(crate) fn copy_verified(
     );
     #[cfg(not(unix))]
     let posix = (false, false);
-    copy_file_verified(source, staged, original_mode, posix, tally)
+    copy_file_verified(source, staged, original_mode, posix, tally, created)
 }
 
 /// [`copy_verified`] with whether the source's and the copy's volumes
-/// keep Unix modes (`posix`) known.
+/// keep Unix modes (`posix`) known; `created` runs once the new file
+/// exists, before anything is written to it.
 pub(crate) fn copy_file_verified(
     source: &Path,
     staged: &Path,
     original_mode: Option<u32>,
     posix: (bool, bool),
     tally: &mut Tally,
+    created: &mut dyn FnMut() -> Result<()>,
 ) -> Result<(Stamp, Stamp)> {
     let mut input =
         File::open(source).with_context(|| format!("Cannot read {}", source.display()))?;
@@ -415,6 +478,7 @@ pub(crate) fn copy_file_verified(
     let mut output = options
         .open(staged)
         .with_context(|| format!("Cannot create {}", staged.display()))?;
+    created()?;
     // The mode it was made with (the umask applied), without the owner's
     // write bit when `mode` has none: what an unrecorded mode ends as.
     #[cfg(unix)]
@@ -523,6 +587,26 @@ pub(crate) fn same_content(
         }
         if n == 0 {
             return Ok(true);
+        }
+    }
+}
+
+/// Whether the file `part` holds the first bytes of the file `whole` (all
+/// of them, or none: an empty file is the start of any).
+pub(crate) fn is_prefix_of(part: &Path, whole: &Path) -> Result<bool> {
+    let mut a = File::open(part).with_context(|| format!("Cannot read {}", part.display()))?;
+    let mut b = File::open(whole).with_context(|| format!("Cannot read {}", whole.display()))?;
+    if a.metadata()?.len() > b.metadata()?.len() {
+        return Ok(false);
+    }
+    let (mut x, mut y) = (vec![0u8; BLOCK], vec![0u8; BLOCK]);
+    loop {
+        let n = read_full(&mut a, &mut x)?;
+        if n == 0 {
+            return Ok(true);
+        }
+        if read_full(&mut b, &mut y[..n])? != n || x[..n] != y[..n] {
+            return Ok(false);
         }
     }
 }

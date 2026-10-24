@@ -13,6 +13,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 mod attributes;
 mod folders;
+mod in_place;
 
 /// The system Trash for tests: a `.trash` folder beside the file's folder
 /// (so on its volume). `refuse` plays a volume without a Trash; `on_trash`
@@ -795,10 +796,10 @@ fn staging_cleanup_never_removes_anything_outside_its_folder() {
 }
 
 /// A real exFAT volume, when the environment names a folder on one:
-/// `RAWTONIC_TEST_EXFAT_DIR`. Where it renames exclusively (the Linux
-/// exfat driver) a move and its undo go through; where it cannot (macOS
-/// answers ENOTSUP), the move is refused before anything is copied and
-/// leaves nothing behind.
+/// `RAWTONIC_TEST_EXFAT_DIR`. A move and its undo go through: by exclusive
+/// rename where it has one (the Linux exfat driver), else in place (macOS
+/// answers ENOTSUP), and a folder is refused there before anything is
+/// copied, leaving nothing behind.
 #[test]
 fn a_move_to_an_exfat_volume_when_one_is_given() {
     let Some(dir) = std::env::var_os("RAWTONIC_TEST_EXFAT_DIR") else {
@@ -818,23 +819,26 @@ fn a_move_to_an_exfat_volume_when_one_is_given() {
     );
     let probe = target.path().join("probe");
     fs::create_dir(&probe).unwrap();
-    if let Err(refused) = probe_exclusive_rename(&probe) {
-        eprintln!("exclusive rename refused: {refused:#}");
-        let error = result.unwrap_err();
-        assert!(
-            format!("{error:#}").contains("cannot rename files without risking"),
-            "{error:#}"
-        );
-        assert_eq!(
-            fs::read(world.source.join("A.RAF")).unwrap(),
-            content("A.RAF", FILES[0].1)
-        );
-        assert!(world.trash.items().is_empty());
-        assert_eq!(World::names(target.path()), ["probe"]);
-        assert!(World::names(&probe).is_empty());
-        return;
-    }
+    let mode = publish_mode(&probe).unwrap();
+    eprintln!("exFAT publishes by {mode:?}");
+    assert!(World::names(&probe).is_empty());
     let op = result.unwrap();
+    if mode == Publish::InPlace {
+        let folder = world.source.join("Folder");
+        fs::create_dir(&folder).unwrap();
+        fs::write(folder.join("B.RAF"), b"b").unwrap();
+        let error = world
+            .journal()
+            .execute(
+                "move",
+                "Move folder",
+                vec![Step::moving(&folder, target.path().join("Folder")).unwrap()],
+                &world.trash,
+            )
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("as a whole"), "{error:#}");
+        assert_eq!(World::names(target.path()), ["A.RAF", "probe"]);
+    }
     assert_eq!(op.state, State::Done);
     assert_eq!(fs::read(&to).unwrap(), content("A.RAF", FILES[0].1));
     assert!(!exists(&world.source.join("A.RAF")));
