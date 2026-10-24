@@ -203,7 +203,20 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
 }
 
 fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, bool)> {
-    let adjustments = translate(&photo.develop);
+    let mut adjustments = translate(&photo.develop);
+    // Lightroom's spots and red eye corrections render from its own
+    // geometry once they know the photo's orientation, a fact of the file
+    // (`rawtonic_engine::lightroom_retouch`): exports of photos never opened
+    // keep them.
+    if let Some(adjustments) = adjustments
+        .as_mut()
+        .filter(|a| rawtonic_engine::lightroom_retouch::needs_orientation(a))
+        && let Ok(bytes) = std::fs::read(&photo.path)
+    {
+        let orientation =
+            crate::image_loader::source_orientation(&bytes, &photo.path.to_string_lossy());
+        rawtonic_engine::lightroom_retouch::set_orientation(adjustments, orientation);
+    }
     // The photograph, its translated edit and its metadata are stored in one
     // transaction: a failure leaves none of them, a retry imports it whole.
     let contents = rawtonic_catalog::Contents {
@@ -384,6 +397,65 @@ mod tests {
         import_into(&catalog, &source).unwrap();
         assert_eq!(catalog.collections().unwrap().len(), collections.len());
         assert_eq!(catalog.assets(None).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn lightroom_spots_and_red_eyes_are_imported_with_the_photos_orientation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        // A JPEG decoded turned a quarter (orientation 6).
+        let path = tmp.path().join("IMG_1.jpg");
+        let mut jpeg = Vec::new();
+        image::DynamicImage::new_rgb8(16, 8)
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        let mut metadata = little_exif::metadata::Metadata::new();
+        metadata.set_tag(little_exif::exif_tag::ExifTag::Orientation(vec![6]));
+        metadata
+            .write_to_vec(&mut jpeg, little_exif::filetype::FileExtension::JPEG)
+            .unwrap();
+        fs::write(&path, &jpeg).unwrap();
+        assert_eq!(
+            crate::image_loader::source_orientation(&jpeg, "IMG_1.jpg"),
+            6
+        );
+        let xmp = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+ <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"><crs:RetouchInfo><rdf:Seq>
+  <rdf:li>centerX = 0.25, centerY = 0.5, radius = 0.02, sourceState = sourceAutoComputed, sourceX = 0.4, sourceY = 0.5, spotType = heal</rdf:li>
+ </rdf:Seq></crs:RetouchInfo><crs:RedEyeInfo><rdf:Seq>
+  <rdf:li>x = 0.5, y = 0.5, width = 0.01, height = 0.02, alpha = 0, pupilSize = 0.5, pupilDarkenAmount = 0.5, adaptivePupilColor = 0</rdf:li>
+ </rdf:Seq></crs:RedEyeInfo></rdf:Description></rdf:RDF></x:xmpmeta>"#;
+        let source = Source {
+            name: "LR".into(),
+            photos: vec![photo(
+                "1",
+                path.clone(),
+                Develop::LightroomXmp(xmp.into()),
+                None,
+            )],
+            albums: vec![],
+            not_read: NotRead::default(),
+        };
+        assert_eq!(import_into(&catalog, &source).unwrap().imported, 1);
+        let asset = catalog.asset_at(&path).unwrap().unwrap();
+        let state = catalog.editor_state(&asset.id).unwrap().unwrap();
+        let adjustments = &state["adjustments"];
+        for key in ["spots", "redEyes"] {
+            assert_eq!(
+                adjustments[key][0]["lrNormalized"]["orientation"], 6,
+                "{key}"
+            );
+        }
+        // Renders place them without the editor: the photo is never opened.
+        assert!(!rawtonic_engine::lightroom_retouch::needs_orientation(
+            adjustments
+        ));
+        assert!(crate::image_loader::has_base_retouch(adjustments));
+        // Nothing was written beside the photograph.
+        assert_eq!(fs::read(&path).unwrap(), jpeg);
     }
 
     #[test]

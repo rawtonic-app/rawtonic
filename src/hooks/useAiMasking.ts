@@ -568,34 +568,61 @@ export function useAiMasking() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedImageReady, masksKey, askAgain]);
 
-  // Lightroom Heal/Clone spots imported from a sidecar or catalog stay
-  // normalised until the photo they belong to is shown.
+  // Lightroom Heal/Clone spots and Red Eye corrections imported from a
+  // catalog keep Lightroom's geometry (renders place them on the photo
+  // themselves) until their photo is open: the backend then places them on
+  // its decode for editing, each where it stands in its list. A placement
+  // dropped because another photo opened is asked for again when this one
+  // opens again.
   const spotsKey = useEditorStore((s) => s.adjustments.spots);
-  const requestedSpotPlacements = useRef(new Set<string>());
+  const redEyesKey = useEditorStore((s) => s.adjustments.redEyes);
+  const requestedRetouchPlacements = useRef(new Set<string>());
   useEffect(() => {
     const { selectedImage, adjustments } = useEditorStore.getState();
     if (!selectedImageReady || !selectedImage) return;
-    const isUnplaced = (spot: unknown) => !!(spot as { lrNormalized?: unknown }).lrNormalized;
-    const unplaced = (adjustments.spots ?? []).filter(isUnplaced);
+    const isUnplaced = (item: unknown) => !!(item as { lrNormalized?: unknown } | undefined)?.lrNormalized;
+    const sent = { spots: adjustments.spots ?? [], redEyes: adjustments.redEyes ?? [] };
     const path = selectedImage.path;
-    if (unplaced.length === 0 || requestedSpotPlacements.current.has(path)) return;
-    requestedSpotPlacements.current.add(path);
-    void invoke<{ spots?: Adjustments['spots'] }>(Invokes.PlaceLightroomMasks, {
-      path,
-      adjustments: { spots: unplaced },
-      width: selectedImage.width,
-      height: selectedImage.height,
-    })
+    if (
+      !(sent.spots.some(isUnplaced) || sent.redEyes.some(isUnplaced)) ||
+      requestedRetouchPlacements.current.has(path)
+    ) {
+      return;
+    }
+    requestedRetouchPlacements.current.add(path);
+    const retry = () => requestedRetouchPlacements.current.delete(path);
+    /** `current` with its pending items replaced by the placed ones `got` holds for `asked`. */
+    const merged = <T>(current: T[], asked: T[], got: T[] | undefined): T[] => {
+      if (!got || got.length !== asked.length) return current;
+      const placed = got.filter((_, i) => isUnplaced(asked[i]));
+      if (current.filter(isUnplaced).length !== placed.length) return current;
+      let next = 0;
+      return current.map((item) => (isUnplaced(item) ? placed[next++] : item));
+    };
+    void invoke<{ spots?: Adjustments['spots']; redEyes?: Adjustments['redEyes'] } | null>(
+      Invokes.PlaceLightroomRetouch,
+      { path, jsAdjustments: adjustments },
+    )
       .then((placed) => {
-        if (useEditorStore.getState().selectedImage?.path !== path) return;
+        if (!placed || useEditorStore.getState().selectedImage?.path !== path) {
+          retry();
+          return;
+        }
+        const pending = (items: unknown[] | undefined) => (items ?? []).filter(isUnplaced).length;
+        // Nothing the geometry could show: no edit to record.
+        if (pending(placed.spots) + pending(placed.redEyes) === pending(sent.spots) + pending(sent.redEyes)) return;
         setAdjustments((prev: Adjustments) => ({
           ...prev,
-          spots: [...(prev.spots ?? []).filter((spot) => !isUnplaced(spot)), ...(placed.spots ?? [])],
+          spots: merged(prev.spots ?? [], sent.spots, placed.spots),
+          redEyes: merged(prev.redEyes ?? [], sent.redEyes, placed.redEyes),
         }));
       })
-      .catch((error) => console.error('Placing Lightroom spots failed:', error));
+      .catch((error) => {
+        retry();
+        console.error('Placing Lightroom spots and red eye corrections failed:', error);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedImageReady, spotsKey]);
+  }, [selectedImageReady, spotsKey, redEyesKey]);
 
   // SAM encodes the open photo in the background, so a click or box only
   // runs the decoder: after Subject and Sky where those are computed ahead

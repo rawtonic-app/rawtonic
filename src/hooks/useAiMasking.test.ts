@@ -512,6 +512,73 @@ describe("automatic AI masks from imported presets", () => {
     expect(invoke).toHaveBeenCalledTimes(1);
   });
 
+  const pendingSpot = { mode: "heal", opacity: 100, feather: 0, lrNormalized: { x: 0.25, y: 0.5, radius: 0.01 } };
+  const ownSpot = { id: "own", mode: "clone", x: 10, y: 10, radius: 5, sourceX: 30, sourceY: 10 };
+  const pendingEye = { kind: "red", lrNormalized: { x: 0.5, y: 0.5, width: 0.01, height: 0.01 } };
+  const placeRetouch = async (_command: string, args: { jsAdjustments: { spots: object[]; redEyes: object[] } }) => ({
+    spots: args.jsAdjustments.spots.map((spot) =>
+      "lrNormalized" in spot ? { id: "placed-spot", mode: "heal", x: 1500, y: 2000, radius: 60 } : spot,
+    ),
+    redEyes: args.jsAdjustments.redEyes.map(() => ({ id: "placed-eye", kind: "red", x: 0.5, y: 0.33 })),
+  });
+
+  it("has the backend place imported Lightroom spots and red eyes in the open photo, where they stand", async () => {
+    invoke.mockImplementation(async (command: string, args: never) =>
+      command === "place_lightroom_retouch" ? placeRetouch(command, args) : null,
+    );
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true, width: 6000, height: 4000 } as never,
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        spots: [pendingSpot, ownSpot] as never,
+        redEyes: [pendingEye] as never,
+      },
+    });
+    const { rerender } = renderHook(() => useAiMasking());
+    await waitFor(() => expect(useEditorStore.getState().adjustments.spots?.[0]).toMatchObject({ id: "placed-spot" }));
+    const { spots, redEyes } = useEditorStore.getState().adjustments;
+    expect(spots?.[1]).toEqual(ownSpot);
+    expect(redEyes?.[0]).toMatchObject({ id: "placed-eye" });
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke.mock.calls[0][1]).toMatchObject({ path: "/s/a.NEF" });
+    rerender();
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks again for a placement dropped because another photo opened (A, B, back to A)", async () => {
+    let answer: (value: unknown) => void = () => {};
+    invoke.mockImplementation(
+      (command: string) =>
+        new Promise((resolve) => {
+          if (command === "place_lightroom_retouch") answer = resolve;
+          else resolve(null);
+        }),
+    );
+    const open = (path: string) =>
+      useEditorStore.setState({
+        selectedImage: { path, isReady: true, isRaw: true, width: 6000, height: 4000 } as never,
+        adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), spots: [pendingSpot] as never },
+      });
+    open("/s/a.NEF");
+    const { rerender } = renderHook(() => useAiMasking());
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    // B opens before A's answer: the backend has B loaded and says so.
+    useEditorStore.setState({ selectedImage: { path: "/s/b.NEF", isReady: false } as never, adjustments: structuredClone(INITIAL_ADJUSTMENTS) });
+    rerender();
+    await act(async () => answer(null));
+    open("/s/a.NEF");
+    useEditorStore.setState({ selectedImage: { ...useEditorStore.getState().selectedImage!, isReady: false } });
+    rerender();
+    open("/s/a.NEF");
+    rerender();
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
+    invoke.mockImplementation(async (command: string, args: never) =>
+      command === "place_lightroom_retouch" ? placeRetouch(command, args) : null,
+    );
+    await act(async () => answer(await placeRetouch("", { jsAdjustments: { spots: [pendingSpot], redEyes: [] } })));
+    await waitFor(() => expect(useEditorStore.getState().adjustments.spots?.[0]).toMatchObject({ id: "placed-spot" }));
+  });
+
   it("leaves masks that already carry data alone", async () => {
     useEditorStore.setState({
       selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true } as never,

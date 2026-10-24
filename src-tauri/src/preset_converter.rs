@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::file_management::Preset;
+use rawtonic_engine::lightroom_retouch::{orient_direction, orient_point};
 
 #[derive(Copy, Clone, Debug)]
 enum Num {
@@ -740,6 +741,10 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     if !spots.is_empty() {
         adjustments.insert("spots".to_string(), Value::Array(spots));
     }
+    let red_eyes = lightroom_red_eyes(xmp_content);
+    if !red_eyes.is_empty() {
+        adjustments.insert("redEyes".to_string(), Value::Array(red_eyes));
+    }
     let has_masks = !layers.is_empty();
     if has_masks {
         adjustments.insert("masks".to_string(), Value::Array(layers));
@@ -900,6 +905,60 @@ pub fn lightroom_spots(xmp: &str) -> (Vec<Value>, usize) {
     (spots, removals)
 }
 
+/// Lightroom's Red Eye corrections (`crs:RedEyeInfo`, one string per eye:
+/// "x = 0.52, y = 0.34, width = 0.013, height = 0.019, alpha = 0, …,
+/// pupilSize = 0.5, pupilDarkenAmount = 0.5, adaptivePupilColor = 1,
+/// showPetEyeHighlight = 1, highlightX = 0.59, highlightY = 0.42"; the
+/// ellipse normalised in the unrotated raw, `adaptivePupilColor` = Pet Eye)
+/// as Rawtonic corrections kept normalised (`lrNormalized`) until they are
+/// placed (`rawtonic_engine::lightroom_retouch::placed_red_eye`). Its
+/// density, strength, red bias and gamma settings tune Lightroom's own
+/// correction and are not translated.
+pub fn lightroom_red_eyes(xmp: &str) -> Vec<Value> {
+    let Ok(doc) = roxmltree::Document::parse(xmp) else {
+        return Vec::new();
+    };
+    let Some(info) = doc
+        .descendants()
+        .find(|n| n.has_tag_name((CRS_NS, "RedEyeInfo")))
+    else {
+        return Vec::new();
+    };
+    seq_items_of(info)
+        .into_iter()
+        .filter_map(|li| {
+            let text = li.text().unwrap_or("");
+            let num = |key: &str| {
+                text.split(',').find_map(|part| {
+                    let (k, v) = part.split_once('=')?;
+                    (k.trim() == key)
+                        .then(|| v.trim().parse::<f64>().ok())
+                        .flatten()
+                        .filter(|v| v.is_finite())
+                })
+            };
+            let share = |key: &str| (num(key).unwrap_or(0.5).clamp(0.0, 1.0) * 100.0).round();
+            let pet = num("adaptivePupilColor").is_some_and(|v| v != 0.0);
+            let (x, y, width, height) = (num("x")?, num("y")?, num("width")?, num("height")?);
+            (width > 0.0 && height > 0.0).then(|| {
+                json!({
+                    "kind": if pet { "pet" } else { "red" },
+                    "pupilSize": share("pupilSize"),
+                    "darken": share("pupilDarkenAmount"),
+                    "catchlight": pet && num("showPetEyeHighlight").is_some_and(|v| v != 0.0),
+                    "visible": true,
+                    "lrNormalized": {
+                        "x": x, "y": y, "width": width, "height": height,
+                        "alpha": num("alpha").unwrap_or(0.0),
+                        "highlightX": num("highlightX").unwrap_or(0.5),
+                        "highlightY": num("highlightY").unwrap_or(0.5),
+                    },
+                })
+            })
+        })
+        .collect()
+}
+
 /// The rdf:li items of the rdf:Seq directly inside `parent`.
 fn seq_items_of<'a, 'i>(parent: roxmltree::Node<'a, 'i>) -> Vec<roxmltree::Node<'a, 'i>> {
     parent
@@ -911,36 +970,6 @@ fn seq_items_of<'a, 'i>(parent: roxmltree::Node<'a, 'i>) -> Vec<roxmltree::Node<
                 .collect()
         })
         .unwrap_or_default()
-}
-
-/// EXIF orientation applied to a point in normalised coordinates of the
-/// unrotated raw (where Lightroom keeps its mask geometry): the point in
-/// the displayed photo, which Rawtonic's masks use.
-fn orient_point(orientation: u16, x: f64, y: f64) -> (f64, f64) {
-    match orientation {
-        2 => (1.0 - x, y),
-        3 => (1.0 - x, 1.0 - y),
-        4 => (x, 1.0 - y),
-        5 => (y, x),
-        6 => (1.0 - y, x),
-        7 => (1.0 - y, 1.0 - x),
-        8 => (y, 1.0 - x),
-        _ => (x, y),
-    }
-}
-
-/// `orient_point` for a direction (pixel space).
-fn orient_direction(orientation: u16, dx: f64, dy: f64) -> (f64, f64) {
-    match orientation {
-        2 => (-dx, dy),
-        3 => (-dx, -dy),
-        4 => (dx, -dy),
-        5 => (dy, dx),
-        6 => (-dy, dx),
-        7 => (-dy, -dx),
-        8 => (dy, -dx),
-        _ => (dx, dy),
-    }
 }
 
 /// Lightroom's brush flow as the coverage of one dab: Camera Raw renders a
@@ -1116,60 +1145,45 @@ pub fn place_lightroom_geometry(
     placed
 }
 
-/// `place_lightroom_geometry` for spots: Lightroom's radius is a share of
-/// the unrotated width, its points normalised in the unrotated raw.
+/// `place_lightroom_geometry` for spots and red eye corrections
+/// (`rawtonic_engine::lightroom_retouch::place`), each placed one given an
+/// id.
 fn place_lightroom_spots(
     adjustments: &mut Value,
     width: f64,
     height: f64,
     orientation: u16,
 ) -> bool {
-    let Some(spots) = adjustments.get_mut("spots").and_then(Value::as_array_mut) else {
-        return false;
-    };
-    let unrotated_width = if (5..=8).contains(&orientation) {
-        height
-    } else {
-        width
-    };
-    let round = |v: f64| (v * 100.0).round() / 100.0;
-    let pixel = |x: f64, y: f64| {
-        let (u, v) = orient_point(orientation, x, y);
-        (round(u * width), round(v * height))
-    };
-    let mut placed = false;
-    for spot in spots.iter_mut() {
-        let Some(g) = spot.get("lrNormalized").cloned() else {
-            continue;
-        };
-        let n = |k: &str| g[k].as_f64().unwrap_or(0.0);
-        let (x, y) = pixel(n("x"), n("y"));
-        let (source_x, source_y) = pixel(n("sourceX"), n("sourceY"));
-        let points: Vec<Value> = g["points"]
-            .as_array()
-            .map(Vec::as_slice)
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|p| {
-                let (px, py) = pixel(p[0].as_f64()?, p[1].as_f64()?);
-                Some(json!({"x": px, "y": py}))
-            })
-            .collect();
-        let object = spot.as_object_mut().expect("spots are objects");
-        object.remove("lrNormalized");
-        object.insert("id".into(), json!(Uuid::new_v4().to_string()));
-        object.insert("x".into(), json!(x));
-        object.insert("y".into(), json!(y));
-        object.insert("radius".into(), json!(round(n("radius") * unrotated_width)));
-        object.insert("sourceX".into(), json!(source_x));
-        object.insert("sourceY".into(), json!(source_y));
-        object.insert("visible".into(), json!(true));
-        if points.len() > 1 {
-            object.insert("points".into(), Value::Array(points));
-        }
-        placed = true;
+    let size = |v: f64| v.round().clamp(1.0, f64::from(u32::MAX)) as u32;
+    let placed = rawtonic_engine::lightroom_retouch::place(
+        adjustments,
+        size(width),
+        size(height),
+        Some(orientation),
+    );
+    if placed {
+        give_retouch_ids(adjustments);
     }
     placed
+}
+
+/// Gives each spot and red eye correction without an id one.
+fn give_retouch_ids(adjustments: &mut Value) {
+    for key in ["spots", "redEyes"] {
+        for item in adjustments
+            .get_mut(key)
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            if let Some(object) = item.as_object_mut()
+                && !object.contains_key(rawtonic_engine::lightroom_retouch::PENDING)
+                && !object.get("id").is_some_and(Value::is_string)
+            {
+                object.insert("id".into(), json!(Uuid::new_v4().to_string()));
+            }
+        }
+    }
 }
 
 /// Places an imported preset's Lightroom geometry in the open photo
@@ -1189,6 +1203,46 @@ pub async fn place_lightroom_masks(
             crate::image_loader::source_orientation(&bytes, &source.to_string_lossy());
         place_lightroom_geometry(&mut adjustments, width, height, orientation);
         Ok(adjustments)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Places the open photo's imported Lightroom spots and red eye corrections
+/// (`rawtonic_engine::lightroom_retouch`) for editing: on its full decode,
+/// carried through the geometry of `js_adjustments`, as its renders place
+/// them before. Returns its `spots` and `redEyes` in their order, items
+/// that cannot be shown still pending; None when `path` is no longer the
+/// open photo (the editor asks again when it is).
+#[tauri::command]
+pub async fn place_lightroom_retouch(
+    path: String,
+    mut js_adjustments: Value,
+    state: tauri::State<'_, crate::app_state::AppState>,
+) -> Result<Option<Value>, String> {
+    let loaded = crate::image_loader::original_image(&state).await?;
+    let (source, _) = crate::file_management::parse_virtual_path(&path);
+    if crate::file_management::parse_virtual_path(&loaded.path).0 != source {
+        return Ok(None);
+    }
+    tokio::task::spawn_blocking(move || {
+        let orientation = rawtonic_engine::lightroom_retouch::needs_orientation(&js_adjustments)
+            .then(|| std::fs::read(&source).ok())
+            .flatten()
+            .map(|bytes| {
+                crate::image_loader::source_orientation(&bytes, &source.to_string_lossy())
+            });
+        rawtonic_engine::lightroom_retouch::place(
+            &mut js_adjustments,
+            loaded.image.width(),
+            loaded.image.height(),
+            orientation,
+        );
+        give_retouch_ids(&mut js_adjustments);
+        Ok(Some(json!({
+            "spots": js_adjustments.get("spots").cloned().unwrap_or(json!([])),
+            "redEyes": js_adjustments.get("redEyes").cloned().unwrap_or(json!([])),
+        })))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -2426,6 +2480,49 @@ mod tests {
         let (old, _) = super::lightroom_spots(legacy);
         assert_eq!(old.len(), 1);
         assert_eq!(old[0]["lrNormalized"]["sourceY"], json!(0.777244));
+    }
+
+    #[test]
+    fn lightroom_red_eyes_import_normalised_and_place_in_the_photo() {
+        let xmp = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+ <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="+0.20"><crs:RedEyeInfo><rdf:Seq>
+  <rdf:li>x = 0.520000, y = 0.340000, width = 0.013000, height = 0.019000, alpha = 0.000000, density = 0.500000, strength = 0.500000, redBias = 0.500000, pupilSize = 0.500000, pupilDarkenAmount = 0.700000, adaptivePupilColor = 0, gammaEncodeCorrection = 1, showPetEyeHighlight = 0, highlightX = 0.500000, highlightY = 0.500000</rdf:li>
+  <rdf:li>x = 0.600000, y = 0.340000, width = 0.010000, height = 0.015000, alpha = 0.200000, pupilSize = 0.300000, pupilDarkenAmount = 0.500000, adaptivePupilColor = 1, showPetEyeHighlight = 1, highlightX = 0.591000, highlightY = 0.424000</rdf:li>
+  <rdf:li>x = 0.6, y = 0.3, width = 0, height = 0.01</rdf:li>
+ </rdf:Seq></crs:RedEyeInfo></rdf:Description></rdf:RDF></x:xmpmeta>"#;
+        let adjustments = convert_xmp_to_preset(xmp).unwrap().adjustments;
+        let eyes = adjustments["redEyes"].as_array().unwrap();
+        assert_eq!(eyes.len(), 2, "an empty ellipse is left out");
+        assert_eq!(
+            (
+                eyes[0]["kind"].clone(),
+                eyes[0]["darken"].clone(),
+                eyes[0]["catchlight"].clone()
+            ),
+            (json!("red"), json!(70.0), json!(false))
+        );
+        assert_eq!(
+            (
+                eyes[1]["kind"].clone(),
+                eyes[1]["pupilSize"].clone(),
+                eyes[1]["catchlight"].clone()
+            ),
+            (json!("pet"), json!(30.0), json!(true))
+        );
+        assert_eq!(eyes[1]["lrNormalized"]["alpha"], json!(0.2));
+        // Placed in a 6000 × 4000 photo (orientation 1): long-edge units.
+        let mut placed = adjustments.clone();
+        assert!(super::place_lightroom_geometry(
+            &mut placed,
+            6000.0,
+            4000.0,
+            1
+        ));
+        let eye = &placed["redEyes"][0];
+        assert!(eye["id"].is_string() && eye.get("lrNormalized").is_none());
+        assert!((eye["x"].as_f64().unwrap() - 0.52).abs() < 1e-12);
+        assert!((eye["y"].as_f64().unwrap() - 0.34 * 4000.0 / 6000.0).abs() < 1e-12);
+        assert_eq!(rawtonic_engine::red_eye::red_eyes(&placed).len(), 2);
     }
 
     #[test]

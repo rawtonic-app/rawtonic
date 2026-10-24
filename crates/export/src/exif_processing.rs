@@ -1614,10 +1614,20 @@ pub fn resolve_unresolved_lens(recipe: &mut Value, source: &Path) -> Result<(), 
 /// photo could not be read resolved now (`resolve_unresolved_lens`; its
 /// error is returned after the defaults are filled in, for the callers that
 /// must not render without them), then the camera's defaults for a
-/// never-edited photo (`embedded_lens::apply_default`).
+/// never-edited photo (`embedded_lens::apply_default`), and the photo's
+/// orientation for Lightroom spots and red eye corrections imported before
+/// imports recorded it (`lightroom_retouch::needs_orientation`).
 pub fn prepare_recipe_lens(recipe: &mut Value, source: &Path) -> Result<(), String> {
     let resolved = resolve_unresolved_lens(recipe, source);
     rawtonic_engine::embedded_lens::apply_default(recipe, source);
+    if rawtonic_engine::lightroom_retouch::needs_orientation(recipe)
+        && rawtonic_engine::lens_recipe::readable(source)
+        && let Ok(bytes) = std::fs::read(source)
+    {
+        let orientation =
+            rawtonic_engine::image_loader::source_orientation(&bytes, &source.to_string_lossy());
+        rawtonic_engine::lightroom_retouch::set_orientation(recipe, orientation);
+    }
     resolved
 }
 
