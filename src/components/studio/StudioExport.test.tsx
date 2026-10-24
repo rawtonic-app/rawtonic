@@ -374,6 +374,33 @@ it("saves the form as a new recipe", () => {
   );
 });
 
+it("saves the recipe on Return in its name field instead of exporting", () => {
+  const handleSettingsChange = vi.fn(async () => {});
+  useSettingsStore.setState({
+    appSettings: { exportPresets: [] } as unknown as AppSettings,
+    handleSettingsChange,
+  });
+  render(<StudioExport />);
+  const name = screen.getByLabelText("New recipe name");
+  fireEvent.change(name, { target: { value: "Client JPEG" } });
+  // false: the key's default (submitting the form, i.e. exporting) was prevented.
+  expect(fireEvent.keyDown(name, { key: "Enter", code: "Enter" })).toBe(false);
+  expect(handleSettingsChange).toHaveBeenCalledWith(
+    expect.objectContaining({
+      exportPresets: [expect.objectContaining({ name: "Client JPEG" })],
+    }),
+  );
+  expect(exported()).toHaveLength(0);
+});
+
+it("does not capitalise or correct a typed subfolder name", () => {
+  render(<StudioExport />);
+  const subfolder = screen.getByLabelText("Subfolder");
+  expect(subfolder.getAttribute("autocapitalize")).toBe("off");
+  expect(subfolder.getAttribute("autocorrect")).toBe("off");
+  expect(subfolder.getAttribute("spellcheck")).toBe("false");
+});
+
 /** Sets every export setting the inherited panel had through the Studio form. */
 async function fillEverything() {
   const { open } = await import("@tauri-apps/plugin-dialog");
