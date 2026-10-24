@@ -16,11 +16,40 @@ interface LutEntry {
   group?: string | null;
 }
 
+/** Why a file was not imported: `kind` and its values (`lut::LutIssue`
+ * or the import's own kinds); `reason` is the backend's English text. */
+interface SkippedLut {
+  file: string;
+  reason: string;
+  issue?: { kind: string } & Record<string, unknown>;
+}
+
 interface LutImport {
   luts: LutEntry[];
   imported: number;
-  skipped: { file: string; reason: string }[];
+  skipped: SkippedLut[];
 }
+
+/** The kinds this version translates (`studio.lut.skipReasons`). */
+const SKIP_KINDS = [
+  "badLine",
+  "copyFailed",
+  "domainOrder",
+  "folderUnreadable",
+  "haldShape",
+  "incomplete",
+  "noTable",
+  "notACube",
+  "readDifferently",
+  "tableSize",
+  "tooDeep",
+  "unreadable",
+] as const;
+type SkipKind = (typeof SKIP_KINDS)[number];
+
+/** Kinds whose English reason adds what the translation cannot say (the
+ * system's error). */
+const WITH_DETAIL = new Set(["unreadable", "folderUnreadable", "copyFailed"]);
 
 const EXTENSIONS = ["cube", "3dl", "png", "jpg", "jpeg", "tiff"];
 
@@ -52,6 +81,12 @@ export default function StudioLut({
   onInteraction(active: boolean): void;
 }) {
   const { t } = useTranslation();
+  const skipReason = ({ reason, issue }: SkippedLut) => {
+    const kind = issue?.kind as SkipKind | undefined;
+    if (!issue || !kind || !SKIP_KINDS.includes(kind)) return reason;
+    const text = t(`studio.lut.skipReasons.${kind}`, issue);
+    return WITH_DETAIL.has(issue.kind) && reason ? `${text} (${reason})` : text;
+  };
   const lutPath = useEditorStore((s) => s.adjustments.lutPath ?? null);
   const intensity = useEditorStore((s) => s.adjustments.lutIntensity ?? 100);
   const { handleLutSelect, setAdjustments } = useEditorActions();
@@ -92,7 +127,7 @@ export default function StudioLut({
       setEntries(result?.luts ?? []);
       const skipped = result?.skipped ?? [];
       if (skipped.length > 0) {
-        const lines = skipped.slice(0, 10).map((s) => `${s.file}: ${s.reason}`);
+        const lines = skipped.slice(0, 10).map((s) => `${s.file}: ${skipReason(s)}`);
         const files = [...lines, ...(skipped.length > 10 ? ["…"] : [])].join("\n");
         toast.warn(t("studio.lut.toasts.skipped", { count: skipped.length, imported: result.imported, files }));
       } else if (result && result.imported === 0) {

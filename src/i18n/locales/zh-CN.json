@@ -2793,6 +2793,20 @@
       "none": "无",
       "remove": "移除",
       "removeTitle": "从 Rawtonic 中移除此导入的 LUT",
+      "skipReasons": {
+        "badLine": "无法读取第 {{line}} 行。",
+        "copyFailed": "无法保存副本。",
+        "domainOrder": "某个范围的最大值不大于其最小值。",
+        "folderUnreadable": "无法读取该文件夹。",
+        "haldShape": "HALD 图像必须为正方形，且像素数为立方数（{{width}} × {{height}}）。",
+        "incomplete": "表格不完整或已损坏（{{expected}} 个值中有 {{found}} 个）。",
+        "noTable": "文件中没有 LUT 表格。",
+        "notACube": "表格条目（{{entries}}）不构成立方体。",
+        "readDifferently": "不支持此形式下范围不是 0–1 的 3D 表格。",
+        "tableSize": "表格大小 {{size}} 超出 2–{{max}}。",
+        "tooDeep": "嵌套超过 {{max}} 层的文件夹不会导入。",
+        "unreadable": "无法将该文件读取为 LUT。"
+      },
       "toasts": {
         "importFailed": "无法导入 LUT。",
         "noneFound": "未找到 LUT 文件。",
