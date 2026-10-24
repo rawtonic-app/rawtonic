@@ -3912,6 +3912,24 @@ impl GpuProcessor {
             max_width,
             max_height,
             include_str!("shaders/shader.wgsl"),
+            true,
+        )
+    }
+
+    /// A processor for exports only (CPU readback): `new` without the
+    /// display variants compiled ahead, which exports never use. A display
+    /// render on it still compiles its variant on first use.
+    pub fn for_exports(
+        context: GpuContext,
+        max_width: u32,
+        max_height: u32,
+    ) -> Result<Self, String> {
+        Self::with_shader_source(
+            context,
+            max_width,
+            max_height,
+            include_str!("shaders/shader.wgsl"),
+            false,
         )
     }
 
@@ -3922,6 +3940,7 @@ impl GpuProcessor {
         max_width: u32,
         max_height: u32,
         shader_source: &str,
+        display_variants: bool,
     ) -> Result<Self, String> {
         let device = &context.device;
         const MAX_MASK_BINDINGS: u32 = 1;
@@ -4777,6 +4796,11 @@ impl GpuProcessor {
         // first. Then edited RAWs, other photos often without any detail
         // feature, and the all-enabled variant that renders any recipe until
         // its own variant is ready.
+        // Without them nothing holds the general pipelines back.
+        if !display_variants {
+            processor.start_gate.open();
+            return Ok(processor);
+        }
         processor.compile_preview_variant(RAW_DEFAULT_PREVIEW_FEATURES);
         for features in [
             RAW_DEFAULT_PREVIEW_FEATURES | TONE_PREVIEW_FEATURE,
@@ -7886,6 +7910,20 @@ fn foreground_render(caller_id: &str, output_to_display: bool) -> bool {
     output_to_display || matches!(caller_id, "apply_adjustments" | "sample_curve_input")
 }
 
+/// A processor for `slot`: one for exports only on a background-only slot.
+pub fn create_processor(
+    slot: &GpuProcessorSlot,
+    context: &GpuContext,
+    max_width: u32,
+    max_height: u32,
+) -> Result<GpuProcessor, String> {
+    if slot.background_only() {
+        GpuProcessor::for_exports(context.clone(), max_width, max_height)
+    } else {
+        GpuProcessor::new(context.clone(), max_width, max_height)
+    }
+}
+
 /// The caller's processor, created (or replaced by a larger one) for a
 /// `width` x `height` input texture, taken in turn
 /// ([`processor_turns`]: foreground renders first).
@@ -7939,7 +7977,7 @@ fn lock_processor<'a>(
 
         #[cfg(feature = "performance-profiling")]
         let processor_init_stage = crate::performance::PerformanceStage::new("gpu_processor_init");
-        let new_processor = GpuProcessor::new(context.clone(), new_width, new_height)?;
+        let new_processor = create_processor(processor_slot, context, new_width, new_height)?;
         #[cfg(feature = "performance-profiling")]
         drop(processor_init_stage);
 
