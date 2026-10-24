@@ -73,6 +73,7 @@ import { Trans, useTranslation } from "react-i18next";
 import i18n from "i18next";
 import { catalogChanged } from "../../utils/catalogWrites";
 import "./session.css";
+import { noteTool } from "../contribute/usageStats";
 
 export interface SessionSummary {
   directory: string;
@@ -746,6 +747,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     setBusy(true);
     setError("");
     try {
+      noteTool("ingest");
       const report = await invoke<ImportReport>(Invokes.LibraryImport, {
         source: importSource.trim(),
         directory: session.directory,
@@ -843,6 +845,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       // acknowledged changes, and never paint a previous session's response.
       flagWriteQueue.current = flagWriteQueue.current.then(async () => {
         try {
+          noteTool("culling");
           const changed = await invoke<Record<string, number>>(Invokes.SessionSetFlag, {
             directory: session.directory,
             paths,
@@ -1137,6 +1140,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       // Cancel pressed before the ingest started (the backend clears its
       // cancel flag when it starts): nothing is copied.
       if (cancelRequested.current) return;
+      noteTool("ingest");
       const results = await invoke<ImportResult[]>(Invokes.SessionIngest, {
         directory: session.directory,
         sources: files,

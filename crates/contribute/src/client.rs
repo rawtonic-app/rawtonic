@@ -17,6 +17,9 @@ pub const BUILD_RELAY_URL: Option<&str> = option_env!("RAWTONIC_RELAY_URL");
 pub const POW_BITS: u32 = 20;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// How often [`RelayClient::send_if`] asks whether consent still holds
+/// while a request is under way.
+const STILL_EVERY: Duration = Duration::from_millis(50);
 const TIMEOUT: Duration = Duration::from_secs(30);
 
 /// What the relay answers to a stored submission.
@@ -42,8 +45,14 @@ pub enum SendError {
     RateLimited,
     /// The relay refused it (`code` is its error code).
     Refused { status: u16, code: String },
-    /// No answer (offline, timeout, TLS).
+    /// The request never left: no connection to the relay (offline,
+    /// unknown host, refused). Nothing can have been stored.
+    Unreached(String),
+    /// No answer after the request may have arrived (timeout, cut off):
+    /// the relay may or may not have stored it.
     Network(String),
+    /// The caller withdrew consent before the request was sent.
+    Cancelled,
 }
 
 impl SendError {
@@ -55,7 +64,8 @@ impl SendError {
             SendError::RateLimited => "rate-limited",
             SendError::Refused { status: 404, .. } => "not-found",
             SendError::Refused { .. } => "refused",
-            SendError::Network(_) => "network",
+            SendError::Unreached(_) | SendError::Network(_) => "network",
+            SendError::Cancelled => "cancelled",
         }
     }
 }
@@ -65,6 +75,7 @@ impl std::fmt::Display for SendError {
         match self {
             SendError::Refused { status, code } => write!(f, "relay refused ({status} {code})"),
             SendError::Network(e) => write!(f, "network: {e}"),
+            SendError::Unreached(e) => write!(f, "unreached: {e}"),
             SendError::Unapproved(u) => write!(f, "not sent: {u:?}"),
             other => f.write_str(other.code()),
         }
@@ -166,6 +177,20 @@ impl RelayClient {
         prepared: &Prepared,
         scrubber: &Scrubber,
     ) -> Result<Receipt, SendError> {
+        self.send_if(prepared, scrubber, || true).await
+    }
+
+    /// [`send`](Self::send) for as long as `still` holds: asked right before
+    /// the request goes out (after the proof of work) — false sends nothing —
+    /// and every 50 ms while it is under way, when false drops the request
+    /// (`Cancelled`; its connection is closed). Worst case: bytes already
+    /// handed to the network before that can still reach the relay.
+    pub async fn send_if(
+        &self,
+        prepared: &Prepared,
+        scrubber: &Scrubber,
+        still: impl Fn() -> bool,
+    ) -> Result<Receipt, SendError> {
         approve(prepared, scrubber).map_err(SendError::Unapproved)?;
         let seconds = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -176,6 +201,24 @@ impl RelayClient {
         let stamp = tokio::task::spawn_blocking(move || pow_stamp(body.as_bytes(), seconds, bits))
             .await
             .map_err(|e| SendError::Network(e.to_string()))?;
+        if !still() {
+            return Err(SendError::Cancelled);
+        }
+        let request = self.post(prepared, stamp);
+        tokio::pin!(request);
+        loop {
+            tokio::select! {
+                answer = &mut request => return answer,
+                _ = tokio::time::sleep(STILL_EVERY) => {
+                    if !still() {
+                        return Err(SendError::Cancelled);
+                    }
+                }
+            }
+        }
+    }
+
+    async fn post(&self, prepared: &Prepared, stamp: String) -> Result<Receipt, SendError> {
         let response = self
             .http
             .post(self.url(prepared.channel.path()))
@@ -185,7 +228,13 @@ impl RelayClient {
             .body(prepared.body.clone())
             .send()
             .await
-            .map_err(|e| SendError::Network(e.without_url().to_string()))?;
+            .map_err(|e| {
+                if e.is_connect() {
+                    SendError::Unreached(e.without_url().to_string())
+                } else {
+                    SendError::Network(e.without_url().to_string())
+                }
+            })?;
         let status = response.status().as_u16();
         let bytes = response
             .bytes()
@@ -344,6 +393,65 @@ mod tests {
             .as_bytes(),
         );
         assert!(leading_zero_bits(&digest) >= 4);
+    }
+
+    #[tokio::test]
+    async fn sends_nothing_once_consent_is_withdrawn_and_tells_unreached_apart() {
+        let (base, seen) =
+            relay("HTTP/1.1 204 No Content\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+                .await;
+        let client = RelayClient::new(&base, "0.1.0-alpha.4")
+            .unwrap()
+            .with_pow_bits(4);
+        let asked = std::sync::atomic::AtomicUsize::new(0);
+        let answer = client
+            .send_if(&report(), &scrubber(), || {
+                asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                false
+            })
+            .await;
+        assert_eq!(answer, Err(SendError::Cancelled));
+        assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(seen.lock().unwrap().is_empty());
+        // Nobody listening: the request never left.
+        let closed = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let gone = format!("http://{}/", closed.local_addr().unwrap());
+        drop(closed);
+        let offline = RelayClient::new(&gone, "0.1.0-alpha.4")
+            .unwrap()
+            .with_pow_bits(4);
+        assert!(matches!(
+            offline.send(&report(), &scrubber()).await,
+            Err(SendError::Unreached(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn drops_a_request_under_way_once_consent_is_withdrawn() {
+        // A relay that takes the connection and never answers.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (_socket, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        });
+        let client = RelayClient::new(&base, "0.1.0-alpha.4")
+            .unwrap()
+            .with_pow_bits(4);
+        let on = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let off = on.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            off.store(false, std::sync::atomic::Ordering::SeqCst);
+        });
+        let started = std::time::Instant::now();
+        let answer = client
+            .send_if(&report(), &scrubber(), || {
+                on.load(std::sync::atomic::Ordering::SeqCst)
+            })
+            .await;
+        assert_eq!(answer, Err(SendError::Cancelled));
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
     }
 
     #[tokio::test]

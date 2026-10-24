@@ -20,6 +20,7 @@ import { TETHER_CAPTURE_EVENT, panelHandlesCapture, setTetherConnected } from ".
 import TetherCameraTest, { type TestedCamera } from "./TetherCameraTest";
 import { compatibilityOf } from "./cameraTest";
 import "./tether.css";
+import { noteTool } from "../contribute/usageStats";
 
 /** Mirrors `rawtonic_tether::protocol::CameraInfo`. */
 interface CameraInfo {
@@ -321,6 +322,7 @@ export default function TetherPanel({
     setWaiting(false);
     const started = performance.now();
     try {
+      noteTool("tether");
       const status = await invoke<TetherStatus>(Invokes.TetherConnect, {
         directory,
         port: port || null,

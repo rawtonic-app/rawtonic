@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
 import type { Adjustments } from '../utils/adjustments';
+import { noteTool } from '../components/contribute/usageStats';
 
 /** A named snapshot of a photograph's development (`rawtonic_catalog::Snapshot`). */
 export interface Snapshot {
@@ -121,6 +122,7 @@ export const useSnapshotStore = create<SnapshotState>((set, get) => ({
 
   create: async (path, name, adjustments) => {
     const answer = await inTurn(() => invoke<unknown>(Invokes.SnapshotCreate, { path, name, adjustments }));
+    noteTool('snapshots');
     show(path, answer);
     // A new snapshot is listed last (the order they were taken).
     return Array.isArray(answer) && answer.length > 0 ? (answer[answer.length - 1] as Snapshot) : null;

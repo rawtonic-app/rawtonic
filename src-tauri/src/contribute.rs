@@ -2,13 +2,16 @@
 //! Commands of the contribution channels (ADR 0017): prepare a body for the
 //! "Review what will be sent" dialog, send it after the user clicked Send,
 //! delete a submission by its id; the problem report's context and
-//! screenshot; the crash records of channel 2 and their hooks. No channel
-//! sends on its own, and a build without a relay URL sends nothing.
+//! screenshot; the crash records of channel 2 and their hooks; the usage
+//! statistics of channel 4. No channel sends on its own — statistics, once
+//! the user switched them on, send each finished week at a later start —
+//! and a build without a relay URL sends nothing.
 
 use rawtonic_contribute::client::{Receipt, RelayClient};
 use rawtonic_contribute::crash::{self, AppInfo, CrashRecord, CrashStore, Gpu, ThisRun};
 use rawtonic_contribute::payload::{self, Channel, Prepared};
 use rawtonic_contribute::scrub::Scrubber;
+use rawtonic_contribute::stats::{Sent, StatsStore};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::{LazyLock, OnceLock};
@@ -235,6 +238,9 @@ pub(crate) fn note_gpu(info: &wgpu::AdapterInfo) {
     {
         log::warn!("Could not note the GPU for crash records: {e}");
     }
+    if let Some(stats) = STATS.get() {
+        stats.note_gpu_vendor(crash::now_secs(), &gpu.vendor);
+    }
     let _ = GPU.set(gpu);
 }
 
@@ -283,4 +289,178 @@ pub fn crash_reports_set_enabled(enabled: bool) -> Result<(), String> {
         store.remove_all();
     }
     Ok(())
+}
+
+// --- Usage statistics (channel 4) ------------------------------------------
+
+static STATS: OnceLock<StatsStore> = OnceLock::new();
+
+/// How long after the start the finished weeks are sent (the start itself
+/// stays free of network work).
+const STATS_SEND_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// At start: the store of weekly counters (on only when the user switched
+/// statistics on), this run noted, and the finished weeks sent once.
+pub(crate) fn start_usage_stats(app: &AppHandle, on: bool) {
+    let Ok(dir) = app.path().app_config_dir() else {
+        return;
+    };
+    let store = StatsStore::new(dir.join("usage-stats.json"), on);
+    store.note_run(crash::now_secs(), &app_info(app));
+    // Weeks the relay no longer takes go at every start, also in a build
+    // without a relay.
+    store.due(crash::now_secs());
+    if STATS.set(store).is_err() || !on {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(STATS_SEND_DELAY).await;
+        send_finished_weeks(&app).await;
+    });
+}
+
+async fn send_finished_weeks(app: &AppHandle) {
+    use rawtonic_contribute::client::SendError;
+    let (Some(stats), Ok(client)) = (STATS.get(), client(app)) else {
+        return;
+    };
+    // Switched off from here on (also off and on again): nothing of this
+    // round is sent or kept again.
+    let Some(ticket) = stats.ticket() else {
+        return;
+    };
+    let info = app_info(app);
+    for week in stats.due(crash::now_secs()) {
+        if !stats.still(ticket) {
+            return;
+        }
+        // At most once: from here the week is not kept, so a send whose
+        // outcome is unknown is never repeated.
+        let Some(kept) = stats.take(&week) else {
+            continue;
+        };
+        let value = rawtonic_contribute::stats::payload(&week, &kept, &info);
+        let prepared = match payload::prepare(Channel::Stats, value, &SCRUBBER) {
+            Ok(prepared) => prepared,
+            Err(e) => {
+                log::warn!("Usage statistics of {week} not prepared: {e}");
+                continue;
+            }
+        };
+        // Asked again right before the request goes out: switched off
+        // meanwhile, nothing is sent.
+        match client
+            .send_if(&prepared, &SCRUBBER, || stats.still(ticket))
+            .await
+        {
+            Ok(_) => stats.sent(&week, prepared.body, ticket),
+            // Certainly not arrived: the next start tries again while the
+            // relay still takes the week (not if switched off).
+            Err(e @ (SendError::Unreached(_) | SendError::RateLimited | SendError::Cancelled)) => {
+                log::info!("Usage statistics of {week} not sent now: {e}");
+                stats.put_back(&week, kept, ticket);
+            }
+            Err(e) => log::warn!("Usage statistics of {week} not confirmed, not sent again: {e}"),
+        }
+    }
+}
+
+/// A photo of this camera was opened (only counted while statistics are
+/// on, and only a body of the camera library's list, by its name there).
+pub(crate) fn note_camera(exif: &std::collections::HashMap<String, String>) {
+    let Some(stats) = STATS.get().filter(|stats| stats.is_on()) else {
+        return;
+    };
+    if let (Some(make), Some(model)) = (exif.get("Make"), exif.get("Model"))
+        && let Some((make, model)) = rawtonic_rawdecode::fingerprint::known_camera(make, model)
+    {
+        stats.note_camera(crash::now_secs(), &make, &model);
+    }
+}
+
+/// Turns statistics on or off and saves the choice. Off stops at once —
+/// a send under way is dropped — and deletes what was kept, also when saving
+/// the choice fails; on starts (from no kept weeks) only once the choice is
+/// saved. An error says what did not work: the switch then shows the choice
+/// as not made.
+#[tauri::command]
+pub fn usage_stats_set_enabled(app_handle: AppHandle, enabled: bool) -> Result<(), String> {
+    let stats = STATS.get();
+    if enabled {
+        crate::app_settings::persist_usage_stats(&app_handle, true)?;
+        if let Some(stats) = stats {
+            if let Err(e) = stats.set_on(true) {
+                // Not on after all: the saved choice goes back to off.
+                let _ = crate::app_settings::persist_usage_stats(&app_handle, false);
+                return Err(e);
+            }
+            stats.note_run(crash::now_secs(), &app_info(&app_handle));
+        }
+        Ok(())
+    } else {
+        let cleared = stats.map_or(Ok(()), |stats| stats.set_on(false));
+        crate::app_settings::persist_usage_stats(&app_handle, false)?;
+        cleared
+    }
+}
+
+/// Tools used (keys from the fixed list), while statistics are on.
+#[tauri::command]
+pub fn usage_stats_note_tools(tools: Vec<String>) {
+    if let Some(stats) = STATS.get() {
+        stats.note_tools(crash::now_secs(), &tools);
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingWeek {
+    week: String,
+    /// Exactly as it will be prepared for sending.
+    body: String,
+    /// This week so far (sent after it ends); else a finished week sent at
+    /// the next start.
+    current: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageStatsPreview {
+    /// Every body kept to be sent, in send order.
+    pending: Vec<PendingWeek>,
+    last_sent: Option<Sent>,
+}
+
+/// "Show what is sent": every body waiting to be sent, and the last one sent.
+#[tauri::command]
+pub fn usage_stats_preview(app_handle: AppHandle) -> UsageStatsPreview {
+    let Some(stats) = STATS.get() else {
+        return UsageStatsPreview {
+            pending: Vec::new(),
+            last_sent: None,
+        };
+    };
+    let now = crash::now_secs();
+    let current = rawtonic_contribute::stats::iso_week(now);
+    let pending = if stats.is_on() {
+        stats
+            .pending(now, &app_info(&app_handle))
+            .into_iter()
+            .filter_map(|(week, value)| {
+                let prepared = payload::prepare(Channel::Stats, value, &SCRUBBER).ok()?;
+                Some(PendingWeek {
+                    current: week == current,
+                    week,
+                    body: prepared.body,
+                })
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    UsageStatsPreview {
+        pending,
+        last_sent: stats.last_sent(),
+    }
 }

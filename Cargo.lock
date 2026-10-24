@@ -5399,6 +5399,7 @@ version = "0.1.0"
 dependencies = [
  "gethostname",
  "libc",
+ "log",
  "proptest",
  "rawtonic-metadata",
  "regex",

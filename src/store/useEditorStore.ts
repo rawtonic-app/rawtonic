@@ -10,6 +10,7 @@ import { maskOverlayAfterEdit, type MaskOverlayAuto, type NativeMaskOverlay } fr
 import type { OutputColorSpace } from '../components/ui/ExportImportProperties';
 import type { LayerSolo } from '../utils/layerSolo';
 import { DEFAULT_SPLIT_POSITION } from '../utils/beforeAfter';
+import { noteEdit } from '../components/contribute/usageStats';
 
 export interface InteractivePatch {
   url: string;
@@ -210,7 +211,7 @@ export const currentEditForExport = (state: Pick<EditorState, 'selectedImage' | 
     ? { currentEditPath: state.selectedImage.path, currentEditAdjustments: state.adjustments }
     : { currentEditPath: null, currentEditAdjustments: null };
 
-export const useEditorStore = create<EditorState>((set) => ({
+export const useEditorStore = create<EditorState>((set, get) => ({
   selectedImage: null,
   adjustments: INITIAL_ADJUSTMENTS,
   previewOverride: null,
@@ -296,6 +297,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   pushHistory: (newAdj) => {
     scheduledHistory.cancel();
     heldHistory = null;
+    // Usage statistics (only while switched on): the tools this step used.
+    noteEdit(get().history[get().historyIndex], newAdj);
     set((state) => {
       const newHistory = state.history.slice(0, state.historyIndex + 1);
       newHistory.push(newAdj);

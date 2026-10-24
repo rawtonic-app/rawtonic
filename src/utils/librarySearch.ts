@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { EditedStatus, Invokes, LibraryViewMode, RawStatus, type FilterCriteria } from '../components/ui/AppProperties';
 import { MISSING_VIEW_ID } from './offline';
 import { PREVIOUS_IMPORT_VIEW_ID } from './folderSync';
+import { noteTool } from '../components/contribute/usageStats';
 
 /**
  * The library's search rules (`rawtonic_catalog::query`): one model for the
@@ -193,8 +194,10 @@ export const photographPath = (path: string): string => {
 
 /** `listed`: the folder the grid lists, perhaps through a symlink; the
  * answer comes in its form (the catalog holds real paths). */
-export const searchLibrary = (directory: string, rule: Rule, listed: string | null = null) =>
-  invoke<string[]>(Invokes.SessionSearch, { directory, rule, listed });
+export const searchLibrary = (directory: string, rule: Rule, listed: string | null = null) => {
+  noteTool('search');
+  return invoke<string[]>(Invokes.SessionSearch, { directory, rule, listed });
+};
 
 /** Each list's values with counts within `base` and the other lists' choices. */
 export function libraryFacets(directory: string, base: Rule[], selection: MetadataSelection | undefined) {

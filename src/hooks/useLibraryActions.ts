@@ -11,6 +11,7 @@ import { computeSortedLibrary } from './useSortedLibrary';
 import { expandGroupedPaths } from '../utils/imageGrouping';
 import { invokeInOrder } from '../utils/catalogWrites';
 import type { FolderTree } from '../utils/folderTree';
+import { noteTool } from '../components/contribute/usageStats';
 
 /** Modifier keys read from a selection click (React or DOM mouse event). */
 type SelectionModifiers = Pick<MouseEvent, 'ctrlKey' | 'metaKey' | 'shiftKey'>;
@@ -51,6 +52,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
       return { imageRatings: newRatings };
     });
 
+    noteTool('culling');
     invokeInOrder(Invokes.SetRatingForPaths, { paths: pathsToRate, rating: finalRating }).catch((err) => {
       console.error(err);
       // Photos whose rating was not saved show their previous one again

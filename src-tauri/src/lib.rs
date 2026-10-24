@@ -371,6 +371,9 @@ pub fn run() {
                 contribute::start_crash_records(&app_handle, settings.crash_reports.unwrap_or(true))
             };
             startup::setup_logging(&app_handle);
+            if !is_headless {
+                contribute::start_usage_stats(&app_handle, settings.usage_stats.unwrap_or(false));
+            }
             if let Some(record) = &crash_record {
                 log::warn!(
                     "The previous run ended in a crash ({} at {}); its report waits for the user's review.",
@@ -740,6 +743,9 @@ pub fn run() {
             contribute::crash_report_mark_asked,
             contribute::crash_report_remove,
             contribute::crash_reports_set_enabled,
+            contribute::usage_stats_set_enabled,
+            contribute::usage_stats_note_tools,
+            contribute::usage_stats_preview,
             app_settings::load_settings,
             app_settings::save_settings,
             ai_commands::generate_ai_depth_mask,

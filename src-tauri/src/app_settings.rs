@@ -583,6 +583,9 @@ pub struct AppSettings {
     /// (missing: yes; false: Never, and no crash records are kept).
     #[serde(default)]
     pub crash_reports: Option<bool>,
+    /// Send anonymous weekly usage statistics (ADR 0017; missing: off).
+    #[serde(default)]
+    pub usage_stats: Option<bool>,
     pub last_root_path: Option<String>,
     #[serde(default)]
     pub root_folders: Vec<String>,
@@ -794,6 +797,7 @@ impl Default for AppSettings {
             last_update_check: None,
             dismissed_update_version: None,
             crash_reports: None,
+            usage_stats: None,
             last_root_path: None,
             root_folders: Vec::new(),
             pinned_folders: Vec::new(),
@@ -1067,9 +1071,12 @@ pub fn save_settings(mut settings: AppSettings, app_handle: AppHandle) -> Result
     Ok(())
 }
 
-/// Frontend snapshots must never roll back the backend's throttle timestamp.
+/// Frontend snapshots must never roll back the backend's throttle timestamp,
+/// nor the usage-statistics choice, which only `persist_usage_stats` changes.
 fn write_settings_file(path: &Path, settings: &mut AppSettings) -> Result<(), String> {
-    settings.last_update_check = read_settings_file(path)?.last_update_check;
+    let saved = read_settings_file(path)?;
+    settings.last_update_check = saved.last_update_check;
+    settings.usage_stats = saved.usage_stats;
     persist_settings_file(path, settings)
 }
 
@@ -1077,6 +1084,21 @@ fn persist_settings_file(path: &Path, settings: &AppSettings) -> Result<(), Stri
     let json = serde_json::to_vec_pretty(settings).map_err(|e| e.to_string())?;
     may_replace_settings(path)?;
     rawtonic_metadata::atomic_write(path, json).map_err(|e| e.to_string())
+}
+
+/// Saves the usage-statistics choice on its own (ADR 0017): the switch
+/// reports a failed save instead of showing a choice that is not kept.
+pub(crate) fn persist_usage_stats(app: &AppHandle, on: bool) -> Result<(), String> {
+    let _guard = SETTINGS_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    persist_usage_stats_at(&get_settings_path(app)?, on)
+}
+
+fn persist_usage_stats_at(path: &Path, on: bool) -> Result<(), String> {
+    let mut settings = read_settings_file(path)?;
+    settings.usage_stats = Some(on);
+    persist_settings_file(path, &settings)
 }
 
 /// Reserve an attempt before any network access; failed attempts are throttled too.
@@ -1323,6 +1345,40 @@ mod tests {
         let saved = read_settings_file(&path).unwrap();
         assert_eq!(saved.last_update_check, Some(100));
         assert_eq!(saved.check_for_updates, Some(false));
+    }
+
+    #[test]
+    fn the_usage_statistics_choice_is_saved_on_its_own_or_reports_why_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let mut initial = AppSettings {
+            crash_reports: Some(false),
+            ..Default::default()
+        };
+        write_settings_file(&path, &mut initial).unwrap();
+        persist_usage_stats_at(&path, true).unwrap();
+        let saved = read_settings_file(&path).unwrap();
+        assert_eq!(saved.usage_stats, Some(true));
+        assert_eq!(saved.crash_reports, Some(false));
+        // A stale frontend snapshot cannot change it back.
+        persist_usage_stats_at(&path, false).unwrap();
+        let mut stale = AppSettings {
+            usage_stats: Some(true),
+            ..Default::default()
+        };
+        write_settings_file(&path, &mut stale).unwrap();
+        assert_eq!(read_settings_file(&path).unwrap().usage_stats, Some(false));
+        persist_usage_stats_at(&path, true).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
+            let refused = persist_usage_stats_at(&path, false);
+            std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+            // Root may write anyway; otherwise the failure is reported.
+            let saved = read_settings_file(&path).unwrap();
+            assert_eq!(refused.is_err(), saved.usage_stats == Some(true));
+        }
     }
 
     #[test]

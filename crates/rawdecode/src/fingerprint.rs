@@ -18,6 +18,37 @@ use serde::Serialize;
 use sha2::Digest;
 use std::collections::BTreeMap;
 
+/// The camera library's own name of a body (clean make, base model) for
+/// the make and model a file's metadata gives, if its camera list has that
+/// body; None for any other text. Usage statistics send only such names:
+/// a file's metadata can be edited to say anything (an owner's name, a
+/// serial), the camera list cannot.
+pub fn known_camera(make: &str, model: &str) -> Option<(String, String)> {
+    let clean = |text: &str| text.trim().trim_matches('"').trim().to_string();
+    let (make, model) = (clean(make), clean(model));
+    let cameras = rawler::global_loader().get_cameras();
+    // The file's own names (`Canon`, `Canon EOS R6`) or the list's clean
+    // ones (`Canon`, `EOS R6`), which the metadata reader gives for some
+    // formats.
+    let camera = cameras
+        .get(&(make.clone(), model.clone(), String::new()))
+        .or_else(|| {
+            cameras
+                .iter()
+                .find(|((m, n, _), camera)| {
+                    (*m == make || camera.clean_make == make)
+                        && (*n == model || camera.clean_model == model)
+                })
+                .map(|(_, camera)| camera)
+        })?;
+    let model = if camera.canonical_model.is_empty() {
+        &camera.clean_model
+    } else {
+        &camera.canonical_model
+    };
+    Some((camera.clean_make.clone(), model.clone()))
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct DecodeFingerprint {
     /// The step that failed: `decoder` (no decoder accepts the file),
@@ -467,6 +498,28 @@ pub mod synthetic {
         out.extend(extra);
         out.extend(pixels);
         out
+    }
+}
+
+#[cfg(test)]
+mod known_camera_tests {
+    #[test]
+    fn names_only_bodies_of_the_camera_list() {
+        assert_eq!(
+            super::known_camera("SONY", "ILCE-7M3"),
+            Some(("Sony".to_string(), "ILCE-7M3".to_string()))
+        );
+        assert_eq!(
+            super::known_camera(" \"SONY\" ", "\"ILCE-7M3\""),
+            Some(("Sony".to_string(), "ILCE-7M3".to_string()))
+        );
+        let canon = Some(("Canon".to_string(), "EOS R6".to_string()));
+        assert_eq!(super::known_camera("Canon", "Canon EOS R6"), canon);
+        assert_eq!(super::known_camera("Canon", "EOS R6"), canon);
+        // Metadata edited to carry a person or a serial number.
+        assert_eq!(super::known_camera("SONY", "Anna Schmidt's camera"), None);
+        assert_eq!(super::known_camera("SONY", "ILCE-7M3 SN 5012345"), None);
+        assert_eq!(super::known_camera("Anna Schmidt", "ILCE-7M3"), None);
     }
 }
 
