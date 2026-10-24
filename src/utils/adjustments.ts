@@ -1478,7 +1478,9 @@ export const withLumaNoiseVersion = <T extends Partial<Adjustments>>(
 /** As `withSharpenVersion` for Clarity: wherever Clarity values are copied
  * (paste, tool copy, Edit all selected, presets) the Clarity response goes
  * along explicitly — the source's, else 1 (a source or preset from before
- * the key), never on its own. Layers count when their Clarity is set. */
+ * the key), never on its own. Layers with Clarity count only when the source
+ * recipe is known: an update of layers alone (an AI detection refresh) keeps
+ * the destination's response. */
 export const withClarityVersion = <T extends Partial<Adjustments>>(
   picked: T,
   source?: Partial<Adjustments>,
@@ -1490,7 +1492,8 @@ export const withClarityVersion = <T extends Partial<Adjustments>>(
   }
   const clarity =
     picked.clarity !== undefined ||
-    (picked.masks ?? []).some((mask) => ((mask?.adjustments?.clarity as number | undefined) ?? 0) !== 0);
+    (source !== undefined &&
+      (picked.masks ?? []).some((mask) => ((mask?.adjustments?.clarity as number | undefined) ?? 0) !== 0));
   if (!clarity || picked.clarityVersion != null) {
     return picked;
   }

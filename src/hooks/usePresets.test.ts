@@ -58,5 +58,9 @@ describe('collectPresetAdjustments', () => {
     // A preset from before the key renders its Clarity with version 1 wherever applied.
     expect(withClarityVersion({ clarity: 40 } as Partial<Adjustments>)).toEqual({ clarity: 40, clarityVersion: 1 });
     expect(withClarityVersion({ exposure: 1 } as Partial<Adjustments>)).toEqual({ exposure: 1 });
+    // Layers alone (an AI detection refresh, no source): the destination keeps its response.
+    const layers = { masks: [{ id: 'm', adjustments: { clarity: 30 }, subMasks: [] }] } as unknown as Partial<Adjustments>;
+    expect('clarityVersion' in withClarityVersion(layers)).toBe(false);
+    expect(withClarityVersion(layers, { clarityVersion: 2 } as Partial<Adjustments>).clarityVersion).toBe(2);
   });
 });
