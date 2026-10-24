@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Payload schemas, version 1 (ADR 0017). Unknown fields are refused; every
-// string has a length cap and a character rule.
+// Payload schemas (ADR 0017): problem reports are version 2 (a screenshot
+// and the photo's file are announced here by size and SHA-256 and uploaded
+// as raw bytes), the others version 1.
+// Unknown fields are refused; every string has a length cap and a
+// character rule.
 
 export class Invalid extends Error {
   constructor(readonly field: string) {
@@ -25,13 +28,18 @@ export interface Camera {
 }
 
 export interface Report {
-  schema: 1;
+  schema: 2;
   app: App;
   gpu?: Gpu;
   text: string;
   logTail?: string;
-  photo?: Camera & { fileType: string };
-  screenshot?: { mime: "image/png" | "image/jpeg"; data: string };
+  photo?: Camera & { fileType: string; file?: Upload };
+  screenshot?: Upload & { mime: "image/png" | "image/jpeg" };
+}
+/** A file announced in a report; its bytes follow through an upload URL. */
+export interface Upload {
+  size: number;
+  sha256: string;
 }
 export interface Crash {
   schema: 1;
@@ -49,17 +57,6 @@ export interface CameraTest {
   camera: Camera & { firmware?: string };
   report: string;
 }
-export interface RawSample {
-  schema: 1;
-  app: App;
-  camera: Camera;
-  fileType: string;
-  size: number;
-  sha256: string;
-  licence: typeof SAMPLE_LICENCE;
-  personalDataAcknowledged: true;
-  note?: string;
-}
 export interface Stats {
   schema: 1;
   week: string;
@@ -69,19 +66,20 @@ export interface Stats {
   tools: Partial<Record<Tool, true>>;
 }
 
-export const SAMPLE_LICENCE = "rawtonic-sample-1";
 /** Log tail and backtrace, in UTF-16 units: a crash with both at the cap
  * still renders below GitHub's 65,536-character issue body limit. */
 export const DIAGNOSTICS_CAP = 24 * 1024;
-export const MAX_SAMPLE_BYTES = 100 * 1024 * 1024;
+/** A report's photo file: the Workers request body limit (both plans). */
+export const MAX_PHOTO_BYTES = 100 * 1024 * 1024;
 export const MAX_SCREENSHOT_BYTES = 2 * 1024 * 1024;
 
-/** Request body caps per endpoint (bytes). */
+/** Request body caps per endpoint (bytes). Small, so that no request
+ * parses much JSON on the Workers Free plan's 10 ms of CPU; screenshots
+ * and photo files come as raw bytes streamed into R2 (`PUT /upload/:token`). */
 export const BODY_CAPS = {
-  report: 3 * 1024 * 1024,
+  report: 96 * 1024,
   crash: 96 * 1024,
   "camera-test": 32 * 1024,
-  "raw-sample": 8 * 1024,
   stats: 8 * 1024,
 } as const;
 
@@ -164,6 +162,15 @@ const schema1 = (value: unknown) => {
   return 1 as const;
 };
 
+/** A declared upload: its size in bytes (1..max) and SHA-256. */
+const upload = (v: Json, field: string, max: number): Upload => {
+  if (typeof v.size !== "number" || !Number.isInteger(v.size) || v.size < 1 || v.size > max) {
+    throw new Invalid(`${field}size`);
+  }
+  if (typeof v.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(v.sha256)) throw new Invalid(`${field}sha256`);
+  return { size: v.size, sha256: v.sha256 };
+};
+
 const app = (value: unknown): App => {
   const v = object(value, "app", ["version", "os", "osVersion", "arch"]);
   if (typeof v.version !== "string" || !/^[0-9A-Za-z.+-]{1,32}$/.test(v.version)) throw new Invalid("app.version");
@@ -184,33 +191,31 @@ const gpu = (value: unknown): Gpu => {
   };
 };
 
-const camera = (value: unknown, field: string, extra: string[] = []) => {
-  const v = object(value, field, ["make", "model"], extra);
+const camera = (value: unknown, field: string, required: string[] = [], optional: string[] = []) => {
+  const v = object(value, field, ["make", "model", ...required], optional);
   return { record: v, camera: { make: name(v.make, `${field}.make`), model: name(v.model, `${field}.model`) } };
 };
 
 export const parseReport = (value: unknown): Report => {
   const v = object(value, "body", ["schema", "app", "text"], ["gpu", "logTail", "photo", "screenshot"]);
-  const report: Report = { schema: schema1(v.schema), app: app(v.app), text: text(v.text, "text", 10_000) };
+  if (v.schema !== 2) throw new Invalid("schema");
+  const report: Report = { schema: 2, app: app(v.app), text: text(v.text, "text", 10_000) };
   if (report.text.trim().length === 0) throw new Invalid("text");
   if (v.gpu !== undefined) report.gpu = gpu(v.gpu);
   if (v.logTail !== undefined) report.logTail = text(v.logTail, "logTail", DIAGNOSTICS_CAP);
   if (v.photo !== undefined) {
-    const { record, camera: c } = camera(v.photo, "photo", ["fileType"]);
+    const { record, camera: c } = camera(v.photo, "photo", ["fileType"], ["file"]);
     report.photo = { ...c, fileType: fileType(record.fileType, "photo.fileType") };
+    if (record.file !== undefined) {
+      report.photo.file = upload(object(record.file, "photo.file", ["size", "sha256"]), "photo.file.", MAX_PHOTO_BYTES);
+    }
   }
   if (v.screenshot !== undefined) {
-    const s = object(v.screenshot, "screenshot", ["mime", "data"]);
-    const mime = oneOf(s.mime, "screenshot.mime", ["image/png", "image/jpeg"] as const);
-    if (
-      typeof s.data !== "string" ||
-      s.data.length > Math.ceil(MAX_SCREENSHOT_BYTES / 3) * 4 ||
-      !/^[A-Za-z0-9+/]*={0,2}$/.test(s.data) ||
-      s.data.length % 4 !== 0
-    ) {
-      throw new Invalid("screenshot.data");
-    }
-    report.screenshot = { mime, data: s.data };
+    const s = object(v.screenshot, "screenshot", ["mime", "size", "sha256"]);
+    report.screenshot = {
+      mime: oneOf(s.mime, "screenshot.mime", ["image/png", "image/jpeg"] as const),
+      ...upload(s, "screenshot.", MAX_SCREENSHOT_BYTES),
+    };
   }
   return report;
 };
@@ -235,40 +240,13 @@ export const parseCrash = (value: unknown): Crash => {
 
 export const parseCameraTest = (value: unknown): CameraTest => {
   const v = object(value, "body", ["schema", "app", "camera", "report"]);
-  const { record, camera: c } = camera(v.camera, "camera", ["firmware"]);
+  const { record, camera: c } = camera(v.camera, "camera", [], ["firmware"]);
   return {
     schema: schema1(v.schema),
     app: app(v.app),
     camera: record.firmware === undefined ? c : { ...c, firmware: name(record.firmware, "camera.firmware") },
     report: text(v.report, "report", 16 * 1024),
   };
-};
-
-export const parseRawSample = (value: unknown): RawSample => {
-  const v = object(
-    value,
-    "body",
-    ["schema", "app", "camera", "fileType", "size", "sha256", "licence", "personalDataAcknowledged"],
-    ["note"],
-  );
-  if (typeof v.size !== "number" || !Number.isInteger(v.size) || v.size < 1 || v.size > MAX_SAMPLE_BYTES) {
-    throw new Invalid("size");
-  }
-  if (typeof v.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(v.sha256)) throw new Invalid("sha256");
-  if (v.licence !== SAMPLE_LICENCE) throw new Invalid("licence");
-  if (v.personalDataAcknowledged !== true) throw new Invalid("personalDataAcknowledged");
-  const sample: RawSample = {
-    schema: schema1(v.schema),
-    app: app(v.app),
-    camera: camera(v.camera, "camera").camera,
-    fileType: fileType(v.fileType, "fileType"),
-    size: v.size,
-    sha256: v.sha256,
-    licence: SAMPLE_LICENCE,
-    personalDataAcknowledged: true,
-  };
-  if (v.note !== undefined) sample.note = text(v.note, "note", 1_000);
-  return sample;
 };
 
 export const parseStats = (value: unknown): Stats => {

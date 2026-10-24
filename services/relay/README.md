@@ -1,6 +1,6 @@
 # Rawtonic contribution relay
 
-The Cloudflare Worker the app's contribution channels send to (problem and crash reports, camera-test results, RAW sample donations, opt-in usage statistics). Design, payloads and privacy rules: [ADR 0017](../../docs/decisions/0017-contribution-channels.md). Deployment and operation: [docs/RELAY.md](../../docs/RELAY.md).
+The Cloudflare Worker the app's contribution channels send to (problem reports with an optional screenshot and photo file, crash reports, camera-test results, opt-in usage statistics). It fits Cloudflare's Workers Free plan: small JSON bodies, files streamed into R2 as raw bytes. Design, payloads and privacy rules: [ADR 0017](../../docs/decisions/0017-contribution-channels.md). Deployment and operation: [docs/RELAY.md](../../docs/RELAY.md).
 
 ```sh
 npm ci

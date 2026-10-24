@@ -54,7 +54,9 @@ const fit = <K extends string>(
   }
 };
 
-export const reportIssue = (r: Report, ref: string, screenshotKey?: string): NewIssue => ({
+/** `keys`: where the report's announced files go in the bucket; each
+ * arrives separately, so one may be missing if its upload did not finish. */
+export const reportIssue = (r: Report, ref: string, keys: { screenshot?: string; photo?: string } = {}): NewIssue => ({
   title: `Problem report ${ref} · Rawtonic ${r.app.version} · ${r.app.os}`,
   labels: ["report"],
   body: fit(
@@ -64,7 +66,8 @@ export const reportIssue = (r: Report, ref: string, screenshotKey?: string): New
         "## System",
         ...system(r.app, r.gpu),
         r.photo ? `- Photo: ${r.photo.make} ${r.photo.model}, ${r.photo.fileType}` : null,
-        screenshotKey ? `- Screenshot: R2 \`${screenshotKey}\`` : null,
+        keys.photo && r.photo?.file ? `- Photo file (${r.photo.file.size} bytes, if uploaded): R2 \`${keys.photo}\`` : null,
+        keys.screenshot ? `- Screenshot (if uploaded): R2 \`${keys.screenshot}\`` : null,
         "",
         "## What happened",
         fence(text ?? ""),

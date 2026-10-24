@@ -11,7 +11,7 @@ import Text from "../ui/Text";
 import { TextVariants } from "../../types/typography";
 import { formatFileSize } from "../../utils/formatFileSize";
 import {
-  reviewView,
+  attachmentsView,
   sendContribution,
   type ContributionError,
   type ContributionReceipt,
@@ -95,9 +95,10 @@ export default function ReviewSendDialog({
     }
   };
 
-  const view = reviewView(prepared.body);
+  const view = attachmentsView(prepared);
   const size = new TextEncoder().encode(prepared.body).length;
   const id = phase.kind === "sent" ? phase.receipt.id : null;
+  const notUploaded = phase.kind === "sent" && (phase.receipt.notUploaded?.length ?? 0) > 0;
 
   const copyId = async () => {
     if (!id) return;
@@ -138,6 +139,11 @@ export default function ReviewSendDialog({
         {phase.kind === "sent" ? (
           <div className="flex flex-col gap-3">
             <Text>{t("contribute.review.sent")}</Text>
+            {notUploaded && (
+              <Text color="error" role="alert">
+                {t("contribute.review.notUploaded")}
+              </Text>
+            )}
             {id && (
               <>
                 <div className="flex items-center gap-2">
@@ -162,7 +168,7 @@ export default function ReviewSendDialog({
               className="min-h-0 flex-1 overflow-auto rounded bg-bg-primary p-3 font-mono text-xs whitespace-pre-wrap wrap-anywhere"
               tabIndex={0}
             >
-              {view.text}
+              {prepared.body}
             </pre>
             {view.screenshot && (
               <figure className="mt-3">
@@ -175,6 +181,11 @@ export default function ReviewSendDialog({
                   {t("contribute.review.screenshotSize", { size: formatFileSize(view.screenshot.bytes) })}
                 </figcaption>
               </figure>
+            )}
+            {view.photo && (
+              <Text variant={TextVariants.small} color="secondary" className="mt-2">
+                {t("contribute.review.photoFile", { size: formatFileSize(view.photo.bytes) })}
+              </Text>
             )}
             <Text variant={TextVariants.small} color="secondary" className="mt-2">
               {t("contribute.review.size", { size: formatFileSize(size) })}

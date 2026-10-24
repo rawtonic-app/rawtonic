@@ -3,23 +3,38 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { SWEEP_QUERIES, handle, sweep } from "../src/index";
 import { powHash } from "../src/limits";
 import { DAY_MS, sha256Hex } from "../src/util";
+import type { Deps, Env } from "../src/index";
 import { APP, del, failingDb, makeDeps, migrate, post, testEnv as env } from "./helpers";
 
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
-const b64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
 
-const report = (extra: Record<string, unknown> = {}) => ({ schema: 1, app: APP, text: "Export stops at 40 %", ...extra });
+const report = (extra: Record<string, unknown> = {}) => ({ schema: 2, app: APP, text: "Export stops at 40 %", ...extra });
+const shot = async (bytes: Uint8Array = PNG) => ({ mime: "image/png", size: bytes.byteLength, sha256: await sha256Hex(bytes) });
+interface Answer {
+  id: string;
+  ref: string;
+  uploads: { screenshot?: string; photo?: string };
+  expiresAt: string;
+}
+const count = async (table: string) => (await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first<{ n: number }>())!.n;
+
+const put = (url: string, deps: Deps, body: Uint8Array | ReadableStream<Uint8Array>, length: number, e: Env = env) =>
+  handle(new Request(url, { method: "PUT", headers: { "content-length": String(length) }, body }), e, deps);
 
 beforeEach(async () => {
   await migrate();
 });
 
 describe("reports", () => {
-  it("files a report as a private issue, answers an id, and deletes it by that id", async () => {
+  it("files a report as a private issue, takes its screenshot as raw bytes, and deletes both by the id", async () => {
     const deps = makeDeps();
-    const response = await post("/report", report({ screenshot: { mime: "image/png", data: b64(PNG) } }), deps);
+    const response = await post("/report", report({ screenshot: await shot() }), deps);
     expect(response.status).toBe(201);
-    const { id, ref } = (await response.json()) as { id: string; ref: string };
+    const { id, ref, uploads } = (await response.json()) as Answer;
+    const uploadUrl = uploads.screenshot!;
+    expect(uploadUrl).toMatch(/^https:\/\/relay\.test\/upload\/[a-z2-7]{52}$/);
+    expect((await put(uploadUrl, deps, PNG, PNG.byteLength)).status).toBe(204);
+    expect((await put(uploadUrl, deps, PNG, PNG.byteLength)).status).toBe(404);
     expect(id).toMatch(/^[a-z2-7]{26}$/);
     expect(ref).toBe((await sha256Hex(id)).slice(0, 8));
     const [issue] = deps.tracker.issues.values();
@@ -30,13 +45,16 @@ describe("reports", () => {
     expect(issue.body).not.toContain(id);
     const rows = await env.DB.prepare("SELECT * FROM submissions").all();
     expect(JSON.stringify(rows.results)).not.toContain(id);
-    const objects = await env.BUCKET.list({ prefix: "screenshots/" });
+    const objects = await env.BUCKET.list({ prefix: "reports/" });
     expect(objects.objects).toHaveLength(1);
     expect(issue.body).toContain(objects.objects[0].key);
+    const stored = await env.BUCKET.get(objects.objects[0].key);
+    expect(stored?.httpMetadata?.contentType).toBe("image/png");
+    expect(new Uint8Array(await stored!.arrayBuffer())).toEqual(PNG);
 
     expect((await del(id, deps)).status).toBe(204);
     expect(deps.tracker.issues.size).toBe(0);
-    expect((await env.BUCKET.list({ prefix: "screenshots/" })).objects).toHaveLength(0);
+    expect((await env.BUCKET.list()).objects).toHaveLength(0);
     expect((await del(id, deps)).status).toBe(404);
   });
 
@@ -47,14 +65,64 @@ describe("reports", () => {
     expect(deps.tracker.issues.size).toBe(0);
   });
 
-  it("checks content type, client header, size and screenshot bytes", async () => {
+  it("checks content type, client header and size, and takes no JSON screenshot", async () => {
     const deps = makeDeps();
     expect((await post("/report", report(), deps, { headers: { "content-type": "text/plain" } })).status).toBe(415);
     expect((await post("/report", report(), deps, { headers: { "x-rawtonic-client": "" } })).status).toBe(400);
     expect((await post("/crash", { ...report(), text: "a".repeat(100 * 1024) }, deps)).status).toBe(413);
-    const fake = await post("/report", report({ screenshot: { mime: "image/png", data: b64(new Uint8Array([1, 2, 3, 4])) } }), deps);
-    expect(fake.status).toBe(400);
+    // JSON stays small: at most 96 KiB per report, never an image inside.
+    expect((await post("/report", report({ logTail: "a".repeat(97 * 1024) }), deps, { ip: "198.51.100.9" })).status).toBe(413);
+    const inline = await post("/report", report({ screenshot: { mime: "image/png", data: "iVBORw0KGgo=" } }), deps);
+    expect(inline.status).toBe(400);
     expect(deps.tracker.issues.size).toBe(0);
+  });
+
+  it("refuses screenshot bytes that are no image, of another size or SHA-256, and keeps the report", async () => {
+    const deps = makeDeps();
+    const fake = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    const a = (await (await post("/report", report({ screenshot: await shot(fake) }), deps)).json()) as Answer;
+    expect((await put(a.uploads.screenshot!, deps, fake, fake.byteLength)).status).toBe(400);
+    const b = (await (await post("/report", report({ screenshot: await shot() }), deps)).json()) as Answer;
+    expect((await put(b.uploads.screenshot!, deps, PNG.slice(0, 9), 9)).status).toBe(400);
+    const wrongHash = { ...(await shot()), sha256: "0".repeat(64) };
+    const c = (await (await post("/report", report({ screenshot: wrongHash }), deps)).json()) as Answer;
+    expect((await put(c.uploads.screenshot!, deps, PNG, PNG.byteLength)).status).toBe(422);
+    expect((await env.BUCKET.list()).objects).toHaveLength(0);
+    const rows = await env.DB.prepare("SELECT state, objects FROM submissions").all<{ state: string; objects: string }>();
+    expect(rows.results).toEqual([1, 2, 3].map(() => ({ state: "filed", objects: "[]" })));
+    expect(deps.tracker.issues.size).toBe(3);
+    expect((await del(a.id, deps)).status).toBe(204);
+    expect((await del(c.id, deps)).status).toBe(204);
+  });
+
+  it("makes a deletion wait while the screenshot is written, and an upload fail once the report is deleted", async () => {
+    const deps = makeDeps();
+    const a = (await (await post("/report", report({ screenshot: await shot() }), deps)).json()) as Answer;
+    await env.DB.prepare("UPDATE submissions SET state = 'attaching'").run();
+    expect((await del(a.id, deps)).status).toBe(409);
+    // An upload that stopped half-way is over after its deadline: the
+    // report can be deleted again.
+    deps.at += 2 * 3_600_000;
+    expect((await del(a.id, deps)).status).toBe(204);
+    const b = (await (await post("/report", report({ screenshot: await shot() }), deps)).json()) as Answer;
+    expect((await del(b.id, deps)).status).toBe(204);
+    expect((await put(b.uploads.screenshot!, deps, PNG, PNG.byteLength)).status).toBe(404);
+    expect((await env.BUCKET.list()).objects).toHaveLength(0);
+    expect(await count("uploads")).toBe(0);
+  });
+
+  it("stores no screenshot when its bytes do not arrive in time, and keeps the report", async () => {
+    const deps = { ...makeDeps(), uploadDeadlineMs: 50 };
+    const a = (await (await post("/report", report({ screenshot: await shot() }), deps)).json()) as Answer;
+    const stalled = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(PNG.slice(0, 9)); // and nothing more
+      },
+    });
+    expect((await put(a.uploads.screenshot!, deps, stalled, PNG.byteLength)).status).toBe(422);
+    expect((await env.BUCKET.list()).objects).toHaveLength(0);
+    expect(await env.DB.prepare("SELECT state, objects FROM submissions").first()).toEqual({ state: "filed", objects: "[]" });
+    expect((await del(a.id, deps)).status).toBe(204);
   });
 
   it("rate-limits per IP: five reports an hour", async () => {
@@ -69,16 +137,15 @@ describe("reports", () => {
     expect(JSON.stringify(keys.results)).not.toContain("203.0.113.7");
   });
 
-  it("removes the screenshot on the scheduled run when GitHub fails", async () => {
+  it("gives no upload slot and removes the record on the scheduled run when GitHub fails", async () => {
     const deps = makeDeps();
     deps.tracker.failCreate = true;
-    const response = await post("/report", report({ screenshot: { mime: "image/png", data: b64(PNG) } }), deps);
+    const response = await post("/report", report({ screenshot: await shot() }), deps);
     expect(response.status).toBe(502);
-    expect((await env.BUCKET.list()).objects).toHaveLength(1);
+    expect(await count("uploads")).toBe(0);
     deps.at += 3 * 3_600_000;
     await sweep(env, deps);
-    expect((await env.BUCKET.list()).objects).toHaveLength(0);
-    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
+    expect(await count("submissions")).toBe(0);
   });
 
   it("keeps the record when GitHub cannot delete, so the user can retry", async () => {
@@ -93,10 +160,10 @@ describe("reports", () => {
   it("leaves no issue behind when recording it fails", async () => {
     const deps = makeDeps();
     const broken = failingDb(/SET state = 'filed'/);
-    const response = await post("/report", report({ screenshot: { mime: "image/png", data: b64(PNG) } }), deps, {}, broken);
+    const response = await post("/report", report({ screenshot: await shot() }), deps, {}, broken);
     expect(response.status).toBe(502);
     expect(deps.tracker.issues.size).toBe(0);
-    expect((await env.BUCKET.list()).objects).toHaveLength(0);
+    expect(await count("uploads")).toBe(0);
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
   });
 
@@ -119,15 +186,14 @@ describe("reports", () => {
   it("removes the record of a filing GitHub did not answer, and its issue with retention", async () => {
     const deps = makeDeps();
     deps.tracker.createThenThrow = true;
-    const response = await post("/report", report({ screenshot: { mime: "image/png", data: b64(PNG) } }), deps);
+    const response = await post("/report", report({ screenshot: await shot() }), deps);
     expect(response.status).toBe(502);
     expect(deps.tracker.issues.size).toBe(1);
     deps.at += 3_600_000;
     await sweep(env, deps);
-    expect((await env.BUCKET.list()).objects).toHaveLength(1); // its request may still be running
+    expect(await count("submissions")).toBe(1); // its request may still be running
     deps.at += 2 * 3_600_000;
     await sweep(env, deps);
-    expect((await env.BUCKET.list()).objects).toHaveLength(0);
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
     expect(deps.tracker.issues.size).toBe(1);
     deps.at += 90 * DAY_MS;
@@ -144,20 +210,18 @@ describe("reports", () => {
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
   });
 
-  it("keeps removing old records and samples while GitHub fails", async () => {
+  it("keeps removing old records and their files while GitHub fails", async () => {
     const deps = makeDeps();
-    await post("/report", report(), deps);
-    await env.DB.prepare(
-      "INSERT INTO submissions (id_hash, kind, ref, state, objects, received_at) VALUES ('h', 'raw-sample', 'h', 'filed', ?2, ?1)",
-    )
-      .bind(deps.at, JSON.stringify(["raw-samples/h/x.RAF"]))
-      .run();
-    await env.BUCKET.put("raw-samples/h/x.RAF", "x");
+    const bytes = new TextEncoder().encode("photo");
+    const answer = (await (
+      await post("/report", report({ photo: { make: "Sony", model: "ILCE-7M3", fileType: "ARW", file: { size: 5, sha256: await sha256Hex(bytes) } } }), deps)
+    ).json()) as Answer;
+    expect((await put(answer.uploads.photo!, deps, bytes, 5)).status).toBe(204);
     deps.tracker.failDelete = true;
     deps.tracker.failList = true;
-    deps.at += 731 * DAY_MS;
+    deps.at += 91 * DAY_MS;
     await sweep(env, deps);
-    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
+    expect(await count("submissions")).toBe(0);
     expect((await env.BUCKET.list()).objects).toHaveLength(0);
     expect(deps.tracker.issues.size).toBe(1);
     deps.tracker.failDelete = false;
@@ -257,106 +321,92 @@ describe("proof of work", () => {
   });
 });
 
-describe("RAW samples", () => {
+describe("photo files", () => {
   const bytes = new TextEncoder().encode("not really a RAW file, but bytes");
-  const announce = async (deps: ReturnType<typeof makeDeps>, sha?: string) =>
-    post(
-      "/raw-sample",
-      {
-        schema: 1,
-        app: APP,
-        camera: { make: "FUJIFILM", model: "X-T5" },
-        fileType: "RAF",
-        size: bytes.byteLength,
-        sha256: sha ?? (await sha256Hex(bytes)),
-        licence: "rawtonic-sample-1",
-        personalDataAcknowledged: true,
-      },
-      deps,
-    );
-  const upload = (url: string, deps: ReturnType<typeof makeDeps>, body: Uint8Array = bytes) =>
-    handle(new Request(url, { method: "PUT", headers: { "content-length": String(body.byteLength) }, body }), env, deps);
+  const withPhoto = async (extra: Record<string, unknown> = {}, sha?: string) =>
+    report({
+      photo: { make: "FUJIFILM", model: "X-T5", fileType: "RAF", file: { size: bytes.byteLength, sha256: sha ?? (await sha256Hex(bytes)) } },
+      ...extra,
+    });
+  const announce = async (deps: Deps, extra: Record<string, unknown> = {}, sha?: string) =>
+    (await (await post("/report", await withPhoto(extra, sha), deps)).json()) as Answer;
+  const upload = (url: string, deps: Deps, body: Uint8Array = bytes) => put(url, deps, body, body.byteLength);
 
-  it("takes the file once through its upload URL and files no issue", async () => {
+  it("takes the photo's bytes once beside the report, and deletes them with it", async () => {
     const deps = makeDeps();
-    const answer = (await (await announce(deps)).json()) as { id: string; uploadUrl: string };
-    expect((await upload(answer.uploadUrl, deps)).status).toBe(204);
+    const answer = await announce(deps);
+    expect(answer.uploads.screenshot).toBeUndefined();
+    expect((await upload(answer.uploads.photo!, deps)).status).toBe(204);
+    expect((await upload(answer.uploads.photo!, deps)).status).toBe(404);
+    const { objects } = await env.BUCKET.list();
+    expect(objects.map((o) => o.key)).toEqual([`reports/${await sha256Hex(answer.id)}/photo.RAF`]);
+    const [issue] = deps.tracker.issues.values();
+    expect(issue.body).toContain(objects[0].key);
+    expect(await env.DB.prepare("SELECT state, objects FROM submissions").first()).toEqual({
+      state: "filed",
+      objects: JSON.stringify([objects[0].key]),
+    });
+    expect((await del(answer.id, deps)).status).toBe(204);
+    expect((await env.BUCKET.list()).objects).toHaveLength(0);
     expect(deps.tracker.issues.size).toBe(0);
-    const { objects } = await env.BUCKET.list({ prefix: "raw-samples/" });
-    const keys = objects.map((o) => o.key).sort();
-    expect(keys).toHaveLength(2);
-    expect(keys[0]).toMatch(/\/FUJIFILM-X-T5\.RAF$/);
-    expect(keys[1]).toMatch(/\/sample\.json$/);
-    const meta = (await (await env.BUCKET.get(keys[1]))!.json()) as { licence: string; camera: { model: string } };
-    expect(meta.licence).toBe("rawtonic-sample-1");
-    expect(meta.camera.model).toBe("X-T5");
-    const row = await env.DB.prepare("SELECT state, objects FROM submissions").first<{ state: string; objects: string }>();
-    expect(row?.state).toBe("filed");
+  });
+
+  it("takes a screenshot and the photo of one report, one after the other", async () => {
+    const deps = makeDeps();
+    const answer = await announce(deps, { screenshot: await shot() });
+    // While one file is written, the other waits (and keeps its token).
+    await env.DB.prepare("UPDATE submissions SET state = 'attaching'").run();
+    expect((await upload(answer.uploads.photo!, deps)).status).toBe(409);
+    await env.DB.prepare("UPDATE submissions SET state = 'filed'").run();
+    expect((await put(answer.uploads.screenshot!, deps, PNG, PNG.byteLength)).status).toBe(204);
+    expect((await upload(answer.uploads.photo!, deps)).status).toBe(204);
+    const keys = (await env.BUCKET.list()).objects.map((o) => o.key).sort();
+    expect(keys.map((k) => k.replace(/^reports\/[0-9a-f]{64}\//, ""))).toEqual(["photo.RAF", "screenshot.png"]);
+    const row = await env.DB.prepare("SELECT objects FROM submissions").first<{ objects: string }>();
     expect((JSON.parse(row!.objects) as string[]).sort()).toEqual(keys);
-    expect((await upload(answer.uploadUrl, deps)).status).toBe(404);
     expect((await del(answer.id, deps)).status).toBe(204);
     expect((await env.BUCKET.list()).objects).toHaveLength(0);
   });
 
   it("refuses bytes whose SHA-256 differs, and a wrong size", async () => {
     const deps = makeDeps();
-    const a = (await (await announce(deps, "0".repeat(64))).json()) as { uploadUrl: string };
-    expect((await upload(a.uploadUrl, deps)).status).toBe(422);
+    const a = await announce(deps, {}, "0".repeat(64));
+    expect((await upload(a.uploads.photo!, deps)).status).toBe(422);
     expect((await env.BUCKET.list()).objects).toHaveLength(0);
-    const b = (await (await announce(deps)).json()) as { uploadUrl: string };
-    expect((await upload(b.uploadUrl, deps, bytes.slice(1))).status).toBe(400);
-    expect(deps.tracker.issues.size).toBe(0);
+    const b = await announce(deps);
+    expect((await upload(b.uploads.photo!, deps, bytes.slice(1))).status).toBe(400);
+    expect(await env.DB.prepare("SELECT DISTINCT state, objects FROM submissions").all().then((r) => r.results)).toEqual([
+      { state: "filed", objects: "[]" },
+    ]);
   });
 
-  it("makes a deletion wait while the sample is uploading, and an upload fail once it is deleted", async () => {
+  it("keeps the report without the file when recording the file fails", async () => {
     const deps = makeDeps();
-    const a = (await (await announce(deps)).json()) as { id: string; uploadUrl: string };
-    await env.DB.prepare("UPDATE submissions SET state = 'uploading'").run();
-    expect((await del(a.id, deps)).status).toBe(409);
-    await env.DB.prepare("UPDATE submissions SET state = 'pending'").run();
-    expect((await del(a.id, deps)).status).toBe(204);
-    expect((await upload(a.uploadUrl, deps)).status).toBe(404);
-    expect((await env.BUCKET.list()).objects).toHaveLength(0);
-  });
-
-  it("removes the sample's file when recording it fails", async () => {
-    const deps = makeDeps();
-    const answer = (await (await announce(deps)).json()) as { uploadUrl: string };
-    const response = await handle(
-      new Request(answer.uploadUrl, { method: "PUT", headers: { "content-length": String(bytes.byteLength) }, body: bytes }),
-      failingDb(/SET state = 'filed'/),
+    const answer = await announce(deps);
+    const failed = await handle(
+      new Request(answer.uploads.photo!, { method: "PUT", headers: { "content-length": String(bytes.byteLength) }, body: bytes }),
+      failingDb(/SET state = 'filed' WHERE/),
       deps,
     );
-    expect(response.status).toBe(502);
+    expect(failed.status).toBe(502);
     expect((await env.BUCKET.list()).objects).toHaveLength(0);
-    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
+    expect(await env.DB.prepare("SELECT state, objects FROM submissions").first()).toEqual({ state: "filed", objects: "[]" });
+    expect((await del(answer.id, deps)).status).toBe(204);
   });
 
-  it("stores nothing when the bytes do not arrive in time", async () => {
-    const deps = { ...makeDeps(), uploadDeadlineMs: 50 };
-    const answer = (await (await announce(deps)).json()) as { uploadUrl: string };
-    const stalled = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(bytes.slice(0, 5)); // and nothing more
-      },
-    });
-    const response = await handle(
-      new Request(answer.uploadUrl, { method: "PUT", headers: { "content-length": String(bytes.byteLength) }, body: stalled }),
-      env,
-      deps,
-    );
-    expect(response.status).toBe(422);
-    expect((await env.BUCKET.list()).objects).toHaveLength(0);
-    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
-  });
-
-  it("expires announced samples never uploaded", async () => {
+  it("expires upload slots after an hour", async () => {
     const deps = makeDeps();
-    const a = (await (await announce(deps)).json()) as { uploadUrl: string };
-    deps.at += 3 * 3_600_000;
-    expect((await upload(a.uploadUrl, deps)).status).toBe(404);
+    const a = await announce(deps);
+    deps.at += 3_600_001;
+    expect((await upload(a.uploads.photo!, deps)).status).toBe(404);
     await sweep(env, deps);
-    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
+    expect(await count("uploads")).toBe(0);
+    expect(await count("submissions")).toBe(1);
+  });
+
+  it("has no RAW sample route any more", async () => {
+    const deps = makeDeps();
+    expect((await post("/raw-sample", { schema: 1 }, deps)).status).toBe(404);
   });
 });
 

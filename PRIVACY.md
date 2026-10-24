@@ -56,9 +56,9 @@ else is added.
 
 ## Sending reports to Rawtonic's makers (not in this version)
 
-Rawtonic does not yet send problem reports, crash reports, camera-test
-results, RAW samples or usage statistics; nothing of the kind exists in this
-version. They are planned as separate, optional ways to help (design:
+Rawtonic does not yet send problem reports (with an optional screenshot or
+the photo's file), crash reports, camera-test results or usage statistics;
+nothing of the kind exists in this version. They are planned as separate, optional ways to help (design:
 `docs/decisions/0017-contribution-channels.md`): each would send only when you
 click Send after seeing exactly what goes out, through Rawtonic's own small
 relay service without an account, with Rawtonic trying to remove paths,
