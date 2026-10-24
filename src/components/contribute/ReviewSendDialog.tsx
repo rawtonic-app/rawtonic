@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // "Review what will be sent" (ADR 0017): every contribution channel shows
 // its exact body here, and only this dialog's Send button sends it.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { Check, ClipboardCopy, LoaderCircle } from "lucide-react";
+import { useModalFocus } from "../../hooks/useModalFocus";
 import Button from "../ui/Button";
 import Text from "../ui/Text";
 import { TextVariants } from "../../types/typography";
@@ -48,6 +49,10 @@ export default function ReviewSendDialog({
   const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>({ kind: "review" });
   const [copied, setCopied] = useState(false);
+  const panel = useRef<HTMLDivElement>(null);
+  // A real modal: focus inside, Tab cycles in it, the rest is inert, and the
+  // focus returns to the opener on close.
+  useModalFocus(panel, isOpen && prepared !== null);
 
   useEffect(() => {
     if (isOpen) {
@@ -124,6 +129,8 @@ export default function ReviewSendDialog({
       <div
         className="bg-surface rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[85vh] flex flex-col text-text-primary"
         onClick={(e) => e.stopPropagation()}
+        ref={panel}
+        tabIndex={-1}
       >
         <Text variant={TextVariants.title} id="review-send-title" className="mb-2">
           {title}

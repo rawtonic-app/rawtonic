@@ -64,6 +64,24 @@ describe('ReviewSendDialog', () => {
   });
 });
 
+describe('ReviewSendDialog focus', () => {
+  it('keeps Tab inside the dialog and makes the page behind it inert', () => {
+    const outside = document.createElement('button');
+    outside.textContent = 'Behind';
+    document.body.appendChild(outside);
+    outside.focus();
+    render(<ReviewSendDialog isOpen title="Report" prepared={prepared({ schema: 1 })} onClose={() => {}} send={vi.fn()} />);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(outside.closest('[inert]')).not.toBeNull();
+    const send = screen.getByRole('button', { name: 'Send' });
+    send.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    outside.remove();
+  });
+});
+
 describe('reviewView', () => {
   it('changes nothing but the screenshot data', () => {
     const body = JSON.stringify({ schema: 1, screenshot: { data: PNG, mime: 'image/png' }, text: 'data' }, null, 2);

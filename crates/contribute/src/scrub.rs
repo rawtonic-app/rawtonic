@@ -8,9 +8,30 @@ use regex::{Captures, Regex};
 use serde_json::Value;
 use std::sync::LazyLock;
 
-/// JSON keys whose strings are kept verbatim: binary data and digests,
-/// which hold no text.
-const VERBATIM_KEYS: &[&str] = &["data", "sha256"];
+/// JSON keys whose strings are kept verbatim: binary data and digests, and
+/// the fixed protocol values the relay validates (versions, system, GPU and
+/// camera names as the libraries report them, licence, week, dates) — a
+/// host named "linux" must not turn `"os": "linux"` into a placeholder.
+/// Everything else (free text, logs) is scrubbed.
+const VERBATIM_KEYS: &[&str] = &[
+    "data",
+    "sha256",
+    "mime",
+    "version",
+    "os",
+    "osVersion",
+    "arch",
+    "vendor",
+    "gpuVendor",
+    "name",
+    "make",
+    "model",
+    "firmware",
+    "fileType",
+    "licence",
+    "week",
+    "crashedOn",
+];
 
 static FILE_URL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"file://[^\s"'<>|]*"#).expect("file URL pattern"));
@@ -20,15 +41,16 @@ static QUOTED_PATH: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#""((?:/[^/"\n]|~/|[A-Za-z]:\\|\\\\)[^"\n]*)"|'((?:/[^/'\n]|~/|[A-Za-z]:\\|\\\\)[^'\n]*)'"#)
         .expect("quoted path pattern")
 });
-/// An unquoted Windows path. Names may hold spaces, so it runs to the end
-/// of its line (or a quote); `path_in_text` cuts it at ": " or ":12".
+/// An unquoted Windows path. Names may hold spaces, quotes and any other
+/// punctuation, so it runs to the end of its line; `path_in_text` cuts it
+/// at ": " or ":12" only.
 static WINDOWS_PATH: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?:\b[A-Za-z]:\\|\\\\[^\s\\"'<>|]+\\)[^\n"'<>|]*"#).expect("Windows path pattern")
+    Regex::new(r#"(?:\b[A-Za-z]:\\|\\\\[^\s\\"'<>|]+\\)[^\n]*"#).expect("Windows path pattern")
 });
 /// An unquoted POSIX path or `~/` path: starts the text or follows a
 /// space or an opening bracket, and runs like a Windows path.
 static POSIX_PATH: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(^|[\s(\[=,])(~?/[^/\s"'<>|][^\n"'<>|]*)"#).expect("POSIX path pattern")
+    Regex::new(r#"(^|[\s(\[=,])(~?/[^/\s"'<>|][^\n]*)"#).expect("POSIX path pattern")
 });
 /// Where an unquoted path ends at the latest: a colon before a space, a
 /// digit (line numbers) or the end.
@@ -405,6 +427,37 @@ mod tests {
         assert_eq!(value["text"], "see <path>.CR3");
         assert_eq!(value["screenshot"]["data"], "iVBO/Users/anna+/=");
         assert_eq!(value["list"][0], "<user>");
+    }
+
+    #[test]
+    fn quotes_inside_unquoted_names_do_not_end_them() {
+        let s = anna();
+        assert_eq!(
+            s.scrub("open /Volumes/Client's Photos/Jane Wedding.CR3"),
+            "open <path>.CR3"
+        );
+        assert_eq!(
+            s.scrub(r#"open C:\Jobs\"Best" <Jane> | Ben's\x.NEF"#),
+            "open <path>.NEF"
+        );
+    }
+
+    #[test]
+    fn fixed_protocol_values_are_kept_even_when_they_match_a_name() {
+        let s = Scrubber::new(Some("apple"), Some("linux"));
+        let mut value = serde_json::json!({
+            "schema": 1,
+            "app": { "version": "0.1.0", "os": "linux", "osVersion": "6.1", "arch": "x86_64" },
+            "gpu": { "vendor": "apple", "name": "Apple M5 Pro" },
+            "photo": { "make": "Apple", "model": "iPhone", "fileType": "DNG" },
+            "text": "linux box of apple",
+        });
+        s.scrub_json(&mut value);
+        assert_eq!(value["app"]["os"], "linux");
+        assert_eq!(value["gpu"]["vendor"], "apple");
+        assert_eq!(value["gpu"]["name"], "Apple M5 Pro");
+        assert_eq!(value["photo"]["make"], "Apple");
+        assert_eq!(value["text"], "<host> box of <user>");
     }
 
     #[test]
