@@ -229,6 +229,29 @@
       "failedRemoveImages": "画像の削除に失敗しました: {{err}}"
     }
   },
+  "contribute": {
+    "review": {
+      "bodyLabel": "送信される内容",
+      "cancel": "キャンセル",
+      "close": "閉じる",
+      "copyId": "IDをコピー",
+      "errors": {
+        "network": "Rawtonicのリレーに接続できませんでした。接続を確認して、もう一度お試しください。",
+        "notConfigured": "このビルドのRawtonicはレポートを送信できません。",
+        "rateLimited": "現在レポートが多すぎます。後でもう一度お試しください。",
+        "refused": "リレーはこのレポートを受け付けませんでした。何も保存されていません。",
+        "unapproved": "表示後にレポートが変更されたため、送信しませんでした。閉じてもう一度お試しください。"
+      },
+      "idHint": "このIDを保管してください。いつでも送信した内容の削除を依頼できます。",
+      "intro": "これがRawtonicのリレーに送信される内容そのものです。リレーはRawtonicの開発者向けに非公開で保管します。パス、ユーザー名、シリアル番号は削除済みです。「送信」をクリックするまで何も送信されません。",
+      "screenshot": "送信されるスクリーンショット",
+      "screenshotSize": "スクリーンショット、{{size}}",
+      "send": "送信",
+      "sending": "送信中…",
+      "sent": "送信しました。ありがとうございます！",
+      "size": "合計 {{size}}"
+    }
+  },
   "editor": {
     "adjustments": {
       "actions": {

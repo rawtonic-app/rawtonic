@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 25241ab2ccf016b840e2625c9a89a30c2bb9236f5d04f5c361d3ec87f6af284d # shrinks to parts = ["/Users/anna/a b/c.CR3", "/Users/anna/a b/c.CR3", "/Users/anna/a b/c.CR3", "\"/Users/anna/My Photos/x.dng\"", "\"/Users/anna/My Photos/x.dng\""], seps = [" ", " ", " ", "/", " ", " ", " ", " ", " ", " ", " ", " "]
+cc 8319c6289f0e5bbe7cc7f4e4ab02a955483ab4ece311386ba5012cebbe10a88a # shrinks to parts = ["\"/Users/anna/My Photos/x.dng\"", "0\""], seps = ["/", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " "]

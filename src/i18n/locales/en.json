@@ -229,6 +229,29 @@
       "failedRemoveImages": "Failed to remove images: {{err}}"
     }
   },
+  "contribute": {
+    "review": {
+      "bodyLabel": "What will be sent",
+      "cancel": "Cancel",
+      "close": "Close",
+      "copyId": "Copy id",
+      "errors": {
+        "network": "Could not reach Rawtonic's relay. Check the connection and try again.",
+        "notConfigured": "This build of Rawtonic cannot send reports.",
+        "rateLimited": "Too many reports right now. Try again later.",
+        "refused": "The relay did not accept this report; nothing was stored.",
+        "unapproved": "The report changed after it was shown, so it was not sent. Close this and try again."
+      },
+      "idHint": "Keep this id: with it you can have what you sent deleted at any time.",
+      "intro": "This is exactly what Rawtonic will send to its relay, which files it privately for Rawtonic's makers. Paths, your user name and serial numbers have been removed. Nothing is sent until you click Send.",
+      "screenshot": "Screenshot that will be sent",
+      "screenshotSize": "Screenshot, {{size}}",
+      "send": "Send",
+      "sending": "Sending…",
+      "sent": "Sent. Thank you!",
+      "size": "{{size}} in total"
+    }
+  },
   "editor": {
     "adjustments": {
       "actions": {

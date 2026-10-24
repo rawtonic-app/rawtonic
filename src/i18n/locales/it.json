@@ -242,6 +242,29 @@
       "failedRemoveImages": "Impossibile rimuovere le immagini: {{err}}"
     }
   },
+  "contribute": {
+    "review": {
+      "bodyLabel": "Cosa verrà inviato",
+      "cancel": "Annulla",
+      "close": "Chiudi",
+      "copyId": "Copia ID",
+      "errors": {
+        "network": "Impossibile raggiungere il relay di Rawtonic. Controlla la connessione e riprova.",
+        "notConfigured": "Questa versione di Rawtonic non può inviare segnalazioni.",
+        "rateLimited": "Troppe segnalazioni al momento. Riprova più tardi.",
+        "refused": "Il relay non ha accettato questa segnalazione; non è stato salvato nulla.",
+        "unapproved": "La segnalazione è cambiata dopo essere stata mostrata e non è stata inviata. Chiudi e riprova."
+      },
+      "idHint": "Conserva questo ID: con esso puoi far eliminare in qualsiasi momento ciò che hai inviato.",
+      "intro": "Questo è esattamente ciò che Rawtonic invierà al suo relay, che lo archivia in privato per gli autori di Rawtonic. Percorsi, nome utente e numeri di serie sono stati rimossi. Nulla viene inviato finché non fai clic su Invia.",
+      "screenshot": "Screenshot che verrà inviato",
+      "screenshotSize": "Screenshot, {{size}}",
+      "send": "Invia",
+      "sending": "Invio…",
+      "sent": "Inviato. Grazie!",
+      "size": "{{size}} in totale"
+    }
+  },
   "editor": {
     "adjustments": {
       "actions": {

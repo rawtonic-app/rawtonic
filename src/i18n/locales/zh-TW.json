@@ -229,6 +229,29 @@
       "failedRemoveImages": "移除影像失敗：{{err}}"
     }
   },
+  "contribute": {
+    "review": {
+      "bodyLabel": "將要傳送的內容",
+      "cancel": "取消",
+      "close": "關閉",
+      "copyId": "複製 ID",
+      "errors": {
+        "network": "無法連線到 Rawtonic 的中繼服務。請檢查網路連線後重試。",
+        "notConfigured": "此版本的 Rawtonic 無法傳送報告。",
+        "rateLimited": "目前報告過多。請稍後再試。",
+        "refused": "中繼服務未接受此報告；未儲存任何內容。",
+        "unapproved": "報告在顯示後發生了變化，因此未傳送。請關閉後重試。"
+      },
+      "idHint": "請保存此 ID：憑它可以隨時要求刪除你傳送的內容。",
+      "intro": "這就是 Rawtonic 將傳送到其中繼服務的全部內容，中繼服務會為 Rawtonic 的開發者私下保存。路徑、你的使用者名稱和序號已被移除。在你點擊「傳送」之前不會傳送任何內容。",
+      "screenshot": "將要傳送的截圖",
+      "screenshotSize": "截圖，{{size}}",
+      "send": "傳送",
+      "sending": "正在傳送…",
+      "sent": "已傳送。謝謝！",
+      "size": "共 {{size}}"
+    }
+  },
   "editor": {
     "adjustments": {
       "actions": {
