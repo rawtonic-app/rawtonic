@@ -295,8 +295,10 @@ impl From<&Operation> for OperationSummary {
             }
         };
         for step in &op.steps {
-            let counted =
-                is_item(&step.from) || matches!(&step.to, Target::Path { path } if path.is_dir());
+            // A folder moved to another drive is no longer at `from` (its
+            // original went to the Trash).
+            let counted = is_item(&step.from)
+                || matches!(&step.to, Target::Path { path } | Target::OtherVolume { path, .. } if path.is_dir());
             if !counted {
                 continue;
             }
@@ -1730,6 +1732,64 @@ mod tests {
         assert!(summary.new_paths.is_empty());
         let json = serde_json::to_value(&summary).unwrap();
         assert_eq!(json["moves"][0]["to"], s(&capture));
+    }
+
+    /// A folder copied to another drive (its original then in the Trash),
+    /// its undo and its redo: each summary moves the paths that way.
+    #[test]
+    fn summaries_of_a_folder_moved_to_another_drive_and_back_carry_its_move() {
+        struct BesideTrash(PathBuf);
+        impl SystemTrash for BesideTrash {
+            fn trash(&self, path: &Path) -> anyhow::Result<String> {
+                fs::create_dir_all(&self.0)?;
+                let item = self.0.join(uuid::Uuid::new_v4().to_string());
+                fs::rename(path, &item)?;
+                Ok(item.to_string_lossy().into_owned())
+            }
+            fn restore(&self, item: &str, original: &Path) -> anyhow::Result<()> {
+                Ok(rawtonic_fileops::rename_no_clobber(
+                    Path::new(item),
+                    original,
+                )?)
+            }
+            fn contains(&self, item: &str) -> bool {
+                Path::new(item).exists()
+            }
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let (folder, archive) = (root.join("Shoot"), root.join("Archive"));
+        fs::create_dir_all(folder.join("Day 1")).unwrap();
+        fs::write(folder.join("Day 1/A.RAF"), "a").unwrap();
+        fs::create_dir(&archive).unwrap();
+        let trash = BesideTrash(root.join(".trash"));
+        let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
+        // The copy move itself, also on one volume.
+        let moved = archive.join("Shoot");
+        let op = journal
+            .execute(
+                "moveFolder",
+                "Move folder Shoot to Archive",
+                vec![Step::other_volume(&folder, &moved)],
+                &trash,
+            )
+            .unwrap();
+        assert!(!folder.exists());
+        let s = |p: &Path| p.to_string_lossy().into_owned();
+        let there = [PathMove {
+            from: s(&folder),
+            to: s(&moved),
+        }];
+        let back = [PathMove {
+            from: s(&moved),
+            to: s(&folder),
+        }];
+        assert_eq!(OperationSummary::from(&op).moves, there);
+        let undone = journal.undo(&op.id, &trash).unwrap();
+        assert_eq!(OperationSummary::from(&undone).moves, back);
+        let redone = journal.redo(&op.id, &trash).unwrap();
+        assert_eq!(OperationSummary::from(&redone).moves, there);
+        assert_eq!(OperationSummary::from(&redone).items, 1);
     }
 
     /// Uses the real system Trash (and puts the file back): run by hand.

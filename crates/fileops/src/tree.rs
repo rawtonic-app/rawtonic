@@ -55,18 +55,11 @@ fn walk(
         .collect::<std::io::Result<_>>()?;
     names.sort();
     for name in &names {
-        if skip_apple_double
-            && name
-                .to_str()
-                .and_then(|n| n.strip_prefix("._"))
-                .is_some_and(|of| names.iter().any(|m| m.to_str() == Some(of)))
-        {
-            // macOS keeps a file's extended attributes in this companion on
-            // FAT and exFAT; it renames and removes it with its file.
-            continue;
-        }
         let path = below.join(name);
         let meta = fs::symlink_metadata(root.join(&path))?;
+        if skip_apple_double && is_companion(&root.join(&path), &meta, &names) {
+            continue;
+        }
         if meta.is_dir() {
             entries.push(TreeEntry {
                 path: path.clone(),
@@ -90,6 +83,24 @@ fn walk(
         }
     }
     Ok(())
+}
+
+/// Whether the entry at `path` (with `meta`, among its folder's `names`)
+/// is the AppleDouble companion `._name` in which macOS keeps the extended
+/// attributes of the file `name` beside it on FAT and exFAT (it renames
+/// and removes it with its file): a file named so, beside such a file, that
+/// starts with the format's magic number. Anything else is listed.
+fn is_companion(path: &Path, meta: &fs::Metadata, names: &[std::ffi::OsString]) -> bool {
+    use std::io::Read;
+    let of = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .and_then(|n| n.strip_prefix("._"));
+    let mut magic = [0u8; 4];
+    meta.is_file()
+        && of.is_some_and(|of| names.iter().any(|m| m.to_str() == Some(of)))
+        && fs::File::open(path).is_ok_and(|mut f| f.read_exact(&mut magic).is_ok())
+        && magic == [0x00, 0x05, 0x16, 0x07]
 }
 
 /// Volumes on which macOS stores extended attributes in `._name` files.
@@ -266,6 +277,34 @@ pub(crate) fn same(a: &Path, b: &Path) -> Result<bool> {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_real_appledouble_companions_of_a_file_count_as_companions() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let magic = [0x00, 0x05, 0x16, 0x07, 0, 2, 0, 0];
+        fs::write(dir.join("A.RAF"), b"raw").unwrap();
+        fs::write(dir.join("._A.RAF"), magic).unwrap();
+        fs::write(dir.join("._B.RAF"), magic).unwrap();
+        fs::write(dir.join("C.RAF"), b"raw").unwrap();
+        fs::write(dir.join("._C.RAF"), b"a photo of its own").unwrap();
+        fs::create_dir(dir.join("Shoot")).unwrap();
+        fs::create_dir(dir.join("._Shoot")).unwrap();
+        fs::write(dir.join("._Shoot/D.RAF"), b"raw").unwrap();
+        let names: Vec<_> = fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        let companion = |name: &str| {
+            let path = dir.join(name);
+            is_companion(&path, &fs::symlink_metadata(&path).unwrap(), &names)
+        };
+        assert!(companion("._A.RAF"));
+        assert!(!companion("._B.RAF"), "no file beside it");
+        assert!(!companion("._C.RAF"), "not AppleDouble");
+        assert!(!companion("._Shoot"), "a folder");
+        assert!(!companion("A.RAF"));
+    }
 
     #[test]
     fn folder_modes_keep_the_owners_access_and_obey_their_ceilings() {
