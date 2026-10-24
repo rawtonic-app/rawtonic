@@ -102,9 +102,9 @@ pub struct CopyState {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub in_place: bool,
     /// The file under the final name was created by this direction
-    /// (journaled before anything is written to it): until it is verified
-    /// it is removed again only while it holds the start of its source's
-    /// bytes.
+    /// (journaled before anything is written to it). It is visible from
+    /// then on, so it is never removed again: a direction rolled back keeps
+    /// it and its note names it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub created: bool,
     /// The Trash item of the source this direction trashed.
@@ -531,16 +531,20 @@ impl Journal {
         let Err(error) = result else {
             return Ok(());
         };
-        // Copies made in place are visible before they are published.
-        let reversed = reverse_steps(&payload.steps[..applied], trash).and(remove_in_place_copies(
-            &payload.steps[applied..],
-            Direction::Forward,
-        ));
+        let reversed = reverse_steps(&payload.steps[..applied], trash);
         let cleaned = remove_staging(payload);
         remove_created_dirs(&payload.created_dirs);
         let mut note = format!("{error:#}");
+        // Copies made in place stay (see `kept_in_place`).
+        let mut kept = kept_in_place(&payload.steps, Direction::Forward);
         if let Err(e) = reversed {
-            note.push_str(&format!("; could not reverse every step: {e:#}"));
+            kept.insert(0, format!("{e:#}"));
+        }
+        if !kept.is_empty() {
+            note.push_str(&format!(
+                "; could not reverse every step: {}",
+                kept.join("; ")
+            ));
         }
         if let Err(e) = cleaned {
             note.push_str(&format!("; {e:#}"));
@@ -645,7 +649,6 @@ impl Journal {
                 }
                 let original_mode = copy.original_mode;
                 let opened = std::cell::Cell::new(false);
-                let mut written = volume::Written::default();
                 let copied = copy_verified(
                     &source,
                     &destination,
@@ -662,25 +665,12 @@ impl Journal {
                         crash::point("in place created");
                         Ok(())
                     },
-                    Some(&mut written),
+                    true,
                 );
-                // A failed copy holding just what this direction wrote is
-                // taken back here while its source is still a file of its
-                // own, also when it is no longer the start of that source
-                // (changed while it was copied).
-                let taken_back = copied.is_err()
-                    && opened.get()
-                    && is_kind(&source, false)
-                    && !same_file(&source, &destination)
-                    && written.is_in(&destination).unwrap_or(false)
-                    && fs::remove_file(&destination).is_ok();
-                if taken_back && let Some(parent) = destination.parent() {
-                    let _ = sync_folder(parent);
-                }
                 if let Target::OtherVolume { copy, .. } = &mut payload.steps[index].to {
-                    // A failure after the creation leaves a file to take
-                    // back, also when journaling its creation failed.
-                    copy.created = opened.get() && !taken_back;
+                    // A failure after the creation leaves a file that stays
+                    // and is named, also when journaling its creation failed.
+                    copy.created = opened.get();
                 }
                 let (stamp, copy_stamp) = copied?;
                 if let Target::OtherVolume { copy, .. } = &mut payload.steps[index].to {
@@ -695,7 +685,7 @@ impl Journal {
                     copy.original_mode,
                     &mut tally,
                     &mut || Ok(()),
-                    None,
+                    false,
                 )?;
                 if let Target::OtherVolume { copy, .. } = &mut payload.steps[index].to {
                     copy.copied = true;
@@ -933,14 +923,15 @@ impl Journal {
         if let Err(error) =
             self.stage_copies(id, State::Undoing, &mut payload, Direction::Back, observer)
         {
-            let cleaned = remove_in_place_copies(&payload.steps, Direction::Back)
-                .and(remove_staging(&payload));
-            payload.note = Some(match cleaned {
-                Ok(()) => format!("Undo failed: {error:#}"),
-                Err(e) => format!("Undo failed: {error:#}; {e:#}"),
-            });
+            let cleaned = remove_staging(&payload);
+            let kept = kept_in_place(&payload.steps, Direction::Back);
+            let mut note = format!("Undo failed: {error:#}");
+            for problem in cleaned.err().map(|e| format!("{e:#}")).iter().chain(&kept) {
+                note.push_str(&format!("; {problem}"));
+            }
+            payload.note = Some(note);
             self.store(id, State::Done, &payload)?;
-            return Err(error.context("Nothing was undone"));
+            return Err(error.context(rolled_back("Nothing was undone", &kept)));
         }
         let total = payload.steps.len();
         // One more round after the last step: Stop is honoured until the
@@ -969,8 +960,7 @@ impl Journal {
                 let redo = payload.steps[from..]
                     .iter_mut()
                     .try_for_each(|step| reapply_after_undo(step, trash));
-                let cleaned = remove_in_place_copies(&payload.steps[..from], Direction::Back)
-                    .and(remove_staging(&payload));
+                let cleaned = remove_staging(&payload);
                 let mut note = format!("Undo failed: {error:#}");
                 if let Err(e) = redo {
                     note.push_str(&format!("; could not restore: {e:#}"));
@@ -978,8 +968,13 @@ impl Journal {
                 if let Err(e) = cleaned {
                     note.push_str(&format!("; {e:#}"));
                 }
+                let mut kept = keep_published_folders(&mut payload, Direction::Back);
+                let in_place = kept_in_place(&payload.steps, Direction::Back);
+                for kept in &in_place {
+                    note.push_str(&format!("; {kept}"));
+                }
+                kept.extend(in_place);
                 payload.note = Some(note);
-                let kept = keep_published_folders(&mut payload, Direction::Back);
                 self.store(id, State::Done, &payload)?;
                 return Err(error.context(rolled_back("Nothing was undone", &kept)));
             }
@@ -1081,7 +1076,8 @@ impl Journal {
                 *note = format!("Redo failed: {note}");
             }
             keep_present_copies(&mut payload);
-            let kept = keep_published_folders(&mut payload, Direction::Forward);
+            let mut kept = keep_published_folders(&mut payload, Direction::Forward);
+            kept.extend(kept_in_place(&payload.steps, Direction::Forward));
             self.store_keeping_sync(id, State::Undone, &payload)?;
             return Err(error.context(rolled_back("Nothing was redone", &kept)));
         }
@@ -1295,6 +1291,7 @@ impl Journal {
                     }
                 }
                 keep_published_folders(&mut payload, Direction::Back);
+                problems.extend(kept_in_place(&payload.steps, Direction::Back));
                 note_unjournaled_in_place(&payload.steps, Direction::Back, &mut problems);
             } else {
                 for step in payload.steps.iter().rev() {
@@ -1302,6 +1299,7 @@ impl Journal {
                         problems.push(format!("{e:#}"));
                     }
                 }
+                problems.extend(kept_in_place(&payload.steps, Direction::Forward));
                 note_unjournaled_in_place(&payload.steps, Direction::Forward, &mut problems);
             }
             if let Err(e) = remove_staging(&payload) {
@@ -2208,7 +2206,8 @@ fn unpublish(step: &Step, direction: Direction) -> Result<()> {
         return Ok(());
     };
     if copy.in_place {
-        return remove_in_place(source, destination, copy);
+        // Never taken back (see `kept_in_place`).
+        return Ok(());
     }
     if !copy.copied || exists(staged) || !exists(destination) {
         // Never published (a file there now is someone else's).
@@ -2314,54 +2313,38 @@ fn remove_staged_folder(staged: &Path, step: &Step) -> Result<()> {
     })
 }
 
-/// Takes back a copy made in place (`CopyState::in_place`), complete or
-/// not: removes the file under the final name only if this direction
-/// created it and it holds the start of its source's bytes (or all of
-/// them), while the source is a file of its own, so that nothing is lost
-/// that the source does not hold. A name this direction did not create is
-/// someone else's and stays.
-fn remove_in_place(source: &Path, destination: &Path, copy: &CopyState) -> Result<()> {
-    if !copy.created {
-        return Ok(());
-    }
-    let meta = match fs::symlink_metadata(destination) {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
-        other => other?,
-    };
-    ensure!(
-        meta.is_file() && is_kind(source, false) && !same_file(source, destination),
-        "{} is gone or not a file of its own; the file at {} stays",
-        source.display(),
-        destination.display()
-    );
-    ensure!(
-        volume::is_prefix_of(destination, source)?
-            && xattr::within(destination, &xattr::read_path(source)?)?,
-        "{} differs from {} now; both were kept",
-        destination.display(),
-        source.display()
-    );
-    fs::remove_file(destination)
-        .with_context(|| format!("Cannot take the copy at {} back", destination.display()))?;
-    if let Some(parent) = destination.parent() {
-        sync_folder(parent)?;
-    }
-    Ok(())
-}
-
-/// Takes back every copy a direction made in place among `steps`, also
-/// those not published yet (they are visible from their creation on).
-fn remove_in_place_copies(steps: &[Step], direction: Direction) -> Result<()> {
-    let mut first_error = None;
+/// What a rolled-back direction leaves of the copies it made in place
+/// (`CopyState::in_place`), for its note and error. Such a file is visible
+/// from its creation on, so another program may have written into it or
+/// opened it meanwhile; it is never removed again (ADR 0016), complete or
+/// not, while its source was never touched.
+fn kept_in_place(steps: &[Step], direction: Direction) -> Vec<String> {
+    let mut kept = Vec::new();
     for step in steps {
+        let Some((source, destination)) = copy_ends(step, direction) else {
+            continue;
+        };
         if let Target::OtherVolume { copy, .. } = &step.to
             && copy.in_place
-            && let Err(e) = unpublish(step, direction)
+            && copy.created
+            && fs::symlink_metadata(&destination).is_ok_and(|m| m.is_file())
         {
-            first_error.get_or_insert(e);
+            kept.push(if copy.copied {
+                format!(
+                    "the verified copy of {} stays at {}; the original was not touched",
+                    source.display(),
+                    destination.display()
+                )
+            } else {
+                format!(
+                    "a copy of {}, maybe incomplete, stays at {}; the original was not touched",
+                    source.display(),
+                    destination.display()
+                )
+            });
         }
     }
-    first_error.map_or(Ok(()), Err)
+    kept
 }
 
 /// After a crash: a copy to be made in place whose creation was not

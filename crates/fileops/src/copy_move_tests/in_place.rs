@@ -19,6 +19,17 @@ impl Drop for InPlace {
 }
 
 impl World {
+    /// Every original is still at the source with its bytes.
+    fn assert_sources_untouched(&self) {
+        for (name, len) in FILES {
+            assert_eq!(
+                fs::read(self.source.join(name)).unwrap(),
+                content(name, len),
+                "{name}"
+            );
+        }
+    }
+
     /// After a crash, before recovery: no file is lost; a file under a
     /// final name holds the start of its source's bytes (it is visible
     /// while it is copied) or all of them.
@@ -50,9 +61,9 @@ impl World {
 }
 
 /// A crash at every point of a move, an undo and a redo, in place: before
-/// recovery only starts of copies are visible; recovery removes the ones
-/// it created (or names an empty one it cannot tell for its own) and ends
-/// in one of the two states.
+/// recovery only starts of copies are visible; recovery removes none of
+/// them (a visible file may be someone else's by now), names each one it
+/// leaves on the other side, and ends in one of the two states.
 #[test]
 fn a_crash_at_any_step_of_an_in_place_move_undo_or_redo_loses_nothing() {
     let _in_place = InPlace::on();
@@ -65,6 +76,7 @@ fn a_crash_at_any_step_of_an_in_place_move_undo_or_redo_loses_nothing() {
     for phase in [Phase::Move, Phase::Undo, Phase::Redo] {
         let mut points = 0;
         let mut empty_left = 0;
+        let mut kept_left = 0;
         for n in 0.. {
             let world = World::new();
             let id = (phase != Phase::Move).then(|| {
@@ -101,7 +113,8 @@ fn a_crash_at_any_step_of_an_in_place_move_undo_or_redo_loses_nothing() {
             journal.recover(&world.trash).unwrap();
             let op = journal.history(1).unwrap().remove(0);
             // Toward the side the operation is on now; the other side may
-            // keep an empty file whose creation was not journaled.
+            // keep the copies it created, complete or not, and an empty
+            // file whose creation was not journaled.
             let (side, other) = match op.state {
                 State::RolledBack | State::Undone => (&world.source, &world.target),
                 State::Done => (&world.target, &world.source),
@@ -114,23 +127,44 @@ fn a_crash_at_any_step_of_an_in_place_move_undo_or_redo_loses_nothing() {
                     content(name, len),
                     "{name}"
                 );
-                match fs::read(other.join(name)) {
+                let left = other.join(name);
+                let named = note.contains(&format!("{}", left.display()));
+                match fs::read(&left) {
                     Err(_) => {}
-                    // A kept original (after the copies were verified).
-                    Ok(kept) if kept == content(name, len) => {}
-                    Ok(empty) if empty.is_empty() => {
-                        assert!(note.contains("may be an empty file"), "{note}");
-                        empty_left += 1;
-                        fs::remove_file(other.join(name)).unwrap();
+                    // A kept original (after the copies were verified), or a
+                    // complete copy the rolled-back direction made in place.
+                    Ok(whole) if whole == content(name, len) => {
+                        if named {
+                            kept_left += 1;
+                            fs::remove_file(&left).unwrap();
+                        }
                     }
-                    Ok(_) => panic!("{phase:?} crash point {n}: a part of {name} left"),
+                    Ok(part) => {
+                        assert!(
+                            content(name, len).starts_with(&part),
+                            "{phase:?} crash point {n}: {name} is not the start of a copy"
+                        );
+                        assert!(
+                            named,
+                            "{phase:?} crash point {n}: {name} left unnamed: {note}"
+                        );
+                        if note.contains("may be an empty file") && part.is_empty() {
+                            empty_left += 1;
+                        } else {
+                            kept_left += 1;
+                        }
+                        fs::remove_file(&left).unwrap();
+                    }
                 }
             }
             journal.recover(&world.trash).unwrap();
             assert_eq!(journal.operation(&op.id).unwrap().state, op.state);
         }
-        eprintln!("{phase:?}: {points} crash points, {empty_left} empty files named");
+        eprintln!(
+            "{phase:?}: {points} crash points, {kept_left} kept copies and {empty_left} empty files named"
+        );
         assert!(points >= 10, "{phase:?}: only {points} crash points");
+        assert!(kept_left >= 1, "{phase:?}: no kept copy reached");
         assert!(
             empty_left >= 1,
             "{phase:?}: the unjournaled creation was not reached"
@@ -154,10 +188,11 @@ fn an_in_place_move_and_its_undo_and_redo_go_through() {
     world.assert_at(&world.target, &world.source);
 }
 
-/// Stop while a file is being copied in place: its start under the final
-/// name is taken back, nothing else changes.
+/// Stop while a file is being copied in place: its start stays under the
+/// final name (never removed: it is visible), the error and note name it,
+/// and the original is untouched.
 #[test]
-fn stop_while_copying_in_place_takes_the_start_of_the_copy_back() {
+fn stop_while_copying_in_place_keeps_the_start_of_the_copy_and_names_it() {
     struct StopAfterFirstBlock(Cell<bool>);
     impl CopyObserver for StopAfterFirstBlock {
         fn copied(&self, _: u64, _: u64) {
@@ -169,8 +204,8 @@ fn stop_while_copying_in_place_takes_the_start_of_the_copy_back() {
     }
     let _in_place = InPlace::on();
     let world = World::new();
-    let error = world
-        .journal()
+    let journal = world.journal();
+    let error = journal
         .execute_with(
             "move",
             "Move",
@@ -179,15 +214,80 @@ fn stop_while_copying_in_place_takes_the_start_of_the_copy_back() {
             &StopAfterFirstBlock(Cell::new(false)),
         )
         .unwrap_err();
-    assert!(format!("{error:#}").contains("Stopped"), "{error:#}");
-    world.assert_at(&world.source, &world.target);
+    let copy = world.target.join("A.RAF");
+    let error = format!("{error:#}");
+    assert!(error.contains("Stopped"), "{error}");
+    assert!(error.contains("maybe incomplete"), "{error}");
+    assert!(error.contains(&format!("{}", copy.display())), "{error}");
+    assert!(content("A.RAF", FILES[0].1).starts_with(&fs::read(&copy).unwrap()));
+    assert_eq!(World::names(&world.target), ["A.RAF"]);
+    world.assert_sources_untouched();
+    let op = journal.history(1).unwrap().remove(0);
+    assert_eq!(op.state, State::RolledBack);
+    assert!(op.note.unwrap().contains(&format!("{}", copy.display())));
 }
 
-/// An original changed while it is copied in place stops the move, and the
-/// copy (holding only what this move wrote, no longer the start of the
-/// changed original) is taken back: nothing is left under its final name.
+/// Stop after every file was copied and verified in place: the complete
+/// copies stay beside their untouched originals, each one named.
 #[test]
-fn a_source_changed_while_copying_in_place_leaves_nothing_behind() {
+fn stop_after_copying_in_place_keeps_the_verified_copies() {
+    struct StopBeforePublishing(Cell<u64>);
+    impl CopyObserver for StopBeforePublishing {
+        fn copied(&self, done: u64, _: u64) {
+            self.0.set(done);
+        }
+        fn cancelled(&self) -> bool {
+            let total: u64 = FILES.iter().map(|(_, len)| *len as u64).sum();
+            self.0.get() == total
+        }
+    }
+    let _in_place = InPlace::on();
+    let world = World::new();
+    let error = world
+        .journal()
+        .execute_with(
+            "move",
+            "Move",
+            world.steps(),
+            &world.trash,
+            &StopBeforePublishing(Cell::new(0)),
+        )
+        .unwrap_err();
+    let error = format!("{error:#}");
+    assert!(error.contains("Stopped"), "{error}");
+    for (name, len) in FILES {
+        let copy = world.target.join(name);
+        assert_eq!(fs::read(&copy).unwrap(), content(name, len));
+        assert!(
+            error.contains(&format!(
+                "{}, maybe incomplete, stays at {}",
+                world.source.join(name).display(),
+                copy.display()
+            )) || error.contains(&format!(
+                "the verified copy of {} stays at {}",
+                world.source.join(name).display(),
+                copy.display()
+            )),
+            "{error}"
+        );
+    }
+    // Verified before Stop was seen (the last one may still be verifying).
+    assert!(
+        error.contains(&format!(
+            "the verified copy of {}",
+            world.source.join("A.RAF").display()
+        )),
+        "{error}"
+    );
+    world.assert_sources_untouched();
+    assert!(world.trash.items().is_empty());
+}
+
+/// An original changed while it is copied in place stops the move; the
+/// copy stays under its final name and is named, the original keeps its
+/// change.
+#[test]
+fn a_source_changed_while_copying_in_place_keeps_the_copy_and_names_it() {
     struct Edit<'a>(&'a Path, Cell<bool>);
     impl CopyObserver for Edit<'_> {
         fn copied(&self, _: u64, _: u64) {
@@ -211,8 +311,16 @@ fn a_source_changed_while_copying_in_place_leaves_nothing_behind() {
             &Edit(&raw, Cell::new(false)),
         )
         .unwrap_err();
-    assert!(format!("{error:#}").contains("A.RAF"), "{error:#}");
-    assert!(World::names(&world.target).is_empty());
+    let copy = world.target.join("A.RAF");
+    assert!(
+        format!("{error:#}").contains(&format!(
+            "{}, maybe incomplete, stays at {}",
+            raw.display(),
+            copy.display()
+        )),
+        "{error:#}"
+    );
+    assert_eq!(World::names(&world.target), ["A.RAF"]);
     assert_eq!(
         fs::read(&raw).unwrap()[1..],
         content("A.RAF", FILES[0].1)[1..]
@@ -251,7 +359,7 @@ fn a_copy_in_place_whose_source_vanished_stays() {
 
 /// An attribute another program gives a copy while it is made in place
 /// (a Finder comment): the copy fails its check and is kept with it, both
-/// when the failed copy is taken back at once and after a crash.
+/// when the copy fails at once and after a crash.
 #[test]
 fn an_attribute_given_to_a_copy_in_place_meanwhile_keeps_it() {
     use super::attributes::{attribute, tag, tags, target_keeps};
@@ -294,13 +402,12 @@ fn an_attribute_given_to_a_copy_in_place_meanwhile_keeps_it() {
         assert_eq!(World::names(&world.target), ["A.RAF"]);
         let op = journal.history(1).unwrap().remove(0);
         assert_eq!(op.state, State::RolledBack);
-        assert!(op.note.unwrap().contains("both were kept"));
-        for (name, len) in FILES {
-            assert_eq!(
-                fs::read(world.source.join(name)).unwrap(),
-                content(name, len)
-            );
-        }
+        assert!(
+            op.note
+                .unwrap()
+                .contains(&format!("stays at {}", copy.display()))
+        );
+        world.assert_sources_untouched();
     }
 }
 
@@ -350,9 +457,9 @@ fn an_attribute_given_to_a_copy_in_place_meanwhile_is_never_replaced() {
 }
 
 /// Journaling a creation fails after the file was created: the empty file
-/// is taken back and the move rolls back.
+/// stays and is named, and the move rolls back.
 #[test]
-fn a_creation_its_journal_missed_is_taken_back() {
+fn a_creation_its_journal_missed_is_kept_and_named() {
     let _in_place = InPlace::on();
     let world = World::new();
     let journal = world.journal();
@@ -360,20 +467,21 @@ fn a_creation_its_journal_missed_is_taken_back() {
     let error = journal
         .execute("move", "Move", world.steps(), &world.trash)
         .unwrap_err();
-    assert!(
-        format!("{error:#}").contains("simulated failure"),
-        "{error:#}"
-    );
-    assert!(World::names(&world.target).is_empty());
+    let copy = world.target.join("A.RAF");
+    let error = format!("{error:#}");
+    assert!(error.contains("simulated failure"), "{error}");
+    assert!(error.contains(&format!("{}", copy.display())), "{error}");
+    assert_eq!(World::names(&world.target), ["A.RAF"]);
+    assert!(fs::read(&copy).unwrap().is_empty());
     assert_eq!(
         journal.history(1).unwrap().remove(0).state,
         State::RolledBack
     );
-    world.assert_at(&world.source, &world.target);
+    world.assert_sources_untouched();
 }
 
 /// A name taken before its creation is never touched; what was created
-/// is taken back.
+/// stays and is named.
 #[test]
 fn an_in_place_name_taken_meanwhile_is_never_replaced() {
     struct Squatter<'a>(&'a Path, Cell<bool>);
@@ -397,20 +505,28 @@ fn an_in_place_name_taken_meanwhile_is_never_replaced() {
             &Squatter(&taken, Cell::new(false)),
         )
         .unwrap_err();
-    assert!(format!("{error:#}").contains("A.xmp"), "{error:#}");
+    let error = format!("{error:#}");
+    assert!(error.contains("A.xmp"), "{error}");
     assert_eq!(fs::read(&taken).unwrap(), b"someone else's");
-    assert_eq!(World::names(&world.target), ["A.xmp"]);
-    for (name, len) in FILES {
-        assert_eq!(
-            fs::read(world.source.join(name)).unwrap(),
-            content(name, len)
-        );
-    }
+    assert!(
+        !error.contains(&format!("stays at {}", taken.display())),
+        "{error}"
+    );
+    let created = world.target.join("A.RAF");
+    assert!(
+        error.contains(&format!("stays at {}", created.display())),
+        "{error}"
+    );
+    assert_eq!(
+        World::names(&world.target),
+        ["A.RAF", "A.RAF.rrdata", "A.xmp"]
+    );
+    world.assert_sources_untouched();
 }
 
 /// Something else writing into a file being copied in place: the copy
-/// fails its check and the file, no longer the start of the original, is
-/// left with the original (both kept), and the note says so.
+/// fails its check and the file is left with the original (both kept),
+/// and the note says so.
 #[test]
 fn an_in_place_copy_written_by_someone_else_is_left_with_its_original() {
     struct Scribbler<'a>(&'a Path, Cell<bool>);
@@ -439,15 +555,14 @@ fn an_in_place_copy_written_by_someone_else_is_left_with_its_original() {
     assert!(format!("{error:#}").contains("differs"), "{error:#}");
     let op = journal.history(1).unwrap().remove(0);
     assert_eq!(op.state, State::RolledBack);
-    assert!(op.note.unwrap().contains("both were kept"));
+    assert!(
+        op.note
+            .unwrap()
+            .contains(&format!("stays at {}", raw.display()))
+    );
     assert!(fs::read(&raw).unwrap().starts_with(b"XXXX"));
     assert_eq!(World::names(&world.target), ["A.RAF"]);
-    for (name, len) in FILES {
-        assert_eq!(
-            fs::read(world.source.join(name)).unwrap(),
-            content(name, len)
-        );
-    }
+    world.assert_sources_untouched();
 }
 
 /// A folder cannot be published in place as a whole: refused before

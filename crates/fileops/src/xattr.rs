@@ -102,12 +102,6 @@ pub(crate) fn copied(copy: &Path, attributes: &[Attribute]) -> io::Result<bool> 
     Ok(read_path(copy)? == attributes)
 }
 
-/// Whether every kept attribute of the file at `path` is one of
-/// `attributes` (same name and value): it has none another program added.
-pub(crate) fn within(path: &Path, attributes: &[Attribute]) -> io::Result<bool> {
-    Ok(read_path(path)?.iter().all(|a| attributes.contains(a)))
-}
-
 /// Whether the files (or folders) `a` and `b` have the same kept
 /// attributes now.
 pub(crate) fn same(a: &Path, b: &Path) -> bool {

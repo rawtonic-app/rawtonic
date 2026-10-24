@@ -404,49 +404,6 @@ fn safe_copy_mode(recorded: Option<u32>, live: Option<u32>) -> u32 {
 
 pub(crate) const BLOCK: usize = 1 << 20;
 
-/// What a copy wrote: its bytes, as their length and a hash valid in this
-/// process only, and the attributes it was to be given. Tells a copy made
-/// in place that holds just what this move wrote from one something else
-/// wrote into or gave attributes.
-#[derive(Default)]
-pub(crate) struct Written {
-    hasher: std::hash::DefaultHasher,
-    len: u64,
-    attributes: Vec<xattr::Attribute>,
-}
-
-impl Written {
-    fn add(&mut self, bytes: &[u8]) {
-        std::hash::Hasher::write(&mut self.hasher, bytes);
-        self.len += bytes.len() as u64;
-    }
-
-    /// Whether the file at `path` holds exactly the bytes written, and no
-    /// attribute but those it was to be given.
-    pub(crate) fn is_in(&self, path: &Path) -> Result<bool> {
-        use std::hash::Hasher;
-        let mut file =
-            File::open(path).with_context(|| format!("Cannot read {}", path.display()))?;
-        if file.metadata()?.len() != self.len
-            || !xattr::read(&file)?
-                .iter()
-                .all(|a| self.attributes.contains(a))
-        {
-            return Ok(false);
-        }
-        uncached(&file);
-        let mut hasher = std::hash::DefaultHasher::new();
-        let mut buffer = vec![0u8; BLOCK];
-        loop {
-            let n = read_full(&mut file, &mut buffer)?;
-            if n == 0 {
-                return Ok(hasher.finish() == self.hasher.finish());
-            }
-            hasher.write(&buffer[..n]);
-        }
-    }
-}
-
 /// Copies `source` into a new file `staged` (never an existing one) with
 /// its recorded permissions (without execute/special bits), or 0644 masked
 /// by umask when unrecorded, its modification time and the extended
@@ -461,7 +418,7 @@ pub(crate) fn copy_verified(
     original_mode: Option<u32>,
     tally: &mut Tally,
     created: &mut dyn FnMut() -> Result<()>,
-    written: Option<&mut Written>,
+    in_place: bool,
 ) -> Result<(Stamp, Stamp)> {
     #[cfg(unix)]
     let posix = (
@@ -477,14 +434,14 @@ pub(crate) fn copy_verified(
         posix,
         tally,
         created,
-        written,
+        in_place,
     )
 }
 
 /// [`copy_verified`] with whether the source's and the copy's volumes
 /// keep Unix modes (`posix`) known; `created` runs once the new file
-/// exists, before anything is written to it, and `written` records what is
-/// written to it.
+/// exists, before anything is written to it; `in_place`: the new file is
+/// visible under its final name while it is copied.
 pub(crate) fn copy_file_verified(
     source: &Path,
     staged: &Path,
@@ -492,7 +449,7 @@ pub(crate) fn copy_file_verified(
     posix: (bool, bool),
     tally: &mut Tally,
     created: &mut dyn FnMut() -> Result<()>,
-    mut written: Option<&mut Written>,
+    in_place: bool,
 ) -> Result<(Stamp, Stamp)> {
     let mut input =
         File::open(source).with_context(|| format!("Cannot read {}", source.display()))?;
@@ -552,9 +509,6 @@ pub(crate) fn copy_file_verified(
         output
             .write_all(&buffer[..read])
             .with_context(|| format!("Cannot write {}", staged.display()))?;
-        if let Some(written) = written.as_deref_mut() {
-            written.add(&buffer[..read]);
-        }
         tally.done += read as u64;
         tally.observer.copied(tally.done, tally.total);
         #[cfg(test)]
@@ -562,10 +516,6 @@ pub(crate) fn copy_file_verified(
     }
     // A copy made in place is visible: an attribute another program gave
     // it meanwhile is never replaced (the copy then fails its check).
-    let in_place = written.is_some();
-    if let Some(written) = written {
-        written.attributes.clone_from(&attributes);
-    }
     let set = if in_place {
         xattr::write_new(&output, &attributes)
     } else {
@@ -663,26 +613,6 @@ pub(crate) fn same_content(
         }
         if n == 0 {
             return Ok(true);
-        }
-    }
-}
-
-/// Whether the file `part` holds the first bytes of the file `whole` (all
-/// of them, or none: an empty file is the start of any).
-pub(crate) fn is_prefix_of(part: &Path, whole: &Path) -> Result<bool> {
-    let mut a = File::open(part).with_context(|| format!("Cannot read {}", part.display()))?;
-    let mut b = File::open(whole).with_context(|| format!("Cannot read {}", whole.display()))?;
-    if a.metadata()?.len() > b.metadata()?.len() {
-        return Ok(false);
-    }
-    let (mut x, mut y) = (vec![0u8; BLOCK], vec![0u8; BLOCK]);
-    loop {
-        let n = read_full(&mut a, &mut x)?;
-        if n == 0 {
-            return Ok(true);
-        }
-        if read_full(&mut b, &mut y[..n])? != n || x[..n] != y[..n] {
-            return Ok(false);
         }
     }
 }

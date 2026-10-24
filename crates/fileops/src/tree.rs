@@ -200,7 +200,7 @@ pub(crate) fn copy_verified(
             continue;
         }
         let (stamp, copy_stamp) =
-            volume::copy_file_verified(&from, &to, recorded, posix, tally, &mut || Ok(()), None)?;
+            volume::copy_file_verified(&from, &to, recorded, posix, tally, &mut || Ok(()), false)?;
         ensure!(
             Some(stamp) == entry.stamp,
             "{} changed while it was copied; nothing was moved",
