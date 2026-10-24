@@ -230,7 +230,7 @@ impl RelayClient {
         if !still() {
             return Err(SendError::Cancelled);
         }
-        let request = self.post(prepared, stamp);
+        let request = self.post(prepared, stamp, files);
         tokio::pin!(request);
         loop {
             tokio::select! {
@@ -244,7 +244,12 @@ impl RelayClient {
         }
     }
 
-    async fn post(&self, prepared: &Prepared, stamp: String) -> Result<Receipt, SendError> {
+    async fn post(
+        &self,
+        prepared: &Prepared,
+        stamp: String,
+        files: Vec<(crate::payload::Slot, Vec<u8>)>,
+    ) -> Result<Receipt, SendError> {
         let response = self
             .http
             .post(self.url(prepared.channel.path()))
