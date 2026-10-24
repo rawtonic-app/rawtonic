@@ -119,4 +119,27 @@ describe('camera help', () => {
     expect(screen.getByText(/unknown camera \(ARW\)/)).toBeTruthy();
     expect(screen.queryByText(/NIKON Z 6/)).toBeNull();
   });
+
+  it('keeps an open photo without camera metadata attachable', async () => {
+    const { useEditorStore } = await import('../../store/useEditorStore');
+    const { useUIStore } = await import('../../store/useUIStore');
+    useEditorStore.setState({ selectedImage: { path: '/p/scan.TIF', exif: {} } as never });
+    vi.mocked(invoke).mockImplementation((command: string) => {
+      if (command === 'crash_reports_pending') return Promise.resolve([]);
+      if (command === 'contribution_available') return Promise.resolve(false);
+      if (command === 'problem_report_context')
+        return Promise.resolve({
+          app: { version: '0.1.0-alpha.4', os: 'macos', osVersion: '26.5', arch: 'aarch64' },
+          gpu: null,
+          logTail: null,
+          screenshotAvailable: false,
+        });
+      return Promise.resolve(null);
+    });
+    await start();
+    act(() => useUIStore.getState().setProblemReportOpen(true));
+    await screen.findByText('What happened? What did you expect?', {}, { timeout: 2000 });
+    expect(screen.getByText(/unknown camera \(TIF\)/)).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: /Attach the photo file itself \(TIF/ })).toBeTruthy();
+  });
 });
