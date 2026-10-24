@@ -96,14 +96,25 @@ export default function ReportDialog({
     if (body) setPrepared(body);
   };
 
+  // WebKit takes clipboard writes only within the click: the write starts
+  // at once with the text still being prepared (a promised ClipboardItem).
   const copy = async () => {
-    const body = await scrubbed();
-    if (!body) return;
+    const text = scrubbed().then((body) => {
+      if (!body) throw new Error("not prepared");
+      return reportMarkdown(body.body);
+    });
     try {
-      await navigator.clipboard.writeText(reportMarkdown(body.body));
+      if (typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
+        await navigator.clipboard.write([
+          new ClipboardItem({ "text/plain": text.then((t) => new Blob([t], { type: "text/plain" })) }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(await text);
+      }
       setCopied(true);
     } catch {
-      setError(t("contribute.report.copyFailed"));
+      // A failed preparation already said why.
+      if (await text.then(() => true, () => false)) setError(t("contribute.report.copyFailed"));
     }
   };
 

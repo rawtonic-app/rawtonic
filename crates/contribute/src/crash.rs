@@ -505,11 +505,18 @@ impl CrashStore {
     /// A clean exit: this run's marker and notes go, so the next start
     /// asks nothing.
     pub fn clean_exit(&self, pid: u32) {
+        // Nothing is noted from here on (a worker panicking during the
+        // shutdown included), and a note being written is waited for.
+        EXITING.store(true, Ordering::SeqCst);
+        let mut noted = NOTE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        RECORDING.store(false, Ordering::SeqCst);
+        *noted = false;
         let marker: Option<RunMarker> = read_json(&self.path(MARKER));
         if marker.is_some_and(|m| m.pid == pid) {
             remove(&self.path(MARKER));
-            remove(&self.path(PANIC_NOTE));
-            remove(&self.path(SIGNAL_NOTE));
+            self.remove_notes();
         }
     }
 
@@ -943,6 +950,7 @@ mod tests {
 
     #[test]
     fn a_clean_exit_leaves_nothing_to_ask_about() {
+        let _serial = exclusive();
         let (_dir, store) = store();
         let none = store
             .start(&run(10, T0), |_| false, || None, &scrubber(), true)
@@ -970,6 +978,7 @@ mod tests {
 
     #[test]
     fn a_panic_becomes_one_scrubbed_record_with_the_previous_log() {
+        let _serial = exclusive();
         let (_dir, store) = store();
         store
             .start(&run(10, T0 - DAY), |_| false, || None, &scrubber(), true)
@@ -1144,6 +1153,28 @@ mod tests {
             .unwrap();
         assert_eq!(record.message, "boom at <path>.NEF");
         assert!(record.location.starts_with("crash.rs:"));
+    }
+
+    /// A worker panicking during a clean exit leaves no note behind.
+    #[test]
+    fn a_panic_after_a_clean_exit_leaves_no_note() {
+        let _serial = exclusive();
+        let (_dir, store) = store();
+        let pid = std::process::id();
+        store
+            .start(&run(pid, T0), |_| false, || None, &scrubber(), true)
+            .unwrap();
+        arm(&store);
+        set_recording(&store, true);
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(note_panic));
+        store.clean_exit(pid);
+        let late = std::panic::catch_unwind(|| panic!("during shutdown"));
+        std::panic::set_hook(previous);
+        assert!(late.is_err());
+        assert!(!store.path(PANIC_NOTE).exists());
+        assert!(!store.path(MARKER).exists());
+        EXITING.store(false, Ordering::SeqCst);
     }
 
     /// Off waits for a note whose write stalls (longer than the hook's own
