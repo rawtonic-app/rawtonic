@@ -135,6 +135,15 @@ describe("reports", () => {
     expect(deps.tracker.issues.size).toBe(0);
   });
 
+  it("removes old issues and records even when housekeeping fails", async () => {
+    const deps = makeDeps();
+    await post("/report", report(), deps);
+    deps.at += 91 * DAY_MS;
+    await sweep(failingDb(/DELETE FROM rate|SELECT DISTINCT week/), deps);
+    expect(deps.tracker.issues.size).toBe(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
+  });
+
   it("keeps removing old records and samples while GitHub fails", async () => {
     const deps = makeDeps();
     await post("/report", report(), deps);

@@ -434,12 +434,16 @@ export const SWEEP_QUERIES = [
  * oldest first. */
 export const sweep = async (env: Env, deps: Deps) => {
   const now = deps.now();
-  await env.DB.batch([
-    env.DB.prepare("DELETE FROM rate WHERE expires < ?1").bind(now),
-    env.DB.prepare("DELETE FROM pow_seen WHERE expires < ?1").bind(now),
-    env.DB.prepare("DELETE FROM uploads WHERE expires < ?1").bind(now),
-  ]);
-  await closeWeeks(env.DB, now);
+  try {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM rate WHERE expires < ?1").bind(now),
+      env.DB.prepare("DELETE FROM pow_seen WHERE expires < ?1").bind(now),
+      env.DB.prepare("DELETE FROM uploads WHERE expires < ?1").bind(now),
+    ]);
+    await closeWeeks(env.DB, now);
+  } catch {
+    // Tried again next run; retention below does not depend on it.
+  }
   try {
     // Three range reads on the (state, kind, received_at) index, each
     // bounded, never a scan of the table.
