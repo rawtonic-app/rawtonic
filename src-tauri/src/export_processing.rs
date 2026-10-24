@@ -490,7 +490,7 @@ const EXPORT_MEMORY_RESERVE: u64 = 2 << 30;
 
 /// Exports keep their GPU processor (its textures and compiled pipelines)
 /// between runs until the system runs short of memory; one that a render
-/// holds stays, and goes when its run ends (`release_if_short_of_memory`).
+/// holds stays, and goes when its run ends (`release_after_run`).
 pub(crate) fn release_processor_under_pressure(app_handle: &tauri::AppHandle) {
     let app_handle = app_handle.clone();
     crate::memory_pressure::watch(Arc::new(move |_| {
@@ -504,10 +504,15 @@ pub(crate) fn release_processor_under_pressure(app_handle: &tauri::AppHandle) {
 /// At the end of an export run: pressure is reported once on entering it,
 /// so pressure that came while a render held the processor would otherwise
 /// leave it allocated for as long as memory stays short.
-fn release_if_short_of_memory<T>(
+/// The run's prewarm goes first: while it builds the processor holds its
+/// lock and looks in use, so a run that failed or was cancelled before the
+/// prewarm finished would leave the processor it then stores.
+async fn release_after_run<T, E>(
     processor: &crate::gpu_processing::ProcessorSlot<Option<T>>,
+    prewarm: impl std::future::Future<Output = Result<(), E>>,
     short_of_memory: impl FnOnce() -> bool,
 ) -> bool {
+    let _ = prewarm.await;
     short_of_memory() && processor.take_if_idle().is_some()
 }
 
@@ -655,18 +660,18 @@ pub(crate) async fn export_images_impl(
 
     #[cfg(feature = "performance-profiling")]
     drop(context_stage);
-    {
+    let prewarm = {
         let app_handle = app_handle.clone();
         let context = context.clone();
-        std::thread::spawn(move || {
+        tokio::task::spawn_blocking(move || {
             crate::gpu_processing::prewarm_gpu_processor(
                 &app_handle
                     .state::<crate::app_state::AppState>()
                     .export_gpu_processor,
                 &context,
             );
-        });
-    }
+        })
+    };
     let context = Arc::new(context);
     let total_paths = paths.len();
     // Progress counts the files of every recipe; a resumed job counts the
@@ -849,10 +854,13 @@ pub(crate) async fn export_images_impl(
             }
         }
 
-        if release_if_short_of_memory(
+        if release_after_run(
             &app_handle.state::<AppState>().export_gpu_processor,
+            prewarm,
             crate::memory_pressure::under_pressure,
-        ) {
+        )
+        .await
+        {
             log::info!("Memory pressure: released the exports' GPU processor after the run");
         }
         // Render and encode buffers of the last exports.
@@ -1972,19 +1980,52 @@ mod tests {
 
     /// Pressure reported while a render held the exports' processor left
     /// it; the end of the run frees it if memory is still short.
-    #[test]
-    fn the_end_of_a_run_frees_a_processor_pressure_found_in_use() {
+    #[tokio::test]
+    async fn the_end_of_a_run_frees_a_processor_pressure_found_in_use() {
         use crate::gpu_processing::ProcessorSlot;
         let processor = ProcessorSlot::background(Some("processor"));
         let render = processor.lock().unwrap();
         assert_eq!(processor.take_if_idle(), None, "the watch leaves it");
         drop(render);
-        assert!(!super::release_if_short_of_memory(&processor, || false));
+        let prewarmed = || std::future::ready(Ok::<(), ()>(()));
+        assert!(!super::release_after_run(&processor, prewarmed(), || false).await);
         assert!(
             processor.lock().unwrap().is_some(),
             "kept with memory to spare"
         );
-        assert!(super::release_if_short_of_memory(&processor, || true));
+        assert!(super::release_after_run(&processor, prewarmed(), || true).await);
+        assert!(processor.lock().unwrap().is_none());
+    }
+
+    /// A run that fails or is cancelled while its prewarm still builds the
+    /// processor: the prewarm holds the lock, so the end of the run waits
+    /// for it and then frees what it stored.
+    #[tokio::test]
+    async fn the_end_of_a_run_frees_a_processor_its_prewarm_was_still_building() {
+        use crate::gpu_processing::ProcessorSlot;
+        use std::future::Future;
+        use std::task::{Context, Poll, Waker};
+        let processor = std::sync::Arc::new(ProcessorSlot::background(None::<&str>));
+        let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+        let (built_tx, built_rx) = std::sync::mpsc::channel::<()>();
+        let prewarm = {
+            let processor = processor.clone();
+            tokio::task::spawn_blocking(move || {
+                let mut slot = processor.lock().unwrap();
+                locked_tx.send(()).unwrap();
+                built_rx.recv().unwrap();
+                *slot = Some("processor");
+            })
+        };
+        locked_rx.recv().unwrap();
+        let mut end = Box::pin(super::release_after_run(&processor, prewarm, || true));
+        assert_eq!(
+            end.as_mut().poll(&mut Context::from_waker(Waker::noop())),
+            Poll::Pending,
+            "waits for the prewarm"
+        );
+        built_tx.send(()).unwrap();
+        assert!(end.await);
         assert!(processor.lock().unwrap().is_none());
     }
 
