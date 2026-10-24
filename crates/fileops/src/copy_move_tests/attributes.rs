@@ -183,6 +183,7 @@ fn attributes_changed_while_copying_stop_the_move() {
         "{error:#}"
     );
     assert_eq!(journal.history(1).unwrap()[0].state, State::RolledBack);
+    world.remove_kept_in_place(&format!("{error:#}"));
     world.assert_at(&world.source, &world.target);
 }
 

@@ -166,15 +166,36 @@ impl World {
     /// macOS), printing SKIP: tests of staged copies and of folders then
     /// stop (`in_place` covers that mode).
     fn publishes_in_place(&self) -> bool {
-        let probe = self.target.join(".publish-probe");
-        fs::create_dir(&probe).unwrap();
-        let mode = publish_mode(&probe).unwrap();
-        fs::remove_dir(&probe).unwrap();
-        let in_place = mode == Publish::InPlace;
+        let in_place = self.target_publishes_in_place();
         if in_place {
             eprintln!("SKIP: the target volume publishes copies in place");
         }
         in_place
+    }
+    fn target_publishes_in_place(&self) -> bool {
+        let probe = self.target.join(".publish-probe");
+        fs::create_dir(&probe).unwrap();
+        let mode = publish_mode(&probe).unwrap();
+        fs::remove_dir(&probe).unwrap();
+        mode == Publish::InPlace
+    }
+    /// On a target that publishes in place, a rolled-back move keeps the
+    /// copies it created there (ADR 0016): each one left must be named in
+    /// `text` (its error or note) and hold the start of its source's
+    /// bytes; they are removed here, so the checks of a staged rollback
+    /// apply to what is left.
+    fn remove_kept_in_place(&self, text: &str) {
+        if !self.target_publishes_in_place() {
+            return;
+        }
+        for (name, len) in FILES {
+            let copy = self.target.join(name);
+            if text.contains(&format!("stays at {}", copy.display())) {
+                let kept = fs::read(&copy).unwrap();
+                assert!(content(name, len).starts_with(&kept), "{name}: {text}");
+                fs::remove_file(&copy).unwrap();
+            }
+        }
     }
     fn steps(&self) -> Vec<Step> {
         FILES
@@ -619,6 +640,7 @@ fn stop_while_copying_rolls_back() {
         )
         .unwrap_err();
     assert!(format!("{error:#}").contains("Stopped"), "{error:#}");
+    world.remove_kept_in_place(&format!("{error:#}"));
     world.assert_at(&world.source, &world.target);
     assert_eq!(journal.history(1).unwrap()[0].state, State::RolledBack);
 }
@@ -652,6 +674,7 @@ fn a_source_changed_while_copying_stops_the_move() {
         text.contains("differs") || text.contains("changed"),
         "{text}"
     );
+    world.remove_kept_in_place(&text);
     assert!(World::names(&world.target).is_empty());
     assert!(exists(&raw));
 }
@@ -739,6 +762,7 @@ fn a_name_taken_while_copying_is_never_replaced() {
         .unwrap_err();
     assert!(format!("{error:#}").contains("A.xmp"), "{error:#}");
     assert_eq!(fs::read(&taken).unwrap(), b"someone else's");
+    world.remove_kept_in_place(&format!("{error:#}"));
     assert_eq!(World::names(&world.target), ["A.xmp"]);
     for (name, len) in FILES {
         assert_eq!(
@@ -1048,6 +1072,7 @@ fn stop_while_publishing_rolls_back() {
         )
         .unwrap_err();
     assert!(format!("{error:#}").contains("Stopped"), "{error:#}");
+    world.remove_kept_in_place(&format!("{error:#}"));
     world.assert_at(&world.source, &world.target);
     assert_eq!(journal.history(1).unwrap()[0].state, State::RolledBack);
 }
@@ -1125,6 +1150,7 @@ fn stop_during_the_last_verification_rolls_back() {
         )
         .unwrap_err();
     assert!(format!("{error:#}").contains("Stopped"), "{error:#}");
+    world.remove_kept_in_place(&format!("{error:#}"));
     world.assert_at(&world.source, &world.target);
 }
 
@@ -1269,6 +1295,7 @@ fn stop_during_the_last_publish_rolls_back() {
         )
         .unwrap_err();
     assert!(format!("{error:#}").contains("Stopped"), "{error:#}");
+    world.remove_kept_in_place(&format!("{error:#}"));
     assert!(exists(&world.source.join("A.xmp")));
     assert!(World::names(&world.target).is_empty());
 }
@@ -1294,7 +1321,14 @@ fn recovery_never_takes_back_a_copy_whose_source_is_a_link_to_it() {
     journal.recover(&world.trash).unwrap();
     let op = journal.history(1).unwrap().remove(0);
     assert_eq!(op.state, State::RolledBack);
-    assert!(op.note.unwrap().contains("not a file of its own"));
+    // A copy made in place is never taken back at all.
+    let note = op.note.unwrap();
+    assert!(
+        note.contains("not a file of its own")
+            || (world.target_publishes_in_place()
+                && note.contains(&format!("stays at {}", copy.display()))),
+        "{note}"
+    );
     assert_eq!(fs::read(&copy).unwrap(), content("A.RAF", FILES[0].1));
 }
 
