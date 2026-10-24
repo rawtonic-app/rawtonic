@@ -505,6 +505,13 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
             placeholder={t("studio.export.recipes.newName")}
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              // Return saves the recipe; without this it submits the form
+              // and starts an export.
+              if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+              e.preventDefault();
+              if (newName.trim() && !formInvalid) addRecipe();
+            }}
           />
           <button
             type="button"
@@ -554,6 +561,9 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
             aria-label={t("studio.export.destination.subfolderAria")}
             placeholder={t("studio.export.none")}
             value={draft.subfolder}
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             aria-invalid={!!subfolderError}
             onChange={(e) => set({ subfolder: e.target.value })}
           />
