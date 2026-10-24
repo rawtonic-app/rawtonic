@@ -25,6 +25,6 @@
     }
   ],
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "rawtonic-contributions" }],
-  // Hourly: retention (at most 40 deletions per run), expired limits, statistics weeks.
-  "triggers": { "crons": ["17 * * * *"] }
+  // Every 10 minutes: expired limits and tokens, statistics weeks, then a budgeted batch of retention deletions (src/index.ts, SWEEP_BUDGET).
+  "triggers": { "crons": ["*/10 * * * *"] }
 }

@@ -20,7 +20,7 @@ export interface IssueTracker {
   /** Node ids of the issues (any state) updated since `since` whose body
    * carries `marker`. Reads the issue list, which is consistent, not the
    * search index; throws when it cannot read all of it. */
-  findByMarker(marker: string, since: number): Promise<string[]>;
+  findByMarker(marker: string, since: number, maxPages: number): Promise<string[]>;
 }
 
 export class GitHubError extends Error {}
@@ -62,10 +62,10 @@ export class GitHubTracker implements IssueTracker {
     return { number: created.number, nodeId: created.node_id };
   }
 
-  async findByMarker(marker: string, since: number): Promise<string[]> {
+  async findByMarker(marker: string, since: number, maxPages = 10): Promise<string[]> {
     const found: string[] = [];
     const after = new Date(since).toISOString();
-    for (let page = 1; page <= 20; page++) {
+    for (let page = 1; page <= maxPages; page++) {
       const response = await this.fetcher(
         `${this.api}/repos/${this.repo}/issues?state=all&since=${encodeURIComponent(after)}&per_page=100&page=${page}`,
         { method: "GET", headers: this.headers(), signal: AbortSignal.timeout(10_000) },

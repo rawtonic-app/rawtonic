@@ -47,8 +47,13 @@ export const RETENTION_DAYS: Record<string, number> = {
   "raw-sample": 730,
 };
 const UPLOAD_VALID_MS = HOUR_MS;
-/** Deletions per scheduled run (each is one GitHub request). */
-const RETENTION_BATCH = 40;
+/** What one scheduled run may spend on removals, in GitHub requests: a
+ * recorded issue costs 2 (its deletion, the bucket), an unresolved filing
+ * up to 12 (a 10-page issue list too). Keeps a run within the Workers
+ * Free plan's 50 subrequests and 50 D1 queries per invocation (each
+ * removal is one D1 batch); the cron runs every 10 minutes. */
+const SWEEP_BUDGET = 36;
+const LIST_PAGES = 10;
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -128,13 +133,14 @@ const accept = async <T>(
 };
 
 /** Row states: `filing` (recorded before anything external is written;
- * the id is not given out yet), `pending` (RAW sample announced),
- * `uploading` (its bytes are being written), `filed`, and `deleting`
- * (claimed by a deletion). A row left in `filing`, `uploading` or
- * `deleting` is cleaned up by the scheduled run once its request is long
- * over; only a `filing` row may have an issue whose number is unknown (its
- * creation failed without an answer), found then by its marker. */
-type State = "filing" | "pending" | "uploading" | "filed" | "deleting";
+ * the id is not given out yet; its issue may exist without its number
+ * recorded), `pending` (RAW sample announced), `uploading` (its bytes are
+ * being written) and `filed`. Removal never changes a row's state: it
+ * deletes the external things first and the row last, only if the row is
+ * still as it was read, so an interrupted removal leaves the row as it was
+ * for the next try. Rows left in `filing`, `uploading` or `pending` are
+ * removed by the scheduled run once their request is long over. */
+type State = "filing" | "pending" | "uploading" | "filed";
 
 interface Row {
   id_hash: string;
@@ -145,21 +151,7 @@ interface Row {
   received_at: number;
 }
 
-/** Moves a row from one of `from` to `to` (compare and swap); the row as
- * it was, or null when it is gone or in another state (another request
- * has it). */
-const claim = async (env: Env, idHash: string, from: State[], to: State): Promise<Row | null> => {
-  const row = await env.DB.prepare(
-    "SELECT id_hash, ref, state, issue_node_id, objects, received_at FROM submissions WHERE id_hash = ?1",
-  )
-    .bind(idHash)
-    .first<Row>();
-  if (!row || !from.includes(row.state)) return null;
-  const moved = await env.DB.prepare("UPDATE submissions SET state = ?3 WHERE id_hash = ?1 AND state = ?2")
-    .bind(idHash, row.state, to)
-    .run();
-  return moved.meta.changes === 1 ? row : null;
-};
+const ROW = "SELECT id_hash, ref, state, issue_node_id, objects, received_at FROM submissions";
 
 /** Files one issue (with its stored objects). The row is written first, so
  * a failure at any later step leaves something the scheduled run can clean
@@ -190,7 +182,7 @@ const file = async (
       await env.BUCKET.put(keys[i], o.data, { httpMetadata: { contentType: o.type } });
     }
   } catch {
-    await cleanUp(env, deps, row, false);
+    await cleanUp(env, deps, row);
     return error(502, "not-filed");
   }
   let issue: { number: number; nodeId: string };
@@ -209,7 +201,7 @@ const file = async (
       .run();
     if (filed.meta.changes !== 1) throw new Error("row lost");
   } catch {
-    await cleanUp(env, deps, { ...row, issue_node_id: issue.nodeId }, false);
+    await cleanUp(env, deps, { ...row, issue_node_id: issue.nodeId });
     return error(502, "not-filed");
   }
   return json(201, { id: s.id, ref: s.ref });
@@ -217,9 +209,9 @@ const file = async (
 
 /** Removes what a failed request wrote. When that fails too, the row stays
  * and the scheduled run tries again. */
-const cleanUp = async (env: Env, deps: Deps, row: Row, search: boolean) => {
+const cleanUp = async (env: Env, deps: Deps, row: Row) => {
   try {
-    await remove(env, deps, row, search);
+    await remove(env, deps, row);
   } catch {
     // Left to sweep().
   }
@@ -311,7 +303,7 @@ const putRawSample = async (request: Request, env: Env, deps: Deps, token: strin
     await env.BUCKET.put(upload.object_key, request.body, { sha256: upload.sha256 });
     await env.BUCKET.put(metaKey, upload.meta, { httpMetadata: { contentType: "application/json" } });
   } catch {
-    await cleanUp(env, deps, row, false);
+    await cleanUp(env, deps, row);
     return error(422, "checksum-mismatch");
   }
   try {
@@ -320,7 +312,7 @@ const putRawSample = async (request: Request, env: Env, deps: Deps, token: strin
       .run();
     if (filed.meta.changes !== 1) throw new Error("row lost");
   } catch {
-    await cleanUp(env, deps, row, false);
+    await cleanUp(env, deps, row);
     return error(502, "not-filed");
   }
   return new Response(null, { status: 204 });
@@ -334,38 +326,29 @@ const postStats = async (request: Request, env: Env, deps: Deps) => {
   return new Response(null, { status: 204 });
 };
 
-/** Deletes everything stored for one submission. `search`: the row's
- * issue may exist without its number recorded (a `filing` row whose
- * creation got no answer); then every issue carrying its marker is deleted,
- * and a listing that cannot be read keeps the row for the next run. */
-const remove = async (env: Env, deps: Deps, row: Row, search: boolean) => {
+/** Deletes everything stored for one submission: its issue (a `filing`
+ * row without a recorded number: every issue carrying its marker, from the
+ * consistent issue list; an unreadable list throws), its objects, then the
+ * row — only if it is still in the state it was read in. False when the
+ * row changed meanwhile (an upload started, say); it is then kept. */
+const remove = async (env: Env, deps: Deps, row: Row): Promise<boolean> => {
   const issues = row.issue_node_id
     ? [row.issue_node_id]
-    : search
-      ? await deps.tracker.findByMarker(marker(row.id_hash), row.received_at - 10 * 60_000)
+    : row.state === "filing"
+      ? await deps.tracker.findByMarker(marker(row.id_hash), row.received_at - 10 * 60_000, LIST_PAGES)
       : [];
   for (const nodeId of issues) await deps.tracker.delete(nodeId);
   const objects = JSON.parse(row.objects) as string[];
   if (objects.length) await env.BUCKET.delete(objects);
-  await env.DB.batch([
-    env.DB.prepare("DELETE FROM uploads WHERE id_hash = ?1").bind(row.id_hash),
-    env.DB.prepare("DELETE FROM submissions WHERE id_hash = ?1").bind(row.id_hash),
+  const [, deleted] = await env.DB.batch([
+    env.DB.prepare("DELETE FROM uploads WHERE id_hash = ?1 AND ?2 IN ('pending', 'filed')").bind(row.id_hash, row.state),
+    env.DB.prepare("DELETE FROM submissions WHERE id_hash = ?1 AND state = ?2 AND objects = ?3").bind(
+      row.id_hash,
+      row.state,
+      row.objects,
+    ),
   ]);
-};
-
-/** Claims a row for deletion and deletes it; on failure gives it back. */
-const removeClaimed = async (env: Env, deps: Deps, idHash: string, from: State[]) => {
-  const row = await claim(env, idHash, from, "deleting");
-  if (!row) return false;
-  try {
-    await remove(env, deps, row, row.state === "filing");
-  } catch (e) {
-    await env.DB.prepare("UPDATE submissions SET state = ?2 WHERE id_hash = ?1 AND state = 'deleting'")
-      .bind(idHash, row.state)
-      .run();
-    throw e;
-  }
-  return true;
+  return deleted.meta.changes === 1;
 };
 
 const deleteSubmission = async (request: Request, env: Env, deps: Deps, id: string) => {
@@ -373,15 +356,15 @@ const deleteSubmission = async (request: Request, env: Env, deps: Deps, id: stri
     return error(429, "rate-limited");
   }
   if (!ID_PATTERN.test(id)) return error(404, "unknown-id");
-  const idHash = await sha256Hex(id);
+  const row = await env.DB.prepare(`${ROW} WHERE id_hash = ?1`).bind(await sha256Hex(id)).first<Row>();
+  if (!row) return error(404, "unknown-id");
+  // A RAW sample still uploading: its objects are being written.
+  if (row.state !== "filed" && row.state !== "pending") return error(409, "busy");
   try {
-    if (await removeClaimed(env, deps, idHash, ["filed", "pending"])) return new Response(null, { status: 204 });
+    return (await remove(env, deps, row)) ? new Response(null, { status: 204 }) : error(409, "busy");
   } catch {
     return error(502, "not-deleted");
   }
-  const busy = await env.DB.prepare("SELECT state FROM submissions WHERE id_hash = ?1").bind(idHash).first<{ state: State }>();
-  // A RAW sample still uploading, or another deletion of it running.
-  return busy ? error(409, "busy") : error(404, "unknown-id");
 };
 
 const statsSummary = async (request: Request, env: Env, url: URL) => {
@@ -411,53 +394,41 @@ export const handle = async (request: Request, env: Env, deps: Deps): Promise<Re
   return error(404, "not-found");
 };
 
-/** The scheduled run: retention, half-done filings, expired limits and
- * tokens, statistics weeks. */
+/** The scheduled run: housekeeping first (so it always runs), then as many
+ * removals as its budget allows — retention, then rows whose request
+ * stopped half-way (two hours after it began). */
 export const sweep = async (env: Env, deps: Deps) => {
   const now = deps.now();
-  let budget = RETENTION_BATCH;
-  const due: { idHash: string; from: State[] }[] = [];
-  for (const [kind, days] of Object.entries(RETENTION_DAYS)) {
-    const { results } = await env.DB.prepare(
-      "SELECT id_hash FROM submissions WHERE kind = ?1 AND state = 'filed' AND received_at < ?2 LIMIT ?3",
-    )
-      .bind(kind, now - days * DAY_MS, budget)
-      .all<{ id_hash: string }>();
-    due.push(...results.map((r) => ({ idHash: r.id_hash, from: ["filed"] as State[] })));
-  }
-  // Announced samples never uploaded (their token expired), and filings
-  // or uploads that stopped half-way (their request ended long ago).
-  const { results: stale } = await env.DB.prepare(
-    "SELECT id_hash, state FROM submissions WHERE state IN ('pending', 'filing', 'uploading', 'deleting') AND received_at < ?1",
-  )
-    .bind(now - UPLOAD_VALID_MS - HOUR_MS)
-    .all<{ id_hash: string; state: State }>();
-  due.push(...stale.map((r) => ({ idHash: r.id_hash, from: [r.state] })));
-  for (const { idHash, from } of due) {
-    if (budget-- <= 0) break;
-    try {
-      // A row left in `deleting` by a deletion that died is taken as is
-      // (it came from `filed` or `pending`: its issue, if any, is recorded).
-      if (from[0] === "deleting") {
-        const row = await env.DB.prepare(
-          "SELECT id_hash, ref, state, issue_node_id, objects, received_at FROM submissions WHERE id_hash = ?1",
-        )
-          .bind(idHash)
-          .first<Row>();
-        if (row) await remove(env, deps, row, false);
-      } else {
-        await removeClaimed(env, deps, idHash, from);
-      }
-    } catch {
-      // Tried again next run.
-    }
-  }
   await env.DB.batch([
     env.DB.prepare("DELETE FROM rate WHERE expires < ?1").bind(now),
     env.DB.prepare("DELETE FROM pow_seen WHERE expires < ?1").bind(now),
     env.DB.prepare("DELETE FROM uploads WHERE expires < ?1").bind(now),
   ]);
   await closeWeeks(env.DB, now);
+  const due: Row[] = [];
+  for (const [kind, days] of Object.entries(RETENTION_DAYS)) {
+    const { results } = await env.DB.prepare(`${ROW} WHERE kind = ?1 AND state = 'filed' AND received_at < ?2 LIMIT 18`)
+      .bind(kind, now - days * DAY_MS)
+      .all<Row>();
+    due.push(...results);
+  }
+  const { results: stale } = await env.DB.prepare(
+    `${ROW} WHERE state IN ('pending', 'filing', 'uploading') AND received_at < ?1 LIMIT 18`,
+  )
+    .bind(now - UPLOAD_VALID_MS - HOUR_MS)
+    .all<Row>();
+  due.push(...stale);
+  let budget = SWEEP_BUDGET;
+  for (const row of due) {
+    const cost = row.state === "filing" && !row.issue_node_id ? 2 + LIST_PAGES : 2;
+    if (cost > budget) continue;
+    budget -= cost;
+    try {
+      await remove(env, deps, row);
+    } catch {
+      // Tried again next run.
+    }
+  }
 };
 
 const deps = (env: Env): Deps => ({

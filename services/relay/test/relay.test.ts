@@ -146,6 +146,51 @@ describe("reports", () => {
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
   });
 
+  it("keeps the record when a cleanup stops half-way, and finishes it next run", async () => {
+    const deps = makeDeps();
+    deps.tracker.createThenThrow = true;
+    await post("/report", report(), deps);
+    deps.tracker.failDelete = true;
+    deps.at += 3 * 3_600_000;
+    await sweep(env, deps);
+    expect(deps.tracker.issues.size).toBe(1);
+    expect((await env.DB.prepare("SELECT state FROM submissions").first<{ state: string }>())?.state).toBe("filing");
+    deps.tracker.failDelete = false;
+    await sweep(env, deps);
+    expect(deps.tracker.issues.size).toBe(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM submissions").first<{ n: number }>())!.n).toBe(0);
+  });
+
+  it("files the largest accepted crash within GitHub's issue body limit", async () => {
+    const deps = makeDeps();
+    const big = "é`".repeat(12 * 1024);
+    const response = await post(
+      "/crash",
+      { schema: 1, app: APP, message: "m".repeat(2000), location: "l".repeat(300), backtrace: big, logTail: big, crashedOn: "2026-10-24" },
+      deps,
+    );
+    expect(response.status).toBe(201);
+    const [issue] = deps.tracker.issues.values();
+    expect(issue.body.length).toBeLessThanOrEqual(65_536);
+    const over = await post(
+      "/crash",
+      { schema: 1, app: APP, message: "m", location: "l", backtrace: `${big}x`, crashedOn: "2026-10-24" },
+      deps,
+    );
+    expect(over.status).toBe(400);
+  });
+
+  it("does housekeeping first and removes old reports in budgeted batches", async () => {
+    const deps = makeDeps();
+    for (let i = 0; i < 25; i++) await post("/report", report(), deps, { ip: `198.51.100.${i}` });
+    deps.at += 91 * DAY_MS;
+    await sweep(env, deps);
+    expect(deps.tracker.issues.size).toBe(25 - 18);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM rate").first<{ n: number }>())!.n).toBe(0);
+    await sweep(env, deps);
+    expect(deps.tracker.issues.size).toBe(0);
+  });
+
   it("never deletes another submission's issue that shares the short reference", async () => {
     const deps = makeDeps();
     const { ref } = (await (await post("/report", report(), deps)).json()) as { ref: string };

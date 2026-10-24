@@ -65,7 +65,7 @@ What runs where, and what it costs: the Workers free plan is enough to start (10
   npx wrangler r2 object get "rawtonic-contributions/raw-samples/<hash>/<make>-<model>.<ext>" --remote --file sample.raw
   ```
   Keep downloaded samples out of git and out of shared folders (AGENTS.md: no photographs in the repository); they stay under the donor's licence (ADR 0017).
-- **Retention** runs every hour (cron in `wrangler.jsonc`): reports, crashes and camera tests go after 90 days, RAW samples after two years, at most 40 deletions per run. Check what is stored: `npx wrangler d1 execute rawtonic-relay --remote --command "SELECT kind, state, COUNT(*) FROM submissions GROUP BY kind, state"`.
+- **Retention** runs every 10 minutes (cron in `wrangler.jsonc`): reports, crashes and camera tests go after 90 days, RAW samples after two years, in batches small enough for the Free plan's per-run limits (up to ~2,500 deletions a day). Check what is stored: `npx wrangler d1 execute rawtonic-relay --remote --command "SELECT kind, state, COUNT(*) FROM submissions GROUP BY kind, state"`.
 - **Spam.** Set `POW_BITS` in `wrangler.jsonc` (20 costs a laptop well under a second per send) and deploy; apps that do not send a proof of work then get 403. Limits and global caps are in `services/relay/src/limits.ts`.
 - **Secrets.** Rotate the GitHub token before it expires (`npx wrangler secret put GITHUB_TOKEN`). Changing `IP_HASH_KEY` only resets the current rate-limit windows.
 - **Changes.** `npm test` and `npm run typecheck` in `services/relay` (also part of `scripts/check.sh`); a new migration goes into `migrations/` and is applied with the command from step 5 before deploying. A changed payload is a new `schema` number (ADR 0017).

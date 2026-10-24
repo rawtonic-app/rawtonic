@@ -70,6 +70,9 @@ export interface Stats {
 }
 
 export const SAMPLE_LICENCE = "rawtonic-sample-1";
+/** Log tail and backtrace, in UTF-16 units: a crash with both at the cap
+ * still renders below GitHub's 65,536-character issue body limit. */
+export const DIAGNOSTICS_CAP = 24 * 1024;
 export const MAX_SAMPLE_BYTES = 100 * 1024 * 1024;
 export const MAX_SCREENSHOT_BYTES = 2 * 1024 * 1024;
 
@@ -191,7 +194,7 @@ export const parseReport = (value: unknown): Report => {
   const report: Report = { schema: schema1(v.schema), app: app(v.app), text: text(v.text, "text", 10_000) };
   if (report.text.trim().length === 0) throw new Invalid("text");
   if (v.gpu !== undefined) report.gpu = gpu(v.gpu);
-  if (v.logTail !== undefined) report.logTail = text(v.logTail, "logTail", 32 * 1024);
+  if (v.logTail !== undefined) report.logTail = text(v.logTail, "logTail", DIAGNOSTICS_CAP);
   if (v.photo !== undefined) {
     const { record, camera: c } = camera(v.photo, "photo", ["fileType"]);
     report.photo = { ...c, fileType: fileType(record.fileType, "photo.fileType") };
@@ -225,8 +228,8 @@ export const parseCrash = (value: unknown): Crash => {
     })(),
   };
   if (v.gpu !== undefined) crash.gpu = gpu(v.gpu);
-  if (v.backtrace !== undefined) crash.backtrace = text(v.backtrace, "backtrace", 32 * 1024);
-  if (v.logTail !== undefined) crash.logTail = text(v.logTail, "logTail", 32 * 1024);
+  if (v.backtrace !== undefined) crash.backtrace = text(v.backtrace, "backtrace", DIAGNOSTICS_CAP);
+  if (v.logTail !== undefined) crash.logTail = text(v.logTail, "logTail", DIAGNOSTICS_CAP);
   return crash;
 };
 
