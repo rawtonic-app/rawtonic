@@ -3,6 +3,7 @@
 //! renames without replacing, an exclusive rename that never falls back to
 //! check-then-rename, and a copy that is synced, read back from the drive
 //! and compared byte for byte with its source.
+use crate::xattr;
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -262,7 +263,7 @@ pub fn probe_exclusive_rename(folder: &Path) -> Result<()> {
 
 /// Removes what [`probe_exclusive_rename`] may have left in `folder`.
 pub(crate) fn remove_probe(folder: &Path) {
-    for name in [PROBE_A, PROBE_B] {
+    for name in [PROBE_A, PROBE_B, crate::xattr::PROBE_FILE] {
         let _ = fs::remove_file(folder.join(name));
     }
 }
@@ -345,9 +346,10 @@ pub(crate) const BLOCK: usize = 1 << 20;
 
 /// Copies `source` into a new file `staged` (never an existing one) with
 /// its recorded permissions (without execute/special bits), or 0644 masked
-/// by umask when unrecorded, and its modification time, syncs it and its folder,
-/// then reads it back from the drive and compares it byte for byte with
-/// `source`. Returns the source's stamp, unchanged through the copy, and
+/// by umask when unrecorded, its modification time and the extended
+/// attributes a copy keeps ([`xattr`]), syncs it and its folder, then
+/// reads it back from the drive and compares it byte for byte (and its
+/// attributes) with `source`. Returns the source's stamp, unchanged through the copy, and
 /// the copy's. Stop is honoured while copying and comparing. On failure
 /// the incomplete copy is left for the caller's staging cleanup.
 pub(crate) fn copy_verified(
@@ -380,6 +382,13 @@ pub(crate) fn copy_file_verified(
     let meta = input.metadata()?;
     ensure!(meta.is_file(), "{} is not a file", source.display());
     let before = Stamp::from_meta(&meta);
+    // Read before the bytes: a change while copying is seen at the end.
+    let attributes = xattr::read(&input).with_context(|| {
+        format!(
+            "Cannot read the extended attributes of {}",
+            source.display()
+        )
+    })?;
     #[cfg(unix)]
     let mode = {
         use std::os::unix::fs::PermissionsExt;
@@ -421,6 +430,9 @@ pub(crate) fn copy_file_verified(
         #[cfg(test)]
         crate::crash::point("copy block written");
     }
+    xattr::write(&output, &attributes).map_err(|e| {
+        xattr::cannot_keep(staged.parent().unwrap_or(staged), source, &attributes, &e)
+    })?;
     #[cfg(unix)]
     if let Some(mode) = restore_mode {
         use std::os::unix::fs::PermissionsExt;
@@ -442,9 +454,15 @@ pub(crate) fn copy_file_verified(
         "The copy of {} differs from the original after writing it; nothing was moved",
         source.display()
     );
+    ensure!(
+        xattr::copied(staged, &attributes)?,
+        "The extended attributes of the copy of {} differ from the original's after writing \
+         them; nothing was moved",
+        source.display()
+    );
     let after = Stamp::of(source)?;
     ensure!(
-        after == before,
+        after == before && xattr::read_path(source)? == attributes,
         "{} changed while it was copied; nothing was moved",
         source.display()
     );

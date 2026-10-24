@@ -17,7 +17,7 @@ const TREE: [(&str, usize); 6] = [
 const FOLDERS: [&str; 3] = ["Empty", "Sub", "Sub/Deeper"];
 
 impl World {
-    fn folder(&self) -> (PathBuf, PathBuf) {
+    pub(super) fn folder(&self) -> (PathBuf, PathBuf) {
         let (from, to) = (self.source.join("Shoot"), self.target.join("Shoot"));
         if !exists(&from) && !exists(&to) {
             for dir in FOLDERS {
@@ -29,7 +29,7 @@ impl World {
         }
         (from, to)
     }
-    fn folder_step(&self) -> Step {
+    pub(super) fn folder_step(&self) -> Step {
         let (from, to) = self.folder();
         if self.two_volumes {
             let step = Step::moving(from, to).unwrap();

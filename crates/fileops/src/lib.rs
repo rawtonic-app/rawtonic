@@ -31,6 +31,7 @@ use std::{
 mod copy_move_tests;
 mod tree;
 mod volume;
+mod xattr;
 pub use tree::TreeEntry;
 pub use volume::{
     CopyObserver, SPACE_RESERVE, Stamp, Unobserved, VolumeInfo, probe_exclusive_rename,
@@ -543,15 +544,18 @@ impl Journal {
         direction: Direction,
         observer: &dyn CopyObserver,
     ) -> Result<()> {
+        let pairs = copy_pairs(&payload.steps, direction);
+        let attributes = first_with_attributes(&pairs)?;
         for dir in &payload.staging_dirs {
             fs::create_dir(dir)
                 .with_context(|| format!("Cannot create the folder {}", dir.display()))?;
             probe_exclusive_rename(dir)?;
+            // Found out before anything is copied.
+            if let Some((file, attributes)) = &attributes {
+                xattr::probe(dir).map_err(|e| xattr::cannot_keep(dir, file, attributes, &e))?;
+            }
         }
-        let total = copy_pairs(&payload.steps, direction)
-            .iter()
-            .map(|(source, _)| bytes_of(source))
-            .sum();
+        let total = pairs.iter().map(|(source, _)| bytes_of(source)).sum();
         let mut tally = Tally {
             observer,
             done: 0,
@@ -648,7 +652,9 @@ impl Journal {
                     source.display(),
                     destination.display()
                 ));
-            } else if !source_unchanged(copy, &source) {
+            } else if !source_unchanged(copy, &source)
+                || !tree::same_attributes(&source, &destination, copy.tree.as_deref())
+            {
                 copy.kept = true;
                 kept.push(format!(
                     "{} changed while it was moved and was kept",
@@ -1705,12 +1711,12 @@ fn is_kind(path: &Path, folder: bool) -> bool {
 }
 
 /// Whether two files, or two folders with everything in them, hold the
-/// same bytes.
+/// same bytes and kept extended attributes.
 fn same_entry(a: &Path, b: &Path, folder: bool) -> Result<bool> {
     if folder {
         tree::same(a, b)
     } else {
-        same_content(a, b, false, None)
+        Ok(same_content(a, b, false, None)? && xattr::same(a, b))
     }
 }
 
@@ -1924,16 +1930,38 @@ fn plan_staging(steps: &mut [Step], direction: Direction) -> Result<Vec<PathBuf>
     Ok(folders.into_values().collect())
 }
 
-/// Whether copies can be put in `folder` without risking replacing a file
-/// (ADR 0016): makes a staging folder there, probes an exclusive rename in
-/// it and removes it again.
-pub fn probe_folder(folder: &Path) -> Result<()> {
+/// Whether copies of `sources` can be put in `folder` without risking
+/// replacing a file and keeping their extended attributes (ADR 0016):
+/// makes a staging folder there, probes an exclusive rename in it (and
+/// keeping an attribute, when a source has some) and removes it again.
+pub fn probe_folder(folder: &Path, sources: &[PathBuf]) -> Result<()> {
     let dir = folder.join(format!("{MOVE_STAGING_PREFIX}{}", uuid::Uuid::new_v4()));
     fs::create_dir(&dir).with_context(|| format!("Cannot write in {}", folder.display()))?;
-    let result = probe_exclusive_rename(&dir);
+    let result = probe_exclusive_rename(&dir).and_then(|()| {
+        let pairs: Vec<_> = sources.iter().map(|s| (s.clone(), dir.clone())).collect();
+        match first_with_attributes(&pairs)? {
+            Some((file, attributes)) => {
+                xattr::probe(&dir).map_err(|e| xattr::cannot_keep(folder, &file, &attributes, &e))
+            }
+            None => Ok(()),
+        }
+    });
     volume::remove_probe(&dir);
     let _ = fs::remove_dir(&dir);
     result
+}
+
+/// The first file or folder of the copies' sources (in a folder, at any
+/// depth) with extended attributes a copy keeps, and those attributes.
+fn first_with_attributes(
+    pairs: &[(PathBuf, PathBuf)],
+) -> Result<Option<(PathBuf, Vec<xattr::Attribute>)>> {
+    for (source, _) in pairs {
+        if let Some(found) = tree::with_attributes(source)? {
+            return Ok(Some(found));
+        }
+    }
+    Ok(None)
 }
 
 /// Whether `dir` is a staging folder of a copy move.

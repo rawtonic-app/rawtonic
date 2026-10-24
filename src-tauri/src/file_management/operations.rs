@@ -527,8 +527,9 @@ fn other_drive_plan(
         }
         Err(e) => plan.refusal = Some(format!("{e:#}")),
     }
+    let sources: Vec<PathBuf> = pairs.iter().map(|(source, _)| source.clone()).collect();
     if plan.refusal.is_none()
-        && let Err(e) = rawtonic_fileops::probe_folder(Path::new(destination_folder))
+        && let Err(e) = rawtonic_fileops::probe_folder(Path::new(destination_folder), &sources)
     {
         plan.refusal = Some(format!("{e:#}"));
     }

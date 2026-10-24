@@ -11,6 +11,7 @@ use super::*;
 use std::cell::{Cell, RefCell};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
+mod attributes;
 mod folders;
 
 /// The system Trash for tests: a `.trash` folder beside the file's folder
