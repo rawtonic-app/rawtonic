@@ -33,24 +33,16 @@ const VERBATIM_KEYS: &[&str] = &[
     "crashedOn",
 ];
 
-static FILE_URL: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"file://[^\s"'<>|]*"#).expect("file URL pattern"));
-/// A quoted path (Rust's `{:?}` of a path, JSON strings in logs): spaces
-/// inside the quotes belong to it.
-static QUOTED_PATH: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#""((?:/[^/"\n]|~/|[A-Za-z]:\\|\\\\)[^"\n]*)"|'((?:/[^/'\n]|~/|[A-Za-z]:\\|\\\\)[^'\n]*)'"#)
-        .expect("quoted path pattern")
-});
-/// An unquoted Windows path. Names may hold spaces, quotes and any other
-/// punctuation, so it runs to the end of its line; `path_in_text` cuts it
-/// at ": " or ":12" only.
-static WINDOWS_PATH: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?:\b[A-Za-z]:\\|\\\\[^\s\\"'<>|]+\\)[^\n]*"#).expect("Windows path pattern")
-});
-/// An unquoted POSIX path or `~/` path: starts the text or follows a
-/// space or an opening bracket, and runs like a Windows path.
-static POSIX_PATH: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(^|[\s(\[=,])(~?/[^/\s"'<>|][^\n]*)"#).expect("POSIX path pattern")
+/// The start of an absolute path — POSIX, `~/`, Windows with either slash,
+/// UNC, `file:` URL — at the start of the text or after a space, bracket,
+/// `=`, comma or quote. Names may hold spaces, quotes (escaped or not) and
+/// any other punctuation, so a path runs to the end of its line; only
+/// `path_in_text` ends it earlier, at a colon before a space or a line
+/// number. One fail-closed rule instead of one pattern per spelling: a few
+/// words after a path are dropped rather than part of a name kept.
+static PATH: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(^|[\s(\[=,"'`])((?:file:/+|~/|/[^/\s]|[A-Za-z]:[\\/]|\\\\[^\s\\])[^\n]*)"#)
+        .expect("path pattern")
 });
 /// Where an unquoted path ends at the latest: a colon before a space, a
 /// digit (line numbers) or the end.
@@ -84,7 +76,7 @@ static GPS: LazyLock<Regex> = LazyLock::new(|| {
 /// What follows a path but is not part of it: line and column numbers,
 /// closing punctuation.
 static PATH_TAIL: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?:(?::\d+)+|[.,;:!?)\]}])+$").expect("path tail pattern"));
+    LazyLock::new(|| Regex::new(r#"(?:(?::\d+)+|[.,;:!?)\]}"'`])+$"#).expect("path tail pattern"));
 static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\p{L}\p{N}_.-]+").expect("word"));
 
 /// The placeholder for an unquoted path found in running text, with what
@@ -189,17 +181,7 @@ impl Scrubber {
     }
 
     fn scrub_once(&self, text: &str) -> String {
-        let text = FILE_URL.replace_all(text, |c: &Captures| path_in_text(&c[0]));
-        let text = QUOTED_PATH.replace_all(&text, |c: &Captures| {
-            let (quote, path) = match (c.get(1), c.get(2)) {
-                (Some(p), _) => ('"', p.as_str()),
-                (_, Some(p)) => ('\'', p.as_str()),
-                _ => unreachable!("one alternative matched"),
-            };
-            format!("{quote}{}{quote}", path_placeholder(path))
-        });
-        let text = WINDOWS_PATH.replace_all(&text, |c: &Captures| path_in_text(&c[0]));
-        let text = POSIX_PATH.replace_all(&text, |c: &Captures| {
+        let text = PATH.replace_all(text, |c: &Captures| {
             format!("{}{}", &c[1], path_in_text(&c[2]))
         });
         let text = SERIAL.replace_all(&text, |c: &Captures| {
@@ -253,12 +235,16 @@ fn replace_ipv6(text: &str) -> String {
     let mut last = 0;
     for m in IPV6.find_iter(text) {
         let before = text[..m.start()].chars().next_back();
-        let after = text[m.end()..].chars().next();
-        let joined =
-            |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.');
+        let mut rest = text[m.end()..].chars();
+        let after = rest.next();
+        let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+        // A dot joins only when a word goes on after it ("abc.def"); a
+        // sentence's full stop does not.
+        let joined_after = word(after) || (after == Some('.') && word(rest.next()));
         let candidate = m.as_str();
-        if !joined(before)
-            && !joined(after)
+        if !word(before)
+            && before != Some('.')
+            && !joined_after
             && candidate.chars().any(|c| c.is_ascii_hexdigit())
             && candidate.parse::<std::net::Ipv6Addr>().is_ok()
         {
@@ -440,6 +426,37 @@ mod tests {
             s.scrub(r#"open C:\Jobs\"Best" <Jane> | Ben's\x.NEF"#),
             "open <path>.NEF"
         );
+    }
+
+    #[test]
+    fn every_path_spelling_goes_to_the_end_of_its_line() {
+        let s = anna();
+        assert_eq!(
+            s.scrub("copy C:/Users/anna/Pictures/Client Wedding.CR3 done"),
+            "copy <path>.CR3"
+        );
+        assert_eq!(
+            s.scrub(r#"open "C:/Jobs/Jane Wedding.NEF": denied"#),
+            r#"open "<path>.NEF": denied"#
+        );
+        assert_eq!(
+            s.scrub(r#"Failed "/Volumes/Client \"Jane Wedding\".CR3": gone"#),
+            r#"Failed "<path>.CR3": gone"#
+        );
+        assert_eq!(
+            s.scrub("{\"file\":\"/Users/a/b c.CR3\",\"size\":5}"),
+            "{\"file\":\"<path>\":5}"
+        );
+    }
+
+    #[test]
+    fn sentence_final_ipv6_goes_too() {
+        let s = anna();
+        assert_eq!(
+            s.scrub("Failed to connect to fdab:cdef:abcd:abcd:abcd:abcd:abcd:abcd."),
+            "Failed to connect to <ip>."
+        );
+        assert_eq!(s.scrub("v fe80::1, then"), "v <ip>, then");
     }
 
     #[test]
