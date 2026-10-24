@@ -105,3 +105,14 @@ it('reports no newer release only after a successful empty manual result', async
   expect(screen.getByText('updates.noUpdate')).toBeTruthy();
   expect(screen.queryByText('updates.failed')).toBeNull();
 });
+
+it('waits for settings before offering a dismissal that must be persisted', async () => {
+  useSettingsStore.setState({ appSettings: null });
+  render(<UpdateNotice />);
+  await act(async () => {});
+  expect(screen.queryByText('updates.notNow')).toBeNull();
+  await act(async () => { useSettingsStore.setState({ appSettings: {} as AppSettings }); });
+  fireEvent.click(screen.getByText('updates.notNow'));
+  await act(async () => {});
+  expect(invoke).toHaveBeenCalledWith(Invokes.SaveSettings, { settings: { dismissedUpdateVersion: release.version } });
+});
