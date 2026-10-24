@@ -692,6 +692,7 @@ pub fn run() {
             camera_profile::white_balance_from_sample,
             bw_auto::auto_gray_mix,
             preset_converter::place_lightroom_masks,
+            preset_converter::place_lightroom_retouch,
             red_eye::detect_red_eye,
             red_eye::red_eyes_shown,
             red_eye::red_eye_point,

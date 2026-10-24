@@ -154,6 +154,7 @@ export enum Invokes {
   AutoGrayMix = 'auto_gray_mix',
   AutoWhiteBalance = 'auto_white_balance_for',
   PlaceLightroomMasks = 'place_lightroom_masks',
+  PlaceLightroomRetouch = 'place_lightroom_retouch',
   DetectRedEye = 'detect_red_eye',
   RedEyePoint = 'red_eye_point',
   RedEyesShown = 'red_eyes_shown',

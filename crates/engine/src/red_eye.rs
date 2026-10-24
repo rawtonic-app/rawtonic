@@ -98,15 +98,39 @@ fn default_visible() -> bool {
 /// flash above the lens or a window light puts it.
 pub const DEFAULT_CATCHLIGHT: (f64, f64) = (-0.3, -0.35);
 
-/// The visible corrections of a recipe that this build renders.
+/// The visible corrections of a recipe that this build renders (without
+/// Lightroom's not yet placed, see `red_eyes_on`).
 pub fn red_eyes(adjustments: &Value) -> Vec<RedEye> {
+    red_eyes_with(adjustments, |item| item.clone())
+}
+
+/// `red_eyes` on a base image of `width` × `height` (or a copy of it),
+/// Lightroom's imported ones not yet placed included where they stand
+/// (`lightroom_retouch::placed_red_eye`).
+fn red_eyes_on(adjustments: &Value, width: u32, height: u32) -> Vec<RedEye> {
+    red_eyes_with(adjustments, |item| {
+        if item.get(crate::lightroom_retouch::PENDING).is_some() {
+            crate::lightroom_retouch::placed_red_eye(
+                item,
+                f64::from(width),
+                f64::from(height),
+                None,
+            )
+            .unwrap_or(Value::Null)
+        } else {
+            item.clone()
+        }
+    })
+}
+
+fn red_eyes_with(adjustments: &Value, resolve: impl Fn(&Value) -> Value) -> Vec<RedEye> {
     adjustments
         .get("redEyes")
         .and_then(Value::as_array)
         .map(|items| {
             items
                 .iter()
-                .filter_map(|item| serde_json::from_value::<RedEye>(item.clone()).ok())
+                .filter_map(|item| serde_json::from_value::<RedEye>(resolve(item)).ok())
                 .filter(|e| {
                     e.visible
                         && e.version == VERSION
@@ -122,6 +146,7 @@ pub fn red_eyes(adjustments: &Value) -> Vec<RedEye> {
 
 pub fn is_active(adjustments: &Value) -> bool {
     !red_eyes(adjustments).is_empty()
+        || crate::lightroom_retouch::has_renderable(adjustments, "redEyes")
 }
 
 /// Smallest value the ratios work with (pupils are dark, channels may be 0
@@ -329,7 +354,7 @@ fn apply_eye(
 /// The base image with the recipe's red eye corrections applied; None when
 /// it has none.
 pub fn apply_red_eyes(base: &DynamicImage, adjustments: &Value) -> Option<DynamicImage> {
-    let eyes = red_eyes(adjustments);
+    let eyes = red_eyes_on(adjustments, base.width(), base.height());
     if eyes.is_empty() {
         return None;
     }
@@ -455,7 +480,11 @@ fn invert(m: [[f64; 2]; 2]) -> Option<[[f64; 2]; 2]> {
 /// resolves only fractions of a thousandth of a pixel: the closest point
 /// found counts when it lies within a hundredth of a pixel. None when
 /// nothing comes that close.
-fn to_mask(adjustments: &Value, frame: (f64, f64), target: (f64, f64)) -> Option<(f64, f64)> {
+pub(crate) fn to_mask(
+    adjustments: &Value,
+    frame: (f64, f64),
+    target: (f64, f64),
+) -> Option<(f64, f64)> {
     let mut m = (frame.0 / 2.0, frame.1 / 2.0);
     let mut best: Option<((f64, f64), f64)> = None;
     for _ in 0..30 {
@@ -484,7 +513,7 @@ fn to_mask(adjustments: &Value, frame: (f64, f64), target: (f64, f64)) -> Option
 
 /// The ellipse with covariance-like matrix `m` (semi-axes² on its
 /// eigenvectors): semi-axes and angle (degrees) of its first axis.
-fn ellipse_of(m: [[f64; 2]; 2]) -> (f64, f64, f64) {
+pub(crate) fn ellipse_of(m: [[f64; 2]; 2]) -> (f64, f64, f64) {
     let mean = (m[0][0] + m[1][1]) / 2.0;
     let spread = (((m[0][0] - m[1][1]) / 2.0).powi(2) + m[0][1] * m[0][1]).sqrt();
     let angle = 0.5 * (2.0 * m[0][1]).atan2(m[0][0] - m[1][1]);
