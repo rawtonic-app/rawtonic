@@ -62,6 +62,18 @@ fn registered_form(source: &Path) -> PathBuf {
         _ => source.to_path_buf(),
     }
 }
+/// The library that manages everything in `source`'s folder: the session
+/// or catalog above it, or the open catalog.
+fn library_above(source: &Path) -> Option<PathBuf> {
+    session_for(source).or_else(|| {
+        active()
+            .lock()
+            .ok()?
+            .clone()
+            .filter(|dir| dir.join("catalog.json").is_file())
+    })
+}
+
 fn library_for(source: &Path) -> Option<PathBuf> {
     session_for(source).or_else(|| {
         let dir = active().lock().ok()?.clone()?;
@@ -99,7 +111,12 @@ fn outside_of_active_session(dir: &Path, path: &Path, folder: bool) -> bool {
     holds(path) || holds(&registered_form(path))
 }
 
-/// The session or open catalog that manages the photographs in `folder`.
+/// The session or open catalog that manages the photographs in `folder`
+/// (also when the folder is gone: by the photographs recorded below it).
+pub(crate) fn library_dir_for_folder(folder: &Path) -> Option<PathBuf> {
+    library_for_folder(folder)
+}
+
 fn library_for_folder(folder: &Path) -> Option<PathBuf> {
     session_for(&folder.join("_")).or_else(|| {
         let dir = active().lock().ok()?.clone()?;
@@ -205,9 +222,13 @@ pub(crate) fn visit_editor_sidecars(
         let Some(parent) = source.parent() else {
             continue;
         };
+        // The library above a folder holds for all of it; outside the
+        // session folder the active session owns single photographs.
         let library = directories
             .entry(parent.to_owned())
-            .or_insert_with(|| library_for(source));
+            .or_insert_with(|| library_above(source))
+            .clone()
+            .or_else(|| library_for(source));
         let Some(library) = library else { continue };
         // Offline photographs keep their edits from the library.
         let canonical = registered_form(source);

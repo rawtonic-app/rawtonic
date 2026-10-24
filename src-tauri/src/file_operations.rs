@@ -911,12 +911,6 @@ fn moved(op: &Operation, forward: bool) -> Vec<(PathBuf, PathBuf, bool)> {
 /// Every change is tried; the failures are returned together. Running it
 /// again is harmless: a relocation finds nothing left at the old place.
 pub fn sync_catalog(op: &Operation, forward: bool) -> Result<(), String> {
-    sync_catalog_with(op, forward, &PlatformTrash)
-}
-
-/// [`sync_catalog`] with the Trash that takes derived files left behind
-/// (`take_derived_along`).
-fn sync_catalog_with(op: &Operation, forward: bool, trash: &dyn SystemTrash) -> Result<(), String> {
     enum Change {
         Relocate(PathBuf, PathBuf),
         Missing(PathBuf, bool),
@@ -926,8 +920,15 @@ fn sync_catalog_with(op: &Operation, forward: bool, trash: &dyn SystemTrash) -> 
         if !(folder || is_supported_image_file(&b)) {
             continue;
         }
-        let library = crate::session_bridge::library_dir_for(&a)
-            .or_else(|| crate::session_bridge::library_dir_for(&b));
+        // A folder by what was below it, also when it is gone from there.
+        let owner = |path: &Path| {
+            if folder {
+                crate::session_bridge::library_dir_for_folder(path)
+            } else {
+                crate::session_bridge::library_dir_for(path)
+            }
+        };
+        let library = owner(&a).or_else(|| owner(&b));
         if let Some(dir) = library {
             changes.push((dir, Change::Relocate(a, b)));
         }
@@ -966,7 +967,6 @@ fn sync_catalog_with(op: &Operation, forward: bool, trash: &dyn SystemTrash) -> 
     // Photographs a session now keeps outside its folder (or no longer)
     // are its own there from here on, for what follows too.
     crate::session_bridge::refresh_outside_photos();
-    take_derived_along(op, forward, trash);
     carry_previews(op, forward);
     // Virtual copies the library keeps follow their sidecars: a deleted
     // copy is forgotten, one put back is kept again.
@@ -987,81 +987,6 @@ fn sync_catalog_with(op: &Operation, forward: bool, trash: &dyn SystemTrash) -> 
     }
     failures.dedup();
     Err(failures.join("; "))
-}
-
-/// The editor sidecar and XMP a library derives from its records, written
-/// beside a moved photograph after the move (an edit there) and so no step
-/// of it: when an undo or redo takes the photograph away again, they are
-/// derived at its new place, and the one left behind goes to the Trash when
-/// it holds nothing else (the same JSON, the same XMP bytes); otherwise it
-/// stays. UT2 S7 found such sidecars left on the drive after an undo.
-fn take_derived_along(op: &Operation, forward: bool, trash: &dyn SystemTrash) {
-    let steps: HashSet<&Path> = op
-        .steps
-        .iter()
-        .flat_map(|step| {
-            [Some(step.from.as_path()), step.target()]
-                .into_iter()
-                .flatten()
-        })
-        .collect();
-    let mut libraries: HashMap<PathBuf, Option<Library>> = HashMap::new();
-    for (a, b, folder) in moved(op, forward) {
-        if folder || !is_supported_image_file(&b) || !b.is_file() {
-            continue;
-        }
-        let name = |p: &Path| {
-            format!(
-                "{}.rrdata",
-                p.file_name().unwrap_or_default().to_string_lossy()
-            )
-        };
-        let left = [
-            (a.with_file_name(name(&a)), b.with_file_name(name(&b)), true),
-            (xmp_for(&a), xmp_for(&b), false),
-        ];
-        if !left
-            .iter()
-            .any(|(old, ..)| old.is_file() && !steps.contains(old.as_path()))
-        {
-            continue;
-        }
-        let Some(dir) = crate::session_bridge::library_dir_for(&b) else {
-            continue;
-        };
-        let Some(lib) = libraries
-            .entry(dir.clone())
-            .or_insert_with(|| Library::open(&dir).ok())
-        else {
-            continue;
-        };
-        let Ok(Some(asset)) = lib.asset_at(&b) else {
-            continue;
-        };
-        crate::session_bridge::rederive(lib, &asset.id);
-        for (old, new, json) in left {
-            if !old.is_file() || steps.contains(old.as_path()) || !new.is_file() {
-                continue;
-            }
-            let (Ok(was), Ok(now)) = (fs::read(&old), fs::read(&new)) else {
-                continue;
-            };
-            // Sidecars as the editor reads them (defaults filled in).
-            let read = |path: &Path| {
-                serde_json::to_value(crate::exif_processing::load_sidecar_file(path)).ok()
-            };
-            let same = if json {
-                read(&old).is_some() && read(&old) == read(&new)
-            } else {
-                was == now
-            };
-            if !same {
-                log::info!("{} differs from {} and stays", old.display(), new.display());
-            } else if let Err(e) = trash.trash(&old) {
-                log::warn!("{} stays: {e:#}", old.display());
-            }
-        }
-    }
 }
 
 /// Previews (Standard and 1:1) follow photographs and folders renamed or
@@ -2031,7 +1956,7 @@ mod tests {
         let op = journal
             .execute("move", "Move 1 photo to Shoots", steps, &trash)
             .unwrap();
-        sync_catalog_with(&op, true, &trash).unwrap();
+        sync_catalog(&op, true).unwrap();
 
         let moved = drive.join("DSC_0001.NEF");
         let sidecar = drive.join("DSC_0001.NEF.rrdata");
@@ -2076,6 +2001,18 @@ mod tests {
         let other = drive.join("B.NEF");
         fs::write(&other, "other raw").unwrap();
         assert!(!crate::session_bridge::is_managed_source(&other));
+        // Listed together, in either order, only the session's photograph
+        // takes its state from the library.
+        for sources in [
+            [moved.clone(), other.clone()],
+            [other.clone(), moved.clone()],
+        ] {
+            let mut visited = Vec::new();
+            crate::session_bridge::visit_editor_sidecars(&sources, |source, _, _| {
+                visited.push(source.to_path_buf())
+            });
+            assert_eq!(visited, std::slice::from_ref(&moved));
+        }
         fs::rename(&other, tmp.path().join("B.NEF")).unwrap();
         // Listing the folder takes nothing from the XMP into a new sidecar
         // there (UT2 found one per photograph on the drive after an undo).
@@ -2087,7 +2024,7 @@ mod tests {
 
         // Undo: back in the session, nothing left on the drive.
         let undone = journal.undo(&op.id, &trash).unwrap();
-        sync_catalog_with(&undone, false, &trash).unwrap();
+        sync_catalog(&undone, false).unwrap();
         let back = lib.asset_at(&photo).unwrap().unwrap();
         assert_eq!(back.id, asset.id);
         assert!(!back.missing);
@@ -2098,15 +2035,40 @@ mod tests {
             .flatten()
             .map(|e| e.path())
             .collect();
-        assert!(left.is_empty(), "left on the drive: {left:?}");
+        // Only the sidecar the edit made there after the move stays (no
+        // step of the move; the edit itself is in the library).
+        assert_eq!(left, [sidecar.clone()], "left on the drive");
+        assert_eq!(
+            lib.editor_state(&asset.id).unwrap().unwrap()["adjustments"]["exposure"],
+            2.5
+        );
+        fs::rename(&sidecar, tmp.path().join("edited-there.rrdata")).unwrap();
 
         // Redo: there again, the same photograph.
         let redone = journal.redo(&op.id, &trash).unwrap();
-        sync_catalog_with(&redone, true, &trash).unwrap();
+        sync_catalog(&redone, true).unwrap();
         let again = lib.asset_at(&moved).unwrap().unwrap();
         assert_eq!(again.id, asset.id);
         assert!(!again.missing);
         assert!(crate::session_bridge::is_managed_source(&moved));
+
+        // The outside folder moves on (Move Folder on that drive): the
+        // records follow, although the old folder is gone when they do.
+        let archive = drive.parent().unwrap().join("Archive");
+        fs::create_dir(&archive).unwrap();
+        let op = journal
+            .execute(
+                "moveFolder",
+                "Move folder Shoots to Archive",
+                vec![Step::rename(&drive, archive.join("Shoots"))],
+                &trash,
+            )
+            .unwrap();
+        sync_catalog(&op, true).unwrap();
+        let there = archive.join("Shoots/DSC_0001.NEF");
+        assert_eq!(lib.asset_at(&there).unwrap().unwrap().id, asset.id);
+        assert!(!lib.asset(&asset.id).unwrap().missing);
+        assert!(crate::session_bridge::is_managed_source(&there));
         crate::session_bridge::set_active_for_test(None);
     }
 
