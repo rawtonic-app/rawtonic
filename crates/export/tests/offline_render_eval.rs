@@ -129,7 +129,7 @@ fn compare(a: &DynamicImage, b: &DynamicImage) -> (f32, f32, f32, f32) {
 
 fn render(
     ctx: &GpuContext,
-    processor: &Mutex<Option<rawtonic_gpu::gpu_processing::GpuProcessorState>>,
+    processor: &rawtonic_gpu::gpu_processing::GpuProcessorSlot,
     cache: &Mutex<Option<rawtonic_gpu::gpu_processing::GpuImageCache>>,
     path: &str,
     image: &Arc<DynamicImage>,
@@ -199,7 +199,7 @@ fn offline_render_eval() {
         rawtonic_engine::lens_correction::load_lensfun_dir(Path::new(&lensfun)),
     ));
     let ctx = GpuContext::headless().unwrap();
-    let processor = Mutex::new(None);
+    let processor = rawtonic_gpu::gpu_processing::GpuProcessorSlot::new(None);
     let cache = Mutex::new(None);
     let recipes = [
         ("default", serde_json::json!({})),

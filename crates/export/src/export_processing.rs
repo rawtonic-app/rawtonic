@@ -18,7 +18,7 @@ use serde_json::Value;
 use crate::adjustment_utils::apply_all_transformations;
 use crate::cache_utils::calculate_full_job_hash;
 use crate::gpu_processing::{
-    GpuContext, GpuImageCache, GpuProcessorState, MaskUploader, ReadbackShader, RenderOutput,
+    GpuContext, GpuImageCache, GpuProcessorSlot, MaskUploader, ReadbackShader, RenderOutput,
     RenderOutputPrecision, RenderRequest, RenderSource, process_and_get_dynamic_image_inner,
     process_and_get_dynamic_images, upload_render_source,
 };
@@ -972,7 +972,7 @@ pub fn ensure_export_not_cancelled(cancellation_token: &AtomicBool) -> Result<()
 pub struct RenderEnv<'a> {
     pub context: &'a GpuContext,
     /// The GPU processor, created or resized by the render as needed.
-    pub processor: &'a Mutex<Option<GpuProcessorState>>,
+    pub processor: &'a GpuProcessorSlot,
     /// Uploaded sources kept between renders of the same photo.
     pub image_cache: &'a Mutex<Option<GpuImageCache>>,
     /// The tone mapper forced by the preferences, by whether the source is a RAW.

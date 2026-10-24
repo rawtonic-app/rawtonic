@@ -915,7 +915,7 @@ fn compare(a: &DynamicImage, b: &DynamicImage, dark: &[bool]) -> Stats {
 
 fn render(
     ctx: &GpuContext,
-    proc_: &Mutex<Option<rawtonic_gpu::gpu_processing::GpuProcessorState>>,
+    proc_: &rawtonic_gpu::gpu_processing::GpuProcessorSlot,
     cache: &Mutex<Option<rawtonic_gpu::gpu_processing::GpuImageCache>>,
     path: &str,
     img: &Rgb32FImage,
@@ -959,7 +959,7 @@ fn proxy_codec_eval() {
         rawtonic_engine::lens_correction::load_lensfun_dir(Path::new(&lensfun)),
     ));
     let ctx = GpuContext::headless().unwrap();
-    let proc_ = Mutex::new(None);
+    let proc_ = rawtonic_gpu::gpu_processing::GpuProcessorSlot::new(None);
     let cache = Mutex::new(None);
     let recipes = [
         ("default", serde_json::json!({})),

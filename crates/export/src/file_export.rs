@@ -16,7 +16,7 @@ use crate::export_processing::{
     ExportOutput, ExportSettings, RenderEnv, prepare_export_source, render_and_save,
     set_capture_file_times,
 };
-use crate::gpu_processing::{GpuContext, GpuImageCache, GpuProcessorState};
+use crate::gpu_processing::{GpuContext, GpuImageCache, GpuProcessorSlot};
 use crate::output::write_new_output;
 use rawtonic_engine::file_io::read_file_mapped;
 use rawtonic_engine::formats::is_raw_file;
@@ -44,7 +44,7 @@ pub struct FileExport<'a> {
 /// exports reuse, as the app keeps them in its state.
 pub struct FileExporter {
     context: GpuContext,
-    processor: Mutex<Option<GpuProcessorState>>,
+    processor: GpuProcessorSlot,
     image_cache: Mutex<Option<GpuImageCache>>,
     /// For recipes with AI Denoise; without it such exports fail.
     /// AI Denoise's denoisers by model (`AiDenoiseSettings::model`).
@@ -67,7 +67,7 @@ impl FileExporter {
         ));
         Ok(Self {
             context: GpuContext::headless()?,
-            processor: Mutex::new(None),
+            processor: GpuProcessorSlot::new(None),
             image_cache: Mutex::new(None),
             mosaic_denoisers: [None, None],
         })
