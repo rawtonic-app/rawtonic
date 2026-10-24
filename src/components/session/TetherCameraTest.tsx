@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { arch, platform, version } from "@tauri-apps/plugin-os";
-import { open } from "@tauri-apps/plugin-shell";
-import { Check, CircleHelp, ClipboardCopy, ExternalLink, LoaderCircle, Minus, X } from "lucide-react";
+import { Check, CircleHelp, LoaderCircle, Minus, Send, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Invokes } from "../ui/AppProperties";
 import { useUIStore } from "../../store/useUIStore";
+import ReportDialog from "../contribute/ReportDialog";
+import { contributionAvailable } from "../contribute/relay";
+import type { AppInfo } from "../contribute/reports";
 import {
   STEPS,
   buildReport,
+  cameraTestPayload,
   describe,
   settingToChange,
   type ReportInfo,
@@ -76,7 +79,6 @@ const REPLUG_WAIT_MS = 180_000;
 const RELEASE_WAIT_MS = 10_000;
 const BURST = 5;
 const SHOT_COUNTS = [5, 10, 20];
-export const ISSUE_URL = "https://github.com/rawtonic-app/rawtonic/issues/new?template=camera-report.yml";
 
 const now = () => performance.now();
 const sameFile = (a: string, b: string) => a === b || a.startsWith(`${b}?`);
@@ -140,8 +142,10 @@ const systemName = () => {
 };
 
 /** The guided camera test (G46): the user runs each step with their own
- * camera; the test measures, and at the end shows the anonymous report the
- * user can copy into a camera report. Nothing is sent anywhere. It frees or
+ * camera; the test measures, and at the end shows the anonymous report,
+ * which the user can send (after "Review what will be sent", ADR 0017),
+ * copy or open as a camera report on GitHub. Nothing is sent without that
+ * click. It frees or
  * deletes nothing itself: transfer-queue releases are the connection's own,
  * after each verified commit. */
 export default function TetherCameraTest({
@@ -164,7 +168,9 @@ export default function TetherCameraTest({
   const [prompt, setPrompt] = useState("");
   const [shotCount, setShotCount] = useState(10);
   const [appVersion, setAppVersion] = useState("unknown");
-  const [copied, setCopied] = useState(false);
+  const [app, setApp] = useState<AppInfo | null>(null);
+  const [relay, setRelay] = useState(false);
+  const [sharing, setSharing] = useState(false);
   // Files not added to the library and shots not delivered during the test.
   const [failures, setFailures] = useState(0);
   // The photo step running, and the last one that ran: a failure heard
@@ -210,6 +216,12 @@ export default function TetherCameraTest({
   useEffect(() => {
     void getVersion()
       .then(setAppVersion)
+      .catch(() => undefined);
+    void invoke<AppInfo>(Invokes.ContributionAppInfo)
+      .then(setApp)
+      .catch(() => undefined);
+    void contributionAvailable()
+      .then(setRelay)
       .catch(() => undefined);
     const hear = (name: string, payload: unknown) => {
       seq.current += 1;
@@ -675,6 +687,7 @@ export default function TetherCameraTest({
     failures,
   };
   const report = buildReport(info, results);
+  const payload = useMemo(() => (app ? cameraTestPayload(app, camera, report) : null), [app, camera, report]);
   const stepNames: Record<StepId, string> = {
     connect: t("session.tether.test.steps.connect"),
     settings: t("session.tether.test.steps.settings"),
@@ -704,15 +717,6 @@ export default function TetherCameraTest({
     skipped: t("session.tether.test.state.skipped"),
   };
   const current = STEPS.find((id) => !results[id]);
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(report);
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
-  };
 
   return (
     <section className="tether-test" aria-label={t("session.tether.test.title")}>
@@ -786,15 +790,32 @@ export default function TetherCameraTest({
         <small>{t("session.tether.test.reportHint")}</small>
       </label>
       <div className="tether-actions tether-test-report-actions">
-        <button type="button" className="session-action session-primary" onClick={() => void copy()}>
-          <ClipboardCopy size={14} />
-          <span>{copied ? t("session.tether.test.copied") : t("session.tether.test.copy")}</span>
-        </button>
-        <button type="button" className="session-action" onClick={() => void open(ISSUE_URL)}>
-          <ExternalLink size={14} />
-          <span>{t("session.tether.test.openIssue")}</span>
+        <button
+          type="button"
+          className="session-action session-primary"
+          disabled={!payload}
+          onClick={() => setSharing(true)}
+        >
+          <Send size={14} />
+          <span>{relay ? t("session.tether.test.send") : t("session.tether.test.share")}</span>
         </button>
       </div>
+      <ReportDialog
+        isOpen={sharing}
+        title={t("session.tether.test.sendTitle")}
+        channel="cameraTest"
+        payload={payload}
+        onClose={() => setSharing(false)}
+      >
+        <p className="text-sm">{t("session.tether.test.sendIntro")}</p>
+        <pre
+          aria-label={t("session.tether.test.report")}
+          className="min-h-0 overflow-auto rounded bg-bg-primary p-3 font-mono text-xs whitespace-pre-wrap wrap-anywhere"
+          tabIndex={0}
+        >
+          {report}
+        </pre>
+      </ReportDialog>
     </section>
   );
 }

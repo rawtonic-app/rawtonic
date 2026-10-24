@@ -131,3 +131,33 @@ describe('the no-relay fallbacks', () => {
     expect(crash.body).toContain('異異');
   });
 });
+
+describe('the camera test result', () => {
+  const body = (report: string) =>
+    JSON.stringify(
+      { schema: 1, app: context.app, camera: { make: 'Sony', model: 'Sony Alpha-A7 III', firmware: '4.01' }, report },
+      null,
+      2,
+    );
+
+  it('copies as its own report and opens the camera report form with it', () => {
+    const report = '### Rawtonic camera test\n\n- Camera: Sony Alpha-A7 III\n\n| Step | Result | Measured |';
+    expect(reportMarkdown(body(report))).toBe(report);
+    const issue = githubIssue(body(report));
+    expect(issue.title).toBe('Camera report: Sony Alpha-A7 III');
+    expect(issue.body).toBe(report);
+    const url = new URL(issue.url);
+    expect(url.searchParams.get('template')).toBe('camera-report.yml');
+    expect(url.searchParams.get('report')).toBe(report);
+    expect(url.searchParams.get('body')).toBeNull();
+  });
+
+  it('shortens a report too long for a link and says so', () => {
+    const report = `### Rawtonic camera test\n${'| Step | pass | 5/5 in the library |\n'.repeat(400)}`;
+    const issue = githubIssue(body(report));
+    expect(issue.url.length).toBeLessThanOrEqual(MAX_URL);
+    expect(issue.body.startsWith('### Rawtonic camera test')).toBe(true);
+    expect(issue.body).toContain('Shortened to fit a link');
+    expect(reportMarkdown(body(report))).toBe(report);
+  });
+});

@@ -4,6 +4,8 @@
 // is asked once per crash; Not now keeps the record (it can still be sent
 // from "Report a problem" until it expires after 30 days), Never deletes
 // all records and stops keeping them (Preferences can turn it back on).
+// "Help support this camera" (channel 3) lives here too: its "Report a
+// problem with this file" opens the problem report for that file.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
@@ -15,6 +17,7 @@ import { useUIStore } from "../../store/useUIStore";
 import Button from "../ui/Button";
 import Text from "../ui/Text";
 import { TextVariants } from "../../types/typography";
+import CameraHelpDialog from "./CameraHelpDialog";
 import CrashReportDialog from "./CrashReportDialog";
 import ProblemReportDialog from "./ProblemReportDialog";
 import {
@@ -26,6 +29,7 @@ import {
   removeCrashReport,
   setCrashReportsEnabled,
   type CrashRecord,
+  type PhotoInfo,
   type ReportContext,
   type Screenshot,
 } from "./reports";
@@ -93,6 +97,11 @@ export default function ContributionHost() {
   const isOpen = useUIStore((s) => s.isProblemReportOpen);
   const setOpen = useUIStore((s) => s.setProblemReportOpen);
   const selectedImage = useEditorStore((s) => s.selectedImage);
+  const cameraHelp = useUIStore((s) => s.cameraHelp);
+  const setCameraHelp = useUIStore((s) => s.setCameraHelp);
+  // The file camera help opened the report for (it may not be the open
+  // photo: a RAW that failed to load leaves none open).
+  const [reportPhoto, setReportPhoto] = useState<PhotoInfo | null>(null);
   const settingsLoaded = useSettingsStore((s) => s.appSettings !== null);
   const [context, setContext] = useState<ReportContext | null>(null);
   const [screenshot, setScreenshot] = useState<Screenshot | null>(null);
@@ -130,6 +139,7 @@ export default function ContributionHost() {
   // log read; both stay in memory and go only into a report the user sends.
   useEffect(() => {
     if (!isOpen) {
+      setReportPhoto(null);
       setShown(false);
       setContext(null);
       setScreenshot(null);
@@ -191,11 +201,20 @@ export default function ContributionHost() {
         onClose={() => setOpen(false)}
         context={context}
         screenshot={screenshot}
-        photo={photoInfo(selectedImage)}
+        photo={reportPhoto ?? photoInfo(selectedImage)}
         pendingCrash={crashes[0] ?? null}
         onReviewCrash={() => {
           setReviewing(crashes[0] ?? null);
           setOpen(false);
+        }}
+      />
+      <CameraHelpDialog
+        request={cameraHelp}
+        onClose={() => setCameraHelp(null)}
+        onReport={(photo) => {
+          setCameraHelp(null);
+          setReportPhoto(photo);
+          setOpen(true);
         }}
       />
       <CrashReportDialog

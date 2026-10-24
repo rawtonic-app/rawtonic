@@ -24,8 +24,8 @@ No body has been tried on Linux or Windows yet.
 
 1. Connect the camera in the tether panel (session bar → Tether) and open a photo in Develop.
 2. Click **Camera test…** and run each step (skip what your camera cannot do).
-3. Each step ends as pass, fail, skipped or inconclusive (the camera reused a file name, so its RAW and JPEG files could not be matched to shots for sure). The report at the end shows exactly what will be copied: the camera model and firmware, the system, the Rawtonic version, the camera driver and each step's result and timings. It holds no serial number, file names, folders, user name or photos. Rawtonic sends nothing; you copy the text yourself.
-4. Open a [camera report](https://github.com/rawtonic-app/rawtonic/issues/new?template=camera-report.yml) on GitHub and paste it.
+3. Each step ends as pass, fail, skipped or inconclusive (the camera reused a file name, so its RAW and JPEG files could not be matched to shots for sure). The report at the end holds the camera model and firmware, the system, the Rawtonic version, the camera driver and each step's result and timings — no serial number, file names, folders, user name or photos.
+4. Click **Send result…**: Rawtonic shows exactly what will be sent and sends it to its relay only when you click Send (no account needed; see [PRIVACY.md](../PRIVACY.md)). The same dialog can instead copy the report or open a [camera report](https://github.com/rawtonic-app/rawtonic/issues/new?template=camera-report.yml) on GitHub with the report filled in.
 
 When a step fails, the app log (macOS: `~/Library/Logs/cc.rawtonic.editor/app.log`) says more: each setting change with the value the camera reports back, each shot's request number, the camera's report of every photo, download and library times, shots reported as not delivered, and the camera library's errors. It names the camera's file names but no folders; look through it before you paste a part of it into a report. Starting Rawtonic with `RAWTONIC_TETHER_LOG=debug` also logs every step of the camera library (a large log).
 

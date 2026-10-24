@@ -182,6 +182,7 @@ export enum Invokes {
   LoadMetadata = 'load_metadata',
   LoadPresets = 'load_presets',
   CheckUpdates = 'check_updates',
+  ContributionAppInfo = 'contribution_app_info',
   ContributionAvailable = 'contribution_available',
   ContributionDelete = 'contribution_delete',
   ContributionPrepare = 'contribution_prepare',
@@ -635,6 +636,9 @@ export interface LoadImageResult {
   /** The source was developed with the second dead-photosite test
    * (`renderVersion` 3); null for preview data. */
   dead_pixel_adjacent?: boolean | null;
+  /** The RAW data could not be developed; the camera's embedded preview is
+   * shown (Develop offers camera help). */
+  developed_from_preview?: boolean;
 }
 
 /** Which preview an offline photograph shows: its 1:1 preview (full

@@ -45,6 +45,10 @@ pub struct LoadImageResult {
     /// The source was developed with `DeadTest::Adjacent` (`renderVersion`
     /// 3); None for preview data.
     pub dead_pixel_adjacent: Option<bool>,
+    /// The RAW data could not be developed and the camera's embedded preview
+    /// is shown instead (an unsupported camera or RAW mode, a damaged file):
+    /// Develop offers camera help.
+    pub developed_from_preview: bool,
 }
 
 pub fn load_and_composite(
@@ -1215,6 +1219,7 @@ pub async fn load_image(
         offline: None,
         color_noise_multiscale: Some(variant.multiscale),
         dead_pixel_adjacent: Some(variant.dead_test == DeadTest::Adjacent),
+        developed_from_preview: is_raw && ensure_raw_developed(&source_path_str).is_err(),
     })
 }
 
@@ -1303,6 +1308,7 @@ async fn open_offline(
             offline: Some("full"),
             color_noise_multiscale: None,
             dead_pixel_adjacent: None,
+            developed_from_preview: false,
         }));
     }
     let remembered = state
@@ -1354,6 +1360,7 @@ async fn open_offline(
         offline: Some("standard"),
         color_noise_multiscale: None,
         dead_pixel_adjacent: None,
+        developed_from_preview: false,
     }))
 }
 

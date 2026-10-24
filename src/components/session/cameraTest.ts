@@ -1,4 +1,5 @@
 import compatibility from "./tetherCameras.json";
+import { plainName, type AppInfo } from "../contribute/reports";
 
 /** How well tethering works with a camera (tetherCameras.json). */
 export type SupportLevel = "tested" | "reported" | "notSupported";
@@ -242,4 +243,20 @@ const otherIso = (value: string, choices: string[]) => {
   const others = numbers.filter((choice) => choice !== value).sort((a, b) => Number(a) - Number(b));
   if (others.length === 0) return undefined;
   return others.find((choice) => Number(choice) > Number(value)) ?? others[others.length - 1];
+};
+
+/** The `POST /camera-test` payload (schema 1, ADR 0017 channel 3): the
+ * report above with the app block and the camera. The camera library names
+ * a body with its maker first ("Sony Alpha-A7 III", "Canon EOS R5"), so the
+ * make is that first word; the model is the whole name. */
+export const cameraTestPayload = (
+  app: AppInfo,
+  camera: { model: string; firmware?: string | null },
+  report: string,
+): Record<string, unknown> | null => {
+  const model = plainName(camera.model);
+  if (!model) return null;
+  const make = model.includes(" ") ? model.split(" ")[0] : "unknown";
+  const firmware = plainName(camera.firmware ?? undefined);
+  return { schema: 1, app, camera: firmware ? { make, model, firmware } : { make, model }, report };
 };
