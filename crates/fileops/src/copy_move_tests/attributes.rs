@@ -266,7 +266,10 @@ fn a_read_only_photo_keeps_its_attributes_and_its_mode() {
         .unwrap();
     let copy = world.target.join("A.RAF");
     assert_eq!(tags(&copy), attribute("red"));
-    assert_eq!(mode(&copy), 0o444);
+    // FAT synthesizes its modes (macOS keeps attributes there).
+    if volume::unix_mode(&world.target).unwrap().is_some() {
+        assert_eq!(mode(&copy), 0o444);
+    }
     journal.undo(&op.id, &world.trash).unwrap();
     assert_eq!(tags(&raw), attribute("red"));
     assert_eq!(mode(&raw), 0o444);
