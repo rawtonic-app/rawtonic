@@ -3497,5 +3497,18 @@
       "clickToEdit": "クリックして編集",
       "reset": "リセット"
     }
+  },
+  "updates": {
+    "appImage": "この AppImage は AppImageUpdate でも更新できます。",
+    "available": "Rawtonic {{version}} が利用可能です",
+    "checking": "確認中…",
+    "checkNow": "今すぐ確認",
+    "download": "ダウンロード",
+    "failed": "更新を確認できませんでした。後でもう一度お試しください。",
+    "notNow": "後で",
+    "noUpdate": "新しいリリースは見つかりませんでした。",
+    "prereleases": "プレリリースを含める",
+    "privacy": "1日1回 GitHub に確認します。IP アドレスとアプリのバージョンを送信します。写真や識別子は送信しません。",
+    "startup": "起動時に更新を確認"
   }
 }

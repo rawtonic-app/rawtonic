@@ -3497,5 +3497,18 @@
       "clickToEdit": "點選編輯",
       "reset": "重置"
     }
+  },
+  "updates": {
+    "appImage": "你也可以使用 AppImageUpdate 更新此 AppImage。",
+    "available": "Rawtonic {{version}} 已可使用",
+    "checking": "正在檢查…",
+    "checkNow": "立即檢查",
+    "download": "下載",
+    "failed": "無法檢查更新。請稍後再試。",
+    "notNow": "暫時不要",
+    "noUpdate": "未找到較新的版本。",
+    "prereleases": "包含預先發行版本",
+    "privacy": "每天向 GitHub 查詢一次。傳送 IP 位址和應用程式版本，不傳送照片或識別碼。",
+    "startup": "啟動時檢查更新"
   }
 }

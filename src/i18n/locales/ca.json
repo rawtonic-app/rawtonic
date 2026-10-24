@@ -3687,5 +3687,18 @@
       "clickToEdit": "Feu clic per editar",
       "reset": "Restablir"
     }
+  },
+  "updates": {
+    "appImage": "També pots actualitzar aquest AppImage amb AppImageUpdate.",
+    "available": "Rawtonic {{version}} està disponible",
+    "checking": "S’està comprovant…",
+    "checkNow": "Comprova ara",
+    "download": "Baixa",
+    "failed": "No s’han pogut comprovar les actualitzacions. Torna-ho a provar més tard.",
+    "notNow": "Ara no",
+    "noUpdate": "No s’ha trobat cap versió més nova.",
+    "prereleases": "Inclou versions preliminars",
+    "privacy": "Consulta GitHub un cop al dia. Envia la teva adreça IP i la versió de l’aplicació; cap foto ni identificador.",
+    "startup": "Cerca actualitzacions en iniciar"
   }
 }

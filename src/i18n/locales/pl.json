@@ -3793,5 +3793,18 @@
       "clickToEdit": "Kliknij, aby edytować",
       "reset": "Resetuj"
     }
+  },
+  "updates": {
+    "appImage": "Ten AppImage można też zaktualizować za pomocą AppImageUpdate.",
+    "available": "Dostępny jest Rawtonic {{version}}",
+    "checking": "Sprawdzanie…",
+    "checkNow": "Sprawdź teraz",
+    "download": "Pobierz",
+    "failed": "Nie udało się sprawdzić aktualizacji. Spróbuj ponownie później.",
+    "notNow": "Nie teraz",
+    "noUpdate": "Nie znaleziono nowszej wersji.",
+    "prereleases": "Uwzględniaj wersje wstępne",
+    "privacy": "Sprawdza GitHub raz dziennie. Wysyła adres IP i wersję aplikacji; bez zdjęć i identyfikatorów.",
+    "startup": "Sprawdzaj aktualizacje przy uruchamianiu"
   }
 }

@@ -1,3 +1,4 @@
+import UpdateNotice from './components/UpdateNotice';
 import StudioWorkspace from './components/studio/StudioWorkspace';
 import { FOLDER_SYNC_APPLIED, PREVIOUS_IMPORT_VIEW_ID, openPreviousImport, type SyncApplied } from './utils/folderSync';
 import { openSessionAlbum, SESSION_ALBUM_PREFIX } from './components/studio/StudioAlbums';
@@ -463,6 +464,7 @@ function App() {
 
   return (
     <>
+      <UpdateNotice />
       <ImageProcessingManager
         transformWrapperRef={transformWrapperRef}
         prevAdjustmentsRef={prevAdjustmentsRef}

@@ -567,6 +567,14 @@ pub struct ToolLayout {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
+    #[serde(default)]
+    pub check_for_updates: Option<bool>,
+    #[serde(default)]
+    pub update_prereleases: Option<bool>,
+    #[serde(default)]
+    pub last_update_check: Option<u64>,
+    #[serde(default)]
+    pub dismissed_update_version: Option<String>,
     pub last_root_path: Option<String>,
     #[serde(default)]
     pub root_folders: Vec<String>,
@@ -773,6 +781,10 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            check_for_updates: None,
+            update_prereleases: None,
+            last_update_check: None,
+            dismissed_update_version: None,
             last_root_path: None,
             root_folders: Vec::new(),
             pinned_folders: Vec::new(),
@@ -956,8 +968,13 @@ fn read_settings_file(path: &Path) -> Result<AppSettings, String> {
     Ok(AppSettings::default())
 }
 
+static SETTINGS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[tauri::command]
 pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
+    let _guard = SETTINGS_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let path = get_settings_path(&app_handle)?;
     let mut settings = read_settings_file(&path)?;
 
@@ -1022,13 +1039,14 @@ pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
 
 #[tauri::command]
 pub fn save_settings(mut settings: AppSettings, app_handle: AppHandle) -> Result<(), String> {
+    let _guard = SETTINGS_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let path = get_settings_path(&app_handle)?;
     if settings.ai_provider.as_deref() == Some("cloud") {
         settings.ai_provider = Some("cpu".into());
     }
-    let json_string = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
-    may_replace_settings(&path)?;
-    rawtonic_metadata::atomic_write(&path, json_string).map_err(|e| e.to_string())?;
+    write_settings_file(&path, &mut settings)?;
 
     let state = app_handle.state::<AppState>();
     let cache_size = settings.image_cache_size.unwrap_or(5) as usize;
@@ -1038,6 +1056,51 @@ pub fn save_settings(mut settings: AppSettings, app_handle: AppHandle) -> Result
         .unwrap_or_else(|e| e.into_inner())
         .set_capacity(cache_size);
     Ok(())
+}
+
+/// Frontend snapshots must never roll back the backend's throttle timestamp.
+fn write_settings_file(path: &Path, settings: &mut AppSettings) -> Result<(), String> {
+    settings.last_update_check = read_settings_file(path)?.last_update_check;
+    persist_settings_file(path, settings)
+}
+
+fn persist_settings_file(path: &Path, settings: &AppSettings) -> Result<(), String> {
+    let json = serde_json::to_vec_pretty(settings).map_err(|e| e.to_string())?;
+    may_replace_settings(path)?;
+    rawtonic_metadata::atomic_write(path, json).map_err(|e| e.to_string())
+}
+
+/// Reserve an attempt before any network access; failed attempts are throttled too.
+pub(crate) fn reserve_update_check(
+    app: &AppHandle,
+    manual: bool,
+    now: u64,
+) -> Result<Option<AppSettings>, String> {
+    let _guard = SETTINGS_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let path = get_settings_path(app)?;
+    reserve_update_check_at(&path, manual, now)
+}
+
+fn reserve_update_check_at(
+    path: &Path,
+    manual: bool,
+    now: u64,
+) -> Result<Option<AppSettings>, String> {
+    let mut settings = read_settings_file(path)?;
+    crate::update_check::core::when_due(
+        settings.check_for_updates.unwrap_or(true),
+        settings.last_update_check,
+        now,
+        manual,
+        || {
+            settings.last_update_check = Some(now);
+            persist_settings_file(path, &settings)?;
+            Ok(settings)
+        },
+    )
+    .transpose()
 }
 
 #[cfg(test)]
@@ -1208,5 +1271,67 @@ mod tests {
                 _ => assert_eq!(want, got, "{key}"),
             }
         }
+    }
+
+    #[test]
+    fn attempt_is_persisted_before_fetch_and_failure_does_not_retry_at_next_launch() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let initial = AppSettings {
+            theme: Some("light".into()),
+            ..Default::default()
+        };
+        rawtonic_metadata::atomic_write(&path, serde_json::to_vec(&initial).unwrap()).unwrap();
+        assert!(
+            reserve_update_check_at(&path, false, 100)
+                .unwrap()
+                .is_some()
+        );
+        let saved = read_settings_file(&path).unwrap();
+        assert_eq!(saved.last_update_check, Some(100));
+        assert_eq!(saved.theme.as_deref(), Some("light"));
+        // No successful response is needed for the reservation to throttle a relaunch.
+        assert!(
+            reserve_update_check_at(&path, false, 101)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            reserve_update_check_at(&path, false, 86500)
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn saving_an_old_frontend_snapshot_keeps_the_last_attempt() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let mut stale = AppSettings::default();
+        reserve_update_check_at(&path, false, 100).unwrap().unwrap();
+        stale.check_for_updates = Some(false);
+        write_settings_file(&path, &mut stale).unwrap();
+        let saved = read_settings_file(&path).unwrap();
+        assert_eq!(saved.last_update_check, Some(100));
+        assert_eq!(saved.check_for_updates, Some(false));
+    }
+
+    #[test]
+    fn opting_out_reserves_no_attempt_but_check_now_can_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let initial = AppSettings {
+            check_for_updates: Some(false),
+            ..Default::default()
+        };
+        let original = serde_json::to_vec(&initial).unwrap();
+        rawtonic_metadata::atomic_write(&path, &original).unwrap();
+        assert!(
+            reserve_update_check_at(&path, false, 100)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert!(reserve_update_check_at(&path, true, 100).unwrap().is_some());
     }
 }

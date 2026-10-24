@@ -74,6 +74,7 @@ mod spot_removal;
 mod startup;
 mod tagging;
 mod tagging_utils;
+mod update_check;
 mod upright;
 mod window_customizer;
 mod window_state;
@@ -703,6 +704,7 @@ pub fn run() {
             editor_preview::render_split_before,
             editor_preview::prewarm_mask_source,
             cache_utils::clear_image_caches,
+            update_check::check_updates,
             app_settings::load_settings,
             app_settings::save_settings,
             ai_commands::generate_ai_depth_mask,

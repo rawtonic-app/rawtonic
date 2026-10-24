@@ -3687,5 +3687,18 @@
       "clickToEdit": "Clique para editar",
       "reset": "Redefinir"
     }
+  },
+  "updates": {
+    "appImage": "Também pode atualizar este AppImage com o AppImageUpdate.",
+    "available": "Rawtonic {{version}} está disponível",
+    "checking": "A verificar…",
+    "checkNow": "Verificar agora",
+    "download": "Transferir",
+    "failed": "Não foi possível verificar as atualizações. Tente novamente mais tarde.",
+    "notNow": "Agora não",
+    "noUpdate": "Não foi encontrada uma versão mais recente.",
+    "prereleases": "Incluir versões de pré-lançamento",
+    "privacy": "Consulta o GitHub uma vez por dia. Envia o seu endereço IP e a versão da aplicação; sem fotografias nem identificadores.",
+    "startup": "Procurar atualizações ao iniciar"
   }
 }
