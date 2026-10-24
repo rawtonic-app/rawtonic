@@ -563,14 +563,31 @@ impl CrashStore {
             self.remove(&record.id);
         }
     }
+
+    /// Deletes the notes of this run (recording was turned off).
+    fn remove_notes(&self) {
+        remove(&self.path(PANIC_NOTE));
+        remove(&self.path(SIGNAL_NOTE));
+    }
 }
 
 // --- The hooks: a panic hook and fatal-signal handlers write notes for
-// the next start. They are armed once the store is known.
+// the next start. They are armed once the store is known and write only
+// while recording is on (the user did not choose Never).
 
 static ARMED: Mutex<Option<PathBuf>> = Mutex::new(None);
 static NOTED: AtomicBool = AtomicBool::new(false);
 static EXITING: AtomicBool = AtomicBool::new(false);
+static RECORDING: AtomicBool = AtomicBool::new(false);
+
+/// Turns the notes on or off (Never, or the preference). Off also deletes
+/// the notes this run already wrote.
+pub fn set_recording(store: &CrashStore, on: bool) {
+    RECORDING.store(on, Ordering::SeqCst);
+    if !on {
+        store.remove_notes();
+    }
+}
 
 /// Arms the hooks for `store` (the panic note, and on Unix the signal note).
 pub fn arm(store: &CrashStore) {
@@ -590,6 +607,9 @@ pub fn exiting() {
 /// Called from the app's panic hook: writes the first panic of the run as
 /// a note (message, location reduced to a file name, reduced backtrace).
 pub fn note_panic(info: &std::panic::PanicHookInfo<'_>) {
+    if !RECORDING.load(Ordering::SeqCst) {
+        return;
+    }
     let Some(dir) = ARMED.try_lock().ok().and_then(|armed| armed.clone()) else {
         return;
     };
@@ -627,7 +647,8 @@ pub fn note_panic(info: &std::panic::PanicHookInfo<'_>) {
 
 /// Writes the signal note from a signal handler (async-signal-safe: no
 /// allocation, only open/write/close on a path prepared in advance). The
-/// first fatal signal wins; none is written after [`exiting`].
+/// first fatal signal wins; none is written after [`exiting`] or while
+/// recording is off.
 pub fn note_signal(signal: i32) {
     #[cfg(unix)]
     signals::note(signal);
@@ -637,7 +658,7 @@ pub fn note_signal(signal: i32) {
 
 #[cfg(unix)]
 mod signals {
-    use super::EXITING;
+    use super::{EXITING, RECORDING};
     use std::ffi::CString;
     use std::sync::atomic::{AtomicPtr, Ordering};
 
@@ -680,7 +701,7 @@ mod signals {
     }
 
     pub(super) fn note(signal: libc::c_int) {
-        if EXITING.load(Ordering::SeqCst) {
+        if EXITING.load(Ordering::SeqCst) || !RECORDING.load(Ordering::SeqCst) {
             return;
         }
         let path = PATH.load(Ordering::SeqCst);
@@ -1026,6 +1047,12 @@ mod tests {
         arm(&store);
         let previous = std::panic::take_hook();
         std::panic::set_hook(Box::new(note_panic));
+        // Never: a panic leaves nothing.
+        set_recording(&store, false);
+        let ignored = std::panic::catch_unwind(|| panic!("while off"));
+        assert!(ignored.is_err());
+        assert!(!store.path(PANIC_NOTE).exists());
+        set_recording(&store, true);
         let first = std::panic::catch_unwind(|| panic!("boom at /Users/anna/secret.NEF"));
         let second = std::panic::catch_unwind(|| panic!("later"));
         std::panic::set_hook(previous);
@@ -1056,21 +1083,32 @@ mod tests {
     #[test]
     fn a_fatal_signal_leaves_a_note() {
         if let Ok(dir) = std::env::var("RAWTONIC_CRASH_CHILD_DIR") {
-            arm(&CrashStore::new(dir));
+            let store = CrashStore::new(dir);
+            arm(&store);
+            let on = std::env::var("RAWTONIC_CRASH_CHILD_RECORDING").is_ok();
+            set_recording(&store, on);
             std::process::abort();
         }
         let (_dir, store) = store();
         std::fs::create_dir_all(store.dir()).unwrap();
-        let status = std::process::Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "crash::tests::a_fatal_signal_leaves_a_note",
-                "--nocapture",
-            ])
-            .env("RAWTONIC_CRASH_CHILD_DIR", store.dir())
-            .status()
-            .unwrap();
-        assert!(!status.success());
+        let child = |recording: bool| {
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args([
+                    "--exact",
+                    "crash::tests::a_fatal_signal_leaves_a_note",
+                    "--nocapture",
+                ])
+                .env("RAWTONIC_CRASH_CHILD_DIR", store.dir());
+            if recording {
+                command.env("RAWTONIC_CRASH_CHILD_RECORDING", "1");
+            }
+            command.status().unwrap()
+        };
+        // Never: the abort leaves no note.
+        assert!(!child(false).success());
+        assert!(!store.path(SIGNAL_NOTE).exists());
+        assert!(!child(true).success());
         assert_eq!(
             std::fs::read_to_string(store.path(SIGNAL_NOTE)).unwrap(),
             libc::SIGABRT.to_string()

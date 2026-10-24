@@ -54,9 +54,16 @@ describe('Report a problem', () => {
     expect(copied).toContain('**Photo:** NIKON Z 6 (NEF)');
     expect(copied).toContain('export failed');
     expect(prepare).toHaveBeenCalledWith('report', expect.objectContaining({ text: 'Export stops at photo 3' }));
+    // GitHub gets the text with the page load: it is shown first, opened only on the click.
     fireEvent.click(screen.getByRole('button', { name: /Open on GitHub/ }));
+    const shown = await screen.findByLabelText('Text for GitHub');
+    expect(openUrl).not.toHaveBeenCalled();
+    expect(shown.textContent).toMatch(/^Problem: Export stops at photo 3\n\nExport stops at photo 3/);
+    fireEvent.click(screen.getByRole('button', { name: 'Open in browser' }));
     await waitFor(() => expect(openUrl).toHaveBeenCalledTimes(1));
-    expect(openUrl.mock.calls[0][0]).toMatch(/^https:\/\/github\.com\/rawtonic-app\/rawtonic\/issues\/new\?title=Problem/);
+    const url = new URL(openUrl.mock.calls[0][0]);
+    expect(url.origin + url.pathname).toBe('https://github.com/rawtonic-app/rawtonic/issues/new');
+    expect(`${url.searchParams.get('title')}\n\n${url.searchParams.get('body')}`).toBe(shown.textContent);
   });
 
   it('reviews exactly the chosen parts, goes back to change them, and sends only on Send', async () => {

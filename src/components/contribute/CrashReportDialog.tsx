@@ -26,16 +26,19 @@ export default function CrashReportDialog({ record, onClose, onSent, ...calls }:
   const [includeBacktrace, setIncludeBacktrace] = useState(true);
   const [includeLog, setIncludeLog] = useState(true);
   const [logTail, setLogTail] = useState("");
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
     setIncludeBacktrace(true);
     setIncludeLog(true);
     setLogTail(record?.logTail ?? "");
+    setMessage(record?.message ?? "");
   }, [record]);
 
   const payload = useMemo(
-    () => (record ? crashPayload(record, { includeBacktrace, logTail: includeLog ? logTail : null }) : null),
-    [includeBacktrace, includeLog, logTail, record],
+    () =>
+      record ? crashPayload(record, { message, includeBacktrace, logTail: includeLog ? logTail : null }) : null,
+    [includeBacktrace, includeLog, logTail, message, record],
   );
 
   return (
@@ -51,9 +54,18 @@ export default function CrashReportDialog({ record, onClose, onSent, ...calls }:
       {record && (
         <>
           <Text>{t("contribute.crash.intro", { date: record.crashedOn })}</Text>
-          <pre className="rounded bg-bg-primary p-2 font-mono text-xs whitespace-pre-wrap wrap-anywhere">
-            {`${record.location}\n${record.message}`}
-          </pre>
+          <code className="rounded bg-bg-primary p-2 font-mono text-xs">{record.location}</code>
+          <label className="flex flex-col gap-1">
+            <Text variant={TextVariants.small} color="secondary">
+              {t("contribute.crash.messageLabel")}
+            </Text>
+            <textarea
+              className="h-20 rounded bg-bg-primary p-2 font-mono text-xs text-text-primary"
+              maxLength={2000}
+              onChange={(e) => setMessage(e.target.value)}
+              value={message}
+            />
+          </label>
           <Text variant={TextVariants.small} color="secondary">
             {t("contribute.crash.always")}
           </Text>

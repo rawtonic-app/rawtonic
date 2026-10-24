@@ -18,13 +18,13 @@ import { TextVariants } from "../../types/typography";
 import CrashReportDialog from "./CrashReportDialog";
 import ProblemReportDialog from "./ProblemReportDialog";
 import {
-  clearCrashReports,
   markCrashReportAsked,
   pendingCrashReports,
   photoInfo,
   problemReportContext,
   problemReportScreenshot,
   removeCrashReport,
+  setCrashReportsEnabled,
   type CrashRecord,
   type ReportContext,
   type Screenshot,
@@ -169,7 +169,7 @@ export default function ContributionHost() {
     setQuestion(null);
     const { appSettings, handleSettingsChange } = useSettingsStore.getState();
     if (appSettings) await handleSettingsChange({ ...appSettings, crashReports: false });
-    await clearCrashReports().catch(console.error);
+    await setCrashReportsEnabled(false).catch(console.error);
     setCrashes([]);
   };
 

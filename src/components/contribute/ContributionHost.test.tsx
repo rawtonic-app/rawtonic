@@ -56,7 +56,7 @@ describe('the crash question at start', () => {
     expect(calls()).toContainEqual(['crash_report_mark_asked', { id: 'b' }]);
     fireEvent.click(screen.getByRole('button', { name: 'Not now' }));
     expect(screen.queryByText(/quit unexpectedly last time/)).toBeNull();
-    expect(calls().some(([command]) => command === 'crash_report_remove' || command === 'crash_reports_clear')).toBe(false);
+    expect(calls().some(([command]) => command === 'crash_report_remove' || command === 'crash_reports_set_enabled')).toBe(false);
   });
 
   it('does not ask about crashes asked before, or when the user chose Never', async () => {
@@ -75,7 +75,7 @@ describe('the crash question at start', () => {
     pending = [record('b')];
     await start();
     fireEvent.click(await screen.findByRole('button', { name: 'Never' }));
-    await waitFor(() => expect(calls()).toContainEqual(['crash_reports_clear', undefined]));
+    await waitFor(() => expect(calls()).toContainEqual(['crash_reports_set_enabled', { enabled: false }]));
     expect(handleSettingsChange).toHaveBeenCalledWith(expect.objectContaining({ crashReports: false }));
   });
 
@@ -84,7 +84,9 @@ describe('the crash question at start', () => {
     await start();
     fireEvent.click(await screen.findByRole('button', { name: 'Review report…' }));
     expect(await screen.findByText('Crash report')).toBeTruthy();
-    expect(screen.getByText(/decode\.rs:12:5\s+index out of bounds/)).toBeTruthy();
+    expect(screen.getByText('decode.rs:12:5')).toBeTruthy();
+    // The message can be corrected before it is sent.
+    expect((screen.getByRole('textbox', { name: /Error message/ }) as HTMLTextAreaElement).value).toBe('index out of bounds');
     expect(screen.getByRole('checkbox', { name: /Backtrace/ })).toBeTruthy();
   });
 });

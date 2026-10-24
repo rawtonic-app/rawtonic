@@ -61,7 +61,10 @@ export const problemReportScreenshot = () => invoke<Screenshot | null>(Invokes.P
 export const pendingCrashReports = () => invoke<CrashRecord[]>(Invokes.CrashReportsPending);
 export const markCrashReportAsked = (id: string) => invoke<void>(Invokes.CrashReportMarkAsked, { id });
 export const removeCrashReport = (id: string) => invoke<void>(Invokes.CrashReportRemove, { id });
-export const clearCrashReports = () => invoke<void>(Invokes.CrashReportsClear);
+/** Off (Never, or the preference) deletes every record and stops new ones,
+ * also for this run. */
+export const setCrashReportsEnabled = (enabled: boolean) =>
+  invoke<void>(Invokes.CrashReportsSetEnabled, { enabled });
 
 /** One line of letters, digits and the punctuation the relay's names take. */
 export const plainName = (text: string | undefined, max = 64): string | null => {
@@ -110,6 +113,8 @@ export const reportPayload = (c: ReportChoices): Record<string, unknown> => {
 };
 
 export interface CrashChoices {
+  /** The message as the user left it (it can be corrected before sending). */
+  message?: string;
   includeBacktrace: boolean;
   /** The log tail as the user left it, or null to leave it out. */
   logTail: string | null;
@@ -120,7 +125,7 @@ export const crashPayload = (record: CrashRecord, c: CrashChoices): Record<strin
   const payload: Record<string, unknown> = {
     schema: 1,
     app: record.app,
-    message: record.message,
+    message: c.message ?? record.message,
     location: record.location,
     crashedOn: record.crashedOn,
   };
@@ -229,10 +234,17 @@ const issueTitle = (p: Parsed) => {
 const issueUrl = (title: string, body: string) =>
   `${ISSUE_BASE}?${new URLSearchParams({ title, body }).toString().replace(/\+/g, "%20")}`;
 
+export interface GithubIssue {
+  title: string;
+  body: string;
+  /** The issue form's link with `title` and `body` in its query. */
+  url: string;
+}
+
 /** A prefilled GitHub issue for the prepared body, text only, within
  * [`MAX_URL`]: the log's oldest lines go first, then the backtrace's
  * deepest frames, then the end of the text. */
-export const githubIssueUrl = (body: string): string => {
+export const githubIssue = (body: string): GithubIssue => {
   const p = parse(body);
   const title = issueTitle(p);
   const fit: Fit = {
@@ -241,11 +253,12 @@ export const githubIssueUrl = (body: string): string => {
     textChars: (p.text ?? "").length,
   };
   for (;;) {
-    const url = issueUrl(title, render(p, fit));
-    if (url.length <= MAX_URL) return url;
+    const text = render(p, fit);
+    const url = issueUrl(title, text);
+    if (url.length <= MAX_URL) return { title, body: text, url };
     if (fit.logLines > 0) fit.logLines = Math.floor(fit.logLines * 0.8);
     else if (fit.backtraceLines > 0) fit.backtraceLines = Math.floor(fit.backtraceLines * 0.8);
     else if (fit.textChars > 0) fit.textChars = Math.floor(fit.textChars * 0.8);
-    else return issueUrl(title, SHORTENED_NOTE);
+    else return { title, body: SHORTENED_NOTE, url: issueUrl(title, SHORTENED_NOTE) };
   }
 };

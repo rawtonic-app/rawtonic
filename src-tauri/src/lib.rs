@@ -738,7 +738,7 @@ pub fn run() {
             contribute::crash_reports_pending,
             contribute::crash_report_mark_asked,
             contribute::crash_report_remove,
-            contribute::crash_reports_clear,
+            contribute::crash_reports_set_enabled,
             app_settings::load_settings,
             app_settings::save_settings,
             ai_commands::generate_ai_depth_mask,

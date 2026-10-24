@@ -71,10 +71,11 @@ with the id to hello@rawtonic.cc, deletes the report at any time. Cloudflare
 sees your IP address like any web host. Builds made without the relay cannot
 send at all; their dialogs offer only the two ways below.
 
-Every report dialog can also "Copy report" (to paste where you like) or
-"Open on GitHub", which opens GitHub's public issue form in your browser with
-the text filled in (no screenshot) for you to edit and submit there with
-your own account; Rawtonic itself sends nothing in either case.
+Every report dialog can also "Copy report" (to paste where you like; nothing
+is sent) or "Open on GitHub": it first shows the exact title and text, then
+your browser opens GitHub's public issue form with them in its link (no
+screenshot), so GitHub receives that text when the page loads. Nothing is
+filed until you submit it there with your own GitHub account.
 
 - **Report a problem** (Help menu on macOS, the "…" menu in Library and
   Develop): the text you write, plus, each switchable: system details
@@ -88,13 +89,15 @@ your own account; Rawtonic itself sends nothing in either case.
   in its own code (a Rust panic) or a fatal error signal, it keeps a crash
   record on your computer, in its settings folder (`crash-reports`): the
   version, operating system, graphics card, the error message and the place
-  in the source code where it happened, the names of the functions that were
+  in the source code where it happened (the message can be corrected before
+  sending), the names of the functions that were
   running with their source file names (no folders), and the last 200 lines
   of the log of that run, with the same removal of personal data. A quit
   forced from outside or a power loss leaves no record. At the next start
   Rawtonic asks once per crash whether to send it. "Not now" keeps the record
   (you can still send it from "Report a problem"), "Never" deletes all
-  records and stops keeping them (Preferences → General turns it back on).
+  records and stops recording at once (Preferences → General turns it back
+  on).
   Records are deleted after they are sent or after 30 days.
 
 Camera-test results, RAW samples and anonymous usage statistics are not sent

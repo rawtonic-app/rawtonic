@@ -217,6 +217,7 @@ pub(crate) fn start_crash_records(app: &AppHandle, keep: bool) -> Option<CrashRe
         store.remove_all();
     }
     crash::arm(&store);
+    crash::set_recording(&store, keep);
     let _ = CRASHES.set(store);
     record
 }
@@ -267,9 +268,14 @@ pub fn crash_report_remove(id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Deletes every crash record (Never).
+/// Turns crash records on or off for this run too (the preference, or
+/// Never); off deletes every record and this run's notes.
 #[tauri::command]
-pub fn crash_reports_clear() -> Result<(), String> {
-    crashes()?.remove_all();
+pub fn crash_reports_set_enabled(enabled: bool) -> Result<(), String> {
+    let store = crashes()?;
+    crash::set_recording(store, enabled);
+    if !enabled {
+        store.remove_all();
+    }
     Ok(())
 }

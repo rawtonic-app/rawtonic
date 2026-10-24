@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_URL,
   crashPayload,
-  githubIssueUrl,
+  githubIssue,
   photoInfo,
   plainName,
   reportMarkdown,
@@ -66,7 +66,8 @@ describe('report payloads', () => {
       location: 'decode.rs:12:5',
       crashedOn: '2026-10-23',
     });
-    const full = crashPayload(record, { includeBacktrace: true, logTail: 'mine' });
+    const full = crashPayload(record, { includeBacktrace: true, logTail: 'mine', message: 'index out of <redacted>' });
+    expect(full.message).toBe('index out of <redacted>');
     expect(full.backtrace).toBe(record.backtrace);
     expect(full.logTail).toBe('mine');
   });
@@ -103,7 +104,7 @@ describe('the no-relay fallbacks', () => {
   it('fits GitHub links within the limit, dropping the oldest log lines first', () => {
     const log = Array.from({ length: 400 }, (_, n) => `log line ${n} ${'x'.repeat(40)}`).join('\n');
     const body = JSON.stringify({ schema: 1, app: context.app, text: 'Export stops', logTail: log });
-    const url = githubIssueUrl(body);
+    const { url, body: shownBody } = githubIssue(body);
     expect(url.length).toBeLessThanOrEqual(MAX_URL);
     expect(url.startsWith('https://github.com/rawtonic-app/rawtonic/issues/new?title=Problem%3A%20Export%20stops&body=')).toBe(true);
     const shown = new URL(url).searchParams.get('body') ?? '';
@@ -111,11 +112,13 @@ describe('the no-relay fallbacks', () => {
     expect(shown).toContain('log line 399');
     expect(shown).not.toContain('log line 0 ');
     expect(shown).toContain('Shortened to fit a link');
+    // What the review shows is what the link carries.
+    expect(shown).toBe(shownBody);
     // A short report is not shortened.
-    const short = new URL(githubIssueUrl(JSON.stringify({ schema: 1, app: context.app, text: 'Hi' }))).searchParams.get('body');
+    const short = new URL(githubIssue(JSON.stringify({ schema: 1, app: context.app, text: 'Hi' })).url).searchParams.get('body');
     expect(short).not.toContain('Shortened');
     // Even a text at the relay's cap fits.
-    const long = githubIssueUrl(JSON.stringify({ schema: 1, app: context.app, text: 'é'.repeat(10_000) }));
+    const long = githubIssue(JSON.stringify({ schema: 1, app: context.app, text: 'é'.repeat(10_000) })).url;
     expect(long.length).toBeLessThanOrEqual(MAX_URL);
   });
 });

@@ -20,7 +20,7 @@ import {
   type ContributionReceipt,
   type PreparedContribution,
 } from "./relay";
-import { githubIssueUrl, reportMarkdown } from "./reports";
+import { githubIssue, reportMarkdown, type GithubIssue } from "./reports";
 
 interface ReportDialogProps {
   isOpen: boolean;
@@ -56,6 +56,9 @@ export default function ReportDialog({
   const [relay, setRelay] = useState<boolean | null>(null);
   const [prepared, setPrepared] = useState<PreparedContribution | null>(null);
   const [copied, setCopied] = useState(false);
+  // "Open on GitHub" shows the exact title and text its link carries first:
+  // the browser sends them to GitHub when it loads the form.
+  const [github, setGithub] = useState<GithubIssue | null>(null);
   const [error, setError] = useState<string | null>(null);
   const panel = useRef<HTMLDivElement>(null);
   useModalFocus(panel, isOpen && prepared === null);
@@ -63,6 +66,7 @@ export default function ReportDialog({
   useEffect(() => {
     if (!isOpen) return;
     setPrepared(null);
+    setGithub(null);
     setCopied(false);
     setError(null);
     let live = true;
@@ -103,11 +107,16 @@ export default function ReportDialog({
     }
   };
 
-  const github = async () => {
+  const reviewGithub = async () => {
     const body = await scrubbed();
-    if (!body) return;
+    if (body) setGithub(githubIssue(body.body));
+  };
+
+  const openGithub = async () => {
+    if (!github) return;
     try {
-      await openUrl(githubIssueUrl(body.body));
+      await openUrl(github.url);
+      onClose();
     } catch {
       setError(t("contribute.report.openFailed"));
     }
@@ -151,48 +160,84 @@ export default function ReportDialog({
         <Text variant={TextVariants.title} id="report-dialog-title" className="mb-3">
           {title}
         </Text>
-        <div className="min-h-0 flex-1 overflow-auto flex flex-col gap-3 pr-1">{children}</div>
-        {relay === false && (
-          <Text variant={TextVariants.small} color="secondary" className="mt-3">
-            {t("contribute.report.noRelay")}
-          </Text>
+        {github ? (
+          <>
+            <Text color="secondary" className="mb-3">
+              {t("contribute.report.githubReview")}
+            </Text>
+            <pre
+              aria-label={t("contribute.report.githubText")}
+              className="min-h-0 flex-1 overflow-auto rounded bg-bg-primary p-3 font-mono text-xs whitespace-pre-wrap wrap-anywhere"
+              tabIndex={0}
+            >
+              {`${github.title}\n\n${github.body}`}
+            </pre>
+            {error && (
+              <Text color="error" className="mt-2" role="alert">
+                {error}
+              </Text>
+            )}
+            <div className="flex justify-end gap-3 mt-4">
+              <Button variant="ghost" onClick={() => setGithub(null)}>
+                {t("contribute.review.change")}
+              </Button>
+              <Button
+                className="bg-bg-primary shadow-transparent hover:bg-bg-primary text-white shadow-none"
+                variant="ghost"
+                onClick={onClose}
+                data-autofocus
+              >
+                {t("contribute.review.cancel")}
+              </Button>
+              <Button onClick={() => void openGithub()}>{t("contribute.report.githubOpen")}</Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="min-h-0 flex-1 overflow-auto flex flex-col gap-3 pr-1">{children}</div>
+            {relay === false && (
+              <Text variant={TextVariants.small} color="secondary" className="mt-3">
+                {t("contribute.report.noRelay")}
+              </Text>
+            )}
+            <Text variant={TextVariants.small} color="secondary" className="mt-2">
+              {t("contribute.report.githubPublic")}
+            </Text>
+            {error && (
+              <Text color="error" className="mt-2" role="alert">
+                {error}
+              </Text>
+            )}
+            <div className="flex flex-wrap items-center justify-end gap-3 mt-4">
+              <Button variant="ghost" onClick={() => void copy()} disabled={!payload}>
+                <span className="flex items-center gap-2">
+                  {copied ? <Check size={16} /> : <ClipboardCopy size={16} />}
+                  {copied ? t("contribute.report.copied") : t("contribute.report.copy")}
+                </span>
+              </Button>
+              <Button variant="ghost" onClick={() => void reviewGithub()} disabled={!payload}>
+                <span className="flex items-center gap-2">
+                  <ExternalLink size={16} />
+                  {t("contribute.report.github")}
+                </span>
+              </Button>
+              <span className="flex-1" />
+              <Button
+                className="bg-bg-primary shadow-transparent hover:bg-bg-primary text-white shadow-none"
+                variant="ghost"
+                onClick={onClose}
+                data-autofocus
+              >
+                {t("contribute.review.cancel")}
+              </Button>
+              {relay && (
+                <Button onClick={() => void review()} disabled={!payload}>
+                  {t("contribute.report.review")}
+                </Button>
+              )}
+            </div>
+          </>
         )}
-        <Text variant={TextVariants.small} color="secondary" className="mt-2">
-          {t("contribute.report.githubPublic")}
-        </Text>
-        {error && (
-          <Text color="error" className="mt-2" role="alert">
-            {error}
-          </Text>
-        )}
-        <div className="flex flex-wrap items-center justify-end gap-3 mt-4">
-          <Button variant="ghost" onClick={() => void copy()} disabled={!payload}>
-            <span className="flex items-center gap-2">
-              {copied ? <Check size={16} /> : <ClipboardCopy size={16} />}
-              {copied ? t("contribute.report.copied") : t("contribute.report.copy")}
-            </span>
-          </Button>
-          <Button variant="ghost" onClick={() => void github()} disabled={!payload}>
-            <span className="flex items-center gap-2">
-              <ExternalLink size={16} />
-              {t("contribute.report.github")}
-            </span>
-          </Button>
-          <span className="flex-1" />
-          <Button
-            className="bg-bg-primary shadow-transparent hover:bg-bg-primary text-white shadow-none"
-            variant="ghost"
-            onClick={onClose}
-            data-autofocus
-          >
-            {t("contribute.review.cancel")}
-          </Button>
-          {relay && (
-            <Button onClick={() => void review()} disabled={!payload}>
-              {t("contribute.report.review")}
-            </Button>
-          )}
-        </div>
       </div>
     </div>
   );
