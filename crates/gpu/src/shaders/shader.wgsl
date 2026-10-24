@@ -5661,6 +5661,24 @@ fn sample_lut_tetrahedral(uv: vec3<f32>) -> vec3<f32> {
     return res;
 }
 
+// The LUT at `amount` (0–2) from the colour without it and with it at
+// 100 %: a mix up to 1, above it the LUT's change extrapolated and scaled
+// down as a whole to stay inside the [0, 1] cube (softly; engine
+// `lut::apply_amount` documents and tests the same steps).
+fn lut_amount(base: vec3<f32>, lut: vec3<f32>, amount: f32) -> vec3<f32> {
+    if (amount <= 1.0) {
+        return mix(base, lut, amount);
+    }
+    let extra = (lut - base) * (amount - 1.0);
+    let room = max(select(lut, vec3<f32>(1.0) - lut, extra > vec3<f32>(0.0)), vec3<f32>(0.0));
+    let need = abs(extra);
+    let ratios = select(vec3<f32>(64.0), min(room / max(need, vec3<f32>(1e-6)), vec3<f32>(64.0)), need > vec3<f32>(1e-6));
+    let ratio = min(ratios.x, min(ratios.y, ratios.z));
+    let ratio2 = ratio * ratio;
+    let scale = ratio / sqrt(sqrt(1.0 + ratio2 * ratio2));
+    return lut + extra * scale;
+}
+
 fn apply_glow_bloom(
     color: vec3<f32>,
     blurred_color_input_space: vec3<f32>,
@@ -6993,7 +7011,7 @@ fn main(
     if (is_scene_lut) {
         let vlog_encoded = linear_to_vlog(composite_rgb_linear);
         let lut_color = sample_lut_tetrahedral(vlog_encoded);
-        base_srgb = mix(default_tonemapped, lut_color, adjustments.global.lut_intensity);
+        base_srgb = lut_amount(default_tonemapped, lut_color, adjustments.global.lut_intensity);
     } else {
         base_srgb = default_tonemapped;
     }
@@ -7083,7 +7101,7 @@ fn main(
     if (adjustments.global.has_lut == 1u && adjustments.global.lut_is_scene_referred == 0u) {
         let lut_input = clamp(final_rgb, vec3<f32>(0.0), vec3<f32>(1.0));
         let lut_color = carry_beyond_srgb(final_rgb, lut_input, sample_lut_tetrahedral(lut_input));
-        final_rgb = mix(final_rgb, lut_color, adjustments.global.lut_intensity);
+        final_rgb = lut_amount(final_rgb, lut_color, adjustments.global.lut_intensity);
     }
 
     if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_version < 2u && adjustments.global.grain_structure == GRAIN_EVEN) {

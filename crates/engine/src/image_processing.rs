@@ -4082,7 +4082,9 @@ fn get_global_adjustments_from_json(
             } else {
                 0
             },
-            js_adjustments["lutIntensity"].as_f64().unwrap_or(100.0) as f32 / 100.0,
+            // Up to 200 %, as a creative profile's Amount
+            // (lut::apply_amount above 100 %).
+            (js_adjustments["lutIntensity"].as_f64().unwrap_or(100.0) as f32 / 100.0).min(2.0),
             if js_adjustments["lutIsSceneReferred"]
                 .as_bool()
                 .unwrap_or(false)

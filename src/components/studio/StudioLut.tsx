@@ -12,14 +12,37 @@ interface LutEntry {
   name: string;
   path: string;
   isBuiltIn: boolean;
+  /** The pack (folder) an imported LUT came with; null for a single file. */
+  group?: string | null;
+}
+
+interface LutImport {
+  luts: LutEntry[];
+  imported: number;
+  skipped: { file: string; reason: string }[];
 }
 
 const EXTENSIONS = ["cube", "3dl", "png", "jpg", "jpeg", "tiff"];
 
+/** The imported LUTs by pack, single files first; groups by name. */
+function importedGroups(entries: LutEntry[]): [string | null, LutEntry[]][] {
+  const groups = new Map<string | null, LutEntry[]>();
+  for (const entry of entries) {
+    if (entry.isBuiltIn) continue;
+    const key = entry.group ?? null;
+    groups.set(key, [...(groups.get(key) ?? []), entry]);
+  }
+  return [...groups].sort(([a], [b]) =>
+    a === null ? -1 : b === null ? 1 : a.localeCompare(b, undefined, { sensitivity: "base" }),
+  );
+}
+
 /**
  * A 3D LUT with an amount (Capture One's LUT tool; Lightroom reaches LUTs
- * only through creative profiles): the built-in looks, LUTs imported by the
- * user (.cube, .3dl or a HALD image), or none.
+ * only through creative profiles, whose Amount runs to 200 %): the built-in
+ * looks, LUTs imported by the user (.cube, .3dl or a HALD image; several
+ * files or a folder become a pack), or none. Above 100 % the LUT's change
+ * is extrapolated (engine `lut::apply_amount`).
  */
 export default function StudioLut({
   disabled,
@@ -55,16 +78,25 @@ export default function StudioLut({
       lutIsSceneReferred: false,
     }));
 
-  const importLuts = async () => {
+  const importLuts = async (folder: boolean) => {
     try {
-      const selected = await open({
-        multiple: true,
-        filters: [{ name: "LUT", extensions: [...EXTENSIONS, ...EXTENSIONS.map((e) => e.toUpperCase())] }],
-      });
+      const selected = folder
+        ? await open({ directory: true, multiple: true })
+        : await open({
+            multiple: true,
+            filters: [{ name: "LUT", extensions: [...EXTENSIONS, ...EXTENSIONS.map((e) => e.toUpperCase())] }],
+          });
       const sourcePaths = Array.isArray(selected) ? selected : selected ? [selected] : [];
       if (sourcePaths.length === 0) return;
-      const list = await invoke<LutEntry[]>(Invokes.ImportLuts, { sourcePaths });
-      setEntries(list ?? []);
+      const result = await invoke<LutImport>(Invokes.ImportLuts, { sourcePaths });
+      setEntries(result?.luts ?? []);
+      const skipped = result?.skipped ?? [];
+      if (skipped.length > 0) {
+        const files = skipped.map((s) => `${s.file}: ${s.reason}`).join("\n");
+        toast.warn(t("studio.lut.toasts.skipped", { count: skipped.length, imported: result.imported, files }));
+      } else if (result && result.imported === 0) {
+        toast.info(t("studio.lut.toasts.noneFound"));
+      }
     } catch (error) {
       console.error("Importing LUTs failed:", error);
       toast.error(t("studio.lut.toasts.importFailed"));
@@ -85,6 +117,7 @@ export default function StudioLut({
   };
   const known = entries.some((e) => e.path === lutPath);
   const imported = entries.find((e) => e.path === lutPath && !e.isBuiltIn);
+  const builtIn = entries.filter((e) => e.isBuiltIn);
   return (
     <>
       <div className="studio-inline">
@@ -102,32 +135,31 @@ export default function StudioLut({
           >
             <option value="">{t("studio.lut.none")}</option>
             {lutPath && !known && <option value={lutPath}>{lutPath.split(/[\\/]/).pop()}</option>}
-            {entries.filter((e) => e.isBuiltIn).length > 0 && (
+            {builtIn.length > 0 && (
               <optgroup label={t("studio.lut.builtIn")}>
-                {entries
-                  .filter((e) => e.isBuiltIn)
-                  .map((e) => (
-                    <option key={e.path} value={e.path}>
-                      {e.name}
-                    </option>
-                  ))}
+                {builtIn.map((e) => (
+                  <option key={e.path} value={e.path}>
+                    {e.name}
+                  </option>
+                ))}
               </optgroup>
             )}
-            {entries.filter((e) => !e.isBuiltIn).length > 0 && (
-              <optgroup label={t("studio.lut.imported")}>
-                {entries
-                  .filter((e) => !e.isBuiltIn)
-                  .map((e) => (
-                    <option key={e.path} value={e.path}>
-                      {e.name}
-                    </option>
-                  ))}
+            {importedGroups(entries).map(([group, list]) => (
+              <optgroup key={group ?? ""} label={group ?? t("studio.lut.imported")}>
+                {list.map((e) => (
+                  <option key={e.path} value={e.path}>
+                    {e.name}
+                  </option>
+                ))}
               </optgroup>
-            )}
+            ))}
           </select>
         </label>
-        <button title={t("studio.lut.importTitle")} disabled={disabled} onClick={() => void importLuts()}>
+        <button title={t("studio.lut.importTitle")} disabled={disabled} onClick={() => void importLuts(false)}>
           {t("studio.lut.import")}
+        </button>
+        <button title={t("studio.lut.importFolderTitle")} disabled={disabled} onClick={() => void importLuts(true)}>
+          {t("studio.lut.importFolder")}
         </button>
         {imported && (
           <button title={t("studio.lut.removeTitle")} onClick={() => void removeLut(imported.path)}>
@@ -140,7 +172,7 @@ export default function StudioLut({
           label={t("studio.lut.amount")}
           ariaLabel={t("studio.lut.aria.amount")}
           min={0}
-          max={100}
+          max={200}
           value={intensity}
           defaultValue={100}
           disabled={disabled}

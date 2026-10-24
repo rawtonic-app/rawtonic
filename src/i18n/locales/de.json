@@ -2856,13 +2856,18 @@
       "builtIn": "Integriert",
       "import": "Importieren…",
       "imported": "Importiert",
+      "importFolder": "Ordner importieren…",
+      "importFolderTitle": "Alle LUTs eines Ordners (samt Unterordnern) als Paket importieren",
       "importTitle": ".cube-, .3dl- oder HALD-Bild-LUTs importieren",
       "none": "Keine",
       "remove": "Entfernen",
       "removeTitle": "Diese importierte LUT aus Rawtonic entfernen",
       "toasts": {
         "importFailed": "Die LUT konnte nicht importiert werden.",
-        "removeFailed": "Die LUT konnte nicht entfernt werden."
+        "noneFound": "Keine LUT-Dateien gefunden.",
+        "removeFailed": "Die LUT konnte nicht entfernt werden.",
+        "skipped_one": "{{count}} Datei wurde nicht importiert ({{imported}} importiert):\n{{files}}",
+        "skipped_other": "{{count}} Dateien wurden nicht importiert ({{imported}} importiert):\n{{files}}"
       }
     },
     "masks": {

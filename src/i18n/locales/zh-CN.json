@@ -2787,13 +2787,18 @@
       "builtIn": "内置",
       "import": "导入…",
       "imported": "已导入",
+      "importFolder": "导入文件夹…",
+      "importFolderTitle": "将文件夹（含子文件夹）中的所有 LUT 作为一个包导入",
       "importTitle": "导入 .cube、.3dl 或 HALD 图像 LUT",
       "none": "无",
       "remove": "移除",
       "removeTitle": "从 Rawtonic 中移除此导入的 LUT",
       "toasts": {
         "importFailed": "无法导入 LUT。",
-        "removeFailed": "无法移除 LUT。"
+        "noneFound": "未找到 LUT 文件。",
+        "removeFailed": "无法移除 LUT。",
+        "skipped_one": "{{count}} 个文件未导入（已导入 {{imported}} 个）：\n{{files}}",
+        "skipped_other": "{{count}} 个文件未导入（已导入 {{imported}} 个）：\n{{files}}"
       }
     },
     "masks": {
