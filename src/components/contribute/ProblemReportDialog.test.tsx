@@ -24,7 +24,7 @@ const prepare = vi.fn((channel: ContributionChannel, payload: Record<string, unk
 let clipboard: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   prepare.mockClear();
-  clipboard = vi.fn(() => Promise.resolve());
+  clipboard = vi.fn((_text: string) => Promise.resolve());
   Object.defineProperty(navigator, 'clipboard', { value: { writeText: clipboard }, configurable: true });
 });
 afterEach(cleanup);
@@ -40,7 +40,7 @@ const props = {
 
 describe('Report a problem', () => {
   it('works without the relay: copy and GitHub use the prepared body, no Send', async () => {
-    const openUrl = vi.fn(() => Promise.resolve());
+    const openUrl = vi.fn((_url: string) => Promise.resolve());
     render(<ProblemReportDialog {...props} available={() => Promise.resolve(false)} openUrl={openUrl} />);
     await screen.findByText(/cannot send reports itself/);
     expect(screen.queryByRole('button', { name: 'Review and send…' })).toBeNull();

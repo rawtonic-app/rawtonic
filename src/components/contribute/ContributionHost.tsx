@@ -33,8 +33,9 @@ import {
 /** The native Help menu's "Report a Problem…" (src-tauri/src/app_quit.rs). */
 export const REPORT_PROBLEM_EVENT = "report-problem-requested";
 
-/** Lets a menu that was just clicked close before the window is captured. */
-const settle = () => new Promise((resolve) => setTimeout(resolve, 150));
+/** Lets a menu that was just clicked fade out (0.1 s) before the window is
+ * captured. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 250));
 
 function CrashQuestion({
   record,
