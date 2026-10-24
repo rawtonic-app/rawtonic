@@ -10391,29 +10391,36 @@ fn clarity_version_2_joins_tiles_exactly() {
         width,
         height: 300,
     };
-    let profile = json!({"clarity": 80, "renderVersion": 3, "clarityVersion": 2});
-    let render = |source: &DynamicImage, roi: Roi| {
-        chunk_test_render(
-            &context,
-            source,
-            &profile,
-            false,
-            RenderOutputPrecision::SixteenBit,
-            Some(roi),
-        )
-        .unwrap()
-        .into_rgb16()
-    };
-    let at_seam = render(&photo(6000, 0), rows(0));
-    let inside = render(&photo(7024, 1024), rows(1024));
-    let diff = at_seam
-        .as_raw()
-        .iter()
-        .zip(inside.as_raw())
-        .map(|(a, b)| a.abs_diff(*b))
-        .max()
-        .unwrap();
-    assert!(diff <= 1, "a seam row renders as a tile's inside: {diff}");
+    // Also on render version 1, whose own blurs stop at the tile overlap: an
+    // older recipe gets Clarity version 2 when Clarity is first added to it.
+    for render_version in [1, 3] {
+        let profile = json!({"clarity": 80, "renderVersion": render_version, "clarityVersion": 2});
+        let render = |source: &DynamicImage, roi: Roi| {
+            chunk_test_render(
+                &context,
+                source,
+                &profile,
+                false,
+                RenderOutputPrecision::SixteenBit,
+                Some(roi),
+            )
+            .unwrap()
+            .into_rgb16()
+        };
+        let at_seam = render(&photo(6000, 0), rows(0));
+        let inside = render(&photo(7024, 1024), rows(1024));
+        let diff = at_seam
+            .as_raw()
+            .iter()
+            .zip(inside.as_raw())
+            .map(|(a, b)| a.abs_diff(*b))
+            .max()
+            .unwrap();
+        assert!(
+            diff <= 1,
+            "render version {render_version}: a seam row renders as a tile's inside: {diff}"
+        );
+    }
 }
 
 /// Clarity version 2 measures the band against an edge-aware base: the dark

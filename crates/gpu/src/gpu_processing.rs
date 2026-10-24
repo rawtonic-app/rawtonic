@@ -3395,8 +3395,9 @@ impl DetailKey {
 /// How far beyond a pixel Clarity version 2 reads the large blur (the outer
 /// ring of shader.wgsl `clarity_base`: twice the spacing of 10 × short side /
 /// 1080 pixels, at most 60), 0 when the recipe uses no version 2 Clarity.
-/// With the whole blur radius its vertical pass blurs that many rows more, so
-/// the rows it reads beyond a tile are exact and tiles join.
+/// The large blur's vertical pass then blurs its whole radius and that many
+/// rows more at tile edges (on every render version), so the rows it reads
+/// beyond a tile are exact and tiles join.
 fn clarity_reach(adjustments: &AllAdjustments, scale: f32) -> u32 {
     let g = &adjustments.global;
     let used = g.clarity != 0.0
@@ -6696,14 +6697,11 @@ impl GpuProcessor {
         // Blur rows beyond the ping-pong texture's (`BlurParams::blurred_rows`),
         // for the largest radius (Clarity's base 40).
         let mut tall_ping_pong: Option<wgpu::TextureView> = None;
-        // Only Clarity version 2 reads the blurs' mean log luminance (alpha).
-        let clarity_v2_reach = clarity_reach(&adjustments, scale);
-        let log_alpha = clarity_v2_reach > 0;
-        let reach = if request.adjustments.whole_blur_radius {
-            clarity_v2_reach
-        } else {
-            0
-        };
+        // Only Clarity version 2 reads the blurs' mean log luminance (alpha)
+        // and the large blur beyond the tile; its rows there are exact on
+        // every render version (older ones read no blur beyond the tile).
+        let reach = clarity_reach(&adjustments, scale);
+        let log_alpha = reach > 0;
         let largest_beyond = ((40.0 * scale).ceil() as u32 + reach).saturating_sub(TILE_OVERLAP);
         for tile_y in start_tile_y..end_tile_y {
             for tile_x in start_tile_x..end_tile_x {
@@ -6821,10 +6819,10 @@ impl GpuProcessor {
                     let radius = (base_radius * scale).ceil().max(1.0) as u32;
                     // The vertical pass reads the rows the horizontal one
                     // blurred: beyond the overlap where the radius is larger.
-                    let beyond = if whole_blur_radius {
-                        // Clarity version 2 reads the large blur up to
-                        // `reach` rows beyond the tile.
-                        let reach = if index == 3 { reach } else { 0 };
+                    // Clarity version 2 reads the large blur up to `reach`
+                    // rows beyond the tile, whatever the render version.
+                    let reach = if index == 3 { reach } else { 0 };
+                    let beyond = if whole_blur_radius || reach > 0 {
                         (radius + reach).saturating_sub(TILE_OVERLAP)
                     } else {
                         0
