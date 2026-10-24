@@ -86,7 +86,8 @@ interface EditorState {
    * `detectObjects` (Remove only): a click or box selects an object with the
    * object mask model and removes it, instead of painting the area. */
   spotSettings: {
-    mode: 'remove' | 'heal' | 'clone';
+    /** `redEye`: red eye and pet eye corrections (`redEyeSettings`). */
+    mode: 'remove' | 'heal' | 'clone' | 'redEye';
     size: number;
     feather: number;
     opacity: number;
@@ -97,6 +98,16 @@ interface EditorState {
   };
   /** Lightroom's Visualize Spots: the band-pass view under the spots. */
   spotVisualize: { on: boolean; sensitivity: number };
+  /** Red eye mode of the spot tool: what new corrections get (and the
+   * selected one shows). `size`: radius of the circle a click searches
+   * (a drag sizes it), mask-frame pixels. */
+  redEyeSettings: {
+    kind: 'red' | 'pet';
+    size: number;
+    pupilSize: number;
+    darken: number;
+    catchlight: boolean;
+  };
   /** The face retouch's blemishes on the photograph (Retouch tab). */
   showFaceBlemishes: boolean;
   /** Colour editor picker: 'new' adds a range, an id re-samples that range. */
@@ -244,6 +255,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   activeSpotId: null,
   spotSettings: { mode: 'heal', size: 60, feather: 0, opacity: 100 },
   spotVisualize: { on: false, sensitivity: 50 },
+  redEyeSettings: { kind: 'red', size: 40, pupilSize: 50, darken: 50, catchlight: true },
   showFaceBlemishes: false,
   colorPickerTarget: null,
   colorPickerLayer: null,

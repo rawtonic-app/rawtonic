@@ -1495,6 +1495,7 @@
     "modes": {
       "clone": "仿制",
       "heal": "修复",
+      "redEye": "红眼",
       "remove": "移除"
     },
     "objectSelect": "选择",
@@ -1504,6 +1505,22 @@
     },
     "opacity": "不透明度",
     "opacityAria": "污点不透明度",
+    "redEye": {
+      "catchlight": "添加眼神光",
+      "darken": "变暗",
+      "darkenAria": "红眼校正变暗",
+      "hint": "单击眼睛以校正瞳孔；拖动可设置搜索圆的大小。",
+      "kind": "眼睛类型",
+      "kinds": {
+        "pet": "宠物眼",
+        "red": "红眼"
+      },
+      "noPetEye": "此处未找到宠物眼。请单击瞳孔或拖出更大的圆。",
+      "noRedEye": "此处未找到红眼。请单击瞳孔或拖出更大的圆。",
+      "overlay": "红眼：单击眼睛或拖动以设置搜索圆的大小",
+      "pupilSize": "瞳孔大小",
+      "pupilSizeAria": "红眼校正瞳孔大小"
+    },
     "sensitivity": "灵敏度",
     "sensitivityAria": "显示污点的灵敏度",
     "size": "大小",
@@ -1786,6 +1803,7 @@
         "mask": "蒙版",
         "opened": "打开图像",
         "other": "调整",
+        "redEyes": "红眼",
         "spots": "污点去除",
         "title": "历史记录"
       },

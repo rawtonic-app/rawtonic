@@ -1532,6 +1532,7 @@
     "modes": {
       "clone": "Kopieren",
       "heal": "Reparieren",
+      "redEye": "Rote Augen",
       "remove": "Entfernen"
     },
     "objectSelect": "Auswahl",
@@ -1541,6 +1542,22 @@
     },
     "opacity": "Deckkraft",
     "opacityAria": "Deckkraft des Bereichs",
+    "redEye": {
+      "catchlight": "Lichtreflex hinzufügen",
+      "darken": "Abdunkeln",
+      "darkenAria": "Abdunkeln der Rote-Augen-Korrektur",
+      "hint": "Auf ein Auge klicken, um die Pupille zu korrigieren; ziehen bestimmt die Größe des Suchkreises.",
+      "kind": "Augentyp",
+      "kinds": {
+        "pet": "Tieraugen",
+        "red": "Rote Augen"
+      },
+      "noPetEye": "Hier wurde kein Tierauge gefunden. Auf die Pupille klicken oder einen größeren Kreis ziehen.",
+      "noRedEye": "Hier wurden keine roten Augen gefunden. Auf die Pupille klicken oder einen größeren Kreis ziehen.",
+      "overlay": "Rote Augen: auf ein Auge klicken oder den Suchkreis aufziehen",
+      "pupilSize": "Pupillengröße",
+      "pupilSizeAria": "Pupillengröße der Rote-Augen-Korrektur"
+    },
     "sensitivity": "Empfindlichkeit",
     "sensitivityAria": "Empfindlichkeit der Bereichsvisualisierung",
     "size": "Größe",
@@ -1823,6 +1840,7 @@
         "mask": "Maske",
         "opened": "Bild geöffnet",
         "other": "Anpassung",
+        "redEyes": "Rote Augen",
         "spots": "Bereichsreparatur",
         "title": "Protokoll"
       },

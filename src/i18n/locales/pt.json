@@ -1590,6 +1590,7 @@
     "modes": {
       "clone": "Clonar",
       "heal": "Corrigir",
+      "redEye": "Olhos vermelhos",
       "remove": "Remover"
     },
     "objectSelect": "Seleção",
@@ -1599,6 +1600,22 @@
     },
     "opacity": "Opacidade",
     "opacityAria": "Opacidade da mancha",
+    "redEye": {
+      "catchlight": "Adicionar reflexo",
+      "darken": "Escurecer",
+      "darkenAria": "Escurecer (olhos vermelhos)",
+      "hint": "Clique num olho para corrigir a pupila; arraste para ajustar o círculo de procura.",
+      "kind": "Tipo de olho",
+      "kinds": {
+        "pet": "Olhos de animais",
+        "red": "Olhos vermelhos"
+      },
+      "noPetEye": "Nenhum olho de animal encontrado aqui. Clique na pupila ou arraste um círculo maior.",
+      "noRedEye": "Nenhum olho vermelho encontrado aqui. Clique na pupila ou arraste um círculo maior.",
+      "overlay": "Olhos vermelhos: clique num olho ou arraste para ajustar o círculo de procura",
+      "pupilSize": "Tamanho da pupila",
+      "pupilSizeAria": "Tamanho da pupila (olhos vermelhos)"
+    },
     "sensitivity": "Sensibilidade",
     "sensitivityAria": "Sensibilidade da visualização de manchas",
     "size": "Tamanho",
@@ -1881,6 +1898,7 @@
         "mask": "Máscara",
         "opened": "Imagem aberta",
         "other": "Ajuste",
+        "redEyes": "Olhos vermelhos",
         "spots": "Remoção de manchas",
         "title": "Histórico"
       },

@@ -3868,7 +3868,10 @@ pub fn is_image_edited(
     {
         return true;
     }
-    if crate::spot_removal::has_spots(adj) || crate::face_retouch::is_active(adj) {
+    if crate::red_eye::is_active(adj)
+        || crate::spot_removal::has_spots(adj)
+        || crate::face_retouch::is_active(adj)
+    {
         return true;
     }
     if let Some(masks) = adj.get("masks").and_then(|v| v.as_array())

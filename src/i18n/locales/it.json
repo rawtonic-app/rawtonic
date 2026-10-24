@@ -1590,6 +1590,7 @@
     "modes": {
       "clone": "Clona",
       "heal": "Correggi",
+      "redEye": "Occhi rossi",
       "remove": "Rimuovi"
     },
     "objectSelect": "Selezione",
@@ -1599,6 +1600,22 @@
     },
     "opacity": "Opacità",
     "opacityAria": "Opacità della macchia",
+    "redEye": {
+      "catchlight": "Aggiungi riflesso",
+      "darken": "Scurisci",
+      "darkenAria": "Scurimento (occhi rossi)",
+      "hint": "Fai clic su un occhio per correggerne la pupilla; trascina per regolare il cerchio di ricerca.",
+      "kind": "Tipo di occhio",
+      "kinds": {
+        "pet": "Occhi di animali",
+        "red": "Occhi rossi"
+      },
+      "noPetEye": "Nessun occhio di animale trovato qui. Fai clic sulla pupilla o trascina un cerchio più grande.",
+      "noRedEye": "Nessun occhio rosso trovato qui. Fai clic sulla pupilla o trascina un cerchio più grande.",
+      "overlay": "Occhi rossi: fai clic su un occhio o trascina per regolare il cerchio di ricerca",
+      "pupilSize": "Dimensione pupilla",
+      "pupilSizeAria": "Dimensione pupilla (occhi rossi)"
+    },
     "sensitivity": "Sensibilità",
     "sensitivityAria": "Sensibilità della visualizzazione macchie",
     "size": "Dimensione",
@@ -1881,6 +1898,7 @@
         "mask": "Maschera",
         "opened": "Immagine aperta",
         "other": "Regolazione",
+        "redEyes": "Occhi rossi",
         "spots": "Rimozione macchie",
         "title": "Cronologia"
       },

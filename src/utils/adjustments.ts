@@ -462,6 +462,9 @@ export interface Adjustments {
   /** Spot removal (heal/clone circles), applied in full precision to the
    * base image before every adjustment (crates/engine/src/spot_removal.rs). */
   spots: Array<Spot>;
+  /** Red eye and pet eye corrections, applied to the base image before the
+   * spots (crates/engine/src/red_eye.rs). */
+  redEyes?: Array<RedEye>;
   /** Face retouch (Capture One's Retouch Faces), applied after the spots. */
   faceRetouch?: FaceRetouch | null;
   aspectRatio: number | null;
@@ -763,6 +766,33 @@ export interface Spot {
   points?: Array<{ x: number; y: number }>;
 }
 
+/** A red eye or pet eye correction (Lightroom's Red Eye tool, Capture One's
+ * Remove Red Eye): the pupil's ellipse in mask-frame pixels, found by a
+ * click (crates/engine/src/red_eye.rs `detect`) and applied to the base
+ * image before the spots. */
+export interface RedEye {
+  id: string;
+  /** The render version (`red_eye::VERSION`). */
+  version: number;
+  kind: 'red' | 'pet';
+  x: number;
+  y: number;
+  radiusX: number;
+  radiusY: number;
+  /** Degrees from the x axis towards the y axis. */
+  angle: number;
+  /** 0–100, 50 = the found pupil. */
+  pupilSize: number;
+  /** 0–100. */
+  darken: number;
+  /** Pet eye: a catchlight at `catchlightX`/`catchlightY` from the centre,
+   * in units of the pupil's mean radius. */
+  catchlight: boolean;
+  catchlightX: number;
+  catchlightY: number;
+  visible: boolean;
+}
+
 export interface AiPatch {
   id: string;
   isLoading: boolean;
@@ -1051,6 +1081,7 @@ export const INITIAL_GRAY_MIXER: GrayMixer = {
 export const INITIAL_ADJUSTMENTS: Adjustments = {
   aiPatches: [],
   spots: [],
+  redEyes: [],
   faceRetouch: null,
   aspectRatio: null,
   blackAndWhite: false,
@@ -1800,6 +1831,9 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     masks: normalizedMasks,
     aiPatches: normalizedAiPatches,
     spots: Array.isArray(loadedAdjustments.spots) ? loadedAdjustments.spots.map((spot: Spot) => ({ ...spot })) : [],
+    redEyes: Array.isArray(loadedAdjustments.redEyes)
+      ? loadedAdjustments.redEyes.map((eye: RedEye) => ({ ...eye }))
+      : [],
     sectionVisibility: {
       ...INITIAL_ADJUSTMENTS.sectionVisibility,
       ...(loadedAdjustments.sectionVisibility || {}),
@@ -2000,6 +2034,7 @@ export const NON_COPYABLE_ADJUSTMENT_KEYS: string[] = [
   'relightDepth',
   'aiPatches',
   'spots',
+  'redEyes',
   'faceRetouch',
   'lensBlurAmount',
   'lensBlurDiffusion',

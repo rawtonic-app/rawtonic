@@ -1648,6 +1648,7 @@
     "modes": {
       "clone": "Klonuj",
       "heal": "Napraw",
+      "redEye": "Czerwone oczy",
       "remove": "Usuń"
     },
     "objectSelect": "Zaznaczenie",
@@ -1657,6 +1658,22 @@
     },
     "opacity": "Krycie",
     "opacityAria": "Krycie plamy",
+    "redEye": {
+      "catchlight": "Dodaj odblask",
+      "darken": "Przyciemnienie",
+      "darkenAria": "Przyciemnienie (czerwone oczy)",
+      "hint": "Kliknij oko, aby poprawić źrenicę; przeciągnij, aby ustawić okrąg wyszukiwania.",
+      "kind": "Rodzaj oka",
+      "kinds": {
+        "pet": "Oczy zwierząt",
+        "red": "Czerwone oczy"
+      },
+      "noPetEye": "Nie znaleziono tu oka zwierzęcia. Kliknij źrenicę lub przeciągnij większy okrąg.",
+      "noRedEye": "Nie znaleziono tu czerwonych oczu. Kliknij źrenicę lub przeciągnij większy okrąg.",
+      "overlay": "Czerwone oczy: kliknij oko lub przeciągnij, aby ustawić okrąg wyszukiwania",
+      "pupilSize": "Rozmiar źrenicy",
+      "pupilSizeAria": "Rozmiar źrenicy (czerwone oczy)"
+    },
     "sensitivity": "Czułość",
     "sensitivityAria": "Czułość pokazywania plam",
     "size": "Rozmiar",
@@ -1939,6 +1956,7 @@
         "mask": "Maska",
         "opened": "Otwarto obraz",
         "other": "Korekta",
+        "redEyes": "Czerwone oczy",
         "spots": "Usuwanie plam",
         "title": "Historia"
       },

@@ -68,6 +68,7 @@ mod preview_slot;
 mod proxy_worker;
 #[cfg(feature = "qa-control")]
 mod qa_control;
+mod red_eye;
 mod session_bridge;
 mod snapshots;
 mod spot_removal;
@@ -690,6 +691,9 @@ pub fn run() {
             camera_profile::white_balance_from_sample,
             bw_auto::auto_gray_mix,
             preset_converter::place_lightroom_masks,
+            red_eye::detect_red_eye,
+            red_eye::red_eyes_shown,
+            red_eye::red_eye_point,
             spot_removal::find_spot_source,
             spot_removal::visualize_spots,
             auto_white_balance::auto_white_balance_for,

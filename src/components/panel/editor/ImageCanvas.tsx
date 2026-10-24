@@ -33,6 +33,7 @@ import TargetedAdjustmentOverlay from './TargetedAdjustmentOverlay';
 import RelightOverlay from './RelightOverlay';
 import { useRelightStore } from '../../../store/useRelightStore';
 import SpotOverlay from './SpotOverlay';
+import RedEyeOverlay from './RedEyeOverlay';
 import FaceRetouchOverlay from './FaceRetouchOverlay';
 import BrowserSplitImage from './BrowserSplitImage';
 import { clearDraftPatch, registerDraftPatchHost } from '../../../utils/browserDraftPatch';
@@ -1311,6 +1312,7 @@ const ImageCanvas = memo(
     const tatTarget = useEditorStore((state) => state.tatTarget);
     const relightHandles = useRelightStore((s) => s.panelOpen && s.showHandles);
     const isSpotToolActive = useEditorStore((state) => state.isSpotToolActive);
+    const redEyeMode = useEditorStore((state) => state.spotSettings.mode === 'redEye');
     const showFaceBlemishes = useEditorStore((state) => state.showFaceBlemishes);
     const [draftGuideLine, setDraftGuideLine] = useState<{ p1: Coord; p2: Coord } | null>(null);
     const [localDragLines, setLocalDragLines] = useState<GuideLine[] | null>(null);
@@ -3301,7 +3303,21 @@ const ImageCanvas = memo(
 
           </div>
 
-          {isSpotToolActive && !isCropping && !isMasking && !isWbPickerActive && !isShowingOriginal && (
+          {isSpotToolActive && redEyeMode && !isCropping && !isMasking && !isWbPickerActive && !isShowingOriginal && (
+            <RedEyeOverlay
+              rect={{
+                left: imageRenderSize.offsetX,
+                top: imageRenderSize.offsetY,
+                width: imageRenderSize.width,
+                height: imageRenderSize.height,
+              }}
+              cropX={cropX}
+              cropY={cropY}
+              scale={imageRenderSize.scale || 1}
+              zoom={effectiveZoomScale}
+            />
+          )}
+          {isSpotToolActive && !redEyeMode && !isCropping && !isMasking && !isWbPickerActive && !isShowingOriginal && (
             <SpotOverlay
               rect={{
                 left: imageRenderSize.offsetX,

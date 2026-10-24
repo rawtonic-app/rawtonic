@@ -1532,6 +1532,7 @@
     "modes": {
       "clone": "Clone",
       "heal": "Heal",
+      "redEye": "Red eye",
       "remove": "Remove"
     },
     "objectSelect": "Selection",
@@ -1541,6 +1542,22 @@
     },
     "opacity": "Opacity",
     "opacityAria": "Spot opacity",
+    "redEye": {
+      "catchlight": "Add catchlight",
+      "darken": "Darken",
+      "darkenAria": "Red eye darken",
+      "hint": "Click an eye to correct its pupil; drag to size the circle searched.",
+      "kind": "Eye type",
+      "kinds": {
+        "pet": "Pet eye",
+        "red": "Red eye"
+      },
+      "noPetEye": "No pet eye found here. Click on the pupil or drag a larger circle.",
+      "noRedEye": "No red eye found here. Click on the pupil or drag a larger circle.",
+      "overlay": "Red eye: click an eye or drag to size the circle searched",
+      "pupilSize": "Pupil size",
+      "pupilSizeAria": "Red eye pupil size"
+    },
     "sensitivity": "Sensitivity",
     "sensitivityAria": "Visualize spots sensitivity",
     "size": "Size",
@@ -1823,6 +1840,7 @@
         "mask": "Mask",
         "opened": "Opened image",
         "other": "Adjustment",
+        "redEyes": "Red eye",
         "spots": "Spot removal",
         "title": "History"
       },

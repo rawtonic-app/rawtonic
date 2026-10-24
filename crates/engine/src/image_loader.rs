@@ -907,6 +907,7 @@ pub fn composite_patches_for_render<'a>(
             })
         });
     if has_visible_patch
+        || crate::red_eye::is_active(adjustments)
         || crate::spot_removal::has_spots(adjustments)
         || crate::face_retouch::is_active(adjustments)
     {
@@ -917,13 +918,14 @@ pub fn composite_patches_for_render<'a>(
 }
 
 /// Whether the base image is retouched before adjustments: AI/cleanup
-/// patches, spot removal or face retouch. Such recipes need the
-/// full-resolution source.
+/// patches, red eye correction, spot removal or face retouch. Such recipes
+/// need the full-resolution source.
 pub fn has_base_retouch(adjustments: &Value) -> bool {
     adjustments
         .get("aiPatches")
         .and_then(Value::as_array)
         .is_some_and(|patches| !patches.is_empty())
+        || crate::red_eye::is_active(adjustments)
         || crate::spot_removal::has_spots(adjustments)
         || crate::face_retouch::is_active(adjustments)
 }
@@ -972,13 +974,15 @@ pub fn has_generated_areas(adjustments: &Value) -> bool {
         })
 }
 
-/// The base image with the recipe's patches, then its spot removal
-/// (`spot_removal.rs`) and face retouch (`face_retouch.rs`), applied.
+/// The base image with the recipe's patches, then its red eye correction
+/// (`red_eye.rs`), spot removal (`spot_removal.rs`) and face retouch
+/// (`face_retouch.rs`), applied.
 pub fn composite_patches_on_image(
     base_image: &DynamicImage,
     current_adjustments: &Value,
 ) -> Result<DynamicImage> {
     let patched = composite_ai_patches(base_image, current_adjustments)?;
+    let patched = crate::red_eye::apply_red_eyes(&patched, current_adjustments).unwrap_or(patched);
     let spotted =
         crate::spot_removal::apply_spots(&patched, current_adjustments).unwrap_or(patched);
     if !crate::face_retouch::is_active(current_adjustments) {
@@ -1003,6 +1007,8 @@ pub fn composite_patches_on_scaled_image(
         return composite_patches_on_image(base_image, current_adjustments);
     }
     let patched = composite_ai_patches_at(base_image, current_adjustments, scale)?;
+    // Red eyes are kept in units of the photo's long edge: they fit as they are.
+    let patched = crate::red_eye::apply_red_eyes(&patched, current_adjustments).unwrap_or(patched);
     let spots = crate::spot_removal::scaled_spots_recipe(current_adjustments, f64::from(scale));
     let spotted = crate::spot_removal::apply_spots(&patched, &spots).unwrap_or(patched);
     if !crate::face_retouch::is_active(current_adjustments) {
@@ -1016,13 +1022,15 @@ pub fn composite_patches_on_scaled_image(
 
 /// Whether the base retouch needs the full-resolution source even for a
 /// reduced preview: AI patches and spots do (their reduced placement leaves
-/// out the geometry warps); face retouch scales exactly
-/// (`face_retouch::scaled_recipe`).
+/// out the geometry warps), and red eyes (a small pupil measured on a
+/// reduced copy is corrected less than at full resolution); face retouch
+/// scales exactly (`face_retouch::scaled_recipe`).
 pub fn retouch_needs_full_resolution(adjustments: &Value) -> bool {
     adjustments
         .get("aiPatches")
         .and_then(Value::as_array)
         .is_some_and(|patches| !patches.is_empty())
+        || crate::red_eye::is_active(adjustments)
         || crate::spot_removal::has_spots(adjustments)
 }
 
