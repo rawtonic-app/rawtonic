@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.1.0-alpha.4 — 2026-10-25
+## 0.1.0-alpha.4 — 2026-10-24
 
 The fourth alpha: about 130 changes since alpha.3. Red eye correction, library search with smart albums, RAW+JPEG pairs and imports that resume, moves to other drives, a copy/paste picker, named snapshots and an export queue panel arrive. Sharpening, colour noise reduction, fringes, curves and Clarity were reworked and measured against the leading RAW editors, and you can now report a problem or a crash from inside the app, without an account.
 
