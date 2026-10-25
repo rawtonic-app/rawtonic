@@ -1,3 +1,4 @@
+import '../i18n';
 import i18n from 'i18next';
 import { catalogAction, undo, getUndoLabel, getRedoLabel, useCatalogUndoStore } from '../utils/appUndo';
 import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';

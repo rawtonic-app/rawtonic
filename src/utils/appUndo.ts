@@ -1,5 +1,4 @@
 import i18n from "i18next";
-import "../i18n";
 import { Invokes } from "../components/ui/AppProperties";
 import { create } from "zustand";
 import { toast } from "react-toastify";

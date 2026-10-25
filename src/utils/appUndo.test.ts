@@ -1,3 +1,4 @@
+import '../i18n';
 import { beforeEach, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { debouncedSetHistory, useEditorStore } from "../store/useEditorStore";
