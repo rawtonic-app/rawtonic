@@ -51,7 +51,7 @@ import { draftFor, flushSliderDraft, renderDraft, updateDraft } from '../utils/s
 import { saveFailure } from './useLibraryActions';
 import { clampViewerZoom } from '../utils/viewerDisplay';
 import { noteTool } from '../components/contribute/usageStats';
-import { editsRefused, invokeRecipeWrite, ViewOnlyRefusal } from '../utils/editGate';
+import { acceptEdit, editsRefused, invokeRecipeWrite, ViewOnlyRefusal } from '../utils/editGate';
 
 const pendingMetadataSaves = new Map<string, Promise<Adjustments | undefined>>();
 const unsavedRecipes = new Map<string, Adjustments>();
@@ -407,7 +407,12 @@ export function updateAdjustments(value: AdjustmentsUpdate) {
       image.width,
       image.height,
     );
-    if (next === prev || renderDraft(image.path, next, commitDraft)) return;
+    // The draft commits later, maybe on the release of a gesture made
+    // before the photograph was only shown: it keeps its acceptance.
+    const accepted = acceptEdit();
+    if (!accepted) return;
+    const commit = (path: string, adjustments: Adjustments) => accepted(() => commitDraft(path, adjustments));
+    if (next === prev || renderDraft(image.path, next, commit)) return;
   }
   flushSliderDraft();
   useEditorStore.getState().setEditor((state) => {

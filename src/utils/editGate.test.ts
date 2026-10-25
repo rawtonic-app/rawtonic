@@ -7,6 +7,7 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { useUIStore } from '../store/useUIStore';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from './adjustments';
 import { Invokes } from '../components/ui/AppProperties';
+import { registerSliderDraftRenderer } from './sliderDraft';
 import { EDIT_TOOL_STATES, RECIPE_WRITES, ViewOnlyRefusal, acceptEdit, editsRefused, invokeRecipeWrite } from './editGate';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -182,6 +183,28 @@ describe('work accepted before the photograph is only shown', () => {
   beforeEach(() => {
     held = [];
     vi.mocked(invoke).mockImplementation((command) => new Promise((resolve) => held.push({ command, resolve })));
+  });
+
+  it('commits a drag begun before F when it is released after (its draft keeps its acceptance)', () => {
+    const stopDrafts = registerSliderDraftRenderer(() => true);
+    try {
+      useEditorStore.setState({ isSliderDragging: true });
+      updateAdjustments({ exposure: 2 });
+      expect(useEditorStore.getState().adjustments).toBe(shown);
+      pressF();
+      asUser('pointerup', () => useEditorStore.getState().setEditor({ isSliderDragging: false }));
+      debouncedSetHistory.flush();
+      const editor = useEditorStore.getState();
+      expect(editor.adjustments.exposure).toBe(2);
+      expect(editor.history.at(-1)).toBe(editor.adjustments);
+      // A drag begun in the full screen draws no draft.
+      useEditorStore.setState({ isSliderDragging: true });
+      asUser('pointermove', () => updateAdjustments({ exposure: 3 }));
+      asUser('pointerup', () => useEditorStore.getState().setEditor({ isSliderDragging: false }));
+      expect(useEditorStore.getState().adjustments.exposure).toBe(2);
+    } finally {
+      stopDrafts();
+    }
   });
 
   it('applies Auto answered after F', async () => {
