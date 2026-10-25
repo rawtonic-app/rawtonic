@@ -369,10 +369,13 @@ impl<I: PartialEq> UnderWay<I> {
         }
     }
 
-    fn on_open(&mut self, key: &str) -> OnOpen {
+    /// What the load of `key` (a decode of it made `now` would be made from
+    /// `now`) does about the decode under way: one of other decoder settings
+    /// is cancelled at once rather than waited for and refused.
+    fn on_open(&mut self, key: &str, now: &Option<I>) -> OnOpen {
         match self.key.as_deref() {
             None => OnOpen::Decode,
-            Some(under_way) if under_way == key => {
+            Some(under_way) if under_way == key && self.made.is_some() && self.made == *now => {
                 self.wanted = true;
                 OnOpen::Wait
             }
@@ -455,7 +458,7 @@ fn take_under_way<I: PartialEq>(
     if state.handed.as_ref().is_some_and(|held| held.key == key) {
         return MadeDecode::take_if(&mut state.handed, key, now);
     }
-    match state.on_open(key) {
+    match state.on_open(key, now) {
         OnOpen::Decode => return None,
         OnOpen::Cancel => {
             drop(state);
@@ -502,6 +505,9 @@ fn worker(app_handle: &tauri::AppHandle) -> Arc<Worker> {
                 viewer_dim: AtomicU32::new(0),
                 prefetch_gate: PrefetchGate::default(),
             });
+            // Short of memory: the decode kept for the next photograph goes
+            // (made again when it is wanted and memory allows).
+            crate::memory_pressure::watch(Arc::new(|_| forget_ahead()));
             let shared = Arc::clone(&worker);
             let app_handle = app_handle.clone();
             std::thread::Builder::new()
@@ -1360,7 +1366,7 @@ mod tests {
         assert!(!under_way.stale_for(&paths(&["N.RAF?vc=2", "P.RAF"])));
         assert!(under_way.stale_for(&paths(&["X.RAF", "Y.RAF"])));
         // The open photograph's load waits for it: never cancelled.
-        assert_eq!(under_way.on_open("N-key"), OnOpen::Wait);
+        assert_eq!(under_way.on_open("N-key", &Some(0)), OnOpen::Wait);
         assert!(!under_way.stale_for(&paths(&["X.RAF"])));
     }
 
@@ -1424,7 +1430,7 @@ mod tests {
         {
             let mut state = shared.0.lock().unwrap();
             state.start("/s/Capture/N.RAF", "N-key", Some(3));
-            assert_eq!(state.on_open("N-key"), OnOpen::Wait);
+            assert_eq!(state.on_open("N-key", &Some(3)), OnOpen::Wait);
             assert!(state.end(Some(decoded())));
         }
         assert!(take_under_way(&shared, "N-key", &Some(4), Duration::ZERO, || {}).is_none());
@@ -1464,12 +1470,30 @@ mod tests {
     }
 
     #[test]
+    fn a_decode_of_other_settings_under_way_is_cancelled_not_waited_for() {
+        let shared = shared();
+        shared
+            .0
+            .lock()
+            .unwrap()
+            .start("/s/Capture/N.RAF", "N-key", Some(3));
+        let mut cancelled = false;
+        let started = std::time::Instant::now();
+        let taken = take_under_way(&shared, "N-key", &Some(4), Duration::from_secs(5), || {
+            cancelled = true
+        });
+        assert!(taken.is_none() && cancelled);
+        assert!(started.elapsed() < Duration::from_secs(1), "no wait");
+        assert!(!shared.0.lock().unwrap().wanted);
+    }
+
+    #[test]
     fn a_handed_decode_waits_for_its_load_while_the_next_prefetch_starts() {
         let shared = shared();
         {
             let mut state = shared.0.lock().unwrap();
             state.start("/s/Capture/N.RAF", "N-key", Some(0));
-            assert_eq!(state.on_open("N-key"), OnOpen::Wait);
+            assert_eq!(state.on_open("N-key", &Some(0)), OnOpen::Wait);
             assert!(state.end(Some(decoded())));
             // The worker starts the next decode before the load wakes up.
             state.start("/s/Capture/NN.RAF", "NN-key", Some(0));
