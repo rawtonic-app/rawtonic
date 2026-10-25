@@ -146,11 +146,19 @@ fn jpeg_exif(jpeg: &[u8]) -> Option<&[u8]> {
     None
 }
 
-/// The space the camera encoded its embedded JPEG in: Adobe RGB when the
-/// RAW (or the JPEG's own EXIF) says so, else sRGB.
+/// The space the camera encoded its embedded JPEG in: a DNG preview's own
+/// declaration (PreviewColorSpace) first, else Adobe RGB when the RAW (or
+/// the JPEG's own EXIF) says so, else sRGB.
 fn camera_space(raw: &[u8], jpeg: Option<&[u8]>) -> OutputColorSpace {
-    let adobe = rawtonic_rawdecode::capture_info::camera_adobe_rgb(raw)
-        .or_else(|| rawtonic_rawdecode::capture_info::camera_adobe_rgb(jpeg_exif(jpeg?)?));
+    use rawtonic_rawdecode::capture_info::{camera_adobe_rgb, dng_preview_color_space};
+    let offset = jpeg.and_then(|jpeg| (jpeg.as_ptr() as usize).checked_sub(raw.as_ptr() as usize));
+    match offset.and_then(|offset| dng_preview_color_space(raw, offset)) {
+        Some(2) => return OutputColorSpace::Srgb,
+        Some(3) => return OutputColorSpace::AdobeRgb,
+        Some(4) => return OutputColorSpace::ProPhoto,
+        _ => {}
+    }
+    let adobe = camera_adobe_rgb(raw).or_else(|| camera_adobe_rgb(jpeg_exif(jpeg?)?));
     if adobe == Some(true) {
         OutputColorSpace::AdobeRgb
     } else {
@@ -330,9 +338,9 @@ pub(crate) fn still_for(
     if !crate::preview_proxy::source_available(source) {
         return None;
     }
+    let frame = frame_of(source);
     let still = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let raw = rawtonic_engine::file_io::read_file_mapped(source).ok()?;
-        let frame = developed_frame_at(source);
         decode(&raw, &source.to_string_lossy(), frame, viewport, display)
     }))
     .ok()
@@ -344,6 +352,15 @@ pub(crate) fn still_for(
         crate::memory_pressure::level_now().is_some(),
     );
     Some(still)
+}
+
+/// `developed_frame_at` of `source`; nothing when the decoder fails or
+/// panics on it (the still then keeps its own shape and the container's
+/// orientation).
+pub(crate) fn frame_of(source: &Path) -> Option<DevelopedFrame> {
+    std::panic::catch_unwind(|| developed_frame_at(source))
+        .ok()
+        .flatten()
 }
 
 /// Raised by each `prepare` request (the newest replaces the others).
@@ -571,6 +588,72 @@ mod tests {
     fn without_an_embedded_jpeg_there_is_no_still() {
         let raw = tiff_with_previews(1, &[0; 8], &[0; 8]);
         assert!(decode(&raw, "none.nef", None, (400, 400), OutputColorSpace::Srgb).is_none());
+    }
+
+    /// A TIFF RAW stand-in: IFD0 → Exif IFD (ColorSpace `space`) and IFD1
+    /// holding the JPEG preview, with PreviewColorSpace `preview` if any.
+    fn tiff_with_colour(space: u16, preview: Option<u32>, jpeg: &[u8]) -> Vec<u8> {
+        let entry = |tag: u16, typ: u16, value: u32| {
+            [
+                &tag.to_le_bytes()[..],
+                &typ.to_le_bytes(),
+                &1u32.to_le_bytes(),
+                &value.to_le_bytes(),
+            ]
+            .concat()
+        };
+        let n = 2 + u16::from(preview.is_some());
+        let at = 56 + 2 + 12 * u32::from(n) + 4;
+        let mut data = b"II*\0".to_vec();
+        data.extend(8u32.to_le_bytes());
+        data.extend(1u16.to_le_bytes());
+        data.extend(entry(0x8769, 4, 38));
+        data.extend(56u32.to_le_bytes());
+        // IFD0 (one entry) ends at 26; the Exif IFD at 38, IFD1 at 56.
+        data.resize(38, 0);
+        data.extend(1u16.to_le_bytes());
+        data.extend(entry(0xa001, 3, u32::from(space)));
+        data.extend(0u32.to_le_bytes());
+        data.extend(n.to_le_bytes());
+        data.extend(entry(0x0201, 4, at));
+        data.extend(entry(0x0202, 4, jpeg.len() as u32));
+        if let Some(preview) = preview {
+            data.extend(entry(50970, 4, preview));
+        }
+        data.extend(0u32.to_le_bytes());
+        assert_eq!(data.len() as u32, at);
+        data.extend(jpeg);
+        data
+    }
+
+    #[test]
+    fn a_dng_previews_own_colour_space_comes_first() {
+        let preview = jpeg(32, 16);
+        let space = |raw: &[u8]| camera_space(raw, largest_embedded_jpeg(raw));
+        // Declared Adobe RGB, nothing in EXIF.
+        assert_eq!(
+            space(&tiff_with_colour(0, Some(3), &preview)),
+            OutputColorSpace::AdobeRgb
+        );
+        // Declared sRGB beside a camera set to Adobe RGB: the preview's own.
+        assert_eq!(
+            space(&tiff_with_colour(2, Some(2), &preview)),
+            OutputColorSpace::Srgb
+        );
+        // Undeclared: the camera setting.
+        assert_eq!(
+            space(&tiff_with_colour(2, None, &preview)),
+            OutputColorSpace::AdobeRgb
+        );
+        assert_eq!(
+            space(&tiff_with_colour(1, None, &preview)),
+            OutputColorSpace::Srgb
+        );
+    }
+
+    #[test]
+    fn a_frame_probe_of_an_unreadable_file_gives_no_frame() {
+        assert_eq!(frame_of(Path::new("/nonexistent/photo.nef")), None);
     }
 
     #[test]

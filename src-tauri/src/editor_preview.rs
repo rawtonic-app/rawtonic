@@ -2202,7 +2202,7 @@ async fn show_still(
         // tags of the memory-mapped file only; never a cloud file not
         // downloaded yet).
         let developed = (never_edited && crate::preview_proxy::source_available(&raw))
-            .then(|| rawtonic_rawdecode::raw_processing::developed_frame_at(&raw))
+            .then(|| crate::embedded_still::frame_of(&raw))
             .flatten()
             .and_then(|frame| frame.size);
         Some(crate::embedded_still::framed(image, developed))

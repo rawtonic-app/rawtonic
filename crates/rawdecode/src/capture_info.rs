@@ -46,6 +46,7 @@ const NIKON_COLOR_SPACE: u16 = 0x001e;
 const EXIF_COLOR_SPACE: u16 = 0xa001;
 const EXIF_INTEROP_POINTER: u16 = 0xa005;
 const INTEROP_INDEX: u16 = 0x0001;
+const DNG_PREVIEW_COLOR_SPACE: u16 = 50970;
 const OLYMPUS_SENSOR_CALIBRATION: u16 = 0x0805;
 const OLYMPUS_DISTORTION: u16 = 0x150a;
 const OLYMPUS_CHROMATIC_ABERRATION: u16 = 0x150c;
@@ -381,6 +382,44 @@ pub fn camera_adobe_rgb(data: &[u8]) -> Option<bool> {
         _ => {}
     }
     nikon_adobe_rgb(exif.bytes(MAKER_NOTE)?)
+}
+
+/// A DNG preview's colour space as its IFD declares it (PreviewColorSpace,
+/// tag 50970: 1 grey gamma 2.2, 2 sRGB, 3 Adobe RGB, 4 ProPhoto; 0 or
+/// missing: unknown): the IFD among IFD0's chain and their SubIFDs whose
+/// image data (strip or JPEGInterchangeFormat) starts at `offset`.
+pub fn dng_preview_color_space(data: &[u8], offset: usize) -> Option<u32> {
+    let little = match data.get(..2)? {
+        b"II" => true,
+        b"MM" => false,
+        _ => return None,
+    };
+    let mut queue = vec![SliceIfd::new(data, 0, little).u32(4)? as usize];
+    let mut seen = Vec::new();
+    while let Some(at) = queue.pop() {
+        if at == 0 || seen.contains(&at) || seen.len() > 64 {
+            continue;
+        }
+        seen.push(at);
+        let ifd = SliceIfd::new(data, at, little);
+        let first = |tag| ifd.reals(tag).and_then(|v| v.first().copied());
+        if [0x0111, 0x0201]
+            .iter()
+            .any(|&tag| first(tag) == Some(offset as f64))
+        {
+            return first(DNG_PREVIEW_COLOR_SPACE)
+                .map(|v| v as u32)
+                .filter(|&v| v > 0);
+        }
+        if let Some(subs) = ifd.reals(SUB_IFDS) {
+            queue.extend(subs.into_iter().map(|v| v as usize));
+        }
+        let count = ifd.u16(at).unwrap_or(0) as usize;
+        if let Some(next) = ifd.u32(at + 2 + 12 * count) {
+            queue.push(next as usize);
+        }
+    }
+    None
 }
 
 fn nikon_adobe_rgb(note: &[u8]) -> Option<bool> {
@@ -1026,6 +1065,35 @@ mod iso_tests {
         data.extend(entry(0x0001, 2, 4, *index));
         data.extend(0u32.to_le_bytes());
         data
+    }
+
+    #[test]
+    fn a_dng_preview_declares_its_colour_space() {
+        let entry = |tag: u16, typ: u16, value: u32| {
+            [
+                &tag.to_le_bytes()[..],
+                &typ.to_le_bytes(),
+                &1u32.to_le_bytes(),
+                &value.to_le_bytes(),
+            ]
+            .concat()
+        };
+        // IFD0 at 8 (one SubIFD entry, 18 bytes) → SubIFD at 26: preview
+        // JPEG at 100 with PreviewColorSpace 3 (Adobe RGB).
+        let mut data = b"II*\0".to_vec();
+        data.extend(8u32.to_le_bytes());
+        data.extend(1u16.to_le_bytes());
+        data.extend(entry(0x014a, 4, 26));
+        data.extend(0u32.to_le_bytes());
+        data.extend(3u16.to_le_bytes());
+        data.extend(entry(0x0201, 4, 100));
+        data.extend(entry(0x0202, 4, 4));
+        data.extend(entry(50970, 4, 3));
+        data.extend(0u32.to_le_bytes());
+        data.resize(104, 0);
+        assert_eq!(super::dng_preview_color_space(&data, 100), Some(3));
+        assert_eq!(super::dng_preview_color_space(&data, 60), None);
+        assert_eq!(super::dng_preview_color_space(b"no tiff", 0), None);
     }
 
     #[test]
