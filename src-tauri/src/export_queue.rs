@@ -80,7 +80,8 @@ pub struct ExportRequest {
     /// Set once each photo's recipe and metadata were read (`pin`); they
     /// are kept with the job's photos in the queue (`item_snapshot`), and
     /// the job renders only them, whichever library is open when it runs.
-    /// None only before `pin`, and in jobs an older build queued.
+    /// None only before it is queued, and in jobs an older version queued,
+    /// which are not run (`runnable`).
     #[serde(default)]
     pub pinned: Option<Pinned>,
 }
@@ -96,13 +97,6 @@ pub enum SubmittedFrom {
 }
 
 impl SubmittedFrom {
-    /// The library open now (for jobs an older build queued).
-    fn open_now() -> Self {
-        crate::session_bridge::active_library_directory().map_or(SubmittedFrom::NoLibrary, |dir| {
-            SubmittedFrom::Library(dir.to_string_lossy().into_owned())
-        })
-    }
-
     pub fn directory(&self) -> Option<&Path> {
         match self {
             SubmittedFrom::Library(dir) => Some(Path::new(dir)),
@@ -227,6 +221,18 @@ fn queue_pinned(
         return Err(e);
     }
     Ok(ids)
+}
+
+/// A queued job's request, if it can run: pinned when it was queued. One
+/// an older version queued holds no snapshot of its photos, and reading
+/// them now could take another library's: it is not run.
+fn runnable(stored: &Value) -> Result<ExportRequest, String> {
+    if stored.get("pinned").is_none_or(Value::is_null) {
+        return Err(
+            "This export was queued by an older version of Rawtonic: export it again.".into(),
+        );
+    }
+    serde_json::from_value(stored.clone()).map_err(|e| format!("Unreadable export request: {e}"))
 }
 
 /// The photos of a run of `jobs` (a group sharing its develop): each read
@@ -708,30 +714,19 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
     let mut trackings: Vec<(&str, Tracking)> = Vec::with_capacity(jobs.len());
     let mut first: Option<ExportRequest> = None;
     for job in jobs {
-        let mut stored = job.request.clone();
-        // A job an older build queued names no library: it read the one
-        // open when it ran, and is pinned with that (below).
-        if stored.get("pinned").is_none()
-            && stored.get("library").is_none()
-            && let Some(stored) = stored.as_object_mut()
-        {
-            stored.insert(
-                "library".into(),
-                serde_json::to_value(SubmittedFrom::open_now()).unwrap_or_default(),
-            );
-        }
-        let request: ExportRequest = match serde_json::from_value(stored) {
+        let items = with_queue(|q| q.items(&job.id)).unwrap_or_default();
+        let request = match runnable(&job.request) {
             Ok(request) => request,
             Err(e) => {
-                log::error!("Export '{}' has an unreadable request: {e}", job.label);
-                for index in 0..job.total {
-                    with_queue(|q| q.item_failed(&job.id, index, "Unreadable export request"));
+                log::error!("Export '{}' cannot run: {e}", job.label);
+                // Its entries stay, failed, so it can be exported again.
+                for item in items.iter().filter(|i| i.state != ItemState::Done) {
+                    with_queue(|q| q.item_failed(&job.id, item.index, &e));
                 }
                 with_queue(|q| q.finish(&job.id, RunEnd::Completed));
                 continue;
             }
         };
-        let items = with_queue(|q| q.items(&job.id)).unwrap_or_default();
         let pending: HashSet<usize> = items
             .iter()
             .filter(|i| i.state != ItemState::Done)
@@ -761,28 +756,6 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
         return;
     };
     let job_ids: Vec<String> = trackings.iter().map(|(_, t)| t.job.clone()).collect();
-    let mut request = request;
-    if request.pinned.is_none() {
-        // A job an older build queued was not pinned: it is, once, now,
-        // with the library open now, as that build read it.
-        let (legacy, ids) = (request.clone(), job_ids.clone());
-        let pinned = tauri::async_runtime::spawn_blocking(move || legacy.pin_into(&QUEUE, &ids))
-            .await
-            .map_err(|e| e.to_string())
-            .and_then(|pinned| pinned);
-        match pinned {
-            Ok(pinned) => request.pinned = Some(pinned),
-            Err(e) => {
-                for (_, tracking) in &trackings {
-                    for index in tracking.pending.iter() {
-                        with_queue(|q| q.item_failed(&tracking.job, *index, &e));
-                    }
-                    with_queue(|q| q.finish(&tracking.job, RunEnd::Completed));
-                }
-                return;
-            }
-        }
-    }
     let photos = queued_photos(&request, job_ids, |job, index| {
         with_queue(|q| q.item_snapshot(job, index)).flatten()
     });
@@ -1230,6 +1203,26 @@ mod tests {
             (job.photos().read)(0).is_err(),
             "an exported photo is not again"
         );
+    }
+
+    #[test]
+    fn a_job_an_older_version_queued_is_not_run_but_asked_to_be_exported_again() {
+        let libs = two_catalogs();
+        let path = libs.source.to_string_lossy().into_owned();
+        let job = queued(request(&[path], Some(libs.a.directory.as_path())));
+        let mut stored = serde_json::to_value(&job.request).unwrap();
+        assert!(runnable(&stored).is_ok());
+        // As an older build stored it: no snapshot, no library.
+        let old = stored.as_object_mut().unwrap();
+        old.remove("pinned");
+        old.remove("library");
+        let error = runnable(&stored).unwrap_err();
+        assert!(
+            error.contains("older version") && error.contains("export it again"),
+            "{error}"
+        );
+        stored["pinned"] = Value::Null;
+        assert!(runnable(&stored).is_err());
     }
 
     #[test]
