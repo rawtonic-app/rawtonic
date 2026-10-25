@@ -21,8 +21,9 @@ import { useMultiViewStore, type CellZoomKey } from '../store/useMultiViewStore'
 import { orderedSelection, stepPrimary } from '../utils/multiView';
 import { AUTO_ADVANCE_EVENT, autoAdvanceTarget, requestAutoAdvance } from '../utils/photoStepping';
 import { isTetherConnected, TETHER_CAPTURE_EVENT } from '../components/session/tether';
-import { libraryViewer, viewerOnly, viewerShown } from '../utils/viewerMode';
+import { flagTargets, libraryViewer, viewerOnly, viewerShown } from '../utils/viewerMode';
 import { pointerHeld } from '../utils/heldPointer';
+import { registerAppCommands, runAppCommand, type AppCommand } from '../utils/appCommands';
 
 /** The photograph an arrow key moves to in the Library, from `index` of
  * `count`. Left/Right step one and wrap around; in the grid (`columns` per
@@ -56,6 +57,45 @@ export const RECIPE_ACTIONS = new Set([
   'toggle_crop',
   'toggle_masks',
 ]);
+
+/** No shortcut reaches the app behind Preferences, a dialog or a modal. */
+function shortcutsHeld(state: ShortcutState): boolean {
+  return (
+    state.ui.isSettingsOpen ||
+    !!document.querySelector('dialog[open], [aria-modal="true"]') ||
+    isAnyModalOpen(state.ui)
+  );
+}
+
+/** The loupe and the full screen are views: recipe keys are not bound there
+ * (in the Library, undo and redo are the file operations' and stay). */
+function recipeHeld(action: string, state: ShortcutState): boolean {
+  return (
+    viewerOnly(state.ui) &&
+    RECIPE_ACTIONS.has(action) &&
+    !(state.ui.activeView !== 'editor' && (action === 'undo' || action === 'redo'))
+  );
+}
+
+/** Held keys, not toggles: no menu item. */
+const KEY_ONLY_ACTIONS = new Set(['show_original']);
+
+/** Photo menu items that act on photographs: greyed out without one. */
+const PHOTO_ACTIONS = /^(rate_\d|color_label_\w+|delete_selected|move_to_selects|copy_adjustments|paste_adjustments)$/;
+const hasPhotoTarget = (s: ShortcutState) =>
+  flagTargets(s.ui, s.editor.selectedImage?.path, s.library.multiSelectedPaths).length > 0 ||
+  (s.ui.activeView === 'editor' && !!s.editor.selectedImage);
+
+/** What a View menu item checks (useAppMenu). */
+const CHECKED: Record<string, (s: ShortcutState) => boolean> = {
+  toggle_fullscreen: (s) => s.ui.isFullScreen,
+  toggle_metadata: (s) => s.ui.infoOverlay && (s.ui.activeView === 'editor' || s.ui.isFullScreen),
+  toggle_split_view: (s) => !!s.editor.splitView,
+  toggle_multi_view: () => useMultiViewStore.getState().active,
+  toggle_clipping: (s) => !!s.editor.clippingWarnings,
+  toggle_soft_proof: (s) => !!s.editor.softProof,
+  toggle_proof_margin: (s) => !!s.settings.appSettings?.viewerProofMargin,
+};
 
 interface KeyboardShortcutsProps {
   sortedImageList: Array<ImageFile>;
@@ -1094,6 +1134,28 @@ export const useKeyboardShortcuts = ({
       },
     ];
 
+    // The same actions for the menu bar (useAppMenu): its items run these
+    // handlers, held by the same rules as the keys.
+    const menuCommands: Record<string, AppCommand> = {};
+    for (const [action, handler] of Object.entries(actions)) {
+      if (KEY_ONLY_ACTIONS.has(action)) continue;
+      const checked = CHECKED[action];
+      menuCommands[action] = {
+        enabled: () => {
+          const state = getStoreState();
+          return (
+            !shortcutsHeld(state) &&
+            !recipeHeld(action, state) &&
+            (!PHOTO_ACTIONS.test(action) || hasPhotoTarget(state)) &&
+            (!handler.shouldFire || !!handler.shouldFire(state))
+          );
+        },
+        run: () => handler.execute(new KeyboardEvent('keydown'), getStoreState()),
+        ...(checked ? { checked: () => checked(getStoreState()) } : {}),
+      };
+    }
+    const unregisterCommands = registerAppCommands(menuCommands);
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       const state = getStoreState();
@@ -1106,9 +1168,7 @@ export const useKeyboardShortcuts = ({
         }
         return;
       }
-      if (document.querySelector('dialog[open], [aria-modal="true"]')) return;
-
-      if (isAnyModalOpen(state.ui)) return;
+      if (shortcutsHeld(state)) return;
 
       // A select's arrows, Enter and type-to-find belong to it, as a text field's keys do.
       const isInputFocused = Boolean(document.activeElement?.closest('input, textarea, select, [contenteditable="true"]'));
@@ -1130,20 +1190,20 @@ export const useKeyboardShortcuts = ({
       // Read per key press so that edited keybinds apply at once. Cursor tool
       // keys (tool_*) are handled by the studio workspace.
       const comboMap = buildComboMap(state.settings.appSettings?.keybinds);
-      // The loupe and the full screen are views: recipe keys are not bound there.
-      const editsBlocked = viewerOnly(state.ui);
       const normalized = normalizeCombo(event, state.settings.osPlatform, state.ui.activeView === 'library');
       for (const action of comboMap.get(normalized.join('+')) ?? []) {
         if (rangeFocused && action !== 'undo' && action !== 'redo') continue;
-        if (
-          editsBlocked &&
-          RECIPE_ACTIONS.has(action) &&
-          !(state.ui.activeView !== 'editor' && (action === 'undo' || action === 'redo'))
-        )
-          continue;
+        if (recipeHeld(action, state)) continue;
         const handler = actions[action];
-        if (handler && (!handler.shouldFire || handler.shouldFire(state))) {
-          handler.execute(event, state);
+        if (handler) {
+          if (!handler.shouldFire || handler.shouldFire(state)) {
+            handler.execute(event, state);
+            return;
+          }
+        } else if (!rangeFocused && runAppCommand(action)) {
+          // A table key whose command another part of the app owns (New
+          // library, Import, Show in Finder…), as its menu item runs it.
+          event.preventDefault();
           return;
         }
       }
@@ -1152,6 +1212,7 @@ export const useKeyboardShortcuts = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
+      unregisterCommands();
     };
   }, [
     handleBackToLibrary,

@@ -423,6 +423,13 @@ export default function SettingsPanel({
   });
   const [restartRequired, setRestartRequired] = useState(false);
   const [activeCategory, setActiveCategory] = useState('general');
+  // A page asked for from outside (the menu bar's About, Keyboard Shortcuts).
+  const requestedCategory = useUIStore((state) => state.settingsCategory);
+  useEffect(() => {
+    if (!requestedCategory) return;
+    setActiveCategory(requestedCategory);
+    useUIStore.getState().setUI({ settingsCategory: null });
+  }, [requestedCategory]);
   const [logPath, setLogPath] = useState<string | null>(null);
   const [logPathLoading, setLogPathLoading] = useState(true);
   const [logPathError, setLogPathError] = useState(false);

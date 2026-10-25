@@ -12,6 +12,7 @@ mod ai_denoise;
 mod ai_faces;
 mod ai_lifecycle;
 mod ai_processing;
+mod app_menu;
 mod app_quit;
 mod app_settings;
 mod app_state;
@@ -154,7 +155,7 @@ pub fn run() {
     if !is_headless {
         builder = builder
             .menu(app_quit::menu)
-            .on_menu_event(app_quit::on_menu_event);
+            .on_menu_event(app_menu::on_menu_event);
     }
 
     {
@@ -708,6 +709,9 @@ pub fn run() {
             app_quit::quit_saving,
             app_quit::finish_quit,
             app_quit::cancel_quit,
+            app_menu::set_app_menu,
+            app_menu::set_app_menu_state,
+            app_menu::app_menu_text_action,
             lut_processing::load_and_parse_lut,
             camera_profile::import_camera_profile,
             camera_profile::list_camera_profiles,

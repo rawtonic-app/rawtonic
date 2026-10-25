@@ -341,6 +341,40 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     defaultCombo: ['F6'],
     section: 'panels',
   },
+  // Lightroom's and Capture One's keys for these File/Edit/Photo menu
+  // commands (src/utils/appMenu.ts); the code owning each registers it.
+  {
+    action: 'new_session',
+    description: 'settings.keybinds.actions.new_session',
+    defaultCombo: ['ctrl', 'KeyN'],
+    section: 'library',
+  },
+  {
+    action: 'open_session',
+    description: 'settings.keybinds.actions.open_session',
+    defaultCombo: ['ctrl', 'KeyO'],
+    section: 'library',
+  },
+  {
+    action: 'import_photos',
+    description: 'settings.keybinds.actions.import_photos',
+    defaultCombo: ['ctrl', 'shift', 'KeyI'],
+    section: 'library',
+  },
+  {
+    // Lightroom's Select None.
+    action: 'select_none',
+    description: 'settings.keybinds.actions.select_none',
+    defaultCombo: ['ctrl', 'KeyD'],
+    section: 'library',
+  },
+  {
+    // Lightroom's Show in Finder.
+    action: 'show_in_finder',
+    description: 'settings.keybinds.actions.show_in_finder',
+    defaultCombo: ['ctrl', 'KeyR'],
+    section: 'library',
+  },
   {
     action: 'open_settings',
     description: 'settings.keybinds.actions.open_settings',

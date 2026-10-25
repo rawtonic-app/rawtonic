@@ -1,0 +1,610 @@
+{
+  "menus": [
+    {
+      "kind": "submenu",
+      "label": "Rawtonic",
+      "items": [
+        {
+          "kind": "item",
+          "id": "cmd:about",
+          "label": "About Rawtonic",
+          "enabled": false
+        },
+        {
+          "kind": "item",
+          "id": "cmd:check_updates",
+          "label": "Check for Updates…",
+          "enabled": false
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:open_settings",
+          "label": "Preferences…",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+Comma"
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "native",
+          "role": "services",
+          "label": "Services"
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "native",
+          "role": "hide",
+          "label": "Hide Rawtonic"
+        },
+        {
+          "kind": "native",
+          "role": "hideOthers",
+          "label": "Hide Others"
+        },
+        {
+          "kind": "native",
+          "role": "showAll",
+          "label": "Show All"
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "native",
+          "role": "quit",
+          "label": "Quit Rawtonic"
+        }
+      ]
+    },
+    {
+      "kind": "submenu",
+      "label": "File",
+      "items": [
+        {
+          "kind": "item",
+          "id": "cmd:new_session",
+          "label": "New Project or Catalog…",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+KeyN"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:open_session",
+          "label": "Open Project or Catalog…",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+KeyO"
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:import_photos",
+          "label": "Import Photos…",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+Shift+KeyI"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:tether_capture",
+          "label": "Capture (Tethered Camera)",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+KeyK"
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:toggle_export",
+          "label": "Export…",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+Shift+KeyE"
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "native",
+          "role": "closeWindow",
+          "label": "Close Window"
+        }
+      ]
+    },
+    {
+      "kind": "submenu",
+      "label": "Edit",
+      "items": [
+        {
+          "kind": "item",
+          "id": "cmd:undo",
+          "label": "Undo",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+KeyZ"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:redo",
+          "label": "Redo",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+Shift+KeyZ"
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "native",
+          "role": "cut",
+          "label": "Cut"
+        },
+        {
+          "kind": "native",
+          "role": "copy",
+          "label": "Copy"
+        },
+        {
+          "kind": "native",
+          "role": "paste",
+          "label": "Paste"
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:select_all",
+          "label": "Select All",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+KeyA"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:select_none",
+          "label": "Select None",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+KeyD"
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:copy_adjustments",
+          "label": "Copy Settings",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+Shift+KeyC"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:paste_adjustments",
+          "label": "Paste Settings",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+Shift+KeyV"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:paste_from_previous",
+          "label": "Paste Settings from Previous",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+Alt+KeyV"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:sync_settings",
+          "label": "Sync Settings",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+Shift+KeyS"
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:copy_image_path",
+          "label": "Copy Path",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+Alt+KeyC"
+        }
+      ]
+    },
+    {
+      "kind": "submenu",
+      "label": "Photo",
+      "items": [
+        {
+          "kind": "submenu",
+          "label": "Rating",
+          "items": [
+            {
+              "kind": "item",
+              "id": "cmd:rate_0",
+              "label": "No Stars",
+              "enabled": false
+            },
+            {
+              "kind": "item",
+              "id": "cmd:rate_1",
+              "label": "1 Star",
+              "enabled": false
+            },
+            {
+              "kind": "item",
+              "id": "cmd:rate_2",
+              "label": "2 Stars",
+              "enabled": false
+            },
+            {
+              "kind": "item",
+              "id": "cmd:rate_3",
+              "label": "3 Stars",
+              "enabled": false
+            },
+            {
+              "kind": "item",
+              "id": "cmd:rate_4",
+              "label": "4 Stars",
+              "enabled": false
+            },
+            {
+              "kind": "item",
+              "id": "cmd:rate_5",
+              "label": "5 Stars",
+              "enabled": false
+            }
+          ]
+        },
+        {
+          "kind": "submenu",
+          "label": "Flag",
+          "items": [
+            {
+              "kind": "item",
+              "id": "cmd:flag_pick",
+              "label": "Pick",
+              "enabled": false
+            },
+            {
+              "kind": "item",
+              "id": "cmd:flag_unflag",
+              "label": "Unflag",
+              "enabled": false
+            },
+            {
+              "kind": "item",
+              "id": "cmd:flag_reject",
+              "label": "Reject",
+              "enabled": false
+            }
+          ]
+        },
+        {
+          "kind": "submenu",
+          "label": "Color Label",
+          "items": [
+            {
+              "kind": "item",
+              "id": "cmd:color_label_none",
+              "label": "None",
+              "enabled": false
+            },
+            {
+              "kind": "separator"
+            },
+            {
+              "kind": "item",
+              "id": "cmd:color_label_red",
+              "label": "Red",
+              "enabled": false
+            },
+            {
+              "kind": "item",
+              "id": "cmd:color_label_yellow",
+              "label": "Yellow",
+              "enabled": false
+            },
+            {
+              "kind": "item",
+              "id": "cmd:color_label_green",
+              "label": "Green",
+              "enabled": false
+            },
+            {
+              "kind": "item",
+              "id": "cmd:color_label_blue",
+              "label": "Blue",
+              "enabled": false
+            },
+            {
+              "kind": "item",
+              "id": "cmd:color_label_purple",
+              "label": "Purple",
+              "enabled": false
+            }
+          ]
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:rotate_left",
+          "label": "Rotate Left",
+          "enabled": false
+        },
+        {
+          "kind": "item",
+          "id": "cmd:rotate_right",
+          "label": "Rotate Right",
+          "enabled": false
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:auto_adjust",
+          "label": "Auto Adjust",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+KeyL"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:auto_white_balance",
+          "label": "Auto White Balance",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+Shift+KeyU"
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:move_to_selects",
+          "label": "Move to Selects",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+KeyJ"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:show_in_finder",
+          "label": "Show in Finder",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+KeyR"
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:delete_selected",
+          "label": "Move to Trash",
+          "enabled": false
+        }
+      ]
+    },
+    {
+      "kind": "submenu",
+      "label": "View",
+      "items": [
+        {
+          "kind": "item",
+          "id": "cmd:view_grid",
+          "label": "Library Grid",
+          "enabled": false,
+          "checked": false
+        },
+        {
+          "kind": "item",
+          "id": "cmd:view_loupe",
+          "label": "Loupe",
+          "enabled": false,
+          "checked": false
+        },
+        {
+          "kind": "item",
+          "id": "cmd:view_develop",
+          "label": "Develop",
+          "enabled": false,
+          "checked": false
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:toggle_fullscreen",
+          "label": "Photo Alone (Full Screen)",
+          "enabled": false,
+          "checked": false
+        },
+        {
+          "kind": "item",
+          "id": "cmd:toggle_metadata",
+          "label": "Photo Info",
+          "enabled": false,
+          "checked": false
+        },
+        {
+          "kind": "item",
+          "id": "cmd:toggle_split_view",
+          "label": "Before/After",
+          "enabled": false,
+          "checked": false
+        },
+        {
+          "kind": "item",
+          "id": "cmd:toggle_multi_view",
+          "label": "Multi View",
+          "enabled": false,
+          "checked": false
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:toggle_clipping",
+          "label": "Clipping Warnings",
+          "enabled": false,
+          "checked": false
+        },
+        {
+          "kind": "item",
+          "id": "cmd:toggle_soft_proof",
+          "label": "Soft Proofing",
+          "enabled": false,
+          "checked": false
+        },
+        {
+          "kind": "item",
+          "id": "cmd:toggle_proof_margin",
+          "label": "Proof Margin",
+          "enabled": false,
+          "checked": false
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "submenu",
+          "label": "Panels",
+          "items": [
+            {
+              "kind": "item",
+              "id": "cmd:toggle_side_panels",
+              "label": "Side Panels",
+              "enabled": false
+            },
+            {
+              "kind": "item",
+              "id": "cmd:toggle_all_panels",
+              "label": "All Panels and Bars",
+              "enabled": false
+            },
+            {
+              "kind": "separator"
+            },
+            {
+              "kind": "item",
+              "id": "cmd:toggle_left_panel",
+              "label": "Left Panel",
+              "enabled": false,
+              "accelerator": "CmdOrCtrl+Shift+KeyB"
+            },
+            {
+              "kind": "item",
+              "id": "cmd:toggle_right_panel",
+              "label": "Right Panel",
+              "enabled": false,
+              "accelerator": "CmdOrCtrl+KeyB"
+            },
+            {
+              "kind": "item",
+              "id": "cmd:toggle_bottom_panel",
+              "label": "Filmstrip",
+              "enabled": false
+            }
+          ]
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:zoom_in",
+          "label": "Zoom In",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+Equal"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:zoom_out",
+          "label": "Zoom Out",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+Minus"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:zoom_fit",
+          "label": "Zoom to Fit",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+Digit0"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:zoom_100",
+          "label": "Zoom to 100 %",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+Digit1"
+        }
+      ]
+    },
+    {
+      "kind": "submenu",
+      "label": "Window",
+      "role": "window",
+      "items": [
+        {
+          "kind": "native",
+          "role": "minimize",
+          "label": "Minimize"
+        },
+        {
+          "kind": "native",
+          "role": "zoom",
+          "label": "Zoom"
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "native",
+          "role": "fullscreen",
+          "label": "Enter Full Screen"
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "native",
+          "role": "bringAllToFront",
+          "label": "Bring All to Front"
+        }
+      ]
+    },
+    {
+      "kind": "submenu",
+      "label": "Help",
+      "role": "help",
+      "items": [
+        {
+          "kind": "item",
+          "id": "cmd:keyboard_shortcuts",
+          "label": "Keyboard Shortcuts",
+          "enabled": false
+        },
+        {
+          "kind": "item",
+          "id": "cmd:website",
+          "label": "Rawtonic on GitHub",
+          "enabled": false
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:report_problem",
+          "label": "Report a Problem…",
+          "enabled": false
+        }
+      ]
+    }
+  ]
+}

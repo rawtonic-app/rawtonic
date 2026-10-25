@@ -104,6 +104,7 @@ import { SmartAlbumEditorHost } from "./SmartAlbumEditor";
 import { CopySettingsDialogHost } from "./CopySettingsDialog";
 import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
 import { clearLibrarySelection, focusWorkspaceControl, reselectForDevelop } from "./workspaceInteractions";
+import { registerAppCommands } from "../../utils/appCommands";
 import ViewerInfoOverlay from "./ViewerInfoOverlay";
 import { useIdleCursor } from "./useIdleCursor";
 import { followPhotoFullScreen } from "../../utils/photoFullScreen";
@@ -597,6 +598,48 @@ export default function StudioWorkspace(props: Props) {
     window.addEventListener("pointerdown", onPointerDown, true);
     return () => window.removeEventListener("pointerdown", onPointerDown, true);
   }, []);
+  // G, E and D, also the View menu's Library Grid, Loupe and Develop
+  // (useAppMenu): one handler for the key and the menu item.
+  const moduleKeysRef = useRef({ g: showGrid, e: () => openLoupe(), d: () => {} });
+  moduleKeysRef.current = {
+    g: showGrid,
+    e: () => openLoupe(),
+    d: () => {
+      useUIStore.getState().setUI({ isFullScreen: false });
+      showDevelop();
+    },
+  };
+  const filesRef = useRef(files);
+  filesRef.current = files;
+  useEffect(
+    () =>
+      registerAppCommands({
+        view_grid: {
+          run: () => moduleKeysRef.current.g(),
+          checked: () => {
+            const ui = useUIStore.getState();
+            return ui.activeView === "library" && !ui.libraryLoupe && !ui.isFullScreen;
+          },
+        },
+        view_loupe: {
+          // As E: from the Library (in Develop, E is the eraser).
+          enabled: () =>
+            useUIStore.getState().activeView === "library" &&
+            !!(useLibraryStore.getState().libraryActivePath || useEditorStore.getState().selectedImage),
+          run: () => moduleKeysRef.current.e(),
+          checked: () => {
+            const ui = useUIStore.getState();
+            return ui.activeView === "library" && ui.libraryLoupe && !ui.isFullScreen;
+          },
+        },
+        view_develop: {
+          enabled: () => !!useEditorStore.getState().selectedImage || filesRef.current.length > 0,
+          run: () => moduleKeysRef.current.d(),
+          checked: () => useUIStore.getState().activeView === "editor",
+        },
+      }),
+    [],
+  );
   const brushActiveRef = useRef(tools.brushActive);
   brushActiveRef.current = tools.brushActive;
   const setBrushSizeRef = useRef(tools.setBrushSize);
@@ -653,12 +696,7 @@ export default function StudioWorkspace(props: Props) {
       if (key === "g" || key === "d" || (!developRef.current && key === "e")) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        if (key === "g") showGrid();
-        else if (key === "e") openLoupe();
-        else {
-          useUIStore.getState().setUI({ isFullScreen: false });
-          showDevelop();
-        }
+        moduleKeysRef.current[key]();
         return;
       }
       // Cursor tools take Capture One's keys (tool_* keybinds), not while
@@ -684,8 +722,8 @@ export default function StudioWorkspace(props: Props) {
     // its keys until it knows whether they were tapped.
     document.addEventListener("keydown", handler, true);
     return () => document.removeEventListener("keydown", handler, true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on what showDevelop reads (selectedImage, files) instead of the per-render function; its onOpen (handleImageSelect) reads all state via getState() and refs at call time, so an earlier capture behaves the same
-  }, [selectedImage, files, showGrid, openLoupe]);
+    // G, E and D go through moduleKeysRef (the handlers of this render).
+  }, []);
   const currentIndex = files.findIndex((f) => f.path === selectedImage?.path);
   // The direction of the last step, for the neighbours prepared next.
   const stepping = useRef<{ index: number; direction: 1 | -1 | null }>({ index: -1, direction: 1 });
