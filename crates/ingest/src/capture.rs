@@ -41,6 +41,44 @@ pub fn read_capture(path: &Path) -> Capture {
     read_capture_within(path, WHOLE_FILE_LIMIT)
 }
 
+/// Rights and descriptive metadata embedded in the photograph's own XMP
+/// packet (not its thumbnail's), with EXIF creator/copyright as fallback.
+/// Used only when an import preset is selected, after verified publication.
+pub(crate) fn import_metadata(
+    path: &Path,
+) -> anyhow::Result<(rawtonic_metadata::Metadata, Option<i32>)> {
+    use chrono::Datelike;
+    let mut file = fs::File::open(path)?;
+    let len = file.metadata()?.len();
+    let mut header = vec![0; len.min(64 * 1024) as usize];
+    file.read_exact(&mut header)?;
+    let mut metadata = match container_xmp(&mut file, len, &header)? {
+        Container::Packet(packet) => {
+            let text =
+                std::str::from_utf8(&packet)?.trim_end_matches(['\0', ' ', '\t', '\r', '\n']);
+            rawtonic_metadata::read_xmp(text)?.0
+        }
+        _ => rawtonic_metadata::Metadata::default(),
+    };
+    let capture = read_capture_within(path, FACTS_LIMIT);
+    let year = capture
+        .captured
+        .filter(|_| {
+            matches!(
+                capture.date_source,
+                DateSource::Original | DateSource::Digitized | DateSource::FileDate
+            )
+        })
+        .map(|date| date.year());
+    if metadata.creator.trim().is_empty() {
+        metadata.creator = capture.creator.unwrap_or_default();
+    }
+    if metadata.copyright.trim().is_empty() {
+        metadata.copyright = capture.copyright.unwrap_or_default();
+    }
+    Ok((metadata, year))
+}
+
 /// How much of a file the library's capture facts are read from: the
 /// header steps only, never the rest of a large file without a date (the
 /// naming of an ingest reads further for its date).

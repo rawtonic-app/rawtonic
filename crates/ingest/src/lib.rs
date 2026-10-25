@@ -3,6 +3,7 @@ pub mod batch;
 pub mod capture;
 mod copy;
 pub mod hot_folder;
+pub mod metadata;
 pub mod queue;
 pub mod transfer;
 

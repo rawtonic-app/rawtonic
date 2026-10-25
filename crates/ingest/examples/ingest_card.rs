@@ -3,7 +3,7 @@
 //! card folder into a new session. For A/B measurements of the copy path
 //! (G41); the card is only read.
 //!
-//! `cargo run --release -p rawtonic-ingest --example ingest_card -- CARD SESSION [BACKUP] [TEMPLATE]`
+//! `cargo run --release -p rawtonic-ingest --example ingest_card -- CARD SESSION [BACKUP] [TEMPLATE] [METADATA_JSON]`
 use rawtonic_catalog::{Library, Mode};
 use rawtonic_ingest::batch::{BatchOptions, import_batch};
 use std::{
@@ -45,13 +45,17 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     anyhow::ensure!(
         args.len() >= 2,
-        "usage: ingest_card CARD SESSION [BACKUP] [TEMPLATE]"
+        "usage: ingest_card CARD SESSION [BACKUP] [TEMPLATE] [METADATA_JSON]"
     );
     let mut sources = Vec::new();
     files(Path::new(&args[0]), &mut sources);
     let session = PathBuf::from(&args[1]);
     let backup = args.get(2).map(PathBuf::from);
     let template = args.get(3).map_or("{orig}", String::as_str);
+    let metadata: Option<rawtonic_ingest::metadata::ImportMetadata> = args
+        .get(4)
+        .map(|path| -> anyhow::Result<_> { Ok(serde_json::from_slice(&std::fs::read(path)?)?) })
+        .transpose()?;
     let lib = Library::create(&session, "Bench", Mode::Session)?;
     let options = BatchOptions {
         template,
@@ -61,6 +65,7 @@ fn main() -> anyhow::Result<()> {
         roots: &[],
         pair_raw: Some(is_raw),
         album: None,
+        metadata: metadata.as_ref(),
     };
     let started = Instant::now();
     let mut first = None;

@@ -167,6 +167,7 @@ pub struct PlannedAsset {
     recipe: Option<String>,
     metadata: Option<Metadata>,
     xmp_digest: Option<String>,
+    metadata_edited: bool,
     /// The snapshots its editor sidecar carries.
     snapshots: Vec<crate::Snapshot>,
     /// The companion file beside it (`Library::companion`).
@@ -177,6 +178,16 @@ pub struct PlannedAsset {
 }
 
 impl PlannedAsset {
+    /// Edit initial metadata before registration, in the same transaction
+    /// as the asset. Retain the observed XMP digest for later conflict-aware
+    /// sync, but leave it pending because the sidecar has not been written.
+    pub fn edit_metadata(mut self, edit: impl FnOnce(&mut Metadata) -> Result<()>) -> Result<Self> {
+        let metadata = self.metadata.get_or_insert_default();
+        edit(metadata)?;
+        metadata.validate()?;
+        self.metadata_edited = true;
+        Ok(self)
+    }
     /// Registers the photograph with `name`, a file beside it, as its
     /// companion (a RAW's JPEG; its size, fingerprint and SHA-256 read now),
     /// in the same transaction.
@@ -306,6 +317,7 @@ impl Library {
             metadata,
             snapshots: contents.snapshots(),
             xmp_digest: contents.xmp_digest,
+            metadata_edited: false,
             companion: None,
             facts: None,
         })
@@ -386,7 +398,7 @@ impl Library {
                         metadata.flag,
                         serde_json::to_string(metadata)?,
                         asset.xmp_digest,
-                        if asset.xmp_digest.is_some() {
+                        if asset.xmp_digest.is_some() && !asset.metadata_edited {
                             "synced"
                         } else {
                             "pending"
