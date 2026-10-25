@@ -509,7 +509,7 @@ export const useKeyboardShortcuts = ({
         },
       },
       auto_straighten: {
-        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage?.isReady,
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage?.isReady && !s.ui.isFullScreen,
         execute: (e) => {
           e.preventDefault();
           // Held down: one request, not one per key repeat.
@@ -635,7 +635,7 @@ export const useKeyboardShortcuts = ({
         },
       },
       toggle_masks: {
-        shouldFire: () => true,
+        shouldFire: (s) => !s.ui.isFullScreen,
         execute: (e, s) => {
           e.preventDefault();
           s.ui.setPanel(Panel.Masks);
@@ -751,7 +751,7 @@ export const useKeyboardShortcuts = ({
         },
       },
       toggle_crop: {
-        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage && !s.ui.isFullScreen,
         execute: (e, s) => {
           e.preventDefault();
           if (s.ui.activePanel === Panel.Crop) {
@@ -896,7 +896,9 @@ export const useKeyboardShortcuts = ({
         match: (e: KeyboardEvent) => e.code === 'Escape',
         execute: (e: KeyboardEvent, s: ShortcutState) => {
           e.preventDefault();
-          if (s.editor.isStraightenActive) s.editor.setEditor({ isStraightenActive: false });
+          // The full screen first: its tools are put aside (StudioWorkspace).
+          if (s.ui.isFullScreen) s.ui.toggleFullScreen();
+          else if (s.editor.isStraightenActive) s.editor.setEditor({ isStraightenActive: false });
           else if (s.editor.colorPickerTarget !== null) s.editor.setEditor({ colorPickerTarget: null });
           else if (s.editor.isWbPickerActive) s.editor.setEditor({ isWbPickerActive: false });
           else if (s.editor.lumaPickerLayer) s.editor.setEditor({ lumaPickerLayer: null });
@@ -916,7 +918,6 @@ export const useKeyboardShortcuts = ({
             cropEditCancelled();
             s.ui.setPanel(Panel.Adjustments);
           }
-          else if (s.ui.isFullScreen) s.ui.toggleFullScreen();
           else if (s.ui.activeView === 'editor') handleBackToLibrary();
           // The Library's loupe goes back to the grid.
           else if (s.ui.libraryLoupe) s.ui.setUI({ libraryLoupe: false });

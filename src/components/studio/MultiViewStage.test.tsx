@@ -75,7 +75,7 @@ beforeEach(() => {
     appSettings: { keybinds: {} } as unknown as AppSettings,
     osPlatform: "macos",
   });
-  useUIStore.setState({ activeView: "editor" });
+  useUIStore.setState({ activeView: "editor", isFullScreen: false });
   useMultiViewStore.setState({ enabled: true, editAll: false, unavailable: false, active: false });
   useLibraryStore.setState({ imageRatings: {}, imageFlags: {} });
   useSessionBar.setState({ mark: null });
@@ -91,6 +91,17 @@ const cells = (container: HTMLElement) =>
   [...container.querySelectorAll<HTMLElement>(".studio-mv-cell")].map((el) => el.dataset.path ?? "more");
 
 describe("multi view", () => {
+  it("shows the primary alone in the full screen (F) and comes back when it ends", () => {
+    const { container } = stage();
+    expect(cells(container)).toHaveLength(3);
+    act(() => useUIStore.setState({ isFullScreen: true }));
+    expect(useMultiViewStore.getState().active).toBe(false);
+    expect(cells(container)).toEqual([]);
+    act(() => useUIStore.setState({ isFullScreen: false }));
+    expect(useMultiViewStore.getState().active).toBe(true);
+    expect(cells(container)).toHaveLength(3);
+  });
+
   it("turns the before/after split off: the split is single-view only", () => {
     useEditorStore.setState({ splitView: true });
     stage();

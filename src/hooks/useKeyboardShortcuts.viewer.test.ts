@@ -5,7 +5,7 @@ import { useLibraryStore } from "../store/useLibraryStore";
 import { useSettingsStore } from "../store/useSettingsStore";
 import { useUIStore } from "../store/useUIStore";
 import { useEditorStore } from "../store/useEditorStore";
-import type { AppSettings, ImageFile, SelectedImage } from "../components/ui/AppProperties";
+import { Panel, type AppSettings, type ImageFile, type SelectedImage } from "../components/ui/AppProperties";
 import { readModuleLayout } from "../utils/panelLayout";
 import { toggleWindowFullScreen } from "../utils/photoFullScreen";
 
@@ -172,4 +172,20 @@ it("rates the shown photograph in the full screen", () => {
   useUIStore.setState({ isFullScreen: true });
   press("Digit4", { key: "4" });
   expect(useLibraryStore.getState().imageRatings["/s/b.dng"]).toBe(4);
+});
+
+it("leaves the full screen first on Escape, even with a picker or the crop open", () => {
+  useUIStore.setState({ activeView: "editor", isFullScreen: true, activePanel: Panel.Crop });
+  useEditorStore.setState({ isStraightenActive: true });
+  press("Escape");
+  expect(useUIStore.getState()).toMatchObject({ isFullScreen: false, activePanel: Panel.Crop });
+  expect(useEditorStore.getState().isStraightenActive).toBe(true);
+  useEditorStore.setState({ isStraightenActive: false });
+  useUIStore.setState({ activePanel: Panel.Adjustments });
+});
+
+it("keeps the crop key from opening the crop tool in the full screen", () => {
+  useUIStore.setState({ activeView: "editor", isFullScreen: true, activePanel: Panel.Adjustments });
+  press("KeyS");
+  expect(useUIStore.getState().activePanel).toBe(Panel.Adjustments);
 });

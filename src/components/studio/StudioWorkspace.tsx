@@ -103,6 +103,7 @@ import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
 import { clearLibrarySelection, focusWorkspaceControl, reselectForDevelop } from "./workspaceInteractions";
 import ViewerInfoOverlay from "./ViewerInfoOverlay";
 import { useIdleCursor } from "./useIdleCursor";
+import { followPhotoFullScreen } from "../../utils/photoFullScreen";
 
 interface Props {
   files: ImageFile[];
@@ -332,21 +333,46 @@ export default function StudioWorkspace(props: Props) {
     if (develop || selectedImage) return;
     if (libraryLoupe || isFullScreen) useUIStore.getState().setUI({ libraryLoupe: false, isFullScreen: false });
   }, [develop, selectedImage, libraryLoupe, isFullScreen]);
+  // The loupe and the full screen only show the photograph: Develop's crop,
+  // mask and picker states must not draw over it or take its clicks. They
+  // are put aside and come back with Develop (same photograph).
+  const viewOnly = libraryViewer || isFullScreen;
+  const suspended = useRef<{ path: string | null; panel: Panel | null; layer: string | null } | null>(null);
   useEffect(() => {
-    if (!libraryViewer) return;
-    // The loupe only looks: Develop's crop, mask and picker states left
-    // behind must not draw over it or take its clicks.
     const ui = useUIStore.getState();
-    if (ui.activePanel === Panel.Crop || ui.activePanel === Panel.Masks) ui.setPanel(Panel.Adjustments);
-    useEditorStore.getState().setEditor({
-      activeMaskContainerId: null,
-      activeMaskId: null,
-      isWbPickerActive: false,
-      colorPickerTarget: null,
-      tatTarget: null,
-      isStraightenActive: false,
-    });
-  }, [libraryViewer]);
+    const editor = useEditorStore.getState();
+    if (viewOnly) {
+      suspended.current ??= {
+        path: editor.selectedImage?.path ?? null,
+        panel: ui.activePanel,
+        layer: editor.activeMaskContainerId,
+      };
+      if (ui.activePanel === Panel.Crop || ui.activePanel === Panel.Masks) ui.setPanel(Panel.Adjustments);
+      editor.setEditor({
+        activeMaskContainerId: null,
+        activeMaskId: null,
+        isWbPickerActive: false,
+        colorPickerTarget: null,
+        lumaPickerLayer: null,
+        tatTarget: null,
+        isStraightenActive: false,
+      });
+      return;
+    }
+    const saved = suspended.current;
+    if (!saved || !develop) return;
+    suspended.current = null;
+    if (saved.path !== editor.selectedImage?.path) return;
+    if (saved.panel === Panel.Crop || saved.panel === Panel.Masks) ui.setPanel(saved.panel);
+    if (saved.layer) editor.setEditor({ activeMaskContainerId: saved.layer });
+  }, [viewOnly, develop]);
+  // The photograph alone covers the whole screen (photoFullScreen).
+  const fullScreenSeen = useRef(isFullScreen);
+  useEffect(() => {
+    if (fullScreenSeen.current === isFullScreen) return;
+    fullScreenSeen.current = isFullScreen;
+    void followPhotoFullScreen(isFullScreen);
+  }, [isFullScreen]);
   // The pointer hides over the full screen until it moves.
   const cursorIdle = useIdleCursor(isFullScreen);
   const openLoupe = useCallback(() => useUIStore.getState().setUI({ libraryLoupe: true }), []);
@@ -528,8 +554,9 @@ export default function StudioWorkspace(props: Props) {
         }
         return;
       }
-      if (!developRef.current) return;
-      // Cursor tools take Capture One's keys (tool_* keybinds).
+      // Cursor tools take Capture One's keys (tool_* keybinds), not while
+      // the photograph is shown alone.
+      if (!developRef.current || useUIStore.getState().isFullScreen) return;
       const { appSettings, osPlatform } = useSettingsStore.getState();
       const action = buildComboMap(appSettings?.keybinds)
         .get(normalizeCombo(e, osPlatform).join("+"))

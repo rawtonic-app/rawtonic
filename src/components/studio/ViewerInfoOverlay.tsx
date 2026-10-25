@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Flag, Star, X } from "lucide-react";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { captureInfoParts } from "../../utils/captureInfo";
+import { imageFlag } from "../../utils/culling";
 import { keywordOf, useShownPhoto, useTextMetadataCache } from "./StudioMetadata";
 
 /**
@@ -15,7 +16,8 @@ export default function ViewerInfoOverlay() {
   const { t } = useTranslation();
   const { path, shown, exif } = useShownPhoto();
   const rating = useLibraryStore((s) => (path ? (s.imageRatings[path] ?? 0) : 0));
-  const flag = useLibraryStore((s) => (path ? (s.imageFlags[path] ?? 0) : 0));
+  // Flags belong to the file: a virtual copy shows its source's.
+  const flag = useLibraryStore((s) => (path ? imageFlag(s.imageFlags, path) : 0));
   const tags = useLibraryStore((s) => s.imageList.find((image) => image.path === path)?.tags);
   // The title as the Metadata tool last read it (no read of its own here).
   const title = useTextMetadataCache((s) => (path ? s.byPath[path.split("?vc=")[0]]?.title : undefined));

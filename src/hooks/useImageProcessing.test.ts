@@ -446,3 +446,28 @@ describe("slider drafts with many photographs selected", () => {
     expect(commit).not.toHaveBeenCalled();
   });
 });
+
+describe("detail on zoom outside Develop", () => {
+  const zoomIn = async () => {
+    mount();
+    await finish();
+    act(() => useEditorStore.setState({ displaySize: { width: 3000, height: 2250 } }));
+    act(() => vi.advanceTimersByTime(60));
+    return calls().length;
+  };
+
+  it("renders more detail when the Library's loupe zooms in", async () => {
+    useUIStore.setState({ activeView: "library", libraryLoupe: true, isFullScreen: false });
+    expect(await zoomIn()).toBe(2);
+  });
+
+  it("renders more detail when the full screen opened from the Library zooms in", async () => {
+    useUIStore.setState({ activeView: "library", libraryLoupe: false, isFullScreen: true });
+    expect(await zoomIn()).toBe(2);
+  });
+
+  it("asks for no detail while the Library shows its grid", async () => {
+    useUIStore.setState({ activeView: "library", libraryLoupe: false, isFullScreen: false });
+    expect(await zoomIn()).toBe(1);
+  });
+});

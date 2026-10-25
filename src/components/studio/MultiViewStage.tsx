@@ -164,6 +164,9 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
   const stageRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ left: 0, top: 0, width: 0, height: 0 });
   const develop = useUIStore((s) => s.activeView === "editor");
+  // The photograph alone (F) shows the primary only; the multi view comes
+  // back when it ends.
+  const fullScreen = useUIStore((s) => s.isFullScreen);
   const primary = useEditorStore((s) => s.selectedImage?.path ?? null);
   const multiSelectedPaths = useLibraryStore((s) => s.multiSelectedPaths);
   const { imageRatings, imageFlags } = useLibraryStore(
@@ -198,6 +201,7 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
   const aspect = useLayoutAspect([pinned ?? "", ...selection].join("\n"), primary);
   const active =
     develop &&
+    !fullScreen &&
     enabled &&
     (osPlatform === "linux" || (useWgpu && !unavailable)) &&
     primary !== null &&

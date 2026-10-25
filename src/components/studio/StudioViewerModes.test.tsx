@@ -8,7 +8,9 @@ import { useUIStore } from "../../store/useUIStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { Panel, type AppSettings, type ImageFile, type SelectedImage } from "../ui/AppProperties";
 import { IDLE_CURSOR_MS } from "./useIdleCursor";
+import { followPhotoFullScreen } from "../../utils/photoFullScreen";
 
+vi.mock("../../utils/photoFullScreen", () => ({ followPhotoFullScreen: vi.fn(() => Promise.resolve()) }));
 vi.mock("../panel/Editor", () => ({ default: () => <div data-testid="native-viewer" /> }));
 vi.mock("./StudioDevelop", () => ({
   default: () => <div data-testid="develop-tools" />,
@@ -195,4 +197,44 @@ it("leaves the full screen and the loupe when the photograph goes away", () => {
   workspace();
   act(() => useEditorStore.setState({ selectedImage: null }));
   expect(useUIStore.getState()).toMatchObject({ libraryLoupe: false, isFullScreen: false });
+});
+
+it("takes the whole screen for the photograph alone and gives it back on leaving", () => {
+  workspace();
+  expect(followPhotoFullScreen).not.toHaveBeenCalled();
+  act(() => useUIStore.getState().toggleFullScreen());
+  expect(followPhotoFullScreen).toHaveBeenLastCalledWith(true);
+  act(() => useUIStore.getState().toggleFullScreen());
+  expect(followPhotoFullScreen).toHaveBeenLastCalledWith(false);
+});
+
+it("puts Develop's crop and layer aside in the full screen and brings them back after it", () => {
+  useUIStore.setState({ activeView: "editor", activePanel: Panel.Crop });
+  useEditorStore.setState({ activeMaskContainerId: "layer-1", isStraightenActive: true });
+  workspace();
+  act(() => useUIStore.getState().toggleFullScreen());
+  expect(useUIStore.getState().activePanel).toBe(Panel.Adjustments);
+  expect(useEditorStore.getState()).toMatchObject({ activeMaskContainerId: null, isStraightenActive: false });
+  act(() => useUIStore.getState().toggleFullScreen());
+  expect(useUIStore.getState().activePanel).toBe(Panel.Crop);
+  expect(useEditorStore.getState().activeMaskContainerId).toBe("layer-1");
+});
+
+it("does not switch cursor tools while the photograph is shown alone", () => {
+  useUIStore.setState({ activeView: "editor" });
+  workspace();
+  act(() => useUIStore.getState().toggleFullScreen());
+  fireEvent.keyDown(document, { key: "c", code: "KeyC" });
+  expect(useUIStore.getState().activePanel).toBe(Panel.Adjustments);
+});
+
+it("shows a virtual copy with its source's flag in the info overlay", () => {
+  useUIStore.setState({ activeView: "editor", infoOverlay: true });
+  useLibraryStore.setState({ imageFlags: { "/qa/a.dng": 1 } });
+  useEditorStore.setState((s) => ({
+    selectedImage: { ...s.selectedImage!, path: "/qa/a.dng?vc=copy1" },
+  }));
+  workspace();
+  const info = screen.getByRole("complementary", { name: "Photograph info" });
+  expect(info.querySelector('[aria-label="Picked"]')).not.toBeNull();
 });
