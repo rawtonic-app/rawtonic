@@ -140,35 +140,49 @@ pub(crate) fn set_active_for_test(dir: Option<PathBuf>) {
 }
 
 /// Reads again which photographs the active session keeps outside its
-/// folder (none for a catalog: it manages every path) and registers them
-/// with the engine in place of the library registered before; a session
-/// that cannot be read keeps what was registered.
+/// folder and registers them with the engine (`register_outside_photos`).
 pub(crate) fn refresh_outside_photos() {
-    static REGISTERED: Mutex<Option<PathBuf>> = Mutex::new(None);
-    let dir = active().lock().ok().and_then(|dir| dir.clone());
-    let photos = match &dir {
-        Some(dir) if dir.join("session.json").is_file() => {
-            match Library::open(dir).and_then(|lib| lib.outside_photos()) {
-                Ok(photos) => photos.into_iter().collect(),
-                Err(e) => {
-                    log::warn!("Photographs outside {} not read: {e:#}", dir.display());
-                    return;
-                }
-            }
+    if let Some(dir) = active().lock().ok().and_then(|dir| dir.clone()) {
+        register_outside_photos(&dir);
+    }
+}
+
+/// Registers with the engine which photographs the session `dir` keeps
+/// outside its folder (none for a catalog: it manages every path), so
+/// their recipes' session resources resolve there. Sessions stay registered
+/// once opened, also after another library opens, so exports queued from
+/// them keep their resources; a session that cannot be read keeps what was
+/// registered.
+pub(crate) fn register_outside_photos(dir: &Path) {
+    if !dir.join("session.json").is_file() {
+        return;
+    }
+    match Library::open(dir).and_then(|lib| lib.outside_photos()) {
+        Ok(photos) => {
+            rawtonic_engine::session_layout::set_outside_photos(dir, photos.into_iter().collect())
         }
-        _ => HashSet::new(),
-    };
-    let mut registered = REGISTERED.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(previous) = registered
-        .take()
-        .filter(|previous| Some(previous) != dir.as_ref())
-    {
-        rawtonic_engine::session_layout::set_outside_photos(&previous, HashSet::new());
+        Err(e) => log::warn!("Photographs outside {} not read: {e:#}", dir.display()),
     }
-    if let Some(dir) = dir {
-        rawtonic_engine::session_layout::set_outside_photos(&dir, photos);
-        *registered = Some(dir);
-    }
+}
+
+/// The sessions that keep any of `paths` (photographs, possibly virtual
+/// copies) outside their folder, as far as the app knows them now.
+pub(crate) fn outside_owners(paths: &[String]) -> Vec<String> {
+    let mut owners: Vec<String> = paths
+        .iter()
+        .filter_map(|path| {
+            let source = rawtonic_export::sidecars::parse_virtual_path(path).0;
+            if session_for(&source).is_some() {
+                return None;
+            }
+            library_for(&source)
+                .filter(|dir| dir.join("session.json").is_file())
+                .map(|dir| dir.to_string_lossy().into_owned())
+        })
+        .collect();
+    owners.sort();
+    owners.dedup();
+    owners
 }
 
 /// The session or open catalog that manages `path`, if any.

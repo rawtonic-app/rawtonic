@@ -412,9 +412,10 @@ fn plan_move(
     // records would not follow them: they would go offline in the session.
     let to_library = library_above(dest_path)?;
     for image in &images {
-        if let Some(refusal) =
-            leaving_for_another_library(image.parent().unwrap_or(Path::new("")), &to_library)?
-        {
+        let owner = owning_session(image.parent().unwrap_or(Path::new("")), || {
+            rawtonic_engine::session_layout::library_root(image)
+        })?;
+        if let Some(refusal) = leaving_for_another_library(owner, &to_library) {
             return Err(refusal);
         }
     }
@@ -652,7 +653,10 @@ fn plan_folder_move(
             session.display()
         ));
     }
-    if let Some(refusal) = leaving_for_another_library(&parent, &to_library)? {
+    let owner = owning_session(&parent, || {
+        rawtonic_engine::session_layout::registered_owner_below(folder)
+    })?;
+    if let Some(refusal) = leaving_for_another_library(owner, &to_library) {
         return Err(refusal);
     }
     let step = rawtonic_fileops::Step::moving(folder, target).map_err(|e| format!("{e:#}"))?;
@@ -685,24 +689,37 @@ fn library_above(folder: &Path) -> Result<Option<(PathBuf, bool)>, String> {
     }))
 }
 
-/// The refusal of moving what is in `from` (a folder) into `to_library`'s
-/// folder when it belongs to a session and that is another library: the
-/// session's records would keep it as missing (`Library::apply_places`).
+/// The session holding what is in the folder `parent`: the library folder
+/// above it when that is a session; with none above, the session that keeps
+/// it outside its folder (`registered`: the photographs a session moved to
+/// another drive, ADR 0016).
+fn owning_session(
+    parent: &Path,
+    registered: impl FnOnce() -> Option<PathBuf>,
+) -> Result<Option<PathBuf>, String> {
+    Ok(match library_above(parent)? {
+        Some((session, true)) => Some(session),
+        Some((_, false)) => None,
+        None => registered().filter(|dir| dir.join("session.json").is_file()),
+    })
+}
+
+/// The refusal of moving what the session `owner` holds into
+/// `to_library`'s folder when that is another library: the session's
+/// records would keep it as missing (`Library::apply_places`).
 fn leaving_for_another_library(
-    from: &Path,
+    owner: Option<PathBuf>,
     to_library: &Option<(PathBuf, bool)>,
-) -> Result<Option<String>, String> {
-    let Some((session, true)) = library_above(from)? else {
-        return Ok(None);
-    };
-    Ok(match to_library {
+) -> Option<String> {
+    let session = owner?;
+    match to_library {
         Some((other, _)) if *other != session => Some(format!(
             "This moves photos of the session {} into the library {}, whose records would not follow them; they would go offline in the session, so nothing was moved. Move them to a folder outside both libraries, or within the session.",
             session.file_name().unwrap_or_default().to_string_lossy(),
             other.file_name().unwrap_or_default().to_string_lossy()
         )),
         _ => None,
-    })
+    }
 }
 
 #[tauri::command]
@@ -1206,6 +1223,25 @@ mod tests {
             )
             .unwrap();
         }
+        // Moved out first, it is still the session's there: on into another
+        // library is refused, the photo and its folder.
+        let out = drive.join("E.NEF");
+        write(&out, "e");
+        rawtonic_engine::session_layout::set_outside_photos(
+            &job,
+            std::collections::HashSet::from([out.clone()]),
+        );
+        let out_source = [out.to_string_lossy().into_owned()];
+        let error = plan_move(&out_source, &other.join("Capture").to_string_lossy()).unwrap_err();
+        assert!(
+            error.contains("of the session Job into the library Other"),
+            "{error}"
+        );
+        let error = plan_folder_move(&drive, &catalog).unwrap_err();
+        assert!(error.contains("into the library Catalog"), "{error}");
+        fs::create_dir_all(root.join("Loose")).unwrap();
+        plan_move(&out_source, &root.join("Loose").to_string_lossy()).unwrap();
+        rawtonic_engine::session_layout::set_outside_photos(&job, Default::default());
     }
 
     /// A Trash folder that records what it was given (and refuses `refuse`).

@@ -42,6 +42,21 @@ pub fn outside_photos_match(library: &Path, test: impl FnOnce(&HashSet<PathBuf>)
         .is_some_and(|(_, photos)| test(photos))
 }
 
+/// The library that registered photographs at or below `folder` (a folder
+/// it keeps photographs in outside its own), if any.
+pub fn registered_owner_below(folder: &Path) -> Option<PathBuf> {
+    let outside = OUTSIDE.read().unwrap_or_else(|e| e.into_inner());
+    let forms = [folder.to_path_buf(), registered_form(folder)];
+    outside
+        .iter()
+        .find(|(_, photos)| {
+            photos
+                .iter()
+                .any(|photo| forms.iter().any(|f| photo.starts_with(f)))
+        })
+        .map(|(dir, _)| dir.clone())
+}
+
 /// The library (session or catalog folder) whose resources — `profiles/`,
 /// `resources/` — a recipe of the photograph at `path` names: the library
 /// folder holding it, else the library that registered it as one of its

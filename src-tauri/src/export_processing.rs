@@ -1455,6 +1455,7 @@ pub async fn export_images(
             output_format,
             current_edit_path,
             current_edit_adjustments,
+            libraries: Vec::new(),
         },
     )
 }
