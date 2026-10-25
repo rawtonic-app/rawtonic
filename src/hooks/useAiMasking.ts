@@ -384,6 +384,19 @@ export function useAiMasking() {
         startPoint: [startPoint.x, startPoint.y],
         taskId: subMaskId,
       });
+      if (useEditorStore.getState().selectedImage?.path !== path) return true;
+      // A slider owns its draft until release. Applying here would put the
+      // answer in that draft and its undo step; wait, then validate again.
+      if (useEditorStore.getState().isSliderDragging) {
+        await new Promise<void>((resolve) => {
+          const unsubscribe = useEditorStore.subscribe((state) => {
+            if (state.isSliderDragging && state.selectedImage?.path === path) return;
+            unsubscribe();
+            resolve();
+          });
+        });
+      }
+      if (useEditorStore.getState().selectedImage?.path !== path) return true;
       if (prompts && !sameSelection(pressedOn, objectSelection(subMaskId))) return false;
 
       // One step per prompt: an edit pending before stays its own, and the

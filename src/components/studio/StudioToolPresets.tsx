@@ -144,10 +144,13 @@ function ToolPresetsPopover({
       setPosition((p) => (p.left === left && p.top === top ? p : { left, top }));
     };
     place();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(place);
-    observer.observe(panel);
-    return () => observer.disconnect();
+    window.addEventListener("resize", place);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(place);
+    observer?.observe(panel);
+    return () => {
+      window.removeEventListener("resize", place);
+      observer?.disconnect();
+    };
   }, [anchor]);
   useEffect(() => {
     const onPointerDown = (e: PointerEvent) => {

@@ -12,6 +12,7 @@ import { resetBuiltinPresets } from "../../utils/builtinPresets";
 import { INITIAL_ADJUSTMENTS, type Adjustments } from "../../utils/adjustments";
 import type { AppSettings, Preset } from "../ui/AppProperties";
 import type { ToolParams } from "./StudioToolCopy";
+import { groupPresets } from "./StudioPresets";
 import { presetFitsTool, toolPresetToSave } from "./toolPresets";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -89,6 +90,27 @@ const openMenu = async (tool = "Grain") => {
 };
 
 describe("Tool preset menu", () => {
+  it("reclamps an open menu when the viewport shrinks", async () => {
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      left: 700, bottom: 500, width: 240, height: 200,
+    } as DOMRect);
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    try {
+      await renderTool();
+      const menu = await openMenu();
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: 400 });
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: 300 });
+      fireEvent(window, new Event("resize"));
+      expect(menu.style.left).toBe("152px");
+      expect(menu.style.top).toBe("92px");
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: height });
+      rect.mockRestore();
+    }
+  });
+
   it("shows only on tools that opted in by their id, and only with parameters", async () => {
     await renderTool("Grain");
     expect(screen.getByRole("button", { name: "Grain presets" })).toBeTruthy();
@@ -159,6 +181,7 @@ describe("Tool preset menu", () => {
     expect(folder?.children).toHaveLength(1);
     const saved = folder!.children[0];
     expect(saved).toMatchObject({ name: "Thirty-three", presetType: "tool" });
+    expect(folder).toHaveProperty("automatic", true);
     // Only this tool's settings, with the version they render by.
     expect(saved.adjustments).toEqual({
       grainAmount: 40,
@@ -185,6 +208,18 @@ describe("Tool preset menu", () => {
     expect(usePresetStore.getState().presets.some((item) => item.preset?.id === "mine")).toBe(false);
     // Built-ins have no delete.
     expect(within(menu).queryByRole("button", { name: /Delete preset “Fine”/ })).toBeNull();
+  });
+
+  it("hides an automatic folder after its last tool preset is deleted, preserving an empty user folder", async () => {
+    stored = [
+      { folder: { id: "auto", name: "Grain", automatic: true, children: [stored![0].preset!] } },
+      { folder: { id: "user", name: "My folder", children: [] } },
+    ];
+    await renderTool();
+    const menu = await openMenu();
+    fireEvent.click(within(menu).getByRole("button", { name: "Delete preset “My grain”" }));
+    fireEvent.click(within(menu).getByRole("button", { name: "Delete" }));
+    expect(groupPresets(usePresetStore.getState().presets).map((g) => g.folder?.id)).toEqual(["user"]);
   });
 
   it("keeps changes of the shared preset list not written yet when it opens", async () => {

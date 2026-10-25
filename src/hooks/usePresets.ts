@@ -283,7 +283,7 @@ export function usePresets(
       );
     } else {
       // Folders come before the presets at the top level (as `addFolder`).
-      const folder = { folder: { id: crypto.randomUUID(), name: folderName, children: [preset] } };
+      const folder = { folder: { id: crypto.randomUUID(), name: folderName, automatic: true, children: [preset] } };
       const firstPreset = current.findIndex((item) => item.preset);
       updatedPresets = [...current];
       updatedPresets.splice(firstPreset === -1 ? current.length : firstPreset, 0, folder);

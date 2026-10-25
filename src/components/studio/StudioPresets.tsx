@@ -38,7 +38,7 @@ export function groupPresets(
       if (match(item.preset)) root.push(item.preset);
     } else if (item.folder) {
       const presets = item.folder.children.filter(match);
-      if (presets.length || !query.trim())
+      if (presets.length || (!query.trim() && !item.folder.automatic))
         folders.push({ folder: { id: item.folder.id ?? "", name: item.folder.name ?? "" }, presets });
     }
   }

@@ -1384,7 +1384,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           <RawtonicMark size={48} />
           <h1>{t("session.welcome.title")}</h1>
           <p>{t("session.welcome.body")}</p>
-          {!form && <FirstStartToolsSide />}
+          <FirstStartToolsSide />
           <div className="session-welcome-modes">
             <button
               className="session-welcome-mode"
