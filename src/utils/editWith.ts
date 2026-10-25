@@ -86,7 +86,9 @@ export interface EditWithResult {
 /** The export requests of an Edit With: each photograph to its own file
  * (named by `edit_with_targets`), with the recipe's settings. Only where the
  * file goes differs from an Export with that recipe, so the renders are the
- * same bytes. */
+ * same bytes; except that Edit With writes no separate mask files: a recipe
+ * that exports them gets one flattened image with every layer applied (the
+ * other program edits one file), not the main image of such an Export. */
 export function editRequests(targets: EditTarget[], recipe: EditRecipe) {
   const exportSettings: ExportSettings = {
     ...recipe.settings,
@@ -107,20 +109,28 @@ export function editRequests(targets: EditTarget[], recipe: EditRecipe) {
   }));
 }
 
-const settled = (job: ExportJob | undefined) =>
-  job !== undefined && job.state !== 'queued' && job.state !== 'running' && job.state !== 'paused';
+const settled = (state: ExportJob['state']) => state !== 'queued' && state !== 'running' && state !== 'paused';
 
-/** Waits until the queue has finished `jobs`: the ids that were done. A job
- * removed from the queue after it was listed counts as not done. */
+/** Waits until the queue has finished `jobs`: the ids that were done. Each
+ * job's last seen state counts, so one the queue dropped after it finished
+ * (it keeps only the latest finished jobs) is still known as done; one
+ * removed while still waiting counts as not done. */
 export function waitForJobs(jobs: string[]): Promise<Set<string>> {
   return new Promise((resolve) => {
-    const listed = new Set<string>();
+    const seen = new Map<string, ExportJob['state']>();
     const check = (queue: ExportJob[]) => {
-      const byId = new Map(queue.map((job) => [job.id, job]));
-      for (const id of jobs) if (byId.has(id)) listed.add(id);
-      const finished = jobs.every((id) => settled(byId.get(id)) || (listed.has(id) && !byId.has(id)));
+      const present = new Set<string>();
+      for (const job of queue) {
+        if (!jobs.includes(job.id)) continue;
+        present.add(job.id);
+        seen.set(job.id, job.state);
+      }
+      const finished = jobs.every((id) => {
+        const state = seen.get(id);
+        return state !== undefined && (!present.has(id) || settled(state));
+      });
       if (!finished) return false;
-      resolve(new Set(jobs.filter((id) => byId.get(id)?.state === 'done')));
+      resolve(new Set(jobs.filter((id) => seen.get(id) === 'done')));
       return true;
     };
     if (check(useProcessStore.getState().exportQueue)) return;

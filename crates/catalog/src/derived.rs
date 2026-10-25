@@ -4,7 +4,7 @@
 //! original keeps `stack` empty, so a stack is the original plus every
 //! asset naming it. Nothing here touches files.
 use crate::{Asset, Library};
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use rusqlite::{OptionalExtension, params};
 
 impl Library {
@@ -60,5 +60,20 @@ impl Library {
             .query_map(params![id, id], |r| r.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         ids.iter().map(|derived| self.asset(derived)).collect()
+    }
+
+    /// After another program saved asset `id`'s file in place (an Edit With
+    /// render): records its new size, time and fingerprint, and forgets its
+    /// content hash (the background pass hashes it again).
+    pub fn file_saved(&self, id: &str) -> Result<()> {
+        let asset = self.asset(id)?;
+        let (size, mtime) = crate::checksum::stamp(&asset.path)
+            .with_context(|| format!("{} is not there", asset.path.display()))?;
+        let fingerprint = crate::fingerprint(&asset.path)?;
+        self.conn.execute(
+            "UPDATE assets SET size=?,mtime=?,fingerprint=?,sha256=NULL WHERE id=?",
+            params![i64::try_from(size)?, mtime, fingerprint, id],
+        )?;
+        Ok(())
     }
 }

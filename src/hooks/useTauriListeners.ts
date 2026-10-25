@@ -23,6 +23,7 @@ import { throttleAsync } from '../utils/throttle';
 import { IMPORTS_CHANGED } from '../utils/folderSync';
 import { metadataWritten } from '../utils/catalogWrites';
 import { globalImageCache } from '../utils/ImageLRUCache';
+import { debouncedSave } from './useEditorActions';
 
 type EditorState = ReturnType<typeof useEditorStore.getState>;
 
@@ -318,14 +319,18 @@ export function useTauriListeners({
       }),
       // Another program saved an Edit With render (open_with.rs): its kept
       // previews are stale (the new thumbnail follows as thumbnail-generated),
-      // and Develop shows it again when it is open there.
+      // and the viewer decodes it again when it shows it.
       listen<{ path: string }>('edit-with-saved', (event) => {
         if (!isEffectActive) return;
         const { path } = event.payload;
         globalImageCache.deleteByPrefix(path);
-        const shown = useEditorStore.getState().selectedImage?.path;
-        if (shown && shown.split('?vc=')[0] === path && useUIStore.getState().activeView === 'editor')
-          refs.current.handleImageSelect?.(shown, true);
+        // Selecting it again does nothing; decoding it again keeps its recipe
+        // (saved first) and shows the new pixels.
+        const { selectedImage, setEditor } = useEditorStore.getState();
+        if (selectedImage?.isDecoded && selectedImage.path.split('?vc=')[0] === path) {
+          debouncedSave.flush();
+          setEditor({ selectedImage: { ...selectedImage, isDecoded: false, isReady: false } });
+        }
       }),
       listen<Progress>('thumbnail-progress', (event) => {
         if (isEffectActive)

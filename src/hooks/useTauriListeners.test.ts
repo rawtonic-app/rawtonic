@@ -557,3 +557,19 @@ it("says tether failures app-wide, with no tether panel shown", async () => {
   error.mockRestore();
   warning.mockRestore();
 });
+
+it('decodes an Edit With render again when another program saved it while it is shown', () => {
+  renderHook(() => useTauriListeners({
+    refreshAllFolderTrees: vi.fn(), handleSelectSubfolder: vi.fn(),
+    refreshImageList: vi.fn(), markGenerated: vi.fn(), handleImageSelect: vi.fn(),
+  }));
+  const saved = (path: string) => act(() => callbacks.get('edit-with-saved')!({ payload: { path } }));
+  const shown = { path: '/s/A_edit.tiff', isReady: true, isDecoded: true, width: 10 } as SelectedImage;
+  useEditorStore.getState().setEditor({ selectedImage: shown });
+  saved('/s/B_edit.tiff');
+  expect(useEditorStore.getState().selectedImage).toBe(shown);
+  saved('/s/A_edit.tiff');
+  expect(useEditorStore.getState().selectedImage).toMatchObject({
+    path: '/s/A_edit.tiff', isDecoded: false, isReady: false, width: 10,
+  });
+});

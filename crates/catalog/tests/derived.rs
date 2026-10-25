@@ -82,3 +82,29 @@ fn stacks_stay_one_level_and_never_loop() {
     assert_eq!(lib.derived_from(a).unwrap().unwrap().id, *b);
     assert!(lib.derivatives(a).unwrap().is_empty());
 }
+
+#[test]
+fn a_render_saved_by_another_program_is_known_by_its_new_identity() {
+    let tmp = tempfile::tempdir().unwrap();
+    let lib = Library::create(&tmp.path().join("Lib"), "Lib", Mode::Session).unwrap();
+    let path = tmp.path().join("Lib/Capture/A_edit.tif");
+    fs::write(&path, b"first render").unwrap();
+    let render = lib.add_asset(&path).unwrap();
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    lib.fill_all_checksums(&cancel).unwrap();
+    assert!(lib.checksum(&render.id).unwrap().is_some());
+
+    fs::write(&path, b"saved by the other program, longer").unwrap();
+    lib.file_saved(&render.id).unwrap();
+    let after = lib.asset(&render.id).unwrap();
+    assert_eq!(after.size, 34);
+    assert_eq!(
+        after.fingerprint,
+        rawtonic_catalog::fingerprint(&path).unwrap()
+    );
+    assert_ne!(after.fingerprint, render.fingerprint);
+    // Hashed again later, from the new content.
+    assert!(lib.checksum(&render.id).unwrap().is_none());
+    lib.fill_all_checksums(&cancel).unwrap();
+    assert!(lib.checksum(&render.id).unwrap().is_some());
+}

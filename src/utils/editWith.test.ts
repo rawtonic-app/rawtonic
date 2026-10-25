@@ -73,7 +73,8 @@ describe('recipes', () => {
   });
 
   it('changes only where each render goes, so it is the bytes of an Export with the recipe', () => {
-    const recipe = editRecipes([preset({})])[2];
+    // Without separate mask files (a recipe exporting them gets one flattened image).
+    const recipe = editRecipes([preset({ exportMasks: false })])[2];
     const requests = editRequests(
       [
         { source: '/s/Capture/A.NEF', target: '/s/Capture/A_edit.tiff' },
@@ -85,11 +86,12 @@ describe('recipes', () => {
       [['/s/Capture/A.NEF'], '/s/Capture/A_edit.tiff', true],
       [['/s/Capture/A.NEF?vc=c1'], '/s/Capture/A_edit-2.tiff', true],
     ]);
-    const { destinationType, subfolder, filenameTemplate, exportMasks, ...pixels } = requests[0].exportSettings;
-    const { destinationType: _d, subfolder: _s, filenameTemplate: _f, exportMasks: _m, ...recipePixels } =
-      recipe.settings;
+    const { destinationType, subfolder, filenameTemplate, ...pixels } = requests[0].exportSettings;
+    const { destinationType: _d, subfolder: _s, filenameTemplate: _f, ...recipePixels } = recipe.settings;
     expect(pixels).toEqual(recipePixels);
-    expect({ destinationType, subfolder, filenameTemplate, exportMasks }).toEqual({
+    expect(editRequests(requests.slice(0, 1).map(() => ({ source: 'a', target: 'b' })), editRecipes([preset({})])[2])[0]
+      .exportSettings.exportMasks).toBe(false);
+    expect({ destinationType, subfolder, filenameTemplate, exportMasks: requests[0].exportSettings.exportMasks }).toEqual({
       destinationType: 'customFolder',
       subfolder: '',
       filenameTemplate: null,
@@ -111,6 +113,16 @@ describe('waiting for the renders', () => {
     // b was removed from the queue after it was listed: not done.
     useProcessStore.setState({ exportQueue: [job('a', 'done'), job('c', 'failed')] });
     await vi.waitFor(() => expect(result).toEqual(new Set(['a'])));
+  });
+
+  it('remembers jobs that were done before the queue dropped them', async () => {
+    // The queue keeps only its latest finished jobs.
+    let result: Set<string> | undefined;
+    void waitForJobs(['a', 'b', 'c']).then((done) => (result = done));
+    useProcessStore.setState({ exportQueue: [job('a', 'done'), job('b', 'running'), job('c', 'queued')] });
+    useProcessStore.setState({ exportQueue: [job('b', 'done'), job('c', 'running')] });
+    useProcessStore.setState({ exportQueue: [job('c', 'done')] });
+    await vi.waitFor(() => expect(result).toEqual(new Set(['a', 'b', 'c'])));
   });
 });
 

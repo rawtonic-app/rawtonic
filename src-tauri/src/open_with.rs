@@ -157,14 +157,23 @@ pub fn edit_target(original: &Path, extension: &str, taken: &HashSet<PathBuf>) -
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let used = |path: &Path| {
-        fs::symlink_metadata(path).is_ok()
-            || taken.iter().any(|t| {
-                t.parent() == path.parent()
-                    && t.file_name().map(|n| n.to_string_lossy().to_lowercase())
-                        == path.file_name().map(|n| n.to_string_lossy().to_lowercase())
-            })
-    };
+    // Names differing only in case count as taken on every volume, so a
+    // render never depends on whether the volume tells them apart.
+    let lower = |path: &Path| path.file_name().map(|n| n.to_string_lossy().to_lowercase());
+    let mut used: HashSet<String> = fs::read_dir(folder)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.file_name().to_string_lossy().to_lowercase())
+                .collect()
+        })
+        .unwrap_or_default();
+    used.extend(
+        taken
+            .iter()
+            .filter(|t| t.parent() == Some(folder))
+            .filter_map(|t| lower(t)),
+    );
     (1u32..)
         .map(|n| {
             let suffix = if n == 1 {
@@ -174,7 +183,7 @@ pub fn edit_target(original: &Path, extension: &str, taken: &HashSet<PathBuf>) -
             };
             folder.join(format!("{stem}{EDIT_SUFFIX}{suffix}.{extension}"))
         })
-        .find(|path| !used(path))
+        .find(|path| lower(path).is_some_and(|name| !used.contains(&name)))
         .expect("a free name")
 }
 
@@ -629,6 +638,26 @@ fn watched() -> &'static Mutex<Watched> {
     WATCHED.get_or_init(Default::default)
 }
 
+/// The library records a render's size, time and fingerprint; after a save
+/// they are its new ones (Locate and Synchronize Folder recognise it by them).
+fn refresh_identity(render: &Path) {
+    let Some(dir) = crate::session_bridge::library_dir_for(render) else {
+        return;
+    };
+    let result = crate::session_bridge::with_library_blocking(&dir, |lib| {
+        match lib.asset_at(render).map_err(|e| e.to_string())? {
+            Some(asset) => lib.file_saved(&asset.id).map_err(|e| e.to_string()),
+            None => Ok(()),
+        }
+    });
+    if let Err(e) = result {
+        log::warn!(
+            "Edit With: {} not brought up to date: {e}",
+            render.display()
+        );
+    }
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EditSaved {
@@ -657,6 +686,9 @@ fn watch(app: &AppHandle, renders: &[PathBuf]) {
                         crate::cache_utils::clear_image_caches(
                             app.state::<crate::app_state::AppState>(),
                         );
+                    }
+                    for path in &saved {
+                        refresh_identity(path);
                     }
                     for path in saved {
                         let path = path.to_string_lossy().into_owned();
