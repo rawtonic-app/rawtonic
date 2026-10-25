@@ -1373,7 +1373,11 @@
       "importFrom": "Commencer depuis Lightroom ou Capture One",
       "open": "Ouvrir un projet",
       "tagline": "Fichiers locaux. Retouches non destructives. Vos photos.",
-      "title": "Un lieu pour chaque mission."
+      "title": "Un lieu pour chaque mission.",
+      "toolsHint": "Vous pourrez modifier ce choix dans Préférences → Général.",
+      "toolsLeft": "Outils à gauche",
+      "toolsRight": "Outils à droite",
+      "toolsSide": "Où souhaitez-vous les outils de développement ?"
     }
   },
   "settings": {

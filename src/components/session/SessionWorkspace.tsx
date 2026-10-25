@@ -38,9 +38,10 @@ import { toast } from "react-toastify";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { useEditorStore } from "../../store/useEditorStore";
-import { useUIStore } from "../../store/useUIStore";
+import { storedStudioLayout, useUIStore } from "../../store/useUIStore";
 import { Invokes } from "../ui/AppProperties";
 import RawtonicMark from "../ui/RawtonicMark";
+import FirstStartToolsSide from "./FirstStartToolsSide";
 import type { FolderTree } from "../../utils/folderTree";
 import NextCaptureFields from "./NextCaptureFields";
 import TetherPanel, { type TetherStatus } from "./TetherPanel";
@@ -404,6 +405,11 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         }),
         invoke<Record<string, number>>(Invokes.SessionFlags, { directory: root }),
       ]);
+      // Opening a library completes first start even if the default was kept.
+      if (storedStudioLayout("layout") === null) {
+        const ui = useUIStore.getState();
+        ui.setStudioToolLayout(ui.studioToolLayout);
+      }
       setSession(summary);
       useLibraryStore.getState().setLibrary({
         sessionDirectory: root,
@@ -1376,6 +1382,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           <RawtonicMark size={48} />
           <h1>{t("session.welcome.title")}</h1>
           <p>{t("session.welcome.body")}</p>
+          {!form && <FirstStartToolsSide />}
           <div className="session-welcome-modes">
             <button
               className="session-welcome-mode"

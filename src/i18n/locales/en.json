@@ -1317,7 +1317,11 @@
       "importFrom": "Import from Lightroom or Capture One…",
       "open": "Open a project or catalog",
       "tagline": "Local files. Non-destructive edits. Your photographs.",
-      "title": "Your photos. Your workflow."
+      "title": "Your photos. Your workflow.",
+      "toolsHint": "You can change this later in Preferences → General.",
+      "toolsLeft": "Tools on the left",
+      "toolsRight": "Tools on the right",
+      "toolsSide": "Where would you like the Develop tools?"
     }
   },
   "settings": {

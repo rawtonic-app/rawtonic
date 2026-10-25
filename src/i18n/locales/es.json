@@ -1373,7 +1373,11 @@
       "importFrom": "Empezar desde Lightroom o Capture One",
       "open": "Abrir un proyecto",
       "tagline": "Archivos locales. Edición no destructiva. Tus fotos.",
-      "title": "Un lugar para cada encargo."
+      "title": "Un lugar para cada encargo.",
+      "toolsHint": "Puedes cambiarlo más tarde en Preferencias → General.",
+      "toolsLeft": "Herramientas a la izquierda",
+      "toolsRight": "Herramientas a la derecha",
+      "toolsSide": "¿Dónde prefieres las herramientas de Revelado?"
     }
   },
   "settings": {
