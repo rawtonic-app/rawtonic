@@ -135,6 +135,7 @@ export enum Invokes {
   NoteAiMaskUse = 'note_ai_mask_use',
   GeneratePreviewForPath = 'generate_preview_for_path',
   GenerateMaskOverlay = 'generate_mask_overlay',
+  SetWindowFullScreen = 'set_window_full_screen',
   GenerateMaskThumbnails = 'generate_mask_thumbnails',
   GenerateUncroppedPreview = 'generate_uncropped_preview',
   GetFolderTree = 'get_folder_tree',

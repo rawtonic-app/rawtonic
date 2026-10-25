@@ -7,16 +7,22 @@ const webviewFocus = vi.fn(async () => {});
 vi.mock('@tauri-apps/api/webview', () => ({ getCurrentWebview: () => ({ setFocus: webviewFocus }) }));
 
 let native = false;
+// The window's full screen changes through the app's command (macOS: as ⌃⌘F).
 const setFullscreen = vi.fn(async (value: boolean) => {
   native = value;
 });
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn(async (command: string, args: { on: boolean }) => {
+    if (command === 'set_window_full_screen') await setFullscreen(args.on);
+  }),
+}));
 const isFullscreen = vi.fn(async () => native);
 const windowFocus = vi.fn(async () => {});
 
 beforeEach(() => {
   native = false;
   vi.clearAllMocks();
-  vi.mocked(getCurrentWindow).mockReturnValue({ isFullscreen, setFullscreen, setFocus: windowFocus } as never);
+  vi.mocked(getCurrentWindow).mockReturnValue({ isFullscreen, setFocus: windowFocus } as never);
 });
 
 it('puts the window into full screen and back', async () => {
