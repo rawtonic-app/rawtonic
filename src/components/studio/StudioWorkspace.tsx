@@ -343,6 +343,8 @@ export default function StudioWorkspace(props: Props) {
   // it or take its clicks (an edit already under way still completes). They
   // are put aside and come back with Develop (same photograph).
   const viewOnly = libraryViewer || isFullScreen;
+  // Bumped when a gesture held as the view opened is released.
+  const [suspendAfterRelease, setSuspendAfterRelease] = useState(0);
   const suspended = useRef<{
     path: string | null;
     panel: Panel | null;
@@ -352,10 +354,57 @@ export default function StudioWorkspace(props: Props) {
     faces: boolean;
     relightHandles: boolean;
   } | null>(null);
+  // A pointer or a ⌘/Ctrl held down, followed from the start: a gesture
+  // under way when the view opens (a brush stroke) finishes first, and the
+  // wheel guard below knows a key pressed before the view.
+  const held = useRef({ pointer: false, modifier: false });
+  useEffect(() => {
+    const onPointer = (e: PointerEvent) => {
+      held.current.pointer = e.type === "pointerdown";
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Control" || e.key === "Meta") held.current.modifier = e.type === "keydown";
+    };
+    const release = () => {
+      held.current = { pointer: false, modifier: false };
+    };
+    window.addEventListener("pointerdown", onPointer, true);
+    window.addEventListener("pointerup", onPointer, true);
+    window.addEventListener("pointercancel", onPointer, true);
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("keyup", onKey, true);
+    window.addEventListener("blur", release);
+    return () => {
+      window.removeEventListener("pointerdown", onPointer, true);
+      window.removeEventListener("pointerup", onPointer, true);
+      window.removeEventListener("pointercancel", onPointer, true);
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("keyup", onKey, true);
+      window.removeEventListener("blur", release);
+    };
+  }, []);
   useEffect(() => {
     const ui = useUIStore.getState();
     const editor = useEditorStore.getState();
     const relight = useRelightStore.getState();
+    if (viewOnly && held.current.pointer) {
+      // A stroke or drag under way completes on its photograph first: its
+      // tool is put aside once the pointer is released (after the tool's
+      // own release handlers have run).
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const released = () => {
+        window.removeEventListener("pointerup", released);
+        window.removeEventListener("pointercancel", released);
+        timer = setTimeout(() => setSuspendAfterRelease((n) => n + 1), 0);
+      };
+      window.addEventListener("pointerup", released);
+      window.addEventListener("pointercancel", released);
+      return () => {
+        window.removeEventListener("pointerup", released);
+        window.removeEventListener("pointercancel", released);
+        clearTimeout(timer);
+      };
+    }
     if (viewOnly) {
       suspended.current ??= {
         path: editor.selectedImage?.path ?? null,
@@ -410,7 +459,7 @@ export default function StudioWorkspace(props: Props) {
       isSpotToolActive: saved.spot,
       showFaceBlemishes: saved.faces,
     });
-  }, [viewOnly, develop]);
+  }, [viewOnly, develop, suspendAfterRelease]);
   // In the Library a photograph that stops matching the filter (rated
   // while culling) gives way to the one now in its place; with none left
   // the grid comes back.
@@ -434,35 +483,21 @@ export default function StudioWorkspace(props: Props) {
     fullScreenSeen.current = isFullScreen;
     void followPhotoFullScreen(isFullScreen);
   }, [isFullScreen]);
-  // In the view, a held ⌘/Ctrl turns the wheel into the editor's crop zoom
-  // (Editor tracks the key itself); that wheel does nothing here. A
-  // trackpad pinch (ctrlKey without the key held) still zooms the view.
+  // In the view, a held ⌘/Ctrl (also one pressed before the view opened)
+  // turns the wheel into the editor's crop zoom (Editor tracks the key
+  // itself); that wheel does nothing here. A trackpad pinch (ctrlKey
+  // without the key held) still zooms the view.
   const viewerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const element = viewerRef.current;
     if (!viewOnly || !element) return;
-    let held = false;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Control" || e.key === "Meta") held = e.type === "keydown";
-    };
-    const release = () => {
-      held = false;
-    };
     const onWheel = (e: WheelEvent) => {
-      if (!held) return;
+      if (!held.current.modifier) return;
       e.preventDefault();
       e.stopPropagation();
     };
-    window.addEventListener("keydown", onKey, true);
-    window.addEventListener("keyup", onKey, true);
-    window.addEventListener("blur", release);
     element.addEventListener("wheel", onWheel, { capture: true, passive: false });
-    return () => {
-      window.removeEventListener("keydown", onKey, true);
-      window.removeEventListener("keyup", onKey, true);
-      window.removeEventListener("blur", release);
-      element.removeEventListener("wheel", onWheel, { capture: true });
-    };
+    return () => element.removeEventListener("wheel", onWheel, { capture: true });
   }, [viewOnly, selectedImage?.path]);
   // The pointer hides over the full screen until it moves.
   const cursorIdle = useIdleCursor(isFullScreen);

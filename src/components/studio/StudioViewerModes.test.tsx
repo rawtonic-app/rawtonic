@@ -395,3 +395,37 @@ it("closes a menu already open when the photograph is then only shown", () => {
   act(() => useUIStore.getState().toggleFullScreen());
   expect(menus!.menuState.isVisible).toBe(false);
 });
+
+it("lets a brush stroke held as the full screen opens finish before its layer is put aside", () => {
+  vi.useFakeTimers();
+  useUIStore.setState({ activeView: "editor", activePanel: Panel.Masks });
+  useEditorStore.setState((s) => ({
+    adjustments: { ...s.adjustments, masks: [{ id: "layer-1", subMasks: [{ id: "brush-1" }] }] } as never,
+    activeMaskContainerId: "layer-1",
+    activeMaskId: "brush-1",
+  }));
+  workspace();
+  // The stroke is under way: the pointer stays down while F is pressed.
+  fireEvent.pointerDown(screen.getByTestId("native-viewer"));
+  act(() => useUIStore.getState().toggleFullScreen());
+  expect(useUIStore.getState().activePanel).toBe(Panel.Masks);
+  expect(useEditorStore.getState()).toMatchObject({ activeMaskContainerId: "layer-1", activeMaskId: "brush-1" });
+  // Released: the stroke's own handlers commit it, then the view puts the tool aside.
+  fireEvent.pointerUp(window);
+  expect(useEditorStore.getState().activeMaskId).toBe("brush-1");
+  act(() => vi.runAllTimers());
+  expect(useEditorStore.getState()).toMatchObject({ activeMaskContainerId: null, activeMaskId: null });
+  act(() => useUIStore.getState().toggleFullScreen());
+  expect(useEditorStore.getState()).toMatchObject({ activeMaskContainerId: "layer-1", activeMaskId: "brush-1" });
+  useEditorStore.setState((s) => ({ adjustments: { ...s.adjustments, masks: [] }, activeMaskContainerId: null, activeMaskId: null }));
+});
+
+it("keeps the crop-zoom wheel from the view also with Cmd/Ctrl pressed before it opened", () => {
+  useUIStore.setState({ activeView: "editor" });
+  workspace();
+  fireEvent.keyDown(window, { key: "Control" });
+  act(() => useUIStore.getState().toggleFullScreen());
+  fireEvent.wheel(screen.getByTestId("native-viewer"), { deltaY: -10, ctrlKey: true });
+  expect(editorWheel).not.toHaveBeenCalled();
+  fireEvent.keyUp(window, { key: "Control" });
+});
