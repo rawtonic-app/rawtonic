@@ -20,6 +20,8 @@ import { libraryTool, ownsPanelShortcut, revealLibraryTool } from '../components
 import { useMultiViewStore, type CellZoomKey } from '../store/useMultiViewStore';
 import { orderedSelection, stepPrimary } from '../utils/multiView';
 import { isTetherConnected, TETHER_CAPTURE_EVENT } from '../components/session/tether';
+import { libraryViewer, viewerOnly, viewerShown } from '../utils/viewerMode';
+import { pointerHeld } from '../utils/heldPointer';
 
 /** The photograph an arrow key moves to in the Library, from `index` of
  * `count`. Left/Right step one and wrap around; in the grid (`columns` per
@@ -36,6 +38,23 @@ export function gridStep(index: number, count: number, code: string, columns: nu
   if (Math.floor(index / columns) >= lastRow) return index;
   return Math.min(index + columns, count - 1);
 }
+
+/** Shortcuts that change a recipe; the loupe and the full screen ignore
+ * them (in the Library, undo and redo are the file operations' and stay). */
+export const RECIPE_ACTIONS = new Set([
+  'paste_adjustments',
+  'paste_from_previous',
+  'sync_settings',
+  'auto_adjust',
+  'auto_white_balance',
+  'auto_straighten',
+  'rotate_left',
+  'rotate_right',
+  'undo',
+  'redo',
+  'toggle_crop',
+  'toggle_masks',
+]);
 
 interface KeyboardShortcutsProps {
   sortedImageList: Array<ImageFile>;
@@ -109,8 +128,21 @@ export const useKeyboardShortcuts = ({
           : null;
     };
     take(useUIStore.getState().activePanel);
+    // The loupe and the full screen put the crop tool aside and bring it
+    // back (StudioWorkspace): its entry crop stays the one Escape restores.
+    let parked = false;
     return useUIStore.subscribe((state, previous) => {
-      if (state.activePanel !== previous.activePanel) take(state.activePanel);
+      if (state.activePanel === previous.activePanel) return;
+      if (previous.activePanel === Panel.Crop && viewerOnly(state)) {
+        parked = true;
+        return;
+      }
+      const resumed =
+        parked &&
+        state.activePanel === Panel.Crop &&
+        cropEntry.current?.path === useEditorStore.getState().selectedImage?.path;
+      parked = false;
+      if (!resumed) take(state.activePanel);
     });
   }, []);
 
@@ -195,13 +227,29 @@ export const useKeyboardShortcuts = ({
       const next = stepPrimary(selection, s.editor.selectedImage?.path ?? null, step);
       if (next && next !== s.editor.selectedImage?.path) handleImageSelect(next, true);
     };
+    // The Library's loupe and full screen step through the grid's order, the
+    // photograph becoming the Library's selection as a click on it would.
+    const stepLibraryViewer = (s: ShortcutState, step: number) => {
+      const list = sortedListRef.current;
+      const current = s.editor.selectedImage?.path ?? s.library.libraryActivePath;
+      const index = list.findIndex((img) => img.path === current);
+      if (index === -1 || list.length < 2) return;
+      const next = list[(index + step + list.length) % list.length].path;
+      s.library.setLibrary({ libraryActivePath: next, multiSelectedPaths: [next], selectionAnchorPath: next });
+      handleImageSelect(next, false);
+    };
+    // The loupe and the full screen rate, flag and label what they show,
+    // not the rest of the selection.
+    const shownOnly = (s: ShortcutState) =>
+      (s.ui.isFullScreen || libraryViewer(s.ui)) && s.editor.selectedImage ? [s.editor.selectedImage.path] : undefined;
     const ratedPaths = (s: ShortcutState) =>
-      multiViewActive(s) && s.editor.selectedImage ? [s.editor.selectedImage.path] : undefined;
+      shownOnly(s) ?? (multiViewActive(s) && s.editor.selectedImage ? [s.editor.selectedImage.path] : undefined);
     // In the multi view the zoom keys zoom the primary in its cell; with the
     // zoom lock every other cell follows (MultiViewStage). Without the lock
     // they zoom the cell under the pointer.
     const zoomAction = (kind: CellZoomKey, zoom: (s: ShortcutState) => void): ShortcutAction => ({
-      shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
+      // Develop, the Library's loupe and the full screen show the viewer.
+      shouldFire: (s) => viewerShown(s.ui) && !!s.editor.selectedImage,
       execute: (e, s) => {
         e.preventDefault();
         if (useMultiViewStore.getState().active && useMultiViewStore.getState().zoomHoveredCell?.(kind)) return;
@@ -293,9 +341,13 @@ export const useKeyboardShortcuts = ({
         },
       },
       preview_prev: {
-        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
+        shouldFire: (s) => viewerShown(s.ui) && !!s.editor.selectedImage,
         execute: (e, s) => {
           e.preventDefault();
+          if (libraryViewer(s.ui)) {
+            stepLibraryViewer(s, -1);
+            return;
+          }
           if (multiViewActive(s)) {
             stepMultiView(s, -1);
             return;
@@ -307,9 +359,13 @@ export const useKeyboardShortcuts = ({
         },
       },
       preview_next: {
-        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
+        shouldFire: (s) => viewerShown(s.ui) && !!s.editor.selectedImage,
         execute: (e, s) => {
           e.preventDefault();
+          if (libraryViewer(s.ui)) {
+            stepLibraryViewer(s, 1);
+            return;
+          }
           if (multiViewActive(s)) {
             stepMultiView(s, 1);
             return;
@@ -337,6 +393,7 @@ export const useKeyboardShortcuts = ({
         handleZoomChange(Math.max(currentPercent - 0.1, 0.1));
       }),
       cycle_zoom: zoomAction('cycle', (s) => {
+        // (The Library grid's Space opens the loupe: see the builtins.)
         const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
         const { originalSize, displaySize, baseRenderSize } = s.editor;
         const currentPercent =
@@ -496,7 +553,28 @@ export const useKeyboardShortcuts = ({
         },
       },
       toggle_fullscreen: {
-        // The window's full screen with the interface as it is (Capture One).
+        // The photograph alone (Lightroom's F), from the Library and Develop.
+        shouldFire: (s) =>
+          s.ui.isFullScreen ||
+          !!s.editor.selectedImage ||
+          (s.ui.activeView !== 'editor' && !!s.library.libraryActivePath),
+        execute: (e, s) => {
+          e.preventDefault();
+          if (e.repeat) return;
+          // Not in the middle of a stroke or drag: the viewer would change
+          // its size under it (utils/heldPointer).
+          if (!s.ui.isFullScreen && pointerHeld()) return;
+          // In the Library the active photograph, loaded first when a
+          // modified click moved the active one without opening it.
+          const active = s.library.libraryActivePath;
+          if (!s.ui.isFullScreen && s.ui.activeView !== 'editor' && active && active !== s.editor.selectedImage?.path) {
+            handleImageSelect(active, false);
+          }
+          useUIStore.getState().toggleFullScreen();
+        },
+      },
+      toggle_window_fullscreen: {
+        // The window's full screen with the interface as it is.
         shouldFire: () => true,
         execute: (e) => {
           e.preventDefault();
@@ -611,12 +689,18 @@ export const useKeyboardShortcuts = ({
         },
       },
       // The library column's Metadata and Folders tools, where it is shown
-      // (Library, or Develop with the tools split).
+      // (the Library's grid and loupe). In Develop and the full screen, I
+      // shows the photograph's facts over it, read only (Lightroom's info
+      // overlay); keywords and metadata are edited in the Library.
       toggle_metadata: {
-        shouldFire: () => !!libraryTool('Metadata'),
-        execute: (e) => {
+        shouldFire: (s) =>
+          ((s.ui.activeView === 'editor' || s.ui.isFullScreen) && !!s.editor.selectedImage) ||
+          !!libraryTool('Metadata'),
+        execute: (e, s) => {
           e.preventDefault();
-          revealLibraryTool('Metadata');
+          if ((s.ui.activeView === 'editor' || s.ui.isFullScreen) && s.editor.selectedImage) {
+            s.ui.setUI({ infoOverlay: !s.ui.infoOverlay });
+          } else revealLibraryTool('Metadata');
         },
       },
       toggle_folder_tree: {
@@ -658,31 +742,35 @@ export const useKeyboardShortcuts = ({
         },
       },
       toggle_side_panels: {
+        shouldFire: (s) => !s.ui.isFullScreen,
         execute: (e, s) => {
           e.preventDefault();
           s.ui.togglePanels('sides');
         },
       },
       toggle_all_panels: {
+        shouldFire: (s) => !s.ui.isFullScreen,
         execute: (e, s) => {
           e.preventDefault();
           s.ui.togglePanels('all');
         },
       },
       toggle_left_panel: {
+        shouldFire: (s) => !s.ui.isFullScreen,
         execute: (e, s) => {
           e.preventDefault();
           s.ui.togglePanels('left');
         },
       },
       toggle_right_panel: {
+        shouldFire: (s) => !s.ui.isFullScreen,
         execute: (e, s) => {
           e.preventDefault();
           s.ui.togglePanels('right');
         },
       },
       toggle_bottom_panel: {
-        shouldFire: (s) => s.ui.activeView !== 'library',
+        shouldFire: (s) => s.ui.activeView !== 'library' && !s.ui.isFullScreen,
         execute: (e, s) => {
           e.preventDefault();
           s.ui.togglePanels('filmstrip');
@@ -765,44 +853,44 @@ export const useKeyboardShortcuts = ({
       },
       color_label_none: {
         shouldFire: () => true,
-        execute: (e) => {
+        execute: (e, s) => {
           e.preventDefault();
-          handleSetColorLabel(null);
+          handleSetColorLabel(null, shownOnly(s));
         },
       },
       color_label_red: {
         shouldFire: () => true,
-        execute: (e) => {
+        execute: (e, s) => {
           e.preventDefault();
-          handleSetColorLabel('red');
+          handleSetColorLabel('red', shownOnly(s));
         },
       },
       color_label_yellow: {
         shouldFire: () => true,
-        execute: (e) => {
+        execute: (e, s) => {
           e.preventDefault();
-          handleSetColorLabel('yellow');
+          handleSetColorLabel('yellow', shownOnly(s));
         },
       },
       color_label_green: {
         shouldFire: () => true,
-        execute: (e) => {
+        execute: (e, s) => {
           e.preventDefault();
-          handleSetColorLabel('green');
+          handleSetColorLabel('green', shownOnly(s));
         },
       },
       color_label_blue: {
         shouldFire: () => true,
-        execute: (e) => {
+        execute: (e, s) => {
           e.preventDefault();
-          handleSetColorLabel('blue');
+          handleSetColorLabel('blue', shownOnly(s));
         },
       },
       color_label_purple: {
         shouldFire: () => true,
-        execute: (e) => {
+        execute: (e, s) => {
           e.preventDefault();
-          handleSetColorLabel('purple');
+          handleSetColorLabel('purple', shownOnly(s));
         },
       },
       brush_size_up: {
@@ -855,7 +943,9 @@ export const useKeyboardShortcuts = ({
         match: (e: KeyboardEvent) => e.code === 'Escape',
         execute: (e: KeyboardEvent, s: ShortcutState) => {
           e.preventDefault();
-          if (s.editor.isStraightenActive) s.editor.setEditor({ isStraightenActive: false });
+          // The full screen first: its tools are put aside (StudioWorkspace).
+          if (s.ui.isFullScreen) s.ui.toggleFullScreen();
+          else if (s.editor.isStraightenActive) s.editor.setEditor({ isStraightenActive: false });
           else if (s.editor.colorPickerTarget !== null) s.editor.setEditor({ colorPickerTarget: null });
           else if (s.editor.isWbPickerActive) s.editor.setEditor({ isWbPickerActive: false });
           else if (s.editor.lumaPickerLayer) s.editor.setEditor({ lumaPickerLayer: null });
@@ -875,8 +965,9 @@ export const useKeyboardShortcuts = ({
             cropEditCancelled();
             s.ui.setPanel(Panel.Adjustments);
           }
-          else if (s.ui.isFullScreen) s.ui.toggleFullScreen();
           else if (s.ui.activeView === 'editor') handleBackToLibrary();
+          // The Library's loupe goes back to the grid.
+          else if (s.ui.libraryLoupe) s.ui.setUI({ libraryLoupe: false });
           // In the Library, Escape does nothing further (Lightroom, Capture One):
           // RapidRAW's step back to its start screen emptied the session's view.
         },
@@ -920,8 +1011,33 @@ export const useKeyboardShortcuts = ({
         },
       },
       {
+        // Space in the Library's grid opens the loupe on the active
+        // photograph (Lightroom); in the loupe it zooms as in Develop.
         match: (e: KeyboardEvent, s: ShortcutState) =>
-          s.ui.activeView === 'library' && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code),
+          e.code === 'Space' &&
+          !e.metaKey &&
+          !e.ctrlKey &&
+          !e.altKey &&
+          !e.shiftKey &&
+          !viewerShown(s.ui) &&
+          !!s.library.libraryActivePath &&
+          // From a photograph tile or with nothing focused; Space presses
+          // other buttons.
+          ownsPanelShortcut(document.activeElement),
+        execute: (e: KeyboardEvent, s: ShortcutState) => {
+          e.preventDefault();
+          const path = s.library.libraryActivePath!;
+          if (s.editor.selectedImage?.path !== path) handleImageSelect(path, false);
+          s.ui.setUI({ libraryLoupe: true });
+        },
+      },
+      {
+        // The grid's arrows; the loupe and full screen use preview_prev/next
+        // (Left/Right) and the zoom keys (Up/Down) as Develop does.
+        match: (e: KeyboardEvent, s: ShortcutState) =>
+          s.ui.activeView === 'library' &&
+          !viewerShown(s.ui) &&
+          ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code),
         execute: (e: KeyboardEvent, s: ShortcutState) => {
           e.preventDefault();
           const activePath = s.library.libraryActivePath;
@@ -975,9 +1091,17 @@ export const useKeyboardShortcuts = ({
       // Read per key press so that edited keybinds apply at once. Cursor tool
       // keys (tool_*) are handled by the studio workspace.
       const comboMap = buildComboMap(state.settings.appSettings?.keybinds);
+      // The loupe and the full screen are views: recipe keys are not bound there.
+      const editsBlocked = viewerOnly(state.ui);
       const normalized = normalizeCombo(event, state.settings.osPlatform, state.ui.activeView === 'library');
       for (const action of comboMap.get(normalized.join('+')) ?? []) {
         if (rangeFocused && action !== 'undo' && action !== 'redo') continue;
+        if (
+          editsBlocked &&
+          RECIPE_ACTIONS.has(action) &&
+          !(state.ui.activeView !== 'editor' && (action === 'undo' || action === 'redo'))
+        )
+          continue;
         const handler = actions[action];
         if (handler && (!handler.shouldFire || handler.shouldFire(state))) {
           handler.execute(event, state);

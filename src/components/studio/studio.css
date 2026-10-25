@@ -4086,8 +4086,53 @@ body.is-dragging.is-drop-refused * {
 .studio-workspace.bars-hidden .studio-module-bar {
   display: none;
 }
-.studio-workspace.is-image-fullscreen .studio-edge {
+.studio-workspace.is-image-fullscreen .studio-edge,
+.studio-app.is-image-fullscreen .session-bar {
   display: none;
+}
+/* The full screen hides the pointer while it rests (useIdleCursor). */
+.studio-workspace.is-cursor-idle .studio-viewer,
+.studio-workspace.is-cursor-idle .studio-viewer * {
+  cursor: none !important;
+}
+/* Read-only facts over the viewer (I in Develop and the full screen). */
+.studio-info-overlay {
+  position: absolute;
+  z-index: 15;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: min(460px, calc(100% - 20px));
+  padding: 7px 10px;
+  border-radius: 4px;
+  background: #1d1e20d9;
+  border: 1px solid #ffffff1a;
+  color: #c9ccd0;
+  font-size: 11px;
+  line-height: 1.45;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.studio-info-overlay > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-info-overlay .studio-info-name {
+  color: #fff;
+  font-weight: 600;
+  font-size: 12px;
+}
+.studio-info-overlay .studio-info-marks {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: #e6e7e9;
+}
+.studio-info-overlay .studio-info-keywords {
+  white-space: normal;
 }
 @media (max-width: 1200px) {
   /* The Library tools beside Develop's right-hand tools are not shown here. */

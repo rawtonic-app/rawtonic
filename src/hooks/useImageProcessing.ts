@@ -45,6 +45,7 @@ import {
   withParameterReferences,
 } from '../utils/maskParameterRefs';
 import { useOsPlatform } from './useOsPlatform';
+import { viewerShown } from '../utils/viewerMode';
 
 /** Edit all selected is on in the multi view on screen. */
 function editsAllSelected() {
@@ -101,6 +102,8 @@ export function useImageProcessing(
   const setEditor = useEditorStore((state) => state.setEditor);
 
   const activeView = useUIStore((state) => state.activeView);
+  // Develop, or the Library's loupe or full screen (utils/viewerMode).
+  const viewerOn = useUIStore(viewerShown);
   const activePanel = useUIStore((state) => state.activePanel);
   const appSettings = useSettingsStore((state) => state.appSettings);
 
@@ -717,7 +720,8 @@ export function useImageProcessing(
   );
 
   useEffect(() => {
-    if (activeView === 'editor' && canRenderSource(selectedImage) && displaySize.width > 0 && !isSliderDragging) {
+    // A zoom in any viewer asks for more detail, not only in Develop.
+    if (viewerOn && canRenderSource(selectedImage) && displaySize.width > 0 && !isSliderDragging) {
       let baseRes = calculateTargetRes();
       if (originalSize.width > 0 && originalSize.height > 0) {
         const maxRes = Math.max(originalSize.width, originalSize.height);
@@ -733,7 +737,7 @@ export function useImageProcessing(
       requestHiFiZoom.cancel();
     };
   }, [
-    activeView,
+    viewerOn,
     displaySize.width,
     displaySize.height,
     calculateTargetRes,

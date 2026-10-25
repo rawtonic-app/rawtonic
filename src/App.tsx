@@ -74,6 +74,7 @@ import ImageProcessingManager from './components/managers/ImageProcessingManager
 import ImageLoaderManager from './components/managers/ImageLoaderManager';
 // Imperative zoom/pan handle that Editor exposes on transformWrapperRef via useImperativeHandle.
 import type { TransformWrapperHandle } from './components/panel/Editor';
+import { viewerShown } from './utils/viewerMode';
 
 type ImageCacheEntry = Parameters<typeof globalImageCache.set>[1];
 
@@ -107,6 +108,8 @@ function App() {
       setUI: state.setUI,
     })),
   );
+  // Develop, the Library's loupe or the full screen: the native viewer shows.
+  const viewerOn = useUIStore(viewerShown);
   // Shift+Tab also hides the top bar (Lightroom); the workspace shows a strip instead.
   const barsHidden = useUIStore(
     (state) => !readModuleLayout(state.uiVisibility.modules, moduleOf(state.activeView)).bars,
@@ -452,7 +455,7 @@ function App() {
   // preview proxy frame before the full decode, or the previous frame held
   // while the next photograph opens.
   const isWgpuActive =
-    activeView === 'editor' &&
+    viewerOn &&
     appSettings?.useWgpuRenderer !== false &&
     // (hasRenderedFirstFrame is only set by a frame of the selected photo.)
     (hasRenderedFirstFrame || holdingNativeFrame);
@@ -482,6 +485,7 @@ function App() {
           osPlatform === 'linux' && 'linux-unified-chrome',
           hasNativeMacTitlebar && !isWindowFullScreen && 'macos-windowed',
           barsHidden && 'bars-hidden',
+          isFullScreen && 'is-image-fullscreen',
           isWgpuActive ? 'bg-transparent' : 'bg-bg-primary',
         )}
       >
@@ -496,15 +500,15 @@ function App() {
             {appSettings?.decorations || (!isWindowFullScreen && <TitleBar />)}
           </div>
         )}
-        {!isFullScreen && (
-          <PerfProfiler id="session">
-            <SessionWorkspace
-              onNavigate={handleSelectSubfolder}
-              nativeTitlebar={hasNativeMacTitlebar || showLinuxWindowControls}
-              windowControls={showLinuxWindowControls ? <WindowControls /> : undefined}
-            />
-          </PerfProfiler>
-        )}
+        {/* Hidden, not unmounted, in the full screen (studio.css): the
+            session keeps its tethering, ingest and dialogs running. */}
+        <PerfProfiler id="session">
+          <SessionWorkspace
+            onNavigate={handleSelectSubfolder}
+            nativeTitlebar={hasNativeMacTitlebar || showLinuxWindowControls}
+            windowControls={showLinuxWindowControls ? <WindowControls /> : undefined}
+          />
+        </PerfProfiler>
         <PerfProfiler id="workspace">
         <StudioWorkspace
           files={sortedImageList}
@@ -513,6 +517,7 @@ function App() {
           onSelect={handleLibraryImageSingleClick}
           onFilmSelect={handleImageClick}
           onOpen={handleImageSelect}
+          onShow={(path) => handleImageSelect(path, false)}
           onNavigate={handleSelectSubfolder}
           onSelectAlbum={(id, name, paths, preserveEditor) => handleSelectAlbum(id, name, paths, preserveEditor)}
           onBack={handleBackToLibrary}

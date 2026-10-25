@@ -1542,20 +1542,21 @@
         "toggle_crop_panel": "Attiva/Disattiva pannello Ritaglio",
         "toggle_export": "Attiva/Disattiva pannello Esportazione",
         "toggle_folder_tree": "Mostra/Nascondi pannello albero delle cartelle",
-        "toggle_fullscreen": "Attiva/Disattiva schermo intero",
+        "toggle_fullscreen": "Solo la foto (schermo intero)",
         "toggle_layer_solo": "Mostra solo il livello o la maschera selezionati",
         "toggle_left_panel": "Mostra/Nascondi pannello sinistro",
         "toggle_library_exif": "Attiva/Disattiva overlay EXIF",
         "toggle_mask_grayscale": "Maschera in scala di grigi",
         "toggle_mask_overlay": "Mostra o nascondi la maschera",
         "toggle_masks": "Attiva/Disattiva pannello Maschere",
-        "toggle_metadata": "Attiva/Disattiva pannello Metadati",
+        "toggle_metadata": "Strumento Metadati (Libreria) o informazioni sulla foto (Sviluppo, schermo intero)",
         "toggle_multi_view": "Vista multipla: foto selezionate affiancate",
         "toggle_proof_margin": "Attiva/disattiva margine di prova",
         "toggle_right_panel": "Mostra/Nascondi pannello destro",
         "toggle_side_panels": "Nascondi o mostra i pannelli laterali",
         "toggle_soft_proof": "Attiva o disattiva la prova colore a schermo",
         "toggle_split_view": "Prima/Dopo (vista divisa)",
+        "toggle_window_fullscreen": "Finestra a schermo intero",
         "toggle_zoom_lock": "Vista multipla: blocca zoom",
         "tool_brush": "Pennello (disegna maschera)",
         "tool_crop": "Ritaglia",
@@ -3877,9 +3878,21 @@
         "thumbnailSize": "Dimensione miniature",
         "unrated": "Senza valutazione"
       },
+      "info": {
+        "keywords": "Parole chiave: {{keywords}}",
+        "label": "Informazioni sulla foto",
+        "noKeywords": "Nessuna parola chiave"
+      },
       "layout": {
         "moveToolsLeft": "Sposta gli strumenti di Sviluppo a sinistra",
         "moveToolsRight": "Sposta gli strumenti di Sviluppo a destra"
+      },
+      "loupe": {
+        "adjust": "Sviluppo",
+        "adjustTitle": "Regola in Sviluppo",
+        "backToGrid": "Torna alla griglia",
+        "fullScreen": "Solo la foto (schermo intero)",
+        "grid": "Griglia"
       },
       "modules": {
         "develop": "Sviluppo",

@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { toggleWindowFullScreen } from './photoFullScreen';
+import { followPhotoFullScreen, toggleWindowFullScreen } from './photoFullScreen';
 
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: vi.fn() }));
 const webviewFocus = vi.fn(async () => {});
@@ -53,4 +53,19 @@ it('takes the keyboard focus back after each change, so the next F works without
   await toggleWindowFullScreen();
   expect(windowFocus).toHaveBeenCalledTimes(2);
   expect(webviewFocus).toHaveBeenCalledTimes(2);
+});
+
+it('takes the whole screen for the photograph alone and gives the window back afterwards', async () => {
+  await followPhotoFullScreen(true);
+  expect(native).toBe(true);
+  await followPhotoFullScreen(false);
+  expect(native).toBe(false);
+});
+
+it('leaves a window that was in full screen before the photograph alone in full screen', async () => {
+  native = true;
+  await followPhotoFullScreen(true);
+  await followPhotoFullScreen(false);
+  expect(native).toBe(true);
+  expect(setFullscreen).not.toHaveBeenCalled();
 });

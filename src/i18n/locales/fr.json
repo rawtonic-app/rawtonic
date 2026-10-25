@@ -1542,20 +1542,21 @@
         "toggle_crop_panel": "Basculer le panneau de recadrage",
         "toggle_export": "Basculer le panneau d'exportation",
         "toggle_folder_tree": "Afficher/Masquer le panneau d'arborescence des dossiers",
-        "toggle_fullscreen": "Basculer en plein écran",
+        "toggle_fullscreen": "Photo seule (plein écran)",
         "toggle_layer_solo": "Afficher uniquement le calque ou masque sélectionné",
         "toggle_left_panel": "Afficher/Masquer le panneau gauche",
         "toggle_library_exif": "Basculer la superposition EXIF",
         "toggle_mask_grayscale": "Masque en niveaux de gris",
         "toggle_mask_overlay": "Afficher ou masquer le masque",
         "toggle_masks": "Basculer le panneau des masques",
-        "toggle_metadata": "Basculer le panneau des métadonnées",
+        "toggle_metadata": "Outil Métadonnées (Bibliothèque) ou informations sur la photo (Développement, plein écran)",
         "toggle_multi_view": "Vue multiple : photos sélectionnées côte à côte",
         "toggle_proof_margin": "Afficher/masquer la marge d'épreuve",
         "toggle_right_panel": "Afficher/Masquer le panneau droit",
         "toggle_side_panels": "Masquer ou afficher les panneaux latéraux",
         "toggle_soft_proof": "Activer ou désactiver l'épreuvage écran",
         "toggle_split_view": "Avant/Après (vue partagée)",
+        "toggle_window_fullscreen": "Fenêtre en plein écran",
         "toggle_zoom_lock": "Vue multiple : verrouiller le zoom",
         "tool_brush": "Pinceau (dessiner le masque)",
         "tool_crop": "Recadrage",
@@ -3877,9 +3878,21 @@
         "thumbnailSize": "Taille des vignettes",
         "unrated": "Sans note"
       },
+      "info": {
+        "keywords": "Mots-clés : {{keywords}}",
+        "label": "Informations sur la photo",
+        "noKeywords": "Aucun mot-clé"
+      },
       "layout": {
         "moveToolsLeft": "Placer les outils de Développement à gauche",
         "moveToolsRight": "Placer les outils de Développement à droite"
+      },
+      "loupe": {
+        "adjust": "Développement",
+        "adjustTitle": "Ajuster dans Développement",
+        "backToGrid": "Retour à la grille",
+        "fullScreen": "Photo seule (plein écran)",
+        "grid": "Grille"
       },
       "modules": {
         "develop": "Développement",

@@ -47,6 +47,7 @@ import {
   History,
   RefreshCw,
   ListChecks,
+  Maximize,
 } from "lucide-react";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
@@ -78,6 +79,7 @@ import { useEdgePeek } from "./useEdgePeek";
 import { useQuickAdjust } from "./useQuickAdjust";
 import { storedStudioLayout } from "../../store/useUIStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
+import { useRelightStore } from "../../store/useRelightStore";
 import { splitViewAvailable } from "../../utils/beforeAfter";
 import {
   moduleOf,
@@ -100,6 +102,9 @@ import { SmartAlbumEditorHost } from "./SmartAlbumEditor";
 import { CopySettingsDialogHost } from "./CopySettingsDialog";
 import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
 import { clearLibrarySelection, focusWorkspaceControl, reselectForDevelop } from "./workspaceInteractions";
+import ViewerInfoOverlay from "./ViewerInfoOverlay";
+import { useIdleCursor } from "./useIdleCursor";
+import { followPhotoFullScreen } from "../../utils/photoFullScreen";
 
 interface Props {
   files: ImageFile[];
@@ -109,6 +114,8 @@ interface Props {
   onSelect(path: string, event: MouseEvent): void;
   onFilmSelect(path: string, event: MouseEvent): void;
   onOpen(path: string): void;
+  /** Shows a photograph in the Library's loupe or full screen (no Develop). */
+  onShow?(path: string): void;
   onNavigate(path: string): void;
   /** Shows a list of photographs as an album in the grid. */
   onSelectAlbum?(id: string, name: string, paths: string[], preserveEditor?: boolean): void;
@@ -201,7 +208,9 @@ export default function StudioWorkspace(props: Props) {
     })),
   );
   const { handleSyncSettings: syncSettings, handlePasteFromPrevious: pasteFromPrevious } = useEditorActions();
-  const { showContextMenu } = useContextMenu();
+  const { showContextMenu, hideContextMenu } = useContextMenu();
+  const hideMenuRef = useRef(hideContextMenu);
+  hideMenuRef.current = hideContextMenu;
   // Sync settings: the other selected photographs.
   const syncTargets = useLibraryStore(
     (s) => s.multiSelectedPaths.filter((path) => path !== selectedImage?.path).length,
@@ -253,11 +262,15 @@ export default function StudioWorkspace(props: Props) {
     layout,
     storedPanels,
     isWindowFullScreen,
+    libraryLoupe,
+    infoOverlay,
   } = useUIStore(
     useShallow((s) => ({
       activeView: s.activeView,
       isSettingsOpen: s.isSettingsOpen,
       isFullScreen: s.isFullScreen,
+      libraryLoupe: s.libraryLoupe,
+      infoOverlay: s.infoOverlay,
       layout: s.studioToolLayout,
       storedPanels: s.uiVisibility.modules,
       isWindowFullScreen: s.isWindowFullScreen,
@@ -316,6 +329,164 @@ export default function StudioWorkspace(props: Props) {
   const { toggleSplitView } = useEditorActions();
   const exportState = useProcessStore((s) => s.exportState);
   const develop = activeView === "editor";
+  // The Library's loupe (one large photograph beside the Library tools) and
+  // its full screen show the photograph in the same native viewer as Develop
+  // (utils/viewerMode).
+  const libraryViewer = !develop && (libraryLoupe || isFullScreen) && !!selectedImage;
+  useEffect(() => {
+    // Nothing to show any more (the photograph went away): back to the grid.
+    if (develop || selectedImage) return;
+    if (libraryLoupe || isFullScreen) useUIStore.getState().setUI({ libraryLoupe: false, isFullScreen: false });
+  }, [develop, selectedImage, libraryLoupe, isFullScreen]);
+  // The loupe and the full screen are views of the photograph, without
+  // edit tools: Develop's crop, mask and picker states must not draw over
+  // it or take its clicks (an edit already under way still completes). They
+  // are put aside and come back with Develop (same photograph).
+  const viewOnly = libraryViewer || isFullScreen;
+  const suspended = useRef<{
+    path: string | null;
+    panel: Panel | null;
+    layer: string | null;
+    component: string | null;
+    spot: boolean;
+    faces: boolean;
+    relightHandles: boolean;
+  } | null>(null);
+  // A ⌘/Ctrl held down, followed from the start, so the wheel guard below
+  // also knows a key pressed before the view opened.
+  const modifierHeld = useRef(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Control" || e.key === "Meta") modifierHeld.current = e.type === "keydown";
+    };
+    const release = () => {
+      modifierHeld.current = false;
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("keyup", onKey, true);
+    window.addEventListener("blur", release);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("keyup", onKey, true);
+      window.removeEventListener("blur", release);
+    };
+  }, []);
+  useEffect(() => {
+    const ui = useUIStore.getState();
+    const editor = useEditorStore.getState();
+    const relight = useRelightStore.getState();
+    if (viewOnly) {
+      suspended.current ??= {
+        path: editor.selectedImage?.path ?? null,
+        panel: ui.activePanel,
+        layer: editor.activeMaskContainerId,
+        component: editor.activeMaskId,
+        spot: editor.isSpotToolActive,
+        faces: editor.showFaceBlemishes,
+        relightHandles: relight.showHandles,
+      };
+      if (ui.activePanel === Panel.Crop || ui.activePanel === Panel.Masks) ui.setPanel(Panel.Adjustments);
+      // Every tool that edits on a click or drag, or draws its handles.
+      editor.setEditor({
+        activeMaskContainerId: null,
+        activeMaskId: null,
+        isWbPickerActive: false,
+        colorPickerTarget: null,
+        lumaPickerLayer: null,
+        tatTarget: null,
+        isStraightenActive: false,
+        isRotationActive: false,
+        isGuidedPerspectiveActive: false,
+        isSpotToolActive: false,
+        showFaceBlemishes: false,
+      });
+      useRelightStore.setState({ showHandles: false });
+      // A menu or tool popover opened before offers edits: it closes.
+      hideMenuRef.current();
+      setToolPopover(null);
+      return;
+    }
+    const saved = suspended.current;
+    if (!saved) return;
+    // Handles of the panels are shown again wherever the view goes.
+    useRelightStore.setState({ showHandles: saved.relightHandles });
+    if (!develop) return;
+    suspended.current = null;
+    if (saved.path !== editor.selectedImage?.path) return;
+    if (saved.panel === Panel.Crop || saved.panel === Panel.Masks) ui.setPanel(saved.panel);
+    // The layer's component (its brush or gradient) too, while it is there.
+    const component =
+      saved.layer &&
+      saved.component &&
+      editor.adjustments.masks
+        ?.find((layer) => layer.id === saved.layer)
+        ?.subMasks.some((sub) => sub.id === saved.component)
+        ? saved.component
+        : null;
+    editor.setEditor({
+      ...(saved.layer ? { activeMaskContainerId: saved.layer } : {}),
+      ...(component ? { activeMaskId: component } : {}),
+      isSpotToolActive: saved.spot,
+      showFaceBlemishes: saved.faces,
+    });
+  }, [viewOnly, develop]);
+  // In the Library a photograph that stops matching the filter (rated
+  // while culling) gives way to the one now in its place; with none left
+  // the grid comes back.
+  const shownIndex = useRef(-1);
+  const shownPath = selectedImage?.path;
+  useEffect(() => {
+    if (!libraryViewer || !shownPath) return;
+    const index = files.findIndex((file) => file.path === shownPath);
+    if (index >= 0) {
+      shownIndex.current = index;
+      return;
+    }
+    const next = files[Math.min(Math.max(shownIndex.current, 0), files.length - 1)];
+    if (next && onShowRef.current) onShowRef.current(next.path);
+    else useUIStore.getState().setUI({ libraryLoupe: false, isFullScreen: false });
+  }, [libraryViewer, shownPath, files]);
+  // The photograph alone covers the whole screen (photoFullScreen).
+  const fullScreenSeen = useRef(isFullScreen);
+  useEffect(() => {
+    if (fullScreenSeen.current === isFullScreen) return;
+    fullScreenSeen.current = isFullScreen;
+    void followPhotoFullScreen(isFullScreen);
+  }, [isFullScreen]);
+  // In the view, a held ⌘/Ctrl (also one pressed before the view opened)
+  // turns the wheel into the editor's crop zoom (Editor tracks the key
+  // itself); that wheel does nothing here. A trackpad pinch (ctrlKey
+  // without the key held) still zooms the view.
+  const viewerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = viewerRef.current;
+    if (!viewOnly || !element) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!modifierHeld.current) return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    element.addEventListener("wheel", onWheel, { capture: true, passive: false });
+    return () => element.removeEventListener("wheel", onWheel, { capture: true });
+  }, [viewOnly, selectedImage?.path]);
+  // The pointer hides over the full screen until it moves.
+  const cursorIdle = useIdleCursor(isFullScreen);
+  const onShowRef = useRef(props.onShow);
+  onShowRef.current = props.onShow;
+  /** The loupe on `path`, or on the Library's active photograph: loaded
+   * first when it is not the one open (a ⌘-click moves the active one only). */
+  const openLoupe = useCallback((path?: string) => {
+    const target = path ?? useLibraryStore.getState().libraryActivePath;
+    const shown = useEditorStore.getState().selectedImage?.path;
+    if (target && target !== shown) onShowRef.current?.(target);
+    else if (!shown) return;
+    useUIStore.getState().setUI({ libraryLoupe: true, isFullScreen: false });
+  }, []);
+  /** G: the Library's grid, from anywhere. */
+  const showGrid = useCallback(() => {
+    useUIStore.getState().setUI({ libraryLoupe: false, isFullScreen: false });
+    onBack();
+  }, [onBack]);
   useEffect(() => {
     if (develop) return;
     const state = useLibraryStore.getState();
@@ -432,7 +603,8 @@ export default function StudioWorkspace(props: Props) {
   toolsRef.current = tools;
   const developRef = useRef(develop);
   developRef.current = develop;
-  const quickAdjust = useQuickAdjust(develop);
+  // Not over the photograph shown alone: the view offers no edit tools.
+  const quickAdjust = useQuickAdjust(develop && !isFullScreen);
   useBrushMemory();
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -473,17 +645,23 @@ export default function StudioWorkspace(props: Props) {
       }
       if (e.altKey) return;
       const key = e.key.toLowerCase();
-      // G shows the grid (Capture One and Lightroom); D and E open Develop
-      // from the Library (Lightroom). In Develop, E is the eraser.
+      // Lightroom's module keys: G the Library's grid, E its loupe (one
+      // large photograph), D Develop; each also leaves the full screen. In
+      // Develop, E is the eraser.
       if (key === "g" || key === "d" || (!developRef.current && key === "e")) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        if (key === "g") onBack();
-        else showDevelop();
+        if (key === "g") showGrid();
+        else if (key === "e") openLoupe();
+        else {
+          useUIStore.getState().setUI({ isFullScreen: false });
+          showDevelop();
+        }
         return;
       }
-      if (!developRef.current) return;
-      // Cursor tools take Capture One's keys (tool_* keybinds).
+      // Cursor tools take Capture One's keys (tool_* keybinds), not while
+      // the photograph is shown alone.
+      if (!developRef.current || useUIStore.getState().isFullScreen) return;
       const { appSettings, osPlatform } = useSettingsStore.getState();
       const action = buildComboMap(appSettings?.keybinds)
         .get(normalizeCombo(e, osPlatform).join("+"))
@@ -505,7 +683,7 @@ export default function StudioWorkspace(props: Props) {
     document.addEventListener("keydown", handler, true);
     return () => document.removeEventListener("keydown", handler, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on what showDevelop reads (selectedImage, files) instead of the per-render function; its onOpen (handleImageSelect) reads all state via getState() and refs at call time, so an earlier capture behaves the same
-  }, [selectedImage, files, onBack]);
+  }, [selectedImage, files, showGrid, openLoupe]);
   const currentIndex = files.findIndex((f) => f.path === selectedImage?.path);
   // Once the open photograph is decoded (not before, so its own decode keeps
   // the cores), prepare its neighbours' preview proxies, so stepping through
@@ -558,7 +736,7 @@ export default function StudioWorkspace(props: Props) {
     <nav className="studio-modules" aria-label={t("studio.workspace.modules.workspace")}>
       <button
         aria-pressed={!develop}
-        onClick={onBack}
+        onClick={showGrid}
         title={withShortcut(t("studio.workspace.modules.library"), "G")}
       >
         <Grid2X2 size={14} />
@@ -804,9 +982,96 @@ export default function StudioWorkspace(props: Props) {
       </label>
     </div>
   );
+  // Develop's viewer; the Library's loupe and full screen show the same.
+  const viewer = (
+    <div
+      ref={viewerRef}
+      className="studio-viewer"
+      tabIndex={0}
+      data-panel-shortcut="true"
+      role="group"
+      aria-label={t("studio.workspace.viewer.imageViewer")}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget || !toolPopoverApplies(tools)) return;
+        if (e.key !== "ContextMenu" && !(e.key === "F10" && e.shiftKey)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const rect = e.currentTarget.getBoundingClientRect();
+        setToolPopover({ x: rect.left, y: rect.bottom });
+      }}
+      onContextMenuCapture={(e) => {
+        // In the view: no menu of edit commands (undo, paste, auto, reset,
+        // or ratings for the whole selection) over the photograph.
+        if (!viewOnly) return;
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onPointerDownCapture={(e) => {
+        // In the view (loupe, full screen): Shift-drag (straighten) and a
+        // ⌘/Ctrl double-click (crop reset) would edit; they do nothing.
+        if (viewOnly && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        if (!(
+          e.target instanceof Element &&
+          e.target.closest("button,input,select,textarea")
+        ))
+          e.currentTarget.focus({ preventScroll: true });
+      }}
+    >
+      {selectedImage ? (
+        <>
+          <MultiViewStage
+            files={files}
+            onOpen={onOpen}
+            onRate={onRate}
+            transformWrapperRef={transformWrapperRef}
+          >
+            <PerfProfiler id="viewer">
+              <Editor
+                studioMode
+                transformWrapperRef={transformWrapperRef}
+                onBackToLibrary={onBack}
+                onContextMenu={onViewerContextMenu}
+                onImageSelect={onOpen}
+              />
+            </PerfProfiler>
+          </MultiViewStage>
+          {toolPopover && (
+            <StudioToolPopover
+              x={toolPopover.x}
+              y={toolPopover.y}
+              onClose={closeToolPopover}
+            />
+          )}
+          {infoOverlay && (develop || isFullScreen) && <ViewerInfoOverlay />}
+          {quickAdjust && (
+            // Capture One's Quick Adjust info box beside the pointer.
+            <div
+              className="studio-quick-adjust"
+              role="status"
+              style={{ left: quickAdjust.x + 16, top: quickAdjust.y + 16 }}
+            >
+              {quickAdjust.label}
+              <strong>
+                {quickAdjust.value > 0 ? "+" : ""}
+                {quickAdjust.value}
+              </strong>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="studio-empty">
+          {t("studio.workspace.viewer.empty")}
+        </div>
+      )}
+    </div>
+  );
   return (
     <div
-      className={`studio-workspace ${layout} module-${moduleOf(activeView)} ${sidesHidden ? "panels-hidden" : ""} ${panels.bars ? "" : "bars-hidden"} ${isFullScreen ? "is-image-fullscreen" : ""}`}
+      className={`studio-workspace ${layout} module-${moduleOf(activeView)} ${sidesHidden ? "panels-hidden" : ""} ${panels.bars ? "" : "bars-hidden"} ${isFullScreen ? "is-image-fullscreen" : ""} ${libraryViewer ? "is-library-loupe" : ""} ${cursorIdle ? "is-cursor-idle" : ""}`}
       onClickCapture={(e) => focusWorkspaceControl(e.target)}
       style={{ "--tools-width": `${width}px` } as React.CSSProperties}
     >
@@ -1001,6 +1266,13 @@ export default function StudioWorkspace(props: Props) {
                     </option>
                     <ZoomPresetOptions />
                   </select>
+                  <button
+                    aria-label={t("studio.workspace.loupe.fullScreen")}
+                    title={withShortcut(t("studio.workspace.loupe.fullScreen"), hint("toggle_fullscreen"))}
+                    onClick={() => useUIStore.getState().toggleFullScreen()}
+                  >
+                    <Maximize size={13} />
+                  </button>
                   <div className="studio-toolbar-divider" />
                   {/* Capture One keeps Reset at the right of its tool bar. */}
                   <button
@@ -1014,74 +1286,7 @@ export default function StudioWorkspace(props: Props) {
                   </button>
                 </div>
               </div>
-              <div
-                className="studio-viewer"
-                tabIndex={0}
-                data-panel-shortcut="true"
-                role="group"
-                aria-label={t("studio.workspace.viewer.imageViewer")}
-                onKeyDown={(e) => {
-                  if (e.target !== e.currentTarget || !toolPopoverApplies(tools)) return;
-                  if (e.key !== "ContextMenu" && !(e.key === "F10" && e.shiftKey)) return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  setToolPopover({ x: rect.left, y: rect.bottom });
-                }}
-                onPointerDownCapture={(e) => {
-                  if (!(
-                    e.target instanceof Element &&
-                    e.target.closest("button,input,select,textarea")
-                  ))
-                    e.currentTarget.focus({ preventScroll: true });
-                }}
-              >
-                {selectedImage ? (
-                  <>
-                    <MultiViewStage
-                      files={files}
-                      onOpen={onOpen}
-                      onRate={onRate}
-                      transformWrapperRef={transformWrapperRef}
-                    >
-                      <PerfProfiler id="viewer">
-                        <Editor
-                          studioMode
-                          transformWrapperRef={transformWrapperRef}
-                          onBackToLibrary={onBack}
-                          onContextMenu={onViewerContextMenu}
-                          onImageSelect={onOpen}
-                        />
-                      </PerfProfiler>
-                    </MultiViewStage>
-                    {toolPopover && (
-                      <StudioToolPopover
-                        x={toolPopover.x}
-                        y={toolPopover.y}
-                        onClose={closeToolPopover}
-                      />
-                    )}
-                    {quickAdjust && (
-                      // Capture One's Quick Adjust info box beside the pointer.
-                      <div
-                        className="studio-quick-adjust"
-                        role="status"
-                        style={{ left: quickAdjust.x + 16, top: quickAdjust.y + 16 }}
-                      >
-                        {quickAdjust.label}
-                        <strong>
-                          {quickAdjust.value > 0 ? "+" : ""}
-                          {quickAdjust.value}
-                        </strong>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="studio-empty">
-                    {t("studio.workspace.viewer.empty")}
-                  </div>
-                )}
-              </div>
+              {viewer}
               {panels.bars && (
               <div className="studio-viewer-footer">
                 <div className="studio-viewer-side">
@@ -1218,6 +1423,115 @@ export default function StudioWorkspace(props: Props) {
                 </div>
               )}
             </>
+          ) : libraryViewer ? (
+            <>
+              {/* The Library's loupe: organise one photograph at a time
+                  (rating, flags, keywords and metadata beside it); adjusting
+                  it is Develop's job (D). */}
+              <div className="studio-viewer-toolbar studio-loupe-bar">
+                <div className="studio-viewer-side">
+                  <button
+                    aria-label={t("studio.workspace.viewer.togglePanels")}
+                    title={withShortcut(
+                      sidesHidden
+                        ? t("studio.workspace.viewer.showPanels")
+                        : t("studio.workspace.viewer.hidePanels"),
+                      hint("toggle_side_panels"),
+                    )}
+                    onClick={() => togglePanels("sides")}
+                  >
+                    {sidesHidden ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+                  </button>
+                  <div className="studio-toolbar-divider" />
+                  <button
+                    onClick={showGrid}
+                    title={withShortcut(t("studio.workspace.loupe.backToGrid"), "G")}
+                  >
+                    <Grid2X2 size={14} />
+                    <span className="optional-label">{t("studio.workspace.loupe.grid")}</span>
+                  </button>
+                  <button
+                    aria-label={t("studio.workspace.footer.previous")}
+                    title={withShortcut(t("studio.workspace.footer.previous"), "←")}
+                    disabled={files.length < 2}
+                    onClick={(e) => {
+                      const index = Math.max(currentIndex, 0);
+                      const next = files[(index - 1 + files.length) % files.length];
+                      if (next) props.onSelect(next.path, e);
+                    }}
+                  >
+                    <ArrowLeft size={14} />
+                  </button>
+                  <span className="studio-counter">
+                    {currentIndex >= 0 ? `${currentIndex + 1} / ${files.length}` : ""}
+                  </span>
+                  <button
+                    aria-label={t("studio.workspace.footer.next")}
+                    title={withShortcut(t("studio.workspace.footer.next"), "→")}
+                    disabled={files.length < 2}
+                    onClick={(e) => {
+                      const next = files[(currentIndex + 1) % files.length];
+                      if (next) props.onSelect(next.path, e);
+                    }}
+                  >
+                    <ArrowRight size={14} />
+                  </button>
+                  <span className="studio-viewer-filename" title={selectedImage?.path}>
+                    {selectedImage?.path.split("/").pop()}
+                    {selectedImage?.width ? (
+                      <span className="studio-muted">{` · ${selectedImage.width} × ${selectedImage.height}`}</span>
+                    ) : null}
+                  </span>
+                  <OfflineBadge offline={selectedImage?.offline} />
+                </div>
+                {selectedImage && flagButtons(flag)}
+                <div className="studio-rating">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <button
+                      key={n}
+                      aria-label={t("studio.workspace.footer.rate", { count: n })}
+                      title={withShortcut(t("studio.workspace.footer.stars", { count: n }), String(n))}
+                      aria-pressed={rating >= n}
+                      disabled={!selectedImage}
+                      onClick={() => onRate(rating === n ? 0 : n, selectedImage ? [selectedImage.path] : [])}
+                    >
+                      <Star size={13} fill={rating >= n ? "currentColor" : "none"} />
+                    </button>
+                  ))}
+                </div>
+                <div className="studio-viewer-side is-end">
+                  <ViewerCaptureInfo />
+                  <button
+                    title={withShortcut(t("studio.workspace.viewer.fitTitle"), ",")}
+                    onClick={() => onZoom(1, true)}
+                  >
+                    {t("studio.workspace.viewer.fit")}
+                  </button>
+                  <button
+                    title={withShortcut(t("studio.workspace.viewer.actualPixels"), ".")}
+                    onClick={() => onZoom(1)}
+                  >
+                    100%
+                  </button>
+                  <button
+                    aria-label={t("studio.workspace.loupe.fullScreen")}
+                    title={withShortcut(t("studio.workspace.loupe.fullScreen"), hint("toggle_fullscreen"))}
+                    onClick={() => useUIStore.getState().toggleFullScreen()}
+                  >
+                    <Maximize size={13} />
+                  </button>
+                  <div className="studio-toolbar-divider" />
+                  <button
+                    onClick={showDevelop}
+                    title={withShortcut(t("studio.workspace.loupe.adjustTitle"), "D")}
+                  >
+                    <SlidersHorizontal size={13} />
+                    <span className="optional-label">{t("studio.workspace.loupe.adjust")}</span>
+                  </button>
+                </div>
+              </div>
+              {viewer}
+            </>
           ) : (
             <>
               <LibraryToolbarPlacement header={sessionBar.library} compact={compactLibraryHeader}>
@@ -1226,6 +1540,8 @@ export default function StudioWorkspace(props: Props) {
               {metadataOpen && <StudioMetadataFilter />}
               <StudioBrowser
                 {...browserProps}
+                // A double-click opens the loupe (Lightroom); D or Enter Develop.
+                onOpen={openLoupe}
                 size={size}
                 onClearSelection={clearLibrarySelection}
                 listing={JSON.stringify([currentFolderPath, activeAlbumId, searchCriteria, filterCriteria, sortCriteria])}

@@ -1445,20 +1445,21 @@
         "toggle_crop_panel": "切り抜きパネルの表示/非表示",
         "toggle_export": "書き出しパネルの表示/非表示",
         "toggle_folder_tree": "フォルダーツリーパネルの切り替え",
-        "toggle_fullscreen": "全画面表示の切り替え",
+        "toggle_fullscreen": "写真のみ（フルスクリーン）",
         "toggle_layer_solo": "選択したレイヤーまたはマスクのみ表示",
         "toggle_left_panel": "左パネルの表示/非表示",
         "toggle_library_exif": "EXIF重ね合わせ表示の表示/非表示",
         "toggle_mask_grayscale": "マスクをグレースケールで表示",
         "toggle_mask_overlay": "マスクの表示/非表示",
         "toggle_masks": "マスクパネルの表示/非表示",
-        "toggle_metadata": "メタデータパネルの表示/非表示",
+        "toggle_metadata": "メタデータツール（ライブラリ）または写真の情報（現像、フルスクリーン）",
         "toggle_multi_view": "マルチビュー：選択した写真を並べて表示",
         "toggle_proof_margin": "プルーフマージンの切り替え",
         "toggle_right_panel": "右パネルの表示/非表示",
         "toggle_side_panels": "サイドパネルの表示/非表示",
         "toggle_soft_proof": "ソフト校正の切り替え",
         "toggle_split_view": "補正前/補正後 (分割表示)",
+        "toggle_window_fullscreen": "ウィンドウのフルスクリーン",
         "toggle_zoom_lock": "マルチビュー：ズームを連動",
         "tool_brush": "ブラシ（マスクを描画）",
         "tool_crop": "切り抜き",
@@ -3683,9 +3684,21 @@
         "thumbnailSize": "サムネイルのサイズ",
         "unrated": "レーティングなし"
       },
+      "info": {
+        "keywords": "キーワード: {{keywords}}",
+        "label": "写真の情報",
+        "noKeywords": "キーワードなし"
+      },
       "layout": {
         "moveToolsLeft": "現像ツールを左へ移動",
         "moveToolsRight": "現像ツールを右へ移動"
+      },
+      "loupe": {
+        "adjust": "現像",
+        "adjustTitle": "現像で調整",
+        "backToGrid": "グリッドに戻る",
+        "fullScreen": "写真のみ（フルスクリーン）",
+        "grid": "グリッド"
       },
       "modules": {
         "develop": "現像",

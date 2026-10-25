@@ -1445,20 +1445,21 @@
         "toggle_crop_panel": "자르기 패널 전환",
         "toggle_export": "내보내기 패널 전환",
         "toggle_folder_tree": "폴더 트리 패널 토글",
-        "toggle_fullscreen": "전체 화면 전환",
+        "toggle_fullscreen": "사진만 (전체 화면)",
         "toggle_layer_solo": "선택한 레이어 또는 마스크만 표시",
         "toggle_left_panel": "왼쪽 패널 토글",
         "toggle_library_exif": "EXIF 오버레이 전환",
         "toggle_mask_grayscale": "마스크를 회색조로 보기",
         "toggle_mask_overlay": "마스크 표시/숨기기",
         "toggle_masks": "마스크 패널 전환",
-        "toggle_metadata": "메타데이터 패널 전환",
+        "toggle_metadata": "메타데이터 도구(라이브러리) 또는 사진 정보(현상, 전체 화면)",
         "toggle_multi_view": "다중 보기: 선택한 사진을 나란히 표시",
         "toggle_proof_margin": "교정 여백 전환",
         "toggle_right_panel": "오른쪽 패널 토글",
         "toggle_side_panels": "사이드 패널 숨기기/표시",
         "toggle_soft_proof": "소프트 교정 전환",
         "toggle_split_view": "보정 전/후 (분할 보기)",
+        "toggle_window_fullscreen": "창 전체 화면",
         "toggle_zoom_lock": "멀티 뷰: 확대/축소 연동",
         "tool_brush": "브러시(마스크 그리기)",
         "tool_crop": "자르기",
@@ -3683,9 +3684,21 @@
         "thumbnailSize": "썸네일 크기",
         "unrated": "별점 없음"
       },
+      "info": {
+        "keywords": "키워드: {{keywords}}",
+        "label": "사진 정보",
+        "noKeywords": "키워드 없음"
+      },
       "layout": {
         "moveToolsLeft": "현상 도구를 왼쪽으로 이동",
         "moveToolsRight": "현상 도구를 오른쪽으로 이동"
+      },
+      "loupe": {
+        "adjust": "현상",
+        "adjustTitle": "현상에서 조정",
+        "backToGrid": "격자로 돌아가기",
+        "fullScreen": "사진만 (전체 화면)",
+        "grid": "격자"
       },
       "modules": {
         "develop": "현상",

@@ -1542,20 +1542,21 @@
         "toggle_crop_panel": "Alternar panel de Recorte",
         "toggle_export": "Alternar panel de Exportación",
         "toggle_folder_tree": "Alternar panel de árbol de carpetas",
-        "toggle_fullscreen": "Alternar pantalla completa",
+        "toggle_fullscreen": "Foto sola (pantalla completa)",
         "toggle_layer_solo": "Mostrar solo la capa o máscara seleccionada",
         "toggle_left_panel": "Alternar panel izquierdo",
         "toggle_library_exif": "Alternar superposición EXIF",
         "toggle_mask_grayscale": "Máscara en escala de grises",
         "toggle_mask_overlay": "Mostrar u ocultar la máscara",
         "toggle_masks": "Alternar panel de Máscaras",
-        "toggle_metadata": "Alternar panel de Metadatos",
+        "toggle_metadata": "Herramienta Metadatos (Biblioteca) o información de la foto (Revelado, pantalla completa)",
         "toggle_multi_view": "Vista múltiple: fotos seleccionadas una junto a otra",
         "toggle_proof_margin": "Activar/desactivar margen de prueba",
         "toggle_right_panel": "Alternar panel derecho",
         "toggle_side_panels": "Ocultar o mostrar los paneles laterales",
         "toggle_soft_proof": "Activar o desactivar la prueba en pantalla",
         "toggle_split_view": "Antes/Después (vista dividida)",
+        "toggle_window_fullscreen": "Ventana a pantalla completa",
         "toggle_zoom_lock": "Vista múltiple: bloquear zoom",
         "tool_brush": "Pincel (dibujar máscara)",
         "tool_crop": "Recortar",
@@ -3877,9 +3878,21 @@
         "thumbnailSize": "Tamaño de miniaturas",
         "unrated": "Sin valorar"
       },
+      "info": {
+        "keywords": "Palabras clave: {{keywords}}",
+        "label": "Información de la foto",
+        "noKeywords": "Sin palabras clave"
+      },
       "layout": {
         "moveToolsLeft": "Mover las herramientas de Revelado a la izquierda",
         "moveToolsRight": "Mover las herramientas de Revelado a la derecha"
+      },
+      "loupe": {
+        "adjust": "Revelado",
+        "adjustTitle": "Ajustar en Revelado",
+        "backToGrid": "Volver a la cuadrícula",
+        "fullScreen": "Foto sola (pantalla completa)",
+        "grid": "Cuadrícula"
       },
       "modules": {
         "develop": "Revelado",
