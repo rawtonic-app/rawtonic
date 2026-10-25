@@ -1,5 +1,6 @@
-import '../i18n';
+import "../i18n";
 import { beforeEach, expect, it, vi } from "vitest";
+import { toast } from "react-toastify";
 import { invoke } from "@tauri-apps/api/core";
 import { debouncedSetHistory, useEditorStore } from "../store/useEditorStore";
 import { useLibraryStore } from "../store/useLibraryStore";
@@ -15,7 +16,7 @@ import {
 } from "./appUndo";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => []) }));
-vi.mock("react-toastify", () => ({ toast: { error: vi.fn() } }));
+vi.mock("react-toastify", () => ({ toast: { error: vi.fn(), info: vi.fn() } }));
 const changes = [
   {
     path: "/a.nef",
@@ -276,22 +277,31 @@ it("orders Library metadata and file-journal steps together", async () => {
   expect(redoFile).toHaveBeenCalledOnce();
 });
 
-it("a failed metadata restore leaves the file journal reachable and can retry after it", async () => {
-  const { fileAction, fileOperationTravel } = await import("./appUndo");
-  useUIStore.setState({ activeView: "library" });
-  const moved = { id: "move-1", kind: "move" };
-  await fileAction(async () => moved);
-  await catalogAction("rating", async () => changes);
-  vi.mocked(invoke).mockRejectedValueOnce({ message: "missing source" });
-  await undo();
-  const undoFile = vi.fn(async () => {
-    fileOperationTravel("undo", moved);
-  });
-  await undo(undoFile);
-  expect(undoFile).toHaveBeenCalledOnce();
-  await undo();
-  expect(useCatalogUndoStore.getState().past).toEqual([]);
-});
+it.each([false, true])(
+  "a failed metadata restore retries before older file undo (tracked: %s)",
+  async (tracked) => {
+    const { fileAction, registerFileUndoHandlers } = await import("./appUndo");
+    useUIStore.setState({ activeView: "library" });
+    if (tracked) await fileAction(async () => ({ id: "older", kind: "move" }));
+    const undoFile = vi.fn();
+    const unregister = registerFileUndoHandlers({
+      undo: undoFile,
+      redo: vi.fn(),
+    });
+    try {
+      await catalogAction("rating", async () => changes);
+      vi.mocked(invoke).mockRejectedValue({ message: "catalog locked" });
+      await undo();
+      await undo();
+      expect(undoFile).not.toHaveBeenCalled();
+      expect(invoke).toHaveBeenCalledTimes(2);
+      expect(toast.error).toHaveBeenCalledTimes(2);
+      expect(useCatalogUndoStore.getState().past).toHaveLength(1);
+    } finally {
+      unregister();
+    }
+  },
+);
 
 it("a new metadata branch prevents the discarded native file redo from returning", async () => {
   const { fileAction, fileOperationTravel } = await import("./appUndo");
@@ -429,4 +439,190 @@ it("settles an older pending edit before Library metadata undo so redo stays ava
   finish([{ ...changes[0], after: changes[0].before }]);
   await undone;
   expect(useCatalogUndoStore.getState().future).toHaveLength(1);
+});
+
+it("saves and undoes unrelated metadata while a move is still running", async () => {
+  const { fileAction } = await import("./appUndo");
+  let finish!: (value: { id: string; kind: string }) => void;
+  const moving = fileAction(
+    () =>
+      new Promise<{ id: string; kind: string }>((resolve) => {
+        finish = resolve;
+      }),
+    "move",
+    undefined,
+    undefined,
+    ["/other"],
+  );
+  await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+  const blocked = catalogAction(
+    "rating",
+    async () => changes.map((change) => ({ ...change, path: "/other/a.nef" })),
+    ["/other/a.nef"],
+  );
+  let saved = false;
+  const rated = catalogAction(
+    "rating",
+    async () => {
+      saved = true;
+      return changes;
+    },
+    ["/a.nef"],
+  );
+  try {
+    await vi.waitFor(() => expect(saved).toBe(true), { timeout: 100 });
+    await rated;
+    const undone = undo();
+    await vi.waitFor(
+      () =>
+        expect(invoke).toHaveBeenCalledWith(
+          "restore_culling",
+          expect.anything(),
+        ),
+      { timeout: 100 },
+    );
+    await undone;
+  } finally {
+    finish({ id: "move", kind: "move" });
+    await moving;
+    await blocked;
+    await rated;
+  }
+});
+it("names an off-screen photo in undo and redo notices without navigating", async () => {
+  await catalogAction("rating", async () => changes);
+  useEditorStore.setState({
+    selectedImage: { path: "/b.nef", isReady: true } as never,
+  });
+  await undo();
+  expect(toast.info).toHaveBeenLastCalledWith("Undo Set Rating: a.nef", {
+    autoClose: 3000,
+  });
+  await redo();
+  expect(toast.info).toHaveBeenLastCalledWith("Redo Set Rating: a.nef", {
+    autoClose: 3000,
+  });
+  expect(useEditorStore.getState().selectedImage?.path).toBe("/b.nef");
+});
+
+it.each(["/folder/a.nef", "/folder/a.nef?vc=copy"])(
+  "waits for an overlapping folder move before writing %s",
+  async (path) => {
+    const { fileAction } = await import("./appUndo");
+    let finish!: (value: {
+      id: string;
+      moves: { from: string; to: string }[];
+    }) => void;
+    const moving = fileAction(
+      () =>
+        new Promise<{ id: string; moves: { from: string; to: string }[] }>(
+          (resolve) => {
+            finish = resolve;
+          },
+        ),
+      "move",
+      undefined,
+      undefined,
+      ["/folder", "/moved"],
+    );
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    const save = vi.fn(
+      async ({ resolvePaths }: import("./appUndo").CatalogActionContext) =>
+        changes.map((change) => ({ ...change, path: resolvePaths([path])[0] })),
+    );
+    const rated = catalogAction("rating", save, [path]);
+    await Promise.resolve();
+    expect(save).not.toHaveBeenCalled();
+    finish({ id: "move", moves: [{ from: "/folder", to: "/moved" }] });
+    await moving;
+    await rated;
+    expect(useCatalogUndoStore.getState().past[0].changes[0].path).toBe(
+      path.replace("/folder", "/moved"),
+    );
+  },
+);
+
+it("waits when an undo target moves again after its receipt path became stale", async () => {
+  const { fileAction } = await import("./appUndo");
+  await catalogAction("rating", async () => changes, ["/a.nef"]);
+  await fileAction(
+    async () => ({ id: "first", moves: [{ from: "/a.nef", to: "/b.nef" }] }),
+    "move",
+    undefined,
+    undefined,
+    ["/a.nef", "/b.nef"],
+  );
+  let finish!: (value: {
+    id: string;
+    moves: { from: string; to: string }[];
+  }) => void;
+  const moving = fileAction(
+    () =>
+      new Promise<{ id: string; moves: { from: string; to: string }[] }>(
+        (resolve) => {
+          finish = resolve;
+        },
+      ),
+    "move",
+    undefined,
+    undefined,
+    ["/b.nef", "/c.nef"],
+  );
+  await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+  const undone = undo();
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(invoke).not.toHaveBeenCalled();
+  } finally {
+    finish({ id: "second", moves: [{ from: "/b.nef", to: "/c.nef" }] });
+    await moving;
+    await undone;
+  }
+});
+
+it("waits for both older moves in a chain before writing its original path", async () => {
+  const { fileAction } = await import("./appUndo");
+  type Move = { id: string; moves: { from: string; to: string }[] };
+  let finishFirst!: (value: Move) => void;
+  let finishSecond!: (value: Move) => void;
+  const first = fileAction(
+    () =>
+      new Promise<Move>((resolve) => {
+        finishFirst = resolve;
+      }),
+    "move",
+    undefined,
+    undefined,
+    ["/a.nef", "/b.nef"],
+  );
+  await vi.waitFor(() => expect(finishFirst).toBeTypeOf("function"));
+  const second = fileAction(
+    () =>
+      new Promise<Move>((resolve) => {
+        finishSecond = resolve;
+      }),
+    "move",
+    undefined,
+    undefined,
+    ["/b.nef", "/c.nef"],
+  );
+  const save = vi.fn(
+    async ({ resolvePaths }: import("./appUndo").CatalogActionContext) =>
+      changes.map((change) => ({
+        ...change,
+        path: resolvePaths(["/a.nef"])[0],
+      })),
+  );
+  const rated = catalogAction("rating", save, ["/a.nef"]);
+  finishFirst({ id: "first", moves: [{ from: "/a.nef", to: "/b.nef" }] });
+  await first;
+  await vi.waitFor(() => expect(finishSecond).toBeTypeOf("function"));
+  try {
+    expect(save).not.toHaveBeenCalled();
+  } finally {
+    finishSecond({ id: "second", moves: [{ from: "/b.nef", to: "/c.nef" }] });
+    await second;
+    await rated;
+  }
+  expect(useCatalogUndoStore.getState().past[0].changes[0].path).toBe("/c.nef");
 });

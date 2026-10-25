@@ -26,7 +26,6 @@ interface Step {
   action: CullingValue["kind"];
   changes: CullingChange[];
   directory: string | null;
-  failed?: boolean;
 }
 interface FileStep {
   order: number;
@@ -62,7 +61,25 @@ export const useCatalogUndoStore = create<CatalogUndoState>(() => ({
   fileRedoBlocked: false,
   fileUndoEmpty: false,
 }));
-let queue: Promise<unknown> = Promise.resolve();
+const currentTargets = new WeakMap<Step, readonly string[]>();
+interface PendingWork {
+  lane: "catalog" | "file";
+  paths?: readonly string[];
+  done: Promise<unknown>;
+}
+const pendingWork = new Set<PendingWork>();
+function overlaps(left?: readonly string[], right?: readonly string[]) {
+  if (!left || !right) return true; // Unknown journal targets require serialization.
+  const physical = (path: string) =>
+    path.split("?vc=")[0].replaceAll("\\", "/").replace(/\/$/, "");
+  return left.some((a) =>
+    right.some((b) => {
+      const x = physical(a),
+        y = physical(b);
+      return x === y || x.startsWith(`${y}/`) || y.startsWith(`${x}/`);
+    }),
+  );
+}
 let branch = 0;
 let fileTravelBranch: number | null = null;
 const pendingCatalog = new Set<number>();
@@ -71,14 +88,24 @@ export interface CatalogActionContext {
   resolvePaths(paths: readonly string[]): string[];
 }
 function recordMoves(moves: PathMove[]) {
-  if (!pendingCatalog.size || !moves.length) return;
+  if (!moves.length) return;
   const mapped = new Map<string, string>();
   for (const { from, to } of moves) {
     const source = from.split("?vc=")[0];
     const destination = to.split("?vc=")[0];
     if (source !== destination) mapped.set(source, destination);
   }
-  if (mapped.size)
+  if (!mapped.size) return;
+  // Receipts keep their native identity; dependency targets follow later moves.
+  const remap = (paths: readonly string[]) =>
+    paths.map((path) => movedPath(path, mapped));
+  const { past, future } = useCatalogUndoStore.getState();
+  for (const step of [...past, ...future]) {
+    const paths = currentTargets.get(step);
+    if (paths) currentTargets.set(step, remap(paths));
+  }
+  for (const job of pendingWork) if (job.paths) job.paths = remap(job.paths);
+  if (pendingCatalog.size)
     completedMoves.push({ order: nextUndoOrder(), moves: mapped });
 }
 function pruneMoves() {
@@ -87,9 +114,37 @@ function pruneMoves() {
   completedMoves = completedMoves.filter((move) => move.order > oldest);
 }
 
-function enqueue<T>(work: () => Promise<T>): Promise<T> {
-  const run = queue.then(work);
-  queue = run.catch(() => undefined);
+function enqueue<T>(
+  work: () => Promise<T>,
+  lane: "catalog" | "file" = "file",
+  paths?: readonly string[],
+): Promise<T> {
+  // Writes to the same paths stay in input order. Independent metadata can
+  // pass a long move; file commands remain serialized with prior work.
+  const dependencies = new Set<PendingWork>();
+  let affected = paths;
+  // A→B followed by B→C also conflicts with a write still naming A. Only
+  // earlier jobs participate, so later files waiting for this write cannot cycle.
+  let added: boolean;
+  do {
+    added = false;
+    for (const job of pendingWork) {
+      if (
+        dependencies.has(job) ||
+        (lane !== "file" && !overlaps(affected, job.paths))
+      )
+        continue;
+      dependencies.add(job);
+      if (job.lane === "file")
+        affected =
+          affected && job.paths ? [...affected, ...job.paths] : undefined;
+      added = true;
+    }
+  } while (added);
+  const run = Promise.all([...dependencies].map((job) => job.done)).then(work);
+  const job: PendingWork = { lane, paths, done: run.catch(() => undefined) };
+  pendingWork.add(job);
+  void job.done.then(() => pendingWork.delete(job));
   return run;
 }
 
@@ -98,6 +153,7 @@ function enqueue<T>(work: () => Promise<T>): Promise<T> {
 export function catalogAction(
   action: CullingValue["kind"],
   work: (context: CatalogActionContext) => Promise<CullingChange[]>,
+  paths?: readonly string[],
 ): Promise<void> {
   debouncedSetHistory.flush();
   branch++;
@@ -112,6 +168,7 @@ export function catalogAction(
     changes: [],
     directory: useLibraryStore.getState().sessionDirectory,
   };
+  if (paths) currentTargets.set(step, [...paths]);
   pendingCatalog.add(step.order);
   useCatalogUndoStore.setState((s) => ({
     past: [...s.past, step].slice(-100),
@@ -127,7 +184,9 @@ export function catalogAction(
             let resolved = [...paths];
             for (const move of completedMoves)
               if (move.order > step.order)
-                resolved = resolved.map((path) => movedPath(path, move.moves));
+                resolved = resolved.map((path) =>
+                  movedPath(path, move.moves),
+                );
             return resolved;
           },
         })) ?? []
@@ -140,6 +199,10 @@ export function catalogAction(
         ) ?? [];
       throw error;
     } finally {
+      currentTargets.set(
+        step,
+        step.changes.map((change) => change.path),
+      );
       pendingCatalog.delete(step.order);
       pruneMoves();
       useCatalogUndoStore.setState((s) =>
@@ -152,7 +215,7 @@ export function catalogAction(
           : {},
       );
     }
-  });
+  }, "catalog", paths);
 }
 
 /** The file journal stays native; these small markers order its successful
@@ -187,8 +250,6 @@ export function fileOperationTravel(
       found && (!found.id || found.id === summary.id)
         ? { ...found, id: summary.id, kind: summary.kind ?? found.kind }
         : { order: 0, id: summary.id, kind: summary.kind ?? "file" };
-    // A file restored by the journal may make a failed metadata restore valid.
-    for (const item of [...s.past, ...s.future]) item.failed = false;
     return {
       [from]: found ? s[from].slice(0, -1) : [],
       [to]: startedOnBranch === branch ? [...s[to], step] : s[to],
@@ -212,6 +273,7 @@ export function fileAction<T>(
   kind = "file",
   didChange?: (result: T) => boolean,
   movesForResult?: (result: T) => PathMove[],
+  paths?: readonly string[],
 ): Promise<T> {
   debouncedSetHistory.flush();
   branch++;
@@ -262,7 +324,7 @@ export function fileAction<T>(
             },
       );
     }
-  });
+  }, "file", paths);
 }
 function catalogStep(direction: "undo" | "redo") {
   return (
@@ -292,7 +354,6 @@ function candidate(
         : !!file || (!state.fileRedoBlocked && !!fileHandlers);
     if (!step) return fileAvailable ? "file" : null;
     if (!fileAvailable) return "catalog";
-    if (step.failed) return "file";
     if (!file) return "catalog"; // Native operations from before this window are older.
     return direction === "undo"
       ? file.order > step.order
@@ -445,6 +506,7 @@ async function travel(
   const from = direction === "undo" ? "past" : "future";
   const to = direction === "undo" ? "future" : "past";
   const step = useCatalogUndoStore.getState()[from].at(-1)!;
+  const label = direction === "undo" ? getUndoLabel() : getRedoLabel();
   useCatalogUndoStore.setState({ busy: true });
   try {
     await enqueue(async () => {
@@ -468,8 +530,13 @@ async function travel(
             directory: step.directory,
           },
         );
-        if (useLibraryStore.getState().sessionDirectory === step.directory)
+        if (useLibraryStore.getState().sessionDirectory === step.directory) {
           showCullingChanges(changed);
+          const name = changed[0]?.path.split("?vc=")[0].split(/[\\/]/).pop();
+          const more = changed.length > 1 ? ` (+${changed.length - 1})` : "";
+          if (name)
+            toast.info(`${label}: ${name}${more}`, { autoClose: 3000 });
+        }
       } catch (error) {
         if (useLibraryStore.getState().sessionDirectory === step.directory)
           showCullingChanges(
@@ -482,11 +549,10 @@ async function travel(
           [from]: s[from].filter((item) => item !== step),
           [to]: branch === startedOnBranch ? [...s[to], step] : s[to],
         }));
-    });
+    }, "catalog", currentTargets.get(step));
   } catch (error) {
     // Keep the step for retry if a restore failed. Reapplying already saved
     // values is harmless; a partial restore must never lose its undo record.
-    step.failed = true;
     const message = String((error as { message?: string })?.message ?? error);
     toast.error(
       direction === "undo"

@@ -22,7 +22,7 @@ vi.mock('@tauri-apps/api/event', () => ({
     return Promise.resolve(() => listeners.delete(name));
   }),
 }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
 
 const props = {
   sortedImageList: [],
