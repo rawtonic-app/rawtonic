@@ -343,7 +343,9 @@ describe("saving a tool preset", () => {
   });
 });
 
-it('does not hover-preview AI preset masks with another photograph bitmap', () => {
-  const masks = [{ subMasks: [{ type: 'ai-sky', parameters: { maskDataBase64: 'data:source' } }] }] as never;
-  expect(presetPreview(INITIAL_ADJUSTMENTS, { masks }, true)).toBeNull();
+describe("AI preset previews", () => {
+  it("does not hover-preview AI preset masks with another photograph bitmap", () => {
+    const masks = [{ subMasks: [{ type: "ai-sky", parameters: { maskDataBase64: "data:source" } }] }] as never;
+    expect(presetPreview(INITIAL_ADJUSTMENTS, { masks }, true)).toBeNull();
+  });
 });

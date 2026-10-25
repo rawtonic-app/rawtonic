@@ -1905,7 +1905,8 @@ mod tests {
         for bitmap in [Value::Null, serde_json::json!("data:source")] {
             let mut sky = sky_layer("preset-sky", "data:source");
             sky["subMasks"][0]["parameters"]["maskDataBase64"] = bitmap;
-            let preset = serde_json::json!({"masks": [sky]});
+            let preset =
+                serde_json::json!({"masks": [sky], "lutPath": null, "lutData": null, "crop": null});
             let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
                 pasted_metadata(path, source, sidecar, &preset, None, None, None)
             });
@@ -1914,6 +1915,9 @@ mod tests {
             for path in &paths {
                 let saved =
                     crate::exif_processing::load_sidecar(&parse_virtual_path(path).1).adjustments;
+                assert_eq!(saved.get("lutPath"), Some(&Value::Null));
+                assert_eq!(saved.get("lutData"), Some(&Value::Null));
+                assert_eq!(saved.get("crop"), Some(&Value::Null));
                 let sub = &saved["masks"][0]["subMasks"][0];
                 assert!(sub["parameters"]["maskDataBase64"].is_null());
                 assert_eq!(sub["parameters"]["detectPending"], true);

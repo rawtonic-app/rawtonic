@@ -109,7 +109,8 @@ export function samePhotograph(a: string, b: string): boolean {
 }
 
 /** What an AI detection writes into a component's parameters (its bitmap,
- * the geometry it was made in, the end of its wait). */
+ * the geometry it was made in, the end of its wait). Keep in sync with
+ * `DETECTION_RESULT_KEYS` in crates/engine/src/masks.rs. */
 const DETECTION_RESULT_KEYS = [
   'maskDataBase64',
   'mask_data_base64',
@@ -158,7 +159,8 @@ export function detectionPending(sub: SubMask): boolean {
  * onto it as the backend pastes onto a closed photograph (`pasted_into`,
  * `masks::paste_layers`), for the open one: a new recipe starts as a new
  * edit (render version, `newEdit`: a new edit's processing versions); a
- * `null` setting is removed; pasted layers replace the layer of the same id
+ * `null` setting is removed (`keepNulls`: presets keep explicit nulls, as
+ * the backend does); pasted layers replace the layer of the same id
  * and join the others (`replaceLayers`: replace them all), their AI
  * detections waiting, under ids of their own, for this photograph's unless
  * it is the source's (`samePhoto`). Null when the layers would exceed what
@@ -166,7 +168,7 @@ export function detectionPending(sub: SubMask): boolean {
 export function pasteInto(
   base: Adjustments | null,
   pasted: Partial<Adjustments>,
-  { samePhoto, replaceLayers, newEdit }: { samePhoto: boolean; replaceLayers: boolean; newEdit?: Record<string, unknown> },
+  { samePhoto, replaceLayers, newEdit, keepNulls = false }: { samePhoto: boolean; replaceLayers: boolean; newEdit?: Record<string, unknown>; keepNulls?: boolean },
 ): Adjustments | null {
   const out: Record<string, unknown> = { ...(base ?? {}) };
   if (Object.keys(out).every((key) => key === 'lensProfileFor')) {
@@ -176,8 +178,10 @@ export function pasteInto(
   const rendered = (masks: unknown) => ((masks as MaskContainer[] | undefined) ?? []).filter(isRenderedLayer).length;
   const before = rendered(out.masks);
   for (const [key, value] of Object.entries(pasted)) {
-    if (value === null) delete out[key];
-    else if (key === 'masks') out.masks = pastedLayers(out.masks as MaskContainer[] | undefined, value as MaskContainer[], samePhoto, replaceLayers);
+    if (value === null) {
+      if (keepNulls) out[key] = null;
+      else delete out[key];
+    } else if (key === 'masks') out.masks = pastedLayers(out.masks as MaskContainer[] | undefined, value as MaskContainer[], samePhoto, replaceLayers);
     else out[key] = value;
   }
   const after = rendered(out.masks);

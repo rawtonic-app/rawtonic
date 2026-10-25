@@ -322,6 +322,7 @@ pub fn pending_detections_message(pending: &[PendingDetection]) -> String {
 
 /// Detection output is tied to one photograph. Keep selection intent and
 /// refinement settings when saving a preset or transferring its layers.
+/// Keep in sync with `DETECTION_RESULT_KEYS` in src/utils/settingsClipboard.ts.
 const DETECTION_RESULT_KEYS: [&str; 8] = [
     "maskDataBase64",
     "mask_data_base64",
@@ -558,6 +559,48 @@ mod paste_tests {
             "data:source"
         );
         assert!(pending_detections(&json!({ "masks": same })).is_empty());
+    }
+
+    #[test]
+    fn cross_photo_paste_clears_detection_geometry_and_empty_people_bitmaps() {
+        let source = json!([
+            layer(
+                "sky",
+                json!({"id": "s", "type": "ai-sky", "parameters": {
+                    "maskDataBase64": "data:source", "mask_data_base64": "data:legacy",
+                    "rotation": 10, "flipHorizontal": true, "flipVertical": true,
+                    "orientationSteps": 1, "warp": {"perspective": 5}, "detectPending": false,
+                    "grow": 10, "feather": 4
+                }})
+            ),
+            layer(
+                "empty",
+                json!({"id": "p", "type": "ai-people", "parameters": {
+                    "parts": [], "maskDataBase64": "data:stale", "detectPending": true, "warp": {}
+                }})
+            )
+        ]);
+        let pasted = paste_layers(&json!([]), &source, false, true, &mut new_ids());
+        assert_eq!(
+            pasted[0]["subMasks"][0]["parameters"],
+            json!({
+                "maskDataBase64": null, "mask_data_base64": null, "detectPending": true,
+                "grow": 10, "feather": 4
+            })
+        );
+        assert_eq!(pasted[0]["subMasks"][0]["id"], "new-0");
+        assert_eq!(
+            pasted[1]["subMasks"][0]["parameters"],
+            json!({
+                "parts": [], "maskDataBase64": null
+            })
+        );
+        assert_eq!(pasted[1]["subMasks"][0]["id"], "p");
+        assert_eq!(
+            paste_layers(&json!([]), &source, true, true, &mut new_ids()),
+            source,
+            "same-photo virtual copies retain their bitmap and its geometry"
+        );
     }
 
     #[test]
