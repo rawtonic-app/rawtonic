@@ -40,6 +40,7 @@ export default function StudioLayerSelect() {
           activeMaskId: null,
           focusedMaskComponentId: null,
           isWbPickerActive: false,
+          filmBasePicking: false,
         });
         if (id) useUIStore.getState().setPanel(Panel.Masks);
       }}

@@ -409,9 +409,34 @@ fn clipped(p: &[f32; 3], is_raw: bool) -> bool {
     }
 }
 
-/// Linear level at or below which a scan is clipped to black (an 8-bit
-/// sRGB code of 0 or 1).
-const SCAN_BLACK: f32 = 3.1e-4;
+/// A channel is clipped to black where at least this share of the frame's
+/// samples pile up at its lowest value and that value is at most
+/// `BLACK_FLOOR` of the channel's brightest (an 8-bit scan's code 0, a
+/// RAW's black level): those tell no density. A deeper scan's (16 bits,
+/// RAW) values that merely lie low, and a dense flat area, are kept.
+const BLACK_PILE_SHARE: f32 = 0.002;
+const BLACK_FLOOR: f32 = 1e-4;
+
+/// Per channel, the level at or below which `samples` are clipped to black
+/// (`BLACK_PILE_SHARE`), or −∞ when nothing piles up at the bottom.
+fn black_levels(samples: &[[f32; 3]]) -> [f32; 3] {
+    std::array::from_fn(|c| {
+        let low = samples.iter().map(|p| p[c]).fold(f32::INFINITY, f32::min);
+        let high = samples
+            .iter()
+            .map(|p| p[c])
+            .fold(f32::NEG_INFINITY, f32::max);
+        let at_low = samples.iter().filter(|p| p[c] <= low).count();
+        if low.is_finite()
+            && low <= BLACK_FLOOR * high
+            && at_low as f32 >= BLACK_PILE_SHARE * samples.len() as f32
+        {
+            low
+        } else {
+            f32::NEG_INFINITY
+        }
+    })
+}
 /// At most this many samples per region.
 const MAX_SAMPLES: usize = 200_000;
 
@@ -570,13 +595,14 @@ pub fn analyze(image: &DynamicImage, is_raw: bool, frame: Option<[f32; 4]>) -> O
         thinnest
     };
     let base = base.map(|v| v.max(MIN_TRANSMITTANCE));
+    let black = black_levels(&frame_samples);
     let mut highlight = [0.0f32; 3];
     for c in 0..3 {
         // A scan clipped to black there (an 8-bit scan of dense
         // highlights) tells no density.
         let mut density: Vec<f32> = frame_samples
             .iter()
-            .filter(|p| p[c] > SCAN_BLACK)
+            .filter(|p| p[c] > black[c])
             .map(|p| (base[c] / p[c]).log10())
             .collect();
         let dh = percentile(&mut density, HIGHLIGHT_PERCENTILE).max(MIN_RANGE);
@@ -903,6 +929,23 @@ mod tests {
             "{found:?}"
         );
         assert!((found.base[2] / base[2] - 1.0).abs() < 0.01, "{found:?}");
+    }
+
+    #[test]
+    fn deep_scans_keep_their_dense_highlights() {
+        // A 16-bit or RAW scan's densest highlights lie below an 8-bit
+        // code 1 without being clipped: they set the highlight.
+        let base = [0.6f32, 0.35, 0.2];
+        let image = DynamicImage::ImageRgb32F(Rgb32FImage::from_fn(400, 300, |x, _| {
+            let share = (x as f32 / 399.0 * 1.5).min(1.0);
+            image::Rgb(std::array::from_fn(|c| base[c] * 10f32.powf(-3.5 * share)))
+        }));
+        let found = analyze(&image, true, None).unwrap();
+        for (highlight, base) in found.highlight.into_iter().zip(base) {
+            let expected = base * 10f32.powf(-3.5);
+            assert!(expected < 3.1e-4);
+            assert!((highlight / expected - 1.0).abs() < 0.05, "{found:?}");
+        }
     }
 
     #[test]

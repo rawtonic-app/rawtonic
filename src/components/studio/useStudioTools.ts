@@ -153,6 +153,7 @@ export function useStudioTools() {
       // A new layer is selected as a whole: Delete removes the layer.
       focusedMaskComponentId: null,
       isWbPickerActive: false,
+      filmBasePicking: false,
       isStraightenActive: false,
       // A luminance range starts sampling tones on the photo (Lightroom).
       ...(maskKind === "luminance" ? { lumaPickerLayer: id } : {}),
@@ -198,6 +199,7 @@ export function useStudioTools() {
       activeMaskId: brush.id,
       focusedMaskComponentId: brush.id,
       isWbPickerActive: false,
+      filmBasePicking: false,
       isStraightenActive: false,
       brushSettings: brushFor(brushSettings?.size ?? DEFAULT_BRUSH_SIZE),
     });
@@ -234,6 +236,7 @@ export function useStudioTools() {
       // The added component is the selection, as in Lightroom.
       focusedMaskComponentId: added[0].id,
       isWbPickerActive: false,
+      filmBasePicking: false,
       isStraightenActive: false,
       // A luminance range starts sampling tones on the photo (Lightroom).
       ...(kind === "luminance" ? { lumaPickerLayer: target.id } : {}),
@@ -264,6 +267,7 @@ export function useStudioTools() {
         setEditor({
           activeMaskId: null,
           isWbPickerActive: false,
+          filmBasePicking: false,
           isStraightenActive: false,
         });
         if (activePanel === Panel.Crop) setPanel(Panel.Adjustments);
@@ -273,6 +277,7 @@ export function useStudioTools() {
           activeMaskContainerId: null,
           activeMaskId: null,
           isWbPickerActive: false,
+          filmBasePicking: false,
           isStraightenActive: false,
         });
         setPanel(
@@ -289,6 +294,7 @@ export function useStudioTools() {
           activeMaskContainerId: null,
           activeMaskId: null,
           isWbPickerActive: false,
+          filmBasePicking: false,
           isStraightenActive: !isStraightenActive,
         });
         setPanel(Panel.Crop);
@@ -313,6 +319,7 @@ export function useStudioTools() {
           activeMaskContainerId: null,
           activeMaskId: null,
           isWbPickerActive: false,
+          filmBasePicking: false,
           isStraightenActive: false,
           isSpotToolActive: !isSpotToolActive,
           activeSpotId: null,

@@ -702,7 +702,7 @@ export default function StudioDevelop() {
       );
     if (next !== "layers" && !keepLayer)
       setEditor({ activeMaskContainerId: null, activeMaskId: null });
-    setEditor({ isWbPickerActive: false });
+    setEditor({ isWbPickerActive: false, filmBasePicking: false });
   };
   const editBackground = () => {
     setEditor({ activeMaskContainerId: null, activeMaskId: null });

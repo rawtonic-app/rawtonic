@@ -1024,7 +1024,7 @@ export const useKeyboardShortcuts = ({
           else if (s.editor.isStraightenActive) s.editor.setEditor({ isStraightenActive: false });
           else if (s.editor.colorPickerTarget !== null) s.editor.setEditor({ colorPickerTarget: null });
           else if (s.editor.filmBasePicking) s.editor.setEditor({ filmBasePicking: false });
-          else if (s.editor.isWbPickerActive) s.editor.setEditor({ isWbPickerActive: false });
+          else if (s.editor.isWbPickerActive) s.editor.setEditor({ isWbPickerActive: false, filmBasePicking: false });
           else if (s.editor.lumaPickerLayer) s.editor.setEditor({ lumaPickerLayer: null });
           else if (s.editor.tatTarget) s.editor.setEditor({ tatTarget: null });
           else if (s.editor.activeMaskId) s.editor.setEditor({ activeMaskId: null });

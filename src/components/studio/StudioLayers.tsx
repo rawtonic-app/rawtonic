@@ -263,6 +263,7 @@ export default function StudioLayers({
       activeMaskId: mask.subMasks[0]?.id || null,
       focusedMaskComponentId: null,
       isWbPickerActive: false,
+      filmBasePicking: false,
       layerSolo: soloAfterSelect(layerSolo, mask.id),
     });
     useUIStore.getState().setPanel(Panel.Masks);
