@@ -25,6 +25,46 @@ pub const IPTC_EXT: &str = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
 pub const DIGITAL_SOURCE_COMPOSITE_AI: &str =
     "http://cv.iptc.org/newscodes/digitalsourcetype/compositeWithTrainedAlgorithmicMedia";
 
+/// Whether the image file at `path` carries [`DIGITAL_SOURCE_COMPOSITE_AI`]
+/// in its embedded XMP: an export with generated areas, brought back in (an
+/// Edit With render, an imported export). An export of such a file keeps the
+/// marking though its own recipe has no generated areas. Files of formats
+/// Rawtonic does not export to are not read.
+pub fn file_marked_generated(path: &Path) -> bool {
+    use std::io::Read;
+    let exported = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .is_some_and(|e| {
+            matches!(
+                e.as_str(),
+                "jpg" | "jpeg" | "png" | "tif" | "tiff" | "webp" | "avif" | "jxl"
+            )
+        });
+    if !exported {
+        return false;
+    }
+    let Ok(mut file) = fs::File::open(path) else {
+        return false;
+    };
+    let needle = DIGITAL_SOURCE_COMPOSITE_AI.as_bytes();
+    let mut window = Vec::with_capacity(1 << 20);
+    let mut chunk = vec![0; 1 << 20];
+    loop {
+        let read = match file.read(&mut chunk) {
+            Ok(0) | Err(_) => return false,
+            Ok(read) => read,
+        };
+        window.extend_from_slice(&chunk[..read]);
+        if window.windows(needle.len()).any(|w| w == needle) {
+            return true;
+        }
+        // Keep the tail a marking could start in.
+        let keep = window.len().min(needle.len() - 1);
+        window.drain(..window.len() - keep);
+    }
+}
+
 /// How an IPTC field is stored in XMP.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IptcKind {

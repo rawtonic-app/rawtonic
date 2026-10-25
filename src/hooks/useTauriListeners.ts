@@ -327,12 +327,21 @@ export function useTauriListeners({
         // Selecting it again does nothing; decoding it again shows the new
         // pixels. The recipe in the editor is saved first (after a slider
         // drag under way ends), so the decode reads it back unchanged.
+        // Its undo history stays: the load starts a new one, which is
+        // replaced by the kept one once the photograph is ready again.
         const reload = () => {
-          const { selectedImage, adjustments, setEditor } = useEditorStore.getState();
+          const { selectedImage, adjustments, history, historyIndex, setEditor } = useEditorStore.getState();
           if (!selectedImage?.isDecoded || selectedImage.path.split('?vc=')[0] !== path) return;
           debouncedSave(selectedImage.path, adjustments);
           debouncedSave.flush();
           setEditor({ selectedImage: { ...selectedImage, isDecoded: false, isReady: false } });
+          const shownPath = selectedImage.path;
+          const stop = useEditorStore.subscribe((state) => {
+            if (state.selectedImage?.path !== shownPath) return stop();
+            if (!state.selectedImage.isReady) return;
+            stop();
+            if (isEffectActive) state.setEditor({ history, historyIndex });
+          });
         };
         if (!useEditorStore.getState().isSliderDragging) reload();
         else {

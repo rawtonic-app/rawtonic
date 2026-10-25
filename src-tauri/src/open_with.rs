@@ -155,7 +155,12 @@ fn original_files(paths: &[String]) -> Vec<PathBuf> {
 /// `NAME_edit-2.ext`, … Names in `taken` (other renders of the same run)
 /// count as used. The render itself is written no-clobber, so a file that
 /// appears in between makes it fail rather than be overwritten.
-pub fn edit_target(original: &Path, extension: &str, taken: &HashSet<PathBuf>) -> PathBuf {
+pub fn edit_target(
+    original: &Path,
+    extension: &str,
+    taken: &HashSet<PathBuf>,
+    registered: &dyn Fn(&Path) -> bool,
+) -> PathBuf {
     let folder = original.parent().unwrap_or(Path::new(""));
     let stem = original
         .file_stem()
@@ -187,7 +192,23 @@ pub fn edit_target(original: &Path, extension: &str, taken: &HashSet<PathBuf>) -
             };
             folder.join(format!("{stem}{EDIT_SUFFIX}{suffix}.{extension}"))
         })
-        .find(|path| lower(path).is_some_and(|name| !used.contains(&name)))
+        .find(|path| {
+            lower(path).is_some_and(|name| {
+                // A sidecar left by an earlier render of that name
+                // (`NAME_edit.tiff.rrdata`, `NAME_edit.xmp`) or a library
+                // photograph still registered there (its file gone) keeps it
+                // taken: the new render must not become that photograph.
+                let stem = name
+                    .rsplit_once('.')
+                    .map_or(name.as_str(), |(stem, _)| stem);
+                !used.contains(&name)
+                    && !used
+                        .iter()
+                        .any(|entry| entry.starts_with(&format!("{name}.")))
+                    && !used.contains(&format!("{stem}.xmp"))
+                    && !registered(path)
+            })
+        })
         .expect("a free name")
 }
 
@@ -489,11 +510,23 @@ pub fn edit_with_set_recipe(recipe: String, app: AppHandle) -> Result<(), String
 /// Free names beside the originals for the renders of `paths`.
 #[tauri::command]
 pub fn edit_with_targets(paths: Vec<String>, extension: String) -> Result<Vec<EditTarget>, String> {
+    plan_targets(paths, &extension, &|original| {
+        crate::session_bridge::library_dir_for(original)
+    })
+}
+
+/// `edit_with_targets` with the library of each original from `library_for`.
+fn plan_targets(
+    paths: Vec<String>,
+    extension: &str,
+    library_for: &dyn Fn(&Path) -> Option<PathBuf>,
+) -> Result<Vec<EditTarget>, String> {
     if extension.is_empty() || !extension.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err(format!("{extension:?} is not a file extension."));
     }
     let mut taken = HashSet::new();
     let mut seen = HashSet::new();
+    let mut libraries: HashMap<PathBuf, Option<Library>> = HashMap::new();
     paths
         .into_iter()
         .filter(|path| seen.insert(path.clone()))
@@ -502,11 +535,19 @@ pub fn edit_with_targets(paths: Vec<String>, extension: String) -> Result<Vec<Ed
             if !original.is_file() {
                 return Err(format!("{} is not available.", original.display()));
             }
-            let target = edit_target(&original, &extension, &taken);
+            let library = library_for(&original);
+            let lib = library.as_ref().and_then(|dir| {
+                libraries
+                    .entry(dir.clone())
+                    .or_insert_with(|| Library::open(dir).ok())
+                    .as_ref()
+            });
+            let registered =
+                |path: &Path| lib.is_some_and(|lib| matches!(lib.asset_at(path), Ok(Some(_))));
+            let target = edit_target(&original, extension, &taken, &registered);
             taken.insert(target.clone());
             Ok(EditTarget {
-                library: crate::session_bridge::library_dir_for(&original)
-                    .map(|dir| dir.to_string_lossy().into_owned()),
+                library: library.map(|dir| dir.to_string_lossy().into_owned()),
                 source,
                 target: target.to_string_lossy().into_owned(),
             })
@@ -514,16 +555,64 @@ pub fn edit_with_targets(paths: Vec<String>, extension: String) -> Result<Vec<Ed
         .collect()
 }
 
-/// Registers `render` in `lib` and stacks it with `source`'s photograph,
-/// which gives it its rating, label and keywords (as the original had them).
-pub fn link_render(lib: &Library, source: &Path, render: &Path) -> anyhow::Result<()> {
-    let original = match lib.asset_at(source)? {
+/// What a virtual copy shows of its own (rating, colour label, keywords)
+/// from its editor state, over its photograph's `metadata`.
+fn copy_metadata(
+    mut metadata: rawtonic_metadata::Metadata,
+    state: &serde_json::Value,
+) -> rawtonic_metadata::Metadata {
+    if let Some(rating) = state.get("rating").and_then(serde_json::Value::as_u64) {
+        metadata.rating = rating.min(5) as u8;
+    }
+    if let Some(tags) = state.get("tags").and_then(serde_json::Value::as_array) {
+        let tags: Vec<&str> = tags.iter().filter_map(serde_json::Value::as_str).collect();
+        metadata.label = tags
+            .iter()
+            .find_map(|tag| tag.strip_prefix(crate::tagging::COLOR_TAG_PREFIX))
+            .map(|colour| {
+                let mut chars = colour.chars();
+                chars.next().map_or_else(String::new, |first| {
+                    first.to_uppercase().chain(chars).collect()
+                })
+            })
+            .unwrap_or_default();
+        metadata.keywords = tags
+            .iter()
+            .filter_map(|tag| tag.strip_prefix(crate::tagging::USER_TAG_PREFIX))
+            .map(str::to_string)
+            .collect();
+    }
+    metadata
+}
+
+/// Registers `render` in `lib` and stacks it with the photograph of
+/// `source` (a virtual copy stacks with its photograph), which gives it its
+/// rating, label and keywords (a virtual copy's own).
+pub fn link_render(lib: &Library, source: &str, render: &Path) -> anyhow::Result<()> {
+    let (file, copy) = parse_virtual_path(source);
+    let original = match lib.asset_at(&file)? {
         Some(asset) => asset,
-        None => lib.add_asset(source)?,
+        None => lib.add_asset(&file)?,
     };
+    anyhow::ensure!(
+        lib.asset_at(render)?.is_none(),
+        "{} is already a photograph of the library",
+        render.display()
+    );
     let edit = lib.add_asset(render)?;
     lib.set_derived_from(&edit.id, &original.id)?;
-    lib.set_metadata(&edit.id, &lib.metadata(&original.id)?)?;
+    let mut metadata = lib.metadata(&original.id)?;
+    let copy_id = source.rsplit_once("?vc=").map(|(_, id)| id);
+    if let Some(state) = copy_id.and_then(|id| lib.copy_state(&original.id, id).ok().flatten()) {
+        metadata = copy_metadata(metadata, &state);
+    } else if copy_id.is_some()
+        && let Some(state) = fs::read(&copy)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+    {
+        metadata = copy_metadata(metadata, &state);
+    }
+    lib.set_metadata(&edit.id, &metadata)?;
     Ok(())
 }
 
@@ -544,8 +633,7 @@ fn link_renders(items: &[EditTarget]) -> EditWithResult {
             Ok(items
                 .iter()
                 .map(|item| {
-                    let (source, _) = parse_virtual_path(&item.source);
-                    link_render(lib, &source, Path::new(&item.target))
+                    link_render(lib, &item.source, Path::new(&item.target))
                         .map_err(|e| format!("{}: {e:#}", item.target))
                 })
                 .collect::<Vec<_>>())
@@ -800,28 +888,28 @@ mod tests {
         let original = tmp.path().join("DSC_0001.NEF");
         fs::write(&original, b"raw").unwrap();
         let mut taken = HashSet::new();
-        let first = edit_target(&original, "tif", &taken);
+        let first = edit_target(&original, "tif", &taken, &|_| false);
         assert_eq!(first, tmp.path().join("DSC_0001_edit.tif"));
         // Another render of the same run, then files already there.
         taken.insert(first.clone());
         assert_eq!(
-            edit_target(&original, "tif", &taken),
+            edit_target(&original, "tif", &taken, &|_| false),
             tmp.path().join("DSC_0001_edit-2.tif")
         );
         fs::write(tmp.path().join("DSC_0001_edit-2.tif"), b"there").unwrap();
         assert_eq!(
-            edit_target(&original, "tif", &taken),
+            edit_target(&original, "tif", &taken, &|_| false),
             tmp.path().join("DSC_0001_edit-3.tif")
         );
         // A name that differs only in case is taken too (case-insensitive volumes).
         fs::write(tmp.path().join("DSC_0001_EDIT-3.TIF"), b"there").unwrap();
         assert_eq!(
-            edit_target(&original, "tif", &taken),
+            edit_target(&original, "tif", &taken, &|_| false),
             tmp.path().join("DSC_0001_edit-4.tif")
         );
         // A different format starts again.
         assert_eq!(
-            edit_target(&original, "jpg", &HashSet::new()),
+            edit_target(&original, "jpg", &HashSet::new(), &|_| false),
             tmp.path().join("DSC_0001_edit.jpg")
         );
     }
@@ -898,6 +986,75 @@ mod tests {
         assert_eq!(lib.derived_from(&edit.id).unwrap().unwrap().id, original.id);
         assert_eq!(lib.metadata(&edit.id).unwrap().rating, 4);
         assert_eq!(fs::read(&source).unwrap(), before);
+    }
+
+    #[test]
+    fn a_name_kept_by_a_registered_photograph_or_its_sidecars_is_not_reused() {
+        use rawtonic_catalog::Mode;
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("S");
+        let lib = Library::create(&dir, "S", Mode::Session).unwrap();
+        let capture = dir.join("Capture");
+        let source = capture.join("A.NEF");
+        fs::write(&source, b"raw").unwrap();
+        // An earlier render, registered, then deleted outside the app.
+        let earlier = capture.join("A_edit.tiff");
+        fs::write(&earlier, b"old render").unwrap();
+        lib.add_asset(&earlier).unwrap();
+        fs::remove_file(&earlier).unwrap();
+        // Another one's sidecars are left.
+        fs::write(capture.join("A_edit-2.tiff.rrdata"), b"{}").unwrap();
+        fs::write(capture.join("A_edit-3.xmp"), b"<x/>").unwrap();
+        drop(lib);
+
+        let targets = plan_targets(vec![source.to_string_lossy().into_owned()], "tiff", &|_| {
+            Some(dir.clone())
+        })
+        .unwrap();
+        assert_eq!(
+            targets[0].target,
+            capture.join("A_edit-4.tiff").to_string_lossy()
+        );
+        assert_eq!(
+            targets[0].library.as_deref(),
+            Some(dir.to_string_lossy().as_ref())
+        );
+    }
+
+    #[test]
+    fn a_virtual_copys_render_takes_the_copys_own_metadata() {
+        use rawtonic_catalog::Mode;
+        let tmp = tempfile::tempdir().unwrap();
+        let lib = Library::create(&tmp.path().join("S"), "S", Mode::Session).unwrap();
+        let capture = tmp.path().join("S/Capture");
+        let source = capture.join("A.NEF");
+        fs::write(&source, b"raw").unwrap();
+        let original = lib.add_asset(&source).unwrap();
+        let mut meta = lib.metadata(&original.id).unwrap();
+        meta.rating = 2;
+        meta.title = "Harbour".into();
+        lib.set_metadata(&original.id, &meta).unwrap();
+        lib.save_copy_state(
+            &original.id,
+            "9b8208",
+            &serde_json::json!({"rating": 5, "adjustments": {}, "tags": ["color:green", "user:print", "ai-tag"]}),
+        )
+        .unwrap();
+        let render = capture.join("A_edit.tiff");
+        fs::write(&render, b"tiff").unwrap();
+
+        link_render(&lib, &format!("{}?vc=9b8208", source.display()), &render).unwrap();
+
+        let edit = lib.asset_at(&render).unwrap().unwrap();
+        assert_eq!(lib.derived_from(&edit.id).unwrap().unwrap().id, original.id);
+        let got = lib.metadata(&edit.id).unwrap();
+        assert_eq!(
+            (got.rating, got.label.as_str(), got.title.as_str()),
+            (5, "Green", "Harbour")
+        );
+        assert_eq!(got.keywords, ["print"]);
+        // A render never takes over a photograph registered at its name.
+        assert!(link_render(&lib, &source.to_string_lossy(), &render).is_err());
     }
 
     #[test]

@@ -585,3 +585,27 @@ it('decodes an Edit With render again when another program saved it while it is 
     path: '/s/A_edit.tiff', isDecoded: false, isReady: false, width: 10,
   });
 });
+
+it('keeps the undo history of an Edit With render decoded again after a save', () => {
+  renderHook(() => useTauriListeners({
+    refreshAllFolderTrees: vi.fn(), handleSelectSubfolder: vi.fn(),
+    refreshImageList: vi.fn(), markGenerated: vi.fn(),
+  }));
+  const steps = [{ exposure: 0 }, { exposure: 0.3 }, { exposure: 0.6 }] as never[];
+  useEditorStore.getState().setEditor({
+    isSliderDragging: false,
+    selectedImage: { path: '/s/A_edit.tiff', isReady: true, isDecoded: true } as SelectedImage,
+    adjustments: steps[1],
+    history: steps,
+    historyIndex: 1,
+  });
+  act(() => callbacks.get('edit-with-saved')!({ payload: { path: '/s/A_edit.tiff' } }));
+  // The loader starts a new history for the decoded source…
+  act(() => useEditorStore.getState().setEditor({ history: [steps[1]], historyIndex: 0 }));
+  act(() => useEditorStore.getState().setEditor({
+    selectedImage: { path: '/s/A_edit.tiff', isReady: true, isDecoded: true } as SelectedImage,
+  }));
+  // …and the kept one comes back: undo and redo still work.
+  expect(useEditorStore.getState().history).toBe(steps);
+  expect(useEditorStore.getState().historyIndex).toBe(1);
+});
