@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Pipette, Wand2 } from "lucide-react";
 import { toast } from "react-toastify";
 import { useTranslation } from "react-i18next";
@@ -49,16 +49,27 @@ export default function StudioNegative({
       prev.negative ? { ...prev, negative: { ...prev.negative, ...patch } } : prev,
     );
 
+  // Only the latest analysis lands, and only its film base and highlight:
+  // controls moved meanwhile keep their values, a reset tool stays reset.
+  const autoRequest = useRef(0);
   const runAuto = async (type?: NegativeKind) => {
     if (!path) return;
+    const request = ++autoRequest.current;
+    const hadTool = !!useEditorStore.getState().adjustments.negative;
     setAnalysing(true);
     try {
       const next = await autoNegative(path, useEditorStore.getState().adjustments, type);
-      if (next) setAdjustments((prev) => ({ ...prev, negative: next }));
+      if (!next || request !== autoRequest.current) return;
+      setAdjustments((prev) => {
+        if (prev.negative) {
+          return { ...prev, negative: { ...prev.negative, base: next.base, highlight: next.highlight } };
+        }
+        return hadTool ? prev : { ...prev, negative: next };
+      });
     } catch (error) {
       toast.error(t("studio.develop.negative.analyzeFailed", { error: String(error) }));
     } finally {
-      setAnalysing(false);
+      if (request === autoRequest.current) setAnalysing(false);
     }
   };
 

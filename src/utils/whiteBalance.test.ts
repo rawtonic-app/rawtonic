@@ -164,17 +164,34 @@ describe('Auto white balance', () => {
   it('balances a film negative\'s positive on the grey world, not the camera\'s Kelvin', async () => {
     vi.mocked(invoke).mockImplementation(async (command: string) =>
       command === Invokes.SamplePreviewGreyWorld ? [0.18, 0.2, 0.25] : { temperature: 5400, tint: 12 });
-    const negative = { ...INITIAL_ADJUSTMENTS, negative: newNegative([0.7, 0.4, 0.2], [0.1, 0.05, 0.02]) };
-    expect(await autoWhiteBalance({ ...photo(), isRaw: true }, negative)).toEqual(neutralSliders([0.18, 0.2, 0.25]));
+    const negative = {
+      ...INITIAL_ADJUSTMENTS,
+      whiteBalance: 'custom' as const,
+      wbTemperature: 4200,
+      negative: newNegative([0.7, 0.4, 0.2], [0.1, 0.05, 0.02]),
+    };
+    // The Kelvin balance (applied after the conversion) goes back to As Shot.
+    expect(await autoWhiteBalance({ ...photo(), isRaw: true }, negative)).toEqual({
+      ...neutralSliders([0.18, 0.2, 0.25]),
+      whiteBalance: 'asShot',
+    });
     expect(invoke).not.toHaveBeenCalledWith(Invokes.AutoWhiteBalance, expect.anything());
   });
 
   it('picks a film negative\'s white balance with the relative sliders', async () => {
     native([0.18, 0.2, 0.25], { temperature: 5400, tint: 12 });
     useEditorStore.setState({
-      adjustments: { ...INITIAL_ADJUSTMENTS, negative: newNegative([0.7, 0.4, 0.2], [0.1, 0.05, 0.02]) },
+      adjustments: {
+        ...INITIAL_ADJUSTMENTS,
+        whiteBalance: 'custom',
+        wbTemperature: 4200,
+        negative: newNegative([0.7, 0.4, 0.2], [0.1, 0.05, 0.02]),
+      },
     });
-    expect(await whiteBalanceForCurrentPreview(request())).toEqual(neutralSliders([0.18, 0.2, 0.25]));
+    expect(await whiteBalanceForCurrentPreview(request())).toEqual({
+      ...neutralSliders([0.18, 0.2, 0.25]),
+      whiteBalance: 'asShot',
+    });
   });
 
   it('is null while the preview is not ready', async () => {

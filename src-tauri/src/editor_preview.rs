@@ -331,14 +331,19 @@ fn build_reduced_preview_base(
     let scale = scale.min(source_scale);
     let width = ((full_width as f32 * scale).round() as u32).max(1);
     let height = ((full_height as f32 * scale).round() as u32).max(1);
+    // A film negative is converted before it is reduced: the conversion is
+    // not linear, so converting averages would differ from the export's
+    // averages of converted pixels.
+    let source =
+        rawtonic_engine::negative::apply_for_recipe(Cow::Borrowed(source), adjustments, is_raw);
     let reduced = if width < source.width() || height < source.height() {
-        Cow::Owned(downscale_f32_image(source, width, height))
+        Cow::Owned(downscale_f32_image(&source, width, height))
     } else {
-        Cow::Borrowed(source)
+        source.clone()
     };
     // The actual scale after rounding to whole pixels.
     let scale = reduced.width() as f32 / full_width as f32;
-    let mut scaled = adjustments.clone();
+    let mut scaled = rawtonic_engine::negative::converted_base_recipe(adjustments).into_owned();
     if let Some(crop) = scaled.get_mut("crop").filter(|c| c.is_object()) {
         for key in ["x", "y", "width", "height"] {
             if let Some(value) = crop[key].as_f64() {
@@ -357,7 +362,7 @@ fn build_reduced_preview_base(
     if source_scale >= 1.0 {
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("preview_base_ca_share");
-        share_lateral_ca(source, &retouched, adjustments);
+        share_lateral_ca(&source, &retouched, adjustments);
     }
     let warped = {
         #[cfg(feature = "performance-profiling")]
@@ -368,7 +373,6 @@ fn build_reduced_preview_base(
             apply_geometry_warp(retouched, &scaled)
         }
     };
-    let warped = rawtonic_engine::negative::apply_for_recipe(warped, adjustments, is_raw);
     let warped = {
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("preview_base_fringe");
@@ -578,9 +582,15 @@ pub(crate) fn compute_patched_and_warped(
         Cow::Borrowed(loaded_image.image.as_ref())
     };
 
-    let warped = apply_geometry_warp(patched_image, adjustments);
-    let warped =
-        rawtonic_engine::negative::apply_for_recipe(warped, adjustments, loaded_image.is_raw);
+    let patched_image = rawtonic_engine::negative::apply_for_recipe(
+        patched_image,
+        adjustments,
+        loaded_image.is_raw,
+    );
+    let warped = apply_geometry_warp(
+        patched_image,
+        &rawtonic_engine::negative::converted_base_recipe(adjustments),
+    );
     let warped = rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, 1.0);
     let blurred = crate::lens_blur::apply_lens_blur(warped, adjustments);
 
@@ -2721,6 +2731,12 @@ pub(crate) async fn generate_uncropped_preview(
                 } else {
                     Cow::Borrowed(loaded_image.image.as_ref())
                 };
+                // Converted at full resolution, as the export converts.
+                let patched_image = rawtonic_engine::negative::apply_for_recipe(
+                    patched_image,
+                    &adjustments_clone,
+                    is_raw,
+                );
 
                 let blurred_image =
                     crate::lens_blur::apply_lens_blur(patched_image, &adjustments_clone);
@@ -2745,16 +2761,14 @@ pub(crate) async fn generate_uncropped_preview(
             1.0
         };
 
-        let params = crate::image_processing::get_geometry_params_from_json(&adjustments_clone);
+        let params = crate::image_processing::get_geometry_params_from_json(
+            &rawtonic_engine::negative::converted_base_recipe(&adjustments_clone),
+        );
         let mut adjusted_params = params;
         adjusted_params.lens_vignette_amount *= if is_raw { 0.4 } else { 0.8 };
 
         let warped_image = rawtonic_engine::edge_fringe::apply_for_recipe(
-            rawtonic_engine::negative::apply_for_recipe(
-                Cow::Owned(warp_image_geometry(&pre_geometry_base, adjusted_params)),
-                &adjustments_clone,
-                is_raw,
-            ),
+            Cow::Owned(warp_image_geometry(&pre_geometry_base, adjusted_params)),
             &adjustments_clone,
             scale_for_gpu,
         )
@@ -3182,8 +3196,12 @@ mod preview_memory_tests {
         adjustments: &serde_json::Value,
         preview_dim: u32,
     ) -> preview_cache::PreviewBase {
-        let warped = apply_geometry_warp(source, adjustments);
-        let warped = rawtonic_engine::negative::apply_for_recipe(warped, adjustments, true);
+        let source =
+            rawtonic_engine::negative::apply_for_recipe(Cow::Borrowed(source), adjustments, true);
+        let warped = apply_geometry_warp(
+            source,
+            &rawtonic_engine::negative::converted_base_recipe(adjustments),
+        );
         let warped = rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, 1.0);
         let (transformed, offset) =
             crate::adjustment_utils::apply_spatial_transformations(warped, adjustments);

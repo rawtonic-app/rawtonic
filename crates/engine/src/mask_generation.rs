@@ -782,7 +782,10 @@ fn prepare_warped_mask_image<'a>(
     } else {
         source
     };
-    crate::image_processing::apply_geometry_warp(image, adjustments)
+    crate::image_processing::apply_geometry_warp(
+        image,
+        &crate::negative::converted_base_recipe(adjustments),
+    )
 }
 
 pub fn prepare_parametric_mask_source(

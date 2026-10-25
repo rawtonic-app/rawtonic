@@ -112,3 +112,29 @@ it("changes one channel's density balance and arms the film base picker", () => 
 it("shows the film base as its colour, scaled to its brightest channel", () => {
   expect(baseSwatch([0.8, 0.4, 0.2])).toBe("rgb(255, 188, 137)");
 });
+
+it("keeps controls moved and a reset made while the analysis runs", async () => {
+  let answer: (value: unknown) => void = () => {};
+  invoke.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+  useEditorStore.setState({
+    adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), negative: newNegative([0.5, 0.5, 0.5], [0.1, 0.1, 0.1]) },
+  });
+  render(<StudioNegative disabled={false} onInteraction={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Find film base and highlights" }));
+  // Print exposure moved while the analysis runs.
+  act(() => {
+    useEditorStore.setState((s) => ({
+      adjustments: { ...s.adjustments, negative: { ...s.adjustments.negative!, exposure: 0.4 } },
+    }));
+  });
+  await act(async () => answer(ANALYSIS));
+  expect(useEditorStore.getState().adjustments.negative).toMatchObject({ exposure: 0.4, base: ANALYSIS.base });
+
+  // A reset during the analysis stays reset.
+  fireEvent.click(screen.getByRole("button", { name: "Find film base and highlights" }));
+  act(() => {
+    useEditorStore.setState((s) => ({ adjustments: { ...s.adjustments, negative: undefined } }));
+  });
+  await act(async () => answer(ANALYSIS));
+  expect(useEditorStore.getState().adjustments.negative).toBeUndefined();
+});

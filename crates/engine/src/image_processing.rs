@@ -147,6 +147,13 @@ pub struct GeometryParams {
     /// them (`renderVersion` 2, `bicubic_floor`).
     #[serde(default)]
     pub keep_negative: bool,
+    /// The base is a film negative already turned positive
+    /// (`negative::converted_base_recipe`): the lens vignetting gain `g`
+    /// for transmitted light becomes `g^p` per channel on the positive
+    /// (`negative::vignette_power`), which equals correcting the scan
+    /// before the conversion. None: the gain as it is.
+    #[serde(default)]
+    pub vignette_power: Option<[f32; 3]>,
 }
 
 impl Default for GeometryParams {
@@ -186,6 +193,7 @@ impl Default for GeometryParams {
             auto_ca_version: 0,
             auto_ca_versus_own: false,
             keep_negative: false,
+            vignette_power: None,
         }
     }
 }
@@ -280,6 +288,7 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         auto_ca_version: crate::lateral_ca::version_of(adjustments),
         auto_ca_versus_own: false,
         keep_negative: render_version(adjustments) >= 2,
+        vignette_power: crate::negative::vignette_power(adjustments),
     };
     let own = has_own_tca(&params);
     params.auto_ca = crate::lateral_ca::applies(adjustments, own);
@@ -1173,6 +1182,7 @@ struct WarpKernel {
     vk3: f64,
     lens_vig_amt: f64,
     has_vignetting: bool,
+    vignette_power: Option<[f64; 3]>,
     keep_negative: bool,
 }
 
@@ -1287,6 +1297,7 @@ impl WarpKernel {
             vk3,
             lens_vig_amt,
             has_vignetting,
+            vignette_power: params.vignette_power.map(|p| p.map(f64::from)),
             keep_negative: params.keep_negative,
         }
     }
@@ -1422,6 +1433,12 @@ impl WarpKernel {
             let correction_gain = 1.0 / v_factor;
             let final_gain = 1.0 + (correction_gain - 1.0) * self.lens_vig_amt;
 
+            if let Some(power) = self.vignette_power {
+                for (value, power) in pixel.iter_mut().zip(power) {
+                    *value *= final_gain.powf(power) as f32;
+                }
+                return;
+            }
             pixel[0] *= final_gain as f32;
             pixel[1] *= final_gain as f32;
             pixel[2] *= final_gain as f32;

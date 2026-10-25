@@ -86,7 +86,8 @@ export async function autoWhiteBalance(
 ): Promise<Partial<Adjustments> | null> {
   // A film negative's camera white balance describes the light through the
   // film, not the scene: its positive is balanced on the preview's grey world.
-  if (image.isRaw && !(adjustments && isNegativeActive(adjustments))) {
+  const negative = !!adjustments && isNegativeActive(adjustments);
+  if (image.isRaw && !negative) {
     const kelvin = await invoke<{ temperature: number; tint: number } | null>(Invokes.AutoWhiteBalance, {
       path: image.path,
     });
@@ -95,7 +96,14 @@ export async function autoWhiteBalance(
     }
   }
   const grey = await invoke<Rgb | null>(Invokes.SamplePreviewGreyWorld, { path: image.path });
-  return grey && neutralSliders(grey);
+  return grey && withoutKelvin(neutralSliders(grey), image.isRaw && negative);
+}
+
+/** A relative balance solved on the preview's input for a RAW film negative:
+ * its Kelvin balance (a matrix the renderer applies after the conversion,
+ * on the sampled input) goes back to As Shot, so the solve holds exactly. */
+function withoutKelvin<T extends Partial<Adjustments> | null>(balance: T, rawNegative: boolean): T {
+  return balance && rawNegative ? { ...balance, whiteBalance: 'asShot' as const } : balance;
 }
 
 export async function whiteBalanceForCurrentPreview(request: PreviewSample) {
@@ -134,7 +142,7 @@ export async function whiteBalanceForCurrentPreview(request: PreviewSample) {
         };
       }
     }
-    return neutralSliders(linear);
+    return withoutKelvin(neutralSliders(linear), request.image.isRaw && isNegativeActive(request.adjustments));
   }
   // The CPU-rendered fallback only has the developed image: correct the
   // remaining cast there on top of the current values. A camera JPEG is only a

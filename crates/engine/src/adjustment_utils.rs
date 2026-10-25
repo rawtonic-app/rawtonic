@@ -202,8 +202,8 @@ pub fn apply_spatial_transformations<'a, I: IntoCowImage<'a>>(
     (cropped_image, unscaled_crop_offset)
 }
 
-/// The base of a render: retouched source `image` warped, converted from a
-/// film negative, cleared of edge fringes, lens-blurred and transformed.
+/// The base of a render: retouched source `image` converted from a film
+/// negative, warped, cleared of edge fringes, lens-blurred and transformed.
 /// `is_raw`: the source holds linear values (else sRGB-encoded ones).
 pub fn apply_all_transformations<'a, I: IntoCowImage<'a>>(
     image: I,
@@ -213,8 +213,9 @@ pub fn apply_all_transformations<'a, I: IntoCowImage<'a>>(
     let start_time = std::time::Instant::now();
     let image = image.into_cow();
 
-    let warped_image = apply_geometry_warp(image, adjustments);
-    let warped_image = crate::negative::apply_for_recipe(warped_image, adjustments, is_raw);
+    let image = crate::negative::apply_for_recipe(image, adjustments, is_raw);
+    let warped_image =
+        apply_geometry_warp(image, &crate::negative::converted_base_recipe(adjustments));
     let warped_image = crate::edge_fringe::apply_for_recipe(warped_image, adjustments, 1.0);
     let blurred_image = crate::lens_blur::apply_lens_blur(warped_image, adjustments);
 

@@ -1,13 +1,14 @@
 //! Film negatives: the Develop tool that turns a scanned (or camera-scanned)
 //! negative into a positive without writing a new file.
 //!
-//! The pass runs on the base image right after the geometry warp (so on
-//! the scan's transmitted light, after the lens' vignetting correction) and
-//! before everything else: the fringe pass, the blurs, noise reduction,
-//! white balance, the tone sliders and curves all work on the positive.
-//! Every path that builds a base (previews, exports, thumbnails, masks)
-//! calls [`apply_for_recipe`], so the GPU display and the CPU-read exports
-//! render the same pixels; recipes without the key are not touched.
+//! The pass runs on the source before anything else that changes pixels
+//! (after retouching; before reduction, the geometry warp, the fringe pass,
+//! the blurs, noise reduction, white balance, tone and curves, which all
+//! work on the positive). Every path that builds a base (previews, exports,
+//! thumbnails, masks) calls [`apply_for_recipe`] and warps with
+//! [`converted_base_recipe`], whose lens vignetting acts as it would on the
+//! scan; the GPU display and the CPU-read exports render the same pixels.
+//! Recipes without the key are not touched.
 //!
 //! Model (notes: parity-gaps/G64 "Negative"). A negative's density above
 //! the film base, `D = log10(base / T)` per channel (`T` the transmitted
@@ -50,6 +51,10 @@ const PRINT_STOPS: f32 = 6.5;
 /// becomes at Print exposure 0: diffuse white just under 1.0, so specular
 /// highlights beyond it still have headroom in the tone mapper.
 const HIGHLIGHT_LINEAR: f32 = 0.9;
+/// The positive's range in log2: 2^12 = 4096 stays far below half-float's
+/// 65504 (also sRGB-encoded); 2^-24 is black.
+const MAX_LOG2: f32 = 12.0;
+const MIN_LOG2: f32 = -24.0;
 /// Transmittance floor: an opaque area (or a black frame edge) stays finite.
 const MIN_TRANSMITTANCE: f32 = 1e-6;
 /// The smallest density range a channel may have between base and
@@ -126,6 +131,31 @@ pub fn is_active(adjustments: &Value) -> bool {
     settings(adjustments).is_some()
 }
 
+/// Marks a recipe copy whose base [`apply_for_recipe`] has converted
+/// already (never saved: base builders set it on their own copy).
+pub const CONVERTED_KEY: &str = "negativeConvertedBase";
+
+/// The recipe a base converted by [`apply_for_recipe`] is warped with:
+/// `adjustments` marked [`CONVERTED_KEY`] when the conversion is on, so the
+/// warp's lens vignetting acts as on the scan ([`vignette_power`]).
+pub fn converted_base_recipe(adjustments: &Value) -> Cow<'_, Value> {
+    if !is_active(adjustments) {
+        return Cow::Borrowed(adjustments);
+    }
+    let mut recipe = adjustments.clone();
+    recipe[CONVERTED_KEY] = Value::Bool(true);
+    Cow::Owned(recipe)
+}
+
+/// The vignetting exponents (`GeometryParams::vignette_power`) of a
+/// recipe from [`converted_base_recipe`]; None for any other recipe.
+pub fn vignette_power(adjustments: &Value) -> Option<[f32; 3]> {
+    if adjustments.get(CONVERTED_KEY).and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    settings(adjustments).map(|n| Conversion::new(&n).transmittance_powers())
+}
+
 /// The per-pixel conversion of [`Negative`], prepared once per image.
 #[derive(Debug, Clone, Copy)]
 pub struct Conversion {
@@ -159,6 +189,20 @@ impl Conversion {
         }
     }
 
+    /// Per channel, the exponent `p` with which a gain `g` on the
+    /// transmitted light becomes the gain `g^p` on the positive (the
+    /// conversion is a power law in transmittance per channel; the
+    /// black-and-white mean shares one exponent).
+    pub fn transmittance_powers(&self) -> [f32; 3] {
+        let per_channel = self
+            .inv_range
+            .map(|inv_range| -self.stops * inv_range * std::f32::consts::LOG10_2);
+        match self.kind {
+            Kind::Color => per_channel,
+            Kind::Bw => [(per_channel[0] + per_channel[1] + per_channel[2]) / 3.0; 3],
+        }
+    }
+
     /// The positive (scene-linear) of linear transmittance `t`.
     pub fn positive(&self, t: [f32; 3]) -> [f32; 3] {
         let mut u = [0.0f32; 3];
@@ -170,7 +214,13 @@ impl Conversion {
             let mean = (u[0] + u[1] + u[2]) / 3.0;
             u = [mean; 3];
         }
-        u.map(|u| (self.stops * (u - 1.0) + self.offset).exp2())
+        // Within what the renderer's half-float input holds, whatever the
+        // pixel (an opaque holder, a blank frame).
+        u.map(|u| {
+            (self.stops * (u - 1.0) + self.offset)
+                .clamp(MIN_LOG2, MAX_LOG2)
+                .exp2()
+        })
     }
 }
 
@@ -574,6 +624,71 @@ mod tests {
         assert_eq!(plain[0], warm[0]);
         assert_eq!(plain[1], warm[1]);
         assert!(warm[2] > plain[2]);
+    }
+
+    #[test]
+    fn opaque_and_blank_pixels_stay_within_half_float() {
+        // An opaque holder (0), a clipped light (huge), NaN, and a nearly
+        // blank frame (highlight at the base).
+        let mut n: Negative = serde_json::from_value(on()).unwrap();
+        for highlight in [n.highlight, n.base] {
+            n.highlight = highlight;
+            let conversion = Conversion::new(&n);
+            for t in [[0.0; 3], [1e9; 3], [f32::NAN; 3], [-1.0; 3]] {
+                for v in conversion.positive(t) {
+                    assert!(v.is_finite() && (0.0..65504.0).contains(&v), "{t:?} -> {v}");
+                    assert!(linear_to_srgb(v) < 65504.0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn vignetting_on_the_converted_base_equals_correcting_the_scan() {
+        use crate::image_processing::{GeometryParams, warp_image_geometry};
+        for kind in ["color", "bw"] {
+            let mut v = on();
+            v["type"] = json!(kind);
+            v["balance"] = json!([20, 0, -30]);
+            let adjustments = recipe(v);
+            let scan = Rgb32FImage::from_fn(64, 48, |x, y| {
+                image::Rgb([
+                    0.1 + 0.01 * x as f32,
+                    0.05 + 0.005 * y as f32,
+                    0.03 + 0.002 * (x + y) as f32,
+                ])
+            });
+            let scan = DynamicImage::ImageRgb32F(scan);
+            let params = GeometryParams {
+                vig_k1: -0.4,
+                vig_k2: 0.1,
+                ..GeometryParams::default()
+            };
+            // The scan corrected, then converted.
+            let corrected = warp_image_geometry(&scan, params.clone());
+            let expected = apply_for_recipe(Cow::Owned(corrected), &adjustments, true).into_owned();
+            // Converted, then corrected with the marked recipe's exponents.
+            let converted = apply_for_recipe(Cow::Borrowed(&scan), &adjustments, true).into_owned();
+            let marked = converted_base_recipe(&adjustments);
+            let power = vignette_power(&marked);
+            assert!(power.is_some() && vignette_power(&adjustments).is_none());
+            let actual = warp_image_geometry(
+                &converted,
+                GeometryParams {
+                    vignette_power: power,
+                    ..params
+                },
+            );
+            for (a, e) in actual
+                .to_rgb32f()
+                .pixels()
+                .zip(expected.to_rgb32f().pixels())
+            {
+                for c in 0..3 {
+                    assert!((a[c] / e[c] - 1.0).abs() < 1e-3, "{kind}: {a:?} vs {e:?}");
+                }
+            }
+        }
     }
 
     #[test]
