@@ -338,8 +338,9 @@ export default function StudioWorkspace(props: Props) {
     if (develop || selectedImage) return;
     if (libraryLoupe || isFullScreen) useUIStore.getState().setUI({ libraryLoupe: false, isFullScreen: false });
   }, [develop, selectedImage, libraryLoupe, isFullScreen]);
-  // The loupe and the full screen only show the photograph: Develop's crop,
-  // mask and picker states must not draw over it or take its clicks. They
+  // The loupe and the full screen are views of the photograph, without
+  // edit tools: Develop's crop, mask and picker states must not draw over
+  // it or take its clicks (an edit already under way still completes). They
   // are put aside and come back with Develop (same photograph).
   const viewOnly = libraryViewer || isFullScreen;
   const suspended = useRef<{
@@ -433,7 +434,7 @@ export default function StudioWorkspace(props: Props) {
     fullScreenSeen.current = isFullScreen;
     void followPhotoFullScreen(isFullScreen);
   }, [isFullScreen]);
-  // Shown only, a held ⌘/Ctrl turns the wheel into the editor's crop zoom
+  // In the view, a held ⌘/Ctrl turns the wheel into the editor's crop zoom
   // (Editor tracks the key itself); that wheel does nothing here. A
   // trackpad pinch (ctrlKey without the key held) still zooms the view.
   const viewerRef = useRef<HTMLDivElement>(null);
@@ -597,7 +598,7 @@ export default function StudioWorkspace(props: Props) {
   toolsRef.current = tools;
   const developRef = useRef(develop);
   developRef.current = develop;
-  // Not over the photograph shown alone: it only looks.
+  // Not over the photograph shown alone: the view offers no edit tools.
   const quickAdjust = useQuickAdjust(develop && !isFullScreen);
   useBrushMemory();
   useEffect(() => {
@@ -994,14 +995,14 @@ export default function StudioWorkspace(props: Props) {
         setToolPopover({ x: rect.left, y: rect.bottom });
       }}
       onContextMenuCapture={(e) => {
-        // Shown only: no menu of edit commands (undo, paste, auto, reset,
+        // In the view: no menu of edit commands (undo, paste, auto, reset,
         // or ratings for the whole selection) over the photograph.
         if (!viewOnly) return;
         e.preventDefault();
         e.stopPropagation();
       }}
       onPointerDownCapture={(e) => {
-        // Shown only (loupe, full screen): Shift-drag (straighten) and a
+        // In the view (loupe, full screen): Shift-drag (straighten) and a
         // ⌘/Ctrl double-click (crop reset) would edit; they do nothing.
         if (viewOnly && (e.shiftKey || e.ctrlKey || e.metaKey)) {
           e.preventDefault();

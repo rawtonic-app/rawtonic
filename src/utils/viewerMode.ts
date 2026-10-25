@@ -21,8 +21,8 @@ export function libraryViewer(ui: ViewerModeState): boolean {
   return ui.activeView !== 'editor' && (ui.libraryLoupe || ui.isFullScreen);
 }
 
-/** The photograph only shown, not edited: the Library's loupe or any full
- * screen (Develop's tools are put aside meanwhile). */
+/** A view of the photograph without edit tools: the Library's loupe or any
+ * full screen (Develop's tools are put aside meanwhile). */
 export function viewerOnly(ui: ViewerModeState): boolean {
   return ui.isFullScreen || libraryViewer(ui);
 }

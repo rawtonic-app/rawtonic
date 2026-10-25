@@ -1087,7 +1087,7 @@ export const useKeyboardShortcuts = ({
       // Read per key press so that edited keybinds apply at once. Cursor tool
       // keys (tool_*) are handled by the studio workspace.
       const comboMap = buildComboMap(state.settings.appSettings?.keybinds);
-      // The loupe and the full screen only show: no key changes a recipe.
+      // The loupe and the full screen are views: recipe keys are not bound there.
       const editsBlocked = viewerOnly(state.ui);
       const normalized = normalizeCombo(event, state.settings.osPlatform, state.ui.activeView === 'library');
       for (const action of comboMap.get(normalized.join('+')) ?? []) {
