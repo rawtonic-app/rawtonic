@@ -3,6 +3,51 @@
 ## Unreleased
 
 - Batch exports are faster: the colour noise reduction now builds, measures and rebuilds its multi-scale pyramid on the graphics card instead of the processor, where it was the largest single stage of an export (recipe `colorNoiseVersion` 11, new edits and never-edited RAWs). It is version 10's filter, not a new look: on 54 high-ISO RAWs at Color 25, 50 and 100 the colour edges, colour detail, colour noise, isolated specks and the error against clean ground-truth frames (RawNIND) are the same as version 10's in every ISO band (edges at least 0.9999 of version 10, specks per million pixels 11.6 → 11.5, 9.1 → 9.1 and 7.8 → 7.8); pixels differ only by about 1 of 65 535 on average, from reading the 16-bit input the renderer holds and the graphics card's order of summing. On a Mac mini M4 Pro, exporting 27 public RAWs as a 2048 px JPEG and a full-size 16-bit TIFF took 26.9 instead of 31.1 seconds (median of 4 runs each) and 200 copies 184 instead of 220 seconds; in the app, the same export from the Library took 34.2–34.7 instead of 37.3–38.9 seconds with Develop drags meanwhile as smooth as before (54 against 53.5 previews per second, median of 24 drags) and up to 2 GB less memory. A preview and its export now take the same path for this filter. Saved edits render exactly as before (versions 1 to 10 byte-identical on 27 RAWs with 13 recipes); photos beyond the graphics card's texture size limit keep the processor's pyramid.
+
+## 0.1.0-alpha.6 — 2026-10-25
+
+The sixth alpha: the changes since alpha.5, many of them from the first use tests of alpha.5. A native menu bar on the Mac and a command palette, faster imports and culling, undo for ratings and flags, built-in styles and presets per tool, a range wheel and skin tones in the Colour Editor, a photograph-only full screen, Highlights that go further in night scenes, and a Storage page in Preferences.
+
+### Highlights
+
+- **Menus and commands.** On macOS a full menu bar (File, Edit, Photo, View, Window, Help) with Open Recent and Export with Recipe; its key equivalents follow the shortcuts you set in Preferences. A command palette (⇧⌘P / Ctrl+Shift+P, rebindable) finds and runs any command; on Linux the same menus sit in the top bar's … menu. The view keys G/E/D and the flag keys P/U/⇧X can now be rebound.
+- **Import.** Importing 200 RAW+JPEG pairs from an exFAT card with a backup copy now takes about 10 s until the files are in place instead of 27 s (Lightroom 11.5 s, Capture One 23.7 s on the same laptop): the library copy and the backup are made from one read of each source, then each copy and the source read again are compared byte for byte before anything is published. The import dialog has metadata presets (creator, copyright with the capture year, description, usage terms, credit, keywords; contact details only when you tick them) that fill empty fields, or overwrite them when you say so.
+- **Culling.** The next photo shows at once: Develop, the Library loupe and the full screen develop the neighbours ahead in the direction you step, show the camera's embedded JPEG (colour-managed, framed like the developed photo) until the developed frame is in, and Auto-advance after a rating or flag key can be turned on in Preferences › General (off by default). Ratings, flags and colour labels can be undone (⌘Z / Ctrl+Z), also for many photos at once.
+- **Full screen and loupe.** F shows only the photograph, full screen, from the Library and Develop (the window's own full screen moved to F11 / ⌃⌘F); I shows the photograph's facts over it. The Library has a loupe (E, Space or a double click; G back to the grid). Ratings and flags there apply to the photo shown.
+- **Presets.** Grain, Vignette, Color grading, Black & white, Sharpening and Noise reduction have a preset button in their header: hover to preview, click to apply, save your own. 39 built-in presets and styles with descriptive names (Preferences › General hides them). Presets with AI masks now find the subject, sky or person again on each photo they are applied to, instead of reusing the first photo's mask.
+- **Colour Editor.** A range wheel to see and drag every colour range, and a Skin tone mode with Uniformity for hue, saturation and lightness. On four public portraits it evens skin out at least as much as Capture One's Skin Tone at uniformity 50 and 100, while changing less outside the skin. Capture One styles with skin tone entries import into it; the conversion is approximate and the import report says so.
+- **Masks.** Every mask kind is one click away in the row above the layer list. An Object mask takes several clicks or boxes: Shift adds another object, Alt (⌥) takes a part away, ⌘Z / Ctrl+Z takes the last one back.
+- **Highlights in night scenes.** New edits lower Highlights further in dark frames (lamps, candles, lit windows): on 7 of 7 dark test frames −50 and −100 now reach at least as far as Camera Raw's; brighter frames render as before (see Changes to existing edits).
+- **Before/After** can split top and bottom as well as left and right (the Compare button's menu, or ⇧Y to cycle); each session remembers its choice.
+- **Storage** in Preferences shows how much space caches, downloaded AI models, logs and the open library's cache take, with limits and buttons to clear each. Clearing never touches photos, sidecars, catalogs, saved masks, Output or Trash; removed thumbnails are made again when needed.
+- **Faster AI masks after a fresh install.** On a Mac the first Subject mask took 13.7 s; Rawtonic now prepares the Subject and Sky models in the background while you are in Develop, so a click 25 s after opening the first photo took 1.5–3.3 s (four runs). A click within about 15 s of opening Develop still waits for part of it.
+- **Library header.** Search, filters and sorting share the session bar in wide windows. Grain moved to the Detail tab after Noise reduction; Vignette, Light effects and LUT are separate tools in Adjust.
+- **First start** asks on which side the Develop tools should be (also in Preferences).
+- **Fixes:** unticking a People part (e.g. Lips) left its mask on the photo; the tone curve followed a drag only about 4 times a second (now every frame); targeted adjustment missed the first press on the photo; deleted photos stayed in Previous Import and albums; the session's Trash folder had no trash icon.
+
+### Changes to existing edits
+
+- **Highlights:** new edits get `toneVersion` 3. Photos edited before keep their version and render as before, and so do recipes that lower Highlights or raise Shadows above +50; the editor moves other recipes to 3 when it opens them, where nothing renders differently. Never-edited RAWs render as before (Highlights at 0 is unchanged).
+- Exports of existing recipes are otherwise unchanged: the faster export resize and colour-noise steps and the faster lens correction produce identical files (checked byte for byte on 27 public RAWs, 54 files).
+- **Photos moved to the system Trash** leave albums and Previous Import at once (catalog schema 16; libraries are upgraded when opened). Photos trashed with an earlier alpha cannot be told apart from photos whose drive is disconnected, so they stay listed as offline.
+- **Keys:** F is the photograph-only full screen (window full screen F11 / ⌃⌘F); D in Develop no longer has a second meaning for the panels.
+
+### Known gaps
+
+These are measured shortfalls against the better of the leading professional RAW editors; they stay open until they are closed by measurement.
+
+- **Batch export** is still about 2× slower than Lightroom and Capture One (alpha.4: 20 RAWs to a web JPEG and a 16-bit TIFF in about 17 s, Lightroom 8 s, Capture One 9 s). This round made it about 4–11 % faster on a Mac mini (27 RAWs, two recipes: 41 → 37–38 s in the app); the rest is develop work on the CPU. Not re-measured against Lightroom and Capture One yet.
+- **Culling** has not been re-measured with real key presses against Lightroom and Capture One yet. Scripted on a Mac mini: the next photo's first pixels after about 90 ms, its full development after about 0.2 s (was 0.62 s) at a steady pace; when you step faster than about every 0.6 s, the camera JPEG shows within about 20 ms and the development follows after about 0.43 s.
+- **Import with a metadata preset** takes about 1–2 s longer for 200 photos than without.
+- **Highlights −100 in dark scenes** now goes further than Camera Raw's on some frames (candles, snow) and looks darker and flatter there; about −50 to −60 matches Camera Raw's −100. On an overexposed bulb Camera Raw still lowers the bright area much further.
+- **Skin tone** import from Capture One styles is approximate, and the Colour Editor as a whole is not yet at the better editor's level.
+- **Before/After side by side** (two panes) is not available yet; the split shows one photo.
+- **Storage**: removing AI models takes effect at the next start; most languages other than English and German show the Storage page in English.
+- **Menus**: single-key shortcuts are not shown in the macOS menu items (only those with ⌘).
+- The known gaps of alpha.4 not named here remain (see below).
+
+### Details
+
 - Import metadata presets add creator, copyright (with a capture-year token), description, usage terms, credit and keywords. They fill empty fields unless explicitly set to overwrite; contact details are opt-in. Copy writes XMP after verified publication, while Add keeps metadata in the catalog pending the usual later XMP sync. Independent RAW/JPEG photographs sharing a stem retain the existing XMP ownership limit and report a warning.
   Selecting a preset also adopts readable embedded descriptions, keywords and IPTC fields so the new sidecar preserves them. Unreadable embedded XMP is ignored, as in capture-fact reading, and never blocks the photo's import.
 
