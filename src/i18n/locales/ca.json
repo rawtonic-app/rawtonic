@@ -1833,6 +1833,11 @@
         "hintEmpty": "Agafa un color de la foto per ajustar aquest rang de color.",
         "hintPicking": "Fes clic en un color de la foto.",
         "lightness": "Lluminositat",
+        "mode": {
+          "ranges": "Intervals",
+          "skin": "To de pell"
+        },
+        "modesAria": "Mode de l'editor de color",
         "pickAgainAria": "Torna a agafar el color del rang",
         "pickAgainTitle": "Torna a agafar el color d'aquest rang",
         "pickAria": "Agafa un rang de color",
@@ -1844,9 +1849,26 @@
         "selectRange": "Selecciona aquest rang de color",
         "showAria": "Mostra el rang",
         "showTitle": "Mostra el rang seleccionat (la resta en gris)",
+        "skin": {
+          "amount": "Quantitat",
+          "hintEmpty": "Agafa la pell a la foto (o el seu color a la roda) i després iguala-la amb Uniformitat.",
+          "hintPicking": "Fes clic a la pell de la foto.",
+          "pickAria": "Agafa el to de pell",
+          "pickTitle": "Agafa la pell a la foto"
+        },
         "smoothness": "Suavitat",
         "title": "Editor de color",
-        "uniformity": "Uniformitat"
+        "uniformity": "Uniformitat",
+        "wheel": {
+          "aria": "Roda de l'interval de color",
+          "chromaHi": "Vora exterior de saturació de l'interval",
+          "chromaLo": "Vora interior de saturació de l'interval",
+          "colour": "Color de l'interval",
+          "colourText": "To {{hue}}°, croma {{chroma}}",
+          "hueHi": "Vora de to de l'interval, sentit antihorari",
+          "hueLo": "Vora de to de l'interval, sentit horari",
+          "title": "Arrossega el centre o les vores de l'interval; fes clic en un altre punt per moure'l allà"
+        }
       },
       "grading": {
         "hueAria": "To ({{range}})",

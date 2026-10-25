@@ -1774,6 +1774,11 @@
         "hintEmpty": "Nehmen Sie eine Farbe im Foto auf, um diesen Farbbereich anzupassen.",
         "hintPicking": "Klicken Sie auf eine Farbe im Foto.",
         "lightness": "Helligkeit",
+        "mode": {
+          "ranges": "Bereiche",
+          "skin": "Hautton"
+        },
+        "modesAria": "Farbeditor-Modus",
         "pickAgainAria": "Bereichsfarbe neu aufnehmen",
         "pickAgainTitle": "Farbe dieses Bereichs neu aufnehmen",
         "pickAria": "Farbbereich aufnehmen",
@@ -1785,9 +1790,26 @@
         "selectRange": "Diesen Farbbereich auswählen",
         "showAria": "Bereich zeigen",
         "showTitle": "Ausgewählten Bereich zeigen (alles andere grau)",
+        "skin": {
+          "amount": "Stärke",
+          "hintEmpty": "Nehmen Sie Haut im Foto auf (oder ihre Farbe im Farbrad) und gleichen Sie sie mit Gleichmäßigkeit an.",
+          "hintPicking": "Klicken Sie auf Haut im Foto.",
+          "pickAria": "Hautton aufnehmen",
+          "pickTitle": "Haut im Foto aufnehmen"
+        },
         "smoothness": "Glättung",
         "title": "Farbeditor",
-        "uniformity": "Gleichmäßigkeit"
+        "uniformity": "Gleichmäßigkeit",
+        "wheel": {
+          "aria": "Farbbereichsrad",
+          "chromaHi": "Äußere Sättigungskante des Bereichs",
+          "chromaLo": "Innere Sättigungskante des Bereichs",
+          "colour": "Farbe des Bereichs",
+          "colourText": "Farbton {{hue}}°, Buntheit {{chroma}}",
+          "hueHi": "Farbtonkante des Bereichs, gegen den Uhrzeigersinn",
+          "hueLo": "Farbtonkante des Bereichs, im Uhrzeigersinn",
+          "title": "Mitte oder Kanten des Bereichs ziehen; anderswo klicken verschiebt den Bereich dorthin"
+        }
       },
       "grading": {
         "hueAria": "Farbton ({{range}})",

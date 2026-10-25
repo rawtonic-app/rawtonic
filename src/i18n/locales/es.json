@@ -1833,6 +1833,11 @@
         "hintEmpty": "Toma un color de la foto para ajustar ese rango de color.",
         "hintPicking": "Haz clic en un color de la foto.",
         "lightness": "Luminosidad",
+        "mode": {
+          "ranges": "Rangos",
+          "skin": "Tono de piel"
+        },
+        "modesAria": "Modo del editor de color",
         "pickAgainAria": "Volver a tomar el color del rango",
         "pickAgainTitle": "Volver a tomar el color de este rango",
         "pickAria": "Tomar un rango de color",
@@ -1844,9 +1849,26 @@
         "selectRange": "Seleccionar este rango de color",
         "showAria": "Mostrar rango",
         "showTitle": "Mostrar el rango seleccionado (lo demás en gris)",
+        "skin": {
+          "amount": "Cantidad",
+          "hintEmpty": "Tome la piel en la foto (o su color en la rueda) y luego iguálela con Uniformidad.",
+          "hintPicking": "Haga clic en la piel de la foto.",
+          "pickAria": "Tomar el tono de piel",
+          "pickTitle": "Tomar la piel en la foto"
+        },
         "smoothness": "Suavidad",
         "title": "Editor de color",
-        "uniformity": "Uniformidad"
+        "uniformity": "Uniformidad",
+        "wheel": {
+          "aria": "Rueda del rango de color",
+          "chromaHi": "Borde exterior de saturación del rango",
+          "chromaLo": "Borde interior de saturación del rango",
+          "colour": "Color del rango",
+          "colourText": "Tono {{hue}}°, croma {{chroma}}",
+          "hueHi": "Borde de tono del rango, en sentido antihorario",
+          "hueLo": "Borde de tono del rango, en sentido horario",
+          "title": "Arrastre el centro o los bordes del rango; haga clic en otro punto para moverlo allí"
+        }
       },
       "grading": {
         "hueAria": "Tono ({{range}})",

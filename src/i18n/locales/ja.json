@@ -1736,6 +1736,11 @@
         "hintEmpty": "写真から色を抽出すると、そのカラー範囲を調整できます。",
         "hintPicking": "写真の色をクリックしてください。",
         "lightness": "明度",
+        "mode": {
+          "ranges": "範囲",
+          "skin": "肌色"
+        },
+        "modesAria": "カラーエディターのモード",
         "pickAgainAria": "範囲の色を再抽出",
         "pickAgainTitle": "この範囲の色を再抽出",
         "pickAria": "カラー範囲を抽出",
@@ -1747,9 +1752,26 @@
         "selectRange": "このカラー範囲を選択",
         "showAria": "範囲を表示",
         "showTitle": "選択した範囲を表示（それ以外はグレー）",
+        "skin": {
+          "amount": "量",
+          "hintEmpty": "写真の肌（またはホイール上の色）を取得し、均一化で整えます。",
+          "hintPicking": "写真の肌をクリックしてください。",
+          "pickAria": "肌色を取得",
+          "pickTitle": "写真の肌を取得"
+        },
         "smoothness": "滑らかさ",
         "title": "カラーエディター",
-        "uniformity": "均一化"
+        "uniformity": "均一化",
+        "wheel": {
+          "aria": "カラー範囲ホイール",
+          "chromaHi": "範囲の外側の彩度の端",
+          "chromaLo": "範囲の内側の彩度の端",
+          "colour": "範囲の色",
+          "colourText": "色相 {{hue}}°、クロマ {{chroma}}",
+          "hueHi": "範囲の色相の端（反時計回り側）",
+          "hueLo": "範囲の色相の端（時計回り側）",
+          "title": "範囲の中心または端をドラッグ。他の場所をクリックすると範囲をそこへ移動"
+        }
       },
       "grading": {
         "hueAria": "{{range}}の色相",

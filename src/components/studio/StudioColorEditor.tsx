@@ -1,4 +1,5 @@
 import { Eye, Pipette, Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
 import { useEditorStore } from "../../store/useEditorStore";
@@ -8,9 +9,15 @@ import {
   type Adjustments,
   type ColorRange,
 } from "../../utils/adjustments";
-import { colorRangesOf } from "../../utils/colorRanges";
+import {
+  applyColorPick,
+  colorRangesOf,
+  invalidatePendingColorPicks,
+  skinRangeOf,
+} from "../../utils/colorRanges";
 import { oklchCss } from "../../utils/oklab";
 import AdjustmentControl from "./AdjustmentControl";
+import StudioColorRangeWheel from "./StudioColorRangeWheel";
 import { ToolGroup } from "./StudioDevelop";
 import type { ToolParams } from "./StudioToolCopy";
 
@@ -52,11 +59,19 @@ export function rangeSwatch(range: ColorRange, shifted = false) {
   );
 }
 
+/** Lightness a range picked on the wheel starts with (the wheel has none). */
+const WHEEL_PICK_LIGHTNESS = 0.65;
+
+type Mode = "ranges" | "skin";
+
 /**
  * Capture One's Advanced Color Editor / Lightroom's Point Color: pick a
- * colour in the photo, then shift the hue, saturation and lightness of
- * that colour range, shape the range, and even it out (uniformity, e.g.
- * for skin). Up to eight ranges; Show range greys out everything else.
+ * colour in the photo (or on the range wheel), then shift the hue,
+ * saturation and lightness of that colour range, shape the range on the
+ * wheel or with the sliders, and even it out (uniformity). Up to eight
+ * ranges; Show range greys out everything else. The Skin tone mode holds
+ * one range of its own for skin: pick skin, then even it out (uniformity)
+ * and move it (amount).
  */
 export default function StudioColorEditor({
   values,
@@ -68,16 +83,26 @@ export default function StudioColorEditor({
   copy,
 }: Props) {
   const { t } = useTranslation();
-  const { pickerTarget, activeId, showRange, setEditor } = useEditorStore(
-    useShallow((s) => ({
-      pickerTarget: s.colorPickerTarget,
-      activeId: s.activeColorRangeId,
-      showRange: s.colorRangeShow,
-      setEditor: s.setEditor,
-    })),
-  );
+  const { photo, pickerTarget, activeId, showRange, setEditor } =
+    useEditorStore(
+      useShallow((s) => ({
+        photo: s.selectedImage?.path,
+        pickerTarget: s.colorPickerTarget,
+        activeId: s.activeColorRangeId,
+        showRange: s.colorRangeShow,
+        setEditor: s.setEditor,
+      })),
+    );
   const ranges = colorRangesOf(values);
-  const active = ranges.find((r) => r.id === activeId) ?? ranges[0];
+  const skin = skinRangeOf(ranges);
+  const [mode, setMode] = useState<Mode>(
+    skin && skin.id === activeId ? "skin" : "ranges",
+  );
+  const listed = ranges.filter((r) => r.kind !== "skin");
+  const active =
+    mode === "skin"
+      ? skin
+      : (listed.find((r) => r.id === activeId) ?? listed[0]);
   const setRange = (patch: Partial<ColorRange>) =>
     active &&
     change({
@@ -95,6 +120,45 @@ export default function StudioColorEditor({
       colorPickerLayer: layerId ?? null,
       isWbPickerActive: false,
     });
+  /** A press on the wheel while picking (or with no range yet). */
+  const pickOnWheel = (hue: number, chroma: number) => {
+    const target = mode === "skin" ? "skin" : (pickerTarget ?? "new");
+    const picked = applyColorPick(
+      ranges,
+      target,
+      limit,
+      hue,
+      chroma,
+      (target === "skin" ? skin : ranges.find((r) => r.id === target))
+        ?.lightness ?? WHEEL_PICK_LIGHTNESS,
+    );
+    if (!picked.id) return;
+    invalidatePendingColorPicks();
+    setEditor({
+      colorPickerTarget: null,
+      colorPickerLayer: null,
+      activeColorRangeId: picked.id,
+    });
+    change({ colorRanges: picked.ranges });
+  };
+  const switchMode = (next: Mode) => {
+    if (next === mode) return;
+    setMode(next);
+    setEditor({
+      activeColorRangeId: next === "skin" ? (skin?.id ?? null) : null,
+      colorPickerTarget: null,
+      colorRangeShow: null,
+    });
+  };
+  // A pick armed for a range (or a new one) hands the wheel's next press to
+  // the pick instead of moving the active range.
+  // Only a pick that adds a range needs room below the limit.
+  const wheelAdds = mode === "skin" ? !skin : pickerTarget === "new";
+  const wheelPicking =
+    mode === "skin"
+      ? !skin || pickerTarget === "skin" || pickerTarget === skin.id
+      : pickerTarget === "new" ||
+        (!!pickerTarget && listed.some((r) => r.id === pickerTarget));
   const slider = (
     label: string,
     key: SliderKey,
@@ -116,6 +180,92 @@ export default function StudioColorEditor({
         onChange={(v) => setRange({ [key]: v })}
       />
     );
+  const actions = active && (
+    <div className="studio-inline studio-color-range-actions">
+      <button
+        type="button"
+        aria-pressed={pickerTarget === active.id}
+        title={t("studio.color.editor.pickAgainTitle")}
+        aria-label={t("studio.color.editor.pickAgainAria")}
+        disabled={disabled}
+        onClick={() => pick(active.id)}
+      >
+        <Pipette size={14} />
+      </button>
+      {!layerId && (
+        <button
+          type="button"
+          aria-pressed={showRange === active.id}
+          title={t("studio.color.editor.showTitle")}
+          aria-label={t("studio.color.editor.showAria")}
+          disabled={disabled}
+          onClick={() =>
+            setEditor({
+              colorRangeShow: showRange === active.id ? null : active.id,
+            })
+          }
+        >
+          <Eye size={14} />
+        </button>
+      )}
+      <button
+        type="button"
+        title={t("studio.color.editor.removeTitle")}
+        aria-label={t("studio.color.editor.removeAria")}
+        disabled={disabled}
+        onClick={() => {
+          setEditor({
+            activeColorRangeId: null,
+            ...(showRange === active.id ? { colorRangeShow: null } : {}),
+          });
+          change({
+            colorRanges: ranges.filter((r) => r.id !== active.id),
+          });
+        }}
+      >
+        <Trash2 size={14} />
+      </button>
+    </div>
+  );
+  const wheel = (
+    <StudioColorRangeWheel
+      // A new editing target (photo, layer, range) ends a drag on the old
+      // one: its pending geometry is dropped, never written elsewhere.
+      key={`${photo}:${layerId ?? "photo"}:${mode}:${wheelPicking ? "pick" : (active?.id ?? "none")}`}
+      ranges={mode === "skin" ? (skin ? [skin] : []) : listed}
+      active={wheelPicking ? undefined : active}
+      disabled={disabled || (wheelAdds && ranges.length >= limit)}
+      onChange={setRange}
+      onPick={pickOnWheel}
+      onInteraction={onInteraction}
+    />
+  );
+  const shape = active && (
+    <>
+      <div className="studio-subheading">{t("studio.color.editor.range")}</div>
+      {slider(hue, "hueRange", 5, 90, 25)}
+      {slider(saturation, "chromaRange", 0, 100, 70)}
+      {slider(lightness, "lightnessRange", 0, 100, 100)}
+      {slider(t("studio.color.editor.smoothness"), "smoothness", 0, 100, 50)}
+    </>
+  );
+  const uniformity = active && (
+    <>
+      <div className="studio-subheading">
+        {t("studio.color.editor.uniformity")}
+      </div>
+      {slider(hue, "hueUniformity", 0, 100, 0)}
+      {slider(saturation, "saturationUniformity", 0, 100, 0)}
+      {slider(lightness, "lightnessUniformity", 0, 100, 0)}
+    </>
+  );
+  const shifts = active && (
+    <>
+      {slider(hue, "hueShift", -100, 100, 0)}
+      {slider(saturation, "saturation", -100, 100, 0)}
+      {slider(lightness, "lightnessShift", -100, 100, 0)}
+    </>
+  );
   return (
     <ToolGroup
       title="Color editor"
@@ -132,105 +282,97 @@ export default function StudioColorEditor({
         change({ colorRanges: [] });
       }}
     >
-      <div className="studio-color-ranges">
-        {ranges.map((range) => (
+      <div
+        className="studio-segments studio-color-editor-modes"
+        role="tablist"
+        aria-label={t("studio.color.editor.modesAria")}
+      >
+        {(["ranges", "skin"] as const).map((m) => (
           <button
-            key={range.id}
+            key={m}
             type="button"
-            className="studio-color-range"
-            aria-pressed={active?.id === range.id}
-            aria-label={t("studio.color.editor.rangeAria", {
-              hue: Math.round(range.hue),
-            })}
-            title={t("studio.color.editor.selectRange")}
-            style={{
-              background: `linear-gradient(90deg, ${rangeSwatch(range)} 50%, ${rangeSwatch(range, true)} 50%)`,
-            }}
-            onClick={() => setEditor({ activeColorRangeId: range.id })}
-          />
+            role="tab"
+            aria-selected={mode === m}
+            onClick={() => switchMode(m)}
+          >
+            {t(`studio.color.editor.mode.${m}`)}
+          </button>
         ))}
-        <button
-          type="button"
-          className="studio-color-range-add"
-          aria-pressed={pickerTarget === "new"}
-          aria-label={t("studio.color.editor.pickAria")}
-          title={t("studio.color.editor.pickTitle")}
-          disabled={disabled || ranges.length >= limit}
-          onClick={() => pick("new")}
-        >
-          <Plus size={13} />
-        </button>
       </div>
+      {mode === "ranges" && (
+        <div className="studio-color-ranges">
+          {listed.map((range) => (
+            <button
+              key={range.id}
+              type="button"
+              className="studio-color-range"
+              aria-pressed={active?.id === range.id}
+              aria-label={t("studio.color.editor.rangeAria", {
+                hue: Math.round(range.hue),
+              })}
+              title={t("studio.color.editor.selectRange")}
+              style={{
+                background: `linear-gradient(90deg, ${rangeSwatch(range)} 50%, ${rangeSwatch(range, true)} 50%)`,
+              }}
+              onClick={() => setEditor({ activeColorRangeId: range.id })}
+            />
+          ))}
+          <button
+            type="button"
+            className="studio-color-range-add"
+            aria-pressed={pickerTarget === "new"}
+            aria-label={t("studio.color.editor.pickAria")}
+            title={t("studio.color.editor.pickTitle")}
+            disabled={disabled || ranges.length >= limit}
+            onClick={() => pick("new")}
+          >
+            <Plus size={13} />
+          </button>
+        </div>
+      )}
+      {mode === "skin" && !skin && (
+        <div className="studio-inline studio-color-range-actions">
+          <button
+            type="button"
+            aria-pressed={pickerTarget === "skin"}
+            title={t("studio.color.editor.skin.pickTitle")}
+            aria-label={t("studio.color.editor.skin.pickAria")}
+            disabled={disabled || ranges.length >= limit}
+            onClick={() => pick("skin")}
+          >
+            <Pipette size={14} />
+          </button>
+        </div>
+      )}
       {!active && (
         <p className="studio-hint">
-          {pickerTarget === "new"
-            ? t("studio.color.editor.hintPicking")
-            : t("studio.color.editor.hintEmpty")}
+          {mode === "skin"
+            ? pickerTarget === "skin"
+              ? t("studio.color.editor.skin.hintPicking")
+              : t("studio.color.editor.skin.hintEmpty")
+            : pickerTarget === "new"
+              ? t("studio.color.editor.hintPicking")
+              : t("studio.color.editor.hintEmpty")}
         </p>
       )}
-      {active && (
+      {wheel}
+      {active && mode === "ranges" && (
         <>
-          <div className="studio-inline studio-color-range-actions">
-            <button
-              type="button"
-              aria-pressed={pickerTarget === active.id}
-              title={t("studio.color.editor.pickAgainTitle")}
-              aria-label={t("studio.color.editor.pickAgainAria")}
-              disabled={disabled}
-              onClick={() => pick(active.id)}
-            >
-              <Pipette size={14} />
-            </button>
-            {!layerId && (
-              <button
-                type="button"
-                aria-pressed={showRange === active.id}
-                title={t("studio.color.editor.showTitle")}
-                aria-label={t("studio.color.editor.showAria")}
-                disabled={disabled}
-                onClick={() =>
-                  setEditor({
-                    colorRangeShow: showRange === active.id ? null : active.id,
-                  })
-                }
-              >
-                <Eye size={14} />
-              </button>
-            )}
-            <button
-              type="button"
-              title={t("studio.color.editor.removeTitle")}
-              aria-label={t("studio.color.editor.removeAria")}
-              disabled={disabled}
-              onClick={() => {
-                setEditor({
-                  activeColorRangeId: null,
-                  ...(showRange === active.id ? { colorRangeShow: null } : {}),
-                });
-                change({
-                  colorRanges: ranges.filter((r) => r.id !== active.id),
-                });
-              }}
-            >
-              <Trash2 size={14} />
-            </button>
-          </div>
-          {slider(hue, "hueShift", -100, 100, 0)}
-          {slider(saturation, "saturation", -100, 100, 0)}
-          {slider(lightness, "lightnessShift", -100, 100, 0)}
+          {actions}
+          {shifts}
+          {shape}
+          {uniformity}
+        </>
+      )}
+      {active && mode === "skin" && (
+        <>
+          {actions}
+          {uniformity}
           <div className="studio-subheading">
-            {t("studio.color.editor.range")}
+            {t("studio.color.editor.skin.amount")}
           </div>
-          {slider(hue, "hueRange", 5, 90, 25)}
-          {slider(saturation, "chromaRange", 0, 100, 70)}
-          {slider(lightness, "lightnessRange", 0, 100, 100)}
-          {slider(t("studio.color.editor.smoothness"), "smoothness", 0, 100, 50)}
-          <div className="studio-subheading">
-            {t("studio.color.editor.uniformity")}
-          </div>
-          {slider(hue, "hueUniformity", 0, 100, 0)}
-          {slider(saturation, "saturationUniformity", 0, 100, 0)}
-          {slider(lightness, "lightnessUniformity", 0, 100, 0)}
+          {shifts}
+          {shape}
         </>
       )}
     </ToolGroup>

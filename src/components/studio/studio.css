@@ -3625,6 +3625,91 @@ body.is-dragging.is-drop-refused * {
 }
 
 /* Colour editor: one swatch per range (sample | result), + picks a new one. */
+/* Colour editor range wheel: Oklab hue around (0 at the right,
+   counter-clockwise), chroma outwards by its square root; the active
+   range's slice with its feather, the other ranges faint. */
+.studio-range-wheel {
+  width: 156px;
+  max-width: 100%;
+  aspect-ratio: 1;
+  margin: 2px auto 8px;
+  position: relative;
+}
+.studio-range-wheel::before {
+  content: "";
+  position: absolute;
+  inset: calc(100% * 0.12 / 2.24);
+  border-radius: 50%;
+  background:
+    radial-gradient(closest-side, #6a6b6e 0%, #6a6b6e00 100%),
+    conic-gradient(
+      from 90deg,
+      oklch(0.68 0.13 0),
+      oklch(0.68 0.13 330),
+      oklch(0.68 0.13 300),
+      oklch(0.68 0.13 270),
+      oklch(0.68 0.13 240),
+      oklch(0.68 0.13 210),
+      oklch(0.68 0.13 180),
+      oklch(0.68 0.13 150),
+      oklch(0.68 0.13 120),
+      oklch(0.68 0.13 90),
+      oklch(0.68 0.13 60),
+      oklch(0.68 0.13 30),
+      oklch(0.68 0.13 0)
+    );
+  pointer-events: none;
+}
+.studio-range-wheel svg {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: crosshair;
+}
+.studio-range-wheel.is-disabled {
+  opacity: 0.5;
+}
+.studio-range-wheel-rim {
+  fill: none;
+  stroke: #45474b;
+  stroke-width: 0.012;
+}
+.studio-range-wheel-other {
+  fill: #eef0f314;
+  stroke: #eef0f355;
+  stroke-width: 0.01;
+}
+.studio-range-wheel-feather {
+  fill: #eef0f31a;
+  stroke: #eef0f366;
+  stroke-width: 0.008;
+  stroke-dasharray: 0.03 0.03;
+}
+.studio-range-wheel-slice {
+  fill: #eef0f333;
+  stroke: #eef0f3;
+  stroke-width: 0.014;
+}
+.studio-range-wheel-edge,
+.studio-range-wheel-colour {
+  stroke: #eef0f3;
+  stroke-width: 0.018;
+  cursor: grab;
+}
+.studio-range-wheel-edge {
+  fill: #2b2c2f;
+}
+.studio-range-wheel-edge.is-chroma {
+  fill: #5d5f63;
+}
+.studio-range-wheel-edge:focus-visible,
+.studio-range-wheel-colour:focus-visible {
+  outline: none;
+  stroke: #829daf;
+  stroke-width: 0.03;
+}
 .studio-color-ranges {
   display: flex;
   flex-wrap: wrap;
@@ -3696,6 +3781,7 @@ body.is-dragging.is-drop-refused * {
   padding: 0 2px;
 }
 
+.studio-color-editor-modes button[aria-selected="true"],
 .studio-segments button[aria-pressed="true"],
 .studio-spot-controls .studio-segments button[aria-checked="true"] {
   background: #3a3c40;

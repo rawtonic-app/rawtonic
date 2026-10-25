@@ -1736,6 +1736,11 @@
         "hintEmpty": "사진에서 색상을 추출하여 해당 색상 범위를 조정하세요.",
         "hintPicking": "사진에서 색상을 클릭하세요.",
         "lightness": "명도",
+        "mode": {
+          "ranges": "범위",
+          "skin": "피부 톤"
+        },
+        "modesAria": "컬러 에디터 모드",
         "pickAgainAria": "범위 색상 다시 추출",
         "pickAgainTitle": "이 범위의 색상 다시 추출",
         "pickAria": "색상 범위 추출",
@@ -1747,9 +1752,26 @@
         "selectRange": "이 색상 범위 선택",
         "showAria": "범위 표시",
         "showTitle": "선택한 범위 표시(나머지는 회색)",
+        "skin": {
+          "amount": "양",
+          "hintEmpty": "사진에서 피부(또는 휠의 색)를 선택한 다음 균일도로 고르게 합니다.",
+          "hintPicking": "사진의 피부를 클릭하세요.",
+          "pickAria": "피부 톤 선택",
+          "pickTitle": "사진에서 피부 선택"
+        },
         "smoothness": "부드러움",
         "title": "색상 편집기",
-        "uniformity": "균일성"
+        "uniformity": "균일성",
+        "wheel": {
+          "aria": "색 범위 휠",
+          "chromaHi": "범위의 바깥쪽 채도 가장자리",
+          "chromaLo": "범위의 안쪽 채도 가장자리",
+          "colour": "범위 색",
+          "colourText": "색조 {{hue}}°, 채도 {{chroma}}",
+          "hueHi": "범위의 색조 가장자리(반시계 방향)",
+          "hueLo": "범위의 색조 가장자리(시계 방향)",
+          "title": "범위의 중심이나 가장자리를 드래그하고, 다른 곳을 클릭하면 범위를 그곳으로 옮깁니다"
+        }
       },
       "grading": {
         "hueAria": "{{range}} 색조",

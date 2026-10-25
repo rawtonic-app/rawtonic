@@ -1833,6 +1833,11 @@
         "hintEmpty": "Preleva un colore nella foto per regolare quella gamma di colore.",
         "hintPicking": "Fai clic su un colore nella foto.",
         "lightness": "Luminosità",
+        "mode": {
+          "ranges": "Intervalli",
+          "skin": "Incarnato"
+        },
+        "modesAria": "Modalità dell'editor colore",
         "pickAgainAria": "Preleva di nuovo il colore della gamma",
         "pickAgainTitle": "Preleva di nuovo il colore di questa gamma",
         "pickAria": "Preleva una gamma di colore",
@@ -1844,9 +1849,26 @@
         "selectRange": "Seleziona questa gamma di colore",
         "showAria": "Mostra gamma",
         "showTitle": "Mostra la gamma selezionata (il resto in grigio)",
+        "skin": {
+          "amount": "Quantità",
+          "hintEmpty": "Preleva la pelle nella foto (o il suo colore sulla ruota), poi uniformala con Uniformità.",
+          "hintPicking": "Fai clic sulla pelle nella foto.",
+          "pickAria": "Preleva l'incarnato",
+          "pickTitle": "Preleva la pelle nella foto"
+        },
         "smoothness": "Morbidezza",
         "title": "Editor colore",
-        "uniformity": "Uniformità"
+        "uniformity": "Uniformità",
+        "wheel": {
+          "aria": "Ruota dell'intervallo colore",
+          "chromaHi": "Bordo esterno di saturazione dell'intervallo",
+          "chromaLo": "Bordo interno di saturazione dell'intervallo",
+          "colour": "Colore dell'intervallo",
+          "colourText": "Tinta {{hue}}°, croma {{chroma}}",
+          "hueHi": "Bordo di tinta dell'intervallo, senso antiorario",
+          "hueLo": "Bordo di tinta dell'intervallo, senso orario",
+          "title": "Trascina il centro o i bordi dell'intervallo; fai clic altrove per spostarlo lì"
+        }
       },
       "grading": {
         "hueAria": "Tonalità ({{range}})",
