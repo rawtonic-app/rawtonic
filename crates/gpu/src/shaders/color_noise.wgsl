@@ -7,7 +7,8 @@
 //   computed once per input texture (or photo window).
 // - `reconstruct_level` / `pack_finest`: level 1 rebuilt from the coarse
 //   levels prepared on the CPU (`ChromaPyramid::prepared`), for a new
-//   threshold set while a slider moves (display frames).
+//   threshold set while a slider moves (display frames), or prepared on the
+//   GPU (color_noise_pyramid.wgsl; version 11, display frames and exports).
 
 struct ColorNoiseParams {
     // Photo window the input texture holds (origin) and the photo's size.

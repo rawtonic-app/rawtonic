@@ -2087,6 +2087,7 @@ mod color_noise_option_tests {
         let v8 = json!({ "colorNoiseReduction": 25, "colorNoiseVersion": 8 });
         let v9 = json!({ "colorNoiseReduction": 25, "colorNoiseVersion": 9 });
         let v10 = json!({ "colorNoiseReduction": 25, "colorNoiseVersion": 10 });
+        let v11 = json!({ "colorNoiseReduction": 25, "colorNoiseVersion": 11 });
         for recipe in [&v1, &legacy] {
             assert_eq!(amount(recipe, true), today);
         }
@@ -2099,6 +2100,7 @@ mod color_noise_option_tests {
         assert_eq!(amount(&v8, true), 0.0);
         assert_eq!(amount(&v9, true), 0.0);
         assert_eq!(amount(&v10, true), 0.0);
+        assert_eq!(amount(&v11, true), 0.0);
         // Never-edited RAWs develop with the multi-scale filter.
         assert_eq!(amount(&Value::Null, true), 0.0);
         assert_eq!(amount(&json!({}), true), 0.0);
