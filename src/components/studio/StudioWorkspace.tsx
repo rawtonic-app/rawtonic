@@ -699,18 +699,20 @@ export default function StudioWorkspace(props: Props) {
   // Once the open photograph is decoded (not before, so its own decode keeps
   // the cores), prepare its neighbours (preview proxies, and the next one's
   // decode kept), so stepping through the filmstrip shows them developed at
-  // once. A new request replaces the last one and cancels a decode it no
-  // longer asks for (a jump).
+  // once — in Develop, the Library's loupe and the full screen alike. A new
+  // request replaces the last one and cancels a decode it no longer asks
+  // for (a jump).
   const decoded = Boolean(selectedImage?.isDecoded);
+  const photoShown = develop || libraryViewer;
   useEffect(() => {
-    if (!develop || !decoded || currentIndex < 0) return;
+    if (!photoShown || !decoded || currentIndex < 0) return;
     const paths = neighboursToPrepare(
       files.map((file) => file.path),
       currentIndex,
       stepping.current.direction,
     );
     if (paths.length) void invoke(Invokes.PreparePreviewProxies, { paths }).catch(() => {});
-  }, [develop, decoded, currentIndex, files]);
+  }, [photoShown, decoded, currentIndex, files]);
   const rating = selectedImage ? imageRatings[selectedImage.path] || 0 : 0;
   const browserProps = {
     files,
