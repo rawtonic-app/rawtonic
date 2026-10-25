@@ -118,6 +118,20 @@ describe("range wheel geometry", () => {
     expect(band.outer.chromaHi).toBeCloseTo(0.13 + 0.0315, 6);
     // A band narrower than its feathers has no full-weight core.
     expect(rangeBand({ ...skinish(), chromaRange: 0 }).core).toBeNull();
+    // A grey sample: the band of chroma 0 (0 … 0.01, feather 0.00675),
+    // faded by the grey gate, so no full-weight core.
+    const grey = rangeBand({ ...skinish(), chroma: 0 });
+    expect(grey.outer.chromaHi).toBeCloseTo(0.01675, 6);
+    expect(grey.outer.chromaLo).toBe(0.004);
+    expect(grey.core).toBeNull();
+    // The core starts where the grey gate is full.
+    const pale = rangeBand({
+      ...skinish(),
+      chroma: 0.02,
+      chromaRange: 100,
+      smoothness: 0,
+    });
+    expect(pale.core!.chromaLo).toBe(0.015);
   });
 });
 
@@ -187,6 +201,24 @@ describe("range wheel <-> sliders", () => {
     const width = lastRanges()[0].chromaRange;
     // Edge 0.49 − 0.06 = 0.43 → (0.43 − 0.01 − 0.2) / 0.4 = 55.
     expect(width).toBe(55);
+  });
+
+  it("draws the edge handles over the colour handle, so they stay reachable", () => {
+    // Saturated blue: the outer edge clips to the rim right beside the
+    // colour; SVG paints later elements on top, so the edges come last.
+    render(<Harness initial={[newColorRange(264, 0.313, 0.45)]} />);
+    openTool();
+    const colour = screen.getByRole("slider", { name: "Range colour" });
+    for (const name of [
+      "Range outer saturation edge",
+      "Range inner saturation edge",
+      "Range hue edge, clockwise",
+    ]) {
+      const edge = screen.getByRole("slider", { name });
+      expect(
+        colour.compareDocumentPosition(edge) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
   });
 
   it("follows the sliders: a new hue range moves the edge handles", () => {

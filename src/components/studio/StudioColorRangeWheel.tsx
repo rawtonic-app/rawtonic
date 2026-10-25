@@ -42,7 +42,10 @@ export function wheelColor(x: number, y: number) {
   };
 }
 
-/** The chroma the range's band is built around (greys still get a band). */
+const GREY_NONE = 0.004;
+const GREY_FULL = 0.015;
+
+/** The chroma the saturation-range handles divide by (never 0). */
 const centreChroma = (range: ColorRange) => Math.max(range.chroma, 0.005);
 
 /**
@@ -53,7 +56,8 @@ const centreChroma = (range: ColorRange) => Math.max(range.chroma, 0.005);
  * sides of each nominal edge; `core` is null when they meet.
  */
 export function rangeBand(range: ColorRange) {
-  const c = centreChroma(range);
+  // As packed: the sample's own chroma (greys get the narrow band of 0).
+  const c = Math.max(range.chroma, 0);
   const cr = clampTo(range.chromaRange, 0, 100) / 100;
   const soft = 0.1 + (0.9 * clampTo(range.smoothness, 0, 100)) / 100;
   const lo = c * (1 - cr);
@@ -61,25 +65,25 @@ export function rangeBand(range: ColorRange) {
   const chromaFeather = 0.5 * soft * (hi - lo) + 0.004;
   const half = clampTo(range.hueRange, 5, 90);
   const hueFeather = half * soft;
-  const core =
-    hi - lo > 2 * chromaFeather
-      ? {
-          hueLo: range.hue - half + hueFeather,
-          hueHi: range.hue + half - hueFeather,
-          chromaLo: lo + chromaFeather,
-          chromaHi: hi - chromaFeather,
-        }
-      : null;
+  // Hue is undefined for greys: the shader fades every range out below
+  // chroma 0.015 and to nothing at 0.004.
+  const core = {
+    hueLo: range.hue - half + hueFeather,
+    hueHi: range.hue + half - hueFeather,
+    chromaLo: Math.max(lo + chromaFeather, GREY_FULL),
+    chromaHi: hi - chromaFeather,
+  };
   return {
     hueLo: range.hue - half,
     hueHi: range.hue + half,
     chromaLo: lo,
     chromaHi: hi,
-    core: core && core.hueHi > core.hueLo ? core : null,
+    core:
+      core.hueHi > core.hueLo && core.chromaHi > core.chromaLo ? core : null,
     outer: {
       hueLo: range.hue - half - hueFeather,
       hueHi: range.hue + half + hueFeather,
-      chromaLo: Math.max(lo - chromaFeather, 0),
+      chromaLo: Math.max(lo - chromaFeather, GREY_NONE),
       chromaHi: hi + chromaFeather,
     },
   };
@@ -372,6 +376,26 @@ export default memo(function StudioColorRangeWheel({
                 )}
               />
             )}
+            {/* The colour first, so the edge handles (drawn later) stay
+                reachable where they meet it; a press beside the handles
+                moves the colour anyway. */}
+            <circle
+              className="studio-range-wheel-colour"
+              r={0.07}
+              {...polar(local.hue, radiusOf(local.chroma))}
+              style={{
+                fill: oklchCss(local.lightness, local.chroma, local.hue),
+              }}
+              {...handleProps("colour")}
+              aria-label={t("studio.color.editor.wheel.colour")}
+              aria-valuemin={0}
+              aria-valuemax={360}
+              aria-valuenow={Math.round(local.hue)}
+              aria-valuetext={t("studio.color.editor.wheel.colourText", {
+                hue: Math.round(local.hue),
+                chroma: Math.round(local.chroma * 1000) / 10,
+              })}
+            />
             {(["hueLo", "hueHi"] as const).map((h) => (
               <circle
                 key={h}
@@ -398,23 +422,6 @@ export default memo(function StudioColorRangeWheel({
                 aria-valuenow={local.chromaRange}
               />
             ))}
-            <circle
-              className="studio-range-wheel-colour"
-              r={0.07}
-              {...polar(local.hue, radiusOf(local.chroma))}
-              style={{
-                fill: oklchCss(local.lightness, local.chroma, local.hue),
-              }}
-              {...handleProps("colour")}
-              aria-label={t("studio.color.editor.wheel.colour")}
-              aria-valuemin={0}
-              aria-valuemax={360}
-              aria-valuenow={Math.round(local.hue)}
-              aria-valuetext={t("studio.color.editor.wheel.colourText", {
-                hue: Math.round(local.hue),
-                chroma: Math.round(local.chroma * 1000) / 10,
-              })}
-            />
           </>
         )}
       </svg>
