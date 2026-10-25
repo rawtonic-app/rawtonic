@@ -76,6 +76,8 @@ export const chosenRecipe = (recipes: EditRecipe[], id: string | null | undefine
 interface EditTarget {
   source: string;
   target: string;
+  /** The library the photograph was in when planned (`open_with.rs`). */
+  library?: string | null;
 }
 
 export interface EditWithResult {

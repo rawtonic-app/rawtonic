@@ -6,6 +6,7 @@ import { useLibraryStore } from "../store/useLibraryStore";
 import { useEditorStore } from '../store/useEditorStore';
 import { CLOSED_MERGE_MODAL, useUIStore } from '../store/useUIStore';
 import type { ImageFile, SelectedImage } from '../components/ui/AppProperties';
+import { invoke } from "@tauri-apps/api/core";
 const callbacks = vi.hoisted(() => new Map<string, (event: { payload: unknown }) => void>());
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn((name, callback) => {
@@ -568,7 +569,18 @@ it('decodes an Edit With render again when another program saved it while it is 
   useEditorStore.getState().setEditor({ selectedImage: shown });
   saved('/s/B_edit.tiff');
   expect(useEditorStore.getState().selectedImage).toBe(shown);
+  // During a slider drag the recipe is still a draft: nothing reloads yet.
+  useEditorStore.getState().setEditor({ isSliderDragging: true, adjustments: { exposure: 0.5 } as never });
   saved('/s/A_edit.tiff');
+  expect(useEditorStore.getState().selectedImage).toBe(shown);
+  useEditorStore.getState().setEditor({ adjustments: { exposure: 0.7 } as never });
+  act(() => useEditorStore.getState().setEditor({ isSliderDragging: false }));
+  // The recipe in the editor (the drag's last value) is saved, then the
+  // render is decoded again.
+  expect(vi.mocked(invoke)).toHaveBeenCalledWith('save_metadata_and_update_thumbnail', {
+    path: '/s/A_edit.tiff',
+    adjustments: { exposure: 0.7 },
+  });
   expect(useEditorStore.getState().selectedImage).toMatchObject({
     path: '/s/A_edit.tiff', isDecoded: false, isReady: false, width: 10,
   });

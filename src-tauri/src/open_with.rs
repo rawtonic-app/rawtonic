@@ -71,6 +71,10 @@ pub struct OpenWithPrefs {
 pub struct EditTarget {
     pub source: String,
     pub target: String,
+    /// The session or catalog that held the photograph when the render was
+    /// planned: the render joins that one even if another opens meanwhile.
+    #[serde(default)]
+    pub library: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -501,6 +505,8 @@ pub fn edit_with_targets(paths: Vec<String>, extension: String) -> Result<Vec<Ed
             let target = edit_target(&original, &extension, &taken);
             taken.insert(target.clone());
             Ok(EditTarget {
+                library: crate::session_bridge::library_dir_for(&original)
+                    .map(|dir| dir.to_string_lossy().into_owned()),
                 source,
                 target: target.to_string_lossy().into_owned(),
             })
@@ -527,11 +533,10 @@ fn link_renders(items: &[EditTarget]) -> EditWithResult {
         problems: Vec::new(),
     };
     let mut by_library: HashMap<PathBuf, Vec<&EditTarget>> = HashMap::new();
+    // Outside a session or catalog the render is a file in the folder.
     for item in items {
-        let (source, _) = parse_virtual_path(&item.source);
-        // Outside a session or catalog the render is a file in the folder.
-        if let Some(dir) = crate::session_bridge::library_dir_for(&source) {
-            by_library.entry(dir).or_default().push(item);
+        if let Some(dir) = &item.library {
+            by_library.entry(PathBuf::from(dir)).or_default().push(item);
         }
     }
     for (dir, items) in by_library {
@@ -577,7 +582,7 @@ pub async fn edit_with_finish(
             return Err(format!("{} was not rendered.", missing.display()));
         }
         let result = link_renders(&items);
-        watch(&app, &renders);
+        watch(&app, &items);
         open_in(&app, &program, &renders)?;
         Ok(result)
     })
@@ -597,17 +602,37 @@ fn stamp(path: &Path) -> Stamp {
 struct Watched {
     /// Each render with its last seen stamp, in the order they were added.
     files: Vec<(PathBuf, Stamp)>,
+    /// The library each render was registered in.
+    libraries: HashMap<PathBuf, PathBuf>,
     /// Renders that changed and wait for one unchanged check (the program
     /// may still be writing).
     settling: HashMap<PathBuf, Stamp>,
 }
 
 impl Watched {
-    fn add(&mut self, path: &Path) {
+    fn add(&mut self, path: &Path, library: Option<&Path>) {
         self.files.retain(|(p, _)| p != path);
         self.files.push((path.to_path_buf(), stamp(path)));
+        match library {
+            Some(dir) => self.libraries.insert(path.to_path_buf(), dir.to_path_buf()),
+            None => self.libraries.remove(path),
+        };
         let excess = self.files.len().saturating_sub(WATCHED_FILES);
-        self.files.drain(..excess);
+        for (gone, _) in self.files.drain(..excess) {
+            self.libraries.remove(&gone);
+        }
+    }
+
+    /// The renders whose save has settled since the last check, each with
+    /// its library.
+    fn saved_in(&mut self) -> Vec<(PathBuf, Option<PathBuf>)> {
+        self.saved()
+            .into_iter()
+            .map(|path| {
+                let library = self.libraries.get(&path).cloned();
+                (path, library)
+            })
+            .collect()
     }
 
     /// The renders whose save has settled since the last check.
@@ -640,11 +665,8 @@ fn watched() -> &'static Mutex<Watched> {
 
 /// The library records a render's size, time and fingerprint; after a save
 /// they are its new ones (Locate and Synchronize Folder recognise it by them).
-fn refresh_identity(render: &Path) {
-    let Some(dir) = crate::session_bridge::library_dir_for(render) else {
-        return;
-    };
-    let result = crate::session_bridge::with_library_blocking(&dir, |lib| {
+fn refresh_identity(render: &Path, library: &Path) {
+    let result = crate::session_bridge::with_library_blocking(library, |lib| {
         match lib.asset_at(render).map_err(|e| e.to_string())? {
             Some(asset) => lib.file_saved(&asset.id).map_err(|e| e.to_string()),
             None => Ok(()),
@@ -666,10 +688,13 @@ struct EditSaved {
 
 /// Watches `renders` for saves from the other program: a settled change
 /// drops the kept decodes, makes the thumbnail again and tells the frontend (`edit-with-saved`).
-fn watch(app: &AppHandle, renders: &[PathBuf]) {
+fn watch(app: &AppHandle, renders: &[EditTarget]) {
     if let Ok(mut watched) = watched().lock() {
         for render in renders {
-            watched.add(render);
+            watched.add(
+                Path::new(&render.target),
+                render.library.as_deref().map(Path::new),
+            );
         }
     }
     static STARTED: OnceLock<()> = OnceLock::new();
@@ -680,17 +705,25 @@ fn watch(app: &AppHandle, renders: &[PathBuf]) {
             .spawn(move || {
                 loop {
                     std::thread::sleep(WATCH_INTERVAL);
-                    let saved = watched().lock().map(|mut w| w.saved()).unwrap_or_default();
+                    let saved = watched()
+                        .lock()
+                        .map(|mut w| w.saved_in())
+                        .unwrap_or_default();
                     if !saved.is_empty() {
-                        // Decodes are kept by path alone: drop the stale one.
-                        crate::cache_utils::clear_image_caches(
-                            app.state::<crate::app_state::AppState>(),
-                        );
+                        // Decodes and thumbnail bases are kept by path (and
+                        // recipe) alone: drop the stale ones.
+                        let state = app.state::<crate::app_state::AppState>();
+                        if let Ok(mut bases) = state.thumbnail_geometry_cache.lock() {
+                            bases.clear();
+                        }
+                        crate::cache_utils::clear_image_caches(state);
                     }
-                    for path in &saved {
-                        refresh_identity(path);
+                    for (path, library) in &saved {
+                        if let Some(library) = library {
+                            refresh_identity(path, library);
+                        }
                     }
-                    for path in saved {
+                    for (path, _) in saved {
                         let path = path.to_string_lossy().into_owned();
                         crate::file_management::refresh_thumbnail(&app, &path);
                         let _ = app.emit("edit-with-saved", EditSaved { path });
@@ -851,7 +884,15 @@ mod tests {
         fs::write(&render, b"tiff").unwrap();
         let before = fs::read(&source).unwrap();
 
-        link_render(&lib, &source, &render).unwrap();
+        drop(lib);
+        // The library planned with the render, not whichever is open now.
+        let result = link_renders(&[EditTarget {
+            source: source.to_string_lossy().into_owned(),
+            target: render.to_string_lossy().into_owned(),
+            library: Some(tmp.path().join("S").to_string_lossy().into_owned()),
+        }]);
+        assert_eq!((result.linked, result.problems.len()), (1, 0));
+        let lib = Library::open(&tmp.path().join("S")).unwrap();
 
         let edit = lib.asset_at(&render).unwrap().unwrap();
         assert_eq!(lib.derived_from(&edit.id).unwrap().unwrap().id, original.id);
@@ -865,7 +906,7 @@ mod tests {
         let file = tmp.path().join("A_edit.tif");
         fs::write(&file, b"one").unwrap();
         let mut watched = Watched::default();
-        watched.add(&file);
+        watched.add(&file, None);
         assert!(watched.saved().is_empty());
         fs::write(&file, b"two, longer").unwrap();
         // First seen changed, then unchanged: saved.
@@ -878,7 +919,13 @@ mod tests {
         assert!(watched.saved().is_empty());
         fs::write(&file, b"three").unwrap();
         assert!(watched.saved().is_empty());
-        assert_eq!(watched.saved(), [file]);
+        assert_eq!(watched.saved(), std::slice::from_ref(&file));
+        // A save reports the library the render was registered in.
+        let library = tmp.path().join("Library");
+        watched.add(&file, Some(&library));
+        fs::write(&file, b"four, saved again").unwrap();
+        assert!(watched.saved_in().is_empty());
+        assert_eq!(watched.saved_in(), [(file, Some(library))]);
     }
 
     /// LaunchServices on this Mac (needs the system's Preview).

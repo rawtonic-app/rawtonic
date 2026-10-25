@@ -324,12 +324,23 @@ export function useTauriListeners({
         if (!isEffectActive) return;
         const { path } = event.payload;
         globalImageCache.deleteByPrefix(path);
-        // Selecting it again does nothing; decoding it again keeps its recipe
-        // (saved first) and shows the new pixels.
-        const { selectedImage, setEditor } = useEditorStore.getState();
-        if (selectedImage?.isDecoded && selectedImage.path.split('?vc=')[0] === path) {
+        // Selecting it again does nothing; decoding it again shows the new
+        // pixels. The recipe in the editor is saved first (after a slider
+        // drag under way ends), so the decode reads it back unchanged.
+        const reload = () => {
+          const { selectedImage, adjustments, setEditor } = useEditorStore.getState();
+          if (!selectedImage?.isDecoded || selectedImage.path.split('?vc=')[0] !== path) return;
+          debouncedSave(selectedImage.path, adjustments);
           debouncedSave.flush();
           setEditor({ selectedImage: { ...selectedImage, isDecoded: false, isReady: false } });
+        };
+        if (!useEditorStore.getState().isSliderDragging) reload();
+        else {
+          const stop = useEditorStore.subscribe((state) => {
+            if (state.isSliderDragging) return;
+            stop();
+            if (isEffectActive) reload();
+          });
         }
       }),
       listen<Progress>('thumbnail-progress', (event) => {
