@@ -7,6 +7,7 @@ mod support;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use image::{DynamicImage, Rgb32FImage};
+use rawtonic_engine::image_processing::{GeometryParams, warp_image_geometry};
 use rawtonic_engine::mask_generation::{
     MaskDefinition, ParametricMaskSource, PhotoGeometry, clear_brush_prefix_cache,
     generate_layer_mask,
@@ -81,6 +82,22 @@ fn fringe_and_ca(c: &mut Criterion, id: &str, photo: &Rgb32FImage) {
     }
     group.bench_function(BenchmarkId::new("lateral_ca_estimate_v2", id), |b| {
         b.iter(|| lateral_ca::estimate_v2(black_box(photo)))
+    });
+    // The full-resolution lens warp with a lens profile's distortion,
+    // vignetting and lateral CA (every never-edited RAW with lens data).
+    let params = GeometryParams {
+        lens_dist_k1: -0.04,
+        lens_dist_k2: 0.01,
+        lens_distortion_amount: 1.0,
+        tca_vr: 1.0004,
+        tca_vb: 0.9997,
+        vig_k1: -0.3,
+        vig_k2: 0.05,
+        lens_vignette_amount: 1.0,
+        ..GeometryParams::default()
+    };
+    group.bench_function(BenchmarkId::new("warp_lens_ca", id), |b| {
+        b.iter(|| warp_image_geometry(black_box(&image), params.clone()))
     });
     group.finish();
 }
