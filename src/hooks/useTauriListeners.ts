@@ -337,7 +337,9 @@ export function useTauriListeners({
           debouncedSetHistory.flush();
           const { selectedImage, adjustments, history, historyIndex, setEditor } = useEditorStore.getState();
           if (!selectedImage) return;
-          debouncedSave(selectedImage.path, adjustments);
+          // No thumbnail from this save: the decode still loaded is the
+          // render before the save (the watcher made the new thumbnail).
+          debouncedSave(selectedImage.path, adjustments, false);
           debouncedSave.flush();
           setEditor({ selectedImage: { ...selectedImage, isDecoded: false, isReady: false } });
           const shownPath = selectedImage.path;

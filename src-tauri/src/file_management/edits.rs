@@ -39,22 +39,29 @@ pub use rawtonic_engine::lens_recipe::{
 pub async fn save_metadata_and_update_thumbnail(
     path: String,
     adjustments: Value,
+    update_thumbnail: Option<bool>,
     app_handle: AppHandle,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
+        // A caller whose loaded decode is stale (an Edit With render another
+        // program saved) asks for the recipe alone.
+        if update_thumbnail == Some(false) {
+            return save_metadata_blocking(&path, adjustments, &app_handle);
+        }
         save_metadata_and_update_thumbnail_blocking(path, adjustments, app_handle)
     })
     .await
     .map_err(|e| format!("Saving metadata failed: {e}"))?
 }
 
-pub(crate) fn save_metadata_and_update_thumbnail_blocking(
-    path: String,
+/// Writes `adjustments` as the recipe of `path` (sidecar or library, and its
+/// XMP when that is synchronised).
+fn save_metadata_blocking(
+    path: &str,
     adjustments: Value,
-    app_handle: AppHandle,
+    app_handle: &AppHandle,
 ) -> Result<(), String> {
-    let state = app_handle.state::<AppState>();
-    let (source_path, sidecar_path) = parse_virtual_path(&path);
+    let (source_path, sidecar_path) = parse_virtual_path(path);
 
     let turn = sidecar_field_edit();
     let mut metadata = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path);
@@ -86,6 +93,17 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
         let create_if_missing = settings.create_xmp_if_missing.unwrap_or(false);
         sync_metadata_to_xmp(&source_path, &metadata, create_if_missing);
     }
+
+    Ok(())
+}
+
+pub(crate) fn save_metadata_and_update_thumbnail_blocking(
+    path: String,
+    adjustments: Value,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    save_metadata_blocking(&path, adjustments, &app_handle)?;
+    let state = app_handle.state::<AppState>();
 
     let loaded_image_lock = state.original_image.lock().unwrap();
     let preloaded_image_option = if let Some(loaded_image) = loaded_image_lock.as_ref() {

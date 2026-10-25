@@ -576,10 +576,12 @@ it('decodes an Edit With render again when another program saved it while it is 
   useEditorStore.getState().setEditor({ adjustments: { exposure: 0.7 } as never });
   act(() => useEditorStore.getState().setEditor({ isSliderDragging: false }));
   // The recipe in the editor (the drag's last value) is saved, then the
-  // render is decoded again.
+  // render is decoded again. That save makes no thumbnail: the decode
+  // still loaded is the render before the other program's save.
   expect(vi.mocked(invoke)).toHaveBeenCalledWith('save_metadata_and_update_thumbnail', {
     path: '/s/A_edit.tiff',
     adjustments: { exposure: 0.7 },
+    updateThumbnail: false,
   });
   expect(useEditorStore.getState().selectedImage).toMatchObject({
     path: '/s/A_edit.tiff', isDecoded: false, isReady: false, width: 10,

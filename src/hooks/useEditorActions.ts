@@ -65,8 +65,15 @@ const isIdentityCurve = (points?: Array<Coord>) =>
   !points ||
   (points.length === 2 && points[0].x === 0 && points[0].y === 0 && points[1].x === 255 && points[1].y === 255);
 
-export const debouncedSave = debounce((path: string, adjustmentsToSave: Adjustments) => {
-  const save = () => invoke<void>(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments: adjustmentsToSave });
+/** Saves a photograph's recipe and makes its thumbnail again, unless
+ * `updateThumbnail` is false (the decode loaded for it is stale). */
+export const debouncedSave = debounce((path: string, adjustmentsToSave: Adjustments, updateThumbnail = true) => {
+  const save = () =>
+    invoke<void>(Invokes.SaveMetadataAndUpdateThumbnail, {
+      path,
+      adjustments: adjustmentsToSave,
+      ...(updateThumbnail ? {} : { updateThumbnail: false }),
+    });
   // A returned-to photograph must read its recipe after its flushed save, and
   // multiple writes to that photograph must retain the user's edit order.
   const previous = pendingMetadataSaves.get(path);

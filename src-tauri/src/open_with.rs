@@ -576,7 +576,9 @@ fn plan_edits(
                 pinned: None,
                 ..recipe.clone()
             };
-            request.pin()?;
+            // Pinned under the library the name was planned with, never
+            // the one open now (another may have been opened meanwhile).
+            crate::session_bridge::with_culling_owner(target.library.as_deref(), || request.pin())?;
             Ok(request)
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -1234,6 +1236,40 @@ mod tests {
         assert_eq!(requests[0].paths, [path(&plain)]);
         // Pinned: the render takes the recipe that was checked.
         assert!(requests[0].pinned.as_ref().is_some_and(|p| p.len() == 1));
+    }
+
+    #[test]
+    fn renders_are_pinned_with_the_library_they_were_planned_with() {
+        use rawtonic_catalog::Mode;
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("Catalog");
+        let lib = Library::create(&dir, "Catalog", Mode::Catalog).unwrap();
+        let folder = tmp.path().join("Photos");
+        fs::create_dir(&folder).unwrap();
+        let source = folder.join("A.jpg");
+        fs::write(&source, b"jpeg").unwrap();
+        let asset = lib.add_asset(&source).unwrap();
+        let mut meta = lib.metadata(&asset.id).unwrap();
+        meta.rating = 4;
+        lib.set_metadata(&asset.id, &meta).unwrap();
+        drop(lib);
+
+        // The catalog was open when the photographs were planned and is
+        // no longer the active one when they are pinned: the pin still
+        // reads it, not whatever library is open now.
+        let (targets, requests) = plan_edits(
+            vec![source.to_string_lossy().into_owned()],
+            tiff_recipe(None),
+            &|_| Some(dir.clone()),
+            &|_| false,
+        )
+        .unwrap();
+        assert_eq!(
+            targets[0].library.as_deref(),
+            Some(dir.to_string_lossy().as_ref())
+        );
+        let pinned = &requests[0].pinned.as_ref().unwrap()[0];
+        assert_eq!(pinned.metadata.as_ref().map(|m| m.rating), Some(4));
     }
 
     #[test]
