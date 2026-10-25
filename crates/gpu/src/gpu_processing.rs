@@ -76,7 +76,8 @@ pub fn processing_device_descriptor(adapter: &wgpu::Adapter) -> wgpu::DeviceDesc
 
 impl GpuContext {
     /// A processing context without a window surface, for exports and tools
-    /// outside the app. Registers the device for the GPU X-Trans demosaic.
+    /// outside the app. Registers the device for the GPU X-Trans demosaic
+    /// and the edge-fringe pass (`fringeVersion` 5).
     pub fn headless() -> Result<Self, String> {
         #[allow(unused_mut)]
         let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
@@ -106,6 +107,7 @@ impl GpuContext {
             display_space: Default::default(),
         };
         rawtonic_rawdecode::gpu_demosaic::register(context.device.clone(), context.queue.clone());
+        rawtonic_engine::edge_fringe::gpu::register(context.device.clone(), context.queue.clone());
         Ok(context)
     }
 }

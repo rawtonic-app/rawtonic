@@ -73,7 +73,9 @@ fn fringe_and_ca(c: &mut Criterion, id: &str, photo: &Rgb32FImage) {
                 b.iter_batched(
                     || image.clone(),
                     |image| {
-                        edge_fringe::apply_for_recipe(Cow::Owned(image), &recipe, 1.0).into_owned()
+                        edge_fringe::apply_for_recipe(Cow::Owned(image), &recipe, 1.0)
+                            .unwrap()
+                            .into_owned()
                     },
                     BatchSize::LargeInput,
                 )

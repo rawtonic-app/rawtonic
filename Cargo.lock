@@ -5450,6 +5450,7 @@ dependencies = [
  "moxcms",
  "nalgebra",
  "png 0.18.1",
+ "pollster",
  "quick-xml",
  "rav1d",
  "rav1e",
@@ -5462,6 +5463,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "walkdir",
+ "wgpu",
 ]
 
 [[package]]

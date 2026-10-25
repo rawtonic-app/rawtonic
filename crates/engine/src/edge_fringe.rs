@@ -41,6 +41,7 @@ use image::DynamicImage;
 use rayon::prelude::*;
 
 mod axial;
+pub mod gpu;
 #[cfg(test)]
 mod reference;
 
@@ -49,10 +50,11 @@ pub const VERSION_KEY: &str = "fringeVersion";
 /// The newest treatment: 1 (2026-10-16) removes edge fringes as described
 /// above in 5 × 5 windows; 2 (2026-10-17) in 7 × 7 windows; 3 (2026-10-20)
 /// adds the colour-line stage; 4 (2026-10-20) first corrects chromatic
-/// aberration across strong edges, noisy photos included (`axial`).
-/// Recipes without the key keep rendering without it, recipes with 1–3 as
-/// before.
-pub const VERSION: u64 = 4;
+/// aberration across strong edges, noisy photos included (`axial`); 5
+/// (2026-10-25) is version 4 computed on the GPU (`gpu`; the same stages,
+/// equal within float rounding). Recipes without the key keep rendering
+/// without it, recipes with 1–4 as before.
+pub const VERSION: u64 = 5;
 
 /// Window radius at full resolution: version 1's 5 × 5 spans a fringe on
 /// both sides of a thin line. A lateral-CA rest of 1–2 px beside an edge
@@ -84,12 +86,14 @@ fn low_noise(version: u64, noise: f32) -> bool {
 /// R10 ISO 32000 651 → 1213 per Mpx, K-7 310 → 502; notes:
 /// reference/edge-fringes.md "Version 3"), so they render as version 1.
 /// Version 4 adds the chromatic-aberration stage on every photo
-/// (`axial`), which scales its distances and its tolerance to noise.
+/// (`axial`), which scales its distances and its tolerance to noise;
+/// version 5 runs the same plan on the GPU (`gpu`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Plan {
     pub radius: usize,
     pub colour_lines: bool,
     pub axial: Option<AxialPlan>,
+    pub gpu: bool,
 }
 
 /// The chromatic-aberration stage's inputs: the image's own luminance
@@ -127,13 +131,44 @@ fn plan_for(version: u64, noise: f32, scale: f32) -> Plan {
         colour_lines: version >= 3 && low_noise(version, noise),
         // A reduced image's own noise is about its scale of the full one.
         axial: (version >= 4).then(|| AxialPlan::new(noise * scale, scale)),
+        gpu: version >= 5,
     }
+}
+
+/// The plan of `version` at `scale` for a photo whose full-resolution
+/// luminance noise is `noise` (the GPU crate's equivalence tests).
+#[cfg(feature = "test-support")]
+pub fn plan_of(version: u64, noise: f32, scale: f32) -> Plan {
+    plan_for(version.min(VERSION), noise, scale)
+}
+
+/// [`apply`] of a GPU plan in tiles of `tile × tile` pixels.
+#[cfg(feature = "test-support")]
+pub fn apply_on_gpu_in_tiles(
+    data: &mut [f32],
+    w: usize,
+    h: usize,
+    stride: usize,
+    plan: Plan,
+    tile: usize,
+) -> Result<(), String> {
+    gpu::apply_in_tiles(data, w, h, stride, plan, tile)
 }
 
 /// Runs the pass as `plan` says on `w × h` pixels of `stride` floats (RGB
 /// first): the chromatic-aberration stage, the luminance model, then the
-/// colour lines, each on the result of the one before.
-pub fn apply(data: &mut [f32], w: usize, h: usize, stride: usize, plan: Plan) {
+/// colour lines, each on the result of the one before. A GPU plan fails
+/// when the GPU cannot run it (there is no CPU fallback).
+pub fn apply(
+    data: &mut [f32],
+    w: usize,
+    h: usize,
+    stride: usize,
+    plan: Plan,
+) -> Result<(), String> {
+    if plan.gpu {
+        return gpu::apply(data, w, h, stride, plan);
+    }
     if let Some(axial) = plan.axial {
         axial::apply(data, w, h, stride, axial.noise(), axial.scale());
     }
@@ -141,6 +176,7 @@ pub fn apply(data: &mut [f32], w: usize, h: usize, stride: usize, plan: Plan) {
     if plan.colour_lines {
         colour_lines(data, w, h, stride, plan.radius);
     }
+    Ok(())
 }
 
 /// Regularisation of the colour-on-luminance slope (square-root units²):
@@ -222,21 +258,22 @@ pub fn apply_default(adjustments: &mut serde_json::Value, never_edited: bool, is
 }
 
 /// The pass for a recipe on an image at `scale` of the full resolution
-/// (1 for exports and full-resolution previews).
+/// (1 for exports and full-resolution previews). Fails only where version
+/// 5's GPU pass cannot run.
 pub fn apply_for_recipe<'a>(
     image: Cow<'a, DynamicImage>,
     adjustments: &serde_json::Value,
     scale: f32,
-) -> Cow<'a, DynamicImage> {
+) -> Result<Cow<'a, DynamicImage>, String> {
     let version = version_of(adjustments);
     if version == 0 || scale.is_nan() || scale < MIN_SCALE {
-        return image;
+        return Ok(image);
     }
     if !matches!(
         image.as_ref(),
         DynamicImage::ImageRgb32F(_) | DynamicImage::ImageRgba32F(_)
     ) {
-        return image;
+        return Ok(image);
     }
     let mut image = image;
     let (w, h) = (image.width() as usize, image.height() as usize);
@@ -257,15 +294,15 @@ pub fn apply_for_recipe<'a>(
     match image.to_mut() {
         DynamicImage::ImageRgb32F(img) => {
             let plan = plan(img.as_raw(), 3);
-            apply(img.as_mut(), w, h, 3, plan)
+            apply(img.as_mut(), w, h, 3, plan)?
         }
         DynamicImage::ImageRgba32F(img) => {
             let plan = plan(img.as_raw(), 4);
-            apply(img.as_mut(), w, h, 4, plan)
+            apply(img.as_mut(), w, h, 4, plan)?
         }
         _ => {}
     }
-    image
+    Ok(image)
 }
 
 #[inline]
@@ -1232,6 +1269,10 @@ mod tests {
         (r - g).hypot(b - g)
     }
 
+    /// The newest version the CPU computes (version 5, its GPU twin, is
+    /// tested against it in the GPU crate's equivalence tests).
+    const CPU_NEWEST: u64 = 4;
+
     fn run(img: &Rgb32FImage, version: u64) -> Rgb32FImage {
         let recipe = serde_json::json!({ VERSION_KEY: version });
         apply_for_recipe(
@@ -1239,6 +1280,7 @@ mod tests {
             &recipe,
             1.0,
         )
+        .expect("the CPU pass")
         .into_owned()
         .into_rgb32f()
     }
@@ -1263,7 +1305,7 @@ mod tests {
 
     #[test]
     fn fringes_beside_a_dark_line_lose_most_of_their_colour() {
-        for (version, width) in (1..=VERSION).flat_map(|v| [1, 2, 3].map(|w| (v, w))) {
+        for (version, width) in (1..=CPU_NEWEST).flat_map(|v| [1, 2, 3].map(|w| (v, w))) {
             let before = branch(width);
             let after = run(&before, version);
             for x in [17u32, 18 + width] {
@@ -1310,7 +1352,7 @@ mod tests {
                     image::Rgb([0.7, 0.7, 0.7])
                 }
             });
-            for version in 1..=VERSION {
+            for version in 1..=CPU_NEWEST {
                 let after = run(&before, version);
                 for x in 18..(18 + width as u32).min(40) {
                     let (c0, c1) = (
@@ -1333,7 +1375,7 @@ mod tests {
             let n = ((x * 7 + y * 13) % 5) as f32 * 0.01;
             image::Rgb([0.4 + n, 0.4, 0.4 - n])
         });
-        assert_eq!(run(&noisy, VERSION), noisy);
+        assert_eq!(run(&noisy, CPU_NEWEST), noisy);
         let fringed = branch(2);
         assert_eq!(run(&fringed, 0), fringed);
     }
@@ -1684,6 +1726,7 @@ mod tests {
             &draft,
             1.0,
         )
+        .expect("the CPU pass")
         .into_owned()
         .into_rgb32f();
         // Version 3's stages with the same plan for them.
@@ -1698,12 +1741,29 @@ mod tests {
         let recipe = serde_json::json!({ VERSION_KEY: VERSION });
         let fringed = DynamicImage::ImageRgb32F(branch(2));
         let small = apply_for_recipe(Cow::Borrowed(&fringed), &recipe, 0.25);
-        assert!(matches!(small, Cow::Borrowed(_)));
+        assert!(matches!(small, Ok(Cow::Borrowed(_))));
         let eight = DynamicImage::ImageRgb8(RgbImage::new(8, 8));
         assert!(matches!(
             apply_for_recipe(Cow::Borrowed(&eight), &recipe, 1.0),
-            Cow::Borrowed(_)
+            Ok(Cow::Borrowed(_))
         ));
+    }
+
+    #[test]
+    fn version_5_without_a_gpu_fails_instead_of_falling_back() {
+        // No device is registered in these tests.
+        let recipe = serde_json::json!({ VERSION_KEY: 5 });
+        let fringed = DynamicImage::ImageRgb32F(branch(2));
+        let error = apply_for_recipe(Cow::Borrowed(&fringed), &recipe, 1.0)
+            .expect_err("no CPU fallback");
+        assert!(error.contains("graphics card"), "{error}");
+        let plan = plan_for(5, 0.0, 1.0);
+        assert!(plan.gpu && plan.colour_lines && plan.axial.is_some());
+        assert_eq!(
+            Plan { gpu: false, ..plan },
+            plan_for(4, 0.0, 1.0),
+            "version 5 plans version 4's stages"
+        );
     }
 
     #[test]

@@ -13721,3 +13721,215 @@ fn multiscale_color_noise_gpu_pyramid_stage_probe() {
         }
     }
 }
+
+/// A synthetic photo for the edge-fringe pass: dark branches with red and
+/// cyan fringes against a bright sky at several angles, lamps with purple
+/// rings and green rims on a dark ground (axial CA), cyan/magenta patches
+/// with a misregistered seam, thin orange strokes along a grey edge (a
+/// third colour), a few slightly negative wide-gamut pixels, and Gaussian-
+/// like luminance noise of `sigma` (linear).
+fn edge_fringe_scene(width: u32, height: u32, sigma: f32) -> image::Rgb32FImage {
+    let noise = |x: u32, y: u32, c: u32| {
+        let mut h = x
+            .wrapping_mul(0x9E37_79B1)
+            .wrapping_add(y.wrapping_mul(0x85EB_CA77))
+            .wrapping_add(c.wrapping_mul(0xC2B2_AE3D));
+        let mut sum = 0.0;
+        for _ in 0..3 {
+            h ^= h >> 15;
+            h = h.wrapping_mul(0x2C1B_3C6D);
+            h ^= h >> 12;
+            sum += (h & 0xFFFF) as f32 / 65535.0;
+        }
+        (sum - 1.5) * 2.0
+    };
+    image::Rgb32FImage::from_fn(width, height, |x, y| {
+        let (fx, fy) = (x as f32, y as f32);
+        let band = (y * 4 / height.max(1)).min(3);
+        let mut c = match band {
+            // Sky with branches at several angles and widths.
+            0 | 1 => {
+                let mut c = [0.78 + 0.05 * fx / width as f32, 0.8, 0.83];
+                for (k, angle) in [0.0f32, 0.35, 1.1, 1.57, 2.3].into_iter().enumerate() {
+                    let period = 61.0 + 13.0 * k as f32;
+                    let (s, cs) = angle.sin_cos();
+                    let d = (fx * cs + fy * s).rem_euclid(period) - period / 2.0;
+                    let half = 0.5 + 0.5 * k as f32;
+                    if d.abs() < half {
+                        c = [0.04, 0.045, 0.05];
+                    } else if d > -half - 1.5 && d < -half {
+                        c = [0.55, 0.32, 0.3];
+                    } else if d > half && d < half + 1.5 {
+                        c = [0.3, 0.55, 0.56];
+                    }
+                }
+                c
+            }
+            // Lamps: bright discs, purple rings outside, green rims inside.
+            2 => {
+                let (cx, cy) = ((fx / 70.0).floor() * 70.0 + 35.0, (fy / 70.0).floor() * 70.0 + 35.0);
+                let r = (fx - cx).hypot(fy - cy);
+                if r < 14.0 {
+                    [0.92, 0.9, 0.88]
+                } else if r < 17.0 {
+                    [0.35, 0.55, 0.3]
+                } else if r < 23.0 {
+                    let t = (23.0 - r) / 6.0;
+                    [0.03 + 0.12 * t, 0.02, 0.04 + 0.35 * t]
+                } else {
+                    [0.02, 0.02, 0.025]
+                }
+            }
+            // Cyan/magenta patches with red a pixel off, and orange strokes
+            // along a grey edge.
+            _ => {
+                if x % 96 < 64 {
+                    let side = |x: u32| ((x / 16) + (y / 16)) % 2 == 0;
+                    let (a, b) = ([0.1, 0.5, 0.6], [0.6, 0.12, 0.5]);
+                    let base = if side(x) { a } else { b };
+                    let red = if side(x + 1) { a[0] } else { b[0] };
+                    [red, base[1], base[2]]
+                } else if x % 96 < 70 {
+                    [0.7, 0.35, 0.05]
+                } else if x % 96 < 83 {
+                    [0.6, 0.6, 0.6]
+                } else {
+                    [0.08, 0.08, 0.08]
+                }
+            }
+        };
+        if (x * 7 + y * 3) % 211 == 0 {
+            c[2] = -0.004;
+        }
+        let n = sigma * noise(x, y, 0);
+        image::Rgb([
+            c[0] * (1.0 + n) + 0.3 * sigma * noise(x, y, 1),
+            c[1] * (1.0 + n),
+            c[2] * (1.0 + n) + 0.3 * sigma * noise(x, y, 2),
+        ])
+    })
+}
+
+/// Per-channel differences of two float images: (mean, p99.9, max, share
+/// of values more than one 16-bit code apart).
+fn float_differences(a: &[f32], b: &[f32]) -> (f64, f32, f32, f64) {
+    assert_eq!(a.len(), b.len());
+    let mut d: Vec<f32> = a.iter().zip(b).map(|(a, b)| (a - b).abs()).collect();
+    let mean = d.iter().map(|&v| v as f64).sum::<f64>() / d.len() as f64;
+    let apart = d.iter().filter(|&&v| v > 1.0 / 65535.0).count() as f64 / d.len() as f64;
+    d.sort_by(f32::total_cmp);
+    let p999 = d[(d.len() * 999 / 1000).min(d.len() - 1)];
+    (mean, p999, *d.last().unwrap(), apart)
+}
+
+fn fringe_recipe_render(image: &DynamicImage, version: u64, scale: f32) -> DynamicImage {
+    rawtonic_engine::edge_fringe::apply_for_recipe(
+        std::borrow::Cow::Borrowed(image),
+        &json!({ (rawtonic_engine::edge_fringe::VERSION_KEY): version }),
+        scale,
+    )
+    .expect("the edge-fringe pass")
+    .into_owned()
+}
+
+/// `fringeVersion` 5 is version 4 computed on the GPU: on photos exercising
+/// every stage (low noise: chromatic-aberration, luminance and colour-line
+/// stages; noisy: the first two in 5 × 5 windows), RGB and RGBA, full and
+/// reduced scale, several bands, its output matches version 4's on the CPU
+/// within float rounding, and it changes the same pixels.
+#[test]
+#[ignore = "requires a native GPU"]
+fn edge_fringe_version_5_on_the_gpu_matches_version_4() {
+    let context = context();
+    rawtonic_engine::edge_fringe::gpu::register(context.device.clone(), context.queue.clone());
+    for (sigma, scale, rgba) in [
+        (0.002, 1.0, false),
+        (0.002, 1.0, true),
+        (0.06, 1.0, false),
+        (0.002, 0.5, false),
+    ] {
+        // 4096 px wide: several bands of the GPU pass.
+        let scene = edge_fringe_scene(4096, 640, sigma);
+        let image = if rgba {
+            DynamicImage::ImageRgba32F(DynamicImage::ImageRgb32F(scene).to_rgba32f())
+        } else {
+            DynamicImage::ImageRgb32F(scene)
+        };
+        let cpu = fringe_recipe_render(&image, 4, scale);
+        let gpu = fringe_recipe_render(&image, 5, scale);
+        let floats = |i: &DynamicImage| match i {
+            DynamicImage::ImageRgb32F(i) => i.as_raw().clone(),
+            DynamicImage::ImageRgba32F(i) => i.as_raw().clone(),
+            _ => unreachable!(),
+        };
+        let (source, cpu, gpu) = (floats(&image), floats(&cpu), floats(&gpu));
+        let changed_cpu = source.iter().zip(&cpu).filter(|(a, b)| a != b).count();
+        let changed_gpu = source.iter().zip(&gpu).filter(|(a, b)| a != b).count();
+        let (mean, p999, max, apart) = float_differences(&cpu, &gpu);
+        eprintln!(
+            "sigma {sigma} scale {scale} rgba {rgba}: changed CPU {changed_cpu} GPU {changed_gpu} of {}, \
+             |GPU - CPU| mean {mean:.2e} p99.9 {p999:.2e} max {max:.2e}, > 1 code {:.4} %",
+            source.len(),
+            100.0 * apart
+        );
+        assert!(changed_cpu > source.len() / 50, "the scene exercises the pass");
+        let relative = (changed_gpu as f64 / changed_cpu as f64 - 1.0).abs();
+        assert!(relative < 0.002, "changed values CPU {changed_cpu} GPU {changed_gpu}");
+        assert!(mean < 2e-6, "mean difference {mean:e}");
+        assert!(p999 < 2e-4, "p99.9 difference {p999:e}");
+        assert!(apart < 0.002, "{:.3} % of values more than one code apart", 100.0 * apart);
+        if rgba {
+            for (s, g) in source.chunks_exact(4).zip(gpu.chunks_exact(4)) {
+                assert_eq!(s[3].to_bits(), g[3].to_bits(), "alpha is kept");
+            }
+        }
+    }
+}
+
+/// The GPU pass gives the same bits whatever its tiles: each tile reads
+/// the pixels its stages reach around it.
+#[test]
+#[ignore = "requires a native GPU"]
+fn edge_fringe_gpu_tiles_do_not_change_the_result() {
+    use rawtonic_engine::edge_fringe;
+    let context = context();
+    edge_fringe::gpu::register(context.device.clone(), context.queue.clone());
+    let (w, h) = (300usize, 700usize);
+    for (sigma, noise, scale) in [(0.002, 0.004, 1.0), (0.06, 0.05, 1.0), (0.002, 0.004, 0.6)] {
+        let scene = edge_fringe_scene(w as u32, h as u32, sigma);
+        let plan = edge_fringe::plan_of(5, noise, scale);
+        assert!(plan.gpu);
+        let mut whole = scene.as_raw().clone();
+        edge_fringe::apply_on_gpu_in_tiles(&mut whole, w, h, 3, plan, w.max(h)).unwrap();
+        assert_ne!(&whole, scene.as_raw());
+        for tile in [7, 40, 97, 256] {
+            let mut tiled = scene.as_raw().clone();
+            edge_fringe::apply_on_gpu_in_tiles(&mut tiled, w, h, 3, plan, tile).unwrap();
+            let same = whole
+                .iter()
+                .zip(&tiled)
+                .all(|(a, b)| a.to_bits() == b.to_bits());
+            assert!(same, "noise {noise} scale {scale}, tiles of {tile} px");
+        }
+    }
+}
+
+/// Wall time of the edge-fringe pass, version 4 on the CPU and version 5 on
+/// the GPU, on a 6000 × 4000 synthetic photo (`-- --ignored --nocapture`).
+#[test]
+#[ignore = "requires a native GPU; timing probe"]
+fn edge_fringe_gpu_timing_probe() {
+    let context = context();
+    rawtonic_engine::edge_fringe::gpu::register(context.device.clone(), context.queue.clone());
+    let image = DynamicImage::ImageRgb32F(edge_fringe_scene(6000, 4000, 0.002));
+    for version in [4, 5, 4, 5, 4, 5] {
+        let start = Instant::now();
+        let out = fringe_recipe_render(&image, version, 1.0);
+        let ms = start.elapsed().as_secs_f64() * 1e3;
+        std::hint::black_box(out);
+        eprintln!(
+            "{}",
+            json!({"probe": "edge_fringe", "version": version, "size": [6000, 4000], "ms": ms})
+        );
+    }
+}

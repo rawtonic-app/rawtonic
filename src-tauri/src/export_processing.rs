@@ -290,7 +290,7 @@ fn export_masks_for_image(
 ) -> Result<(), String> {
     ensure_export_not_cancelled(cancellation_token)?;
     let (transformed_image, unscaled_crop_offset) =
-        apply_all_transformations(Cow::Borrowed(base_image), js_adjustments);
+        apply_all_transformations(Cow::Borrowed(base_image), js_adjustments)?;
     ensure_export_not_cancelled(cancellation_token)?;
     let (img_w, img_h) = transformed_image.dimensions();
     let mask_definitions: Vec<MaskDefinition> = js_adjustments
@@ -1864,7 +1864,7 @@ fn estimate_sizes(
         let preview_byte_size = preview_bytes.len();
 
         let (transformed_full_res, _) =
-            apply_all_transformations(&loaded_image.image, &adjustments_clone);
+            apply_all_transformations(&loaded_image.image, &adjustments_clone)?;
         let (full_w, full_h) = transformed_full_res.dimensions();
 
         let (final_full_w, final_full_h) =
@@ -1931,7 +1931,7 @@ fn estimate_sizes(
         }
 
         let (transformed_shrunk_res, unscaled_crop_offset) =
-            apply_all_transformations(Cow::Borrowed(&original_image), &js_adjustments);
+            apply_all_transformations(Cow::Borrowed(&original_image), &js_adjustments)?;
         let (shrunk_w, shrunk_h) = transformed_shrunk_res.dimensions();
 
         let preview_base = if shrunk_w > ESTIMATE_DIM || shrunk_h > ESTIMATE_DIM {

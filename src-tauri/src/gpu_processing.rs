@@ -205,6 +205,10 @@ pub fn get_or_init_gpu_context(
         display_space,
     };
     crate::gpu_demosaic::register(new_context.device.clone(), new_context.queue.clone());
+    rawtonic_engine::edge_fringe::gpu::register(
+        new_context.device.clone(),
+        new_context.queue.clone(),
+    );
     *context_lock = Some(new_context.clone());
     Ok(new_context)
 }

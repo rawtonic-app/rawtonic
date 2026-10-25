@@ -28,6 +28,9 @@ image = "0.25.10"
 imageproc = { version = "0.27.0", default-features = false, features = ["rayon", "fft"] }
 png = "0.18.1"
 rayon = "1.12.0"
+# The edge-fringe pass of fringeVersion 5 runs on the GPU (edge_fringe/gpu.rs).
+wgpu = "29.0"
+pollster = "1.0"
 bytemuck = { version = "1.25", features = ["derive"] }
 glam = "0.33.5"
 nalgebra = "0.35.0"

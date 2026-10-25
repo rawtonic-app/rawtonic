@@ -363,7 +363,7 @@ fn build_reduced_preview_base(
     let warped = {
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("preview_base_fringe");
-        rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, scale)
+        rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, scale)?
     };
     let blurred = crate::lens_blur::apply_lens_blur(warped, adjustments);
     let (transformed, _) = crate::adjustment_utils::apply_spatial_transformations(blurred, &scaled);
@@ -569,7 +569,7 @@ pub(crate) fn compute_patched_and_warped(
     };
 
     let warped = apply_geometry_warp(patched_image, adjustments);
-    let warped = rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, 1.0);
+    let warped = rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, 1.0)?;
     let blurred = crate::lens_blur::apply_lens_blur(warped, adjustments);
 
     // No-op geometry/blur/fringe pass returns the input borrow. Retain the shared buffer
@@ -2740,7 +2740,7 @@ pub(crate) async fn generate_uncropped_preview(
             Cow::Owned(warp_image_geometry(&pre_geometry_base, adjusted_params)),
             &adjustments_clone,
             scale_for_gpu,
-        )
+        )?
         .into_owned();
         let orientation_steps = adjustments_clone["orientationSteps"].as_u64().unwrap_or(0) as u8;
         let flipped_image = apply_flip(
@@ -2900,7 +2900,7 @@ pub(crate) async fn generate_preview_for_path(
                 .map_err(|e| e.to_string())?;
 
         let (transformed_image, unscaled_crop_offset) =
-            apply_all_transformations(base_image, &js_adjustments);
+            apply_all_transformations(base_image, &js_adjustments)?;
         let (img_w, img_h) = transformed_image.dimensions();
         let mask_definitions: Vec<MaskDefinition> = js_adjustments
             .get("masks")
@@ -3166,7 +3166,8 @@ mod preview_memory_tests {
         preview_dim: u32,
     ) -> preview_cache::PreviewBase {
         let warped = apply_geometry_warp(source, adjustments);
-        let warped = rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, 1.0);
+        let warped =
+            rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, 1.0).unwrap();
         let (transformed, offset) =
             crate::adjustment_utils::apply_spatial_transformations(warped, adjustments);
         let full_width = transformed.width();
