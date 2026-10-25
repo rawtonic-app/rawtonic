@@ -11018,6 +11018,8 @@ fn multiscale_color_noise_matches_its_cpu_reference() {
         (9, 15, 65),
         (10, 25, 50),
         (10, 15, 65),
+        (11, 25, 50),
+        (11, 15, 65),
     ];
     for (version, color, detail) in cases {
         let gpu = render_source(
@@ -11177,6 +11179,16 @@ fn multiscale_color_noise_at_zero_or_without_version_is_unchanged() {
     assert_ne!(
         render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 10})),
         render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 9}))
+    );
+    // Version 11 is version 10 on the GPU: without luminance noise
+    // reduction at Color 0 nothing reads its pyramid.
+    assert_eq!(
+        render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 11})),
+        render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 10}))
+    );
+    assert_ne!(
+        render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 11})),
+        render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 10}))
     );
     // Version 3 keeps more of the quiet coarse levels than version 2.
     assert_ne!(
@@ -11498,6 +11510,7 @@ fn multiscale_color_noise_latency_probe() {
                 transform_hash: 0,
                 chroma: None,
                 chroma_gpu: None,
+                chroma_levels: None,
                 spare: None,
             };
             let mut times = Vec::new();
@@ -11515,6 +11528,7 @@ fn multiscale_color_noise_latency_probe() {
                     interactive,
                     None,
                 )
+                .unwrap()
                 .unwrap();
                 context
                     .device
@@ -11532,11 +11546,56 @@ fn multiscale_color_noise_latency_probe() {
             );
         }
     }
+    // A new source's first frame: the pyramid built, measured and rebuilt
+    // (version 10: on the CPU from the image's pixels; version 11: on the
+    // GPU from the input texture), as a display frame and as an export.
+    for (width, height) in [(2304u32, 1536u32), (6000, 4000)] {
+        let image = chroma_noise_frame(width, height);
+        let gpu = GpuProcessor::new(context.clone(), width, height).unwrap();
+        for (version, interactive) in [(10, true), (10, false), (11, true), (11, false)] {
+            let mut times = Vec::new();
+            for frame in 0..7 {
+                let mut source = chroma_test_source(&context, &image);
+                context
+                    .device
+                    .poll(wgpu::PollType::wait_indefinitely())
+                    .unwrap();
+                let profile = json!({"colorNoiseReduction": 25, "colorNoiseVersion": version});
+                let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+                let start = Instant::now();
+                prepare_color_noise(
+                    &context,
+                    &gpu,
+                    &mut source,
+                    Some(&image),
+                    &mut adjustments,
+                    interactive,
+                    None,
+                )
+                .unwrap()
+                .unwrap();
+                context
+                    .device
+                    .poll(wgpu::PollType::wait_indefinitely())
+                    .unwrap();
+                if frame >= 2 {
+                    times.push(start.elapsed().as_secs_f64() * 1000.0);
+                }
+            }
+            times.sort_by(f64::total_cmp);
+            println!(
+                "{}",
+                json!({"probe":"color_noise_first_frame","size":[width,height],"version":version,
+                    "display":interactive,"median_ms":times[times.len()/2],
+                    "min_ms":times[0],"max_ms":times[times.len()-1]})
+            );
+        }
+    }
     let processor = ProcessorSlot::new(None);
     let cache = Mutex::new(None);
     // Twice, so the first pass compiles the pipelines and fills the caches.
     for pass in 0..3 {
-        for version in 1..=10 {
+        for version in 1..=11 {
             for slider in ["exposure", "colorNoiseReduction"] {
                 let mut times = Vec::new();
                 for frame in 0..24 {
@@ -11607,6 +11666,7 @@ fn multiscale_color_noise_rebuilds_alike_on_gpu_and_cpu() {
                 transform_hash: 0,
                 chroma: None,
                 chroma_gpu: None,
+                chroma_levels: None,
                 spare: None,
             };
             let profile = json!({"colorNoiseReduction": 60, "colorNoiseVersion": version});
@@ -11620,6 +11680,7 @@ fn multiscale_color_noise_rebuilds_alike_on_gpu_and_cpu() {
                 interactive,
                 None,
             )
+            .unwrap()
             .unwrap();
             let (pixels, ..) = processor
                 .run_with_shader(
@@ -11698,6 +11759,7 @@ fn multiscale_color_noise_version_switch_rebuilds_the_prepared_levels() {
             transform_hash: 0,
             chroma: None,
             chroma_gpu: None,
+            chroma_levels: None,
             spare: None,
         }
     };
@@ -11713,6 +11775,7 @@ fn multiscale_color_noise_version_switch_rebuilds_the_prepared_levels() {
             true,
             None,
         )
+        .unwrap()
         .unwrap();
         let (pixels, ..) = processor
             .run_with_shader(
@@ -11759,6 +11822,379 @@ fn multiscale_color_noise_version_switch_rebuilds_the_prepared_levels() {
     assert!(render(&mut kept, 4) == fresh4);
     assert!(render(&mut kept, 2) == fresh2);
     assert!(render(&mut kept, 5) == fresh5);
+}
+
+/// `image` as the renderer's input texture holds it (16-bit floats).
+fn f16_rounded(image: &DynamicImage) -> DynamicImage {
+    let mut rgb = image.to_rgb32f();
+    rgb.iter_mut()
+        .for_each(|v| *v = half::f16::from_f32(*v).to_f32());
+    DynamicImage::ImageRgb32F(rgb)
+}
+
+/// A whole-photo source of `image` for `prepare_color_noise`.
+fn chroma_test_source(context: &GpuContext, image: &DynamicImage) -> GpuImageCache {
+    let texture = create_input_texture(&context.device, &context.queue, image, 256).unwrap();
+    GpuImageCache {
+        texture_view: texture.create_view(&Default::default()),
+        texture,
+        width: image.width(),
+        height: image.height(),
+        transform_hash: 0,
+        chroma: None,
+        chroma_gpu: None,
+        chroma_levels: None,
+        spare: None,
+    }
+}
+
+/// `profile` rendered from `source` through `prepare_color_noise` (display
+/// frames: `interactive`), 16-bit.
+fn render_chroma_source(
+    context: &GpuContext,
+    processor: &GpuProcessor,
+    source: &mut GpuImageCache,
+    image: Option<&DynamicImage>,
+    profile: &serde_json::Value,
+    interactive: bool,
+) -> Vec<u16> {
+    let mut adjustments = get_all_adjustments_from_json(profile, true, Some(1));
+    let views = prepare_color_noise(
+        context,
+        processor,
+        source,
+        image,
+        &mut adjustments,
+        interactive,
+        None,
+    )
+    .unwrap();
+    let (pixels, ..) = processor
+        .run_with_shader(
+            &source.texture_view,
+            source.width,
+            source.height,
+            RenderRequest {
+                adjustments,
+                mask_bitmaps: &[],
+                lut: None,
+                roi: None,
+            },
+            false,
+            RenderOutputPrecision::SixteenBit,
+            ReadbackShader::Export,
+            views.as_ref().map(|views| (&views.0, &views.1)),
+        )
+        .unwrap();
+    match pixels {
+        RenderedPixels::U16(pixels) => pixels,
+        RenderedPixels::U8(_) => unreachable!(),
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU"]
+fn multiscale_color_noise_version_11_measures_as_the_cpu_pyramid() {
+    use rawtonic_engine::color_noise;
+    let context = context();
+    let pipelines = ChromaPipelines::new(&context.device).unwrap();
+    // A wide, a large and an odd-sized frame; linear and sRGB-encoded; a
+    // brightness ramp so the noise profile has several bins.
+    let ramp = |image: DynamicImage| {
+        let (w, h) = (image.width(), image.height());
+        let rgb = image.to_rgb32f();
+        DynamicImage::ImageRgb32F(ImageBuffer::from_fn(w, h, |x, y| {
+            let k = 0.15 + 1.5 * x as f32 / w as f32;
+            image::Rgb(rgb.get_pixel(x, y).0.map(|v| v * k))
+        }))
+    };
+    let srgb = |image: DynamicImage| DynamicImage::ImageRgb8(image.to_rgb8());
+    let cases = [
+        (chroma_noise_frame(2300, 300), true),
+        (ramp(chroma_noise_frame(1500, 1000)), true),
+        (ramp(chroma_noise_frame(97, 61)), true),
+        (srgb(ramp(chroma_noise_frame(640, 480))), false),
+    ];
+    for (image, linear) in cases {
+        let (width, height) = (image.width(), image.height());
+        let texture = create_input_texture(&context.device, &context.queue, &image, 256).unwrap();
+        let view = texture.create_view(&Default::default());
+        let gpu = GpuPyramid::build(&context, &pipelines, &view, width, height, linear)
+            .unwrap()
+            .unwrap();
+        let cpu = ChromaPyramid::build_with(&f16_rounded(&image), linear, true).unwrap();
+        for (l, level) in cpu.levels.iter().enumerate() {
+            assert_eq!(
+                gpu.sizes[l],
+                [level.width as u32, level.height as u32],
+                "level {l}"
+            );
+        }
+        let relative = |a: f32, b: f32| (a - b).abs() / b.abs().max(1e-6);
+        let m = gpu.measured;
+        println!(
+            "{width}x{height}: noise GPU {:?} CPU {:?}; luma {:?} / {:?}",
+            m.noise, cpu.noise, m.luma_noise, cpu.luma_noise
+        );
+        // The same blocks and selection; only the GPU's summation order (and
+        // an 8-bit input's 16-bit float copy) differ.
+        let tolerance = if linear { 1e-3 } else { 5e-3 };
+        for l in 0..color_noise::LEVELS {
+            assert!(relative(m.noise[l], cpu.noise[l]) < tolerance, "noise {l}");
+            assert!(
+                relative(m.luma_noise[l], cpu.luma_noise[l]) < tolerance,
+                "luma noise {l}"
+            );
+        }
+        for b in 0..color_noise::PROFILE_BINS {
+            assert!(
+                relative(m.profile[b], cpu.profile[b]) < tolerance,
+                "profile {b}"
+            );
+            assert!(
+                relative(m.luma_profile[b], cpu.luma_profile[b]) < tolerance,
+                "luma profile {b}"
+            );
+        }
+    }
+    // Too small to filter, as on the CPU.
+    let tiny = chroma_noise_frame(15, 40);
+    let texture = create_input_texture(&context.device, &context.queue, &tiny, 256).unwrap();
+    let view = texture.create_view(&Default::default());
+    assert!(
+        GpuPyramid::build(&context, &pipelines, &view, 15, 40, true)
+            .unwrap()
+            .is_none()
+    );
+    assert!(ChromaPyramid::build(&tiny, true).is_none());
+}
+
+#[test]
+#[ignore = "requires a native GPU"]
+fn multiscale_color_noise_version_11_renders_as_version_10() {
+    // Version 11 is version 10 on the GPU: the same filter from the
+    // renderer's 16-bit input, summed in the GPU's order. Its pixels differ
+    // from version 10's by far less than the filter moves them; most of the
+    // difference is version 10's CPU pyramid reading the 32-bit source.
+    let context = context();
+    for (width, height) in [(2300, 300), (1500, 1000)] {
+        let image = chroma_noise_frame(width, height);
+        for (color, detail, smoothness, luma) in [
+            (25, 50, 50, 0),
+            (50, 50, 50, 0),
+            (100, 50, 50, 0),
+            (15, 65, 50, 0),
+            (40, 35, 80, 15),
+            (0, 50, 50, 15),
+        ] {
+            let render = |version: u64| {
+                render_source(
+                    &context,
+                    &image,
+                    json!({
+                        "colorNoiseReduction": color,
+                        "colorNoiseDetail": detail,
+                        "colorNoiseSmoothness": smoothness,
+                        "lumaNoiseReduction": luma,
+                        "colorNoiseVersion": version
+                    }),
+                    RenderOutputPrecision::SixteenBit,
+                )
+                .to_rgba16()
+                .into_raw()
+            };
+            let (v10, v11) = (render(10), render(11));
+            let unfiltered = render_source(
+                &context,
+                &image,
+                json!({"lumaNoiseReduction": luma}),
+                RenderOutputPrecision::SixteenBit,
+            )
+            .to_rgba16()
+            .into_raw();
+            let mut diffs: Vec<i32> = v10
+                .iter()
+                .zip(&v11)
+                .map(|(a, b)| (*a as i32 - *b as i32).abs())
+                .collect();
+            let changed = v10
+                .iter()
+                .zip(&unfiltered)
+                .map(|(a, b)| (*a as i32 - *b as i32).abs() as f64)
+                .sum::<f64>()
+                / v10.len() as f64;
+            let mean = diffs.iter().map(|d| *d as f64).sum::<f64>() / diffs.len() as f64;
+            diffs.sort_unstable();
+            let pct = |p: f64| diffs[((diffs.len() - 1) as f64 * p) as usize];
+            println!(
+                "{width}x{height} Color {color} Detail {detail} Smoothness {smoothness} Luminance {luma}: v11 vs v10 mean {mean:.3} p99 {} p99.9 {} max {} of 65535; the filter moved pixels {changed:.1} on average",
+                pct(0.99),
+                pct(0.999),
+                diffs[diffs.len() - 1]
+            );
+            assert!(mean < 1.5, "mean {mean}");
+            assert!(pct(0.999) <= 64, "p99.9 {}", pct(0.999));
+            if color > 0 {
+                assert!(changed > 20.0 * mean.max(1.0), "changed {changed}");
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU"]
+fn multiscale_color_noise_version_11_display_frames_and_exports_agree() {
+    // Display frames and exports of version 11 take the same GPU path: the
+    // same pixels from the same source, render after render, also after the
+    // export freed the pyramid's levels and on a source kept across versions.
+    let context = context();
+    let (width, height) = (1500, 1000);
+    let image = chroma_noise_frame(width, height);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    for color in [25, 60] {
+        let profile = json!({"colorNoiseReduction": color, "colorNoiseVersion": 11});
+        let mut export_source = chroma_test_source(&context, &image);
+        let export = render_chroma_source(
+            &context,
+            &processor,
+            &mut export_source,
+            None,
+            &profile,
+            false,
+        );
+        assert!(export_source.chroma.is_none());
+        assert!(export_source.chroma_levels.is_none());
+        let again = render_chroma_source(
+            &context,
+            &processor,
+            &mut export_source,
+            None,
+            &json!({"colorNoiseReduction": color + 5, "colorNoiseVersion": 11}),
+            false,
+        );
+        assert_ne!(export, again);
+        assert!(
+            render_chroma_source(
+                &context,
+                &processor,
+                &mut export_source,
+                None,
+                &profile,
+                false
+            ) == export
+        );
+        let mut display_source = chroma_test_source(&context, &image);
+        let display = render_chroma_source(
+            &context,
+            &processor,
+            &mut display_source,
+            Some(&image),
+            &profile,
+            true,
+        );
+        assert!(display == export, "Color {color}");
+        assert!(display_source.chroma_levels.is_some());
+        // Switching versions on a kept source renders each as from a fresh
+        // one.
+        let v10_profile = json!({"colorNoiseReduction": color, "colorNoiseVersion": 10});
+        let fresh10 = render_chroma_source(
+            &context,
+            &processor,
+            &mut chroma_test_source(&context, &image),
+            Some(&image),
+            &v10_profile,
+            true,
+        );
+        assert_ne!(fresh10, display);
+        for _ in 0..2 {
+            assert!(
+                render_chroma_source(
+                    &context,
+                    &processor,
+                    &mut display_source,
+                    Some(&image),
+                    &v10_profile,
+                    true
+                ) == fresh10
+            );
+            assert!(
+                render_chroma_source(
+                    &context,
+                    &processor,
+                    &mut display_source,
+                    Some(&image),
+                    &profile,
+                    true
+                ) == display
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU"]
+fn multiscale_color_noise_version_11_fails_a_render_whose_pyramid_fails() {
+    // A GPU pyramid that cannot be built (here: a test hook in its place of
+    // a GPU wait timing out) fails the render instead of rendering the photo
+    // with another filter; version 10 builds its pyramid on the CPU.
+    let context = context();
+    let (width, height) = (333, 222);
+    FAILING_PYRAMID_WIDTH.store(width, std::sync::atomic::Ordering::Relaxed);
+    let image = chroma_noise_frame(width, height);
+    let render = |profile: serde_json::Value, display: bool| {
+        process_and_get_dynamic_image_inner(
+            &context,
+            &ProcessorSlot::new(None),
+            &Mutex::new(None),
+            RenderSource::Image {
+                image: &image,
+                transform_hash: 1,
+            },
+            RenderRequest {
+                adjustments: get_all_adjustments_from_json(&profile, true, Some(1)),
+                mask_bitmaps: &[],
+                lut: None,
+                roi: None,
+            },
+            "test",
+            RenderOutputPrecision::SixteenBit,
+            false,
+            None,
+            None,
+            if display {
+                ReadbackShader::Preview
+            } else {
+                ReadbackShader::Export
+            },
+        )
+    };
+    for display in [false, true] {
+        let failed = render(
+            json!({"colorNoiseReduction": 25, "colorNoiseVersion": 11}),
+            display,
+        );
+        assert!(failed.unwrap_err().contains("did not finish"));
+        // Also at Color 0, where the luminance noise reduction takes its
+        // measured noise profile.
+        assert!(
+            render(
+                json!({"colorNoiseReduction": 0, "lumaNoiseReduction": 20, "colorNoiseVersion": 11}),
+                display
+            )
+            .is_err()
+        );
+        assert!(
+            render(
+                json!({"colorNoiseReduction": 25, "colorNoiseVersion": 10}),
+                display
+            )
+            .is_ok()
+        );
+        // Nothing reads the pyramid: no colour noise reduction, no
+        // luminance noise reduction.
+        assert!(render(json!({"colorNoiseVersion": 11}), display).is_ok());
+    }
+    FAILING_PYRAMID_WIDTH.store(0, std::sync::atomic::Ordering::Relaxed);
 }
 
 #[test]
@@ -12904,6 +13340,89 @@ fn portable_grain_is_the_same_on_every_gpu() {
             assert!(
                 worst <= 2.0,
                 "{name} {size}/{roughness}: {worst:.1} codes from the CPU evaluation (grain {spread:.0})"
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; timing probe"]
+fn multiscale_color_noise_gpu_pyramid_stage_probe() {
+    use rawtonic_engine::color_noise;
+    let context = context();
+    let pipelines = ChromaPipelines::new(&context.device).unwrap();
+    let wait = || {
+        context
+            .device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+    };
+    for (width, height) in [(6000u32, 4000u32)] {
+        let image = chroma_noise_frame(width, height);
+        let texture = create_input_texture(&context.device, &context.queue, &image, 256).unwrap();
+        let view = texture.create_view(&Default::default());
+        let tuning = color_noise::Tuning::for_version(11);
+        for _ in 0..4 {
+            wait();
+            let t = Instant::now();
+            let pyramid = GpuPyramid::build(&context, &pipelines, &view, width, height, true)
+                .unwrap()
+                .unwrap();
+            wait();
+            let build = t.elapsed().as_secs_f64() * 1000.0;
+            let t = Instant::now();
+            let _reconstruction = pyramid
+                .reconstruction(&context, &pipelines, &tuning)
+                .unwrap();
+            wait();
+            let prepare = t.elapsed().as_secs_f64() * 1000.0;
+            let t = Instant::now();
+            let mut chroma = ChromaGpu::from_gpu_pyramid(
+                &context, &pipelines, &view, width, height, true, &pyramid,
+            )
+            .unwrap();
+            wait();
+            let energy = t.elapsed().as_secs_f64() * 1000.0;
+            let noise = tuning.level_noise(&pyramid.measured.noise);
+            let thresholds = tuning.thresholds(
+                color_noise::Settings {
+                    amount: 0.25,
+                    detail: 0.5,
+                    smoothness: 0.5,
+                },
+                &noise,
+            );
+            let t = Instant::now();
+            chroma
+                .rebuild_on_gpu(
+                    &context,
+                    &pipelines,
+                    PyramidRef::Gpu(&pyramid),
+                    &thresholds,
+                    0.0,
+                    &tuning,
+                )
+                .unwrap();
+            wait();
+            let rebuild_first = t.elapsed().as_secs_f64() * 1000.0;
+            let t = Instant::now();
+            chroma
+                .rebuild_on_gpu(
+                    &context,
+                    &pipelines,
+                    PyramidRef::Gpu(&pyramid),
+                    &thresholds,
+                    0.0,
+                    &tuning,
+                )
+                .unwrap();
+            wait();
+            let rebuild = t.elapsed().as_secs_f64() * 1000.0;
+            println!(
+                "{}",
+                json!({"probe":"gpu_pyramid_stages","size":[width,height],"build_ms":build,
+                    "pack_energy_ms":energy,"rebuild_with_prepare_ms":rebuild_first,
+                    "prepare_alone_ms":prepare,"rebuild_ms":rebuild})
             );
         }
     }

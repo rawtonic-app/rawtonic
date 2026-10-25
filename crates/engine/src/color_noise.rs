@@ -55,7 +55,11 @@
 //! (`reconstruct`; display frames do the same on the GPU from `prepared`,
 //! crates/gpu/src/shaders/color_noise.wgsl); the renderer does the finest
 //! level per pixel (shader.wgsl, `apply_color_noise_multiscale`) from level 1
-//! and its reconstruction. `apply_to_linear` is the same filter entirely on
+//! and its reconstruction. From version 11 on ([`Tuning::gpu_pyramid`]) the
+//! renderer builds, measures and prepares the pyramid itself
+//! (crates/gpu/src/shaders/color_noise_pyramid.wgsl); the measurement's
+//! selection is shared ([`NoiseMeasurement::from_blocks`]).
+//! `apply_to_linear` is the same filter entirely on
 //! the CPU, for tests and the measurement harness
 //! (crates/gpu/examples/color_nr_harness.rs).
 //!
@@ -80,7 +84,8 @@ use std::sync::{Arc, Mutex};
 /// `colorNoiseReduction`, the newest ([`VERSION`]) when they leave it to the
 /// RAW default (photos never edited; the editor starts them the same way).
 pub const VERSION_KEY: &str = "colorNoiseVersion";
-/// The newest version: 10 (2026-10-24) keeps it within its neighbourhood's
+/// The newest version: 11 (2026-10-25) is version 10 built, measured and
+/// rebuilt on the GPU ([`Tuning::gpu_pyramid`]); 10 (2026-10-24) keeps it within its neighbourhood's
 /// plain reconstruction only, closer ([`Tuning::range_plain`]); 9 (2026-10-20)
 /// keeps each pixel's filtered chroma
 /// within the range of its neighbourhood's filtered reconstruction
@@ -101,7 +106,7 @@ pub const VERSION_KEY: &str = "colorNoiseVersion";
 /// ([`Tuning::linear_means`]); 3 (2026-10-16) keeps more 8–30 px colour
 /// texture where those scales of the photo are quiet ([`Tuning::quiet`],
 /// [`Tuning::coarse_noise_fall`]); 2 is the same filter before that.
-pub const VERSION: u64 = 10;
+pub const VERSION: u64 = 11;
 /// The first version that is this filter (on a base image without the
 /// decode-time chroma clean-up; every later version shares that base).
 pub const MULTISCALE_VERSION: u64 = 2;
@@ -386,6 +391,19 @@ pub struct Tuning {
     /// reconstruction in the range (1.0 σ) cost more edges for fewer specks
     /// (notes: reference/color-noise-reference.md, round 16). Version 10.
     pub range_plain: bool,
+    /// The renderer builds, measures and rebuilds the pyramid on the GPU
+    /// from its input texture (crates/gpu color_noise_pyramid.wgsl) for
+    /// display frames and exports alike, instead of on the CPU from the
+    /// photo's pixels (export) or from CPU-prepared levels (display frames):
+    /// the colour noise pyramid was the largest CPU stage of an export (27 %
+    /// of its CPU time on 27 RAWs; notes: benchmark-results/
+    /// bx3-export-throughput-2026-10-25). The filter is version 10's; it
+    /// reads the input as the renderer holds it (16-bit floats) and sums in
+    /// the GPU's order, so its pixels differ from version 10's within the
+    /// measurement noise of its quality measures (notes: parity-gaps/G17).
+    /// Photos larger than the GPU's texture limit, rendered in windows,
+    /// keep the CPU pyramid. Version 11.
+    pub gpu_pyramid: bool,
 }
 
 impl Default for Tuning {
@@ -456,10 +474,17 @@ impl Tuning {
         if version == 9 {
             return v9;
         }
-        Self {
+        let v10 = Self {
             range_clamp: RANGE_CLAMP_PLAIN,
             range_plain: true,
             ..v9
+        };
+        if version == 10 {
+            return v10;
+        }
+        Self {
+            gpu_pyramid: true,
+            ..v10
         }
     }
 
@@ -501,6 +526,7 @@ impl Tuning {
             speck_luma_after_nr: false,
             range_clamp: 0.0,
             range_plain: false,
+            gpu_pyramid: false,
         }
     }
 
@@ -1478,6 +1504,12 @@ fn smoothest_rms(
             Some(sum / (BLOCK * BLOCK) as f32)
         })
         .collect();
+    smoothest(&mut energies)
+}
+
+/// The RMS of the smoothest [`SMOOTHEST`] share of measured blocks'
+/// mean squared detail `energies`; `None` with fewer than [`MIN_BLOCKS`].
+fn smoothest(energies: &mut [f32]) -> Option<f32> {
     if energies.len() < MIN_BLOCKS {
         return None;
     }
@@ -1499,9 +1531,8 @@ fn noise_profile(
     detail_luma: impl Fn(usize, usize) -> ([f32; 2], f32) + Sync,
     block_measurable: impl Fn(usize, usize) -> bool + Sync,
 ) -> [f32; PROFILE_BINS] {
-    let mut profile = [1.0f32; PROFILE_BINS];
     if global <= 0.0 {
-        return profile;
+        return [1.0; PROFILE_BINS];
     }
     let (bw, bh) = (width / BLOCK, height / BLOCK);
     let (sw, sh) = (bw.div_ceil(stride), bh.div_ceil(stride));
@@ -1521,10 +1552,24 @@ fn noise_profile(
                 }
             }
             let n = (BLOCK * BLOCK) as f32;
-            let bin = ((y / n).clamp(0.0, 0.999_999) * PROFILE_BINS as f32) as usize;
-            Some((bin, sum / n))
+            Some((profile_bin(y / n), sum / n))
         })
         .collect();
+    profile_of(&blocks, global)
+}
+
+/// The profile bin of a block of mean square-root luminance `luma`.
+#[inline]
+fn profile_bin(luma: f32) -> usize {
+    (luma.clamp(0.0, 0.999_999) * PROFILE_BINS as f32) as usize
+}
+
+/// [`noise_profile`] of measured blocks (bin, mean squared detail).
+fn profile_of(blocks: &[(usize, f32)], global: f32) -> [f32; PROFILE_BINS] {
+    let mut profile = [1.0f32; PROFILE_BINS];
+    if global <= 0.0 {
+        return profile;
+    }
     let mut measured = [None; PROFILE_BINS];
     for (bin, slot) in measured.iter_mut().enumerate() {
         let mut energies: Vec<f32> = blocks
@@ -1561,6 +1606,88 @@ pub fn profile_at(profile: &[f32; PROFILE_BINS], y: f32) -> f32 {
     let i = (t as usize).min(PROFILE_BINS - 2);
     let f = t - i as f32;
     profile[i] + f * (profile[i + 1] - profile[i])
+}
+
+/// Each level's noise from its smoothest-blocks RMS (`None`: too few
+/// measurable blocks).
+fn chained(measured: [Option<f32>; LEVELS]) -> [f32; LEVELS] {
+    let mut noise = [0.0f32; LEVELS];
+    for l in 0..LEVELS {
+        noise[l] = match (measured[l], l) {
+            (Some(n), 0) => n,
+            // Demosaiced colour noise is never larger at a coarser
+            // level: more than the finer level's is colour detail.
+            (Some(n), _) => n.min(noise[l - 1]),
+            (None, 0) => 0.0,
+            (None, _) => noise[l - 1] * COARSER_FALLBACK,
+        };
+    }
+    noise
+}
+
+/// The luminance noise profile relative to its median over the bins.
+fn normalize_luma_profile(profile: &mut [f32; PROFILE_BINS]) {
+    let mut sorted = *profile;
+    sorted.sort_by(f32::total_cmp);
+    let middle = 0.5 * (sorted[PROFILE_BINS / 2 - 1] + sorted[PROFILE_BINS / 2]);
+    if middle > 0.0 {
+        profile.iter_mut().for_each(|v| *v /= middle);
+    }
+}
+
+/// A photo's colour and luminance noise as [`ChromaPyramid`] measures it
+/// ([`ChromaPyramid::noise`], `luma_noise`, `profile`, `luma_profile`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NoiseMeasurement {
+    pub noise: [f32; LEVELS],
+    pub luma_noise: [f32; LEVELS],
+    pub profile: [f32; PROFILE_BINS],
+    pub luma_profile: [f32; PROFILE_BINS],
+}
+
+impl NoiseMeasurement {
+    /// The measurement from each level's measured blocks, as the renderer's
+    /// pyramid (crates/gpu color_noise_pyramid.wgsl `block_stats`, version
+    /// 11) gives them: per block taken (every [`block_stride`] blocks of
+    /// [`BLOCK`] × [`BLOCK`] pixels of the finer level, row by row) its mean
+    /// squared chroma detail, mean squared luminance detail, mean
+    /// square-root luminance (level 0 only) and 1 when every coarser sample
+    /// it covers is measurable. The same selection as
+    /// [`ChromaPyramid::build`]'s.
+    pub fn from_blocks(levels: &[Vec<[f32; 4]>; LEVELS]) -> Self {
+        let measurable = |l: usize| levels[l].iter().filter(|b| b[3] > 0.5);
+        let measure = |channel: usize| {
+            chained(std::array::from_fn(|l| {
+                let mut energies: Vec<f32> = measurable(l).map(|b| b[channel]).collect();
+                smoothest(&mut energies)
+            }))
+        };
+        let noise = measure(0);
+        let luma_noise = measure(1);
+        let profile_for = |channel: usize, global: f32| {
+            let blocks: Vec<(usize, f32)> = measurable(0)
+                .map(|b| (profile_bin(b[2]), b[channel]))
+                .collect();
+            profile_of(&blocks, global)
+        };
+        let profile = profile_for(0, noise[0]);
+        let mut luma_profile = profile_for(1, luma_noise[0]);
+        normalize_luma_profile(&mut luma_profile);
+        Self {
+            noise,
+            luma_noise,
+            profile,
+            luma_profile,
+        }
+    }
+}
+
+/// The blocks of a `width` × `height` level the noise is measured in: the
+/// block stride, and how many blocks are taken across and down.
+pub fn measured_blocks(width: usize, height: usize) -> (usize, usize, usize) {
+    let stride = block_stride(width, height);
+    let (bw, bh) = (width / BLOCK, height / BLOCK);
+    (stride, bw.div_ceil(stride), bh.div_ceil(stride))
 }
 
 /// Block stride keeping the measured blocks of a level near this count.
@@ -1716,18 +1843,7 @@ impl ChromaPyramid {
                     |bx, by| block_covered(&masks[l], coarse.width, coarse.height, bx, by),
                 );
             }
-            let mut noise = [0.0f32; LEVELS];
-            for l in 0..LEVELS {
-                noise[l] = match (measured[l], l) {
-                    (Some(n), 0) => n,
-                    // Demosaiced colour noise is never larger at a coarser
-                    // level: more than the finer level's is colour detail.
-                    (Some(n), _) => n.min(noise[l - 1]),
-                    (None, 0) => 0.0,
-                    (None, _) => noise[l - 1] * COARSER_FALLBACK,
-                };
-            }
-            noise
+            chained(measured)
         };
         let noise = measure(0..2);
         let luma_noise = measure(2..3);
@@ -1755,12 +1871,7 @@ impl ChromaPyramid {
             },
             |bx, by| block_covered(&masks[0], g1.width, g1.height, bx, by),
         );
-        let mut sorted = luma_profile;
-        sorted.sort_by(f32::total_cmp);
-        let middle = 0.5 * (sorted[PROFILE_BINS / 2 - 1] + sorted[PROFILE_BINS / 2]);
-        if middle > 0.0 {
-            luma_profile.iter_mut().for_each(|v| *v /= middle);
-        }
+        normalize_luma_profile(&mut luma_profile);
         Some(Self {
             width: w,
             height: h,
@@ -2995,7 +3106,7 @@ mod tests {
         assert!(multiscale(&serde_json::Value::Null, true));
         assert!(!multiscale(&json!({}), false));
         assert_eq!(version(&json!({}), true), VERSION);
-        assert_eq!(VERSION, 10);
+        assert_eq!(VERSION, 11);
         // Saved versions stay; unknown newer ones get the newest.
         assert_eq!(version(&json!({"colorNoiseVersion": 2}), true), 2);
         assert_eq!(version(&json!({"colorNoiseVersion": 3}), true), 3);
@@ -3004,7 +3115,9 @@ mod tests {
         assert_eq!(version(&json!({"colorNoiseVersion": 7}), true), 7);
         assert_eq!(version(&json!({"colorNoiseVersion": 8}), true), 8);
         assert_eq!(version(&json!({"colorNoiseVersion": 9}), true), 9);
-        assert_eq!(version(&json!({"colorNoiseVersion": 11}), true), VERSION);
+        assert_eq!(version(&json!({"colorNoiseVersion": 10}), true), 10);
+        assert_eq!(version(&json!({"colorNoiseVersion": 11}), true), 11);
+        assert_eq!(version(&json!({"colorNoiseVersion": 12}), true), VERSION);
         assert_eq!(version(&json!({"colorNoiseVersion": 0}), true), 1);
     }
 
@@ -3251,11 +3364,100 @@ mod tests {
     }
 
     #[test]
+    fn version_11_is_version_10_on_the_gpu() {
+        // Version 11 changes only where the pyramid is built: every constant
+        // of the filter is version 10's; versions 2-10 keep the CPU pyramid.
+        let (v10, v11) = (Tuning::for_version(10), Tuning::for_version(11));
+        assert_eq!(v11, Tuning::default());
+        assert!(v11.gpu_pyramid);
+        assert_eq!(
+            Tuning {
+                gpu_pyramid: false,
+                ..v11
+            },
+            v10
+        );
+        assert_eq!(v11.finest_guide_code(), v10.finest_guide_code());
+        for version in 1..=10 {
+            assert!(!Tuning::for_version(version).gpu_pyramid);
+        }
+    }
+
+    #[test]
+    fn noise_measured_from_blocks_matches_the_pyramid() {
+        // The block statistics the GPU pyramid reads back give the CPU
+        // pyramid's measurement when they hold the same values.
+        // Brightness rising across the frame, so several profile bins are
+        // measured; colour texture on the right half.
+        let image = noisy(640, 480, 0.03, true, 9);
+        let image = Rgb32FImage::from_fn(640, 480, |x, y| {
+            let k = 0.1 + 1.6 * x as f32 / 640.0;
+            image::Rgb(image.get_pixel(x, y).0.map(|v| v * k))
+        });
+        let source = DynamicImage::ImageRgb32F(image);
+        let pyramid = ChromaPyramid::build_with(&source, true, true).unwrap();
+        let src = Source::new(&source, true);
+        let (w, h) = (src.width, src.height);
+        let (g1, mask1, _) = first_levels(&src, true);
+        let mut masks = vec![mask1];
+        let mut sizes = vec![(g1.width, g1.height)];
+        for l in 1..LEVELS {
+            let (fw, fh) = sizes[l - 1];
+            masks.push(reduce_mask(&masks[l - 1], fw, fh));
+            sizes.push((fw.div_ceil(2), fh.div_ceil(2)));
+        }
+        let blocks: [Vec<[f32; 4]>; LEVELS] = std::array::from_fn(|l| {
+            let (fw, fh) = if l == 0 { (w, h) } else { sizes[l - 1] };
+            let (cw, ch) = sizes[l];
+            let (stride, sw, sh) = measured_blocks(fw, fh);
+            (0..sw * sh)
+                .map(|i| {
+                    let (bx, by) = ((i % sw) * stride, (i / sw) * stride);
+                    let (mut chroma2, mut luma2, mut luma) = (0.0f32, 0.0f32, 0.0f32);
+                    for y in by * BLOCK..(by + 1) * BLOCK {
+                        for x in bx * BLOCK..(bx + 1) * BLOCK {
+                            let (c, e) = if l == 0 {
+                                (
+                                    chroma_luma(src.pixel(x, y)),
+                                    expand_at(&pyramid.levels[0], x, y),
+                                )
+                            } else {
+                                (
+                                    pyramid.levels[l - 1].at(x, y),
+                                    expand_at(&pyramid.levels[l], x, y),
+                                )
+                            };
+                            chroma2 +=
+                                (c[0] - e[0]) * (c[0] - e[0]) + (c[1] - e[1]) * (c[1] - e[1]);
+                            luma2 += (c[2] - e[2]) * (c[2] - e[2]) + 0.0 * 0.0;
+                            luma += c[2];
+                        }
+                    }
+                    let n = (BLOCK * BLOCK) as f32;
+                    let covered = block_covered(&masks[l], cw, ch, bx, by);
+                    [
+                        chroma2 / n,
+                        luma2 / n,
+                        luma / n,
+                        f32::from(u8::from(covered)),
+                    ]
+                })
+                .collect()
+        });
+        let measured = NoiseMeasurement::from_blocks(&blocks);
+        assert_eq!(measured.noise, pyramid.noise);
+        assert_eq!(measured.luma_noise, pyramid.luma_noise);
+        assert_eq!(measured.profile, pyramid.profile);
+        assert_eq!(measured.luma_profile, pyramid.luma_profile);
+        assert!(pyramid.noise[0] > 0.0);
+        assert!(pyramid.profile.windows(2).any(|p| p[0] != p[1]));
+    }
+
+    #[test]
     fn version_9_keeps_its_constants() {
         // Version 9 recipes render exactly as before version 10: the range
         // holds the pixel's own aware reconstruction, margin 1.5 σ.
         let (v9, v10) = (Tuning::for_version(9), Tuning::for_version(10));
-        assert_eq!(v10, Tuning::default());
         assert_eq!((v9.range_plain, v10.range_plain), (false, true));
         assert_eq!(
             (v9.range_clamp, v10.range_clamp),
