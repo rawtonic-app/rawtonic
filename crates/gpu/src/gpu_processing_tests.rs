@@ -7665,6 +7665,7 @@ fn camera_raw_tone_sliders_keep_tones_in_order() {
     let render = |recipe: &serde_json::Value, flag: f32| -> Vec<[u16; 3]> {
         let mut adjustments = get_all_adjustments_from_json(recipe, true, Some(2));
         adjustments.global.tonemapper_mode = 3;
+        set_test_image_key(&mut adjustments, recipe);
         if flag < 1.5 || flag > 2.5 {
             for (i, v) in default_curve.iter().enumerate() {
                 adjustments.global.profile_curve[i / 4][i % 4] = *v;
@@ -7728,7 +7729,7 @@ fn camera_raw_tone_sliders_keep_tones_in_order() {
         }
     }
     recipes.push(json!({ "shadows": 100, "blacks": 100, "exposure": 1.5 }));
-    with_tone_version_2(&mut recipes);
+    with_newer_tone_versions(&mut recipes);
     // Away from the image borders (the blur clamps there). Over up to 24
     // steps (0.1 EV of scene) no channel falls by more than 0.01 EV or two
     // 16-bit codes, whichever is more: Shadows and Blacks read the f16
@@ -7772,22 +7773,49 @@ fn camera_raw_tone_sliders_keep_tones_in_order() {
     );
 }
 
+/// A night frame's image key [10th, 90th, 50th percentile] as recipe fields
+/// (`imageKeyLow`, `imageKey`, `imageKeyMedian`, read by
+/// `set_test_image_key`): log2(p / 0.006) = −5, 4 and 1, about a night
+/// street's, where tone version 3 adapts lowered Highlights fully.
+const NIGHT_KEY: [f64; 3] = [0.006 / 32.0, 0.006 * 16.0, 0.006 * 2.0];
+
+/// Sets the measured image key from a recipe's `imageKey`, `imageKeyLow`
+/// and `imageKeyMedian` (test-only fields; 0 = unknown, as without them).
+fn set_test_image_key(adjustments: &mut AllAdjustments, recipe: &serde_json::Value) {
+    adjustments.global.image_key = recipe["imageKey"].as_f64().unwrap_or(0.0) as f32;
+    adjustments.global.image_key_low = recipe["imageKeyLow"].as_f64().unwrap_or(0.0) as f32;
+    adjustments.global.image_key_median = recipe["imageKeyMedian"].as_f64().unwrap_or(0.0) as f32;
+}
+
+/// `recipe` on the measured image `key` (`NIGHT_KEY`'s form).
+fn with_image_key(recipe: &serde_json::Value, key: [f64; 3]) -> serde_json::Value {
+    let mut recipe = recipe.clone();
+    recipe["imageKeyLow"] = json!(key[0]);
+    recipe["imageKey"] = json!(key[1]);
+    recipe["imageKeyMedian"] = json!(key[2]);
+    recipe
+}
+
 /// Adds, for every recipe with Shadows above +50 or Highlights lowered
 /// (where the tone-slider versions differ), the same recipe with
-/// `toneVersion` 2.
-fn with_tone_version_2(recipes: &mut Vec<serde_json::Value>) {
-    let versioned: Vec<serde_json::Value> = recipes
-        .iter()
-        .filter(|recipe| {
-            recipe["shadows"].as_f64().unwrap_or(0.0) > 50.0
-                || recipe["highlights"].as_f64().unwrap_or(0.0) < 0.0
-        })
-        .map(|recipe| {
-            let mut recipe = recipe.clone();
-            recipe["toneVersion"] = json!(2);
-            recipe
-        })
-        .collect();
+/// `toneVersion` 2, and for lowered Highlights with `toneVersion` 3 on a
+/// night frame's key.
+fn with_newer_tone_versions(recipes: &mut Vec<serde_json::Value>) {
+    let differs = |recipe: &&serde_json::Value| {
+        recipe["shadows"].as_f64().unwrap_or(0.0) > 50.0
+            || recipe["highlights"].as_f64().unwrap_or(0.0) < 0.0
+    };
+    let mut versioned: Vec<serde_json::Value> = Vec::new();
+    for recipe in recipes.iter().filter(differs) {
+        let mut second = recipe.clone();
+        second["toneVersion"] = json!(2);
+        versioned.push(second);
+        if recipe["highlights"].as_f64().unwrap_or(0.0) < 0.0 {
+            let mut third = with_image_key(recipe, NIGHT_KEY);
+            third["toneVersion"] = json!(3);
+            versioned.push(third);
+        }
+    }
     recipes.extend(versioned);
 }
 
@@ -7852,6 +7880,7 @@ fn render_raw_look(
 ) -> Vec<[u16; 3]> {
     let mut adjustments = get_all_adjustments_from_json(recipe, true, Some(mode.min(2)));
     adjustments.global.tonemapper_mode = mode;
+    set_test_image_key(&mut adjustments, recipe);
     if mode == 3 {
         if flag < 1.5 || flag > 2.5 {
             let default_curve: Vec<f32> = include_str!("shaders/shader.wgsl")
@@ -7964,7 +7993,7 @@ fn tone_sliders_keep_tones_in_order_at_every_step() {
             recipes.push(recipe);
         }
     }
-    with_tone_version_2(&mut recipes);
+    with_newer_tone_versions(&mut recipes);
     let columns = 64..(width - 64) as usize;
     let row = (height / 2 * width) as usize;
     let mut failures = Vec::new();
@@ -8057,6 +8086,97 @@ fn tone_version_2_reaches_further_with_strong_shadows_only() {
 }
 
 #[test]
+#[ignore = "requires a native GPU; lowered Highlights of tone version 3 against version 2 on a grey ramp"]
+fn tone_version_3_lowers_highlights_further_in_dark_frames_only() {
+    let context = context();
+    let (width, height) = (2048u32, 8u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let (low_ev, span_ev) = (-14.0f32, 16.0f32);
+    let levels: Vec<f32> = (0..height)
+        .flat_map(|_| 0..width)
+        .map(|x| (2.0f32).powf(low_ev + span_ev * x as f32 / (width - 1) as f32))
+        .collect();
+    let view = grey_texture(&context, width, height, &levels);
+    let look = (3, 2.0);
+    let render = |recipe: serde_json::Value| {
+        render_raw_look(&processor, &view, (width, height), &recipe, look)
+    };
+    let with = |recipe: &serde_json::Value, version: u64, key: [f64; 3]| {
+        let mut recipe = with_image_key(recipe, key);
+        recipe["toneVersion"] = json!(version);
+        recipe
+    };
+    // As version 2 without a key or its median (measured before it was
+    // kept), on frames of daylight key, on a frame of mid tones with a dark
+    // part (dark p10, median 3 EV over the black point), on frames that are
+    // nearly black (a moon on a black sky: lowering it more would darken
+    // the one thing shown), and without lowered Highlights.
+    let daylight = [0.006 * 2.0, 0.006 * 128.0, 0.006 * 12.0];
+    let mid_tones = [0.006, 0.006 * 32.0, 0.006 * 10.0];
+    let nearly_black = [0.0, 0.006 * 0.5, 0.006 * 0.1];
+    let no_median = [NIGHT_KEY[0], NIGHT_KEY[1], 0.0];
+    for recipe in [
+        json!({ "highlights": -100 }),
+        json!({ "highlights": -50, "shadows": 80 }),
+        json!({ "highlights": 60, "shadows": 100 }),
+        json!({ "shadows": -100 }),
+    ] {
+        for key in [
+            [0.0; 3],
+            no_median,
+            daylight,
+            mid_tones,
+            nearly_black,
+            NIGHT_KEY,
+        ] {
+            if key == NIGHT_KEY && recipe["highlights"].as_f64().unwrap_or(0.0) < 0.0 {
+                continue;
+            }
+            assert!(
+                render(with(&recipe, 2, key)) == render(with(&recipe, 3, key)),
+                "{recipe} with key {key:?} differs"
+            );
+        }
+    }
+    // On a night frame's key, −100 and −50 lower the upper tones further
+    // (display above −1 EV of the neutral render), the deep shadows alike.
+    let neutral = render(with(&json!({}), 3, NIGHT_KEY));
+    let row = (height / 2 * width) as usize;
+    let luma = |p: &[u16; 3]| {
+        0.2126 * srgb_code_to_linear(p[0])
+            + 0.7152 * srgb_code_to_linear(p[1])
+            + 0.0722 * srgb_code_to_linear(p[2])
+    };
+    for (amount, top_least) in [(-100, 0.5), (-50, 0.15)] {
+        let recipe = json!({ "highlights": amount });
+        let second = render(with(&recipe, 2, NIGHT_KEY));
+        let third = render(with(&recipe, 3, NIGHT_KEY));
+        let mut extra_top = Vec::new();
+        let mut extra_deep = Vec::new();
+        for x in 64..(width - 64) as usize {
+            let display = luma(&neutral[row + x]).max(1e-9).log2();
+            let extra = (luma(&second[row + x]) / luma(&third[row + x]).max(1e-12)).log2();
+            if (-1.0..-0.1).contains(&display) {
+                extra_top.push(extra);
+            } else if (-9.0..-7.0).contains(&display) {
+                extra_deep.push(extra);
+            }
+        }
+        let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+        assert!(
+            mean(&extra_top) > top_least,
+            "{amount}: upper tones {:.3} EV darker",
+            mean(&extra_top)
+        );
+        assert!(
+            mean(&extra_deep).abs() < 0.01,
+            "{amount}: deep shadows {:.3} EV",
+            mean(&extra_deep)
+        );
+    }
+}
+
+#[test]
 #[ignore = "requires a native GPU; Highlights on a clipped bright disc with a soft rim on a dark background"]
 fn highlights_keep_a_clipped_plateau_above_its_rim() {
     let context = context();
@@ -8085,10 +8205,20 @@ fn highlights_keep_a_clipped_plateau_above_its_rim() {
                     .collect();
                 let view = grey_texture(&context, width, height, &levels);
                 for (look, mode, flag) in RAW_LOOKS {
-                    for (amount, version) in
-                        [(-100, 1), (-50, 1), (50, 1), (100, 1), (-100, 2), (-50, 2)]
-                    {
-                        let recipe = json!({ "highlights": amount, "toneVersion": version });
+                    for (amount, version) in [
+                        (-100, 1),
+                        (-50, 1),
+                        (50, 1),
+                        (100, 1),
+                        (-100, 2),
+                        (-50, 2),
+                        (-100, 3),
+                        (-50, 3),
+                    ] {
+                        let recipe = with_image_key(
+                            &json!({ "highlights": amount, "toneVersion": version }),
+                            NIGHT_KEY,
+                        );
                         let pixels = render_raw_look(
                             &processor,
                             &view,

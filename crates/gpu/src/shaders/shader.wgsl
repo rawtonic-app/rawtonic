@@ -245,7 +245,8 @@ struct GlobalAdjustments {
     // The recipe's Clarity (`clarityVersion`): 1 the band against the plain
     // large blur, 2 against clarity_base.
     clarity_version: u32,
-    _pad_luminance3: u32,
+    // Median of the decode's linear luminance (image_key.rs); 0 = unknown.
+    image_key_median: f32,
 }
 
 struct MaskAdjustments {
@@ -968,6 +969,37 @@ const HL_V2_LOWER: f32 = 3.8;
 const HL_V2_SHAPE: f32 = 1.0;
 const HL_V2_AMOUNT_EXPONENT: f32 = 1.7;
 const HL_V2_RESTORE: f32 = 1.4;
+// Tone version 3: lowering Highlights adapts to the image key, as Camera
+// Raw's does. In dark frames (night streets, candles, lamps) it treats the
+// frame as up to 2 EV brighter (pivot lower by the shift) and compresses
+// ×2 harder per EV of shift; the curve's shape is kept (easing it reached
+// as far but flattened bright areas to a milky grey, detail 0.7 of neutral
+// against Camera Raw's 1.5–2.3). Blend width and the local base's range
+// narrow by 4× per EV of shift, which keeps tones in order across the
+// edges of bright areas. The shift falls with the frame's median, 90th
+// and 10th percentile (in EV over the black point, with the baseline): the
+// median tells a night scene from a frame of mid tones with a dark part
+// (p10 and p90 alone shifted a lit Christmas star as far as a toy on
+// black). It is zero on frames of daylight or mid-tone key (those render
+// as with version 2), faded in by amount^0.5 (−50 at least Camera Raw's −50
+// on the night frames), none without a measured median, and faded out on
+// frames that are nearly black, fully where the 90th percentile is at the
+// black point (a moon on a black sky, where lowering darkens the one thing
+// shown; Camera Raw turns it black). Fitted against Camera Raw's −100
+// change per neutral L* band on 11 dark and mixed raw.pixls.us frames with
+// 27 more as a development set, validated on 10 untouched ones (notes:
+// G05).
+const HL_V3_SHIFT0: f32 = 7.5;
+const HL_V3_MEDIAN_SLOPE: f32 = 1.25;
+const HL_V3_KEY_SLOPE: f32 = 0.75;
+const HL_V3_LOW_SLOPE: f32 = 0.4;
+const HL_V3_SHIFT_MAX: f32 = 2.0;
+const HL_V3_GAIN: f32 = 1.0;
+const HL_V3_AMOUNT_EXPONENT: f32 = 0.5;
+const HL_V3_BLACK_K0: f32 = 0.0;
+const HL_V3_BLACK_K1: f32 = 2.0;
+const HL_V3_BLEND: f32 = 2.0;
+const HL_V3_RANGE: f32 = 2.0;
 const CR_HIGHLIGHTS_DESAT_START: f32 = 0.9;
 const CR_HIGHLIGHTS_DESAT_END: f32 = 2.5;
 const STANDARD_WHITES_RAISE: f32 = 1.7;
@@ -1797,6 +1829,24 @@ fn apply_tonal_adjustments(
     return rgb;
 }
 
+// EV by which lowering Highlights (tone version 3) treats the frame as
+// brighter at −100: 0 on frames of daylight key or without a measured key,
+// at most HL_V3_SHIFT_MAX; faded out as the 90th percentile falls from 2 EV
+// over the black point to it (none at or below it).
+fn hl_v3_shift() -> f32 {
+    let key = adjustments.global.image_key;
+    let median = adjustments.global.image_key_median;
+    if (key <= 0.0 || median <= 0.0) {
+        return 0.0;
+    }
+    let offset = adjustments.global.baseline_exposure - log2(CAMERA_RAW_BLACK_NEUTRAL);
+    let k = log2(key) + offset;
+    let km = log2(max(median, CR_RANGE_FLOOR)) + offset;
+    let kl = log2(max(adjustments.global.image_key_low, CR_RANGE_FLOOR)) + offset;
+    let d = HL_V3_SHIFT0 - HL_V3_MEDIAN_SLOPE * km - HL_V3_KEY_SLOPE * k - HL_V3_LOW_SLOPE * kl;
+    return clamp(d, 0.0, HL_V3_SHIFT_MAX) * smoothstep(HL_V3_BLACK_K0, HL_V3_BLACK_K1, k);
+}
+
 fn apply_highlights_adjustment(
     color_in: vec3<f32>,
     coords_i: vec2<i32>,
@@ -1820,10 +1870,16 @@ fn apply_highlights_adjustment(
     // Version 2 works in units of the look's exposure (baseline applied),
     // so the response sits at the same display levels on every camera.
     var hl_unit = 1.0;
+    // Version 3: dark frames shift the response down and compress harder
+    // (EV of shift, faded in towards −100).
+    var key_shift = 0.0;
     if (v2) {
-        hl_unit = exp2(adjustments.global.baseline_exposure);
+        if (adjustments.global.tone_version > 2.5) {
+            key_shift = hl_v3_shift() * pow(min(-highlights_adj / HL_K100, 1.0), HL_V3_AMOUNT_EXPONENT);
+        }
+        hl_unit = exp2(adjustments.global.baseline_exposure + key_shift);
         l_pivot = HL_V2_PIVOT / hl_unit;
-        lower_gain = HL_V2_LOWER;
+        lower_gain = HL_V2_LOWER * exp2(HL_V3_GAIN * key_shift);
     }
     let highlights_gain = select(
         1.0,
@@ -1862,7 +1918,11 @@ fn apply_highlights_adjustment(
         0.50, 0.50, 0.50, 0.50
     );
 
-    let range_tol = max(pixel_luma * 0.22, 0.03);
+    // Version 3 narrows it as it compresses harder: rim pixels below a
+    // bright plateau otherwise took a base pulled down by the rim, and the
+    // detail lift on that turned tones over across the edge (a light rim
+    // inside a darker band, 0.1 EV on a clipped disc).
+    let range_tol = max(pixel_luma * 0.22, 0.03) * exp2(-HL_V3_RANGE * key_shift);
     let inv_two_range_sq = 1.0 / (2.0 * range_tol * range_tol);
 
     var sum_luma: f32 = pixel_luma;
@@ -1937,7 +1997,10 @@ fn apply_highlights_adjustment(
 
         var blend_width = select(0.35, CR_HIGHLIGHTS_BLEND, base_look_is_camera_raw());
         if (v2) {
-            blend_width = HL_V2_BLEND / hl_unit;
+            // Narrower as version 3 compresses harder: blending the
+            // untouched level into a far lower target over the v2 width
+            // turned tones over (a dark band inside bright edges).
+            blend_width = HL_V2_BLEND * exp2(-HL_V3_BLEND * key_shift) / hl_unit;
         }
         let blend = smoothstep(l_pivot, l_pivot + blend_width, pixel_luma);
         target_luma = mix(pixel_luma, recovered_target, blend);

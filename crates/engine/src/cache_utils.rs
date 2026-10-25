@@ -462,7 +462,7 @@ mod decoded_cache_tests {
         let image = Arc::new(DynamicImage::new_rgb8(2, 2));
         let measures = |level| DecodeMeasures {
             noise_level: Some(level),
-            image_key: Some([0.1, level]),
+            image_key: Some([0.1, level, 0.05]),
         };
         // Two decodes of one file for two recipes.
         cache.insert(
