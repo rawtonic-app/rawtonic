@@ -3,17 +3,8 @@
  * the background, and the step after a rating or flag (auto-advance).
  */
 
-/** Asked for by a rating or flag key in Develop (`AutoAdvanceRequest`). */
+/** Asked for by a rating or flag key on the photograph shown (detail: its path). */
 export const AUTO_ADVANCE_EVENT = "rawtonic:auto-advance";
-
-/** The photograph rated or flagged, how to give it back its previous
- * rating or flag (Undo right after the step), and the flag set (a virtual
- * copy of the same RAW shares it, as it is acknowledged). */
-export interface AutoAdvanceRequest {
-  rated: string;
-  restore: () => void;
-  flag?: number;
-}
 
 /**
  * The direction of a step from index `from` to `to` in a list of `length`
@@ -53,20 +44,10 @@ export function autoAdvanceTarget(paths: string[], open: string | null, rated: s
 }
 
 /**
- * After a rating or flag key in Develop: asks for the step to the next
- * photograph, which happens when auto-advance is on (Preferences). The
- * rating or flag is bound to `rated` before the step; `restore` gives it
- * back its previous one.
+ * After a rating or flag key on the photograph shown: asks for the step to
+ * the next photograph, which happens when auto-advance is on (Preferences).
+ * The rating or flag is bound to `rated` before the step.
  */
-export function requestAutoAdvance(rated: string | undefined, restore: () => void, flag?: number) {
-  if (rated) {
-    window.dispatchEvent(new CustomEvent<AutoAdvanceRequest>(AUTO_ADVANCE_EVENT, { detail: { rated, restore, flag } }));
-  }
-}
-
-/** Whether a flag change of `next` (the photograph stepped to) to `value` is
- * the acknowledged write of the flag `set` on `rated` itself: virtual copies
- * of one RAW share its flag. */
-export function sharedFlagWrite(rated: string, next: string, set: number | undefined, value: number): boolean {
-  return set !== undefined && set === value && rated.split("?vc=")[0] === next.split("?vc=")[0];
+export function requestAutoAdvance(rated: string | undefined) {
+  if (rated) window.dispatchEvent(new CustomEvent<string>(AUTO_ADVANCE_EVENT, { detail: rated }));
 }

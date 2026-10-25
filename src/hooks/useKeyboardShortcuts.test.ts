@@ -670,11 +670,11 @@ describe("auto-advance after a rating", () => {
   it("steps after a flag key's request too, but not in the Library", async () => {
     const { requestAutoAdvance } = await import("../utils/photoStepping");
     open("/s/b.NEF", true);
-    requestAutoAdvance("/s/b.NEF", vi.fn());
+    requestAutoAdvance("/s/b.NEF");
     expect(props.handleImageSelect).toHaveBeenCalledExactlyOnceWith("/s/c.NEF", true);
     vi.clearAllMocks();
     useUIStore.setState({ activeView: "library" });
-    requestAutoAdvance("/s/b.NEF", vi.fn());
+    requestAutoAdvance("/s/b.NEF");
     expect(props.handleImageSelect).not.toHaveBeenCalled();
   });
 
@@ -692,148 +692,22 @@ describe("auto-advance after a rating", () => {
     window.dispatchEvent(
       new KeyboardEvent("keydown", { code: "KeyZ", key: "z", metaKey: true, bubbles: true, cancelable: true }),
     );
-  // What handleImageSelect does to the stores on a step.
-  const stepTo = (path: string) => {
-    useLibraryStore.setState({ multiSelectedPaths: [path] });
-    useEditorStore.getState().setEditor({ selectedImage: { path, isReady: false } as never });
-  };
 
-  it("takes the step and the rating back on Undo before the next photograph is edited", () => {
+  it("keeps the rating on the rated photograph and Undo for the next one's edits", () => {
     open("/s/a.NEF", true);
     useLibraryStore.setState({ imageRatings: { "/s/a.NEF": 2 } });
     press("Digit4", "4");
-    expect(useLibraryStore.getState().imageRatings["/s/a.NEF"]).toBe(4);
-    stepTo("/s/b.NEF");
-    useEditorStore.setState({ historyIndex: 0, historyPending: false });
-    vi.clearAllMocks();
-    undo();
-    expect(useLibraryStore.getState().imageRatings["/s/a.NEF"]).toBe(2);
-    expect(props.handleImageSelect).toHaveBeenCalledExactlyOnceWith("/s/a.NEF", true);
-  });
-
-  it("gives every photograph the rating touched its own rating back (a RAW+JPEG pair)", () => {
-    const pair = [
-      { path: "/s/a.NEF", group_id: "a" },
-      { path: "/s/a.JPG", group_id: "a" },
-      { path: "/s/b.NEF", group_id: "b" },
-    ];
-    cleanup();
-    useSettingsStore.setState({
-      appSettings: { keybinds: {}, autoAdvance: true, grouping: "raw" } as unknown as AppSettings,
-      osPlatform: "macos",
-    });
-    useUIStore.setState({ activeView: "editor" });
-    useLibraryStore.setState({
-      imageList: pair as never,
-      multiSelectedPaths: ["/s/a.NEF"],
-      imageRatings: { "/s/a.NEF": 2, "/s/a.JPG": 5 },
-    });
-    useEditorStore.getState().setEditor({ selectedImage: { path: "/s/a.NEF", isReady: true } as never });
-    renderHook(() => useKeyboardShortcuts({ ...props, sortedImageList: [pair[0], pair[2]] as never }));
-    press("Digit4", "4");
-    expect(useLibraryStore.getState().imageRatings).toMatchObject({ "/s/a.NEF": 4, "/s/a.JPG": 4 });
-    stepTo("/s/b.NEF");
-    useEditorStore.setState({ historyIndex: 0, historyPending: false });
-    undo();
-    expect(useLibraryStore.getState().imageRatings).toMatchObject({ "/s/a.NEF": 2, "/s/a.JPG": 5 });
-  });
-
-  it("takes back only the last rating: none after rating the last photograph", () => {
-    open("/s/b.NEF", true);
-    press("Digit3", "3");
-    stepTo("/s/c.NEF");
-    useEditorStore.setState({ historyIndex: 0, historyPending: false });
-    // The last photograph: rated, no step, nothing for Undo to step back.
-    press("Digit1", "1");
-    vi.clearAllMocks();
-    undo();
-    expect(props.handleImageSelect).not.toHaveBeenCalled();
-    expect(useLibraryStore.getState().imageRatings).toMatchObject({ "/s/b.NEF": 3, "/s/c.NEF": 1 });
-  });
-
-  it("keeps Undo when the flag write's answer reaches a virtual copy of the same RAW stepped to", async () => {
-    const { requestAutoAdvance } = await import("../utils/photoStepping");
-    const copies = ["/s/a.NEF", "/s/a.NEF?vc=2", "/s/b.NEF"].map((path) => ({ path }));
-    cleanup();
-    useSettingsStore.setState({
-      appSettings: { keybinds: {}, autoAdvance: true } as unknown as AppSettings,
-      osPlatform: "macos",
-    });
-    useUIStore.setState({ activeView: "editor" });
-    useLibraryStore.setState({ imageList: copies as never, multiSelectedPaths: ["/s/a.NEF"], imageFlags: {} });
-    useEditorStore.getState().setEditor({ selectedImage: { path: "/s/a.NEF", isReady: true } as never });
-    renderHook(() => useKeyboardShortcuts({ ...props, sortedImageList: copies as never }));
-    const restore = vi.fn();
-    // ⇧X on the master: the step happens before the catalog answers.
-    requestAutoAdvance("/s/a.NEF", restore, -1);
-    expect(props.handleImageSelect).toHaveBeenCalledExactlyOnceWith("/s/a.NEF?vc=2", true);
-    stepTo("/s/a.NEF?vc=2");
-    // The answer: the shared source flag, which the copy shows too.
-    useLibraryStore.getState().setLibrary({ imageFlags: { "/s/a.NEF": -1 } });
-    vi.clearAllMocks();
-    undo();
-    expect(restore).toHaveBeenCalledOnce();
-    expect(props.handleImageSelect).toHaveBeenCalledExactlyOnceWith("/s/a.NEF", true);
-  });
-
-  it("ends what Undo takes back once the next photograph is rated another way", () => {
-    open("/s/a.NEF", true);
-    press("Digit3", "3");
-    stepTo("/s/b.NEF");
-    useEditorStore.setState({ historyIndex: 0, historyPending: false });
-    // Its stars clicked in the footer.
-    useLibraryStore.getState().setLibrary((state) => ({ imageRatings: { ...state.imageRatings, "/s/b.NEF": 2 } }));
-    vi.clearAllMocks();
-    undo();
-    expect(props.handleImageSelect).not.toHaveBeenCalled();
-    expect(useLibraryStore.getState().imageRatings["/s/a.NEF"]).toBe(3);
-  });
-
-  it("takes the step back in Develop's full screen too, where edit keys are off", () => {
-    open("/s/a.NEF", true);
-    useUIStore.setState({ activeView: "editor", isFullScreen: true });
-    useLibraryStore.setState({ imageRatings: { "/s/a.NEF": 1 } });
-    press("Digit4", "4");
     expect(props.handleImageSelect).toHaveBeenCalledExactlyOnceWith("/s/b.NEF", true);
-    stepTo("/s/b.NEF");
-    useEditorStore.setState({ historyIndex: 0, historyPending: false });
+    // The step done (what handleImageSelect does to the stores), then Undo.
+    useLibraryStore.setState({ multiSelectedPaths: ["/s/b.NEF"] });
+    useEditorStore.getState().setEditor({ selectedImage: { path: "/s/b.NEF", isReady: true } as never });
+    useEditorStore.setState({ history: [{}, {}] as never, historyIndex: 1, historyPending: false });
+    const editUndo = vi.spyOn(useEditorStore.getState(), "undo");
     vi.clearAllMocks();
     undo();
-    expect(useLibraryStore.getState().imageRatings["/s/a.NEF"]).toBe(1);
-    expect(props.handleImageSelect).toHaveBeenCalledExactlyOnceWith("/s/a.NEF", true);
-    useUIStore.setState({ isFullScreen: false });
-  });
-
-  it("steps back while the next photograph loads, whatever the rated one's history", () => {
-    open("/s/a.NEF", true);
-    // The rated photograph was edited: its history is still shown while
-    // the next one loads (no decode in memory yet).
-    useEditorStore.setState({ history: [{}, {}, {}, {}] as never, historyIndex: 3, historyPending: false });
-    press("Digit4", "4");
-    stepTo("/s/b.NEF");
-    vi.clearAllMocks();
-    undo();
-    expect(props.handleImageSelect).toHaveBeenCalledExactlyOnceWith("/s/a.NEF", true);
-    expect(useLibraryStore.getState().imageRatings["/s/a.NEF"] ?? 0).toBe(0);
-  });
-
-  it("keeps Undo for the next photograph's edits once it was edited or left", () => {
-    open("/s/a.NEF", true);
-    press("Digit4", "4");
-    stepTo("/s/b.NEF");
-    // Its recipe in (its own history), then an edit.
-    useEditorStore.setState({ history: [{}] as never, historyIndex: 0, historyPending: false });
-    useEditorStore.setState({ history: [{}, {}] as never, historyIndex: 1 });
-    vi.clearAllMocks();
-    undo();
-    expect(useLibraryStore.getState().imageRatings["/s/a.NEF"]).toBe(4);
+    expect(editUndo).toHaveBeenCalledOnce();
     expect(props.handleImageSelect).not.toHaveBeenCalled();
-    // Left for another photograph and back: Undo no longer steps back.
-    useEditorStore.setState({ historyIndex: 0 });
-    stepTo("/s/c.NEF");
-    stepTo("/s/b.NEF");
-    undo();
-    expect(props.handleImageSelect).not.toHaveBeenCalled();
-    expect(useLibraryStore.getState().imageRatings["/s/a.NEF"]).toBe(4);
+    expect(useLibraryStore.getState().imageRatings).toMatchObject({ "/s/a.NEF": 4 });
+    expect(useLibraryStore.getState().imageRatings["/s/b.NEF"]).toBeUndefined();
   });
 });

@@ -60,7 +60,6 @@ import { useSessionBar } from "./sessionBar";
 import { SESSION_ALBUMS_CHANGED } from "../studio/StudioAlbums";
 import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from "../../utils/offline";
 import { requestAutoAdvance } from "../../utils/photoStepping";
-import { imageFlag } from "../../utils/culling";
 import { hotFolderCommand } from "../../utils/hotFolderCommands";
 import { FOLDER_SYNC_APPLIED, IMPORTS_CHANGED, OPEN_FOLDER_SYNC_EVENT, type OpenFolderSyncDetail } from "../../utils/folderSync";
 import IngestPreviewGrid, { fileName, type IngestCandidate } from "./IngestPreviewGrid";
@@ -925,12 +924,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       if (session && flag !== null) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        const rated = useEditorStore.getState().selectedImage?.path;
-        const previous = rated ? imageFlag(useLibraryStore.getState().imageFlags, rated) : 0;
         void mark(flag);
-        if (viewerShown(useUIStore.getState()) && rated) {
-          requestAutoAdvance(rated, () => void mark(previous, [rated]), flag);
-        }
+        if (viewerShown(useUIStore.getState())) requestAutoAdvance(useEditorStore.getState().selectedImage?.path);
       }
     };
     window.addEventListener("keydown", handler, true);

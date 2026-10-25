@@ -1003,7 +1003,6 @@ pub async fn load_image(
         }
 
         let held_key = cache_key.clone();
-        let decoded_cache_app = app_handle.clone();
         let ((pristine_img, measures), exif_data_loaded) = tokio::task::spawn_blocking(move || {
             if generation_tracker.load(Ordering::SeqCst) != my_generation {
                 return Err("Load cancelled".to_string());
@@ -1026,18 +1025,11 @@ pub async fn load_image(
                 std::time::Duration::from_secs(3),
             )
             .or_else(|| {
-                crate::proxy_worker::decode_for_open(&held_key, std::time::Duration::from_secs(3))
-            })
-            .or_else(|| {
-                // Kept by a prefetch that ended since the cache was looked at.
-                use tauri::Manager;
-                decoded_cache_app
-                    .state::<AppState>()
-                    .decoded_image_cache
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .get_measured(&held_key)
-                    .map(|(image, _, measures)| (image, measures))
+                crate::proxy_worker::decode_for_open(
+                    &held_key,
+                    crate::preview_proxy::current_key(Path::new(&path_clone), &settings, variant),
+                    std::time::Duration::from_secs(3),
+                )
             });
             // Its decode goes first (the background work waits).
             let _decoding = held.is_none().then(crate::multi_view_prefetch::PrimaryDecode::start);

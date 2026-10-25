@@ -19,14 +19,7 @@ import { useLibraryActions } from './useLibraryActions';
 import { libraryTool, ownsPanelShortcut, revealLibraryTool } from '../components/studio/workspaceInteractions';
 import { useMultiViewStore, type CellZoomKey } from '../store/useMultiViewStore';
 import { orderedSelection, stepPrimary } from '../utils/multiView';
-import {
-  AUTO_ADVANCE_EVENT,
-  autoAdvanceTarget,
-  requestAutoAdvance,
-  sharedFlagWrite,
-  type AutoAdvanceRequest,
-} from '../utils/photoStepping';
-import { imageFlag } from '../utils/culling';
+import { AUTO_ADVANCE_EVENT, autoAdvanceTarget, requestAutoAdvance } from '../utils/photoStepping';
 import { isTetherConnected, TETHER_CAPTURE_EVENT } from '../components/session/tether';
 import { libraryViewer, viewerOnly, viewerShown } from '../utils/viewerMode';
 import { pointerHeld } from '../utils/heldPointer';
@@ -114,7 +107,7 @@ export const useKeyboardShortcuts = ({
     handleAutoWhiteBalance,
     handleAutoStraighten,
   } = useEditorActions();
-  const { handleRate, setRatings, handleSetColorLabel } = useLibraryActions();
+  const { handleRate, handleSetColorLabel } = useLibraryActions();
 
   // The crop as it was when the crop tool opened: Escape restores it and
   // leaves the tool (Lightroom), Enter keeps the change.
@@ -188,19 +181,9 @@ export const useKeyboardShortcuts = ({
   // Auto-advance (Preferences, off by default; Lightroom's Auto Advance): a
   // rating or flag key on the photograph shown (Develop's single view, the
   // Library's loupe, the full screen) steps to the next one, one key per
-  // photograph while culling.
-  // Undo right after such a step, before anything is edited on the next
-  // photograph, goes back and gives the rated one its previous rating or
-  // flag (Lightroom's Undo of the rating).
-  // `ownHistory`: the edit history shown is the next photograph's (it
-  // replaces the rated one's once that photograph's recipe is in).
-  const lastAdvance = useRef<{
-    from: string;
-    to: string;
-    restore: () => void;
-    ownHistory: boolean;
-    flag?: number;
-  } | null>(null);
+  // photograph while culling. The rating or flag is bound to the rated
+  // photograph before the step; Undo keeps its meaning (Develop: the open
+  // photograph's edits).
   // The loupe and the full screen of the Library keep it (the photograph
   // becomes the Library's selection); Develop opens it.
   const showInViewer = useCallback(
@@ -214,10 +197,7 @@ export const useKeyboardShortcuts = ({
   );
   useEffect(() => {
     const advance = (event: Event) => {
-      const { rated, restore, flag } = (event as CustomEvent<AutoAdvanceRequest>).detail;
-      // A newer rating or flag: Undo no longer takes back an earlier step,
-      // also when this one does not step (the last photograph).
-      lastAdvance.current = null;
+      const rated = (event as CustomEvent<string>).detail;
       if (useSettingsStore.getState().appSettings?.autoAdvance !== true) return;
       const ui = useUIStore.getState();
       if (!viewerShown(ui) || (ui.activeView === 'editor' && useMultiViewStore.getState().active)) return;
@@ -226,33 +206,10 @@ export const useKeyboardShortcuts = ({
         useEditorStore.getState().selectedImage?.path ?? null,
         rated,
       );
-      if (!next) return;
-      showInViewer(next);
-      lastAdvance.current = { from: rated, to: next, restore, ownHistory: false, flag };
+      if (next) showInViewer(next);
     };
     window.addEventListener(AUTO_ADVANCE_EVENT, advance);
-    // Any other photograph opened, or the next one rated, flagged or
-    // labelled otherwise (a click on its stars), ends what Undo takes back.
-    const unsubscribeEditor = useEditorStore.subscribe((state, previous) => {
-      const last = lastAdvance.current;
-      if (last && state.selectedImage?.path !== last.to) lastAdvance.current = null;
-      else if (last && state.history !== previous.history) last.ownHistory = true;
-    });
-    const unsubscribeLibrary = useLibraryStore.subscribe((state, previous) => {
-      const last = lastAdvance.current;
-      if (!last) return;
-      const flag = imageFlag(state.imageFlags, last.to);
-      const flagChanged =
-        flag !== imageFlag(previous.imageFlags, last.to) && !sharedFlagWrite(last.from, last.to, last.flag, flag);
-      if (state.imageRatings[last.to] !== previous.imageRatings[last.to] || flagChanged) {
-        lastAdvance.current = null;
-      }
-    });
-    return () => {
-      window.removeEventListener(AUTO_ADVANCE_EVENT, advance);
-      unsubscribeEditor();
-      unsubscribeLibrary();
-    };
+    return () => window.removeEventListener(AUTO_ADVANCE_EVENT, advance);
   }, [showInViewer]);
 
   const handleCopyImagePaths = useCallback(async (paths: Array<string>) => {
@@ -322,18 +279,9 @@ export const useKeyboardShortcuts = ({
       (s.ui.isFullScreen || libraryViewer(s.ui)) && s.editor.selectedImage ? [s.editor.selectedImage.path] : undefined;
     const ratedPaths = (s: ShortcutState) =>
       shownOnly(s) ?? (multiViewActive(s) && s.editor.selectedImage ? [s.editor.selectedImage.path] : undefined);
-    // Nothing edited on the next photograph yet: its history not in yet (the
-    // rated one's is still shown while it loads), or at its start.
-    const undoesAdvance = (s: ShortcutState) =>
-      !!lastAdvance.current &&
-      s.editor.selectedImage?.path === lastAdvance.current.to &&
-      !s.editor.historyPending &&
-      (!lastAdvance.current.ownHistory || s.editor.historyIndex === 0);
     const rateAndAdvance = (rating: number, s: ShortcutState) => {
-      const rated = s.editor.selectedImage?.path;
-      // Every photograph rated (its grouped files too) gets its own back.
-      const previous = handleRate(rating, ratedPaths(s));
-      if (viewerShown(s.ui) && rated) requestAutoAdvance(rated, () => setRatings(previous));
+      handleRate(rating, ratedPaths(s));
+      if (viewerShown(s.ui)) requestAutoAdvance(s.editor.selectedImage?.path);
     };
     // In the multi view the zoom keys zoom the primary in its cell; with the
     // zoom lock every other cell follows (MultiViewStage). Without the lock
@@ -587,22 +535,14 @@ export const useKeyboardShortcuts = ({
         },
       },
       undo: {
-        // Right after an auto-advance with nothing edited yet: that step and
-        // its rating or flag. Develop: edit history. Library: the last
-        // rename, move or delete.
+        // Develop: edit history. Library: the last rename, move or delete.
         shouldFire: (s) =>
-          (viewerShown(s.ui) && undoesAdvance(s)) ||
-          (s.ui.activeView === 'editor'
+          s.ui.activeView === 'editor'
             ? s.editor.selectedImage?.isReady && (s.editor.historyPending || s.editor.historyIndex > 0)
-            : !!handleUndoFileOperation),
+            : !!handleUndoFileOperation,
         execute: (e, s) => {
           e.preventDefault();
-          if (viewerShown(s.ui) && undoesAdvance(s)) {
-            const { from, restore } = lastAdvance.current!;
-            lastAdvance.current = null;
-            restore();
-            showInViewer(from);
-          } else if (s.ui.activeView === 'editor') s.editor.undo();
+          if (s.ui.activeView === 'editor') s.editor.undo();
           else handleUndoFileOperation?.();
         },
       },
@@ -1198,9 +1138,7 @@ export const useKeyboardShortcuts = ({
         if (
           editsBlocked &&
           RECIPE_ACTIONS.has(action) &&
-          !(state.ui.activeView !== 'editor' && (action === 'undo' || action === 'redo')) &&
-          // Undo of an auto-advance changes no recipe.
-          !(action === 'undo' && undoesAdvance(state))
+          !(state.ui.activeView !== 'editor' && (action === 'undo' || action === 'redo'))
         )
           continue;
         const handler = actions[action];
@@ -1223,7 +1161,6 @@ export const useKeyboardShortcuts = ({
     handleMoveToSelects,
     handleImageSelect,
     showInViewer,
-    setRatings,
     handlePasteFiles,
     handleZoomChange,
     handleRotate,

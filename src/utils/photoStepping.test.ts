@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autoAdvanceTarget, neighboursToPrepare, sharedFlagWrite, stepDirection } from "./photoStepping";
+import { autoAdvanceTarget, neighboursToPrepare, stepDirection } from "./photoStepping";
 
 const paths = ["a", "b", "c", "d", "e"];
 
@@ -43,11 +43,3 @@ describe("autoAdvanceTarget", () => {
   });
 });
 
-describe("sharedFlagWrite", () => {
-  it("tells the rated photograph's own flag, acknowledged on a virtual copy of it, from another flag", () => {
-    expect(sharedFlagWrite("/s/a.NEF", "/s/a.NEF?vc=2", -1, -1)).toBe(true);
-    expect(sharedFlagWrite("/s/a.NEF", "/s/a.NEF?vc=2", -1, 1)).toBe(false);
-    expect(sharedFlagWrite("/s/a.NEF", "/s/b.NEF", -1, -1)).toBe(false);
-    expect(sharedFlagWrite("/s/a.NEF", "/s/a.NEF?vc=2", undefined, 0)).toBe(false);
-  });
-});
