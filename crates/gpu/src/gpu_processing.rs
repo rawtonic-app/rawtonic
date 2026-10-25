@@ -442,6 +442,11 @@ fn wait_without_blocking<T>(
     }
 }
 
+/// Photos of this width fail to build their GPU pyramid (tests of the
+/// failure path).
+#[cfg(test)]
+static FAILING_PYRAMID_WIDTH: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 /// Input pixels per band of the finest energy pass (one submission each).
 const ENERGY_BAND_PIXELS: u32 = 8 << 20;
 
@@ -537,6 +542,10 @@ impl GpuPyramid {
         height: u32,
         is_raw: bool,
     ) -> Result<Option<Self>, String> {
+        #[cfg(test)]
+        if width == FAILING_PYRAMID_WIDTH.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err("GPU work did not finish (test)".to_string());
+        }
         let block = 8;
         if width < 2 * block || height < 2 * block {
             return Ok(None);
@@ -697,7 +706,7 @@ impl GpuPyramid {
         context: &GpuContext,
         pipelines: &ChromaPipelines,
         tuning: &color_noise::Tuning,
-    ) -> ChromaReconstruction {
+    ) -> Result<ChromaReconstruction, String> {
         let rgba = wgpu::TextureFormat::Rgba32Float;
         let noise = tuning.level_noise(&self.measured.noise);
         let luma_noise = self.measured.luma_noise;
@@ -754,11 +763,9 @@ impl GpuPyramid {
             levels.push(prepared);
             follow.push(following);
             rebuilt.push(empty_view(context, "Chroma rebuilt level", size, rgba));
-            if let Err(e) = submit_and_wait(context, encoder) {
-                log::error!("Colour noise pyramid: {e}");
-            }
+            submit_and_wait(context, encoder)?;
         }
-        ChromaReconstruction {
+        Ok(ChromaReconstruction {
             levels,
             follow,
             rebuilt,
@@ -766,7 +773,7 @@ impl GpuPyramid {
             originals: self.levels[1..].to_vec(),
             tuning: *tuning,
             level1: self.levels[0].clone(),
-        }
+        })
     }
 
     /// The coarsest level smoothed by `sigma` samples (`ChromaPyramid::coarsest`);
@@ -990,7 +997,7 @@ impl ChromaGpu {
         height: u32,
         is_raw: bool,
         pyramid: &GpuPyramid,
-    ) -> Self {
+    ) -> Result<Self, String> {
         let [lw, lh] = pyramid.sizes[0];
         let packed = float_texture(
             context,
@@ -1053,12 +1060,10 @@ impl ChromaGpu {
                 &mut encoder,
                 context.device.create_command_encoder(&Default::default()),
             );
-            if let Err(e) = submit_and_wait(context, stage) {
-                log::error!("Colour noise energy: {e}");
-            }
+            submit_and_wait(context, stage)?;
         }
         drop(encoder);
-        chroma
+        Ok(chroma)
     }
 
     /// The finest level's local energy (color_noise.wgsl `finest_energy`)
@@ -1159,7 +1164,7 @@ impl ChromaGpu {
         thresholds: &[f32; color_noise::LEVELS],
         base_sigma: f32,
         tuning: &color_noise::Tuning,
-    ) {
+    ) -> Result<(), String> {
         let device = &context.device;
         if self
             .reconstruction
@@ -1168,10 +1173,15 @@ impl ChromaGpu {
         {
             self.reconstruction = None;
         }
-        let reconstruction = self.reconstruction.get_or_insert_with(|| match pyramid {
-            PyramidRef::Cpu(pyramid) => cpu_reconstruction(context, pyramid, tuning),
-            PyramidRef::Gpu(pyramid) => pyramid.reconstruction(context, pipelines, tuning),
-        });
+        if self.reconstruction.is_none() {
+            self.reconstruction = Some(match pyramid {
+                PyramidRef::Cpu(pyramid) => cpu_reconstruction(context, pyramid, tuning),
+                PyramidRef::Gpu(pyramid) => pyramid.reconstruction(context, pipelines, tuning)?,
+            });
+        }
+        let Some(reconstruction) = self.reconstruction.as_mut() else {
+            unreachable!("set above");
+        };
         let noise = tuning.level_noise(&pyramid.noise());
         let prepared_guide: Vec<bool> = match pyramid {
             PyramidRef::Cpu(pyramid) => pyramid
@@ -1271,6 +1281,7 @@ impl ChromaGpu {
         );
         self.encode_pack(context, pipelines, &mut encoder, &level1, &rebuilt);
         context.queue.submit(Some(encoder.finish()));
+        Ok(())
     }
 
     /// Packs `level1` (xy) and its reconstruction `rebuilt` (xy) into the
@@ -1471,13 +1482,13 @@ fn prepare_color_noise(
     adjustments: &mut crate::image_processing::PreparedAdjustments,
     interactive: bool,
     rebuilt: Option<RebuiltChroma>,
-) -> Option<(wgpu::TextureView, wgpu::TextureView)> {
+) -> Result<Option<(wgpu::TextureView, wgpu::TextureView)>, String> {
     let global = &mut adjustments.uniforms.global;
     let luma_profile = luma_profile_wanted(global);
     let versioned = color_noise_tuning(global);
     let settings = color_noise_settings(global);
     if settings.is_none() && !luma_profile {
-        return None;
+        return Ok(None);
     }
     if versioned.1.gpu_pyramid {
         return prepare_color_noise_on_gpu(
@@ -1519,13 +1530,17 @@ fn prepare_color_noise(
     let Some(pyramid) = cache.chroma.clone() else {
         log::warn!("No chroma pyramid for the render source; colour noise reduction falls back");
         global.color_noise[0] = 0.0;
-        return None;
+        return Ok(None);
     };
     if luma_profile {
         set_luma_profile(global, &pyramid);
     }
-    let settings = settings?;
-    let pipelines = processor.chroma_pipelines.as_ref()?;
+    let Some(settings) = settings else {
+        return Ok(None);
+    };
+    let Some(pipelines) = processor.chroma_pipelines.as_ref() else {
+        return Ok(None);
+    };
     let (thresholds, base_sigma, key) =
         color_noise_thresholds(global, settings, &pyramid.noise, &versioned);
     let tuning = versioned.1;
@@ -1563,7 +1578,7 @@ fn prepare_color_noise(
                 &thresholds,
                 base_sigma,
                 &tuning,
-            );
+            )?;
         } else if let Some(rebuilt) = rebuilt.filter(|rebuilt| rebuilt.key == key) {
             write_whole_texture(
                 context,
@@ -1575,7 +1590,10 @@ fn prepare_color_noise(
         }
         chroma.key = Some(key);
     }
-    Some((chroma.packed_view.clone(), chroma.energy_view.clone()))
+    Ok(Some((
+        chroma.packed_view.clone(),
+        chroma.energy_view.clone(),
+    )))
 }
 
 /// [`prepare_color_noise`] for version 11 (`Tuning::gpu_pyramid`): the
@@ -1592,7 +1610,7 @@ fn prepare_color_noise_on_gpu(
     interactive: bool,
     (settings, luma_profile): (Option<color_noise::Settings>, bool),
     versioned: (u64, color_noise::Tuning),
-) -> Option<(wgpu::TextureView, wgpu::TextureView)> {
+) -> Result<Option<(wgpu::TextureView, wgpu::TextureView)>, String> {
     let global = &mut adjustments.uniforms.global;
     let is_raw = global.is_raw_image != 0;
     if cache.chroma_gpu.as_ref().is_some_and(|chroma| !chroma.gpu) {
@@ -1604,6 +1622,8 @@ fn prepare_color_noise_on_gpu(
     {
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("color_noise_pyramid");
+        // A failure fails the render: exporting with another filter than
+        // the recipe's would go unnoticed.
         cache.chroma_levels = GpuPyramid::build(
             context,
             pipelines,
@@ -1612,15 +1632,16 @@ fn prepare_color_noise_on_gpu(
             cache.height,
             is_raw,
         )
-        .inspect_err(|e| log::error!("Colour noise pyramid failed: {e}"))
-        .ok()
-        .flatten()
+        .inspect_err(|e| log::error!("Colour noise pyramid failed: {e}"))?
         .map(Box::new);
     }
+    // Without its passes (they failed to compile with the processor, which
+    // logged it) or for photos too small to filter, as without a pyramid on
+    // the CPU.
     let (Some(pipelines), Some(pyramid)) = (pipelines, cache.chroma_levels.as_deref()) else {
         log::warn!("No chroma pyramid for the render source; colour noise reduction falls back");
         global.color_noise[0] = 0.0;
-        return None;
+        return Ok(None);
     };
     if luma_profile {
         let p = pyramid.measured.luma_profile;
@@ -1630,14 +1651,14 @@ fn prepare_color_noise_on_gpu(
         if !interactive {
             cache.chroma_levels = None;
         }
-        return None;
+        return Ok(None);
     };
     let (thresholds, base_sigma, key) =
         color_noise_thresholds(global, settings, &pyramid.measured.noise, &versioned);
     let [lw, lh] = pyramid.sizes[0];
     global.color_noise_window = [0, 0, lw, lh];
-    let chroma = cache.chroma_gpu.get_or_insert_with(|| {
-        Box::new(ChromaGpu::from_gpu_pyramid(
+    if cache.chroma_gpu.is_none() {
+        cache.chroma_gpu = Some(Box::new(ChromaGpu::from_gpu_pyramid(
             context,
             pipelines,
             &cache.texture_view,
@@ -1645,8 +1666,11 @@ fn prepare_color_noise_on_gpu(
             cache.height,
             is_raw,
             pyramid,
-        ))
-    });
+        )?));
+    }
+    let Some(chroma) = cache.chroma_gpu.as_mut() else {
+        unreachable!("set above");
+    };
     if chroma.key != Some(key) {
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("color_noise_reconstruct");
@@ -1657,7 +1681,7 @@ fn prepare_color_noise_on_gpu(
             &thresholds,
             base_sigma,
             &versioned.1,
-        );
+        )?;
         chroma.key = Some(key);
     }
     let views = (chroma.packed_view.clone(), chroma.energy_view.clone());
@@ -1667,7 +1691,7 @@ fn prepare_color_noise_on_gpu(
         chroma.reconstruction = None;
         cache.chroma_levels = None;
     }
-    Some(views)
+    Ok(Some(views))
 }
 
 pub struct GpuProcessorState {
@@ -9060,7 +9084,7 @@ fn render_outputs(
         gpu_scoped(&context.device, || {
             prepare_color_noise(context, processor, cache, None, adjustments, false, rebuilt)
         })
-    })?;
+    })??;
 
     #[cfg(feature = "performance-profiling")]
     let run_stage = crate::performance::PerformanceStage::new("gpu_run");
@@ -9301,9 +9325,9 @@ fn render_dynamic_image(
     };
     // The pool's thread is outside this thread's error scopes.
     let chroma = if output_to_display {
-        off_global_pool(prepare)
+        off_global_pool(prepare)?
     } else {
-        off_global_pool(|| gpu_scoped(&context.device, prepare))?
+        off_global_pool(|| gpu_scoped(&context.device, prepare))??
     };
 
     let skip_readback = output_to_display;

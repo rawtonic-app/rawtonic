@@ -11528,6 +11528,7 @@ fn multiscale_color_noise_latency_probe() {
                     interactive,
                     None,
                 )
+                .unwrap()
                 .unwrap();
                 context
                     .device
@@ -11571,6 +11572,7 @@ fn multiscale_color_noise_latency_probe() {
                     interactive,
                     None,
                 )
+                .unwrap()
                 .unwrap();
                 context
                     .device
@@ -11678,6 +11680,7 @@ fn multiscale_color_noise_rebuilds_alike_on_gpu_and_cpu() {
                 interactive,
                 None,
             )
+            .unwrap()
             .unwrap();
             let (pixels, ..) = processor
                 .run_with_shader(
@@ -11772,6 +11775,7 @@ fn multiscale_color_noise_version_switch_rebuilds_the_prepared_levels() {
             true,
             None,
         )
+        .unwrap()
         .unwrap();
         let (pixels, ..) = processor
             .run_with_shader(
@@ -11863,7 +11867,8 @@ fn render_chroma_source(
         &mut adjustments,
         interactive,
         None,
-    );
+    )
+    .unwrap();
     let (pixels, ..) = processor
         .run_with_shader(
             &source.texture_view,
@@ -12124,6 +12129,72 @@ fn multiscale_color_noise_version_11_display_frames_and_exports_agree() {
             );
         }
     }
+}
+
+#[test]
+#[ignore = "requires a native GPU"]
+fn multiscale_color_noise_version_11_fails_a_render_whose_pyramid_fails() {
+    // A GPU pyramid that cannot be built (here: a test hook in its place of
+    // a GPU wait timing out) fails the render instead of rendering the photo
+    // with another filter; version 10 builds its pyramid on the CPU.
+    let context = context();
+    let (width, height) = (333, 222);
+    FAILING_PYRAMID_WIDTH.store(width, std::sync::atomic::Ordering::Relaxed);
+    let image = chroma_noise_frame(width, height);
+    let render = |profile: serde_json::Value, display: bool| {
+        process_and_get_dynamic_image_inner(
+            &context,
+            &ProcessorSlot::new(None),
+            &Mutex::new(None),
+            RenderSource::Image {
+                image: &image,
+                transform_hash: 1,
+            },
+            RenderRequest {
+                adjustments: get_all_adjustments_from_json(&profile, true, Some(1)),
+                mask_bitmaps: &[],
+                lut: None,
+                roi: None,
+            },
+            "test",
+            RenderOutputPrecision::SixteenBit,
+            false,
+            None,
+            None,
+            if display {
+                ReadbackShader::Preview
+            } else {
+                ReadbackShader::Export
+            },
+        )
+    };
+    for display in [false, true] {
+        let failed = render(
+            json!({"colorNoiseReduction": 25, "colorNoiseVersion": 11}),
+            display,
+        );
+        assert!(failed.unwrap_err().contains("did not finish"));
+        // Also at Color 0, where the luminance noise reduction takes its
+        // measured noise profile.
+        assert!(
+            render(
+                json!({"colorNoiseReduction": 0, "lumaNoiseReduction": 20, "colorNoiseVersion": 11}),
+                display
+            )
+            .is_err()
+        );
+        assert!(
+            render(
+                json!({"colorNoiseReduction": 25, "colorNoiseVersion": 10}),
+                display
+            )
+            .is_ok()
+        );
+        // Nothing reads the pyramid: no colour noise reduction, no
+        // luminance noise reduction.
+        assert!(render(json!({"colorNoiseVersion": 11}), display).is_ok());
+    }
+    FAILING_PYRAMID_WIDTH.store(0, std::sync::atomic::Ordering::Relaxed);
 }
 
 #[test]
@@ -13300,13 +13371,16 @@ fn multiscale_color_noise_gpu_pyramid_stage_probe() {
             wait();
             let build = t.elapsed().as_secs_f64() * 1000.0;
             let t = Instant::now();
-            let _reconstruction = pyramid.reconstruction(&context, &pipelines, &tuning);
+            let _reconstruction = pyramid
+                .reconstruction(&context, &pipelines, &tuning)
+                .unwrap();
             wait();
             let prepare = t.elapsed().as_secs_f64() * 1000.0;
             let t = Instant::now();
             let mut chroma = ChromaGpu::from_gpu_pyramid(
                 &context, &pipelines, &view, width, height, true, &pyramid,
-            );
+            )
+            .unwrap();
             wait();
             let energy = t.elapsed().as_secs_f64() * 1000.0;
             let noise = tuning.level_noise(&pyramid.measured.noise);
@@ -13319,25 +13393,29 @@ fn multiscale_color_noise_gpu_pyramid_stage_probe() {
                 &noise,
             );
             let t = Instant::now();
-            chroma.rebuild_on_gpu(
-                &context,
-                &pipelines,
-                PyramidRef::Gpu(&pyramid),
-                &thresholds,
-                0.0,
-                &tuning,
-            );
+            chroma
+                .rebuild_on_gpu(
+                    &context,
+                    &pipelines,
+                    PyramidRef::Gpu(&pyramid),
+                    &thresholds,
+                    0.0,
+                    &tuning,
+                )
+                .unwrap();
             wait();
             let rebuild_first = t.elapsed().as_secs_f64() * 1000.0;
             let t = Instant::now();
-            chroma.rebuild_on_gpu(
-                &context,
-                &pipelines,
-                PyramidRef::Gpu(&pyramid),
-                &thresholds,
-                0.0,
-                &tuning,
-            );
+            chroma
+                .rebuild_on_gpu(
+                    &context,
+                    &pipelines,
+                    PyramidRef::Gpu(&pyramid),
+                    &thresholds,
+                    0.0,
+                    &tuning,
+                )
+                .unwrap();
             wait();
             let rebuild = t.elapsed().as_secs_f64() * 1000.0;
             println!(
