@@ -2198,11 +2198,13 @@ async fn show_still(
             .to_rgba8();
         gpu_processing::srgb_to_display(space, &mut image);
         // A never-edited RAW's thumbnail is its camera JPEG: framed like the
-        // development, as the embedded JPEG replacing it will be.
-        let developed = never_edited
-            .then(|| rawtonic_engine::file_io::read_file_mapped(&raw).ok())
+        // development, as the embedded JPEG replacing it will be (header
+        // tags of the memory-mapped file only; never a cloud file not
+        // downloaded yet).
+        let developed = (never_edited && crate::preview_proxy::source_available(&raw))
+            .then(|| rawtonic_rawdecode::raw_processing::developed_frame_at(&raw))
             .flatten()
-            .and_then(|raw| rawtonic_rawdecode::raw_processing::developed_size(&raw));
+            .and_then(|frame| frame.size);
         Some(crate::embedded_still::framed(image, developed))
     })
     .await

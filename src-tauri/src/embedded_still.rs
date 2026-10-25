@@ -3,7 +3,7 @@
 //! parity-gaps/G35-culling.md): the largest embedded preview, decoded at the
 //! size the viewer shows it (libjpeg-turbo's DCT scaling), turned by the
 //! camera orientation, framed like the development
-//! (`raw_processing::developed_size`) so the developed frame replaces it in
+//! (`raw_processing::developed_frame`) so the developed frame replaces it in
 //! place, and converted from the camera's colour space to the display's.
 //! Real pixels of that photograph, never a fabricated preview. A few
 //! decoded stills are kept in memory for the photographs likely shown
@@ -24,6 +24,7 @@ use crate::file_management::parse_virtual_path;
 use crate::formats::is_raw_file;
 use crate::gpu_processing;
 use crate::image_loader;
+use rawtonic_rawdecode::raw_processing::{DevelopedFrame, developed_frame_at};
 
 /// Stills kept decoded (the open photograph's and the next ones').
 const KEPT: usize = 4;
@@ -167,19 +168,33 @@ fn fit(viewport: (u32, u32), shown: (u32, u32)) -> (u32, u32) {
     (rect[2].ceil() as u32, rect[3].ceil() as u32)
 }
 
-/// The still of the RAW `raw` (the bytes of `path`) for a viewer of
-/// `viewport` device pixels (width, height) on a display encoding
-/// `display`. Without an embedded JPEG (CR3, CRW) the decoder's embedded
-/// preview; none when the file has neither.
+/// The orientation a still of the RAW `raw` is shown with: the
+/// development's (`frame`), else, for a file the decoder cannot read, the
+/// container's EXIF and then the embedded JPEG's own.
+fn still_orientation(raw: &[u8], frame: Option<DevelopedFrame>, jpeg: Option<&[u8]>) -> u16 {
+    match frame {
+        Some(frame) => frame.orientation,
+        None => image_loader::exif_orientation(raw)
+            .or_else(|| image_loader::exif_orientation(jpeg?))
+            .unwrap_or(1),
+    }
+}
+
+/// The still of the RAW `raw` (the bytes of `path`, framed by the
+/// development as `frame` says) for a viewer of `viewport` device pixels
+/// (width, height) on a display encoding `display`. Without an embedded
+/// JPEG (CR3, CRW) the decoder's embedded preview; none when the file has
+/// neither.
 pub(crate) fn decode(
     raw: &[u8],
     path: &str,
+    frame: Option<DevelopedFrame>,
     viewport: (u32, u32),
     display: OutputColorSpace,
 ) -> Option<Still> {
-    let orientation = image_loader::source_orientation(raw, path);
-    let turned = (5..=8).contains(&orientation);
     let jpeg = largest_embedded_jpeg(raw);
+    let orientation = still_orientation(raw, frame, jpeg);
+    let turned = (5..=8).contains(&orientation);
     let image = if let Some(jpeg) = jpeg {
         let header = turbojpeg::read_header(jpeg).ok()?;
         let size = (header.width as u32, header.height as u32);
@@ -223,10 +238,7 @@ pub(crate) fn decode(
     } else {
         return None;
     };
-    let mut still = framed(
-        image,
-        rawtonic_rawdecode::raw_processing::developed_size(raw),
-    );
+    let mut still = framed(image, frame.and_then(|frame| frame.size));
     gpu_processing::encoded_to_display(camera_space(raw, jpeg), display, &mut still.image);
     Some(still)
 }
@@ -313,9 +325,15 @@ pub(crate) fn still_for(
     }
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("embedded_still_decode");
+    // A cloud file not downloaded yet is not read for a still (reading it
+    // downloads it).
+    if !crate::preview_proxy::source_available(source) {
+        return None;
+    }
     let still = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let raw = rawtonic_engine::file_io::read_file_mapped(source).ok()?;
-        decode(&raw, &source.to_string_lossy(), viewport, display)
+        let frame = developed_frame_at(source);
+        decode(&raw, &source.to_string_lossy(), frame, viewport, display)
     }))
     .ok()
     .flatten()?;
@@ -362,7 +380,11 @@ pub(crate) fn prepare_embedded_stills(paths: Vec<String>, app_handle: tauri::App
                 return;
             }
             let (source, sidecar) = parse_virtual_path(&path);
+            // Never a cloud file not downloaded yet (nor its sidecar): only
+            // the photograph opened may download it.
             if !is_raw_file(&source)
+                || !crate::preview_proxy::source_available(&source)
+                || crate::file_management::is_cloud_placeholder(&sidecar)
                 || crate::preview_proxy::proxy_path(&source).is_some_and(|p| p.is_file())
                 || !never_edited(&crate::exif_processing::load_sidecar(&sidecar).adjustments)
             {
@@ -476,9 +498,9 @@ mod tests {
     fn a_turned_still_takes_the_developed_frames_placement() {
         let raw = tiff_with_previews(6, &jpeg(16, 8), &jpeg(320, 160));
         let viewport = (300, 300);
-        // No RAW decoder reads this stand-in: its orientation is read as a
-        // TIFF's, and its own (turned) shape stands.
-        let still = decode(&raw, "turned.tif", viewport, OutputColorSpace::Srgb).unwrap();
+        // No RAW decoder reads this stand-in: its orientation comes from
+        // the container's EXIF, and its own (turned) shape stands.
+        let still = decode(&raw, "turned.nef", None, viewport, OutputColorSpace::Srgb).unwrap();
         assert_eq!(still.shown, (160, 320));
         assert_eq!(still.image.dimensions(), (160, 320));
         // Orientation 6 turns clockwise: the JPEG's left (red) half is on top.
@@ -517,7 +539,16 @@ mod tests {
         )
         .unwrap();
         assert_eq!((developed.width(), developed.height()), (48, 64));
-        let still = decode(&dng, "synthetic.dng", (300, 200), OutputColorSpace::Srgb).unwrap();
+        let still = decode(
+            &dng,
+            "synthetic.dng",
+            rawtonic_rawdecode::raw_processing::developed_frame(
+                &rawler::rawsource::RawSource::new_from_slice(&dng),
+            ),
+            (300, 200),
+            OutputColorSpace::Srgb,
+        )
+        .unwrap();
         assert_eq!(still.shown, (48, 64));
         // 68 × 50 turned is 50 × 68: one row trimmed to the frame's 3:4.
         assert_eq!(still.image.dimensions(), (50, 67));
@@ -531,7 +562,7 @@ mod tests {
     #[test]
     fn a_large_jpeg_is_decoded_at_the_size_shown() {
         let raw = tiff_with_previews(1, &jpeg(16, 8), &jpeg(1600, 800));
-        let still = decode(&raw, "large.nef", (400, 400), OutputColorSpace::Srgb).unwrap();
+        let still = decode(&raw, "large.nef", None, (400, 400), OutputColorSpace::Srgb).unwrap();
         // 1600 × 800 in a 400 × 400 view is shown 400 × 200: decoded at 1/4.
         assert_eq!(still.image.dimensions(), (400, 200));
     }
@@ -539,7 +570,7 @@ mod tests {
     #[test]
     fn without_an_embedded_jpeg_there_is_no_still() {
         let raw = tiff_with_previews(1, &[0; 8], &[0; 8]);
-        assert!(decode(&raw, "none.nef", (400, 400), OutputColorSpace::Srgb).is_none());
+        assert!(decode(&raw, "none.nef", None, (400, 400), OutputColorSpace::Srgb).is_none());
     }
 
     #[test]

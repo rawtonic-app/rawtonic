@@ -833,21 +833,39 @@ pub(crate) fn prepare_raw_image(
     })
 }
 
-/// The size `develop_raw_image` gives the file (oriented), read from its
-/// metadata alone, no samples decoded: the default crop inside the active
-/// area, in-camera aspect ratios and DNG user crops included, as
-/// `prepare_raw_image` and the development frame it. A still shown before
-/// the development (the camera's embedded preview) takes this placement so
-/// the developed frame replaces it in place. `None` for files rawler
-/// cannot read and for SuperCCD layouts (turned by the development).
-pub fn developed_size(file_bytes: &[u8]) -> Option<(u32, u32)> {
+/// How `develop_raw_image` frames a file, read from its metadata alone (no
+/// samples decoded): see `developed_frame`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DevelopedFrame {
+    /// The developed image's size, oriented: the default crop inside the
+    /// active area, in-camera aspect ratios and DNG user crops included, as
+    /// `prepare_raw_image` and the development frame it. `None` for
+    /// SuperCCD layouts (turned by the development).
+    pub size: Option<(u32, u32)>,
+    /// The EXIF orientation (1–8) the development applies.
+    pub orientation: u16,
+}
+
+/// The frame of the RAW in `source` as the development will give it. A
+/// still shown before the development (the camera's embedded preview)
+/// takes this placement so the developed frame replaces it in place.
+/// `None` for files rawler cannot read.
+pub fn developed_frame(source: &RawSource) -> Option<DevelopedFrame> {
     use rawler::imgop::{Point, Rect};
-    let source = RawSource::new_from_slice(file_bytes);
-    let decoder = rawler::get_decoder(&source).ok()?;
+    let file_bytes = source.buf();
+    let decoder = rawler::get_decoder(source).ok()?;
     let params = RawDecodeParams::default();
-    let mut raw_image = decoder.raw_image(&source, &params, true).ok()?;
+    let mut raw_image = decoder.raw_image(source, &params, true).ok()?;
+    let orientation = crate::capture_info::phase_one_orientation(file_bytes)
+        .or_else(|| decoder.raw_metadata(source, &params).ok()?.exif.orientation)
+        .or_else(|| crate::capture_info::crw_orientation(file_bytes))
+        .filter(|o| (1..=8).contains(o))
+        .unwrap_or(1);
     if superccd_layout(&raw_image, file_bytes).is_some() {
-        return None;
+        return Some(DevelopedFrame {
+            size: None,
+            orientation,
+        });
     }
     apply_aspect_crop(&mut raw_image, file_bytes, decoder.format_hint());
     if decoder.format_hint() == rawler::decoders::FormatHint::DNG {
@@ -864,22 +882,21 @@ pub fn developed_size(file_bytes: &[u8]) -> Option<(u32, u32)> {
         .map(|crop| crop.intersection(&active))
         .filter(|crop| !crop.is_empty())
         .unwrap_or(active);
-    let orientation = crate::capture_info::phase_one_orientation(file_bytes)
-        .or_else(|| {
-            decoder
-                .raw_metadata(&source, &params)
-                .ok()?
-                .exif
-                .orientation
-        })
-        .or_else(|| crate::capture_info::crw_orientation(file_bytes))
-        .unwrap_or(1);
     let (w, h) = (frame.d.w as u32, frame.d.h as u32);
-    (w > 0 && h > 0).then_some(if (5..=8).contains(&orientation) {
-        (h, w)
-    } else {
-        (w, h)
+    Some(DevelopedFrame {
+        size: (w > 0 && h > 0).then_some(if (5..=8).contains(&orientation) {
+            (h, w)
+        } else {
+            (w, h)
+        }),
+        orientation,
     })
+}
+
+/// `developed_frame` of the file at `path`, memory-mapped (rawler's
+/// `RawSource::new_from_slice` copies the whole file).
+pub fn developed_frame_at(path: &std::path::Path) -> Option<DevelopedFrame> {
+    developed_frame(&RawSource::new(path).ok()?)
 }
 
 /// The part of a decoded buffer that rawler does not demosaic (linear and
@@ -1975,21 +1992,26 @@ mod frame_tests {
     }
 
     #[test]
-    fn developed_size_is_read_without_decoding_and_turned() {
+    fn developed_frame_is_read_without_decoding_and_turned() {
         let dng = crate::fingerprint::synthetic::synthetic_dng();
         let developed = develop_raw_image(&dng, false, 2.5, "auto".into(), None).unwrap();
+        let frame = developed_frame(&RawSource::new_from_slice(&dng)).unwrap();
         // Orientation 6: the 64 × 48 mosaic develops 48 × 64.
-        assert_eq!(developed_size(&dng), Some((48, 64)));
-        assert_eq!(developed_size(&dng), Some(developed.dimensions()));
-        assert_eq!(developed_size(b"not a raw file"), None);
+        assert_eq!(frame.orientation, 6);
+        assert_eq!(frame.size, Some((48, 64)));
+        assert_eq!(frame.size, Some(developed.dimensions()));
+        assert_eq!(
+            developed_frame(&RawSource::new_from_slice(b"not a raw")),
+            None
+        );
     }
 
     /// Local camera fixtures only; never check photographs into the repo.
     #[test]
     #[ignore = "requires RAWTONIC_RAW_FIXTURES pointing to a local sample directory"]
-    fn developed_size_matches_the_development_of_camera_files() {
+    fn developed_frame_matches_the_development_of_camera_files() {
         let dir = std::env::var("RAWTONIC_RAW_FIXTURES").expect("local fixture directory");
-        let (mut checked, mut wrong) = (0, Vec::new());
+        let (mut checked, mut wrong, mut slowest) = (0, Vec::new(), 0.0f64);
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
             let Ok(bytes) = std::fs::read(&path) else {
@@ -1999,12 +2021,14 @@ mod frame_tests {
                 continue;
             };
             checked += 1;
-            let read = developed_size(&bytes);
+            let started = std::time::Instant::now();
+            let read = developed_frame_at(&path).and_then(|frame| frame.size);
+            slowest = slowest.max(started.elapsed().as_secs_f64() * 1000.0);
             if read.is_some_and(|size| size != developed.dimensions()) {
                 wrong.push((path, read, developed.dimensions()));
             }
         }
-        println!("{checked} files");
+        println!("{checked} files, slowest frame read {slowest:.1} ms");
         assert!(wrong.is_empty(), "{wrong:#?}");
     }
 
