@@ -79,7 +79,10 @@ fn library_for(source: &Path) -> Option<PathBuf> {
 pub(crate) fn refresh_outside_photos() {
     static REGISTERED: Mutex<Option<PathBuf>> = Mutex::new(None);
     let dir = active().lock().ok().and_then(|dir| dir.clone());
-    let photos = match dir.as_ref().filter(|dir| dir.join("session.json").is_file()) {
+    let photos = match dir
+        .as_ref()
+        .filter(|dir| dir.join("session.json").is_file())
+    {
         Some(dir) => match Library::open(dir).and_then(|lib| lib.outside_photos()) {
             Ok(photos) => photos.into_iter().collect(),
             Err(e) => {
@@ -90,7 +93,10 @@ pub(crate) fn refresh_outside_photos() {
         None => HashSet::new(),
     };
     let mut registered = REGISTERED.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(previous) = registered.take().filter(|previous| Some(previous) != dir.as_ref()) {
+    if let Some(previous) = registered
+        .take()
+        .filter(|previous| Some(previous) != dir.as_ref())
+    {
         rawtonic_engine::session_layout::set_outside_photos(&previous, HashSet::new());
     }
     if let Some(dir) = dir {

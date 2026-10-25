@@ -67,7 +67,9 @@ fn a_session_profile_renders_the_same_on_a_photo_outside_the_session() {
     let raw = PathBuf::from(std::env::var_os("RAWTONIC_RAW").expect("RAWTONIC_RAW"));
     let lensfun = std::env::var_os("RAWTONIC_LENSFUN_DB")
         .map(PathBuf::from)
-        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src-tauri/lensfun_db"));
+        .unwrap_or_else(|| {
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src-tauri/lensfun_db")
+        });
     let dir = tempfile::tempdir().unwrap();
     let session = dir.path().join("Job");
     fs::create_dir_all(session.join("Capture")).unwrap();
@@ -90,11 +92,11 @@ fn a_session_profile_renders_the_same_on_a_photo_outside_the_session() {
     // Not the session's photograph: the session's profile is not its own.
     let foreign = export(&exporter, &outside, &out.join("foreign.tif"));
     assert_ne!(foreign, expected, "the profile must change the render");
-    set_outside_photos(
-        &session,
-        HashSet::from([outside.canonicalize().unwrap()]),
-    );
+    set_outside_photos(&session, HashSet::from([outside.canonicalize().unwrap()]));
     let owned = export(&exporter, &outside, &out.join("owned.tif"));
     set_outside_photos(&session, HashSet::new());
-    assert!(owned == expected, "outside the session it must render byte-identically");
+    assert!(
+        owned == expected,
+        "outside the session it must render byte-identically"
+    );
 }

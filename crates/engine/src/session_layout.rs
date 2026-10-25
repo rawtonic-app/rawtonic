@@ -109,13 +109,22 @@ mod tests {
         let photo = drive.join("A.NEF");
         std::fs::write(&photo, "a").unwrap();
         let neighbour = drive.join("B.NEF");
-        assert_eq!(library_root(&session.join("Capture/A.NEF")), Some(session.clone()));
+        assert_eq!(
+            library_root(&session.join("Capture/A.NEF")),
+            Some(session.clone())
+        );
         assert_eq!(library_root(&photo), None);
 
         set_outside_photos(&session, HashSet::from([photo.canonicalize().unwrap()]));
         assert_eq!(library_root(&photo), Some(session.clone()));
-        assert_eq!(library_root(&drive.join("A.NEF.rrdata")), Some(session.clone()));
-        assert_eq!(library_root(&drive.join("A.NEF.0a1b2c.rrdata")), Some(session.clone()));
+        assert_eq!(
+            library_root(&drive.join("A.NEF.rrdata")),
+            Some(session.clone())
+        );
+        assert_eq!(
+            library_root(&drive.join("A.NEF.0a1b2c.rrdata")),
+            Some(session.clone())
+        );
         // Only its own photographs, never their neighbours.
         assert_eq!(library_root(&neighbour), None);
         assert_eq!(library_root(&drive.join("B.NEF.rrdata")), None);

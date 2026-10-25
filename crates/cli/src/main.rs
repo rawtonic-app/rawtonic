@@ -1123,7 +1123,10 @@ fn export(args: ExportArgs) -> Result<()> {
     let mut failed = Vec::new();
     for ((photo, output), recipe) in jobs.iter().zip(recipes) {
         let (source, _) = parse_virtual_path(photo);
-        if let Some(resource) = recipe.as_ref().and_then(|r| unresolved_resource(r, &source)) {
+        if let Some(resource) = recipe
+            .as_ref()
+            .and_then(|r| unresolved_resource(r, &source))
+        {
             failed.push(serde_json::json!({"source": photo, "error": format!(
                 "The recipe names the library resource {resource}, but the photo is in no session or catalog; pass --library with the session that keeps it"
             )}));
