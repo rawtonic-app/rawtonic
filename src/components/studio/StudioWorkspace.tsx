@@ -294,6 +294,7 @@ export default function StudioWorkspace(props: Props) {
     t("studio.workspace.withShortcut", { label, shortcut: shortcut ?? t("studio.workspace.noKey") });
   const {
     currentFolderPath,
+    sessionDirectory,
     activeAlbumId,
     multiSelectedPaths,
     searchCriteria,
@@ -303,6 +304,7 @@ export default function StudioWorkspace(props: Props) {
   } = useLibraryStore(
     useShallow((s) => ({
       currentFolderPath: s.currentFolderPath,
+      sessionDirectory: s.sessionDirectory,
       activeAlbumId: s.activeAlbumId,
       multiSelectedPaths: s.multiSelectedPaths,
       searchCriteria: s.searchCriteria,
@@ -541,7 +543,7 @@ export default function StudioWorkspace(props: Props) {
   const libraryToolbarRef = useRef<HTMLDivElement>(null);
   const compactLibraryHeader = useLibraryHeaderFits(
     uiScale, libraryToolbarRef,
-    JSON.stringify([uiScale, i18n.resolvedLanguage, filterCriteria, !!searchCriteria.text.trim(), searchCriteria.tags, props.flagCounts]),
+    JSON.stringify([uiScale, i18n.resolvedLanguage, filterCriteria, sessionDirectory, metadataOpen, !!searchCriteria.text.trim(), searchCriteria.tags, props.flagCounts]),
     !develop && panels.bars && !!sessionBar.library,
   );
   const imageFlags = useLibraryStore((s) => s.imageFlags);
@@ -710,7 +712,6 @@ export default function StudioWorkspace(props: Props) {
     <div
       ref={libraryToolbarRef}
       className={`studio-library-toolbar studio-controls${compactLibraryHeader ? " is-in-header" : ""}`}
-      onClickCapture={(e) => focusWorkspaceControl(e.target)}
     >
       <button
         aria-label={t("studio.workspace.viewer.togglePanels")}

@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useState, type RefObject } from "react";
 
-/** The English toolbar with counts fits at 1440 CSS px in browser QA at
- * 100% UI scale (including macOS titlebar space). Enlarged controls get the
- * same logical room; translated/active controls are also measured below. */
+/** Starting budget at 100% UI scale, including macOS titlebar space.
+ * Enlarged controls get the same logical room; actual translated/active
+ * controls are measured below before the shared header is kept. */
 const LIBRARY_HEADER_MINIMUM = 1440;
 export const libraryHeaderFits = (width: number, scale: number, minimum = LIBRARY_HEADER_MINIMUM) => width / scale >= minimum;
 

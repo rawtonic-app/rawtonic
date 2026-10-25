@@ -251,6 +251,14 @@ it("moves the Library controls into the header only when the scaled width fits",
   expect(slot.querySelector("input")).toBeNull();
   act(() => useSettingsStore.setState({ appSettings: { uiScale: 1.12, keybinds: {} } as AppSettings }));
   expect(slot.querySelector("input")).toBeTruthy();
+  act(() => useLibraryStore.setState({ sessionDirectory: null }));
+  const sessionToolbarBounds = vi.spyOn(slot.querySelector(".studio-library-toolbar")!, "getBoundingClientRect").mockReturnValue({ right: 1000 } as DOMRect);
+  const sessionSearchBounds = vi.spyOn(search, "getBoundingClientRect").mockReturnValue({ right: 1100 } as DOMRect);
+  act(() => useLibraryStore.setState({ sessionDirectory: "/qa/new-library" }));
+  // Opening a session adds flag/metadata controls without resizing the slot.
+  expect(slot.querySelector("input")).toBeNull();
+  sessionToolbarBounds.mockRestore();
+  sessionSearchBounds.mockRestore();
   view.unmount();
   useSessionBar.setState({ library: null });
   slot.remove();

@@ -101,6 +101,21 @@ describe("Session workspace keyboard flows", () => {
     );
     expect(screen.getByText("Acme")).toBeTruthy();
   });
+  it("keeps offline and pending-XMP status available as compact icons", async () => {
+    const user = userEvent.setup();
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    vi.mocked(invoke).mockImplementation(async (command, args) =>
+      command === "session_create" || command === "session_summary"
+        ? { ...summary, missing: 3, xmp_pending: 2 } : base(command, args));
+    render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
+    await user.click(screen.getByRole("button", { name: "Create a project" }));
+    await user.type(screen.getByLabelText("Project name"), "Acme");
+    await user.click(screen.getByRole("button", { name: "Location" }));
+    await user.click(screen.getByRole("button", { name: "Create project" }));
+    expect(await screen.findByRole("img", { name: "3 offline" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "2 XMP pending" })).toBeTruthy();
+  });
+
   it("surfaces a failed create without navigating or dismissing the entered name", async () => {
     const user = userEvent.setup();
     const navigate = vi.fn(async () => {});

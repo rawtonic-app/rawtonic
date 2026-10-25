@@ -167,6 +167,7 @@ it("toggles the metadata lists and saves what filters as a smart album", async (
   expect(screen.getByText("Save as smart album…").closest("button")!.hidden).toBe(true);
   useLibraryStore.getState().setFilterCriteria({ metadata: { camera: ["X-T4"] }, rating: 4 });
   expect((await screen.findByRole("button", { name: /Metadata/ })).textContent).toBe("Metadata1");
+  expect(screen.getByRole("button", { name: "Metadata 1" })).toBeTruthy();
   await user.click(screen.getByText("Save as smart album…"));
   expect(useSmartAlbumEditor.getState().draft?.rules).toEqual({
     combine: "all",
