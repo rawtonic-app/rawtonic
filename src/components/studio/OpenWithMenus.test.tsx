@@ -101,3 +101,17 @@ it('edits the selection with the remembered recipe in the chosen program', async
   expect(recipe.id).toBe('jpg');
   expect(program).toBe('/System/Applications/Preview.app');
 });
+
+it('says Edit With is not available for photographs with generated areas', async () => {
+  const { toast } = await import('react-toastify');
+  vi.mocked(runEditWith).mockRejectedValueOnce('generated-areas: B.jpg, C.jpg');
+  mockInvoke.mockImplementation(async (command) => {
+    if (command === 'open_with_prefs') return { recentApps: [], editRecipe: null };
+    if (command === 'edit_with_apps') return apps;
+  });
+  render(<EditWithSubMenu paths={paths} hideContextMenu={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('menuitem', { name: /Preview/ }));
+  await vi.waitFor(() =>
+    expect(toast.error).toHaveBeenCalledWith('Edit With is not available for photos with generated areas yet: B.jpg, C.jpg'),
+  );
+});

@@ -72,12 +72,20 @@ pub struct ExportRequest {
     pub output_format: String,
     pub current_edit_path: Option<String>,
     pub current_edit_adjustments: Option<Value>,
+    /// The session or catalog open when it was queued (filled in by
+    /// `enqueue_all`). Recipes and metadata are read through the open one,
+    /// so its photos are not exported while another is open: the job stops
+    /// and resumes once that library is open again.
+    #[serde(default)]
+    pub library: Option<std::path::PathBuf>,
 }
 
 /// Which photos of a queued job to render and where their state goes.
 #[derive(Clone)]
 pub struct Tracking {
     pub job: String,
+    /// `ExportRequest::library`.
+    library: Option<std::path::PathBuf>,
     /// Indices still to export; the others finished in an earlier run.
     pub pending: Arc<HashSet<usize>>,
     pub already_done: usize,
@@ -169,9 +177,22 @@ impl Tracking {
         self.paused.load(Ordering::SeqCst)
     }
     /// Reserves photo export for this job: false once it is paused,
-    /// cancelled on its own or settled. An admitted photo must end with
+    /// cancelled on its own or settled, or when the library it was queued
+    /// in is no longer the open one (the job then stops as cancelled, to be
+    /// resumed with that library open). An admitted photo must end with
     /// `finished` (or with the run being cancelled as a whole).
     pub fn admit(&self) -> bool {
+        if !library_still_open(
+            self.library.as_deref(),
+            crate::session_bridge::active_library_directory().as_deref(),
+        ) {
+            log::warn!(
+                "Export '{}' stopped: the library it was queued in is no longer open",
+                self.job
+            );
+            self.cancelled.store(true, Ordering::SeqCst);
+            return false;
+        }
         self.run.admit(&self.paused, &self.cancelled)
     }
     /// An admitted photo's attempt begins: its source is read next.
@@ -348,7 +369,16 @@ pub fn enqueue(app: &AppHandle, request: ExportRequest) -> Result<String, String
 /// Adds exports to the queue together (a photo set's ticked recipes, which
 /// then run as one: each photo is developed once for all of them) and
 /// starts the queue if it is idle.
-pub fn enqueue_all(app: &AppHandle, requests: Vec<ExportRequest>) -> Result<Vec<String>, String> {
+pub fn enqueue_all(
+    app: &AppHandle,
+    mut requests: Vec<ExportRequest>,
+) -> Result<Vec<String>, String> {
+    let open = crate::session_bridge::active_library_directory();
+    for request in &mut requests {
+        if request.library.is_none() {
+            request.library = open.clone();
+        }
+    }
     let requests = requests
         .iter()
         .map(|request| Ok((label_for(request), serde_json::to_value(request)?, request)))
@@ -367,12 +397,22 @@ pub fn enqueue_all(app: &AppHandle, requests: Vec<ExportRequest>) -> Result<Vec<
     Ok(ids)
 }
 
+/// Whether a job queued in `queued_in` may export now that `open` is open.
+fn library_still_open(queued_in: Option<&Path>, open: Option<&Path>) -> bool {
+    queued_in.is_none_or(|queued_in| open == Some(queued_in))
+}
+
 /// Whether two queued exports render the same photos with the same recipes
 /// (develop settings) and so can share each photo's develop.
 fn same_photos(a: &Value, b: &Value) -> bool {
-    ["paths", "currentEditPath", "currentEditAdjustments"]
-        .iter()
-        .all(|key| a.get(key) == b.get(key))
+    [
+        "paths",
+        "currentEditPath",
+        "currentEditAdjustments",
+        "library",
+    ]
+    .iter()
+    .all(|key| a.get(key) == b.get(key))
 }
 
 /// Requeues what a failed, cancelled or interrupted job did not export; a
@@ -540,6 +580,7 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
             .collect();
         let tracking = Tracking {
             job: job.id.clone(),
+            library: request.library.clone(),
             already_done: items.len() - pending.len(),
             pending: Arc::new(pending),
             cancelled: Arc::new(AtomicBool::new(false)),
@@ -664,6 +705,26 @@ pub fn export_queue_remove(job: String, app: AppHandle) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_job_exports_only_while_its_library_is_open() {
+        let a = Path::new("/Jobs/A.session");
+        let b = Path::new("/Jobs/B.catalog");
+        assert!(library_still_open(Some(a), Some(a)));
+        assert!(!library_still_open(Some(a), Some(b)));
+        assert!(!library_still_open(Some(a), None));
+        // Queued with no library open (folders): never held back.
+        assert!(library_still_open(None, Some(b)));
+        assert!(library_still_open(None, None));
+    }
+
+    #[test]
+    fn jobs_of_different_libraries_never_share_a_develop() {
+        let job = |library: &str| serde_json::json!({"paths": ["/p/a.nef"], "currentEditPath": null, "currentEditAdjustments": null, "library": library});
+        assert!(same_photos(&job("/A"), &job("/A")));
+        assert!(!same_photos(&job("/A"), &job("/B")));
+    }
+
     use super::*;
     use serde_json::json;
     use std::{sync::mpsc, thread, time::Duration};

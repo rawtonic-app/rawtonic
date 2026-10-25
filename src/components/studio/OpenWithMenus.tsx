@@ -61,7 +61,11 @@ async function editPhotosWith(
     if (result.problems.length) toast.warn(t('contextMenus.editWith.notLinked', { error: result.problems.join('\n') }));
   } catch (e) {
     toast.dismiss(progress);
-    toast.error(t('contextMenus.editWith.failed', { error: errorText(e) }));
+    const error = errorText(e);
+    // `open_with::GENERATED_AREAS`: photographs with generated areas.
+    const generated = error.match(/^generated-areas: (.*)$/s);
+    if (generated) toast.error(t('contextMenus.editWith.generatedAreas', { names: generated[1] }));
+    else toast.error(t('contextMenus.editWith.failed', { error }));
   }
 }
 

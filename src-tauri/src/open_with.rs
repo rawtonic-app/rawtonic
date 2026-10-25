@@ -515,6 +515,12 @@ pub fn edit_with_targets(paths: Vec<String>, extension: String) -> Result<Vec<Ed
     })
 }
 
+/// The error `edit_with_targets` starts with when a photograph has areas a
+/// generative model made: its render would hand them to another program
+/// whose saves need not keep the AI marking, so Edit With is not offered
+/// for it yet (the frontend says so; Open With hands over the original).
+pub const GENERATED_AREAS: &str = "generated-areas";
+
 /// `edit_with_targets` with the library of each original from `library_for`.
 fn plan_targets(
     paths: Vec<String>,
@@ -523,6 +529,26 @@ fn plan_targets(
 ) -> Result<Vec<EditTarget>, String> {
     if extension.is_empty() || !extension.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err(format!("{extension:?} is not a file extension."));
+    }
+    let generated: Vec<&String> = paths
+        .iter()
+        .filter(|path| {
+            let (_, sidecar) = parse_virtual_path(path);
+            rawtonic_engine::image_loader::has_generated_areas(
+                &crate::exif_processing::load_sidecar(&sidecar).adjustments,
+            )
+        })
+        .collect();
+    if !generated.is_empty() {
+        let names: Vec<String> = generated
+            .iter()
+            .map(|path| {
+                let (file, _) = parse_virtual_path(path);
+                file.file_name()
+                    .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+            })
+            .collect();
+        return Err(format!("{GENERATED_AREAS}: {}", names.join(", ")));
     }
     let mut taken = HashSet::new();
     let mut seen = HashSet::new();
@@ -1059,6 +1085,39 @@ mod tests {
         assert_eq!(got.keywords, ["print"]);
         // A render never takes over a photograph registered at its name.
         assert!(link_render(&lib, &source.to_string_lossy(), &render).is_err());
+    }
+
+    #[test]
+    fn photographs_with_generated_areas_are_not_edited_with_another_program() {
+        let tmp = tempfile::tempdir().unwrap();
+        let plain = tmp.path().join("A.jpg");
+        let patched = tmp.path().join("B.jpg");
+        fs::write(&plain, b"jpeg").unwrap();
+        fs::write(&patched, b"jpeg").unwrap();
+        fs::write(
+            tmp.path().join("B.jpg.rrdata"),
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1, "rating": 0,
+                "adjustments": {"aiPatches": [{"visible": true, "patchData": {"color": "iVBORw0K", "mask": "iVBORw0K"}}]},
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let paths = [&plain, &patched]
+            .map(|p| p.to_string_lossy().into_owned())
+            .to_vec();
+        let error = plan_targets(paths, "tiff", &|_| None).unwrap_err();
+        assert_eq!(error, format!("{GENERATED_AREAS}: B.jpg"));
+        // Nothing planned or written.
+        assert_eq!(fs::read_dir(tmp.path()).unwrap().count(), 3);
+        assert_eq!(
+            plan_targets(vec![plain.to_string_lossy().into_owned()], "tiff", &|_| {
+                None
+            })
+            .unwrap()
+            .len(),
+            1
+        );
     }
 
     #[test]

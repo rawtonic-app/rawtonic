@@ -283,6 +283,7 @@
     },
     "editWith": {
       "failed": "Edycja za pomocą nie powiodła się: {{error}}",
+      "generatedAreas": "Edycja za pomocą nie jest jeszcze dostępna dla zdjęć z wygenerowanymi obszarami: {{names}}",
       "label": "Edytuj za pomocą",
       "libraryChanged": "Otwarto inną bibliotekę przed zakończeniem edycji: niewyrenderowane jeszcze pliki anulowano.",
       "notLinked": "Wyrenderowano, ale nie dodano do biblioteki: {{error}}",

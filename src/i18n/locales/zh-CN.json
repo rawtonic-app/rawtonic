@@ -281,6 +281,7 @@
     },
     "editWith": {
       "failed": "编辑失败：{{error}}",
+      "generatedAreas": "含有生成区域的照片暂不支持编辑方式：{{names}}",
       "label": "编辑方式",
       "libraryChanged": "编辑完成前打开了另一个图库：尚未渲染的文件已取消。",
       "notLinked": "已渲染，但未添加到图库：{{error}}",

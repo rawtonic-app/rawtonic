@@ -1179,10 +1179,7 @@ pub fn save_rendered_export(
     #[cfg(feature = "performance-profiling")]
     drop(geometry_stage);
     cancelled()?;
-    // A source exported with generated areas (an Edit With render) keeps
-    // its marking.
-    let generated = rawtonic_engine::image_loader::has_generated_areas(js_adjustments)
-        || rawtonic_metadata::file_marked_generated(Path::new(source_path_str));
+    let generated = rawtonic_engine::image_loader::has_generated_areas(js_adjustments);
     save_export_image(
         final_image,
         source_path_str,

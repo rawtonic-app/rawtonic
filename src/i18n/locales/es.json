@@ -282,6 +282,7 @@
     },
     "editWith": {
       "failed": "Error en Editar con: {{error}}",
+      "generatedAreas": "Editar con aún no está disponible para fotos con zonas generadas: {{names}}",
       "label": "Editar con",
       "libraryChanged": "Se abrió otra biblioteca antes de que terminara Editar con: se cancelaron los renderizados pendientes.",
       "notLinked": "Renderizado, pero no añadido a la biblioteca: {{error}}",

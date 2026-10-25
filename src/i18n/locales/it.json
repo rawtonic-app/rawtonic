@@ -282,6 +282,7 @@
     },
     "editWith": {
       "failed": "Modifica con non riuscito: {{error}}",
+      "generatedAreas": "Modifica con non è ancora disponibile per le foto con aree generate: {{names}}",
       "label": "Modifica con",
       "libraryChanged": "È stata aperta un’altra libreria prima che Modifica con terminasse: i rendering non ancora eseguiti sono stati annullati.",
       "notLinked": "Rendering eseguito, ma non aggiunto alla libreria: {{error}}",

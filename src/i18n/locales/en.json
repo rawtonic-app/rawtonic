@@ -281,6 +281,7 @@
     },
     "editWith": {
       "failed": "Edit With failed: {{error}}",
+      "generatedAreas": "Edit With is not available for photos with generated areas yet: {{names}}",
       "label": "Edit With",
       "libraryChanged": "Another library was opened before Edit With finished: the renders not yet made were cancelled.",
       "notLinked": "Rendered, but not added to the library: {{error}}",
