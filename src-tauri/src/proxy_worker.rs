@@ -1001,23 +1001,6 @@ pub async fn discard_previews(
     .map_err(|e| e.to_string())
 }
 
-/// One previews folder and what it holds.
-#[derive(Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct PreviewFolder {
-    pub dir: String,
-    pub usage: preview_proxy::PreviewUsage,
-}
-
-/// The previews of the open session (`folder` inside it) and those of
-/// photographs outside sessions (the app's cache folder).
-#[derive(Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct PreviewCacheInfo {
-    pub session: Option<PreviewFolder>,
-    pub outside: Option<PreviewFolder>,
-}
-
 fn session_previews_dir(folder: Option<&str>) -> Option<PathBuf> {
     let folder = Path::new(folder?);
     preview_proxy::session_root(&folder.join("_"))?;
@@ -1026,102 +1009,6 @@ fn session_previews_dir(folder: Option<&str>) -> Option<PathBuf> {
 
 fn outside_previews_dir() -> Option<PathBuf> {
     preview_proxy::outside_sessions_dir()
-}
-
-/// Disk use of the previews of the session holding `folder` and of those
-/// outside sessions.
-#[tauri::command]
-pub async fn preview_cache_usage(folder: Option<String>) -> Result<PreviewCacheInfo, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let describe = |dir: PathBuf| PreviewFolder {
-            usage: preview_proxy::usage(&dir),
-            dir: dir.to_string_lossy().into_owned(),
-        };
-        PreviewCacheInfo {
-            session: session_previews_dir(folder.as_deref()).map(describe),
-            outside: outside_previews_dir().map(describe),
-        }
-    })
-    .await
-    .map_err(|e| e.to_string())
-}
-
-/// Discards the 1:1 previews (with `full_only` false, all previews) of the
-/// session holding `folder` (`session` true) or of photographs outside
-/// sessions. Returns how many files went.
-#[tauri::command]
-pub async fn clear_preview_cache(
-    folder: Option<String>,
-    session: bool,
-    full_only: bool,
-    app_handle: tauri::AppHandle,
-) -> Result<usize, String> {
-    let dir = if session {
-        session_previews_dir(folder.as_deref())
-    } else {
-        outside_previews_dir()
-    }
-    .ok_or("No previews folder")?;
-    let root = if session {
-        preview_proxy::session_root(
-            &Path::new(folder.as_deref().ok_or("No library folder")?).join("_"),
-        )
-        .ok_or("No previews library")?
-    } else {
-        app_handle
-            .path()
-            .app_cache_dir()
-            .map_err(|e| e.to_string())?
-    };
-    let expected = if session {
-        root.join(".cache/previews")
-    } else {
-        root.join("previews")
-    };
-    let removed = tauri::async_runtime::spawn_blocking(move || -> Result<usize, String> {
-        if !dir.exists() {
-            return Ok(0);
-        }
-        let checked =
-            crate::storage_fs::owned_directory(&root, &expected).map_err(|e| e.to_string())?;
-        if crate::storage_fs::owned_directory(&root, &dir).map_err(|e| e.to_string())? != checked {
-            return Err("The open library changed; refresh previews before clearing".into());
-        }
-        let before = preview_proxy::usage(&checked);
-        crate::storage_fs::evict(
-            &root,
-            &checked,
-            0,
-            |path| {
-                path.file_name().is_some_and(|name| {
-                    let name = name.to_string_lossy();
-                    if full_only {
-                        name.ends_with(".full.rtpx")
-                    } else {
-                        name.ends_with(".rtpx")
-                    }
-                })
-            },
-            |_| false,
-        )
-        .map_err(|e| e.to_string())?;
-        let after = preview_proxy::usage(&checked);
-        usize::try_from(
-            (before.standard_count + before.full_count)
-                .saturating_sub(after.standard_count + after.full_count),
-        )
-        .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())??;
-    if !full_only {
-        *app_handle
-            .state::<AppState>()
-            .proxy_memory
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Default::default();
-    }
-    Ok(removed)
 }
 
 /// Applies the preferences' limits to a previews folder: discards 1:1

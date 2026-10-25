@@ -258,7 +258,7 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
 
   // Any saved change of a shown photograph's recipe makes a new thumbnail;
   // the native side then develops the cells whose recipe changed.
-  const thumbnails = useProcessStore((s) => shown.map((p) => s.thumbnails[p] ?? "").join("|"));
+  const thumbnails = useProcessStore((s) => shown.map((p) => (s.thumbnails[p] ?? "").split("?")[0]).join("|"));
   // Edit all selected: as soon as the other recipes are written.
   const recipeRevision = useMultiViewStore((s) => s.recipeRevision);
   const revision = `${recipeRevision}|${thumbnails}`;

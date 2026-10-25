@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { noteThumbnailUse } from '../utils/thumbnailCacheUse';
 
 /** Keep the last decoded frame until its replacement is ready. A late decoder
  * cannot resurrect an old photo. The caller owns the URLs. No transition or
@@ -13,7 +14,10 @@ export function useDecodedPreview<T extends { url: string }>(frame: T | null, id
     let cancelled = false;
     const image = new Image();
     const commit = () => {
-      if (!cancelled && latest.current?.url === url) setReady({ identity, frame: latest.current });
+      if (!cancelled && latest.current?.url === url) {
+        noteThumbnailUse(url);
+        setReady({ identity, frame: latest.current });
+      }
     };
     image.src = url;
     // decode resolves only once pixels are ready for the next paint. Older

@@ -1862,7 +1862,7 @@ export default function SettingsPanel({
 
               {activeCategory === 'storage' && (
                 <motion.div key="storage" className="pref-page">
-                  <StorageSettings appSettings={appSettings} onSettingsChange={onSettingsChange} onLibraryRefresh={onLibraryRefresh} />
+                  <StorageSettings appSettings={appSettings} onSettingsChange={onSettingsChange} onLibraryRefresh={onLibraryRefresh} onOpenPreviews={() => setActiveCategory('previews')} />
                 </motion.div>
               )}
 
@@ -1873,7 +1873,7 @@ export default function SettingsPanel({
                       {t('previews.settings.title')}
                     </Text>
                     <div className="space-y-8">
-                      <PreviewSettings appSettings={appSettings} onSettingsChange={onSettingsChange} />
+                      <PreviewSettings appSettings={appSettings} onSettingsChange={onSettingsChange} onOpenStorage={() => setActiveCategory('storage')} />
                     </div>
                   </div>
                 </motion.div>

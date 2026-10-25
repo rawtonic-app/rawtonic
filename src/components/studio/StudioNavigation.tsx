@@ -1,5 +1,5 @@
-import CachedThumbnail from "../ui/CachedThumbnail";
 import { Fragment, useEffect, useMemo, useState } from "react";
+import CachedThumbnail from "../ui/CachedThumbnail";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import {
