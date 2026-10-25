@@ -921,8 +921,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       if ((e.target as Element).closest('.relight-handle')) return;
       const panningDisabled = isPanningDisabled || !!maskHitTestRef.current?.(e.clientX, e.clientY);
       wasPanningDisabledOnDown.current = panningDisabled;
-      // TAT owns its pointer before modifier gestures or viewer capture.
-      if (tatTarget !== null) return;
+      // TAT owns primary editing gestures; middle-button navigation remains.
+      // Two-touch handoff is deferred, consistent with the other active tools.
+      if (tatTarget !== null && !(e.pointerType === 'mouse' && e.button === 1)) return;
 
       const isCropHandle = isCropping && e.button === 0 && !!(e.target as HTMLElement).closest('[data-ord]');
       cropResizeStartRef.current = isCropHandle ? lastValidCropRef.current : null;
@@ -2365,14 +2366,14 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   const isMaxZoom = transformState.scale >= maxScaleRef.current - 0.5;
 
   let cursorStyle = 'default';
-  if (tatTarget !== null) {
+  if (isPanningState && isMiddleMousePanning.current) {
+    cursorStyle = 'grabbing';
+  } else if (tatTarget !== null) {
     cursorStyle = 'ns-resize';
   } else if ((isShiftPressed && !isCropping) || straightenDragLine) {
     cursorStyle = 'crosshair';
   } else if (isCtrlPressed && !isBrushActive && !isCropping) {
     cursorStyle = isCropPanningRef.current ? 'grabbing' : 'move';
-  } else if (isPanningState && isMiddleMousePanning.current) {
-    cursorStyle = 'grabbing';
   } else if (isZoomActionActive) {
     const fixed = lockedAxes(getTransformBounds(transformState.scale));
     if (isPanningState && !(fixed.x && fixed.y)) {

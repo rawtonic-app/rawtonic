@@ -22,7 +22,7 @@ import { ToolGroup } from "./StudioDevelop";
 import { TILE_DROP_EVENT, type TileDropDetail } from "./tileDrag";
 import { createDragGhost } from "./dragGhost";
 import { MISSING_VIEW_ID, OFFLINE_CHANGED, OFFLINE_COUNTED, offlinePhotographs, openMissingView } from "../../utils/offline";
-import { IMPORTS_CHANGED, PREVIOUS_IMPORT_VIEW_ID, openPreviousImport, previousImport } from "../../utils/folderSync";
+import { IMPORTS_CHANGED, PREVIOUS_IMPORT_VIEW_ID, previousImport } from "../../utils/folderSync";
 import { FILE_OPERATIONS_CHANGED } from "../../utils/catalogEvents";
 import { CATALOG_CHANGED, CATALOG_EVENTS, SESSION_ALBUMS_CHANGED, catalogChanged, onCatalogChange } from "../../utils/catalogWrites";
 import type { Group, Rule } from "../../utils/librarySearch";
@@ -245,8 +245,8 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
   }, [session, onSelectAlbum]);
   // Catalog writes, imports, relinks and file operations refresh counts
   // and the shown album. Membership rows survive trash for undo, while
-  // the catalog hides trashed photos from both ordinary and smart albums. The
-  // callback is read when it is used: the parent passes a new one on every
+  // the catalog hides trashed photos from both ordinary and smart albums.
+  // The callback is read when used: the parent passes a new one on every
   // render, which must not cancel a pending refresh.
   const selectRef = useRef(onSelectAlbum);
   selectRef.current = onSelectAlbum;
@@ -349,41 +349,44 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
   /** Photographs of the newest import batch (Previous Import, shown when any). */
   const [imported, setImported] = useState(0);
   const importedGeneration = useRef(0);
-  useEffect(() => () => { importedGeneration.current += 1; }, [session]);
-  const recountImported = useCallback(async () => {
-    if (!session) return setImported(0);
-    const mine = ++importedGeneration.current;
-    const count = await previousImport(session).then((batch) => batch.paths.length).catch(() => 0);
-    if (stillShown(session) && mine === importedGeneration.current) setImported(count);
+  // A background recount may replace a pending read, but must keep the
+  // user's open request: the newest answer then opens the newest paths.
+  const importedOpenRequested = useRef(false);
+  useEffect(() => () => {
+    importedGeneration.current += 1;
+    importedOpenRequested.current = false;
   }, [session]);
-  useEffect(() => {
-    void recountImported();
-  }, [recountImported]);
-  const showImported = useCallback(
-    (preserveEditor = false) => {
-      if (!session) return Promise.resolve(0);
-      const mine = ++importedGeneration.current;
-      const current = () => stillShown(session) && mine === importedGeneration.current;
-      const select: SelectAlbum = (...args) => {
-        if (current() && (!preserveEditor || activeAlbumRef.current === PREVIOUS_IMPORT_VIEW_ID)) selectRef.current(...args);
-      };
-      return openPreviousImport(session, t("studio.library.albums.previousImport"), select, preserveEditor).then(
-        (count) => {
-          if (current()) setImported(count);
-          return count;
-        },
-      );
-    },
-    [session, t],
-  );
+  const loadImported = useCallback(async (preserveEditor?: boolean) => {
+    if (!session) { setImported(0); return 0; }
+    if (preserveEditor === false) importedOpenRequested.current = true;
+    const mine = ++importedGeneration.current;
+    const current = () => stillShown(session) && mine === importedGeneration.current;
+    try {
+      const { paths } = await previousImport(session);
+      if (!current()) return paths.length;
+      setImported(paths.length);
+      const requested = importedOpenRequested.current;
+      importedOpenRequested.current = false;
+      if (requested || (preserveEditor === true && activeAlbumRef.current === PREVIOUS_IMPORT_VIEW_ID)) {
+        selectRef.current(PREVIOUS_IMPORT_VIEW_ID, t("studio.library.albums.previousImport"), paths, !requested);
+      }
+      return paths.length;
+    } catch (error) {
+      if (current()) {
+        if (importedOpenRequested.current) toast.error(<OperationError detail={String(error)} />);
+        setImported(0);
+        importedOpenRequested.current = false;
+      }
+      return 0;
+    }
+  }, [session, t]);
+  useEffect(() => { void loadImported(); }, [loadImported]);
+  const showImported = (preserveEditor = false) => loadImported(preserveEditor);
   // Imports, trash and undo update the batch count and the shown contents.
   useEffect(() => {
-    const changed = () => {
-      if (activeAlbumRef.current === PREVIOUS_IMPORT_VIEW_ID) void showImported(true).catch(() => {});
-      else void recountImported();
-    };
+    const changed = () => { void loadImported(activeAlbumRef.current === PREVIOUS_IMPORT_VIEW_ID ? true : undefined); };
     return onCatalogChange(changed, [IMPORTS_CHANGED, FILE_OPERATIONS_CHANGED, OFFLINE_CHANGED]);
-  }, [showImported, recountImported]);
+  }, [loadImported]);
 
   /** Shows `album` in the grid (`preserveEditor` refreshes it in place). */
   const show = async (album: SessionAlbum, preserveEditor = false) => {

@@ -383,7 +383,11 @@ impl<'a> Watcher<'a> {
             if stop.load(Ordering::Acquire) {
                 break;
             }
-            let sequence = self.lib.summary().map(|s| s.assets as u64 + 1).unwrap_or(1);
+            let sequence = self
+                .lib
+                .registered_asset_count()
+                .map(|count| count as u64 + 1)
+                .unwrap_or(1);
             let (result, asset) = ingest_capture(
                 self.lib,
                 &source,
@@ -1204,6 +1208,45 @@ mod tests {
         let lib = Library::open(&directory).unwrap();
         let config = lib.hot_folder().unwrap().expect("kept in the library");
         (lib, config)
+    }
+
+    #[test]
+    fn capture_sequence_does_not_reuse_numbers_after_trash() {
+        for system in [false, true] {
+            let tmp = tempfile::tempdir().unwrap();
+            let lib = session(tmp.path());
+            let first = lib.directory.join("Capture/1.ARW");
+            for (path, bytes) in [
+                (&first, "first"),
+                (&lib.directory.join("Capture/2.ARW"), "second"),
+            ] {
+                fs::write(path, bytes).unwrap();
+                lib.add_asset(path).unwrap();
+            }
+            let held = if system {
+                tmp.path().join("held.ARW")
+            } else {
+                lib.directory.join("Trash/1.ARW")
+            };
+            fs::rename(&first, &held).unwrap();
+            if system {
+                lib.set_trashed_at(&first, true).unwrap();
+            } else {
+                lib.relocate(&first, &held).unwrap();
+            }
+            let hot = tmp.path().join("Hot");
+            fs::create_dir(&hot).unwrap();
+            fs::write(hot.join("new.ARW"), "third distinct photo").unwrap();
+            let mut config = kept(&lib, &hot, false, CaptureSettings::default());
+            config.template = "{seq}.{ext}".into();
+            let mut watcher = Watcher::new(&lib, &hot, Duration::ZERO, &config);
+            let shown = run(&mut watcher);
+            assert_eq!(shown.len(), 1, "{shown:?}");
+            assert_eq!(
+                shown[0].destination.as_ref().unwrap().file_name().unwrap(),
+                "3.ARW"
+            );
+        }
     }
 
     /// The app quits while watching; files that arrive meanwhile (here in a

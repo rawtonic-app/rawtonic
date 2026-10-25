@@ -465,6 +465,15 @@ impl Library {
         Ok(())
     }
 
+    /// All registered photographs, including Trash records retained for undo.
+    /// Capture naming uses this registry count rather than visible view totals.
+    pub fn registered_asset_count(&self) -> Result<usize> {
+        Ok(self
+            .conn
+            .query_row("SELECT count(*) FROM assets", [], |r| r.get::<_, i64>(0))?
+            as usize)
+    }
+
     pub fn summary(&self) -> Result<Summary> {
         let (assets, picked, rated, pending, missing) = self.conn.query_row(
             &format!(

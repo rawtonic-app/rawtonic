@@ -127,4 +127,27 @@ describe("Editor zoom", () => {
     },
   );
 
+  it("keeps middle-button pan available while targeting", () => {
+    useEditorStore.setState({ tatTarget: "curve" });
+    const ref = createRef<TransformWrapperHandle>();
+    const { container } = render(<Editor onContextMenu={() => {}} transformWrapperRef={ref} />);
+    const wrapper = ref.current!.instance.wrapperComponent!;
+    const overlay = container.querySelector('[data-testid="targeted-adjustment"]')!;
+    const capture = vi.spyOn(wrapper, "setPointerCapture");
+    fireEvent.pointerDown(overlay, { button: 1, clientX: 100, clientY: 100 });
+    expect(capture).toHaveBeenCalled();
+    expect(wrapper.style.cursor).toBe("grabbing");
+    fireEvent.pointerUp(overlay, { button: 1, clientX: 100, clientY: 100 });
+    expect(wrapper.style.cursor).toBe("ns-resize");
+  });
+
+  it.each([false, true])("keeps wheel zoom available while targeting (trackpad pinch: %s)", (ctrlKey) => {
+    useEditorStore.setState({ tatTarget: "curve" });
+    const ref = createRef<TransformWrapperHandle>();
+    render(<Editor onContextMenu={() => {}} transformWrapperRef={ref} />);
+    const wrapper = ref.current!.instance.wrapperComponent!;
+    fireEvent.wheel(wrapper, { deltaY: -100, clientX: 100, clientY: 100, ctrlKey });
+    expect(ref.current!.instance.transformState.scale).toBeGreaterThan(1);
+  });
+
 });
