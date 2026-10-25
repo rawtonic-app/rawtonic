@@ -173,6 +173,7 @@ const libraryStore: AlbumStore = {
 export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectAlbum }) {
   const session = useLibraryStore((s) => s.sessionDirectory);
   const activeAlbumId = useLibraryStore((s) => s.activeAlbumId);
+  const currentFolderPath = useLibraryStore((s) => s.currentFolderPath);
   const selected = useLibraryStore((s) => s.multiSelectedPaths);
   const albumTree = useLibraryStore((s) => s.albumTree);
   const { showContextMenu } = useContextMenu();
@@ -352,6 +353,11 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
   // A background recount may replace a pending read, but must keep the
   // user's open request: the newest answer then opens the newest paths.
   const importedOpenRequested = useRef(false);
+  useEffect(() => {
+    // A newer navigation cancels a pending manual open, including folder
+    // changes while activeAlbumId is already null.
+    importedOpenRequested.current = false;
+  }, [activeAlbumId, currentFolderPath]);
   useEffect(() => () => {
     importedGeneration.current += 1;
     importedOpenRequested.current = false;

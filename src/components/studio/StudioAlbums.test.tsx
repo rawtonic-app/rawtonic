@@ -635,3 +635,27 @@ it("keeps a Previous Import open click when a background recount finishes first"
   await act(async () => pending[0]({ batch: { id: 1, count: 1 }, paths: ["/job/a.arw"] }));
   expect(select).toHaveBeenCalledWith("session-previous-import", "Previous Import", ["/job/b.arw"], false);
 });
+
+it.each([
+  { activeAlbumId: "session-album:picks" },
+  { activeAlbumId: "session-missing" },
+  { activeAlbumId: null, currentFolderPath: "/job/Selects" },
+])("cancels a pending Previous Import open after navigation to %j", async (destination) => {
+  const base = mockInvoke.getMockImplementation()!;
+  const pending: ((value: unknown) => void)[] = [];
+  let delay = false;
+  mockInvoke.mockImplementation(async (command, args) => {
+    if (command === "session_previous_import") return delay
+      ? new Promise((resolve) => pending.push(resolve))
+      : { batch: { id: 1, count: 1 }, paths: ["/job/a.arw"] };
+    return base(command, args);
+  });
+  const select = await renderTool();
+  delay = true;
+  fireEvent.click(screen.getByText("Previous Import"));
+  act(() => useLibraryStore.setState(destination));
+  act(() => window.dispatchEvent(new Event(FILE_OPERATIONS_CHANGED)));
+  await act(async () => pending[1]({ batch: { id: 1, count: 1 }, paths: ["/job/b.arw"] }));
+  await act(async () => pending[0]({ batch: { id: 1, count: 1 }, paths: ["/job/a.arw"] }));
+  expect(select).not.toHaveBeenCalledWith("session-previous-import", expect.anything(), expect.anything(), expect.anything());
+});
