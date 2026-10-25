@@ -571,6 +571,20 @@ mod tests {
     }
 
     #[test]
+    fn masking_use_during_the_first_warm_up_keeps_both_models() {
+        let lifecycle = Lifecycle::new();
+        // Counted once before Subject and Sky; the user masks during Subject.
+        let uses = lifecycle.uses();
+        lifecycle.touch();
+        let mut ai = Some(filled_state());
+        let subject =
+            release_after_warm_up(&lifecycle, &mut ai, uses, |ai| ai.subject_masks.clear());
+        let sky = release_after_warm_up(&lifecycle, &mut ai, uses, |ai| ai.sky_masks.clear());
+        assert!(!subject && !sky);
+        assert_eq!(ai.as_ref().unwrap().sky_masks.len(), 2);
+    }
+
+    #[test]
     fn reasons_are_named_as_the_webview_sends_them() {
         let parse = |s: &str| serde_json::from_value::<UnloadReason>(serde_json::json!(s)).unwrap();
         assert_eq!(parse("library"), UnloadReason::Library);

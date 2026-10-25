@@ -1325,10 +1325,12 @@ async fn load_core_ml(
     }
 }
 
-/// Whether the Subject (`sky` false) or Sky model on Core ML has never run
-/// in this app on this macOS build (`FirstRunMarker`), so its first use
-/// would wait for Metal to build its GPU kernels. Always false away from
-/// macOS.
+/// Whether the Subject (`sky` false) or Sky model's Core ML files are
+/// installed and it has never run in this app on this macOS build
+/// (`FirstRunMarker`), so its first use would wait for Metal to build its
+/// GPU kernels. Always false away from macOS, and without the Core ML files
+/// (an ONNX model alone needs no warm-up and would only be loaded for
+/// nothing).
 pub fn core_ml_first_run_pending(app_handle: &tauri::AppHandle, sky: bool) -> bool {
     #[cfg(target_os = "macos")]
     {
@@ -1337,13 +1339,35 @@ pub fn core_ml_first_run_pending(app_handle: &tauri::AppHandle, sky: bool) -> bo
         } else {
             ("subject", &SUBJECT_CORE_ML_FILES)
         };
-        first_run_marker(app_handle, label, files).is_some_and(|marker| !marker.is_set())
+        let Ok(models_dir) = get_models_dir(app_handle) else {
+            return false;
+        };
+        first_run_pending(
+            &models_dir,
+            files,
+            first_run_marker(app_handle, label, files).as_ref(),
+        )
     }
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (app_handle, sky);
         false
     }
+}
+
+/// `core_ml_first_run_pending` for the files of a Core ML program in
+/// `models_dir` (only looked at; the load checks their hashes) and its
+/// marker.
+#[cfg(target_os = "macos")]
+fn first_run_pending(
+    models_dir: &Path,
+    files: &[(&str, &str, &str)],
+    marker: Option<&rawtonic_denoise::coreml::FirstRunMarker>,
+) -> bool {
+    files
+        .iter()
+        .all(|&(file, _, _)| models_dir.join(file).is_file())
+        && marker.is_some_and(|marker| !marker.is_set())
 }
 
 /// The first-run marker of a Core ML program of the model pack, named after
@@ -4393,6 +4417,29 @@ mod tool_tests {
             }
             other => panic!("WARM_MODEL {other}"),
         }
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod first_run_tests {
+    use rawtonic_denoise::coreml::FirstRunMarker;
+
+    /// Only installed Core ML files with no first run here ask for a
+    /// warm-up: an ONNX model alone is not loaded for it.
+    #[test]
+    fn a_warm_up_needs_the_core_ml_files_and_no_first_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let files = super::SUBJECT_CORE_ML_FILES;
+        let marker = FirstRunMarker::new(&dir.path().join("first-runs"), "subject").unwrap();
+        std::fs::write(dir.path().join(super::SUBJECT_FILENAME), b"onnx").unwrap();
+        assert!(!super::first_run_pending(dir.path(), &files, Some(&marker)));
+        for (file, _, _) in files {
+            std::fs::write(dir.path().join(file), b"x").unwrap();
+        }
+        assert!(super::first_run_pending(dir.path(), &files, Some(&marker)));
+        assert!(!super::first_run_pending(dir.path(), &files, None));
+        marker.set().unwrap();
+        assert!(!super::first_run_pending(dir.path(), &files, Some(&marker)));
     }
 }
 
