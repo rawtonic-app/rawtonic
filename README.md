@@ -92,7 +92,7 @@ Already have a Lightroom Classic catalog or a Capture One session? Rawtonic can 
   <a href="docs/images/readme-library.jpg"><img src="docs/images/readme-library.jpg" alt="Library workspace with landscapes and studio portraits, ratings, picks, keywords and metadata" width="860"></a>
 </p>
 
-The **Library** shows the whole shoot. Rate with 1–5, pick and reject with P and ⇧X, add colour labels, then filter down to the frames that matter. Double-click a photograph (or press E or Space) to see it large in the **loupe**, with its keywords and metadata beside it; G goes back to the grid. Group keepers into albums and add keywords, captions and copyright while you are at it. Everything is written to standard XMP sidecars, so other software sees your ratings too.
+The **Library** shows the whole shoot. Rate with 1–5, pick and reject with P and ⇧X, add colour labels, then filter down to the frames that matter. Press E or Space to see a photograph large in the **loupe**, with its keywords and metadata beside it; G goes back to the grid. A double-click (or D) opens it in Develop. Group keepers into albums and add keywords, captions and copyright while you are at it. Everything is written to standard XMP sidecars, so other software sees your ratings too.
 
 ### 3 · Develop
 

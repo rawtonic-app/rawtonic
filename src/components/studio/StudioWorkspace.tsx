@@ -493,6 +493,14 @@ export default function StudioWorkspace(props: Props) {
     useUIStore.getState().setUI({ libraryLoupe: false, isFullScreen: false });
     onBack();
   }, [onBack]);
+  /** The Library button: from Develop back to the Library view it was
+   * opened from (the loupe, or the grid); in the Library, the grid. */
+  const showLibrary = useCallback(() => {
+    const { activeView: view, libraryLoupe: loupe } = useUIStore.getState();
+    if (view !== "editor" || !loupe) return showGrid();
+    useUIStore.getState().setUI({ isFullScreen: false });
+    onBack();
+  }, [onBack, showGrid]);
   useEffect(() => {
     if (develop) return;
     const state = useLibraryStore.getState();
@@ -806,8 +814,13 @@ export default function StudioWorkspace(props: Props) {
     <nav className="studio-modules" aria-label={t("studio.workspace.modules.workspace")}>
       <button
         aria-pressed={!develop}
-        onClick={showGrid}
-        title={withShortcut(t("studio.workspace.modules.library"), "G")}
+        onClick={showLibrary}
+        // G is the grid; from Develop the button returns to the loupe it left.
+        title={
+          develop && libraryLoupe
+            ? t("studio.workspace.modules.library")
+            : withShortcut(t("studio.workspace.modules.library"), "G")
+        }
       >
         <Grid2X2 size={14} />
         {t("studio.workspace.modules.library")}
@@ -1497,6 +1510,13 @@ export default function StudioWorkspace(props: Props) {
                     <span className="optional-label">{t("studio.workspace.loupe.grid")}</span>
                   </button>
                   <button
+                    onClick={() => moduleKeysRef.current.d()}
+                    title={withShortcut(t("studio.workspace.modules.develop"), "D")}
+                  >
+                    <SlidersHorizontal size={14} />
+                    <span className="optional-label">{t("studio.workspace.modules.develop")}</span>
+                  </button>
+                  <button
                     aria-label={t("studio.workspace.footer.previous")}
                     title={withShortcut(t("studio.workspace.footer.previous"), "←")}
                     disabled={files.length < 2}
@@ -1586,8 +1606,9 @@ export default function StudioWorkspace(props: Props) {
               {metadataOpen && <StudioMetadataFilter />}
               <StudioBrowser
                 {...browserProps}
-                // A double-click opens the loupe (Lightroom); D or Enter Develop.
-                onOpen={openLoupe}
+                // A double-click opens the photograph in Develop (user
+                // decision 2026-10-25); E or Space the loupe, to look through.
+                onOpen={onOpen}
                 size={size}
                 onClearSelection={clearLibrarySelection}
                 listing={JSON.stringify([currentFolderPath, activeAlbumId, searchCriteria, filterCriteria, sortCriteria])}

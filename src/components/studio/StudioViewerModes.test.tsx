@@ -112,7 +112,7 @@ const withMenus = ({ children }: { children: React.ReactNode }) => (
     {children}
   </ContextMenuProvider>
 );
-const workspace = (list = files) =>
+const workspace = (list = files, onOpen: (path: string) => void = noop) =>
   render(
     <StudioWorkspace
       files={list}
@@ -121,7 +121,7 @@ const workspace = (list = files) =>
       transformWrapperRef={{ current: null }}
       onSelect={onSelect}
       onFilmSelect={noop}
-      onOpen={noop}
+      onOpen={onOpen}
       onNavigate={noop}
       onBack={onBack}
       onRate={noop}
@@ -139,11 +139,14 @@ const workspace = (list = files) =>
   );
 const key = (k: string) => fireEvent.keyDown(document, { key: k, code: `Key${k.toUpperCase()}` });
 
-it("opens the loupe on a double-click in the grid: the native viewer beside the Library tools", () => {
-  const { container } = workspace();
+it("opens Develop on a double-click in the grid; E opens the loupe: the native viewer beside the Library tools", () => {
+  const onOpen = vi.fn();
+  const { container } = workspace(files, onOpen);
   expect(screen.queryByTestId("native-viewer")).toBeNull();
-  const tile = container.querySelector(".studio-photo-open")!;
-  fireEvent.doubleClick(tile);
+  fireEvent.doubleClick(container.querySelector(".studio-photo-open")!);
+  expect(onOpen).toHaveBeenCalledWith("/qa/a.dng");
+  expect(useUIStore.getState().libraryLoupe).toBe(false);
+  key("e");
   expect(useUIStore.getState().libraryLoupe).toBe(true);
   expect(screen.getByTestId("native-viewer")).toBeTruthy();
   // The Library tools stay beside it (not Develop's), the grid is gone.
@@ -152,6 +155,24 @@ it("opens the loupe on a double-click in the grid: the native viewer beside the 
   expect(container.querySelector(".studio-photo-open")).toBeNull();
   expect(container.querySelector(".studio-loupe-bar")).not.toBeNull();
   expect(container.querySelector(".studio-workspace.module-library.is-library-loupe")).not.toBeNull();
+});
+
+it("opens Develop from the loupe's bar, and the Library button returns to that loupe", () => {
+  useUIStore.setState({ libraryLoupe: true });
+  const { container } = workspace();
+  fireEvent.click(container.querySelector(".studio-loupe-bar")!.querySelector('[title="Develop (D)"]')!);
+  expect(useUIStore.getState().activeView).toBe("editor");
+  fireEvent.click(screen.getByTitle("Library"));
+  expect(onBack).toHaveBeenCalledOnce();
+  expect(useUIStore.getState().libraryLoupe).toBe(true);
+});
+
+it("returns from Develop opened in the grid to the grid with the Library button", () => {
+  useUIStore.setState({ activeView: "editor" });
+  workspace();
+  fireEvent.click(screen.getByTitle("Library (G)"));
+  expect(onBack).toHaveBeenCalledOnce();
+  expect(useUIStore.getState().libraryLoupe).toBe(false);
 });
 
 it("goes from the loupe back to the grid with G and its button, and opens it again with E", () => {
