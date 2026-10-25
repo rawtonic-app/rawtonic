@@ -758,6 +758,7 @@ pub async fn session_ingest(
     mode: Option<IngestMode>,
     separate_jpeg: Option<bool>,
     album: Option<String>,
+    metadata: Option<rawtonic_ingest::metadata::ImportMetadata>,
     app: tauri::AppHandle,
 ) -> Result<Vec<rawtonic_ingest::ImportResult>, String> {
     if IMPORT_RUNNING.swap(true, Ordering::AcqRel) {
@@ -782,6 +783,7 @@ pub async fn session_ingest(
             roots: &roots,
             pair_raw: pair_raw(separate_jpeg),
             album: album.as_deref(),
+            metadata: metadata.as_ref(),
         };
         let report = ingest_reporter(&app);
         match mode.unwrap_or_default() {
@@ -792,12 +794,13 @@ pub async fn session_ingest(
                 &CANCEL_IMPORT,
                 report,
             ),
-            IngestMode::Add => rawtonic_ingest::batch::add_batch(
+            IngestMode::Add => rawtonic_ingest::batch::add_batch_with_metadata(
                 &lib,
                 &sources,
                 pair_raw(separate_jpeg),
                 rawtonic_ingest::batch::source_medium,
                 &CANCEL_IMPORT,
+                metadata.as_ref(),
                 report,
             ),
         }

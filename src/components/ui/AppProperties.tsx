@@ -4,6 +4,7 @@ import { ExportPreset } from './ExportImportProperties';
 import { Adjustments, CopyPasteSettings } from '../../utils/adjustments';
 import { ToolType } from '../panel/right/Masks';
 import type { ModuleLayout, WorkspaceModule } from '../../utils/panelLayout';
+import type { ImportMetadataPreset } from '../session/IngestMetadata';
 import type { MetadataSelection } from '../../utils/librarySearch';
 
 export const GLOBAL_KEYS = [
@@ -420,6 +421,7 @@ export interface AppSettings {
   aiGpu?: boolean;
   linuxGpuOptimization?: boolean;
   exportPresets?: ExportPreset[];
+  importMetadataPresets?: ImportMetadataPreset[];
   myLenses?: MyLens[];
   customAspectRatios?: CustomAspectRatio[];
   adjustmentLayout?: AdjustmentLayout;

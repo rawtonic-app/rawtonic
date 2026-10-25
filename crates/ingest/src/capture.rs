@@ -41,6 +41,65 @@ pub fn read_capture(path: &Path) -> Capture {
     read_capture_within(path, WHOLE_FILE_LIMIT)
 }
 
+/// Rights and descriptive metadata embedded in the photograph's own XMP
+/// packet (not its thumbnail's), with EXIF creator/copyright as fallback.
+/// Used only when an import preset is selected, after verified publication.
+pub(crate) fn import_metadata(
+    path: &Path,
+) -> anyhow::Result<(rawtonic_metadata::Metadata, Option<i32>)> {
+    use chrono::Datelike;
+    let read_packet = || -> anyhow::Result<rawtonic_metadata::Metadata> {
+        let mut file = fs::File::open(path)?;
+        let len = file.metadata()?.len();
+        let mut header = vec![0; len.min(64 * 1024) as usize];
+        file.read_exact(&mut header)?;
+        Ok(match container_xmp(&mut file, len, &header)? {
+            Container::Packet(packet) => {
+                let text =
+                    std::str::from_utf8(&packet)?.trim_end_matches(['\0', ' ', '\t', '\r', '\n']);
+                rawtonic_metadata::read_xmp(text)?.0
+            }
+            _ => rawtonic_metadata::Metadata::default(),
+        })
+    };
+    // Optional enrichment follows read_header's tolerance: damaged or
+    // unreadable embedded packets must not veto a verified photograph.
+    let mut metadata = read_packet().unwrap_or_default();
+    let capture = read_capture_within(path, FACTS_LIMIT);
+    let year = capture
+        .captured
+        .filter(|_| {
+            matches!(
+                capture.date_source,
+                DateSource::Original | DateSource::Digitized | DateSource::FileDate
+            )
+        })
+        .map(|date| date.year());
+    // XMP is validated by read_xmp; validate each optional EXIF fallback
+    // before adopting it, retaining valid embedded fields if one is bad.
+    let camera_text = |value: Option<String>| {
+        let candidate = rawtonic_metadata::Metadata {
+            creator: value.unwrap_or_default(),
+            ..Default::default()
+        };
+        if candidate.validate().is_ok() {
+            candidate.creator
+        } else {
+            String::new()
+        }
+    };
+    if metadata.creator.trim().is_empty() {
+        metadata.creator = camera_text(capture.creator);
+    }
+    if metadata.copyright.trim().is_empty() {
+        metadata.copyright = camera_text(capture.copyright);
+    }
+    if metadata.rating == 0 && metadata.flag == 0 {
+        metadata.rating = capture.rating.unwrap_or_default();
+    }
+    Ok((metadata, year))
+}
+
 /// How much of a file the library's capture facts are read from: the
 /// header steps only, never the rest of a large file without a date (the
 /// naming of an ingest reads further for its date).

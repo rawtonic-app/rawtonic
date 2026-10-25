@@ -62,6 +62,7 @@ import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from "../../utils/offl
 import { requestAutoAdvance } from "../../utils/photoStepping";
 import { hotFolderCommand } from "../../utils/hotFolderCommands";
 import { FOLDER_SYNC_APPLIED, IMPORTS_CHANGED, OPEN_FOLDER_SYNC_EVENT, type OpenFolderSyncDetail } from "../../utils/folderSync";
+import IngestMetadata, { type ImportMetadata } from "./IngestMetadata";
 import IngestPreviewGrid, { fileName, type IngestCandidate } from "./IngestPreviewGrid";
 import {
   OPEN_INGEST_EVENT,
@@ -351,6 +352,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const scanList = useRef(0);
   const scansRunning = useRef(0);
   const [backup, setBackup] = useState<string | null>(null);
+  const [importMetadata, setImportMetadata] = useState<ImportMetadata | null>(null);
   // RAW+JPEG pairs come in as one photograph unless this is set.
   const [separateJpeg, setSeparateJpeg] = useState(false);
   const [template, setTemplate] = useState("{orig}");
@@ -1038,6 +1040,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     }
   };
   const openIngest = (paths: string[] = [], next: IngestTarget = NO_TARGET) => {
+    setImportMetadata(null);
     setTarget(next);
     setAddToAlbum(true);
     setForm("ingest");
@@ -1164,6 +1167,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         backup,
         folder,
         separateJpeg,
+        metadata: importMetadata,
         // Kept with the ingest job, so a resumed import fills the album too.
         album: album?.id ?? null,
       });
@@ -1939,6 +1943,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 preview={namePreview?.key === previewKey ? namePreview.result : null} />
             </section>
             )}
+            <IngestMetadata adding={ingestMode === "add"} value={importMetadata} onChange={setImportMetadata} />
             <div className="session-copy-note">
               <Check size={16} />
               <span>

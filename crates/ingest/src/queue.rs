@@ -36,6 +36,8 @@ pub struct JobOptions {
     /// The album the photographs go into.
     #[serde(default)]
     pub album: Option<String>,
+    #[serde(default)]
+    pub metadata: Option<crate::metadata::ImportMetadata>,
 }
 
 impl JobOptions {
@@ -50,6 +52,7 @@ impl JobOptions {
                 .transpose()?,
             roots: options.roots.to_vec(),
             album: options.album.map(Into::into),
+            metadata: options.metadata.cloned(),
         })
     }
 }
@@ -61,6 +64,9 @@ pub fn create_job(
     sources: &[PathBuf],
     options: &BatchOptions<'_>,
 ) -> Result<String> {
+    if let Some(metadata) = options.metadata {
+        metadata.validate()?;
+    }
     let items: Vec<(SourceFile, Option<SourceFile>)> = pair_sources(sources, options.pair_raw)
         .into_iter()
         .map(|g| {
@@ -254,7 +260,19 @@ pub fn run_job(
                 companion.skipped = false;
             }
         }
-        let done: Vec<ImportResult> = std::iter::once(photo).chain(companion).collect();
+        let mut done: Vec<ImportResult> = std::iter::once(photo).chain(companion).collect();
+        // Before ItemState::Done, so a crash or catalog-write failure repeats it.
+        // XMP conflicts remain pending and are reported with the photograph.
+        // Duplicates belonging to earlier jobs are left untouched.
+        // A resumed unfinished item intentionally reapplies its immutable
+        // snapshot, including explicit overwrites. Completed items never replay.
+        // Catalog-write errors stop here for retry rather than silently losing
+        // the requested preset; optional camera fields were validated earlier.
+        if let Some(metadata) = &options.metadata {
+            for result in &mut done {
+                crate::metadata::apply_to_copy(library, result, metadata)?;
+            }
+        }
         // Into the album before the photograph counts as done: a run cut
         // off in between does it again (it is idempotent).
         if done[0].error.is_none()
@@ -361,6 +379,7 @@ mod tests {
             roots: &[],
             pair_raw: Some(raw),
             album: None,
+            metadata: None,
         }
     }
     fn write(path: &Path, bytes: &[u8]) -> PathBuf {
@@ -456,46 +475,69 @@ mod tests {
     /// backups, without copying anything again.
     #[test]
     fn copies_not_made_durable_are_recorded_by_the_next_run() {
-        let d = tempfile::tempdir().unwrap();
-        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
-        let sources = card(d.path());
-        let backup = d.path().join("backup");
-        let options = BatchOptions {
-            backup: Some(&backup),
-            ..options("{orig}")
-        };
-        let id = create_job(&lib, &sources, &options).unwrap();
-        crate::copy::FAIL_FLUSH.with(|fail| fail.set(true));
-        let results = run_job(&lib, &id, &AtomicBool::new(false), |_| {});
-        crate::copy::FAIL_FLUSH.with(|fail| fail.set(false));
-        let results = results.unwrap();
-        assert!(
-            results
-                .iter()
-                .all(|r| r.error.as_deref().is_some_and(|e| e.contains("durable"))),
-            "{results:?}"
-        );
-        assert_eq!(lib.summary().unwrap().assets, 0);
-        let capture = lib.directory.join("Capture");
-        let all = ["C0.ARW", "C0.JPG", "C1.ARW", "C2.ARW", "C2.JPG", "C3.ARW"];
-        assert_eq!(names(&capture), all);
-        assert_eq!(names(&backup), all);
-        let lib = reopen_and_index(&lib);
-        assert_eq!(lib.summary().unwrap().assets, 0, "left to the job");
-        let results = run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
-        assert!(results.iter().all(|r| r.error.is_none()), "{results:?}");
-        assert_eq!(names(&capture), all);
-        assert_eq!(names(&backup), all);
-        assert_eq!(lib.summary().unwrap().assets, 4);
-        let c2 = lib.asset_at(&capture.join("C2.ARW")).unwrap().unwrap();
-        assert_eq!(lib.companion(&c2).unwrap(), Some(capture.join("C2.JPG")));
-        assert_eq!(lib.ingest_job(&id).unwrap().state, JobState::Done);
-        for name in all {
-            let card = sources.iter().find(|s| s.ends_with(name)).unwrap();
-            assert_eq!(
-                fs::read(capture.join(name)).unwrap(),
-                fs::read(card).unwrap()
+        for use_preset in [false, true] {
+            let d = tempfile::tempdir().unwrap();
+            let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+            let sources = card(d.path());
+            let backup = d.path().join("backup");
+            let preset = crate::metadata::ImportMetadata {
+                creator: "Photographer".into(),
+                ..Default::default()
+            };
+            let options = BatchOptions {
+                backup: Some(&backup),
+                metadata: use_preset.then_some(&preset),
+                ..options("{orig}")
+            };
+            let id = create_job(&lib, &sources, &options).unwrap();
+            crate::copy::FAIL_FLUSH.with(|fail| fail.set(true));
+            let results = run_job(&lib, &id, &AtomicBool::new(false), |_| {});
+            crate::copy::FAIL_FLUSH.with(|fail| fail.set(false));
+            let results = results.unwrap();
+            assert!(
+                results
+                    .iter()
+                    .all(|r| r.error.as_deref().is_some_and(|e| e.contains("durable"))),
+                "{results:?}"
             );
+            assert_eq!(lib.summary().unwrap().assets, 0);
+            assert!(
+                !lib.directory.join("Capture/C0.xmp").exists(),
+                "no preset XMP before the copy barrier"
+            );
+            let capture = lib.directory.join("Capture");
+            let all = ["C0.ARW", "C0.JPG", "C1.ARW", "C2.ARW", "C2.JPG", "C3.ARW"];
+            assert_eq!(names(&capture), all);
+            assert_eq!(names(&backup), all);
+            let lib = reopen_and_index(&lib);
+            assert_eq!(lib.summary().unwrap().assets, 0, "left to the job");
+            let results = run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
+            assert!(results.iter().all(|r| r.error.is_none()), "{results:?}");
+            let mut with_xmp = all.map(String::from).to_vec();
+            if use_preset {
+                with_xmp.extend((0..4).map(|i| format!("C{i}.xmp")));
+            }
+            with_xmp.sort();
+            assert_eq!(names(&capture), with_xmp);
+            assert_eq!(names(&backup), all);
+            assert_eq!(lib.summary().unwrap().assets, 4);
+            let c2 = lib.asset_at(&capture.join("C2.ARW")).unwrap().unwrap();
+            assert_eq!(
+                lib.metadata(&c2.id).unwrap().creator,
+                if use_preset { "Photographer" } else { "" }
+            );
+            if use_preset {
+                assert_eq!(lib.summary().unwrap().xmp_pending, 0);
+            }
+            assert_eq!(lib.companion(&c2).unwrap(), Some(capture.join("C2.JPG")));
+            assert_eq!(lib.ingest_job(&id).unwrap().state, JobState::Done);
+            for name in all {
+                let card = sources.iter().find(|s| s.ends_with(name)).unwrap();
+                assert_eq!(
+                    fs::read(capture.join(name)).unwrap(),
+                    fs::read(card).unwrap()
+                );
+            }
         }
     }
 

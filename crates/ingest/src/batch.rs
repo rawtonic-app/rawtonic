@@ -223,6 +223,8 @@ pub struct BatchOptions<'a> {
     /// The album (id) the photographs go into, also those a resumed run
     /// brings in (`queue`).
     pub album: Option<&'a str>,
+    /// Applied after verified publication, saved with the resumable job.
+    pub metadata: Option<&'a crate::metadata::ImportMetadata>,
 }
 
 /// One file of a batch finished: in the library (or skipped as a duplicate,
@@ -312,8 +314,25 @@ pub fn add_batch(
     pair_raw: Option<fn(&Path) -> bool>,
     classify: impl Fn(&Path) -> Medium,
     cancel: &AtomicBool,
+    on_file: impl FnMut(FileDone<'_>),
+) -> Result<Vec<ImportResult>> {
+    add_batch_with_metadata(library, sources, pair_raw, classify, cancel, None, on_file)
+}
+
+/// Add with explicitly selected metadata: catalog only, pending XMP as for
+/// later metadata edits. Nothing is written beside the source at import.
+pub fn add_batch_with_metadata(
+    library: &Library,
+    sources: &[PathBuf],
+    pair_raw: Option<fn(&Path) -> bool>,
+    classify: impl Fn(&Path) -> Medium,
+    cancel: &AtomicBool,
+    metadata: Option<&crate::metadata::ImportMetadata>,
     mut on_file: impl FnMut(FileDone<'_>),
 ) -> Result<Vec<ImportResult>> {
+    if let Some(metadata) = metadata {
+        metadata.validate()?;
+    }
     anyhow::ensure!(
         library.manifest.mode == rawtonic_catalog::Mode::Catalog,
         "A session keeps its photographs inside it: copy them into the session"
@@ -344,10 +363,10 @@ pub fn add_batch(
         if cancel.load(Ordering::Acquire) {
             break;
         }
-        let mut photo =
-            add_one(library, &group.photo, &mut known).unwrap_or_else(|e| failed(&group.photo, e));
+        let mut photo = add_one(library, &group.photo, &mut known, metadata)
+            .unwrap_or_else(|e| failed(&group.photo, e));
         let companion = group.companion.as_deref().map(|companion| {
-            add_companion(library, &mut photo, companion, &mut known)
+            add_companion(library, &mut photo, companion, &mut known, metadata)
                 .unwrap_or_else(|e| failed(companion, e))
         });
         for result in std::iter::once(photo).chain(companion) {
@@ -372,6 +391,7 @@ fn add_companion(
     photo: &mut ImportResult,
     companion: &Path,
     known: &mut HashMap<(u64, String), Vec<PathBuf>>,
+    metadata: Option<&crate::metadata::ImportMetadata>,
 ) -> Result<ImportResult> {
     let in_place = photo.error.is_none()
         && photo
@@ -411,7 +431,7 @@ fn add_companion(
                 ..Default::default()
             })
         }
-        _ => add_one(library, companion, known),
+        _ => add_one(library, companion, known, metadata),
     }
 }
 
@@ -419,6 +439,7 @@ fn add_one(
     library: &Library,
     source: &Path,
     known: &mut HashMap<(u64, String), Vec<PathBuf>>,
+    metadata: Option<&crate::metadata::ImportMetadata>,
 ) -> Result<ImportResult> {
     let skipped = |asset: rawtonic_catalog::Asset| ImportResult {
         source: source.into(),
@@ -464,10 +485,21 @@ fn add_one(
     // Registered with what its sidecars hold (editor sidecar, else XMP
     // rating, label and keywords) in one transaction; they are read, never
     // written. An unreadable sidecar keeps the file out.
-    let mut report = library.add_files(&[source.to_path_buf()])?;
+    let mut report = if let Some(preset) = metadata {
+        library.add_files_with_metadata_edit(
+            &[source.to_path_buf()],
+            |photo, metadata, initialized| preset.prepare(photo, source, metadata, initialized),
+        )?
+    } else {
+        library.add_files(&[source.to_path_buf()])?
+    };
     if let Some((_, error)) = report.failed.pop() {
         anyhow::bail!(error);
     }
+    anyhow::ensure!(
+        report.importing.is_empty(),
+        "This photograph belongs to an unfinished import"
+    );
     let asset = report
         .added
         .pop()
@@ -513,6 +545,7 @@ mod tests {
             roots: &[],
             pair_raw: Some(raw),
             album: None,
+            metadata: None,
         }
     }
     /// The RAW formats of these tests (the app passes its own).

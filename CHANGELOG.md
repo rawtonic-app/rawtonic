@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Import metadata presets add creator, copyright (with a capture-year token), description, usage terms, credit and keywords. They fill empty fields unless explicitly set to overwrite; contact details are opt-in. Copy writes XMP after verified publication, while Add keeps metadata in the catalog pending the usual later XMP sync. Independent RAW/JPEG photographs sharing a stem retain the existing XMP ownership limit and report a warning.
+  Selecting a preset also adopts readable embedded descriptions, keywords and IPTC fields so the new sidecar preserves them. Unreadable embedded XMP is ignored, as in capture-fact reading, and never blocks the photo's import.
+
 ## 0.1.0-alpha.5 — 2026-10-24
 
 A fix release for alpha.4: its downloads were built without the address of Rawtonic's report relay, so **Report a problem**, crash reports, camera test results and usage statistics could not be sent from the app (only **Copy report** and **Open on GitHub** worked). alpha.5 sends them as alpha.4's notes describe. Nothing else changes; edits render exactly as in alpha.4.

@@ -167,6 +167,7 @@ pub struct PlannedAsset {
     recipe: Option<String>,
     metadata: Option<Metadata>,
     xmp_digest: Option<String>,
+    metadata_edited: bool,
     /// The snapshots its editor sidecar carries.
     snapshots: Vec<crate::Snapshot>,
     /// The companion file beside it (`Library::companion`).
@@ -177,6 +178,20 @@ pub struct PlannedAsset {
 }
 
 impl PlannedAsset {
+    /// Edit initial metadata before registration, in the same transaction
+    /// as the asset. Retain the observed XMP digest for later conflict-aware
+    /// sync, but leave it pending because the sidecar has not been written.
+    pub fn edit_metadata(
+        mut self,
+        edit: impl FnOnce(&mut Metadata, bool) -> Result<()>,
+    ) -> Result<Self> {
+        let initialized = self.metadata.is_some();
+        let metadata = self.metadata.get_or_insert_default();
+        edit(metadata, initialized)?;
+        metadata.validate()?;
+        self.metadata_edited = true;
+        Ok(self)
+    }
     /// Registers the photograph with `name`, a file beside it, as its
     /// companion (a RAW's JPEG; its size, fingerprint and SHA-256 read now),
     /// in the same transaction.
@@ -306,6 +321,7 @@ impl Library {
             metadata,
             snapshots: contents.snapshots(),
             xmp_digest: contents.xmp_digest,
+            metadata_edited: false,
             companion: None,
             facts: None,
         })
@@ -386,7 +402,7 @@ impl Library {
                         metadata.flag,
                         serde_json::to_string(metadata)?,
                         asset.xmp_digest,
-                        if asset.xmp_digest.is_some() {
+                        if asset.xmp_digest.is_some() && !asset.metadata_edited {
                             "synced"
                         } else {
                             "pending"
@@ -448,6 +464,30 @@ impl Library {
     /// reported as `known`, the companion as its photograph); files that
     /// cannot be added are reported, not added.
     pub fn add_files(&self, paths: &[PathBuf]) -> Result<AddReport> {
+        self.add_files_prepared(paths, Ok)
+    }
+
+    /// Add with a metadata edit in the registration transaction, retaining
+    /// the same identity, companion and unfinished-ingest checks as add_files.
+    /// Sidecars are read only; edited metadata remains pending XMP sync.
+    /// The callback receives whether sidecar/editor metadata was initialized,
+    /// so an explicit zero rating is distinguishable from an empty default.
+    pub fn add_files_with_metadata_edit(
+        &self,
+        paths: &[PathBuf],
+        mut edit: impl FnMut(&Path, &mut Metadata, bool) -> Result<()>,
+    ) -> Result<AddReport> {
+        self.add_files_prepared(paths, |plan| {
+            let path = plan.path.clone();
+            plan.edit_metadata(|metadata, initialized| edit(&path, metadata, initialized))
+        })
+    }
+
+    fn add_files_prepared(
+        &self,
+        paths: &[PathBuf],
+        mut prepare: impl FnMut(PlannedAsset) -> Result<PlannedAsset>,
+    ) -> Result<AddReport> {
         let mut report = AddReport::default();
         let mut planned = Vec::new();
         let mut seen = HashSet::new();
@@ -474,7 +514,7 @@ impl Library {
                     return Ok(None);
                 }
                 let contents = Contents::read_sidecars(&place.path)?;
-                Ok(Some(self.plan_add(&place.path, contents)?))
+                Ok(Some(prepare(self.plan_add(&place.path, contents)?)?))
             })();
             match plan {
                 Ok(Some(plan)) => planned.push(plan),

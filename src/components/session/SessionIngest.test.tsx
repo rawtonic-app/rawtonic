@@ -135,6 +135,30 @@ function drop(paths: string[], element: Element | null = null) {
 const ingestCall = () => vi.mocked(invoke).mock.calls.find(([command]) => command === "session_ingest");
 
 describe("Dropping photographs onto the window", () => {
+  it("offers import presets only for imports that apply them", async () => {
+    const user = userEvent.setup();
+    await open();
+    await user.click(screen.getByRole("button", { name: "Hot folder" }));
+    await screen.findByRole("heading", { name: "Hot folder" });
+    expect(screen.queryByLabelText("Metadata preset")).toBeNull();
+  });
+
+  it("passes a selected metadata preset with the import and keeps None as the default", async () => {
+    const user = userEvent.setup();
+    await open();
+    useSettingsStore.setState({ appSettings: { ...useSettingsStore.getState().appSettings!, importMetadataPresets: [{
+      id: "rights", name: "My rights", creator: "Photographer", copyright: "© {year}", description: "",
+      iptc: { usageTerms: "Editorial" }, keywords: ["harbour"], includeCreatorContact: false, overwrite: [],
+    }] } as AppSettings });
+    drop(["/Volumes/CARD/DCIM"]);
+    const picker = await screen.findByLabelText("Metadata preset");
+    expect((picker as HTMLSelectElement).value).toBe("");
+    await user.selectOptions(picker, "rights");
+    await user.click(screen.getByRole("button", { name: "Copy 2 photographs" }));
+    await waitFor(() => expect(ingestCall()).toBeTruthy());
+    expect(ingestCall()![1]).toMatchObject({ metadata: { creator: "Photographer", copyright: "© {year}", keywords: ["harbour"], includeCreatorContact: false, overwrite: [] } });
+  });
+
   it("opens the ingest dialog with the dropped files' previews, and copies only the checked ones", async () => {
     const user = userEvent.setup();
     const navigate = await open();
