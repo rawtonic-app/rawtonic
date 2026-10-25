@@ -1267,8 +1267,127 @@ fn reduce_mask(mask: &[bool], w: usize, h: usize) -> Vec<bool> {
 /// Rows of the first pyramid level computed together from the source.
 const BAND_ROWS: usize = 32;
 
+/// One source row reduced horizontally by the pyramid kernel: `out[x]` from
+/// `line[2x - 2 ..= 2x + 2]`, mirrored at the ends.
+#[inline]
+fn reduce_row(line: &[Px], out: &mut [Px]) {
+    let w = line.len();
+    for (x, v) in out.iter_mut().enumerate() {
+        let mut sum = [0.0f32; CH];
+        if 2 * x >= 2 && 2 * x + 2 < w {
+            // Inside the row: the taps without mirroring, in the same order.
+            for (weight, s) in KERNEL.iter().zip(&line[2 * x - 2..2 * x + 3]) {
+                for c in 0..CH {
+                    sum[c] += weight * s[c];
+                }
+            }
+        } else {
+            for (k, weight) in KERNEL.iter().enumerate() {
+                let s = line[mirror(2 * x as isize + k as isize - 2, w)];
+                for c in 0..CH {
+                    sum[c] += weight * s[c];
+                }
+            }
+        }
+        *v = sum;
+    }
+}
+
 /// Level 1 of the chroma pyramid straight from the source (the
-/// full-resolution chroma plane is never stored) and its measurability.
+/// full-resolution chroma plane is never stored) and its measurability,
+/// and with `means` level 1 of the linear colour too
+/// ([`ChromaPyramid::build_with`]) from the same reads of the source. Each
+/// value is the same sums in the same order as one pass per plane (the
+/// reference `first_level` of the tests); rows inside the frame skip the
+/// mirroring. The pyramid of a 24 MP RAW builds in 54 instead of 72 ms
+/// (notes: parity-gaps/G43, task BX3).
+fn first_levels(source: &Source, means: bool) -> (Plane, Vec<bool>, Option<Plane>) {
+    let (w, h) = (source.width, source.height);
+    let (w2, h2) = (w.div_ceil(2), h.div_ceil(2));
+    let mut data = vec![[0.0f32; CH]; w2 * h2];
+    let mut mask = vec![false; w2 * h2];
+    let mut mean_data = means.then(|| vec![[0.0f32; CH]; w2 * h2]);
+    let band =
+        |band: usize, out: &mut [Px], out_mask: &mut [bool], mut out_means: Option<&mut [Px]>| {
+            let y0 = band * BAND_ROWS;
+            let rows = out.len() / w2;
+            // Source rows 2·y0 − 2 … 2·(y0 + rows) + 1, horizontally reduced.
+            let first = 2 * y0 as isize - 2;
+            let count = 2 * rows + 3;
+            let mut horizontal = vec![[0.0f32; CH]; count * w2];
+            let mut horizontal_means = vec![[0.0f32; CH]; if means { count * w2 } else { 0 }];
+            let mut line = vec![[0.0f32; CH]; w];
+            let mut line_means = vec![[0.0f32; CH]; if means { w } else { 0 }];
+            for r in 0..count {
+                let y = mirror(first + r as isize, h);
+                if means {
+                    for (x, (c, m)) in line.iter_mut().zip(line_means.iter_mut()).enumerate() {
+                        let rgb = source.pixel(x, y);
+                        *c = chroma_luma(rgb);
+                        *m = rgb;
+                    }
+                    reduce_row(&line_means, &mut horizontal_means[r * w2..(r + 1) * w2]);
+                } else {
+                    for (x, c) in line.iter_mut().enumerate() {
+                        *c = chroma_luma(source.pixel(x, y));
+                    }
+                }
+                reduce_row(&line, &mut horizontal[r * w2..(r + 1) * w2]);
+            }
+            let vertical = |horizontal: &[Px], out: &mut [Px]| {
+                for row in 0..rows {
+                    for x in 0..w2 {
+                        let mut sum = [0.0f32; CH];
+                        for (k, weight) in KERNEL.iter().enumerate() {
+                            let s = horizontal[(2 * row + k) * w2 + x];
+                            for c in 0..CH {
+                                sum[c] += weight * s[c];
+                            }
+                        }
+                        out[row * w2 + x] = sum;
+                    }
+                }
+            };
+            vertical(&horizontal, out);
+            if let Some(out_means) = out_means.as_deref_mut() {
+                vertical(&horizontal_means, out_means);
+            }
+            for row in 0..rows {
+                for x in 0..w2 {
+                    let (sx, sy) = (2 * x, 2 * (y0 + row));
+                    out_mask[row * w2 + x] =
+                        [(0, 0), (1, 0), (0, 1), (1, 1)].iter().all(|(dx, dy)| {
+                            measurable(source.pixel((sx + dx).min(w - 1), (sy + dy).min(h - 1)))
+                        });
+                }
+            }
+        };
+    let chunk = w2 * BAND_ROWS;
+    match mean_data.as_mut() {
+        Some(mean_data) => data
+            .par_chunks_mut(chunk)
+            .zip(mask.par_chunks_mut(chunk))
+            .zip(mean_data.par_chunks_mut(chunk))
+            .enumerate()
+            .for_each(|(i, ((out, out_mask), out_means))| band(i, out, out_mask, Some(out_means))),
+        None => data
+            .par_chunks_mut(chunk)
+            .zip(mask.par_chunks_mut(chunk))
+            .enumerate()
+            .for_each(|(i, (out, out_mask))| band(i, out, out_mask, None)),
+    }
+    let plane = |data| Plane {
+        width: w2,
+        height: h2,
+        data,
+    };
+    (plane(data), mask, mean_data.map(plane))
+}
+
+/// Level 1 of the chroma pyramid straight from the source (the
+/// full-resolution chroma plane is never stored) and its measurability:
+/// the reference of [`first_levels`].
+#[cfg(test)]
 fn first_level(source: &Source, map: impl Fn([f32; 3]) -> Px + Sync) -> (Plane, Vec<bool>) {
     let (w, h) = (source.width, source.height);
     let (w2, h2) = (w.div_ceil(2), h.div_ceil(2));
@@ -1527,7 +1646,7 @@ impl ChromaPyramid {
         if w < 2 * BLOCK || h < 2 * BLOCK {
             return None;
         }
-        let (g1, mask1) = first_level(&source, chroma_luma);
+        let (g1, mask1, means) = first_levels(&source, linear_means);
         let mut levels = vec![g1];
         let mut masks = vec![mask1];
         for _ in 1..LEVELS {
@@ -1537,13 +1656,12 @@ impl ChromaPyramid {
             levels.push(next);
             masks.push(mask);
         }
-        if linear_means {
+        if let Some(mut means) = means {
             // Each level's chroma from the level's linear mean colour, so a
             // level without its finer detail keeps the mean colour of the
             // pixels it covers; its luminance channel stays the mean of the
             // encoded luminance (the luminance noise and profile, which the
             // luminance noise reduction uses, are unchanged).
-            let (mut means, _) = first_level(&source, |rgb| rgb);
             for (l, level) in levels.iter_mut().enumerate() {
                 if l > 0 {
                     means = reduce(&means);
@@ -2640,6 +2758,50 @@ mod tests {
             }
         }
         (sum / (plane.width * plane.height) as f64).sqrt() as f32
+    }
+
+    #[test]
+    fn first_levels_are_the_one_pass_per_plane_sums() {
+        let bits = |plane: &Plane| -> Vec<u32> {
+            plane.data.iter().flatten().map(|v| v.to_bits()).collect()
+        };
+        // Odd and even sides, bands cut short, rows shorter than the kernel,
+        // values beyond the measurable range, alpha and sRGB sources.
+        for (seed, (width, height)) in [(77, 53), (64, 70), (3, 9), (5, 2), (130, 67)]
+            .into_iter()
+            .enumerate()
+        {
+            let mut image = noisy(width, height, 0.05, true, seed as u64 + 40);
+            for (i, p) in image.pixels_mut().enumerate() {
+                if i % 7 == 0 {
+                    p.0[1] = 1.3;
+                }
+                if i % 11 == 0 {
+                    p.0 = [0.0; 3];
+                }
+            }
+            let rgba =
+                DynamicImage::ImageRgba32F(DynamicImage::ImageRgb32F(image.clone()).to_rgba32f());
+            for (image, linear) in [
+                (DynamicImage::ImageRgb32F(image.clone()), true),
+                (rgba, true),
+                (DynamicImage::ImageRgb32F(image), false),
+            ] {
+                let source = Source::new(&image, linear);
+                let (chroma, mask) = first_level(&source, chroma_luma);
+                let (means, _) = first_level(&source, |rgb| rgb);
+                for with_means in [false, true] {
+                    let (fused, fused_mask, fused_means) = first_levels(&source, with_means);
+                    assert_eq!(bits(&fused), bits(&chroma), "{width}x{height}");
+                    assert_eq!((fused.width, fused.height), (chroma.width, chroma.height));
+                    assert_eq!(fused_mask, mask);
+                    assert_eq!(
+                        fused_means.map(|plane| bits(&plane)),
+                        with_means.then(|| bits(&means))
+                    );
+                }
+            }
+        }
     }
 
     #[test]
