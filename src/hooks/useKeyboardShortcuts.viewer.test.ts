@@ -326,3 +326,28 @@ it("drops a full screen waiting for a held release when F is pressed again or an
     vi.useRealTimers();
   }
 });
+
+it("drops a full screen waiting for a held release when the window loses focus or G is pressed", () => {
+  vi.useFakeTimers();
+  try {
+    useUIStore.setState({ activeView: "editor" });
+    window.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    press("KeyF");
+    // Focus lost: the stroke has not ended; nothing opens, now or later.
+    window.dispatchEvent(new Event("blur"));
+    vi.runAllTimers();
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    vi.runAllTimers();
+    expect(useUIStore.getState().isFullScreen).toBe(false);
+    // G in the grid names the view already shown: it still drops the entry.
+    useUIStore.setState({ activeView: "library", libraryLoupe: false });
+    window.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    press("KeyF");
+    press("KeyG");
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    vi.runAllTimers();
+    expect(useUIStore.getState().isFullScreen).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});

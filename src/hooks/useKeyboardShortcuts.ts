@@ -21,7 +21,7 @@ import { useMultiViewStore, type CellZoomKey } from '../store/useMultiViewStore'
 import { orderedSelection, stepPrimary } from '../utils/multiView';
 import { isTetherConnected, TETHER_CAPTURE_EVENT } from '../components/session/tether';
 import { libraryViewer, viewerOnly, viewerShown } from '../utils/viewerMode';
-import { afterPointerRelease } from '../utils/heldPointer';
+import { afterPointerRelease, pointerHeld } from '../utils/heldPointer';
 
 /** The photograph an arrow key moves to in the Library, from `index` of
  * `count`. Left/Right step one and wrap around; in the grid (`columns` per
@@ -114,6 +114,8 @@ export const useKeyboardShortcuts = ({
   // F pressed during a held stroke: the full screen waiting for its
   // release, as its cancel.
   const pendingFullScreen = useRef<(() => void) | null>(null);
+  // The key press that dropped it (F again must not open it at once).
+  const droppedBy = useRef<KeyboardEvent | null>(null);
   useEffect(() => () => pendingFullScreen.current?.(), []);
   useEffect(() => {
     const take = (panel: Panel | null) => {
@@ -572,14 +574,11 @@ export const useKeyboardShortcuts = ({
             handleImageSelect(active, false);
           }
           // A stroke under way ends before the viewer changes its size: the
-          // full screen opens on its release. F again cancels that; so does
-          // any other choice of view or photograph meanwhile.
-          if (pendingFullScreen.current) {
-            pendingFullScreen.current();
-            pendingFullScreen.current = null;
-            return;
-          }
-          if (s.ui.isFullScreen) {
+          // full screen opens on its release. Any key pressed meanwhile (F
+          // again, G, Esc, …) drops it, and so does another view or
+          // photograph.
+          if (droppedBy.current === e) return;
+          if (s.ui.isFullScreen || !pointerHeld()) {
             useUIStore.getState().toggleFullScreen();
             return;
           }
@@ -590,18 +589,24 @@ export const useKeyboardShortcuts = ({
             if (ui.activeView !== view[0] || ui.libraryLoupe !== view[1] || ui.isFullScreen !== view[2]) unchanged = false;
           });
           const asksFor = useEditorStore.getState().selectedImage?.path ?? active;
-          const cancel = afterPointerRelease(() => {
-            pendingFullScreen.current = null;
+          const otherKey = (next: KeyboardEvent) => {
+            if (next === e || next.repeat) return;
+            droppedBy.current = next;
+            drop();
+          };
+          const drop = () => {
+            cancel();
             stopWatching();
+            window.removeEventListener('keydown', otherKey, true);
+            if (pendingFullScreen.current === drop) pendingFullScreen.current = null;
+          };
+          const cancel = afterPointerRelease(() => {
+            drop();
             const shown = useEditorStore.getState().selectedImage?.path;
             if (unchanged && (!asksFor || shown === asksFor)) useUIStore.getState().toggleFullScreen();
           });
-          pendingFullScreen.current = () => {
-            cancel();
-            stopWatching();
-          };
-          // Opened at once (nothing held): nothing is waiting.
-          if (useUIStore.getState().isFullScreen) pendingFullScreen.current = null;
+          window.addEventListener('keydown', otherKey, true);
+          pendingFullScreen.current = drop;
         },
       },
       toggle_window_fullscreen: {
