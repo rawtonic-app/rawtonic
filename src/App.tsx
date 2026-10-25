@@ -41,6 +41,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useThumbnails } from './hooks/useThumbnails';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useAppMenu } from './hooks/useAppMenu';
+import CommandPalette from './components/ui/CommandPalette';
 import { useAppLevelCommands } from './hooks/useAppLevelCommands';
 import { useTauriListeners } from './hooks/useTauriListeners';
 import { useFileOperations } from './hooks/useFileOperations';
@@ -472,6 +473,7 @@ function App() {
 
   return (
     <>
+      <CommandPalette />
       <UpdateNotice />
       <ContributionHost />
       <ImageProcessingManager

@@ -414,6 +414,16 @@
       "items": [
         {
           "kind": "item",
+          "id": "cmd:command_palette",
+          "label": "Command Palette…",
+          "enabled": false,
+          "accelerator": "CmdOrCtrl+Shift+KeyP"
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "item",
           "id": "cmd:view_grid",
           "label": "Library Grid",
           "enabled": false,

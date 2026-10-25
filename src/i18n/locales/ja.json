@@ -130,6 +130,7 @@
       "color_label_purple": "パープル",
       "color_label_red": "レッド",
       "color_label_yellow": "イエロー",
+      "command_palette": "コマンドパレット…",
       "copy_adjustments": "設定をコピー",
       "copy_image_path": "パスをコピー",
       "delete_selected": "ゴミ箱に入れる",
@@ -214,6 +215,13 @@
       "recent": "最近使ったライブラリ",
       "recipes": "レシピで書き出し"
     }
+  },
+  "commandPalette": {
+    "close": "コマンドパレットを閉じる",
+    "empty": "一致するコマンドがありません。別の語句で検索してください。",
+    "keys": "↑ ↓ 選択 · Enter 実行 · Esc 閉じる",
+    "recent": "最近使ったコマンドを優先 · ↑ ↓ 選択 · Enter 実行 · Esc 閉じる",
+    "search": "コマンドを検索…"
   },
   "contextMenus": {
     "album": {

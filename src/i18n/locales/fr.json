@@ -130,6 +130,7 @@
       "color_label_purple": "Violet",
       "color_label_red": "Rouge",
       "color_label_yellow": "Jaune",
+      "command_palette": "Palette de commandes…",
       "copy_adjustments": "Copier les réglages",
       "copy_image_path": "Copier le chemin",
       "delete_selected": "Placer dans la corbeille",
@@ -214,6 +215,13 @@
       "recent": "Ouvrir un élément récent",
       "recipes": "Exporter avec une recette"
     }
+  },
+  "commandPalette": {
+    "close": "Fermer la palette de commandes",
+    "empty": "Aucune commande correspondante. Essayez une autre recherche.",
+    "keys": "↑ ↓ Sélectionner · Entrée Exécuter · Échap Fermer",
+    "recent": "Commandes récentes en premier · ↑ ↓ Sélectionner · Entrée Exécuter · Échap Fermer",
+    "search": "Rechercher une commande…"
   },
   "contextMenus": {
     "album": {

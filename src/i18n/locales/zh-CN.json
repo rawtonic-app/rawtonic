@@ -130,6 +130,7 @@
       "color_label_purple": "紫色",
       "color_label_red": "红色",
       "color_label_yellow": "黄色",
+      "command_palette": "命令面板…",
       "copy_adjustments": "拷贝设置",
       "copy_image_path": "拷贝路径",
       "delete_selected": "移到废纸篓",
@@ -214,6 +215,13 @@
       "recent": "打开最近使用",
       "recipes": "使用配方导出"
     }
+  },
+  "commandPalette": {
+    "close": "关闭命令面板",
+    "empty": "没有匹配的命令。请尝试其他搜索词。",
+    "keys": "↑ ↓ 选择 · Enter 执行 · Esc 关闭",
+    "recent": "最近使用的命令优先 · ↑ ↓ 选择 · Enter 执行 · Esc 关闭",
+    "search": "搜索命令…"
   },
   "contextMenus": {
     "album": {

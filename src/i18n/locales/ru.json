@@ -130,6 +130,7 @@
       "color_label_purple": "Фиолетовая",
       "color_label_red": "Красная",
       "color_label_yellow": "Жёлтая",
+      "command_palette": "Палитра команд…",
       "copy_adjustments": "Копировать настройки",
       "copy_image_path": "Копировать путь",
       "delete_selected": "Переместить в Корзину",
@@ -214,6 +215,13 @@
       "recent": "Открыть недавние",
       "recipes": "Экспортировать по рецепту"
     }
+  },
+  "commandPalette": {
+    "close": "Закрыть палитру команд",
+    "empty": "Подходящих команд нет. Попробуйте другой запрос.",
+    "keys": "↑ ↓ Выбрать · Enter Выполнить · Esc Закрыть",
+    "recent": "Сначала недавние команды · ↑ ↓ Выбрать · Enter Выполнить · Esc Закрыть",
+    "search": "Поиск команд…"
   },
   "contextMenus": {
     "album": {

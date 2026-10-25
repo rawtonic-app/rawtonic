@@ -1,3 +1,4 @@
+import AppOverflowMenu from "./AppOverflowMenu";
 import { useRecipeMenuCommands } from "../../hooks/useRecipeMenuCommands";
 import {
   useCallback,
@@ -32,8 +33,6 @@ import {
   PanelLeft,
   PanelRight,
   Settings,
-  Ellipsis,
-  MessageSquareWarning,
   Upload,
   LoaderCircle,
   X,
@@ -212,7 +211,7 @@ export default function StudioWorkspace(props: Props) {
     })),
   );
   const { handleSyncSettings: syncSettings, handlePasteFromPrevious: pasteFromPrevious } = useEditorActions();
-  const { showContextMenu, hideContextMenu } = useContextMenu();
+  const { hideContextMenu } = useContextMenu();
   const hideMenuRef = useRef(hideContextMenu);
   hideMenuRef.current = hideContextMenu;
   // Sync settings: the other selected photographs.
@@ -881,24 +880,7 @@ export default function StudioWorkspace(props: Props) {
       >
         <Settings size={15} />
       </button>
-      <button
-        className="studio-bar-icon"
-        title={t("studio.workspace.more")}
-        aria-label={t("studio.workspace.more")}
-        aria-haspopup="menu"
-        onClick={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          showContextMenu(rect.left, rect.bottom, [
-            {
-              label: t("contribute.report.menu"),
-              icon: MessageSquareWarning,
-              onClick: () => useUIStore.getState().setProblemReportOpen(true),
-            },
-          ]);
-        }}
-      >
-        <Ellipsis size={15} />
-      </button>
+      <AppOverflowMenu />
     </>
   );
   // The open photograph's flag (`current`) or the selection's (none).

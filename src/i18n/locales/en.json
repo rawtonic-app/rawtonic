@@ -130,6 +130,7 @@
       "color_label_purple": "Purple",
       "color_label_red": "Red",
       "color_label_yellow": "Yellow",
+      "command_palette": "Command Palette…",
       "copy_adjustments": "Copy Settings",
       "copy_image_path": "Copy Path",
       "delete_selected": "Move to Trash",
@@ -214,6 +215,13 @@
       "recent": "Open Recent",
       "recipes": "Export with Recipe"
     }
+  },
+  "commandPalette": {
+    "close": "Close command palette",
+    "empty": "No matching commands. Try another search.",
+    "keys": "↑ ↓ Select · Enter Run · Esc Close",
+    "recent": "Recent commands first · ↑ ↓ Select · Enter Run · Esc Close",
+    "search": "Search commands…"
   },
   "contextMenus": {
     "album": {

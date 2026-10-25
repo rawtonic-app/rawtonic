@@ -23,6 +23,7 @@ export const KEYBIND_SECTIONS: KeybindSection[] = [
 ];
 
 export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
+  { action: 'command_palette', description: 'appMenu.items.command_palette', defaultCombo: ['ctrl', 'shift', 'KeyP'], section: 'view' },
   { action: 'view_grid', description: 'appMenu.items.view_grid', defaultCombo: ['KeyG'], section: 'view' },
   { action: 'view_loupe', description: 'appMenu.items.view_loupe', defaultCombo: ['KeyE'], section: 'library' },
   { action: 'view_develop', description: 'appMenu.items.view_develop', defaultCombo: ['KeyD'], section: 'view' },

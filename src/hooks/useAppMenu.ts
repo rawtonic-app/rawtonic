@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
 import { Invokes } from '../components/ui/AppProperties';
-import { appCommandEnabled, appMenuCommands, onAppCommandsChanged, runAppCommand } from '../utils/appCommands';
+import { appCommandEnabled, COMMAND_DIALOG_SELECTOR, appMenuCommands, onAppCommandsChanged, runAppCommand } from '../utils/appCommands';
 import { buildMenuSpec, MENU_ID_PREFIX, type BuiltMenu, type MenuItemState, menuItemStates, type Translate } from '../utils/appMenu';
 import { normalizeCombo } from '../utils/keyboardUtils';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -49,10 +49,10 @@ export function textFieldFocused(command = 'undo'): boolean {
 const ALWAYS_AVAILABLE = new Set(['about', 'website', 'report_problem', 'keyboard_shortcuts']);
 
 /** Preferences, a dialog or a modal holds the app's commands. */
-function commandsHeld(): boolean {
+function commandsHeld(chooser = false): boolean {
   return (
     useUIStore.getState().isSettingsOpen ||
-    !!document.querySelector('dialog[open], [aria-modal="true"]') ||
+    !!document.querySelector(chooser ? COMMAND_DIALOG_SELECTOR : 'dialog[open], [aria-modal="true"]') ||
     isAnyModalOpen(useUIStore.getState())
   );
 }
@@ -68,9 +68,9 @@ interface MenuDispatch {
 
 /** Edit commands go to a focused text field; the rest only while no
  * dialog or Preferences holds the app's commands (as their keys). */
-export function menuCommandEnabled(command: string): boolean {
-  if (command in TEXT_ACTIONS && textFieldFocused(command)) return true;
-  return (ALWAYS_AVAILABLE.has(command) || !commandsHeld()) && appCommandEnabled(command);
+export function menuCommandEnabled(command: string, chooser = false): boolean {
+  if (!chooser && command in TEXT_ACTIONS && textFieldFocused(command)) return true;
+  return (ALWAYS_AVAILABLE.has(command) || !commandsHeld(chooser)) && appCommandEnabled(command);
 }
 
 /** Runs a command chosen in the menu bar: the handler its key runs, once. */

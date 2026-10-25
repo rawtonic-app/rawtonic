@@ -130,6 +130,7 @@
       "color_label_purple": "Lila",
       "color_label_red": "Vermell",
       "color_label_yellow": "Groc",
+      "command_palette": "Paleta d’ordres…",
       "copy_adjustments": "Copia els ajustos",
       "copy_image_path": "Copia el camí",
       "delete_selected": "Mou a la paperera",
@@ -214,6 +215,13 @@
       "recent": "Obre recents",
       "recipes": "Exporta amb recepta"
     }
+  },
+  "commandPalette": {
+    "close": "Tanca la paleta d’ordres",
+    "empty": "Cap ordre coincident. Prova una altra cerca.",
+    "keys": "↑ ↓ Selecciona · Retorn Executa · Esc Tanca",
+    "recent": "Ordres recents primer · ↑ ↓ Selecciona · Retorn Executa · Esc Tanca",
+    "search": "Cerca ordres…"
   },
   "contextMenus": {
     "album": {

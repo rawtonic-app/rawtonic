@@ -65,3 +65,11 @@ export function notifyAppCommandsChanged(): void {
 export function appMenuCommands(group: 'recent' | 'recipes'): [string, AppCommand][] {
   return [...commands].filter(([, command]) => command.menu?.group === group);
 }
+
+/** Registry contents for command discovery, including live items. */
+export function registeredAppCommands(): [string, AppCommand][] {
+  return [...commands];
+}
+
+/** The palette is a command chooser; its own modal does not hold commands. */
+export const COMMAND_DIALOG_SELECTOR = 'dialog[open], [aria-modal="true"]:not([data-command-palette])';
