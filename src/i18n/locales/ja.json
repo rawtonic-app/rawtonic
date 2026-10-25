@@ -1541,6 +1541,7 @@
         "copy_adjustments": "選択した補正設定をコピー",
         "copy_files": "選択したファイルをコピー",
         "copy_image_path": "選択した画像のパスをコピー",
+        "cycle_compare_mode": "補正前後の比較モードを切り替え",
         "cycle_zoom": "ズームの切り替え (全体表示、2倍拡大、100%)",
         "delete_selected": "選択したファイルを削除",
         "focus_search": "検索フィールドにフォーカス",
@@ -3860,6 +3861,12 @@
         "beforeAfter": "補正前/補正後",
         "beforeAfterTitle": "補正前/補正後 ({{split}}) · {{peek}} を押し続けると写真全体を補正前で表示",
         "beforeAfterUnavailable": "補正前/補正後には GPU 表示が必要です · {{peek}} を押し続けると写真全体を補正前で表示",
+        "compareMode": {
+          "left-right": "左右に分割",
+          "off": "オフ",
+          "top-bottom": "上下に分割"
+        },
+        "compareModes": "比較モード",
         "empty": "ブラウザで写真を選択してください。",
         "fit": "全体",
         "fitTitle": "ウィンドウに合わせる",

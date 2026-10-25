@@ -8585,6 +8585,17 @@ fn display_split_shows_the_before_left_of_the_divider() {
     assert_eq!(pixel(&split, 5, 24), background);
     assert_eq!(pixel(&split, 40, 2), background);
 
+    // Top/bottom uses the same real renders at a viewer-fixed screen y.
+    let vertical = render([1.0, 24.0, 1.0, 0.0]);
+    for x in [17, 40, 78] {
+        assert_eq!(pixel(&vertical, x, 9), before_rgba);
+        assert_eq!(pixel(&vertical, x, 22), before_rgba);
+        assert_eq!(pixel(&vertical, x, 25), after_rgba);
+        assert_eq!(pixel(&vertical, x, 38), after_rgba);
+    }
+    assert_eq!(pixel(&vertical, 5, 24), background);
+    assert_eq!(pixel(&vertical, 40, 2), background);
+
     // Turned off, or a divider left of the photograph: the edited frame alone.
     for frame_only in [[0.0, 40.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]] {
         let frame = render(frame_only);

@@ -1638,6 +1638,7 @@
         "copy_adjustments": "Copiar els ajustaments seleccionats",
         "copy_files": "Copiar els fitxers seleccionats",
         "copy_image_path": "Copiar camí de les imatges seleccionades",
+        "cycle_compare_mode": "Canvia el mode abans/després",
         "cycle_zoom": "Alternar zoom (Ajustar, 2x Ajustar, 100%)",
         "delete_selected": "Eliminar els fitxers seleccionats",
         "focus_search": "Enfocar camp de cerca",
@@ -4054,6 +4055,12 @@
         "beforeAfter": "Abans/Després",
         "beforeAfterTitle": "Abans/Després ({{split}}) · mantén {{peek}} per veure tota la foto abans",
         "beforeAfterUnavailable": "Abans/Després necessita la pantalla GPU · mantén {{peek}} per veure tota la foto abans",
+        "compareMode": {
+          "left-right": "Divisió esquerra/dreta",
+          "off": "Desactivat",
+          "top-bottom": "Divisió superior/inferior"
+        },
+        "compareModes": "Mode de comparació",
         "empty": "Tria una foto a la graella.",
         "fit": "Ajusta",
         "fitTitle": "Ajusta a la finestra",

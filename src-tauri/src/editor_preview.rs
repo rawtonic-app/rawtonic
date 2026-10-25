@@ -92,10 +92,12 @@ pub struct WgpuTransformPayload {
     /// `WgpuDisplay::viewport`).
     #[serde(default)]
     pub viewport: Option<[f32; 4]>,
-    /// The before/after split's divider, screen x in device pixels (the unit
+    /// The before/after split's divider, screen coordinate in device pixels (the unit
     /// of `x`); `None` while the split view is off.
     #[serde(default)]
     pub split: Option<f32>,
+    #[serde(default)]
+    pub split_vertical: bool,
 }
 
 /// Recipe keys that place the photograph in the frame. The split's before
@@ -919,6 +921,7 @@ pub(crate) async fn update_wgpu_transform(
             };
             display.viewport = payload.viewport;
             display.split_x = payload.split;
+            display.split_vertical = payload.split_vertical;
             if payload.split.is_none() {
                 display.clear_split_before();
             }

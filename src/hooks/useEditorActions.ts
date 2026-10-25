@@ -29,7 +29,7 @@ import {
 import { calculateCenteredCrop, reframingInputs } from '../utils/cropUtils';
 import { cropGestures } from '../utils/cropGesture';
 import { autoWhiteBalance } from '../utils/whiteBalance';
-import { splitViewAvailable } from '../utils/beforeAfter';
+import { splitViewAvailable, type CompareMode } from '../utils/beforeAfter';
 import { beforeAdjustments } from '../utils/beforeSnapshot';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
 import {
@@ -592,19 +592,28 @@ export function useEditorActions() {
   // multi view off (N brings it back and turns the split off, see
   // MultiViewStage). The held peek works in the multi view too: it shows
   // the primary cell (the live editor) before.
-  const toggleSplitView = useCallback(() => {
+  const setCompareMode = useCallback((mode: CompareMode) => {
     setEditor((state) => {
-      if (state.splitView) return { splitView: false };
+      if (mode === 'off') return { splitView: false };
       const { appSettings, osPlatform } = useSettingsStore.getState();
       if (!state.selectedImage?.isReady || !splitViewAvailable(appSettings?.useWgpuRenderer, osPlatform)) return state;
       const multiView = useMultiViewStore.getState();
       if (multiView.active) multiView.setEnabled(false);
       return {
         splitView: true,
+        splitOrientation: mode,
         ...(state.showOriginal ? { showOriginal: false, previewOverride: null } : {}),
       };
     });
   }, [setEditor]);
+  const toggleSplitView = useCallback(() => {
+    const state = useEditorStore.getState();
+    setCompareMode(state.splitView ? 'off' : state.splitOrientation);
+  }, [setCompareMode]);
+  const cycleCompareMode = useCallback(() => {
+    const state = useEditorStore.getState();
+    setCompareMode(!state.splitView ? 'left-right' : state.splitOrientation === 'left-right' ? 'top-bottom' : 'off');
+  }, [setCompareMode]);
 
   const handleLutSelect = useCallback(
     async (path: string, isBuiltIn: boolean = false, displayName?: string) => {
@@ -1029,5 +1038,7 @@ export function useEditorActions() {
     applyAdjustmentsToPaths,
     handleZoomChange,
     toggleSplitView,
+    setCompareMode,
+    cycleCompareMode,
   };
 }

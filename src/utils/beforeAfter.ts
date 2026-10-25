@@ -73,6 +73,8 @@ export function originalPreviewAdjustments(adjustments: Adjustments, snapshot?: 
 
 /** Where the split divider starts: the middle, as in Capture One and Lightroom. */
 export const DEFAULT_SPLIT_POSITION = 0.5;
+export type SplitOrientation = 'left-right' | 'top-bottom';
+export type CompareMode = 'off' | SplitOrientation;
 
 /** A divider position as a share (0–1) of the viewer's width. */
 export function clampSplitPosition(position: number): number {
@@ -118,12 +120,14 @@ export function splitViewAvailable(
 }
 
 /** Arrow keys move a focused divider by a small step, Shift by a larger one. */
-export function nudgeSplitPosition(position: number, key: string, shift: boolean): number | null {
+export function nudgeSplitPosition(position: number, key: string, shift: boolean, orientation: SplitOrientation = 'left-right'): number | null {
   const step = shift ? 0.1 : 0.01;
+  const backward = orientation === 'top-bottom' ? 'ArrowUp' : 'ArrowLeft';
+  const forward = orientation === 'top-bottom' ? 'ArrowDown' : 'ArrowRight';
   switch (key) {
-    case 'ArrowLeft':
+    case backward:
       return clampSplitPosition(position - step);
-    case 'ArrowRight':
+    case forward:
       return clampSplitPosition(position + step);
     case 'Home':
       return 0;

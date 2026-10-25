@@ -29,7 +29,6 @@ import {
   Copy,
   ClipboardPaste,
   RotateCcw,
-  Columns2,
   PanelLeft,
   PanelRight,
   Settings,
@@ -56,6 +55,8 @@ import { useUIStore } from "../../store/useUIStore";
 import { useContextMenu } from "../../context/ContextMenuContext";
 import { useProcessStore } from "../../store/useProcessStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
+import CompareButton from "./CompareButton";
+import { useCompareSession } from "../../hooks/useCompareSession";
 import { type ImageFile, Invokes, Panel, SortDirection } from "../ui/AppProperties";
 import Editor from "../panel/Editor";
 import StudioExport from "./StudioExport";
@@ -203,13 +204,12 @@ export default function StudioWorkspace(props: Props) {
   const { t, i18n } = useTranslation();
   // Labels and routing read both histories; subscribe so they update on either change.
   useCatalogUndoStore();
-  const { selectedImage, splitView, previousPhoto } = useEditorStore(
+  const { selectedImage, previousPhoto } = useEditorStore(
     useShallow((s) => ({
       selectedImage: s.selectedImage,
       historyIndex: s.historyIndex,
       historyPending: s.historyPending,
       history: s.history,
-      splitView: s.splitView,
       previousPhoto: s.previousPhoto,
     })),
   );
@@ -332,7 +332,7 @@ export default function StudioWorkspace(props: Props) {
       imageRatings: s.imageRatings,
     })),
   );
-  const { toggleSplitView } = useEditorActions();
+  useCompareSession();
   const exportState = useProcessStore((s) => s.exportState);
   const develop = activeView === "editor";
   // The Library's loupe (one large photograph beside the Library tools) and
@@ -1278,15 +1278,7 @@ export default function StudioWorkspace(props: Props) {
                     <Redo2 size={15} />
                   </button>
                   <div className="studio-toolbar-divider" />
-                  <button
-                    aria-pressed={splitView}
-                    title={beforeAfterTitle}
-                    onClick={() => readyNow() && toggleSplitView()}
-                    disabled={!panelsReady || !splitAvailable}
-                  >
-                    <Columns2 size={14} />
-                    <span className="optional-label">{t("studio.workspace.viewer.beforeAfter")}</span>
-                  </button>
+                  <CompareButton disabled={!panelsReady || !splitAvailable} title={beforeAfterTitle} />
                   <MultiViewButtons />
                 </div>
                 <StudioToolBar />

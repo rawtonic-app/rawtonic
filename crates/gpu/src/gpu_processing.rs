@@ -1020,8 +1020,8 @@ pub struct DisplayTransform {
     /// Screen area that may show the image (x, y, w, h); zero width = no
     /// limit beyond `rect`. Crop editing clips the rotated image to its box.
     pub box_rect: [f32; 4],
-    /// Before/after split: x 1 while it shows, y the divider's screen x
-    /// (device pixels, the unit of `rect`). Rest padding. Set by `render`.
+    /// Before/after split: x 1 while it shows, y the divider's screen coordinate
+    /// (device pixels, the unit of `rect`), z 1 for top/bottom. Set by `render`.
     pub split: [f32; 4],
 }
 
@@ -1232,8 +1232,9 @@ pub struct WgpuDisplay {
     /// Counts frames bound for presentation (profiling joins a preview job's
     /// frame to the present that shows it).
     frame_serial: u64,
-    /// The before/after divider's screen x (device pixels); `None` = no split.
+    /// The before/after divider's screen coordinate (device pixels); `None` = no split.
     pub split_x: Option<f32>,
+    pub split_vertical: bool,
     /// Set by each preview job before it renders: the photograph and framing
     /// of its frame (see `SplitBefore::frame_key`). Applied when presented.
     pub next_frame_split_key: u64,
@@ -1490,6 +1491,7 @@ impl WgpuDisplay {
             frame_uncropped: false,
             frame_serial: 0,
             split_x: None,
+            split_vertical: false,
             next_frame_split_key: 0,
             frame_split_key: 0,
             split_before: None,
@@ -1853,9 +1855,20 @@ impl WgpuDisplay {
         } else {
             current.resized(width, height, self.frame_uncropped)
         };
-        self.split_x = self
-            .split_x
-            .map(|x| split_x_resized(x, current.geometry.rect, placement.geometry.rect));
+        self.split_x = self.split_x.map(|x| {
+            let axis = |r: [f32; 4]| {
+                if self.split_vertical {
+                    [r[1], r[0], r[3], r[2]]
+                } else {
+                    r
+                }
+            };
+            split_x_resized(
+                x,
+                axis(current.geometry.rect),
+                axis(placement.geometry.rect),
+            )
+        });
         self.latest_transform.window = placement.window;
         self.latest_transform.clip = placement.clip;
         self.viewport = placement.viewport;
@@ -1935,7 +1948,7 @@ impl WgpuDisplay {
         transform.split = [
             if split_active { 1.0 } else { 0.0 },
             self.split_x.unwrap_or(0.0),
-            0.0,
+            if self.split_vertical { 1.0 } else { 0.0 },
             0.0,
         ];
         self.latest_transform.split = transform.split;

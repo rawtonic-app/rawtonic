@@ -1638,6 +1638,7 @@
         "copy_adjustments": "Copiar ajustes selecionados",
         "copy_files": "Copiar arquivo(s) selecionado(s)",
         "copy_image_path": "Copiar o caminho da(s) imagem(ns) selecionada(s)",
+        "cycle_compare_mode": "Alternar o modo antes/depois",
         "cycle_zoom": "Alternar zoom (Caber, 2x Caber, 100%)",
         "delete_selected": "Excluir arquivo(s) selecionado(s)",
         "focus_search": "Focar o campo de pesquisa",
@@ -4054,6 +4055,12 @@
         "beforeAfter": "Antes/Depois",
         "beforeAfterTitle": "Antes/Depois ({{split}}) · mantenha {{peek}} para ver a foto toda antes",
         "beforeAfterUnavailable": "Antes/Depois precisa da exibição GPU · mantenha {{peek}} para ver a foto toda antes",
+        "compareMode": {
+          "left-right": "Divisão esquerda/direita",
+          "off": "Desativado",
+          "top-bottom": "Divisão superior/inferior"
+        },
+        "compareModes": "Modo de comparação",
         "empty": "Escolha uma foto na grade.",
         "fit": "Ajustar",
         "fitTitle": "Ajustar à janela",

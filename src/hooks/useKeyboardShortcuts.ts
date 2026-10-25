@@ -144,6 +144,7 @@ export const useKeyboardShortcuts = ({
     handlePasteFromPrevious,
     handleSyncSettings,
     toggleSplitView,
+    cycleCompareMode,
     handleAutoAdjustments,
     handleAutoWhiteBalance,
     handleAutoStraighten,
@@ -664,6 +665,13 @@ export const useKeyboardShortcuts = ({
         execute: (e) => {
           e.preventDefault();
           toggleSplitView();
+        },
+      },
+      cycle_compare_mode: {
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
+        execute: (e) => {
+          e.preventDefault();
+          if (!e.repeat) cycleCompareMode();
         },
       },
       toggle_clipping: {
@@ -1222,6 +1230,7 @@ export const useKeyboardShortcuts = ({
     handleRate,
     handleSetColorLabel,
     toggleSplitView,
+    cycleCompareMode,
     handleAutoAdjustments,
     handleAutoWhiteBalance,
     handleAutoStraighten,

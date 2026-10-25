@@ -14,8 +14,8 @@ struct Transform {
     overlay_mode: vec4<f32>,
     // Screen area that may show the image; zero width means rect only.
     box_rect: vec4<f32>,
-    // Before/after split: x 1 while the split shows, y the divider's screen x.
-    // Left of it the unedited render (`before_tex`), right the edited frame.
+    // Before/after: x enabled, y screen divider, z 1 for top/bottom.
+    // Before occupies the left or top side; both use the same photo UV.
     split: vec4<f32>,
 };
 
@@ -124,7 +124,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
         return transform.bg_secondary;
     }
-    if (transform.split.x > 0.5 && in.screen.x < transform.split.y) {
+    let split_axis = select(in.screen.x, in.screen.y, transform.split.z > 0.5);
+    if (transform.split.x > 0.5 && split_axis < transform.split.y) {
         return sample_before(uv);
     }
 

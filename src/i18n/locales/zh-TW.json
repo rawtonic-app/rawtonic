@@ -1541,6 +1541,7 @@
         "copy_adjustments": "複製選中的調整",
         "copy_files": "複製選中的檔案",
         "copy_image_path": "複製所選圖片的路徑",
+        "cycle_compare_mode": "切換修改前後對比模式",
         "cycle_zoom": "迴圈縮放（適應、2倍適應、100%）",
         "delete_selected": "刪除選中的檔案",
         "focus_search": "聚焦搜尋框",
@@ -3860,6 +3861,12 @@
         "beforeAfter": "前/後對比",
         "beforeAfterTitle": "前/後對比 ({{split}}) · 按住 {{peek}} 檢視整張照片的編輯前效果",
         "beforeAfterUnavailable": "前/後對比需要 GPU 顯示 · 按住 {{peek}} 檢視整張照片的編輯前效果",
+        "compareMode": {
+          "left-right": "左右分割",
+          "off": "關閉",
+          "top-bottom": "上下分割"
+        },
+        "compareModes": "對比模式",
         "empty": "從瀏覽器中選擇一張照片。",
         "fit": "符合",
         "fitTitle": "符合視窗",
