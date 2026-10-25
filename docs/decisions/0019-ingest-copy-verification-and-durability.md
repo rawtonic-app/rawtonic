@@ -34,14 +34,21 @@ Durability: before, every file and folder was flushed to permanent storage
 (`F_FULLFSYNC`) as it was written. Now files and folders are synced to the
 drive as they are written (`fsync`), and the drive cache of each volume
 written to is flushed once (`F_FULLFSYNC` on a folder of that volume) per
-photograph, after its copies, companion and folders and before the photograph
-is recorded in the library. A drive flush writes the whole drive cache, so at
+photograph, after its copies, companion, card sidecars and folders and before
+the photograph is recorded in the library. Copies an earlier, cut-off run made
+and this run reuses (the library copy, the backup, a companion, a sidecar;
+`record_earlier_copy` of the hot folder) are synced again before that flush,
+since that run's flush may not have happened. A drive flush writes the whole drive cache, so at
 the moment the photograph is recorded, its copies, the backup and their folder
 entries are on permanent storage as they were with the per-file flushes. What
 a power cut can lose is unchanged: copies not yet recorded, which the ingest
 job's write-ahead record (ADR 0013) finds and records on the next run. When the
 flush fails, the photograph is not recorded; its copies stay for the next run
-(test `copies_not_made_durable_are_recorded_by_the_next_run`). On Linux and
+(tests `copies_not_made_durable_are_recorded_by_the_next_run`,
+`copies_reused_by_the_next_run_are_flushed_again`). Copies of one file to
+several places that fail together are made again one by one, so a failing
+backup drive never keeps a companion JPEG out of the library
+(`a_failed_backup_of_a_jpeg_leaves_its_library_copy`). On Linux and
 Windows `sync_all` already reaches permanent storage, so nothing changes
 there. `verified_copy` (moves, transfers) keeps its contract: durable when it
 returns.

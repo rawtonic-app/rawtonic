@@ -48,6 +48,14 @@ pub(crate) struct Barrier {
 }
 
 impl Barrier {
+    /// Syncs `file`, a copy already there (an earlier, cut-off run made
+    /// it), and its folder to the drive, so the next flush covers it too.
+    pub fn sync_existing(&mut self, file: &Path) -> std::io::Result<()> {
+        push(&File::open(file)?)?;
+        let folder = file.parent().filter(|p| !p.as_os_str().is_empty());
+        self.sync_folder(folder.unwrap_or(Path::new(".")))
+    }
+
     /// Syncs `folder`'s entries to the drive (where folders can be synced).
     pub fn sync_folder(&mut self, folder: &Path) -> std::io::Result<()> {
         #[cfg(unix)]
@@ -90,6 +98,8 @@ impl Barrier {
             // `sync_all` is `F_FULLFSYNC` on Apple platforms: the whole
             // drive cache, not only this folder's data.
             File::open(folder)?.sync_all()?;
+            #[cfg(test)]
+            FLUSHES.with(|count| count.set(count.get() + 1));
             self.pending.pop();
         }
         Ok(())
@@ -447,6 +457,14 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
     /// Makes `Barrier::flush` fail (a test of what is recorded then).
     pub(crate) static FAIL_FLUSH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Volumes flushed by `Barrier::flush` (macOS).
+    pub(crate) static FLUSHES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Sets (or clears) the `AFTER_WRITE` hook for this thread.
+#[cfg(test)]
+pub(crate) fn set_after_write(hook: Option<AfterWrite>) {
+    AFTER_WRITE.with(|h| *h.borrow_mut() = hook);
 }
 
 #[cfg(test)]

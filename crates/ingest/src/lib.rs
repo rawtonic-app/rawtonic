@@ -183,8 +183,17 @@ pub fn preview_name(
 
 /// Copies the card sidecar `sidecar` beside `photo` (a verified copy of its
 /// photograph) as `<photo stem>.xmp` (`copy_beside`).
-fn copy_sidecar(sidecar: &Path, photo: &Path, cancel: &AtomicBool) -> Result<PathBuf> {
-    copy_beside(sidecar, &photo.with_extension("xmp"), "sidecar", cancel)
+fn copy_sidecar(sidecar: &Path, photo: &Path, barrier: &mut Barrier) -> Result<PathBuf> {
+    let target = photo.with_extension("xmp");
+    copy_beside_all(
+        sidecar,
+        &[target],
+        "sidecar",
+        &AtomicBool::new(false),
+        barrier,
+        None,
+    )
+    .remove(0)
 }
 
 /// Copies `source` to `target` (beside a verified copy of its photograph:
@@ -229,6 +238,7 @@ fn copy_beside_all(
             "A different {what} is already at {}; the card's {what} was not copied",
             target.display()
         );
+        barrier.sync_existing(target)?;
         Ok(target.to_path_buf())
     };
     let mut results: Vec<Option<Result<PathBuf>>> = targets
@@ -246,11 +256,17 @@ fn copy_beside_all(
                     results[i] = Some(copy.publish(k, barrier));
                 }
             }
-            Err(error) => {
+            // One read for all failed: each target on its own, so a
+            // problem with one (a full backup drive) leaves the others.
+            Err(_) if missing.len() > 1 => {
                 for &i in &missing {
-                    results[i] = Some(Err(anyhow::anyhow!("{error:#}")));
+                    results[i] = Some(
+                        copy::copy_verified(source, &[targets[i].as_path()], cancel, |_| {}, None)
+                            .and_then(|mut copy| copy.publish(0, barrier)),
+                    );
                 }
             }
+            Err(error) => results[missing[0]] = Some(Err(error)),
         }
     }
     results
@@ -1140,16 +1156,22 @@ pub(crate) fn import_pair(
         next += 1;
         copy.publish(next - 1, barrier)
     };
+    // Copies an earlier run made are synced again: its flush may not have
+    // happened (`copies_not_made_durable_are_recorded_by_the_next_run`).
+    let mut reused = Ok(());
     let backup_result = match backup_plan {
         None => None,
-        Some(Plan::There(kept)) => Some(kept),
+        Some(Plan::There(kept)) => {
+            reused = barrier.sync_existing(&kept);
+            Some(kept)
+        }
         Some(Plan::Copy(_)) => Some(publish(&mut copied, &mut barrier)?),
     };
     // The backup gets the card sidecar and the companion too; a failure
     // there only warns.
     let mut warnings: Vec<String> = facts.sidecar_error.iter().cloned().collect();
     if let (Some(card), Some(backup)) = (&facts.sidecar, &backup_result)
-        && let Err(error) = copy_sidecar(card, backup, &AtomicBool::new(false))
+        && let Err(error) = copy_sidecar(card, backup, &mut barrier)
     {
         warnings.push(format!("Backup: {error:#}"));
     }
@@ -1164,7 +1186,10 @@ pub(crate) fn import_pair(
         _ => None,
     };
     let (photo, hash) = match photo_plan {
-        Plan::There(earlier) => (earlier, None),
+        Plan::There(earlier) => {
+            reused = reused.and(barrier.sync_existing(&earlier));
+            (earlier, None)
+        }
         Plan::Copy(_) => match publish(&mut copied, &mut barrier) {
             Ok(destination) => (destination, copied.as_ref().map(|copy| copy.sha256.clone())),
             Err(error) => {
@@ -1203,10 +1228,14 @@ pub(crate) fn import_pair(
         }
         copies.pop().expect("one result per target")
     });
+    let copied_sidecar = facts
+        .sidecar
+        .as_ref()
+        .map(|card| copy_sidecar(card, &photo, &mut barrier));
     // Everything copied for this photograph reaches permanent storage
     // before it is recorded; a failure leaves the copies for a later run
     // to record (`earlier`).
-    if let Err(error) = barrier.flush() {
+    if let Err(error) = reused.and_then(|()| barrier.flush()) {
         let error = format!("The copies could not be made durable: {error}");
         return Ok(PairResult {
             photo: ImportResult {
@@ -1234,7 +1263,7 @@ pub(crate) fn import_pair(
         hash.as_deref(),
         contents,
         companion_name,
-        &facts,
+        copied_sidecar,
         warnings,
     );
     let companion = match copied_companion {
@@ -1272,13 +1301,12 @@ pub(crate) fn import_pair(
     })
 }
 
-/// `register` of `photo` after copying the card sidecar of `facts` beside
-/// it, so the library adopts the sidecar's rating, label, keywords and
-/// IPTC fields in the same transaction (`Contents::read_sidecars`, as
-/// "Add" and `adopt_xmp` read them). The sidecar is small and always
-/// finished once its photograph is in (no cancel). Without one, or when it
-/// cannot be copied or read, the photograph is registered as it is, with a
-/// warning.
+/// `register` of `photo` with the card sidecar copied beside it
+/// (`sidecar`, `copy_sidecar`), so the library adopts the sidecar's rating,
+/// label, keywords and IPTC fields in the same transaction
+/// (`Contents::read_sidecars`, as "Add" and `adopt_xmp` read them).
+/// Without one, or when it could not be copied or read, the photograph is
+/// registered as it is, with a warning.
 #[allow(clippy::too_many_arguments)]
 fn register_with_sidecar(
     library: &Library,
@@ -1288,14 +1316,13 @@ fn register_with_sidecar(
     sha256: Option<&str>,
     contents: Option<&Contents>,
     companion: Option<&str>,
-    facts: &SourceFacts,
+    copied_sidecar: Option<Result<PathBuf>>,
     mut warnings: Vec<String>,
 ) -> ImportResult {
     let mut sidecar = None;
     let mut merged = contents.cloned();
-    if let Some(card) = &facts.sidecar {
-        let adopted = copy_sidecar(card, &photo, &AtomicBool::new(false))
-            .and_then(|copied| Ok((copied, Contents::read_sidecars(&photo)?)));
+    if let Some(copied) = copied_sidecar {
+        let adopted = copied.and_then(|copied| Ok((copied, Contents::read_sidecars(&photo)?)));
         match adopted {
             Ok((copied, read)) => {
                 sidecar = Some(copied);
@@ -1349,6 +1376,11 @@ pub fn record_earlier_copy(
     {
         return Ok(None);
     }
+    // On permanent storage before it is recorded (its own run's flush may
+    // not have happened).
+    let mut barrier = Barrier::default();
+    barrier.sync_existing(copy)?;
+    barrier.flush()?;
     Ok(Some(register(
         library,
         source,
