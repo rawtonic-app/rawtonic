@@ -3036,6 +3036,7 @@
         "subtractive": "빼기"
       },
       "modeTitle": "모드: {{mode}} · 클릭하여 변경",
+      "objectFrameChanged": "이 선택 영역을 만든 뒤 사진이 회전되었거나 렌즈 또는 변형 보정이 바뀌었습니다. Shift나 Alt 없이 클릭하여 다시 선택하세요.",
       "refine": "다듬기",
       "refineAria": "색상 범위 다듬기",
       "subtractTitle": "이 레이어의 마스크에서 빼기"

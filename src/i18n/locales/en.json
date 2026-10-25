@@ -3107,6 +3107,7 @@
         "subtractive": "Subtract"
       },
       "modeTitle": "Mode: {{mode}} · click to change",
+      "objectFrameChanged": "The photo was turned, or its lens or transform changed, since this selection was made. Click without Shift or Alt to select again.",
       "refine": "Refine",
       "refineAria": "Colour range refine",
       "subtractTitle": "Subtract from this layer's mask"

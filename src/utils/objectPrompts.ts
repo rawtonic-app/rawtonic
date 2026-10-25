@@ -25,9 +25,9 @@ export function promptGesture(modifiers: { shiftKey?: boolean; altKey?: boolean 
 }
 
 /** The frame prompts are made in: the photo's turn (`rotation`, flips,
- * quarter turns) and the lens and transform warps before it
- * (`GEOMETRY_KEYS`, stored with the mask as `warp`). Prompts of another
- * frame point elsewhere now. */
+ * quarter turns) and the lens and transform warps before it that move
+ * content (`GEOMETRY_KEYS`, stored with the mask as `warp`). Prompts of
+ * another frame point elsewhere now. */
 type Frame = Record<string, unknown>;
 
 /** Values of a frame compared by content (object keys in any order). */
@@ -42,11 +42,26 @@ function canonical(value: unknown): unknown {
   return value;
 }
 
-/** The lens and transform warps of `adjustments` as the backend stores them
- * in a mask's `warp` (unset ones left out). */
+/** Lens corrections that change the photo's tones or colour fringes but
+ * move no content: prompts stay on their objects across them. */
+const CONTENT_STAYS: ReadonlySet<string> = new Set([
+  'lensVignetteAmount',
+  'lensVignetteEnabled',
+  'lensTcaAmount',
+  'lensTcaEnabled',
+  'autoChromaticAberration',
+  'autoCaVersion',
+  'fringeVersion',
+]);
+
+/** The lens and transform warps of `adjustments` that move content, as the
+ * backend stores them in a mask's `warp` (unset ones left out). */
 function warpOf(adjustments: Frame) {
   return Object.fromEntries(
-    GEOMETRY_KEYS.filter((key) => adjustments[key] != null).map((key) => [key, adjustments[key]]),
+    GEOMETRY_KEYS.filter((key) => !CONTENT_STAYS.has(key) && adjustments[key] != null).map((key) => [
+      key,
+      adjustments[key],
+    ]),
   );
 }
 
@@ -82,15 +97,22 @@ export function promptOf(start: Coord, end: Coord, exclude = false): ObjectPromp
 
 /** The prompts a selection's mask was made from: its `prompts`, or the one
  * box or click of a recipe from before. None while it has no mask (new, or
- * pasted and waiting to be pointed at again) or when the photo's frame
- * changed since (turned, flipped, lens or transform changed; masks without a
- * stored `warp` count as changed). */
+ * pasted and waiting to be pointed at again) or when its frame changed
+ * since (`promptsFrameChanged`). */
 export function storedPrompts(params: Record<string, unknown> | undefined, adjustments: Frame): ObjectPrompt[] {
-  if (!params?.maskDataBase64 || storedFrameKey(params) !== promptFrameKey(adjustments)) return [];
+  if (!params?.maskDataBase64 || promptsFrameChanged(params, adjustments)) return [];
   if (Array.isArray(params.prompts)) return params.prompts as ObjectPrompt[];
   const { startX, startY, endX, endY } = params as Record<string, number | undefined>;
   if ([startX, startY, endX, endY].some((v) => typeof v !== 'number')) return [];
   return [promptOf({ x: startX!, y: startY! }, { x: endX!, y: endY! })];
+}
+
+/** Whether a selection's mask was made in another frame than the photo is
+ * shown in now (turned, flipped, lens or transform changed; a mask from
+ * before `warp` was stored counts as another): its prompts cannot be added
+ * to, only started over. */
+export function promptsFrameChanged(params: Record<string, unknown> | undefined, adjustments: Frame): boolean {
+  return Boolean(params?.maskDataBase64) && storedFrameKey(params!) !== promptFrameKey(adjustments);
 }
 
 const includes = (prompts: ObjectPrompt[]) => prompts.some((p) => !p.exclude);

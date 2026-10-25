@@ -3293,6 +3293,7 @@
         "subtractive": "Odejmij"
       },
       "modeTitle": "Tryb: {{mode}} · kliknij, aby zmienić",
+      "objectFrameChanged": "Od utworzenia tego zaznaczenia zdjęcie zostało obrócone albo zmieniono korekcję obiektywu lub przekształcenie. Kliknij bez Shift ani Alt, aby zaznaczyć ponownie.",
       "refine": "Dopracuj",
       "refineAria": "Dopracuj zakres koloru",
       "subtractTitle": "Odejmij od maski tej warstwy"

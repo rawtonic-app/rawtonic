@@ -3036,6 +3036,7 @@
         "subtractive": "減去"
       },
       "modeTitle": "模式：{{mode}} · 按一下以變更",
+      "objectFrameChanged": "建立此選取範圍後，相片已旋轉，或鏡頭／變形校正已變更。請不按 Shift 或 Alt 按一下以重新選取。",
       "refine": "精細化",
       "refineAria": "精細化顏色範圍",
       "subtractTitle": "從此圖層的遮色片減去"

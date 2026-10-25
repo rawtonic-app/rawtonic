@@ -5,6 +5,7 @@ import {
   promptGesture,
   promptFrameKey,
   promptOf,
+  promptsFrameChanged,
   storedPrompts,
   type ObjectPrompt,
 } from './objectPrompts';
@@ -83,6 +84,17 @@ describe('Object selection prompts', () => {
     // A mask from before `warp` was stored.
     const { warp: _warp, ...withoutWarp } = params;
     expect(storedPrompts(withoutWarp, shown)).toEqual([]);
+  });
+
+  it('keeps the prompts across lens corrections that move nothing; refuses adding after a turn or warp', () => {
+    const prompts: ObjectPrompt[] = [{ type: 'point', x: 1, y: 1 }];
+    const params = { maskDataBase64: 'png', prompts, ...upright, warp };
+    expect(storedPrompts(params, { ...shown, lensVignetteAmount: 50, lensTcaEnabled: false })).toEqual(prompts);
+    expect(promptsFrameChanged(params, { ...shown, lensVignetteAmount: 50 })).toBe(false);
+    expect(promptsFrameChanged(params, { ...shown, flipHorizontal: true })).toBe(true);
+    expect(promptsFrameChanged(params, { ...shown, transformXOffset: 3 })).toBe(true);
+    // Nothing to add to: not a changed frame.
+    expect(promptsFrameChanged({ ...params, maskDataBase64: null }, { ...shown, rotation: 4 })).toBe(false);
   });
 
   it('gives the same frame key for the same frame whatever the key order, another for a changed warp', () => {

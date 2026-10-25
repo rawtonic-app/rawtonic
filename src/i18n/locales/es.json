@@ -3200,6 +3200,7 @@
         "subtractive": "Restar"
       },
       "modeTitle": "Modo: {{mode}} · haz clic para cambiarlo",
+      "objectFrameChanged": "La foto se ha girado, o se ha cambiado su objetivo o transformación, desde que se hizo esta selección. Haz clic sin Mayús ni Alt para volver a seleccionar.",
       "refine": "Refinar",
       "refineAria": "Refinar rango de color",
       "subtractTitle": "Restar de la máscara de esta capa"

@@ -23,6 +23,7 @@ import {
   AI_MASKS_AHEAD_DELAY_MS,
   AI_MODELS_UNLOADED_EVENT,
   openMaskingTools,
+  pendingObjectPrompts,
   resetAiMaskSession,
   useAiMasking,
   useAiModelLifecycle,
@@ -32,6 +33,7 @@ import { useProcessStore } from "../store/useProcessStore";
 import { useUIStore } from "../store/useUIStore";
 import { Panel } from "../components/ui/AppProperties";
 import { INITIAL_ADJUSTMENTS } from "../utils/adjustments";
+import { promptFrameKey } from "../utils/objectPrompts";
 import { updateAdjustments } from "./useEditorActions";
 import { registerSliderDraftRenderer } from "../utils/sliderDraft";
 
@@ -417,6 +419,43 @@ describe("automatic AI masks from imported presets", () => {
     act(() => useEditorStore.getState().undo());
     expect(promptsOf(useEditorStore.getState().adjustments)).toEqual([a]);
     expect(subOf("sub-ai-subject")?.parameters.maskDataBase64).toBe("data:image/png;base64,AAAA");
+  });
+
+  it("drops a pending Object prompt when an undo changed the selection it was pressed on", async () => {
+    const pending = deferredMasks();
+    const a = { type: "point" as const, x: 10, y: 10 };
+    const b = { type: "point" as const, x: 900, y: 500 };
+    const empty = { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [layer("ai-subject", { maskDataBase64: null })] as never };
+    const withA = {
+      ...structuredClone(INITIAL_ADJUSTMENTS),
+      masks: [layer("ai-subject", { maskDataBase64: "data:image/png;base64,AAAA", prompts: [a] })] as never,
+    };
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true, width: 3000, height: 2000 } as never,
+      adjustments: withA,
+      history: [empty, withA],
+      historyIndex: 1,
+    });
+    const { result } = renderHook(() => useAiMasking());
+    let added!: Promise<boolean>;
+    act(() => {
+      added = result.current.handleGenerateAiMask("sub-ai-subject", a, a, [a, b]);
+    });
+    await waitFor(() => expect(pending).toHaveLength(1));
+    const frame = promptFrameKey(useEditorStore.getState().adjustments);
+    expect(pendingObjectPrompts("sub-ai-subject", "/s/a.NEF", frame)).toEqual([a, b]);
+    // A is undone before B is in.
+    act(() => useEditorStore.getState().undo());
+    expect(pendingObjectPrompts("sub-ai-subject", "/s/a.NEF", frame)).toBeUndefined();
+    await act(async () => {
+      pending[0]({ maskDataBase64: "data:image/png;base64,BBBB" });
+      await added;
+    });
+    const state = useEditorStore.getState();
+    expect(state.adjustments).toBe(empty);
+    // The redo step is kept.
+    expect(state.history).toEqual([empty, withA]);
+    expect(state.historyIndex).toBe(0);
   });
 
   it("clears the busy state and says so in a toast when the AI runtime cannot be loaded", async () => {

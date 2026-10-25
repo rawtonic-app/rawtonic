@@ -3200,6 +3200,7 @@
         "subtractive": "Resta"
       },
       "modeTitle": "Mode: {{mode}} · fes clic per canviar-lo",
+      "objectFrameChanged": "La foto s'ha girat, o se n'ha canviat l'objectiu o la transformació, des que es va fer aquesta selecció. Feu clic sense Maj ni Alt per tornar a seleccionar.",
       "refine": "Refina",
       "refineAria": "Refina el rang de color",
       "subtractTitle": "Resta de la màscara d'aquesta capa"

@@ -3107,6 +3107,7 @@
         "subtractive": "Abziehen"
       },
       "modeTitle": "Modus: {{mode}} · zum Ändern klicken",
+      "objectFrameChanged": "Das Foto wurde gedreht oder seine Objektiv- bzw. Transformkorrektur geändert, seit diese Auswahl entstand. Klicken Sie ohne Umschalt oder Alt, um neu auszuwählen.",
       "refine": "Verfeinern",
       "refineAria": "Farbbereich verfeinern",
       "subtractTitle": "Von der Maske dieser Ebene abziehen"

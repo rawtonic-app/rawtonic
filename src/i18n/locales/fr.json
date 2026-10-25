@@ -3200,6 +3200,7 @@
         "subtractive": "Soustraire"
       },
       "modeTitle": "Mode : {{mode}} · cliquer pour changer",
+      "objectFrameChanged": "La photo a été tournée, ou son objectif ou sa transformation a changé, depuis cette sélection. Cliquez sans Maj ni Alt pour sélectionner à nouveau.",
       "refine": "Affiner",
       "refineAria": "Affiner la plage de couleur",
       "subtractTitle": "Soustraire du masque de ce calque"

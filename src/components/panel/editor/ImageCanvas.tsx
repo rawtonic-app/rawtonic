@@ -101,6 +101,7 @@ import {
   promptGesture,
   promptFrameKey,
   promptOf,
+  promptsFrameChanged,
   storedPrompts,
   type ObjectPrompt,
   type PromptGesture,
@@ -1438,7 +1439,12 @@ const ImageCanvas = memo(
     // The Object selection's press: what it does to the prompts (Shift adds,
     // Alt takes out), and the prompts shown while their mask is computed.
     const objectGestureRef = useRef<PromptGesture>('replace');
-    const [objectPromptsDraft, setObjectPromptsDraft] = useState<{ id: string; prompts: ObjectPrompt[] } | null>(null);
+    const [objectPromptsDraft, setObjectPromptsDraft] = useState<{
+      id: string;
+      path: string;
+      frame: string;
+      prompts: ObjectPrompt[];
+    } | null>(null);
     const activeStrokeIndex = useRef<number | null>(null);
 
     const [cursorPreview, setCursorPreview] = useState<CursorPreview>({ x: 0, y: 0, visible: false });
@@ -2725,9 +2731,20 @@ const ImageCanvas = memo(
         // in (one history step per prompt); a press meanwhile builds on the
         // prompts in flight.
         const { adjustments: shown, selectedImage: photo } = useEditorStore.getState();
-        const base =
-          (photo && pendingObjectPrompts(activeSubMask.id, photo.path, promptFrameKey(shown))) ??
-          storedPrompts(activeSubMask.parameters, shown);
+        if (!photo) return;
+        const frame = promptFrameKey(shown);
+        const pending = pendingObjectPrompts(activeSubMask.id, photo.path, frame);
+        // Adding to or taking out of a selection made in another frame would
+        // drop it silently: say so, and leave it as it is.
+        if (
+          !pending &&
+          objectGestureRef.current !== 'replace' &&
+          promptsFrameChanged(activeSubMask.parameters, shown)
+        ) {
+          toast.info(t('studio.masks.objectFrameChanged'));
+          return;
+        }
+        const base = pending ?? storedPrompts(activeSubMask.parameters, shown);
         const prompts = nextPrompts(
           base,
           promptOf(startPoint, endPoint, objectGestureRef.current === 'exclude'),
@@ -2735,7 +2752,7 @@ const ImageCanvas = memo(
         );
         const bounds = prompts && promptBounds(prompts);
         if (!prompts || !bounds) return;
-        const draft = { id: activeSubMask.id, prompts };
+        const draft = { id: activeSubMask.id, path: photo.path, frame, prompts };
         setObjectPromptsDraft(draft);
         Promise.resolve(onGenerateAiMask(activeId, bounds.start, bounds.end, prompts)).finally(() =>
           setObjectPromptsDraft((shown) => (shown === draft ? null : shown)),
@@ -3495,7 +3512,9 @@ const ImageCanvas = memo(
                       )}
                       {isAiSubjectActive &&
                         activeSubMask &&
-                        (objectPromptsDraft?.id === activeSubMask.id
+                        (objectPromptsDraft?.id === activeSubMask.id &&
+                        objectPromptsDraft.path === selectedImage?.path &&
+                        objectPromptsDraft.frame === promptFrameKey(adjustments)
                           ? objectPromptsDraft.prompts
                           : storedPrompts(activeSubMask.parameters, adjustments)
                         ).map((prompt, index) => {

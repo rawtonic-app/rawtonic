@@ -3036,6 +3036,7 @@
         "subtractive": "減算"
       },
       "modeTitle": "モード: {{mode}} · クリックで変更",
+      "objectFrameChanged": "この選択範囲を作成した後に、写真の回転、またはレンズ補正・変形が変更されました。Shift や Alt を押さずにクリックして選択し直してください。",
       "refine": "絞り込み",
       "refineAria": "カラー範囲の絞り込み",
       "subtractTitle": "このレイヤーのマスクから減算"

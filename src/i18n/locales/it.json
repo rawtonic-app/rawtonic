@@ -3200,6 +3200,7 @@
         "subtractive": "Sottrai"
       },
       "modeTitle": "Modalità: {{mode}} · clic per cambiare",
+      "objectFrameChanged": "La foto è stata ruotata, o ne è cambiato l'obiettivo o la trasformazione, da quando è stata fatta questa selezione. Fai clic senza Maiusc né Alt per selezionare di nuovo.",
       "refine": "Rifinisci",
       "refineAria": "Rifinisci gamma colore",
       "subtractTitle": "Sottrai dalla maschera di questo livello"
