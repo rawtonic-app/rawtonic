@@ -77,14 +77,39 @@ pub struct ExportRequest {
     pub current_edit_adjustments: Option<Value>,
     /// The session or catalog the export was submitted from; it owns the
     /// photos outside any session (`culling_library_for`).
-    #[serde(default)]
-    pub library: Option<String>,
+    pub library: SubmittedFrom,
     /// Set once each photo's recipe and metadata were read (`pin`); they
     /// are kept with the job's photos in the queue (`item_snapshot`), and
     /// the job renders only them, whichever library is open when it runs.
     /// None only before `pin`, and in jobs an older build queued.
     #[serde(default)]
     pub pinned: Option<Pinned>,
+}
+
+/// The library an export was submitted from, always stated by the
+/// interface: an export from no library never takes one opened later.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SubmittedFrom {
+    /// The session or catalog folder.
+    Library(String),
+    NoLibrary,
+}
+
+impl SubmittedFrom {
+    /// The library open now (for jobs an older build queued).
+    fn open_now() -> Self {
+        crate::session_bridge::active_library_directory().map_or(SubmittedFrom::NoLibrary, |dir| {
+            SubmittedFrom::Library(dir.to_string_lossy().into_owned())
+        })
+    }
+
+    pub fn directory(&self) -> Option<&Path> {
+        match self {
+            SubmittedFrom::Library(dir) => Some(Path::new(dir)),
+            SubmittedFrom::NoLibrary => None,
+        }
+    }
 }
 
 /// What a request's pinned photos amount to, kept in the request itself.
@@ -105,7 +130,7 @@ impl ExportRequest {
             &self.paths,
             self.current_edit_path.as_deref(),
             self.current_edit_adjustments.as_ref(),
-            self.library.as_deref().map(Path::new),
+            self.library.directory(),
         )?;
         self.pinned = Some(Pinned {
             digest: digest(&photos)?,
@@ -669,7 +694,19 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
     let mut trackings: Vec<(&str, Tracking)> = Vec::with_capacity(jobs.len());
     let mut first: Option<ExportRequest> = None;
     for job in jobs {
-        let request: ExportRequest = match serde_json::from_value(job.request.clone()) {
+        let mut stored = job.request.clone();
+        // A job an older build queued names no library: it read the one
+        // open when it ran, and is pinned with that (below).
+        if stored.get("pinned").is_none()
+            && stored.get("library").is_none()
+            && let Some(stored) = stored.as_object_mut()
+        {
+            stored.insert(
+                "library".into(),
+                serde_json::to_value(SubmittedFrom::open_now()).unwrap_or_default(),
+            );
+        }
+        let request: ExportRequest = match serde_json::from_value(stored) {
             Ok(request) => request,
             Err(e) => {
                 log::error!("Export '{}' has an unreadable request: {e}", job.label);
@@ -717,10 +754,7 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
     } else {
         // A job an older build queued was not pinned: it is, once, now,
         // with the library open now, as that build read it.
-        let mut legacy = request.clone();
-        legacy.library = crate::session_bridge::active_library_directory()
-            .map(|dir| dir.to_string_lossy().into_owned());
-        match pin_all(vec![legacy]).await {
+        match pin_all(vec![request.clone()]).await {
             Ok(mut pinned) => {
                 let (legacy, snapshots) = pinned.remove(0);
                 queued_photos(&legacy, vec![String::new()], move |_, index| {
@@ -918,7 +952,10 @@ mod tests {
             "paths": paths, "outputFolderOrFile": "/out", "isExplicitFilePath": false,
             "baseOriginFolders": [], "exportSettings": {"jpegQuality": 85, "keepMetadata": true, "stripGps": false},
             "outputFormat": "jpeg", "currentEditPath": null, "currentEditAdjustments": null,
-            "library": library,
+            "library": match library {
+                Some(dir) => json!({"library": dir}),
+                None => json!("noLibrary"),
+            },
         }))
         .unwrap()
     }
@@ -1075,15 +1112,47 @@ mod tests {
 
     #[test]
     fn a_library_that_cannot_be_read_fails_the_export_when_submitted() {
+        // Its database gone, or its whole folder (manifest) unreachable.
+        for lost in ["catalog.sqlite", "catalog.json"] {
+            let libs = two_catalogs();
+            std::fs::remove_file(libs.a.directory.join(lost)).unwrap();
+            let path = libs.source.to_string_lossy().into_owned();
+            let mut job = request(&[path], Some(libs.a.directory.as_path()));
+            let error = job
+                .pin()
+                .expect_err("not queued with a sidecar's or no metadata");
+            assert!(error.contains("cannot be read"), "{lost}: {error}");
+            assert!(job.pinned.is_none());
+        }
+    }
+
+    #[test]
+    fn an_export_always_names_its_library_and_one_from_none_stays_so() {
         let libs = two_catalogs();
-        std::fs::remove_file(libs.a.directory.join("catalog.sqlite")).unwrap();
         let path = libs.source.to_string_lossy().into_owned();
-        let mut job = request(&[path], Some(libs.a.directory.as_path()));
-        let error = job
-            .pin()
-            .expect_err("not queued with a sidecar's or no metadata");
-        assert!(error.contains("cannot be read"), "{error}");
-        assert!(job.pinned.is_none());
+        let mut unnamed = serde_json::to_value(request(std::slice::from_ref(&path), None)).unwrap();
+        unnamed.as_object_mut().unwrap().remove("library");
+        assert!(
+            serde_json::from_value::<ExportRequest>(unnamed).is_err(),
+            "no export of unstated origin"
+        );
+        // Exported with no library open: the photo is not A's, even though
+        // A holds it (and would be opened later).
+        std::fs::write(
+            libs.source.with_file_name("A.jpg.rrdata"),
+            serde_json::to_vec(&recipe(7.0, 1, &[])).unwrap(),
+        )
+        .unwrap();
+        let run = queued(request(&[path], None)).as_run();
+        assert_eq!(
+            run[0].adjustments["exposure"],
+            json!(7.0),
+            "its own sidecar"
+        );
+        assert_eq!(
+            (run[0].metadata.clone(), run[0].owner.clone()),
+            (None, None)
+        );
     }
 
     #[test]

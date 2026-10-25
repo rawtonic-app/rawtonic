@@ -2858,7 +2858,8 @@
         "queuedMany_one": "S'ha afegit {{count}} exportació a la cua.",
         "queuedMany_many": "S'han afegit {{count}} exportacions a la cua.",
         "queuedMany_other": "S'han afegit {{count}} exportacions a la cua.",
-        "queuedOne": "S'ha afegit a la cua d'exportació."
+        "queuedOne": "S'ha afegit a la cua d'exportació.",
+        "unsavedEdits": "No s'han pogut desar les edicions de {{names}}, així que no s'ha exportat res. Torneu a exportar quan estiguin desades."
       },
       "watermark": {
         "add": "Afegeix una marca d'aigua",

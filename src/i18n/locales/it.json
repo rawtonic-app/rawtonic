@@ -2858,7 +2858,8 @@
         "queuedMany_one": "{{count}} esportazione aggiunta alla coda.",
         "queuedMany_many": "{{count}} esportazioni aggiunte alla coda.",
         "queuedMany_other": "{{count}} esportazioni aggiunte alla coda.",
-        "queuedOne": "Aggiunto alla coda di esportazione."
+        "queuedOne": "Aggiunto alla coda di esportazione.",
+        "unsavedEdits": "Non è stato possibile salvare le modifiche di {{names}}, quindi non è stato esportato nulla. Esporta di nuovo quando sono salvate."
       },
       "watermark": {
         "add": "Aggiungi filigrana",

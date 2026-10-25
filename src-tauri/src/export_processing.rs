@@ -314,6 +314,12 @@ pub(crate) fn pin_photos(
     submitted_from: Option<&Path>,
 ) -> Result<Vec<PinnedPhoto>, String> {
     use rayon::prelude::*;
+    // The library it was submitted from must be there: else its photos
+    // would count as in no library and lose what it holds of them.
+    if let Some(library) = submitted_from {
+        rawtonic_catalog::Library::open(library)
+            .map_err(|e| format!("The library {} cannot be read: {e:#}", library.display()))?;
+    }
     paths
         .par_iter()
         .map(|path| {
@@ -1584,13 +1590,12 @@ pub async fn export_images(
     output_format: String,
     current_edit_path: Option<String>,
     current_edit_adjustments: Option<Value>,
-    library: Option<String>,
+    library: crate::export_queue::SubmittedFrom,
     app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
     if paths.is_empty() {
         return Err("Nothing to export.".to_string());
     }
-    let library = library.or_else(submitting_library);
     // Queued behind a running export; persisted so it survives a restart.
     crate::export_queue::enqueue(
         &app_handle,
@@ -1611,12 +1616,6 @@ pub async fn export_images(
     .await
 }
 
-/// The library an export is submitted from when the interface names none:
-/// the one open as the command arrives (as the culling commands take it).
-fn submitting_library() -> Option<String> {
-    crate::session_bridge::active_library_directory().map(|dir| dir.to_string_lossy().into_owned())
-}
-
 /// The exports of a photo set's ticked recipes, queued together so they run
 /// as one: each photo is developed once for all of them.
 #[tauri::command]
@@ -1627,11 +1626,7 @@ pub async fn export_images_batch(
     if requests.iter().any(|request| request.paths.is_empty()) || requests.is_empty() {
         return Err("Nothing to export.".to_string());
     }
-    let open = submitting_library();
     for request in &mut requests {
-        if request.library.is_none() {
-            request.library.clone_from(&open);
-        }
         // Pinned here, from the library, never as the interface says.
         request.pinned = None;
     }

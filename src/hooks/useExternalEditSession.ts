@@ -7,6 +7,8 @@ import { currentEditForExport, useEditorStore } from '../store/useEditorStore';
 import { Invokes } from '../components/ui/AppProperties';
 import { ExportSettings, Status } from '../components/ui/ExportImportProperties';
 import { debouncedSave } from './useEditorActions';
+import { useLibraryStore } from '../store/useLibraryStore';
+import { submittedFrom } from '../utils/runExportJobs';
 
 /**
  * Handles files handed to the app from outside (OS "open with" and the
@@ -99,6 +101,7 @@ export function useExternalEditSession(handleImageSelect: (path: string) => void
         exportSettings,
         outputFormat: session.format,
         ...currentEditForExport(useEditorStore.getState()),
+        library: submittedFrom(useLibraryStore.getState().sessionDirectory),
       });
       setFinishJob(job);
     } catch (error) {

@@ -1,9 +1,12 @@
+import '../i18n';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { runExportJobs } from './runExportJobs';
 import { DEFAULT_RECIPE_DRAFT, exportSettingsFromDraft } from './exportRecipes';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useEditorStore } from '../store/useEditorStore';
+import { useProcessStore } from '../store/useProcessStore';
+import { Status } from '../components/ui/ExportImportProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(), save: vi.fn() }));
@@ -37,9 +40,30 @@ it('queues an export from its library once the recipes being saved are written',
   expect(command).toBe('export_images_batch');
   const [request] = (args as { requests: Record<string, unknown>[] }).requests;
   expect(request).toMatchObject({
-    library: '/Shoots/A',
+    library: { library: '/Shoots/A' },
     baseOriginFolders: ['/Shoots/A'],
     currentEditPath: '/p/a.NEF',
     currentEditAdjustments: { exposure: 1 },
   });
+});
+
+it('says an export comes from no library when none is open', async () => {
+  useLibraryStore.setState({ sessionDirectory: null });
+  const draft = { ...DEFAULT_RECIPE_DRAFT, where: 'original' as const };
+  const { settings, outputFormat } = exportSettingsFromDraft(draft);
+  expect(await runExportJobs([{ recipe: null, draft, settings, outputFormat }], ['/p/a.NEF'])).toBe(1);
+  const [, args] = vi.mocked(invoke).mock.calls[0];
+  expect((args as { requests: { library: unknown }[] }).requests[0].library).toBe('noLibrary');
+});
+
+it('exports nothing while a selected photograph\'s edits could not be saved', async () => {
+  saves.flush.mockResolvedValueOnce(['/p/b.NEF', '/elsewhere/c.NEF']);
+  const draft = { ...DEFAULT_RECIPE_DRAFT, where: 'original' as const };
+  const { settings, outputFormat } = exportSettingsFromDraft(draft);
+  expect(await runExportJobs([{ recipe: null, draft, settings, outputFormat }], ['/p/a.NEF', '/p/b.NEF'])).toBe(0);
+  expect(vi.mocked(invoke)).not.toHaveBeenCalled();
+  const { status, errorMessage } = useProcessStore.getState().exportState;
+  expect(status).toBe(Status.Error);
+  expect(errorMessage).toContain('b.NEF');
+  expect(errorMessage).not.toContain('c.NEF');
 });

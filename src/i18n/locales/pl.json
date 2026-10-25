@@ -2931,7 +2931,8 @@
         "queuedMany_few": "Dodano {{count}} eksporty do kolejki.",
         "queuedMany_many": "Dodano {{count}} eksportów do kolejki.",
         "queuedMany_other": "Dodano {{count}} eksportu do kolejki.",
-        "queuedOne": "Dodano do kolejki eksportu."
+        "queuedOne": "Dodano do kolejki eksportu.",
+        "unsavedEdits": "Nie udało się zapisać edycji {{names}}, więc nic nie zostało wyeksportowane. Wyeksportuj ponownie po ich zapisaniu."
       },
       "watermark": {
         "add": "Dodaj znak wodny",

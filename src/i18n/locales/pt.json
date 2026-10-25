@@ -2858,7 +2858,8 @@
         "queuedMany_one": "{{count}} exportação adicionada à fila.",
         "queuedMany_many": "{{count}} exportações adicionadas à fila.",
         "queuedMany_other": "{{count}} exportações adicionadas à fila.",
-        "queuedOne": "Adicionado à fila de exportação."
+        "queuedOne": "Adicionado à fila de exportação.",
+        "unsavedEdits": "Não foi possível guardar as edições de {{names}}, por isso nada foi exportado. Exporte novamente quando estiverem guardadas."
       },
       "watermark": {
         "add": "Adicionar marca d'água",

@@ -2785,7 +2785,8 @@
       "toasts": {
         "queuedMany_one": "{{count}} export added to the queue.",
         "queuedMany_other": "{{count}} exports added to the queue.",
-        "queuedOne": "Added to the export queue."
+        "queuedOne": "Added to the export queue.",
+        "unsavedEdits": "The edits of {{names}} could not be saved, so nothing was exported. Export again once they are saved."
       },
       "watermark": {
         "add": "Add a watermark",

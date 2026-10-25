@@ -13,6 +13,11 @@ import { exportJobLabel } from './exportFeedback';
 import { noteTool } from '../components/contribute/usageStats';
 import { flushRecipeSaves } from '../hooks/useEditorActions';
 
+/** The library an export is submitted from, as `export_images` takes it:
+ * always stated, so an export from no library never takes one opened later. */
+export const submittedFrom = (library: string | null) =>
+  library ? { library } : 'noLibrary';
+
 export interface PlannedExport {
   recipe: ExportPreset | null;
   draft: RecipeDraft;
@@ -85,7 +90,15 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
   };
 
   try {
-    await flushing;
+    // A photograph whose edits could not be saved would export its older
+    // recipe: the export stops and says which.
+    const unsaved = (await flushing).filter((path) => paths.includes(path));
+    if (unsaved.length)
+      throw new Error(
+        t("studio.export.toasts.unsavedEdits", {
+          names: unsaved.map((path) => path.split(/[\\/]/).pop()).join(", "),
+        }),
+      );
     // Queued together, the recipes run as one export: each photograph is
     // developed once for all of them.
     const requests: Record<string, unknown>[] = [];
@@ -115,7 +128,7 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
         exportSettings: job.settings,
         outputFormat: job.outputFormat,
         ...openEdit,
-        library: session,
+        library: submittedFrom(session),
       });
     }
     const started = requests.length;

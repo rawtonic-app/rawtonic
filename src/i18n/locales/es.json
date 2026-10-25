@@ -2858,7 +2858,8 @@
         "queuedMany_one": "{{count}} exportación añadida a la cola.",
         "queuedMany_many": "{{count}} exportaciones añadidas a la cola.",
         "queuedMany_other": "{{count}} exportaciones añadidas a la cola.",
-        "queuedOne": "Añadido a la cola de exportación."
+        "queuedOne": "Añadido a la cola de exportación.",
+        "unsavedEdits": "No se pudieron guardar las ediciones de {{names}}, así que no se exportó nada. Vuelve a exportar cuando estén guardadas."
       },
       "watermark": {
         "add": "Añadir marca de agua",

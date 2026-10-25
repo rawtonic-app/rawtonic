@@ -2735,7 +2735,8 @@
       },
       "toasts": {
         "queuedMany_other": "내보내기 {{count}}건을 대기열에 추가했습니다.",
-        "queuedOne": "내보내기 대기열에 추가했습니다."
+        "queuedOne": "내보내기 대기열에 추가했습니다.",
+        "unsavedEdits": "{{names}}의 편집 내용을 저장하지 못해 아무것도 내보내지 않았습니다. 저장된 후 다시 내보내세요."
       },
       "watermark": {
         "add": "워터마크 추가",

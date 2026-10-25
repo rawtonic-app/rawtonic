@@ -2735,7 +2735,8 @@
       },
       "toasts": {
         "queuedMany_other": "已将 {{count}} 个导出加入队列。",
-        "queuedOne": "已加入导出队列。"
+        "queuedOne": "已加入导出队列。",
+        "unsavedEdits": "无法保存 {{names}} 的编辑，因此未导出任何内容。保存后请重新导出。"
       },
       "watermark": {
         "add": "添加水印",

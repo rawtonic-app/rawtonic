@@ -2735,7 +2735,8 @@
       },
       "toasts": {
         "queuedMany_other": "已將 {{count}} 個匯出加入佇列。",
-        "queuedOne": "已加入匯出佇列。"
+        "queuedOne": "已加入匯出佇列。",
+        "unsavedEdits": "無法儲存 {{names}} 的編輯，因此未匯出任何內容。儲存後請重新匯出。"
       },
       "watermark": {
         "add": "加入浮水印",

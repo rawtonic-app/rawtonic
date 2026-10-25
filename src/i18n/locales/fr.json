@@ -2858,7 +2858,8 @@
         "queuedMany_one": "{{count}} exportation ajoutée à la file.",
         "queuedMany_many": "{{count}} exportations ajoutées à la file.",
         "queuedMany_other": "{{count}} exportations ajoutées à la file.",
-        "queuedOne": "Ajouté à la file d'exportation."
+        "queuedOne": "Ajouté à la file d'exportation.",
+        "unsavedEdits": "Les modifications de {{names}} n'ont pas pu être enregistrées : rien n'a été exporté. Exportez à nouveau une fois qu'elles sont enregistrées."
       },
       "watermark": {
         "add": "Ajouter un filigrane",

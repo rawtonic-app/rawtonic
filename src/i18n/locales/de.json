@@ -2785,7 +2785,8 @@
       "toasts": {
         "queuedMany_one": "{{count}} Export zur Warteschlange hinzugefügt.",
         "queuedMany_other": "{{count}} Exporte zur Warteschlange hinzugefügt.",
-        "queuedOne": "Zur Exportwarteschlange hinzugefügt."
+        "queuedOne": "Zur Exportwarteschlange hinzugefügt.",
+        "unsavedEdits": "Die Bearbeitungen von {{names}} konnten nicht gespeichert werden, daher wurde nichts exportiert. Exportiere erneut, sobald sie gespeichert sind."
       },
       "watermark": {
         "add": "Wasserzeichen hinzufügen",
