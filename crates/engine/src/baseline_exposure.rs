@@ -153,11 +153,12 @@ pub fn apply_base_look(
     global.noise_level = noise_level
         .or_else(|| registered().and_then(|facts| facts.noise_level))
         .unwrap_or(0.0);
-    let [low, high] = image_key
-        .or_else(|| registered().and_then(|facts| facts.image_key))
-        .unwrap_or([0.0, 0.0]);
+    let [low, high, median] = image_key
+        .or_else(|| registered().and_then(|facts| facts.measured_image_key()))
+        .unwrap_or([0.0; 3]);
     global.image_key = high;
     global.image_key_low = low;
+    global.image_key_median = median;
 }
 
 /// The DNG BaselineExposure that gives a linear DNG made from `path` (a
@@ -702,23 +703,33 @@ mod tests {
     fn the_decode_rendered_brings_its_own_measures() {
         let path = "/nonexistent/measures-test.NEF";
         crate::noise_level::record(path, 0.03);
-        crate::image_key::record(path, [0.2, 0.7]);
+        crate::image_key::record(path, [0.2, 0.7, 0.4]);
         let own = crate::image_loader::DecodeMeasures {
             noise_level: Some(0.01),
-            image_key: Some([0.1, 0.6]),
+            image_key: Some([0.1, 0.6, 0.3]),
         };
         let mut global = GlobalAdjustments::default();
         super::apply_base_look(&mut global, path, Some(&own));
         assert_eq!(
-            (global.noise_level, global.image_key_low, global.image_key),
-            (0.01, 0.1, 0.6)
+            (
+                global.noise_level,
+                global.image_key_low,
+                global.image_key,
+                global.image_key_median
+            ),
+            (0.01, 0.1, 0.6, 0.3)
         );
         // Without a decode (a preview): the last full decode's.
         let mut global = GlobalAdjustments::default();
         super::apply_base_look(&mut global, path, None);
         assert_eq!(
-            (global.noise_level, global.image_key_low, global.image_key),
-            (0.03, 0.2, 0.7)
+            (
+                global.noise_level,
+                global.image_key_low,
+                global.image_key,
+                global.image_key_median
+            ),
+            (0.03, 0.2, 0.7, 0.4)
         );
     }
 

@@ -3140,11 +3140,12 @@ pub struct GlobalAdjustments {
     pub lut_is_scene_referred: u32,
     /// 90th and 10th percentile of the decode's linear luminance
     /// (image_key.rs), before exposure and baseline; 0 = unknown. Shadows
-    /// adapts to them.
+    /// and (tone version 3) lowered Highlights adapt to them.
     pub image_key: f32,
     pub image_key_low: f32,
     /// The recipe's `toneVersion` (1 when missing): 2 lets Shadows above +50
-    /// reach further into the quarter-tones (docs/RECIPE_SCHEMA.md).
+    /// reach further into the quarter-tones, 3 lets lowered Highlights adapt
+    /// to the image key (docs/RECIPE_SCHEMA.md).
     pub tone_version: f32,
 
     /// EV applied before the Standard tone mapper (DNG BaselineExposure).
@@ -3326,7 +3327,10 @@ pub struct GlobalAdjustments {
     /// The recipe's Clarity (`clarity_version`): 1 the band against a plain
     /// blur, 2 against an edge-aware base (fewer halos at narrow edges).
     pub clarity_version: u32,
-    _pad_luminance: u32,
+    /// Median of the decode's linear luminance (image_key.rs), like
+    /// `image_key`; 0 = unknown. Lowered Highlights (tone version 3) adapts
+    /// to it.
+    pub image_key_median: f32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -4379,7 +4383,7 @@ fn get_global_adjustments_from_json(
         luminance_curve_count: luminance_points.len().min(16) as u32,
         grain_version: grain_version(js_adjustments) as u32,
         clarity_version: clarity_version(js_adjustments) as u32,
-        _pad_luminance: 0,
+        image_key_median: 0.0,
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()
@@ -6476,10 +6480,12 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// lift the quarter-tones further, at +100 as far as Camera Raw's and close
 /// to Capture One's, and refits lowering Highlights (moderate values like
 /// both editors, the same display levels on every camera, −100 at least
-/// Camera Raw's reach; notes: reference/highlight-recovery-gfx.md, G05).
+/// Camera Raw's reach; notes: reference/highlight-recovery-gfx.md, G05);
+/// 3 (2026-10-25) lets lowered Highlights adapt to the image key, reaching
+/// further in dark frames (night scenes, lamps, candles; notes: G05).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 2;
+pub const TONE_VERSION: u64 = 3;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
 /// newer than this renderer knows.
@@ -6813,6 +6819,8 @@ mod tone_version_tests {
         assert_eq!(version(json!({"shadows": 80})), 1.0);
         assert_eq!(version(json!({"shadows": 80, "toneVersion": 1})), 1.0);
         assert_eq!(version(json!({"shadows": 80, "toneVersion": 2})), 2.0);
+        // Version 3 (lowered Highlights adapted to the image key) is known.
+        assert_eq!(version(json!({"highlights": -60, "toneVersion": 3})), 3.0);
         // A newer version than this renderer knows renders with its newest.
         assert_eq!(version(json!({"toneVersion": 9})), TONE_VERSION as f32);
     }

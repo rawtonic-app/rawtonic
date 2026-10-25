@@ -225,7 +225,7 @@ pub struct Proxy {
 fn measures_of(facts: Option<&SourceFacts>) -> Option<DecodeMeasures> {
     facts.map(|facts| DecodeMeasures {
         noise_level: facts.noise_level,
-        image_key: facts.image_key,
+        image_key: facts.measured_image_key(),
     })
 }
 
@@ -581,7 +581,7 @@ impl SourceData {
         let mut facts = source_facts::collect(&path);
         if let Some(measures) = measures {
             facts.noise_level = measures.noise_level;
-            facts.image_key = measures.image_key;
+            facts.set_image_key(measures.image_key);
         }
         SourceData {
             facts: Some(facts),
@@ -1931,10 +1931,10 @@ mod tests {
         let settings = AppSettings::default();
         let path = photo.to_string_lossy().to_string();
         rawtonic_rawdecode::noise_level::record(&path, 0.03);
-        rawtonic_rawdecode::image_key::record(&path, [0.2, 0.7]);
+        rawtonic_rawdecode::image_key::record(&path, [0.2, 0.7, 0.4]);
         let own = DecodeMeasures {
             noise_level: Some(0.01),
-            image_key: Some([0.1, 0.6]),
+            image_key: Some([0.1, 0.6, 0.3]),
         };
         write(
             &photo,
@@ -1950,8 +1950,8 @@ mod tests {
             .facts
             .unwrap();
         assert_eq!(
-            (facts.noise_level, facts.image_key),
-            (Some(0.01), Some([0.1, 0.6]))
+            (facts.noise_level, facts.image_key, facts.image_key_median),
+            (Some(0.01), Some([0.1, 0.6]), Some(0.3))
         );
         // And renders from it read them back (not the newer decode's).
         assert_eq!(read(&photo, &settings).unwrap().measures, Some(own));

@@ -32,7 +32,8 @@ use crate::lens_correction::LensDistortionParams;
 /// covers) and `diffraction_sigma_v1` for recipes from before it.
 /// 5: `lensfun_default` scaled to the body's crop factor (camera list
 /// fallback by loose name) and with the profile's whole lateral CA.
-pub const VERSION: u32 = 5;
+/// 6: `image_key_median` (lowered Highlights of tone version 3).
+pub const VERSION: u32 = 6;
 
 /// The file facts the rendering of one photograph uses.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
@@ -50,9 +51,13 @@ pub struct SourceFacts {
     /// `noise_level::for_path` (measured on the decode).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub noise_level: Option<f32>,
-    /// `image_key::for_path` (measured on the decode).
+    /// `image_key::for_path` (measured on the decode): its 10th and 90th
+    /// percentile.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_key: Option<[f32; 2]>,
+    /// Its median (version 6 on; kept apart so older headers still parse).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_key_median: Option<f32>,
     /// `diffraction` Airy σ in pixels.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diffraction_sigma: Option<f32>,
@@ -178,6 +183,22 @@ impl StoredColour {
     }
 }
 
+impl SourceFacts {
+    /// The measured image key ([10th, 90th, 50th] percentile, as
+    /// `image_key::measure`); the median 0 (unknown) in facts from before
+    /// version 6.
+    pub fn measured_image_key(&self) -> Option<crate::image_key::ImageKey> {
+        self.image_key
+            .map(|[low, high]| [low, high, self.image_key_median.unwrap_or(0.0)])
+    }
+
+    /// Keeps `key` (`measured_image_key`'s form).
+    pub fn set_image_key(&mut self, key: Option<crate::image_key::ImageKey>) {
+        self.image_key = key.map(|[low, high, _]| [low, high]);
+        self.image_key_median = key.map(|[_, _, median]| median);
+    }
+}
+
 /// Gathers the facts of the RAW at `path` (it must be readable). Read once
 /// per file and modification time.
 pub fn collect(path: &str) -> SourceFacts {
@@ -194,18 +215,21 @@ pub fn collect(path: &str) -> SourceFacts {
         let mut found = found.clone();
         // Measured on the decode, which may have happened since.
         found.noise_level = crate::noise_level::for_path(path).or(found.noise_level);
-        found.image_key = crate::image_key::for_path(path).or(found.image_key);
+        if let Some(key) = crate::image_key::for_path(path) {
+            found.set_image_key(Some(key));
+        }
         return found;
     }
     let source = std::path::Path::new(path);
     let diffraction = crate::diffraction::sigmas_for_path(path);
-    let facts = SourceFacts {
+    let mut facts = SourceFacts {
         version: VERSION,
         base_look: Some(crate::baseline_exposure::base_look(path).into()),
         colour: crate::camera_profile::image_colour_details(path)
             .map(|(colour, forward)| StoredColour::new(&colour, forward)),
         noise_level: crate::noise_level::for_path(path),
-        image_key: crate::image_key::for_path(path),
+        image_key: None,
+        image_key_median: None,
         diffraction_sigma: diffraction.current,
         diffraction_v1_differs: diffraction.v1 != diffraction.current,
         diffraction_sigma_v1: diffraction
@@ -214,6 +238,7 @@ pub fn collect(path: &str) -> SourceFacts {
         camera_lens: crate::embedded_lens::params_for(source),
         lensfun_default: crate::embedded_lens::lensfun_default(source),
     };
+    facts.set_image_key(crate::image_key::for_path(path));
     if let Some(key) = key {
         let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
         if cache.len() > 1024 {
@@ -303,6 +328,7 @@ mod tests {
             colour: Some(StoredColour::new(&colour, false)),
             noise_level: Some(0.012),
             image_key: Some([0.01, 0.21]),
+            image_key_median: Some(0.05),
             diffraction_sigma: None,
             diffraction_v1_differs: false,
             diffraction_sigma_v1: None,
