@@ -9,8 +9,8 @@ import { usePresets } from "../../hooks/usePresets";
 import { loadBuiltinPresets, presetName, useBuiltinPresets } from "../../utils/builtinPresets";
 import type { Preset } from "../ui/AppProperties";
 import { usePopoverFocus } from "./usePopoverFocus";
-import { pick, type ToolParams } from "./StudioToolCopy";
-import { presetFitsTool, presetValues } from "./toolPresets";
+import type { ToolParams } from "./StudioToolCopy";
+import { presetFitsTool, presetPreview, toolPresetToSave } from "./toolPresets";
 import { noteTool } from "../contribute/usageStats";
 
 const currentAdjustments = () => useEditorStore.getState().adjustments;
@@ -111,8 +111,10 @@ function ToolPresetsPopover({
   const preview = (preset: Preset) => {
     const { selectedImage: image, adjustments, setEditor } = useEditorStore.getState();
     if (!image?.isReady) return;
+    const previewed = presetPreview(adjustments, preset.adjustments, Boolean(image.isRaw));
+    if (!previewed) return endPreview();
     previewing.current = true;
-    setEditor({ previewOverride: { ...adjustments, ...presetValues(preset.adjustments) } });
+    setEditor({ previewOverride: previewed });
   };
   useEffect(() => endPreview, []);
 
@@ -125,7 +127,7 @@ function ToolPresetsPopover({
     onClose();
   };
   const saveCurrent = (name: string) => {
-    addToolPreset(name, pick(currentAdjustments(), keys), label);
+    addToolPreset(name, toolPresetToSave(currentAdjustments(), keys), label);
     setNaming(false);
   };
 

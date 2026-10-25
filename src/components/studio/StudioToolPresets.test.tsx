@@ -12,6 +12,7 @@ import { resetBuiltinPresets } from "../../utils/builtinPresets";
 import { INITIAL_ADJUSTMENTS, type Adjustments } from "../../utils/adjustments";
 import type { AppSettings, Preset } from "../ui/AppProperties";
 import type { ToolParams } from "./StudioToolCopy";
+import { toolPresetToSave } from "./toolPresets";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const mockInvoke = vi.mocked(invoke);
@@ -184,5 +185,54 @@ describe("Tool preset menu", () => {
     expect(usePresetStore.getState().presets.some((item) => item.preset?.id === "mine")).toBe(false);
     // Built-ins have no delete.
     expect(within(menu).queryByRole("button", { name: /Delete preset “Fine”/ })).toBeNull();
+  });
+
+  it("keeps changes of the shared preset list not written yet when it opens", async () => {
+    // Another user of the list (Styles & presets) changed it; its write is pending.
+    usePresetStore.setState({
+      presets: [{ preset: { id: "fresh", name: "Not on disk yet", presetType: "tool", adjustments: { grainAmount: 5 } } }],
+      isLoading: false,
+    });
+    await renderTool();
+    const menu = await openMenu();
+    expect(mockInvoke.mock.calls.some(([command]) => command === "load_presets")).toBe(false);
+    expect(within(menu).getByRole("button", { name: "Not on disk yet" })).toBeTruthy();
+    fireEvent.click(within(menu).getByRole("button", { name: "Save current as preset…" }));
+    fireEvent.change(within(menu).getByRole("textbox"), { target: { value: "Second" } });
+    fireEvent.submit(within(menu).getByRole("form", { name: "Save current as preset…" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+    await act(async () => {});
+    const saves = mockInvoke.mock.calls.filter(([command]) => command === "save_presets");
+    const written = JSON.stringify(saves.at(-1)?.[1]);
+    expect(written).toContain("Not on disk yet");
+    expect(written).toContain("Second");
+  });
+
+  it("previews only presets the open source can show; the others still apply", async () => {
+    const denoise = { id: "noise-ai", version: 1, name: "AI clean", presetType: "tool" as const, adjustments: { aiDenoise: 60, aiDenoiseVersion: 3 } };
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === "load_presets") return [];
+      if (command === "load_builtin_presets") return [denoise];
+      if (command === "load_metadata") return {};
+      return undefined;
+    });
+    await renderTool("Noise reduction", [["aiDenoise", "AI Denoise"]]);
+    const menu = await openMenu("Noise reduction");
+    const item = within(menu).getByRole("button", { name: "AI clean" });
+    // AI Denoise develops the RAW again: the override would show the old source.
+    fireEvent.mouseEnter(item);
+    expect(useEditorStore.getState().previewOverride).toBeNull();
+    fireEvent.click(item);
+    expect(useEditorStore.getState().adjustments.aiDenoise).toBe(60);
+  });
+});
+
+describe("saving a tool preset", () => {
+  it("states the colour noise filter of an edit from before its version, through JSON", () => {
+    const legacy = { ...INITIAL_ADJUSTMENTS, colorNoiseReduction: 30, colorNoiseVersion: undefined } as Adjustments;
+    const saved = JSON.parse(JSON.stringify(toolPresetToSave(legacy, ["colorNoiseReduction"])));
+    expect(saved).toEqual({ colorNoiseReduction: 30, colorNoiseVersion: 1 });
+    const current = { ...INITIAL_ADJUSTMENTS, colorNoiseReduction: 30, colorNoiseVersion: 10 } as Adjustments;
+    expect(toolPresetToSave(current, ["colorNoiseReduction"]).colorNoiseVersion).toBe(10);
   });
 });

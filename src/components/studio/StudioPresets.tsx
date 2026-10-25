@@ -14,7 +14,7 @@ import { ToolGroup } from "./StudioDevelop";
 import { blendPreset } from "../../utils/presetAmount";
 import { loadBuiltinPresets, presetName, useBuiltinPresets } from "../../utils/builtinPresets";
 import { withPresetClarityVersion } from "../../utils/adjustments";
-import { presetValues } from "./toolPresets";
+import { presetPreview, presetValues } from "./toolPresets";
 import { noteTool } from "../contribute/usageStats";
 
 type Entry = { folder: { id: string; name: string; builtin?: boolean } | null; presets: Preset[] };
@@ -178,8 +178,11 @@ export default function StudioPresets() {
     hoverTimer.current = window.setTimeout(() => {
       const { selectedImage: image, adjustments: current, setEditor } = useEditorStore.getState();
       if (!image?.isReady) return;
+      // No preview for a preset that needs the RAW developed again.
+      const previewed = presetPreview(current, preset.adjustments, Boolean(image.isRaw));
+      if (!previewed) return endPreview();
       previewing.current = true;
-      setEditor({ previewOverride: { ...current, ...presetValues(preset.adjustments) } });
+      setEditor({ previewOverride: previewed });
     }, 120);
   };
   useEffect(() => endPreview, []);

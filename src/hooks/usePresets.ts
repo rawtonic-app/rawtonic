@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useMemo } from 'react';
+import { useEffect, useCallback } from 'react';
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import debounce from 'lodash.debounce';
@@ -104,6 +104,20 @@ export const usePresetStore = create<{
   setIsLoading: (isLoading) => set({ isLoading }),
 }));
 
+/** One debounced write of the shared list for every user of `usePresets`: a
+ * second user's own timer could write an older list after a newer one. */
+const savePresetsToBackend = debounce(
+  (presetsToSave: Array<UserPreset>): Promise<string[]> =>
+    invoke(Invokes.SavePresets, { presets: presetsToSave }).then(
+      () => [],
+      (err) => {
+        console.error('Failed to save presets:', err);
+        return ['Presets'];
+      },
+    ),
+  500,
+);
+
 /** Loads the presets into the shared list (for menus outside the Develop tool). */
 export async function loadPresetLibrary() {
   try {
@@ -152,22 +166,6 @@ export function usePresets(
     }
   }, []);
 
-  const savePresetsToBackend = useMemo(
-    () =>
-      debounce(
-        (presetsToSave: Array<UserPreset>): Promise<string[]> =>
-          invoke(Invokes.SavePresets, { presets: presetsToSave }).then(
-            () => [],
-            (err) => {
-              console.error('Failed to save presets:', err);
-              return ['Presets'];
-            },
-          ),
-        500,
-      ),
-    [],
-  );
-
   // A pending save is written when the tool closes and before quitting.
   useEffect(() => {
     const unregister = registerQuitFlush(async () => (await savePresetsToBackend.flush()) ?? []);
@@ -175,10 +173,12 @@ export function usePresets(
       unregister();
       savePresetsToBackend.flush();
     };
-  }, [savePresetsToBackend]);
+  }, []);
 
+  // Read from disk once: later users share the list, which may hold changes
+  // not written yet (a reload would put the older file over them).
   useEffect(() => {
-    loadPresets();
+    if (usePresetStore.getState().isLoading) loadPresets();
   }, [loadPresets]);
 
   const addPreset = (
@@ -455,7 +455,7 @@ export function usePresets(
       savePresetsToBackend(updatedPresets);
       return newPreset;
     },
-    [presets, savePresetsToBackend],
+    [presets],
   );
 
   const movePreset = useCallback(
@@ -530,7 +530,7 @@ export function usePresets(
       setPresets(updatedPresets);
       savePresetsToBackend(updatedPresets);
     },
-    [presets, savePresetsToBackend],
+    [presets],
   );
 
   const reorderItems = useCallback(
@@ -575,7 +575,7 @@ export function usePresets(
         return currentPresets;
       });
     },
-    [savePresetsToBackend],
+    [],
   );
 
   const sortAllPresetsAlphabetically = useCallback(() => {
@@ -603,7 +603,7 @@ export function usePresets(
       savePresetsToBackend(sortedPresets);
       return sortedPresets;
     });
-  }, [savePresetsToBackend]);
+  }, []);
 
   const importPresetsFromFile = useCallback(
     async (filePath: string) => {
