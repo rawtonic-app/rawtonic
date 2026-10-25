@@ -62,6 +62,7 @@ mod merges;
 mod multi_view;
 mod multi_view_prefetch;
 mod negative_conversion;
+mod open_with;
 #[cfg(feature = "performance-profiling")]
 mod performance;
 mod preset_converter;
@@ -828,6 +829,13 @@ pub fn run() {
             file_management::rename_files,
             file_management::duplicate_file,
             file_management::show_in_finder,
+            open_with::open_with_apps,
+            open_with::edit_with_apps,
+            open_with::open_with_open,
+            open_with::open_with_prefs,
+            open_with::edit_with_set_recipe,
+            open_with::edit_with_targets,
+            open_with::edit_with_finish,
             file_management::save_metadata_and_update_thumbnail,
             file_management::apply_adjustments_to_paths,
             file_management::load_metadata,

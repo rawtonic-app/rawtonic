@@ -134,6 +134,7 @@
       "copy_adjustments": "拷贝设置",
       "copy_image_path": "拷贝路径",
       "delete_selected": "移到废纸篓",
+      "edit_with": "编辑方式…",
       "flag_pick": "留用",
       "flag_reject": "排除",
       "flag_unflag": "取消旗标",
@@ -143,6 +144,7 @@
       "new_session": "新建项目或图库…",
       "open_session": "打开项目或图库…",
       "open_settings": "偏好设置…",
+      "open_with": "打开方式…",
       "paste_adjustments": "粘贴设置",
       "paste_from_previous": "粘贴上一张照片的设置",
       "rate_0": "无星级",
@@ -277,10 +279,31 @@
       "tagging": "标签",
       "undo": "撤销"
     },
+    "editWith": {
+      "failed": "编辑失败：{{error}}",
+      "label": "编辑方式",
+      "notLinked": "已渲染，但未添加到图库：{{error}}",
+      "openIn": "打开于",
+      "recipe": "配方",
+      "rendering": "正在为 {{app}} 渲染…",
+      "someFailed": "{{total}} 张照片中有 {{failed}} 张无法渲染。",
+      "tiffAdobe": "TIFF 16 位 · Adobe RGB",
+      "tiffProPhoto": "TIFF 16 位 · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "焦距合成",
       "hdrPanorama": "HDR 全景图",
       "title": "合并"
+    },
+    "openWith": {
+      "chooseTitle": "选择应用程序",
+      "default": "默认",
+      "failed": "无法打开文件：{{error}}",
+      "label": "打开方式",
+      "none": "没有可打开这些文件的应用程序",
+      "other": "其他…",
+      "reading": "正在查找应用程序…",
+      "unsupported": "仅在 macOS 上可用"
     },
     "tagging": {
       "addTagTooltip": "添加标签",

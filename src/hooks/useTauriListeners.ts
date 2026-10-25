@@ -22,6 +22,7 @@ import { recountAfterFileOperation } from '../utils/offline';
 import { throttleAsync } from '../utils/throttle';
 import { IMPORTS_CHANGED } from '../utils/folderSync';
 import { metadataWritten } from '../utils/catalogWrites';
+import { globalImageCache } from '../utils/ImageLRUCache';
 
 type EditorState = ReturnType<typeof useEditorStore.getState>;
 
@@ -314,6 +315,17 @@ export function useTauriListeners({
       }),
       listen<ExternalEditSession>('external-edit-session', (event) => {
         if (isEffectActive) useProcessStore.getState().setProcess({ externalEditSession: event.payload });
+      }),
+      // Another program saved an Edit With render (open_with.rs): its kept
+      // previews are stale (the new thumbnail follows as thumbnail-generated),
+      // and Develop shows it again when it is open there.
+      listen<{ path: string }>('edit-with-saved', (event) => {
+        if (!isEffectActive) return;
+        const { path } = event.payload;
+        globalImageCache.deleteByPrefix(path);
+        const shown = useEditorStore.getState().selectedImage?.path;
+        if (shown && shown.split('?vc=')[0] === path && useUIStore.getState().activeView === 'editor')
+          refs.current.handleImageSelect?.(shown, true);
       }),
       listen<Progress>('thumbnail-progress', (event) => {
         if (isEffectActive)

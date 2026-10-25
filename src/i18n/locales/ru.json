@@ -134,6 +134,7 @@
       "copy_adjustments": "Копировать настройки",
       "copy_image_path": "Копировать путь",
       "delete_selected": "Переместить в Корзину",
+      "edit_with": "Редактировать в…",
       "flag_pick": "Отобрать",
       "flag_reject": "Отклонить",
       "flag_unflag": "Снять флажок",
@@ -143,6 +144,7 @@
       "new_session": "Новый проект или каталог…",
       "open_session": "Открыть проект или каталог…",
       "open_settings": "Настройки…",
+      "open_with": "Открыть в программе…",
       "paste_adjustments": "Вставить настройки",
       "paste_from_previous": "Вставить настройки предыдущего фото",
       "rate_0": "Без звёзд",
@@ -279,10 +281,31 @@
       "tagging": "Теги",
       "undo": "Отменить"
     },
+    "editWith": {
+      "failed": "Ошибка «Редактировать в»: {{error}}",
+      "label": "Редактировать в",
+      "notLinked": "Отрендерено, но не добавлено в библиотеку: {{error}}",
+      "openIn": "Открыть в",
+      "recipe": "Рецепт",
+      "rendering": "Рендеринг для {{app}}…",
+      "someFailed": "Не удалось отрендерить фото: {{failed}} из {{total}}.",
+      "tiffAdobe": "TIFF 16 бит · Adobe RGB",
+      "tiffProPhoto": "TIFF 16 бит · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "Стекинг по фокусу",
       "hdrPanorama": "HDR-панорама",
       "title": "Объединить"
+    },
+    "openWith": {
+      "chooseTitle": "Выберите программу",
+      "default": "По умолчанию",
+      "failed": "Не удалось открыть файлы: {{error}}",
+      "label": "Открыть в программе",
+      "none": "Нет программ, открывающих эти файлы",
+      "other": "Другая…",
+      "reading": "Поиск программ…",
+      "unsupported": "Доступно только в macOS"
     },
     "tagging": {
       "addTagTooltip": "Добавить тег",

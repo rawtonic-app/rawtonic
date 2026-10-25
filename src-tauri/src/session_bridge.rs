@@ -1206,6 +1206,17 @@ pub(crate) fn with_library<T: Send + 'static>(
     })
 }
 
+/// `with_library` for work already on a blocking thread: under the write
+/// lock, in the library at `directory`.
+pub(crate) fn with_library_blocking<T>(
+    directory: &Path,
+    work: impl FnOnce(&Library) -> Result<T, String>,
+) -> Result<T, String> {
+    let _lock = WRITE_LOCK.lock().map_err(|e| e.to_string())?;
+    let lib = Library::open(directory).map_err(|e| e.to_string())?;
+    work(&lib)
+}
+
 fn asset_ids(lib: &Library, paths: &[String]) -> Result<Vec<String>, String> {
     Ok(registered_assets(lib, paths)?
         .into_iter()

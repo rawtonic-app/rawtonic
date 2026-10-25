@@ -134,6 +134,7 @@
       "copy_adjustments": "設定をコピー",
       "copy_image_path": "パスをコピー",
       "delete_selected": "ゴミ箱に入れる",
+      "edit_with": "このアプリケーションで編集…",
       "flag_pick": "採用",
       "flag_reject": "除外",
       "flag_unflag": "フラグなし",
@@ -143,6 +144,7 @@
       "new_session": "新規プロジェクトまたはカタログ…",
       "open_session": "プロジェクトまたはカタログを開く…",
       "open_settings": "環境設定…",
+      "open_with": "このアプリケーションで開く…",
       "paste_adjustments": "設定をペースト",
       "paste_from_previous": "前の写真の設定をペースト",
       "rate_0": "星なし",
@@ -277,10 +279,31 @@
       "tagging": "タグ付け",
       "undo": "元に戻す"
     },
+    "editWith": {
+      "failed": "編集を開始できませんでした: {{error}}",
+      "label": "このアプリケーションで編集",
+      "notLinked": "レンダリングしましたが、ライブラリに追加できませんでした: {{error}}",
+      "openIn": "開くアプリケーション",
+      "recipe": "レシピ",
+      "rendering": "{{app}} 用にレンダリング中…",
+      "someFailed": "{{total}} 枚中 {{failed}} 枚の写真をレンダリングできませんでした。",
+      "tiffAdobe": "TIFF 16 ビット · Adobe RGB",
+      "tiffProPhoto": "TIFF 16 ビット · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "フォーカススタッキング",
       "hdrPanorama": "HDR パノラマ",
       "title": "結合"
+    },
+    "openWith": {
+      "chooseTitle": "アプリケーションを選択",
+      "default": "デフォルト",
+      "failed": "ファイルを開けませんでした: {{error}}",
+      "label": "このアプリケーションで開く",
+      "none": "これらのファイルを開けるアプリケーションがありません",
+      "other": "その他…",
+      "reading": "アプリケーションを検索中…",
+      "unsupported": "macOS でのみ利用できます"
     },
     "tagging": {
       "addTagTooltip": "タグを追加",

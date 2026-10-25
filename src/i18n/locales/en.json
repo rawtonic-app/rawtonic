@@ -134,6 +134,7 @@
       "copy_adjustments": "Copy Settings",
       "copy_image_path": "Copy Path",
       "delete_selected": "Move to Trash",
+      "edit_with": "Edit With…",
       "flag_pick": "Pick",
       "flag_reject": "Reject",
       "flag_unflag": "Unflag",
@@ -143,6 +144,7 @@
       "new_session": "New Project or Catalog…",
       "open_session": "Open Project or Catalog…",
       "open_settings": "Preferences…",
+      "open_with": "Open With…",
       "paste_adjustments": "Paste Settings",
       "paste_from_previous": "Paste Settings from Previous",
       "rate_0": "No Stars",
@@ -277,10 +279,31 @@
       "tagging": "Tagging",
       "undo": "Undo"
     },
+    "editWith": {
+      "failed": "Edit With failed: {{error}}",
+      "label": "Edit With",
+      "notLinked": "Rendered, but not added to the library: {{error}}",
+      "openIn": "Open in",
+      "recipe": "Recipe",
+      "rendering": "Rendering for {{app}}…",
+      "someFailed": "{{failed}} of {{total}} photographs could not be rendered.",
+      "tiffAdobe": "TIFF 16-bit · Adobe RGB",
+      "tiffProPhoto": "TIFF 16-bit · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "Focus Stacking",
       "hdrPanorama": "HDR Panorama",
       "title": "Merge"
+    },
+    "openWith": {
+      "chooseTitle": "Choose a program",
+      "default": "Default",
+      "failed": "Could not open the files: {{error}}",
+      "label": "Open With",
+      "none": "No program opens these files",
+      "other": "Other…",
+      "reading": "Looking for programs…",
+      "unsupported": "Available on macOS only"
     },
     "tagging": {
       "addTagTooltip": "Add tag",

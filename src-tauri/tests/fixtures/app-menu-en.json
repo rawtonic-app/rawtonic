@@ -385,6 +385,21 @@
         },
         {
           "kind": "item",
+          "id": "cmd:open_with",
+          "label": "Open With…",
+          "enabled": false
+        },
+        {
+          "kind": "item",
+          "id": "cmd:edit_with",
+          "label": "Edit With…",
+          "enabled": false
+        },
+        {
+          "kind": "separator"
+        },
+        {
+          "kind": "item",
           "id": "cmd:move_to_selects",
           "label": "Move to Selects",
           "enabled": false,

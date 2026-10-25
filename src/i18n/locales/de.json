@@ -134,6 +134,7 @@
       "copy_adjustments": "Einstellungen kopieren",
       "copy_image_path": "Pfad kopieren",
       "delete_selected": "In den Papierkorb legen",
+      "edit_with": "Bearbeiten mit…",
       "flag_pick": "Auswählen",
       "flag_reject": "Ablehnen",
       "flag_unflag": "Markierung aufheben",
@@ -143,6 +144,7 @@
       "new_session": "Neues Projekt oder neuer Katalog …",
       "open_session": "Projekt oder Katalog öffnen …",
       "open_settings": "Einstellungen …",
+      "open_with": "Öffnen mit…",
       "paste_adjustments": "Einstellungen einsetzen",
       "paste_from_previous": "Einstellungen des vorherigen Fotos einsetzen",
       "rate_0": "Keine Sterne",
@@ -277,10 +279,31 @@
       "tagging": "Tagging",
       "undo": "Rückgängig"
     },
+    "editWith": {
+      "failed": "Bearbeiten mit fehlgeschlagen: {{error}}",
+      "label": "Bearbeiten mit",
+      "notLinked": "Gerendert, aber nicht zur Bibliothek hinzugefügt: {{error}}",
+      "openIn": "Öffnen in",
+      "recipe": "Rezept",
+      "rendering": "Wird für {{app}} gerendert…",
+      "someFailed": "{{failed}} von {{total}} Fotos konnten nicht gerendert werden.",
+      "tiffAdobe": "TIFF 16 Bit · Adobe RGB",
+      "tiffProPhoto": "TIFF 16 Bit · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "Fokus-Stacking",
       "hdrPanorama": "HDR-Panorama",
       "title": "Zusammenfügen"
+    },
+    "openWith": {
+      "chooseTitle": "Programm auswählen",
+      "default": "Standard",
+      "failed": "Die Dateien konnten nicht geöffnet werden: {{error}}",
+      "label": "Öffnen mit",
+      "none": "Kein Programm öffnet diese Dateien",
+      "other": "Andere…",
+      "reading": "Programme werden gesucht…",
+      "unsupported": "Nur unter macOS verfügbar"
     },
     "tagging": {
       "addTagTooltip": "Tag hinzufügen",
