@@ -9,6 +9,8 @@ import {
   CollapsibleSectionsState,
 } from '../components/ui/AppProperties';
 import { useEditorStore } from './useEditorStore';
+import { refuseEditsWhen } from '../utils/editGate';
+import { viewerOnly } from '../utils/viewerMode';
 import {
   type PanelGroup,
   type PanelRequest,
@@ -554,3 +556,6 @@ export const useUIStore = create<UIState>((set, get) => ({
       return { uiVisibility: { ...state.uiVisibility, modules: { ...state.uiVisibility.modules, [module]: layout } } };
     }),
 }));
+
+// The loupe and the full screen only show the photograph (utils/editGate).
+refuseEditsWhen(() => viewerOnly(useUIStore.getState()));

@@ -9,6 +9,7 @@ import type { Adjustments, FaceRetouch, FaceRetouchSettings, RetouchFace } from 
 import { aiErrorMessage } from "../../utils/aiErrors";
 import AdjustmentControl from "./AdjustmentControl";
 import { GEOMETRY_KEYS, ORIENTATION_KEYS } from "../../utils/geometryKeys";
+import { invokeRecipeWrite, ViewOnlyRefusal } from "../../utils/editGate";
 
 /** Geometry keys that correct colour, not where a pixel is (the engine's
  * `face_retouch::COLOUR_ONLY_KEYS`): faces stay valid when they change. */
@@ -182,14 +183,14 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
       .map((f) => ({ center: [(f.box[0] + f.box[2] / 2) / w, (f.box[1] + f.box[3] / 2) / h], settings: f.settings }));
     setApplying(t("studio.faceRetouch.applying", { count: others.length }));
     try {
-      const done = await invoke<number>(Invokes.ApplyFaceRetouchToPaths, {
+      const done = await invokeRecipeWrite<number>(Invokes.ApplyFaceRetouchToPaths, {
         paths: others,
         settings: current.settings,
         faceSettings,
       });
       setApplying(t("studio.faceRetouch.applied", { done, total: others.length }));
     } catch (e) {
-      setApplying(aiErrorMessage(e));
+      setApplying(e instanceof ViewOnlyRefusal ? null : aiErrorMessage(e));
     }
   };
   const setEditor = useEditorStore((s) => s.setEditor);

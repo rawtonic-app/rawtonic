@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create, type StateCreator } from 'zustand';
 import debounce from 'lodash.debounce';
 import { DEFAULT_BRUSH_SIZE } from '../utils/brushSize';
 import { Adjustments, INITIAL_ADJUSTMENTS } from '../utils/adjustments';
@@ -11,6 +11,7 @@ import type { OutputColorSpace } from '../components/ui/ExportImportProperties';
 import type { LayerSolo } from '../utils/layerSolo';
 import { DEFAULT_SPLIT_POSITION } from '../utils/beforeAfter';
 import { noteEdit } from '../components/contribute/usageStats';
+import { editsRefused, gateEditorUpdate } from '../utils/editGate';
 
 export interface InteractivePatch {
   url: string;
@@ -27,7 +28,7 @@ interface BaseRenderSize extends ImageDimensions {
   offsetY: number;
 }
 
-interface EditorState {
+export interface EditorState {
   // Core Image & Adjustments
   selectedImage: SelectedImage | null;
   adjustments: Adjustments;
@@ -211,7 +212,24 @@ export const currentEditForExport = (state: Pick<EditorState, 'selectedImage' | 
     ? { currentEditPath: state.selectedImage.path, currentEditAdjustments: state.adjustments }
     : { currentEditPath: null, currentEditAdjustments: null };
 
-export const useEditorStore = create<EditorState>((set, get) => ({
+/** Every update of the store, its actions' and `setState` from outside,
+ * passes the edit gate (utils/editGate): while the photograph is only shown
+ * its recipe, history and editing tools stay as they are. */
+const withEditGate =
+  (config: StateCreator<EditorState>): StateCreator<EditorState> =>
+  (set, get, api) => {
+    const gated = ((partial: EditorState | Partial<EditorState> | ((state: EditorState) => EditorState | Partial<EditorState>), replace?: boolean) => {
+      if (!editsRefused()) return set(partial as EditorState, replace as false);
+      const state = get();
+      const next = typeof partial === 'function' ? partial(state) : partial;
+      if (next === state) return;
+      set(gateEditorUpdate(state, next), false);
+    }) as typeof set;
+    api.setState = gated;
+    return config(gated, get, api);
+  };
+
+export const useEditorStore = create<EditorState>()(withEditGate((set, get) => ({
   selectedImage: null,
   adjustments: INITIAL_ADJUSTMENTS,
   previewOverride: null,
@@ -357,7 +375,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return { history, historyIndex: history.length - 1, adjustments: target };
     });
   },
-}));
+})));
 
 // The store owns pending history so every navigation path can settle it.
 // Slider edits still coalesce, but Undo is available from the first edit.

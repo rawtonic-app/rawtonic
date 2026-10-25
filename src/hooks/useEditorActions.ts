@@ -51,6 +51,7 @@ import { draftFor, flushSliderDraft, renderDraft, updateDraft } from '../utils/s
 import { saveFailure } from './useLibraryActions';
 import { clampViewerZoom } from '../utils/viewerDisplay';
 import { noteTool } from '../components/contribute/usageStats';
+import { editsRefused, invokeRecipeWrite, ViewOnlyRefusal } from '../utils/editGate';
 
 const pendingMetadataSaves = new Map<string, Promise<Adjustments | undefined>>();
 const unsavedRecipes = new Map<string, Adjustments>();
@@ -150,6 +151,8 @@ function savedBatch(command: Promise<unknown>, paths: string[], what: string): P
   return command.then(
     () => [],
     (err) => {
+      // Refused while the photograph is only shown: nothing was written.
+      if (err instanceof ViewOnlyRefusal) return paths;
       console.error(`Failed to ${what}:`, err);
       const { message, failed } = saveFailure(err, paths);
       toast.error(`Failed to ${what}: ${message}`);
@@ -392,6 +395,8 @@ function commitDraft(path: string, adjustments: Adjustments) {
 /** The editor's adjustment update outside React (history included). During a
  * slider drag the moves render as a draft and commit every COMMIT_INTERVAL_MS. */
 export function updateAdjustments(value: AdjustmentsUpdate) {
+  // Shown only: not even a slider draft is rendered (utils/editGate).
+  if (editsRefused()) return;
   const current = useEditorStore.getState();
   const image = current.selectedImage;
   if (image?.isReady && current.isSliderDragging && !current.showOriginal && !current.previewOverride) {
@@ -666,7 +671,7 @@ export function useEditorActions() {
 
       afterRecipeSaves(
         pathsToReset,
-        () => savedBatch(invoke(Invokes.ResetAdjustmentsForPaths, { paths: pathsToReset }), pathsToReset, 'reset adjustments'),
+        () => savedBatch(invokeRecipeWrite(Invokes.ResetAdjustmentsForPaths, { paths: pathsToReset }), pathsToReset, 'reset adjustments'),
         false,
       )
         .then((failed) => {
@@ -712,7 +717,7 @@ export function useEditorActions() {
 
       afterRecipeSaves(pathsToUpdate, () =>
         savedBatch(
-          invoke(Invokes.ApplyAutoLensCorrectionToPaths, { paths: pathsToUpdate }),
+          invokeRecipeWrite(Invokes.ApplyAutoLensCorrectionToPaths, { paths: pathsToUpdate }),
           pathsToUpdate,
           'apply auto lens correction',
         ),
@@ -813,7 +818,7 @@ export function useEditorActions() {
       if (others.length === 0) return Promise.resolve();
       const written = afterRecipeSaves(others, () =>
         savedBatch(
-          invoke(Invokes.ApplyAdjustmentsToPaths, {
+          invokeRecipeWrite(Invokes.ApplyAdjustmentsToPaths, {
             paths: others,
             adjustments: adjustmentsToApply,
             ...(paste ? { paste } : {}),

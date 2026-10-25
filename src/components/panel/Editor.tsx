@@ -46,6 +46,7 @@ import {
 } from '../../utils/viewerDisplay';
 import { useContextMenu } from '../../context/ContextMenuContext';
 import { viewerBackgroundMenu } from './editor/viewerBackgroundMenu';
+import { editsRefused } from '../../utils/editGate';
 
 const parseRgb = (rgbStr: string): [number, number, number, number] => {
   const match = rgbStr.match(/[\d.]+/g);
@@ -782,7 +783,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       cancelAnimation();
       if (physicsFrameId.current) cancelAnimationFrame(physicsFrameId.current);
 
-      if (isCtrlPressedRef.current && selectedImage) {
+      // Shown only (utils/editGate), the held key leaves the wheel zooming the view.
+      if (isCtrlPressedRef.current && selectedImage && !editsRefused()) {
         const delta = e.deltaY !== 0 ? e.deltaY : e.deltaX;
         const scaleFactor = delta > 0 ? 1.05 : 0.95;
         const orientationSteps = adjustments.orientationSteps || 0;
