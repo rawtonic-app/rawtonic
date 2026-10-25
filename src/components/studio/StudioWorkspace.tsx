@@ -208,7 +208,9 @@ export default function StudioWorkspace(props: Props) {
     })),
   );
   const { handleSyncSettings: syncSettings, handlePasteFromPrevious: pasteFromPrevious } = useEditorActions();
-  const { showContextMenu } = useContextMenu();
+  const { showContextMenu, hideContextMenu } = useContextMenu();
+  const hideMenuRef = useRef(hideContextMenu);
+  hideMenuRef.current = hideContextMenu;
   // Sync settings: the other selected photographs.
   const syncTargets = useLibraryStore(
     (s) => s.multiSelectedPaths.filter((path) => path !== selectedImage?.path).length,
@@ -344,6 +346,7 @@ export default function StudioWorkspace(props: Props) {
     path: string | null;
     panel: Panel | null;
     layer: string | null;
+    component: string | null;
     spot: boolean;
     faces: boolean;
     relightHandles: boolean;
@@ -357,6 +360,7 @@ export default function StudioWorkspace(props: Props) {
         path: editor.selectedImage?.path ?? null,
         panel: ui.activePanel,
         layer: editor.activeMaskContainerId,
+        component: editor.activeMaskId,
         spot: editor.isSpotToolActive,
         faces: editor.showFaceBlemishes,
         relightHandles: relight.showHandles,
@@ -377,6 +381,9 @@ export default function StudioWorkspace(props: Props) {
         showFaceBlemishes: false,
       });
       useRelightStore.setState({ showHandles: false });
+      // A menu or tool popover opened before offers edits: it closes.
+      hideMenuRef.current();
+      setToolPopover(null);
       return;
     }
     const saved = suspended.current;
@@ -387,8 +394,18 @@ export default function StudioWorkspace(props: Props) {
     suspended.current = null;
     if (saved.path !== editor.selectedImage?.path) return;
     if (saved.panel === Panel.Crop || saved.panel === Panel.Masks) ui.setPanel(saved.panel);
+    // The layer's component (its brush or gradient) too, while it is there.
+    const component =
+      saved.layer &&
+      saved.component &&
+      editor.adjustments.masks
+        ?.find((layer) => layer.id === saved.layer)
+        ?.subMasks.some((sub) => sub.id === saved.component)
+        ? saved.component
+        : null;
     editor.setEditor({
       ...(saved.layer ? { activeMaskContainerId: saved.layer } : {}),
+      ...(component ? { activeMaskId: component } : {}),
       isSpotToolActive: saved.spot,
       showFaceBlemishes: saved.faces,
     });

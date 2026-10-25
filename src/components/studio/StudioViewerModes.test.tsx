@@ -10,6 +10,7 @@ import { Panel, type AppSettings, type ImageFile, type SelectedImage } from "../
 import { IDLE_CURSOR_MS } from "./useIdleCursor";
 import { followPhotoFullScreen } from "../../utils/photoFullScreen";
 import { useQuickAdjust } from "./useQuickAdjust";
+import { ContextMenuProvider, useContextMenu, type ContextMenuContextValue } from "../../context/ContextMenuContext";
 
 vi.mock("../../utils/photoFullScreen", () => ({ followPhotoFullScreen: vi.fn(() => Promise.resolve()) }));
 const editorPointerDown = vi.fn();
@@ -99,6 +100,18 @@ afterEach(() => {
 });
 
 const noop = () => {};
+// The menus the workspace's provider shows (to open one before a mode).
+let menus: ContextMenuContextValue | null = null;
+function MenuProbe() {
+  menus = useContextMenu();
+  return null;
+}
+const withMenus = ({ children }: { children: React.ReactNode }) => (
+  <ContextMenuProvider>
+    <MenuProbe />
+    {children}
+  </ContextMenuProvider>
+);
 const workspace = (list = files) =>
   render(
     <StudioWorkspace
@@ -122,6 +135,7 @@ const workspace = (list = files) =>
       settings={null}
       onSettings={noop}
     />,
+    { wrapper: withMenus },
   );
 const key = (k: string) => fireEvent.keyDown(document, { key: k, code: `Key${k.toUpperCase()}` });
 
@@ -235,6 +249,21 @@ it("puts Develop's crop and layer aside in the full screen and brings them back 
   act(() => useUIStore.getState().toggleFullScreen());
   expect(useUIStore.getState().activePanel).toBe(Panel.Crop);
   expect(useEditorStore.getState().activeMaskContainerId).toBe("layer-1");
+});
+
+it("brings the layer's brush or gradient back after the full screen while the layer still has it", () => {
+  useUIStore.setState({ activeView: "editor", activePanel: Panel.Masks });
+  useEditorStore.setState((s) => ({
+    adjustments: { ...s.adjustments, masks: [{ id: "layer-1", subMasks: [{ id: "brush-1" }] }] } as never,
+    activeMaskContainerId: "layer-1",
+    activeMaskId: "brush-1",
+  }));
+  workspace();
+  act(() => useUIStore.getState().toggleFullScreen());
+  expect(useEditorStore.getState()).toMatchObject({ activeMaskContainerId: null, activeMaskId: null });
+  act(() => useUIStore.getState().toggleFullScreen());
+  expect(useEditorStore.getState()).toMatchObject({ activeMaskContainerId: "layer-1", activeMaskId: "brush-1" });
+  useEditorStore.setState((s) => ({ adjustments: { ...s.adjustments, masks: [] }, activeMaskContainerId: null, activeMaskId: null }));
 });
 
 it("does not switch cursor tools while the photograph is shown alone", () => {
@@ -356,4 +385,13 @@ it("opens no context menu of edit commands over the photograph shown alone or in
   act(() => useUIStore.getState().toggleFullScreen());
   fireEvent.contextMenu(screen.getByTestId("native-viewer"));
   expect(editorMenu).toHaveBeenCalledOnce();
+});
+
+it("closes a menu already open when the photograph is then only shown", () => {
+  useUIStore.setState({ activeView: "editor" });
+  workspace();
+  act(() => menus!.showContextMenu(10, 10, [{ label: "Undo", onClick: vi.fn() }]));
+  expect(menus!.menuState.isVisible).toBe(true);
+  act(() => useUIStore.getState().toggleFullScreen());
+  expect(menus!.menuState.isVisible).toBe(false);
 });
