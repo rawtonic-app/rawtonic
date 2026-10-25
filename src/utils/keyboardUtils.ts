@@ -583,6 +583,22 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
 
 /** Combos that trigger an action: the user's own, else the default and its
  * aliases. An empty user combo disables the action. */
+/** The keys a focused slider moves itself with. */
+const RANGE_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
+
+/**
+ * Whether the focused `target` keeps the key `code` for itself. A text
+ * field, select or editable text keeps every key; a slider, which keeps the
+ * focus after a drag, only the keys that move it, so the shortcuts (M, F,
+ * ratings, tool keys, [ ]) work right after a drag as in Lightroom and
+ * Capture One.
+ */
+export function fieldOwnsKey(target: EventTarget | null, code: string): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target instanceof HTMLInputElement && target.type === 'range') return RANGE_KEYS.has(code);
+  return Boolean(target.closest('input,textarea,select,[contenteditable="true"]'));
+}
+
 export function effectiveCombos(def: KeybindDefinition, keybinds?: Record<string, string[]> | null): string[][] {
   const userCombo = keybinds?.[def.action];
   if (userCombo !== undefined) return userCombo.length > 0 ? [userCombo] : [];

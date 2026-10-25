@@ -337,6 +337,16 @@ describe("M after a layer's first adjustment (Lightroom's automatic overlay)", (
     expect(useEditorStore.getState().maskOverlayAuto).toBe("pinned");
   });
 
+  it("shows it while the slider just dragged keeps the focus; the slider keeps its arrow keys", () => {
+    document.body.innerHTML = '<input type="range" aria-label="Exposure" />';
+    document.querySelector("input")!.focus();
+    press("ArrowRight");
+    expect(useEditorStore.getState().maskOverlayAuto).toBe("hidden");
+    press("KeyM", "m");
+    expect(useEditorStore.getState().maskOverlayAuto).toBe("pinned");
+    document.body.innerHTML = "";
+  });
+
   it("shows it with the select tool too", () => {
     useEditorStore.setState({ activeMaskId: null, showMaskWithSelectTool: true });
     press("KeyM", "m");

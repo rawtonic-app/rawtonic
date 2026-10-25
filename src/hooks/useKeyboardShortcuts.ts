@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { toast } from 'react-toastify';
 import { BrushSettings, ImageFile, Panel } from '../components/ui/AppProperties';
-import { buildComboMap, normalizeCombo } from '../utils/keyboardUtils';
+import { buildComboMap, fieldOwnsKey, normalizeCombo } from '../utils/keyboardUtils';
 import { toggleWindowFullScreen } from '../utils/photoFullScreen';
 import { runAutoStraighten } from '../utils/autoStraighten';
 import { cropEditCancelled } from '../utils/cropGesture';
@@ -1167,18 +1167,17 @@ export const useKeyboardShortcuts = ({
       }
       if (shortcutsHeld(state)) return;
 
-      // A select's arrows, Enter and type-to-find belong to it, as a text field's keys do.
-      const isInputFocused = Boolean(document.activeElement?.closest('input, textarea, select, [contenteditable="true"]'));
+      // A select's arrows, Enter and type-to-find belong to it, as a text
+      // field's keys do; a slider keeps only the keys that move it.
       const rangeFocused = document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'range';
-      // Range controls have no text undo stack. Keep their arrow keys native,
-      // but let Undo/Redo reach edit history immediately after a slider drag.
-      if (isInputFocused && !rangeFocused) return;
+      const rangeOwnsKey = rangeFocused && fieldOwnsKey(document.activeElement, event.code);
+      if (!rangeFocused && fieldOwnsKey(document.activeElement, event.code)) return;
       // Tab moves the focus between fields and controls; it hides panels only
       // from the photograph, the browser tiles or with nothing focused.
       if (event.code === 'Tab' && !ownsPanelShortcut(document.activeElement)) return;
 
       for (const builtin of builtinShortcuts) {
-        if (!rangeFocused && builtin.match(event, state)) {
+        if (!rangeOwnsKey && builtin.match(event, state)) {
           builtin.execute(event, state);
           return;
         }
@@ -1189,7 +1188,7 @@ export const useKeyboardShortcuts = ({
       const comboMap = buildComboMap(state.settings.appSettings?.keybinds);
       const normalized = normalizeCombo(event, state.settings.osPlatform, state.ui.activeView === 'library');
       for (const action of comboMap.get(normalized.join('+')) ?? []) {
-        if (rangeFocused && action !== 'undo' && action !== 'redo') continue;
+        if (rangeOwnsKey) continue;
         if (recipeHeld(action, state)) continue;
         const handler = actions[action];
         if (handler) {
@@ -1197,7 +1196,7 @@ export const useKeyboardShortcuts = ({
             handler.execute(event, state);
             return;
           }
-        } else if (!rangeFocused && runAppCommand(action)) {
+        } else if (!rangeOwnsKey && runAppCommand(action)) {
           // A table key whose command another part of the app owns (New
           // library, Import, Show in Finder…), as its menu item runs it.
           event.preventDefault();
