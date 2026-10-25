@@ -118,22 +118,22 @@
   color: var(--studio-text);
   --tools-width: 300px;
 }
-.studio-workspace button,
-.studio-workspace input,
-.studio-workspace select {
+:is(.studio-workspace, .studio-controls) button,
+:is(.studio-workspace, .studio-controls) input,
+:is(.studio-workspace, .studio-controls) select {
   font: inherit;
 }
 /* In the base layer so that Tailwind colour classes (layered utilities) of the
    inherited panels still apply: unlayered, this turned their dark text on the
    white accent (text-button-text) light. */
 @layer base {
-  .studio-workspace button,
-  .studio-workspace input,
-  .studio-workspace select {
+  :is(.studio-workspace, .studio-controls) button,
+  :is(.studio-workspace, .studio-controls) input,
+  :is(.studio-workspace, .studio-controls) select {
     color: inherit;
   }
 }
-.studio-workspace button {
+:is(.studio-workspace, .studio-controls) button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -146,28 +146,28 @@
   border-radius: 2px;
   flex-shrink: 0;
 }
-.studio-workspace button:hover:not(:disabled),
-.studio-workspace button[role="option"][data-active] {
+:is(.studio-workspace, .studio-controls) button:hover:not(:disabled),
+:is(.studio-workspace, .studio-controls) button[role="option"][data-active] {
   background: #ffffff0c;
   color: #fff;
 }
-.studio-workspace button:disabled {
+:is(.studio-workspace, .studio-controls) button:disabled {
   opacity: 0.32;
   cursor: default;
 }
-.studio-workspace button:focus-visible,
-.studio-workspace input:focus-visible,
-.studio-workspace select:focus-visible,
-.studio-workspace summary:focus-visible,
+:is(.studio-workspace, .studio-controls) button:focus-visible,
+:is(.studio-workspace, .studio-controls) input:focus-visible,
+:is(.studio-workspace, .studio-controls) select:focus-visible,
+:is(.studio-workspace, .studio-controls) summary:focus-visible,
 .studio-panel-resizer:focus-visible {
   outline: 2px solid #a9c9e1;
   outline-offset: -2px;
 }
-.studio-workspace button[aria-pressed="true"] {
+:is(.studio-workspace, .studio-controls) button[aria-pressed="true"] {
   color: #d1e5f7;
   background: #7893aa24;
 }
-.studio-workspace select {
+:is(.studio-workspace, .studio-controls) select {
   background: #242527;
   border: 1px solid #4b4c50;
   border-radius: 3px;
@@ -4652,4 +4652,105 @@ img.relight-pattern-preview { object-fit: cover; }
 .studio-mask-pending {
   color: #e8c38f;
   font-size: 10px;
+}
+
+/* At wide Library widths the filters join the session chrome. The workspace
+   decides using logical width, including the user's interface scale. */
+.session-library-slot:empty {
+  display: none;
+}
+.studio-app .session-bar:has(.is-in-header) {
+  gap: 8px;
+}
+.studio-app .session-bar:has(.is-in-header) .session-bar-start {
+  flex: 0 1 120px;
+}
+.studio-app .session-bar:has(.is-in-header) .session-bar-end {
+  flex: 0 0 auto;
+  gap: 5px;
+}
+.studio-app .session-bar:has(.is-in-header) .session-count,
+.studio-app .session-bar:has(.is-in-header) .session-mark,
+.studio-app .session-bar:has(.is-in-header) .session-action > span {
+  display: none;
+}
+.studio-app .session-bar:has(.is-in-header) .session-action {
+  padding: 6px;
+}
+.session-library-slot {
+  flex: 1;
+  min-width: 0;
+}
+.studio-controls {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--studio-text);
+}
+.studio-library-toolbar.is-in-header {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  min-height: 0;
+  height: 34px;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
+}
+.is-in-header .studio-library-filters {
+  order: 0;
+  flex-wrap: nowrap;
+  gap: 5px;
+}
+.is-in-header .studio-search {
+  flex: 1 1 110px;
+}
+.is-in-header .studio-library-filters select {
+  flex: 0 1 auto;
+  max-width: 85px;
+}
+.is-in-header .studio-filter select {
+  max-width: 85px;
+}
+.is-in-header .studio-flag-label,
+.is-in-header .studio-metadata-toggle > span:not(.studio-filter-count),
+.is-in-header .studio-clear-filters > span {
+  display: none;
+}
+.is-in-header .studio-flag-filters button,
+.is-in-header .studio-clear-filters,
+.is-in-header .studio-metadata-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 5px;
+}
+/* The fallback row can be narrower than the window because of the sidebar. */
+@container library-toolbar (max-width: 1100px) {
+  .studio-flag-label,
+  .studio-metadata-toggle > span:not(.studio-filter-count) {
+    display: none;
+  }
+  .studio-library-filters {
+    gap: 5px;
+    flex-wrap: nowrap;
+  }
+  .studio-library-filters select {
+    max-width: 110px;
+  }
+  .studio-search {
+    flex-basis: 160px;
+  }
+}
+.studio-effects-master {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--studio-line);
+  font-size: 10px;
+}
+.studio-effects-master > span {
+  color: var(--studio-muted);
+  font-size: 9px;
 }

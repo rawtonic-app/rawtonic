@@ -7,12 +7,16 @@ import {
   type ReactNode,
   type MouseEvent,
 } from "react";
+import LibraryToolbarPlacement from "./LibraryToolbarPlacement";
+import { useLibraryHeaderFits } from "./libraryHeaderLayout";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { useShallow } from "zustand/react/shallow";
 import {
   ArrowLeft,
+  ArrowUp,
+  ArrowDown,
   ArrowRight,
   Grid2X2,
   SlidersHorizontal,
@@ -185,7 +189,7 @@ export default function StudioWorkspace(props: Props) {
     requestThumbnails,
     transformWrapperRef,
   } = props;
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { selectedImage, historyIndex, historyPending, history, splitView, previousPhoto } = useEditorStore(
     useShallow((s) => ({
       selectedImage: s.selectedImage,
@@ -532,7 +536,13 @@ export default function StudioWorkspace(props: Props) {
     />
   );
   const sessionBar = useSessionBar(
-    useShallow((s) => ({ center: s.center, end: s.end, mark: s.mark })),
+    useShallow((s) => ({ center: s.center, end: s.end, library: s.library, mark: s.mark })),
+  );
+  const libraryToolbarRef = useRef<HTMLDivElement>(null);
+  const compactLibraryHeader = useLibraryHeaderFits(
+    uiScale, libraryToolbarRef,
+    JSON.stringify([uiScale, i18n.resolvedLanguage, filterCriteria, !!searchCriteria.text.trim(), searchCriteria.tags, props.flagCounts]),
+    !develop && panels.bars && !!sessionBar.library,
   );
   const imageFlags = useLibraryStore((s) => s.imageFlags);
   const flag = selectedImage ? (imageFlags[selectedImage.path] ?? 0) : 0;
@@ -696,6 +706,103 @@ export default function StudioWorkspace(props: Props) {
     </div>
     );
   };
+  const libraryToolbar = (
+    <div
+      ref={libraryToolbarRef}
+      className={`studio-library-toolbar studio-controls${compactLibraryHeader ? " is-in-header" : ""}`}
+      onClickCapture={(e) => focusWorkspaceControl(e.target)}
+    >
+      <button
+        aria-label={t("studio.workspace.viewer.togglePanels")}
+        title={withShortcut(
+          sidesHidden
+            ? t("studio.workspace.viewer.showPanels")
+            : t("studio.workspace.viewer.hidePanels"),
+          hint("toggle_side_panels"),
+        )}
+        onClick={() => togglePanels("sides")}
+      >
+        {sidesHidden ? (
+          <PanelLeftOpen size={15} />
+        ) : (
+          <PanelLeftClose size={15} />
+        )}
+      </button>
+      <label className="studio-search">
+        <Search size={13} />
+        <input
+          ref={searchRef}
+          type="search"
+          aria-label={t("studio.workspace.grid.searchLabel")}
+          placeholder={t("studio.workspace.grid.search")}
+          value={searchCriteria.text}
+          onChange={(e) =>
+            useLibraryStore
+              .getState()
+              .setSearchCriteria({ text: e.target.value })
+          }
+        />
+      </label>
+      <StudioFilters
+        counts={props.flagCounts}
+        metadataOpen={metadataOpen}
+        onToggleMetadata={() => setMetadataOpen((open) => !open)}
+      >
+        <label
+          className="studio-filter"
+          title={t("studio.workspace.grid.filterByRating")}
+        >
+          <Star size={12} />
+          <select
+            aria-label={t("studio.workspace.grid.filterByRating")}
+            value={filterCriteria.rating}
+            onChange={(e) =>
+              useLibraryStore
+                .getState()
+                .setFilterCriteria({ rating: Number(e.target.value) })
+            }
+          >
+            <option value="0">{t("studio.workspace.grid.anyRating")}</option>
+            <option value="-1">{t("studio.workspace.grid.unrated")}</option>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <option key={n} value={n}>
+                {t("studio.workspace.grid.starsAndUp", { count: n })}
+              </option>
+            ))}
+          </select>
+        </label>
+      </StudioFilters>
+      <label className="studio-filter" title={t("studio.workspace.grid.sort")}>
+        <select
+          aria-label={t("studio.workspace.grid.sort")}
+          value={sortCriteria.key}
+          onChange={(e) =>
+            useLibraryStore.getState().setSortCriteria({ key: e.target.value })
+          }
+        >
+          <option value="name">{t("studio.workspace.grid.sortBy.name")}</option>
+          <option value="date">{t("studio.workspace.grid.sortBy.date")}</option>
+          <option value="rating">
+            {t("studio.workspace.grid.sortBy.rating")}
+          </option>
+        </select>
+        <button
+          title={t("studio.workspace.grid.reverseSort")}
+          aria-label={t("studio.workspace.grid.reverseSort")}
+          onClick={() =>
+            useLibraryStore.getState().setSortCriteria({
+              order:
+                sortCriteria.order === SortDirection.Ascending
+                  ? SortDirection.Descending
+                  : SortDirection.Ascending,
+            })
+          }
+        >
+          {sortCriteria.order === SortDirection.Ascending ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
+        </button>
+      </label>
+    </div>
+  );
   return (
     <div
       className={`studio-workspace ${layout} module-${moduleOf(activeView)} ${sidesHidden ? "panels-hidden" : ""} ${panels.bars ? "" : "bars-hidden"} ${isFullScreen ? "is-image-fullscreen" : ""}`}
@@ -1112,94 +1219,9 @@ export default function StudioWorkspace(props: Props) {
             </>
           ) : (
             <>
-              <div className="studio-library-toolbar">
-                <button
-                  aria-label={t("studio.workspace.viewer.togglePanels")}
-                  title={withShortcut(
-                    sidesHidden
-                      ? t("studio.workspace.viewer.showPanels")
-                      : t("studio.workspace.viewer.hidePanels"),
-                    hint("toggle_side_panels"),
-                  )}
-                  onClick={() => togglePanels("sides")}
-                >
-                  {sidesHidden ? (
-                    <PanelLeftOpen size={15} />
-                  ) : (
-                    <PanelLeftClose size={15} />
-                  )}
-                </button>
-                <label className="studio-search">
-                  <Search size={13} />
-                  <input
-                    ref={searchRef}
-                    type="search"
-                    aria-label={t("studio.workspace.grid.searchLabel")}
-                    placeholder={t("studio.workspace.grid.search")}
-                    value={searchCriteria.text}
-                    onChange={(e) =>
-                      useLibraryStore
-                        .getState()
-                        .setSearchCriteria({ text: e.target.value })
-                    }
-                  />
-                </label>
-                <StudioFilters
-                  counts={props.flagCounts}
-                  metadataOpen={metadataOpen}
-                  onToggleMetadata={() => setMetadataOpen((open) => !open)}
-                >
-                  <label className="studio-filter" title={t("studio.workspace.grid.filterByRating")}>
-                    <Star size={12} />
-                    <select
-                      aria-label={t("studio.workspace.grid.filterByRating")}
-                      value={filterCriteria.rating}
-                      onChange={(e) =>
-                        useLibraryStore
-                          .getState()
-                          .setFilterCriteria({ rating: Number(e.target.value) })
-                      }
-                    >
-                      <option value="0">{t("studio.workspace.grid.anyRating")}</option>
-                      <option value="-1">{t("studio.workspace.grid.unrated")}</option>
-                      {[1, 2, 3, 4, 5].map((n) => (
-                        <option key={n} value={n}>
-                          {t("studio.workspace.grid.starsAndUp", { count: n })}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </StudioFilters>
-                <label className="studio-filter" title={t("studio.workspace.grid.sort")}>
-                  <select
-                    aria-label={t("studio.workspace.grid.sort")}
-                    value={sortCriteria.key}
-                    onChange={(e) =>
-                      useLibraryStore
-                        .getState()
-                        .setSortCriteria({ key: e.target.value })
-                    }
-                  >
-                    <option value="name">{t("studio.workspace.grid.sortBy.name")}</option>
-                    <option value="date">{t("studio.workspace.grid.sortBy.date")}</option>
-                    <option value="rating">{t("studio.workspace.grid.sortBy.rating")}</option>
-                  </select>
-                  <button
-                    title={t("studio.workspace.grid.reverseSort")}
-                    aria-label={t("studio.workspace.grid.reverseSort")}
-                    onClick={() =>
-                      useLibraryStore.getState().setSortCriteria({
-                        order:
-                          sortCriteria.order === SortDirection.Ascending
-                            ? SortDirection.Descending
-                            : SortDirection.Ascending,
-                      })
-                    }
-                  >
-                    {sortCriteria.order === SortDirection.Ascending ? "↑" : "↓"}
-                  </button>
-                </label>
-              </div>
+              <LibraryToolbarPlacement header={sessionBar.library} compact={compactLibraryHeader}>
+                {libraryToolbar}
+              </LibraryToolbarPlacement>
               {metadataOpen && <StudioMetadataFilter />}
               <StudioBrowser
                 {...browserProps}

@@ -250,21 +250,26 @@ describe("Develop tool contracts", () => {
     ).toBe(0);
   });
 
-  it("resets all visible effects, including vignette midpoint and feather", () => {
+  it("resets vignette and grain independently in their own tabs", () => {
     mount();
     openGroups();
     edit("Midpoint", 20);
     edit("Feather", 90);
+    edit("Vignette", -25);
+    fireEvent.click(screen.getByRole("button", { name: "Reset Vignette" }));
+    expect(useEditorStore.getState().adjustments.vignetteMidpoint).toBe(50);
+    expect(useEditorStore.getState().adjustments.vignetteFeather).toBe(50);
+    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "Detail" }));
+    openGroups();
     edit("Size", 70);
     edit("Grain", 40);
-    edit("Vignette", -25);
     const structure = screen.getByRole("combobox", { name: "Grain structure" }) as HTMLSelectElement;
     // Grain turned on in a new edit starts as Clumped.
     expect(structure.value).toBe("clumped");
     expect(useEditorStore.getState().adjustments.grainStructure).toBe("clumped");
     fireEvent.change(structure, { target: { value: "gritty" } });
     expect(useEditorStore.getState().adjustments.grainStructure).toBe("gritty");
-    fireEvent.click(screen.getByRole("button", { name: "Reset Effects" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reset Grain" }));
     const a = useEditorStore.getState().adjustments;
     expect([
       a.vignetteAmount,
@@ -279,6 +284,34 @@ describe("Develop tool contracts", () => {
     expect(useEditorStore.getState().adjustments.grainStructure).toBe("clumped");
   });
 
+  it("copies and resets each effect tool independently and exposes the saved master bypass", () => {
+    useEditorStore.setState({ adjustments: {
+      ...structuredClone(INITIAL_ADJUSTMENTS), glowAmount: 20, halationAmount: 10,
+      flareAmount: 5, vignetteAmount: -20, grainAmount: 30,
+      sectionVisibility: { ...INITIAL_ADJUSTMENTS.sectionVisibility, effects: false },
+    } });
+    mount();
+    openGroups();
+    expect(screen.getByRole("button", { name: "Effects" }).getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: "Effects" }));
+    expect(useEditorStore.getState().adjustments.sectionVisibility.effects).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Effects" }));
+    expect(useEditorStore.getState().adjustments.sectionVisibility.effects).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Effects" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy and apply Light effects" }), { altKey: true });
+    expect(useEditorStore.getState().toolClipboard?.values).toEqual({ glowAmount: 20, halationAmount: 10, flareAmount: 5 });
+    fireEvent.click(screen.getByRole("button", { name: "Reset Light effects" }));
+    const a = useEditorStore.getState().adjustments;
+    expect([a.glowAmount, a.halationAmount, a.flareAmount]).toEqual([0, 0, 0]);
+    expect([a.vignetteAmount, a.grainAmount]).toEqual([-20, 30]);
+    expect(screen.getByRole("button", { name: "Copy and apply LUT" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reset LUT" })).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "Detail" }));
+    fireEvent.click(screen.getByRole("button", { name: "Effects" }));
+    expect(useEditorStore.getState().adjustments.sectionVisibility.effects).toBe(false);
+    expect(useEditorStore.getState().adjustments.grainAmount).toBe(30);
+  });
+
   it("keeps the Even grain of recipes from before the structure choice", () => {
     useEditorStore.setState({
       adjustments: normalizeLoadedAdjustments(
@@ -287,6 +320,7 @@ describe("Develop tool contracts", () => {
       ),
     });
     mount();
+    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "Detail" }));
     openGroups();
     const structure = screen.getByRole("combobox", { name: "Grain structure" }) as HTMLSelectElement;
     expect(structure.value).toBe("even");
@@ -520,7 +554,7 @@ describe("Develop tool contracts", () => {
     fireEvent.doubleClick(
       screen.getByText("Brightness", { selector: "label" }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Reset Effects" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reset Vignette" }));
     expect(useEditorStore.getState().adjustments).toBe(before);
   });
 });
@@ -1260,7 +1294,14 @@ describe("tool tabs", () => {
     expect(twice).toEqual([]);
     expect(seen.get("Exposure")).toBe("Adjustments");
     expect(seen.get("Tone curve")).toBe("Adjustments");
-    expect(seen.get("Effects")).toBe("Adjustments");
+    expect(seen.has("Effects")).toBe(false);
+    expect(seen.get("Vignette")).toBe("Adjustments");
+    expect(seen.get("Light effects")).toBe("Adjustments");
+    expect(seen.get("LUT")).toBe("Adjustments");
+    expect(seen.get("Grain")).toBe("Detail");
+    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "Detail" }));
+    const order = [...document.querySelectorAll<HTMLElement>("[data-tool-title]")].map((el) => el.dataset.toolTitle);
+    expect(order.indexOf("Grain")).toBe(order.indexOf("Noise reduction") + 1);
     expect(seen.get("Color mixer")).toBe("Color");
     expect(seen.get("Lens correction")).toBe("Crop, geometry & lens");
   });

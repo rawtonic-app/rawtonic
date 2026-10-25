@@ -164,7 +164,7 @@ it("toggles the metadata lists and saves what filters as a smart album", async (
   await user.click(metadata);
   expect(toggle).toHaveBeenCalled();
   // Nothing filters: nothing to save.
-  expect(screen.getByText("Save as smart album…").hidden).toBe(true);
+  expect(screen.getByText("Save as smart album…").closest("button")!.hidden).toBe(true);
   useLibraryStore.getState().setFilterCriteria({ metadata: { camera: ["X-T4"] }, rating: 4 });
   expect((await screen.findByRole("button", { name: /Metadata/ })).textContent).toBe("Metadata1");
   await user.click(screen.getByText("Save as smart album…"));
@@ -179,5 +179,5 @@ it("toggles the metadata lists and saves what filters as a smart album", async (
   useSmartAlbumEditor.getState().close();
   // Edited / unedited has no rule: saving is refused, not silently widened.
   useLibraryStore.getState().setFilterCriteria({ editedStatus: EditedStatus.EditedOnly });
-  expect(((await screen.findByText("Save as smart album…")) as HTMLButtonElement).disabled).toBe(true);
+  expect(((await screen.findByText("Save as smart album…")).closest("button") as HTMLButtonElement).disabled).toBe(true);
 });

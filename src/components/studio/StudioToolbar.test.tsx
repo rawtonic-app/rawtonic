@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import StudioWorkspace from "./StudioWorkspace";
 import { useEditorStore } from "../../store/useEditorStore";
+import { useSessionBar } from "../session/sessionBar";
 import { useUIStore } from "../../store/useUIStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
@@ -198,4 +199,59 @@ it("opens the export queue from the top bar beside the work, counting what is no
   fireEvent.click(screen.getByRole("button", { name: "Close export queue" }));
   expect(screen.queryByRole("complementary", { name: "Export queue" })).toBeNull();
   act(() => useProcessStore.setState({ exportQueue: [] }));
+});
+
+
+it("moves the Library controls into the header only when the scaled width fits", () => {
+  const slot = document.createElement("div");
+  document.body.append(slot);
+  useSessionBar.setState({ library: slot });
+  useUIStore.setState({ activeView: "library" });
+  useLibraryStore.setState({ sessionDirectory: "/qa/library" });
+  useSettingsStore.setState({ appSettings: { uiScale: 1, keybinds: {} } as AppSettings });
+  Object.defineProperty(window, "innerWidth", { value: 1728, configurable: true });
+  const noop = vi.fn();
+  const view = render(<StudioWorkspace
+    files={[]} flagCounts={{ all: 120, picked: 12, rejected: 3, unflagged: 105 }}
+    transformWrapperRef={{ current: null }} onSelect={noop} onFilmSelect={noop}
+    onOpen={noop} onNavigate={noop} onBack={noop} onRate={noop}
+    onContextMenu={noop} onEditorContextMenu={noop} onCopy={noop} onPaste={noop}
+    onReset={noop} onZoom={noop} requestThumbnails={noop} settings={null} onSettings={noop}
+  />);
+  const search = screen.getByRole("searchbox") as HTMLInputElement;
+  expect(slot.contains(search)).toBe(true);
+  const toolbar = slot.querySelector(".studio-library-toolbar")!;
+  const toolbarBounds = vi.spyOn(toolbar, "getBoundingClientRect").mockReturnValue({ right: 1000 } as DOMRect);
+  const searchBounds = vi.spyOn(search, "getBoundingClientRect").mockReturnValue({ right: 1100 } as DOMRect);
+  search.focus();
+  // Typing reveals Clear/Save; their measured overflow moves the same tree.
+  fireEvent.change(search, { target: { value: "layout" } });
+  expect(slot.contains(search)).toBe(false);
+  expect(document.activeElement).toBe(search);
+  expect(search.value).toBe("layout");
+  toolbarBounds.mockRestore();
+  searchBounds.mockRestore();
+  search.setSelectionRange(2, 4);
+  expect(screen.getByRole("button", { name: "Picked 12" })).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "Sort photographs" })).toBeTruthy();
+  act(() => {
+    Object.defineProperty(window, "innerWidth", { value: 1280, configurable: true });
+    window.dispatchEvent(new Event("resize"));
+  });
+  expect(slot.querySelector("input")).toBeNull();
+  expect(screen.getByRole("searchbox")).toBe(search);
+  expect(document.activeElement).toBe(search);
+  expect([search.selectionStart, search.selectionEnd]).toEqual([2, 4]);
+  expect(view.container.querySelector(".studio-library-toolbar input")).toBeTruthy();
+  act(() => {
+    Object.defineProperty(window, "innerWidth", { value: 1728, configurable: true });
+    window.dispatchEvent(new Event("resize"));
+    useSettingsStore.setState({ appSettings: { uiScale: 1.25, keybinds: {} } as AppSettings });
+  });
+  expect(slot.querySelector("input")).toBeNull();
+  act(() => useSettingsStore.setState({ appSettings: { uiScale: 1.12, keybinds: {} } as AppSettings }));
+  expect(slot.querySelector("input")).toBeTruthy();
+  view.unmount();
+  useSessionBar.setState({ library: null });
+  slot.remove();
 });

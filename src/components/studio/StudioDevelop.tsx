@@ -781,6 +781,24 @@ export default function StudioDevelop() {
         className="studio-tools-scroll"
         inert={Boolean(selectedImage && !selectedImage.isReady)}
       >
+        {selectedImage && !layer && inTab("all", "detail") && (
+          <div className="studio-effects-master">
+            <button
+              aria-label={t("studio.develop.groups.effects")}
+              aria-pressed={values.sectionVisibility?.effects !== false}
+              disabled={!panelsReady}
+              title={t(values.sectionVisibility?.effects !== false
+                ? "studio.develop.toolGroup.turnOff" : "studio.develop.toolGroup.turnOn",
+                { tool: t("studio.develop.groups.effects") })}
+              onClick={toolSwitch("effects").onToggle}
+            >
+              {values.sectionVisibility?.effects !== false ? <Eye size={12} /> : <EyeOff size={12} />}
+              {t("studio.develop.groups.effects")}
+            </button>
+            <span>{[t("adjustments.effects.vignette"), t("adjustments.effects.grain"),
+              t("studio.develop.groups.lightEffects"), "LUT"].join(" · ")}</span>
+          </div>
+        )}
         {!selectedImage && (
           <p className="studio-help">
             {t("studio.develop.noPhoto")}
@@ -1579,6 +1597,57 @@ export default function StudioDevelop() {
             </ToolGroup>
           )}
           {inTab("detail") && !layer && (
+            <ToolGroup
+              key="grain"
+              title="Grain"
+              label={t("adjustments.effects.grain")}
+              open={false}
+              copy={photoOnly([
+                ["grainAmount", t("adjustments.effects.grain")],
+                ["grainSize", t("studio.develop.params.grainSize")],
+                ["grainRoughness", t("adjustments.effects.roughness")],
+                ["grainStructure", t("studio.develop.effects.grainStructure")],
+              ])}
+              onReset={() => reset(["grainAmount", "grainSize", "grainRoughness", "grainStructure", "grainVersion"])}
+            >
+              {control(t("adjustments.effects.grain"), "grainAmount", 0)}
+              {control(t("adjustments.effects.size"), "grainSize", 0)}
+              {control(t("adjustments.effects.roughness"), "grainRoughness", 0)}
+              {/* Grain structures (notes: reference/grain.md): Even is the
+                  original grain; the others are own procedural grains that
+                  cover characters Lightroom's sliders cannot reach. */}
+              <label className="studio-inline">
+                <span>{t("studio.develop.effects.grainStructure")}</span>
+                <select
+                  aria-label={t("studio.develop.effects.grainStructure")}
+                  value={effectiveGrainStructure(values as Partial<Adjustments>)}
+                  disabled={!panelsReady}
+                  onChange={(e) =>
+                    change({
+                      grainStructure: e.target.value as GrainStructure,
+                    })
+                  }
+                >
+                  <option value="even">
+                    {t("studio.develop.effects.grainStructures.even")}
+                  </option>
+                  <option value="soft">
+                    {t("studio.develop.effects.grainStructures.soft")}
+                  </option>
+                  <option value="clumped">
+                    {t("studio.develop.effects.grainStructures.clumped")}
+                  </option>
+                  <option value="speckled">
+                    {t("studio.develop.effects.grainStructures.speckled")}
+                  </option>
+                  <option value="gritty">
+                    {t("studio.develop.effects.grainStructures.gritty")}
+                  </option>
+                </select>
+              </label>
+            </ToolGroup>
+          )}
+          {inTab("detail") && !layer && (
             <StudioDefringe
               key="defringe"
               values={values}
@@ -1699,10 +1768,9 @@ export default function StudioDevelop() {
           {tab === "geometry" && <StudioLensCorrection key="lens" />}
           {inTab("all") && !layer && (
             <ToolGroup
-              key="effects"
-              title="Effects"
-              label={t("studio.develop.groups.effects")}
-              toggle={toolSwitch("effects")}
+              key="vignette"
+              title="Vignette"
+              label={t("adjustments.effects.vignette")}
               open={false}
               copy={photoOnly([
                 ["vignetteAmount", t("adjustments.effects.vignette")],
@@ -1711,34 +1779,8 @@ export default function StudioDevelop() {
                 ["vignetteFeather", t("adjustments.effects.feather")],
                 ["vignetteStyle", t("studio.develop.effects.style")],
                 ["vignetteHighlights", t("studio.develop.sliders.highlights")],
-                ["grainAmount", t("adjustments.effects.grain")],
-                ["grainSize", t("studio.develop.params.grainSize")],
-                ["grainRoughness", t("adjustments.effects.roughness")],
-                ["grainStructure", t("studio.develop.effects.grainStructure")],
-                ["glowAmount", t("adjustments.effects.glow")],
-                ["halationAmount", t("adjustments.effects.halation")],
-                ["flareAmount", t("studio.develop.sliders.lightFlare")],
-                ["lutPath", "LUT"],
-                ["lutIntensity", t("studio.develop.params.lutAmount")],
               ])}
-              onReset={() =>
-                reset([
-                  "vignetteAmount",
-                  "vignetteMidpoint",
-                  "vignetteRoundness",
-                  "vignetteFeather",
-                  "vignetteStyle",
-                  "vignetteHighlights",
-                  "grainAmount",
-                  "grainSize",
-                  "grainRoughness",
-                  "grainStructure",
-                  "grainVersion",
-                  "glowAmount",
-                  "halationAmount",
-                  "flareAmount",
-                ])
-              }
+              onReset={() => reset(["vignetteAmount", "vignetteMidpoint", "vignetteRoundness", "vignetteFeather", "vignetteStyle", "vignetteHighlights"])}
             >
               {control(t("adjustments.effects.vignette"), "vignetteAmount")}
               {control(t("adjustments.effects.midpoint"), "vignetteMidpoint", 0)}
@@ -1774,50 +1816,38 @@ export default function StudioDevelop() {
                   "vignetteHighlights",
                   0,
                 )}
-              {control(t("adjustments.effects.grain"), "grainAmount", 0)}
-              {control(t("adjustments.effects.size"), "grainSize", 0)}
-              {control(t("adjustments.effects.roughness"), "grainRoughness", 0)}
-              {/* Grain structures (notes: reference/grain.md): Even is the
-                  original grain; the others are own procedural grains that
-                  cover characters Lightroom's sliders cannot reach. */}
-              <label className="studio-inline">
-                <span>{t("studio.develop.effects.grainStructure")}</span>
-                <select
-                  aria-label={t("studio.develop.effects.grainStructure")}
-                  value={effectiveGrainStructure(values as Partial<Adjustments>)}
-                  disabled={!panelsReady}
-                  onChange={(e) =>
-                    change({
-                      grainStructure: e.target.value as GrainStructure,
-                    })
-                  }
-                >
-                  <option value="even">
-                    {t("studio.develop.effects.grainStructures.even")}
-                  </option>
-                  <option value="soft">
-                    {t("studio.develop.effects.grainStructures.soft")}
-                  </option>
-                  <option value="clumped">
-                    {t("studio.develop.effects.grainStructures.clumped")}
-                  </option>
-                  <option value="speckled">
-                    {t("studio.develop.effects.grainStructures.speckled")}
-                  </option>
-                  <option value="gritty">
-                    {t("studio.develop.effects.grainStructures.gritty")}
-                  </option>
-                </select>
-              </label>
-              {/* Beyond Lightroom and Capture One: soft glow of the
-                  highlights, red halation around them, light flares. */}
-              <div className="studio-subheading">
-                {t("studio.develop.effects.light")}
-              </div>
+            </ToolGroup>
+          )}
+          {inTab("all") && !layer && (
+            <ToolGroup
+              key="lightEffects"
+              title="Light effects"
+              label={t("studio.develop.groups.lightEffects")}
+              open={false}
+              copy={photoOnly([
+                ["glowAmount", t("adjustments.effects.glow")],
+                ["halationAmount", t("adjustments.effects.halation")],
+                ["flareAmount", t("studio.develop.sliders.lightFlare")],
+              ])}
+              onReset={() => reset(["glowAmount", "halationAmount", "flareAmount"])}
+            >
               {control(t("adjustments.effects.glow"), "glowAmount", 0)}
               {control(t("adjustments.effects.halation"), "halationAmount", 0)}
               {control(t("studio.develop.sliders.lightFlare"), "flareAmount", 0)}
-              <div className="studio-subheading">LUT</div>
+            </ToolGroup>
+          )}
+          {inTab("all") && !layer && (
+            <ToolGroup
+              key="lut"
+              title="LUT"
+              label={t("adjustments.effects.lut")}
+              open={false}
+              copy={photoOnly([
+                ["lutPath", "LUT"],
+                ["lutIntensity", t("studio.develop.params.lutAmount")],
+              ])}
+              onReset={() => reset(["lutPath", "lutName", "lutSize", "lutData", "lutIntensity", "lutIsSceneReferred"])}
+            >
               <StudioLut disabled={!panelsReady} onInteraction={onInteraction} />
             </ToolGroup>
           )}
