@@ -231,6 +231,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
         activeMaskContainerId: null,
         isWbPickerActive: false,
         colorPickerTarget: null,
+        filmBasePicking: false,
         colorRangeShow: null,
         layerSolo: null,
         activeColorRangeId: null,

@@ -3,9 +3,7 @@ import { useUIStore } from '../../store/useUIStore';
 import type { MergeKind } from '../../store/useUIStore';
 import { closeMergeModal } from '../../hooks/useProductivityActions';
 import { useProcessStore } from '../../store/useProcessStore';
-import { useEditorStore } from '../../store/useEditorStore';
 import MergeModal from './MergeModal';
-import NegativeConversionModal from './NegativeConversionModal';
 import CreateFolderModal from './CreateFolderModal';
 import RenameFolderModal from './RenameFolderModal';
 import RenameFileModal from './RenameFileModal';
@@ -18,7 +16,6 @@ export interface AppModalsProps {
   handleRunMerge: (kind: MergeKind, options: unknown) => void;
   handleSaveMerge: (autoSettings: boolean, fillEdges: boolean) => Promise<string>;
   handleRefinishMerge: (options: unknown) => Promise<void>;
-  refreshImageList: () => Promise<void>;
   handleCreateFolder: (folderName: string) => Promise<void>;
   handleRenameFolder: (newName: string) => Promise<void>;
   handleSaveRename: (nameTemplate: string) => Promise<void>;
@@ -37,7 +34,6 @@ export default function AppModals(props: AppModalsProps) {
     renameTargetPaths,
     confirmModalState,
     mergeModalState,
-    negativeModalState,
     cullingModalState,
     collageModalState,
     setUI,
@@ -50,7 +46,6 @@ export default function AppModals(props: AppModalsProps) {
       renameTargetPaths: state.renameTargetPaths,
       confirmModalState: state.confirmModalState,
       mergeModalState: state.mergeModalState,
-      negativeModalState: state.negativeModalState,
       cullingModalState: state.cullingModalState,
       collageModalState: state.collageModalState,
       setUI: state.setUI,
@@ -60,12 +55,6 @@ export default function AppModals(props: AppModalsProps) {
   const { thumbnails } = useProcessStore(
     useShallow((state) => ({
       thumbnails: state.thumbnails,
-    })),
-  );
-
-  const { selectedImage } = useEditorStore(
-    useShallow((state) => ({
-      selectedImage: state.selectedImage,
     })),
   );
 
@@ -87,18 +76,6 @@ export default function AppModals(props: AppModalsProps) {
         onRun={props.handleRunMerge}
         onRefinish={props.handleRefinishMerge}
         onSave={props.handleSaveMerge}
-      />
-      <NegativeConversionModal
-        isOpen={negativeModalState.isOpen}
-        onClose={() => setUI((state) => ({ negativeModalState: { ...state.negativeModalState, isOpen: false } }))}
-        targetPaths={negativeModalState.targetPaths}
-        onSave={(savedPaths) => {
-          props.refreshImageList().then(() => {
-            if (selectedImage && negativeModalState.targetPaths.includes(selectedImage.path) && savedPaths.length > 0) {
-              props.handleImageSelect(savedPaths[0]);
-            }
-          });
-        }}
       />
       <CreateFolderModal
         isOpen={isCreateFolderModalOpen}

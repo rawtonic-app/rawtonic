@@ -572,7 +572,6 @@ function App() {
           handleRunMerge={handleRunMerge}
           handleSaveMerge={handleSaveMerge}
           handleRefinishMerge={handleRefinishMerge}
-          refreshImageList={handleLibraryRefresh}
           handleCreateFolder={handleCreateFolder}
           handleRenameFolder={handleRenameFolder}
           handleSaveRename={handleSaveRename}

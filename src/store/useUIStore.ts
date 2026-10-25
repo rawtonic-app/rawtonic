@@ -74,11 +74,6 @@ export const CLOSED_MERGE_MODAL: MergeModalState = {
   sourcePaths: [],
 };
 
-interface NegativeConversionModalState {
-  isOpen: boolean;
-  targetPaths: Array<string>;
-}
-
 interface CullingModalState {
   isOpen: boolean;
   suggestions: CullingSuggestions | null;
@@ -267,7 +262,6 @@ export interface UIState {
 
   confirmModalState: ConfirmModalState;
   mergeModalState: MergeModalState;
-  negativeModalState: NegativeConversionModalState;
   cullingModalState: CullingModalState;
   collageModalState: CollageModalState;
 
@@ -374,7 +368,6 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   confirmModalState: { isOpen: false },
   mergeModalState: CLOSED_MERGE_MODAL,
-  negativeModalState: { isOpen: false, targetPaths: [] },
   cullingModalState: { isOpen: false, suggestions: null, progress: null, error: null, pathsToCull: [] },
   collageModalState: { isOpen: false, sourceImages: [] },
 

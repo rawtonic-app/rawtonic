@@ -66,6 +66,7 @@ import StudioHistogram from "./StudioHistogram";
 import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
 import StudioLayers, { NewLayerButton } from "./StudioLayers";
 import StudioLut from "./StudioLut";
+import StudioNegative from "./StudioNegative";
 import StudioRelight from "./StudioRelight";
 import { setRelightPanelOpen } from "../../store/useRelightStore";
 import StudioCropControls from "./StudioCropControls";
@@ -567,6 +568,7 @@ export default function StudioDevelop() {
           tatTarget: tatTarget === target ? null : target,
           isWbPickerActive: false,
           colorPickerTarget: null,
+          filmBasePicking: false,
         });
       }}
     >
@@ -1009,6 +1011,37 @@ export default function StudioDevelop() {
               </label>
             </ToolGroup>
           )}
+          {inTab("all") && selectedImage && !layer && (
+            // A film negative turned positive first, so every tool below
+            // works on the positive (Capture One's film negative mode).
+            <ToolGroup
+              key="negative"
+              title="Negative"
+              label={t("studio.develop.negative.title")}
+              open={!!adjustments.negative}
+              toggle={
+                adjustments.negative
+                  ? {
+                      enabled: adjustments.negative.enabled,
+                      onToggle: () =>
+                        change({
+                          negative: {
+                            ...adjustments.negative!,
+                            enabled: !adjustments.negative!.enabled,
+                          },
+                        }),
+                    }
+                  : undefined
+              }
+              copy={photoOnly([["negative", t("studio.develop.negative.title")]])}
+              onReset={() => {
+                setEditor({ filmBasePicking: false });
+                change({ negative: undefined });
+              }}
+            >
+              <StudioNegative disabled={!panelsReady} onInteraction={onInteraction} />
+            </ToolGroup>
+          )}
           {inTab("all", "layers") && (
             <ToolGroup
               key="whiteBalance"
@@ -1073,7 +1106,10 @@ export default function StudioDevelop() {
                       : t("studio.develop.whiteBalance.pickNeutral")
                   }
                   onClick={() =>
-                    setEditor({ isWbPickerActive: !isWbPickerActive })
+                    setEditor({
+                      isWbPickerActive: !isWbPickerActive,
+                      filmBasePicking: false,
+                    })
                   }
                 >
                   <Pipette size={15} />

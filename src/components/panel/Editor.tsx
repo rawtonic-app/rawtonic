@@ -151,8 +151,11 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   const overlayMode = useEditorStore((s) => s.overlayMode);
   const overlayRotation = useEditorStore((s) => s.overlayRotation);
   const isStraightenActive = useEditorStore((s) => s.isStraightenActive);
-  // The colour editor's picker uses the white balance picker's click path.
-  const isWbPickerActive = useEditorStore((s) => s.isWbPickerActive || s.colorPickerTarget !== null);
+  // The colour editor's and the film base picker use the white balance
+  // picker's click path.
+  const isWbPickerActive = useEditorStore(
+    (s) => s.isWbPickerActive || s.colorPickerTarget !== null || s.filmBasePicking,
+  );
   const tatTarget = useEditorStore((s) => s.tatTarget);
   // Spot removal places and drags spots with the primary button.
   const isSpotToolActive = useEditorStore((s) => s.isSpotToolActive);

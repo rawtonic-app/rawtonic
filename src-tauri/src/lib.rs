@@ -61,7 +61,7 @@ mod memory_pressure;
 mod merges;
 mod multi_view;
 mod multi_view_prefetch;
-mod negative_conversion;
+mod negative;
 #[cfg(feature = "performance-profiling")]
 mod performance;
 mod preset_converter;
@@ -889,8 +889,8 @@ pub fn run() {
             lens_correction::get_lensfun_lenses_for_maker,
             lens_correction::autodetect_lens,
             lens_correction::get_lens_distortion_params,
-            negative_conversion::preview_negative_conversion,
-            negative_conversion::convert_negatives,
+            negative::analyze_negative,
+            negative::sample_film_base,
             camera_tethering::tether_cameras,
             camera_tethering::tether_connect,
             camera_tethering::tether_disconnect,

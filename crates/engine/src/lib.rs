@@ -36,6 +36,7 @@ pub mod mask_generation;
 pub mod mask_parameters;
 pub mod mask_thumbnail;
 pub mod masks;
+pub mod negative;
 pub mod output_color_space;
 pub mod patch_fill;
 pub mod point_curve;

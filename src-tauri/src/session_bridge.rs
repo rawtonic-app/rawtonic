@@ -317,7 +317,7 @@ fn with_library_snapshots<'a>(
 
 /// The folder an output is written into; "." for a bare file name (a relative
 /// `--output` of the headless export), whose parent is the empty path.
-pub use rawtonic_export::output::{output_folder, write_new_output};
+pub use rawtonic_export::output::write_new_output;
 
 /// The photographs in a session folder (its working folders, not caches,
 /// Trash or outputs), in walk order. Hidden files and folders are skipped,
@@ -1779,18 +1779,6 @@ pub async fn session_relink_folder(
     .map_err(|e| e.to_string())?
 }
 
-/// Encode generated images into a temporary file without ever replacing a source.
-pub fn save_new_image(image: &image::DynamicImage, path: &Path) -> anyhow::Result<()> {
-    let parent = output_folder(path).ok_or_else(|| anyhow::anyhow!("No output folder"))?;
-    let mut temp = tempfile::NamedTempFile::new_in(parent)?;
-    image.write_to(temp.as_file_mut(), image::ImageFormat::from_path(path)?)?;
-    temp.as_file().sync_all()?;
-    rawtonic_metadata::no_clobber::persist(temp, path)?;
-    #[cfg(unix)]
-    fs::File::open(parent)?.sync_all()?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2459,9 +2447,15 @@ mod tests {
 
     #[test]
     fn outputs_with_a_bare_file_name_are_written_into_the_current_folder() {
-        assert_eq!(output_folder(Path::new("out.jpg")), Some(Path::new(".")));
-        assert_eq!(output_folder(Path::new("a/out.jpg")), Some(Path::new("a")));
-        assert_eq!(output_folder(Path::new("/")), None);
+        assert_eq!(
+            rawtonic_export::output::output_folder(Path::new("out.jpg")),
+            Some(Path::new("."))
+        );
+        assert_eq!(
+            rawtonic_export::output::output_folder(Path::new("a/out.jpg")),
+            Some(Path::new("a"))
+        );
+        assert_eq!(rawtonic_export::output::output_folder(Path::new("/")), None);
     }
 
     #[test]
@@ -2580,8 +2574,6 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let output = temp.path().join("original.png");
         fs::write(&output, b"existing original").unwrap();
-        let img = image::DynamicImage::new_rgb8(2, 2);
-        assert!(save_new_image(&img, &output).is_err());
         assert!(write_new_output(&output, b"replacement").is_err());
         assert_eq!(fs::read(&output).unwrap(), b"existing original");
         assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);

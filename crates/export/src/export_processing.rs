@@ -1256,7 +1256,7 @@ pub fn prepare_export_render(
     #[cfg(feature = "performance-profiling")]
     let transform_stage = crate::performance::PerformanceStage::new("export_transform");
     let (transformed_image, unscaled_crop_offset) =
-        apply_all_transformations(Cow::Borrowed(source.base()), js_adjustments);
+        apply_all_transformations(Cow::Borrowed(source.base()), js_adjustments, is_raw);
     let (img_w, img_h) = transformed_image.dimensions();
     #[cfg(feature = "performance-profiling")]
     drop(transform_stage);

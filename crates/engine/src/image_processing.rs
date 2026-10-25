@@ -2804,8 +2804,9 @@ impl SpatialSteps {
 /// `height` source with `adjustments`, so that [`transformed_region`] can
 /// make them from the source rows they read instead of the whole frame (a
 /// zoomed multi view cell). None when that is not possible: lens blur,
-/// automatic lateral CA (measured on the whole photograph), or nothing of
-/// `rect` inside the frame.
+/// automatic lateral CA (measured on the whole photograph), a film negative
+/// (converted with the whole base, `negative::apply_for_recipe`), or nothing
+/// of `rect` inside the frame.
 pub fn plan_transformed_region(
     width: u32,
     height: u32,
@@ -2825,7 +2826,11 @@ pub fn plan_transformed_region_with(
     rect: [u32; 4],
     measures: Option<RegionMeasures>,
 ) -> Option<RegionPlan> {
-    if width == 0 || height == 0 || adjustments["lensBlurEnabled"].as_bool().unwrap_or(false) {
+    if width == 0
+        || height == 0
+        || adjustments["lensBlurEnabled"].as_bool().unwrap_or(false)
+        || crate::negative::is_active(adjustments)
+    {
         return None;
     }
     let params = get_geometry_params_from_json(adjustments);

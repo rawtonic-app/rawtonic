@@ -28,6 +28,7 @@ import type { OverlayMode } from './overlays/CompositionOverlays';
 import CompositionOverlays from './overlays/CompositionOverlays';
 import { calculateStraightenAngle } from '../../../utils/cropUtils';
 import { pickColorRange } from '../../../utils/colorRanges';
+import { pickFilmBase } from '../../../utils/negative';
 import { sampleLumaRange } from '../../../utils/lumaSample';
 import TargetedAdjustmentOverlay from './TargetedAdjustmentOverlay';
 import RelightOverlay from './RelightOverlay';
@@ -2031,6 +2032,20 @@ const ImageCanvas = memo(
         if (x < 0 || x > imgLogicalWidth || y < 0 || y > imgLogicalHeight) return;
 
         const requestId = ++whiteBalanceRequestRef.current;
+        if (useEditorStore.getState().filmBasePicking) {
+          const path = selectedImage.path;
+          void pickFilmBase(path, adjustments, x / imgLogicalWidth, y / imgLogicalHeight)
+            .then((base) => {
+              const current = useEditorStore.getState();
+              if (!base || requestId !== whiteBalanceRequestRef.current || current.selectedImage?.path !== path) return;
+              setAdjustments((prev: Adjustments) =>
+                prev.negative ? { ...prev, negative: { ...prev.negative, enabled: true, base } } : prev,
+              );
+              current.setEditor({ filmBasePicking: false });
+            })
+            .catch((error) => toast.error(`Could not sample the film base: ${error}`));
+          return;
+        }
         const colorTarget = useEditorStore.getState().colorPickerTarget;
         if (colorTarget !== null) {
           void pickColorRange(selectedImage.path, colorTarget, x / imgLogicalWidth, y / imgLogicalHeight)

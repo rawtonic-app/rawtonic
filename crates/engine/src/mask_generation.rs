@@ -775,10 +775,12 @@ fn prepare_warped_mask_image<'a>(
     is_raw: bool,
     adjustments: &Value,
 ) -> Cow<'a, DynamicImage> {
+    // Masks read the positive of a film negative, as the render shows it.
+    let source = crate::negative::apply_for_recipe(Cow::Borrowed(source), adjustments, is_raw);
     let image = if is_raw {
-        Cow::Owned(crate::image_processing::cpu_default_raw_processed(source))
+        Cow::Owned(crate::image_processing::cpu_default_raw_processed(&source))
     } else {
-        Cow::Borrowed(source)
+        source
     };
     crate::image_processing::apply_geometry_warp(image, adjustments)
 }

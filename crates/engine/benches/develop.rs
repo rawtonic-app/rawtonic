@@ -12,7 +12,7 @@ use rawtonic_engine::mask_generation::{
     MaskDefinition, ParametricMaskSource, PhotoGeometry, clear_brush_prefix_cache,
     generate_layer_mask,
 };
-use rawtonic_engine::{color_noise, edge_fringe, lateral_ca};
+use rawtonic_engine::{color_noise, edge_fringe, lateral_ca, negative};
 use serde_json::{Value, json};
 use std::borrow::Cow;
 use std::hint::black_box;
@@ -99,6 +99,35 @@ fn fringe_and_ca(c: &mut Criterion, id: &str, photo: &Rgb32FImage) {
     group.bench_function(BenchmarkId::new("warp_lens_ca", id), |b| {
         b.iter(|| warp_image_geometry(black_box(&image), params.clone()))
     });
+    group.finish();
+}
+
+/// The film negative conversion (`negative` version 1) at full resolution
+/// and on a 1536-pixel preview (rebuilt while its sliders move).
+fn negative(c: &mut Criterion, id: &str, photo: &Rgb32FImage) {
+    let recipe = json!({ (negative::KEY): {
+        "version": 1, "enabled": true, "base": [0.8, 0.5, 0.3],
+        "highlight": [0.08, 0.04, 0.02], "exposure": 0.3, "grade": 10
+    }});
+    let full = DynamicImage::ImageRgb32F(photo.clone());
+    let preview = full.resize(
+        PREVIEW_WIDTH,
+        PREVIEW_WIDTH,
+        image::imageops::FilterType::Triangle,
+    );
+    let mut group = c.benchmark_group("negative_v1");
+    group
+        .sample_size(10)
+        .measurement_time(Duration::from_secs(10));
+    for (size, image) in [("full", &full), ("preview_1536", &preview)] {
+        group.bench_function(BenchmarkId::new(size, id), |b| {
+            b.iter_batched(
+                || image.clone(),
+                |image| negative::apply_for_recipe(Cow::Owned(image), &recipe, true).into_owned(),
+                BatchSize::LargeInput,
+            )
+        });
+    }
     group.finish();
 }
 
@@ -204,6 +233,7 @@ fn develop(c: &mut Criterion) {
         color_noise(c, &id, &photo, version);
     }
     fringe_and_ca(c, &id, &photo);
+    negative(c, &id, &photo);
     masks(c, &id, &photo);
 }
 

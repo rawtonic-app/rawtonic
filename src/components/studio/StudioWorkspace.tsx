@@ -398,6 +398,7 @@ export default function StudioWorkspace(props: Props) {
         activeMaskId: null,
         isWbPickerActive: false,
         colorPickerTarget: null,
+        filmBasePicking: false,
         lumaPickerLayer: null,
         tatTarget: null,
         isStraightenActive: false,

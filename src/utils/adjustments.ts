@@ -403,6 +403,45 @@ export const NEW_GRAIN_STRUCTURE: GrainStructure = 'clumped';
 export const effectiveGrainStructure = (adjustments: Partial<Adjustments>): GrainStructure =>
   adjustments.grainStructure ?? ((adjustments.grainAmount ?? 0) > 0 ? 'even' : NEW_GRAIN_STRUCTURE);
 
+/** The film negative conversion new edits get (`negative::VERSION`). */
+export const NEGATIVE_VERSION = 1;
+
+export type NegativeKind = 'color' | 'bw';
+
+/** `adjustments.negative`: the film base and the frame's highlight as
+ * linear RGB of the base image, Density balance per channel (−100…100),
+ * Print exposure (EV) and Print grade (−100…100). */
+export interface NegativeSettings {
+  version: number;
+  enabled: boolean;
+  type: NegativeKind;
+  base: [number, number, number];
+  highlight: [number, number, number];
+  balance: [number, number, number];
+  exposure: number;
+  grade: number;
+}
+
+/** A new conversion from an analysis of the photo (`analyze_negative`). */
+export const newNegative = (
+  base: [number, number, number],
+  highlight: [number, number, number],
+  type: NegativeKind = 'color',
+): NegativeSettings => ({
+  version: NEGATIVE_VERSION,
+  enabled: true,
+  type,
+  base,
+  highlight,
+  balance: [0, 0, 0],
+  exposure: 0,
+  grade: 0,
+});
+
+/** Whether the recipe converts the photo from a negative. */
+export const isNegativeActive = (adjustments: Partial<Adjustments>) =>
+  !!adjustments.negative?.enabled;
+
 /** The grain new edits get (`image_processing::GRAIN_VERSION`): 2 is the
  * portable grain, the same on every GPU; 1 (missing key) the earlier one. */
 export const GRAIN_VERSION = 2;
@@ -736,6 +775,9 @@ export interface Adjustments {
   grainStructure?: GrainStructure;
   /** The grain a recipe renders (`GRAIN_VERSION`); missing = 1. */
   grainVersion?: number;
+  /** Film negative conversion (`rawtonic_engine::negative`); missing or
+   * null = the photo as it is (docs/RECIPE_SCHEMA.md). */
+  negative?: NegativeSettings | null;
   relightLights?: RelightLight[];
   relightDepth?: RelightDepth;
   relightDepthAmount?: number;
@@ -1866,6 +1908,7 @@ export interface AdjustmentGroup {
 
 export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
   basic: [
+    { label: 'modals.copyPaste.groups.negative', keys: ['negative'] },
     {
       label: 'modals.copyPaste.groups.exposureToneMapper',
       keys: [BasicAdjustment.Exposure, 'toneMapper', 'baseCurve', 'cameraProfile'],

@@ -223,6 +223,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         activeMaskContainerId: null,
         isWbPickerActive: false,
         colorPickerTarget: null,
+        filmBasePicking: false,
         colorRangeShow: null,
         layerSolo: null,
         activeColorRangeId: null,

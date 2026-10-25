@@ -208,6 +208,7 @@ pub fn all_available_adjustments() -> HashSet<String> {
         "relightDepthAmount",
         "relightSkinReflections",
         "relightOriginalLight",
+        "negative",
     ]
     .iter()
     .map(|s| s.to_string())

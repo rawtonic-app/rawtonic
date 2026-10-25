@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { Invokes, type SelectedImage } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
-import type { Adjustments } from './adjustments';
+import { isNegativeActive, type Adjustments } from './adjustments';
 
 type Rgb = [number, number, number];
 
@@ -77,10 +77,16 @@ export function neutralSliders(rgb: Rgb) {
 /** Auto white balance for `image`, as recipe values. RAWs: the Kelvin and
  * tint of the backend's Auto (fitted to Camera Raw's), relative sliders
  * cleared. Files without a camera calibration (JPEG, TIFF, some 4-colour
- * sensors): the relative sliders that neutralise the preview's grey world.
- * `null` while the photo's preview is not ready. */
-export async function autoWhiteBalance(image: SelectedImage): Promise<Partial<Adjustments> | null> {
-  if (image.isRaw) {
+ * sensors) and film negatives (`adjustments.negative`): the relative sliders
+ * that neutralise the preview's grey world. `null` while the photo's preview
+ * is not ready. */
+export async function autoWhiteBalance(
+  image: SelectedImage,
+  adjustments?: Partial<Adjustments>,
+): Promise<Partial<Adjustments> | null> {
+  // A film negative's camera white balance describes the light through the
+  // film, not the scene: its positive is balanced on the preview's grey world.
+  if (image.isRaw && !(adjustments && isNegativeActive(adjustments))) {
     const kelvin = await invoke<{ temperature: number; tint: number } | null>(Invokes.AutoWhiteBalance, {
       path: image.path,
     });
@@ -111,7 +117,9 @@ export async function whiteBalanceForCurrentPreview(request: PreviewSample) {
     if (!linear || !stillCurrent()) return null;
     // RAWs: the white balance in Kelvin and tint, from the camera's own
     // calibration (Lightroom's eyedropper); the relative sliders go to zero.
-    if (request.image.isRaw) {
+    // A film negative's positive takes the relative sliders, which act on
+    // it exactly.
+    if (request.image.isRaw && !isNegativeActive(request.adjustments)) {
       const kelvin = await invoke<{ temperature: number; tint: number } | null>(
         Invokes.WhiteBalanceFromSample,
         { imagePath: request.image.path, rgb: linear },

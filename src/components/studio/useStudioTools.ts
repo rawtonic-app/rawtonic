@@ -325,6 +325,7 @@ export function useStudioTools() {
           activeMaskContainerId: null,
           activeMaskId: null,
           isWbPickerActive: !isWbPickerActive,
+          filmBasePicking: false,
           isStraightenActive: false,
           isSpotToolActive: false,
         });

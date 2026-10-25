@@ -575,7 +575,7 @@ export function useEditorActions() {
     const selectedImage = useEditorStore.getState().selectedImage;
     if (!selectedImage?.isReady) return;
     try {
-      const balance = await autoWhiteBalance(selectedImage);
+      const balance = await autoWhiteBalance(selectedImage, useEditorStore.getState().adjustments);
       if (!isCurrentEditorImage(selectedImage.path)) return;
       if (!balance) {
         toast.warn(i18next.t('studio.whiteBalance.toasts.needsPreview'));

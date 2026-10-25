@@ -118,6 +118,9 @@ interface EditorState {
   showFaceBlemishes: boolean;
   /** Colour editor picker: 'new' adds a range, an id re-samples that range. */
   colorPickerTarget: string | null;
+  /** The Negative tool's film base picker (the white balance picker's
+   * click path). */
+  filmBasePicking: boolean;
   /** The mask layer the picker edits, or null for the photo. */
   colorPickerLayer: string | null;
   /** The colour editor range shown in the tool. */
@@ -268,6 +271,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   redEyeSettings: { kind: 'red', size: 40, pupilSize: 50, darken: 50, catchlight: true },
   showFaceBlemishes: false,
   colorPickerTarget: null,
+  filmBasePicking: false,
   colorPickerLayer: null,
   activeColorRangeId: null,
   colorRangeShow: null,

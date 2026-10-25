@@ -28,7 +28,6 @@ import {
   Users,
   Gauge,
   Layers,
-  Film,
   Plane,
   Mountain,
   Sun,
@@ -280,15 +279,6 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               disabled: !selectedImage?.isReady,
             },
             {
-              label: t('contextMenus.editor.convertNegative'),
-              icon: Film,
-              onClick: () => {
-                if (selectedImage) {
-                  setUI({ negativeModalState: { isOpen: true, targetPaths: [selectedImage.path] } });
-                }
-              },
-            },
-            {
               icon: LayoutTemplate,
               label: t('contextMenus.editor.frameImage'),
               onClick: () => {
@@ -502,7 +492,6 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       const cullLabel = t('contextMenus.thumbnail.cullImage', { count: selectionCount });
       const collageLabel = t('contextMenus.thumbnail.collage', { count: selectionCount });
       const stitchLabel = t('contextMenus.editor.stitchPanorama');
-      const conversionLabel = t('contextMenus.thumbnail.convertNegative', { count: selectionCount });
       const mergeLabel = t('contextMenus.editor.mergeHdr');
 
       const handleCreateVirtualCopy = async (sourcePath: string) => {
@@ -673,14 +662,6 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               label: t('contextMenus.thumbnail.autoLensCorrection', { count: selectionCount }),
               icon: Aperture,
               onClick: () => handleAutoLensCorrection(finalSelection),
-            },
-            {
-              label: conversionLabel,
-              icon: Film,
-              disabled: selectionCount === 0,
-              onClick: () => {
-                setUI({ negativeModalState: { isOpen: true, targetPaths: finalSelection } });
-              },
             },
             {
               icon: LayoutTemplate,

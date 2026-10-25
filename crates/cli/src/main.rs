@@ -287,6 +287,11 @@ struct ExportArgs {
     /// `ORT_DYLIB_PATH`) and replace the recipe's own face retouch.
     #[arg(long)]
     face_retouch: Option<String>,
+    /// Convert every photo from a film negative (`color` or `bw`): the film
+    /// base and highlight found as the Negative tool's Auto finds them, the
+    /// recipe's other values kept.
+    #[arg(long, value_parser = ["color", "bw"])]
+    negative: Option<String>,
 }
 
 fn parse_color_space(
@@ -314,6 +319,59 @@ fn parse_output_sharpening(
         _ => Err("expected AMOUNT:RADIUS[:THRESHOLD]".to_string()),
     }
 }
+/// `recipe` converting `source` from a film negative of `kind` (`color` or
+/// `bw`), its film base and highlight found on the base the export develops
+/// with the recipe's geometry, its crop as the frame (`negative::analyze`,
+/// the Negative tool's Auto).
+fn with_negative(
+    source: &str,
+    mut recipe: serde_json::Value,
+    kind: &str,
+) -> Result<serde_json::Value> {
+    let bytes = std::fs::read(source).with_context(|| format!("Read {source}"))?;
+    let is_raw = rawtonic_engine::formats::is_raw_file(source);
+    if !recipe.is_object() {
+        recipe = serde_json::json!({});
+    }
+    let base = rawtonic_engine::image_loader::load_base_image(
+        &bytes,
+        source,
+        false,
+        &rawtonic_engine::image_loader::BaseImageOptions::default().for_recipe(&recipe, is_raw),
+        None,
+    )?;
+    // The scan as shown before its crop, the crop as the frame.
+    rawtonic_export::exif_processing::prepare_recipe_lens(
+        &mut recipe,
+        std::path::Path::new(source),
+    )
+    .map_err(anyhow::Error::msg)?;
+    let (shown, crop) = rawtonic_engine::negative::analysis_recipe(&recipe);
+    let warped = rawtonic_engine::image_processing::apply_geometry_warp(&base, &shown);
+    let (scan, _) =
+        rawtonic_engine::adjustment_utils::apply_spatial_transformations(warped, &shown);
+    let analysis = rawtonic_engine::negative::analyze(&scan, is_raw, crop)
+        .with_context(|| format!("{source}: too small to analyse"))?;
+    eprintln!(
+        "{source}: film base {:?} ({}), highlight {:?}",
+        analysis.base,
+        if analysis.base_from_border {
+            "beside the frame"
+        } else {
+            "frame's thinnest"
+        },
+        analysis.highlight
+    );
+    let mut negative: rawtonic_engine::negative::Negative =
+        serde_json::from_value(recipe[rawtonic_engine::negative::KEY].clone()).unwrap_or_default();
+    negative.enabled = true;
+    negative.kind = serde_json::from_value(serde_json::json!(kind))?;
+    negative.base = analysis.base;
+    negative.highlight = analysis.highlight;
+    recipe[rawtonic_engine::negative::KEY] = serde_json::to_value(negative)?;
+    Ok(recipe)
+}
+
 /// `recipe` with a face retouch of `settings` on the faces of `source`,
 /// found as the app's Retouch tab finds them: in the mask frame (the base
 /// image warped by the recipe's geometry, oriented and straightened, not
@@ -943,6 +1001,7 @@ fn export(args: ExportArgs) -> Result<()> {
         models,
         output_sharpening,
         face_retouch,
+        negative,
     } = args;
     let lensfun_db = lensfun_db
         .or_else(|| std::env::var_os("RAWTONIC_LENSFUN_DB").map(PathBuf::from))
@@ -1092,6 +1151,17 @@ fn export(args: ExportArgs) -> Result<()> {
             std::mem::forget(face_models);
             recipes
         }
+        None => recipes,
+    };
+    let recipes = match &negative {
+        Some(kind) => jobs
+            .iter()
+            .zip(recipes)
+            .map(|((photo, _), recipe)| {
+                let source = parse_virtual_path(photo).0;
+                with_negative(&source.to_string_lossy(), recipe.unwrap_or_default(), kind).map(Some)
+            })
+            .collect::<Result<Vec<_>>>()?,
         None => recipes,
     };
     let ai_models: std::collections::BTreeSet<usize> = recipes

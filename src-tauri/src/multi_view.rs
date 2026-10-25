@@ -800,6 +800,7 @@ fn prepare(
                 &todo.recipe,
                 dim,
                 scale,
+                facts.is_raw,
             )?;
             let masks: Vec<MaskDefinition> = todo
                 .recipe
@@ -1525,6 +1526,7 @@ fn prepare_region(
         recipe,
         dim,
         scale,
+        facts.is_raw,
     )?;
     let wanted =
         gpu_processing::multi_view::zoomed_region(area, [shown_w, shown_h], zoom, BASE_MARGIN);
@@ -2086,6 +2088,7 @@ fn develop_interim_region(
         recipe,
         dim,
         scale,
+        facts.is_raw,
     )?;
     let (shown_w, shown_h) = shown_size(recipe, facts);
     let wanted =
@@ -2862,7 +2865,8 @@ mod tests {
                 // As prepare_region: the whole photograph's base, cut.
                 let dim = full_w.max(full_h) + 2;
                 let base =
-                    reduced_preview_base(&source, 1.0, full_w, full_h, &recipe, dim, 1.0).unwrap();
+                    reduced_preview_base(&source, 1.0, full_w, full_h, &recipe, dim, 1.0, true)
+                        .unwrap();
                 let wanted = gpu_processing::multi_view::zoomed_region(
                     area,
                     [shown_w, shown_h],

@@ -419,6 +419,11 @@ pub(crate) fn develop_thumbnail(
             let decoded_size = (raw_scale_factor == 1.0).then(|| pristine_source.dimensions());
 
             let warped_image = apply_geometry_warp(composite_image, &meta.adjustments);
+            let warped_image = rawtonic_engine::negative::apply_for_recipe(
+                warped_image,
+                &meta.adjustments,
+                is_raw,
+            );
 
             let blurred_image = crate::lens_blur::apply_lens_blur(warped_image, &meta.adjustments);
 

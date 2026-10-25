@@ -52,8 +52,21 @@ pub fn calculate_geometry_hash(adjustments: &serde_json::Value) -> u64 {
         }
     }
     hash_resampling(adjustments, &mut hasher);
+    hash_negative(adjustments, &mut hasher);
 
     hasher.finish()
+}
+
+/// The film negative conversion runs on the warped base
+/// (`negative::apply_for_recipe`); recipes without it leave the hash as it
+/// was.
+fn hash_negative(adjustments: &serde_json::Value, hasher: &mut DefaultHasher) {
+    if let Some(negative) = crate::negative::settings(adjustments) {
+        crate::negative::KEY.hash(hasher);
+        serde_json::to_string(&negative)
+            .unwrap_or_default()
+            .hash(hasher);
+    }
 }
 
 /// The warps' and straightening's resampling differs by render version
@@ -205,6 +218,7 @@ pub fn calculate_transform_hash(adjustments: &serde_json::Value) -> u64 {
         }
     }
     hash_resampling(adjustments, &mut hasher);
+    hash_negative(adjustments, &mut hasher);
 
     if let Some(eyes) = adjustments.get("redEyes") {
         eyes.to_string().hash(&mut hasher);
@@ -426,6 +440,28 @@ mod resampling_hash_tests {
         for hash in [calculate_geometry_hash, calculate_transform_hash] {
             assert_eq!(hash(&recipe(None)), hash(&recipe(Some(1))));
             assert_ne!(hash(&recipe(Some(1))), hash(&recipe(Some(2))));
+        }
+    }
+
+    /// The negative conversion changes the warped base: its settings key
+    /// the caches of it; a switched-off conversion hashes as no key.
+    #[test]
+    fn geometry_and_transform_hashes_follow_the_negative_conversion() {
+        let plain = serde_json::json!({"rotation": 2.0});
+        let negative = |exposure: f64, enabled: bool| {
+            let mut recipe = plain.clone();
+            recipe["negative"] = serde_json::json!({"version": 1, "enabled": enabled,
+                "base": [0.8, 0.5, 0.3], "highlight": [0.1, 0.05, 0.02], "exposure": exposure});
+            recipe
+        };
+        for hash in [
+            calculate_geometry_hash,
+            calculate_transform_hash,
+            calculate_patched_warped_hash,
+        ] {
+            assert_eq!(hash(&plain), hash(&negative(0.0, false)));
+            assert_ne!(hash(&plain), hash(&negative(0.0, true)));
+            assert_ne!(hash(&negative(0.0, true)), hash(&negative(0.5, true)));
         }
     }
 }

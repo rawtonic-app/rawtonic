@@ -381,7 +381,12 @@ pub fn process_and_get_dynamic_image_with_analytics(
 /// Mean linear RGB of the preview's input around a point, before any
 /// adjustment (exposure, white balance, tone): what the shader's white balance
 /// multiplies. Values are scene-linear for RAW and linearised sRGB otherwise.
-fn mean_linear_rgb(image: &DynamicImage, is_raw: bool, x: f64, y: f64) -> Option<[f64; 3]> {
+pub(crate) fn mean_linear_rgb(
+    image: &DynamicImage,
+    is_raw: bool,
+    x: f64,
+    y: f64,
+) -> Option<[f64; 3]> {
     let roi = preview_sample_roi(image.width(), image.height(), x, y)?;
     linear_mean(&image.crop_imm(roi.x, roi.y, roi.width, roi.height), is_raw)
 }

@@ -265,6 +265,7 @@ fn lateral_ca_is_shared(
 /// Retouching (patches, spots) and lens blur are applied at this resolution:
 /// recipes with them reach this only for an offline photograph's Standard
 /// preview (online they use the full decode).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn reduced_preview_base(
     source: &DynamicImage,
     source_scale: f32,
@@ -273,6 +274,7 @@ pub(crate) fn reduced_preview_base(
     adjustments: &serde_json::Value,
     preview_dim: u32,
     scale: f32,
+    is_raw: bool,
 ) -> Result<preview_cache::PreviewBase, String> {
     build_reduced_preview_base(
         source,
@@ -281,6 +283,7 @@ pub(crate) fn reduced_preview_base(
         adjustments,
         preview_dim,
         scale,
+        is_raw,
         false,
     )
 }
@@ -288,6 +291,7 @@ pub(crate) fn reduced_preview_base(
 /// `reduced_preview_base` of a reduced `source` that stands in only until
 /// the photograph at full resolution is in (`build_reduced_preview_base`
 /// with `interim`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn interim_preview_base(
     source: &DynamicImage,
     source_scale: f32,
@@ -296,6 +300,7 @@ pub(crate) fn interim_preview_base(
     adjustments: &serde_json::Value,
     preview_dim: u32,
     scale: f32,
+    is_raw: bool,
 ) -> Result<preview_cache::PreviewBase, String> {
     build_reduced_preview_base(
         source,
@@ -304,6 +309,7 @@ pub(crate) fn interim_preview_base(
         adjustments,
         preview_dim,
         scale,
+        is_raw,
         true,
     )
 }
@@ -311,6 +317,7 @@ pub(crate) fn interim_preview_base(
 /// `reduced_preview_base` with `interim`: `source` (a reduced copy) stands
 /// in only until the photograph's decode is in, so its warp does not
 /// measure the automatic lateral CA on it (`warp_image_geometry_interim`).
+#[allow(clippy::too_many_arguments)]
 fn build_reduced_preview_base(
     source: &DynamicImage,
     source_scale: f32,
@@ -318,6 +325,7 @@ fn build_reduced_preview_base(
     adjustments: &serde_json::Value,
     preview_dim: u32,
     scale: f32,
+    is_raw: bool,
     interim: bool,
 ) -> Result<preview_cache::PreviewBase, String> {
     let scale = scale.min(source_scale);
@@ -360,6 +368,7 @@ fn build_reduced_preview_base(
             apply_geometry_warp(retouched, &scaled)
         }
     };
+    let warped = rawtonic_engine::negative::apply_for_recipe(warped, adjustments, is_raw);
     let warped = {
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("preview_base_fringe");
@@ -406,6 +415,7 @@ pub(crate) fn generate_shared_transformed_preview(
             adjustments,
             preview_dim,
             scale,
+            loaded_image.is_raw,
         );
     }
     let source_hash = source_transform_hash(&loaded_image.image, preparation_key);
@@ -569,6 +579,8 @@ pub(crate) fn compute_patched_and_warped(
     };
 
     let warped = apply_geometry_warp(patched_image, adjustments);
+    let warped =
+        rawtonic_engine::negative::apply_for_recipe(warped, adjustments, loaded_image.is_raw);
     let warped = rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, 1.0);
     let blurred = crate::lens_blur::apply_lens_blur(warped, adjustments);
 
@@ -1095,6 +1107,7 @@ fn preview_base(
             base_adjustments,
             build_dim,
             scale,
+            loaded_image.is_raw,
             interim,
         )?
     } else {
@@ -2737,7 +2750,11 @@ pub(crate) async fn generate_uncropped_preview(
         adjusted_params.lens_vignette_amount *= if is_raw { 0.4 } else { 0.8 };
 
         let warped_image = rawtonic_engine::edge_fringe::apply_for_recipe(
-            Cow::Owned(warp_image_geometry(&pre_geometry_base, adjusted_params)),
+            rawtonic_engine::negative::apply_for_recipe(
+                Cow::Owned(warp_image_geometry(&pre_geometry_base, adjusted_params)),
+                &adjustments_clone,
+                is_raw,
+            ),
             &adjustments_clone,
             scale_for_gpu,
         )
@@ -2900,7 +2917,7 @@ pub(crate) async fn generate_preview_for_path(
                 .map_err(|e| e.to_string())?;
 
         let (transformed_image, unscaled_crop_offset) =
-            apply_all_transformations(base_image, &js_adjustments);
+            apply_all_transformations(base_image, &js_adjustments, is_raw);
         let (img_w, img_h) = transformed_image.dimensions();
         let mask_definitions: Vec<MaskDefinition> = js_adjustments
             .get("masks")
@@ -3166,6 +3183,7 @@ mod preview_memory_tests {
         preview_dim: u32,
     ) -> preview_cache::PreviewBase {
         let warped = apply_geometry_warp(source, adjustments);
+        let warped = rawtonic_engine::negative::apply_for_recipe(warped, adjustments, true);
         let warped = rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, 1.0);
         let (transformed, offset) =
             crate::adjustment_utils::apply_spatial_transformations(warped, adjustments);
@@ -3195,7 +3213,7 @@ mod preview_memory_tests {
             {"x": 1500.0, "y": 1000.0, "radius": 40.0, "sourceX": 1200.0, "sourceY": 1000.0}
         ]});
         for (adjustments, dot) in [(serde_json::json!({}), true), (healed, false)] {
-            let base = reduced_preview_base(&proxy, 0.2, 3000, 2000, &adjustments, 640, 0.2)
+            let base = reduced_preview_base(&proxy, 0.2, 3000, 2000, &adjustments, 640, 0.2, true)
                 .unwrap()
                 .image
                 .to_rgb32f();
@@ -3228,7 +3246,8 @@ mod preview_memory_tests {
         for adjustments in [serde_json::json!({}), lens, cropped] {
             let scale = reduced_preview_scale(3000, 2000, &adjustments, 640).expect("reduced");
             let reduced =
-                reduced_preview_base(&source, 1.0, 3000, 2000, &adjustments, 640, scale).unwrap();
+                reduced_preview_base(&source, 1.0, 3000, 2000, &adjustments, 640, scale, true)
+                    .unwrap();
             let full = full_resolution_preview(&source, &adjustments, 640);
             // Sizes may differ by a rounding pixel (resampled twice).
             let (rw, rh) = reduced.image.dimensions();
@@ -3303,7 +3322,8 @@ mod preview_memory_tests {
                     .unwrap();
             let retouch = start.elapsed();
             let start = std::time::Instant::now();
-            let _ = reduced_preview_base(&source, 1.0, w, h, &adjustments, dim, scale).unwrap();
+            let _ =
+                reduced_preview_base(&source, 1.0, w, h, &adjustments, dim, scale, true).unwrap();
             let whole = start.elapsed();
             println!(
                 "round {round}: preview {}×{}: downscale {:.0} ms, face retouch {:.0} ms, whole reduced base {:.0} ms",
@@ -3363,6 +3383,7 @@ mod preview_memory_tests {
             &serde_json::json!({}),
             dim,
             reduced,
+            true,
         )
         .unwrap();
         assert!(base.image.width() <= limit && base.image.height() <= limit);
@@ -3474,10 +3495,19 @@ mod lateral_ca_sharing_tests {
         let on = json!({"autoCaVersion": 2, "autoChromaticAberration": true});
         let off = json!({"autoCaVersion": 2, "autoChromaticAberration": false});
         let base = |recipe: &serde_json::Value, interim: bool| {
-            build_reduced_preview_base(&draft, scale, (3000, 2000), recipe, 1400, scale, interim)
-                .unwrap()
-                .image
-                .to_rgb32f()
+            build_reduced_preview_base(
+                &draft,
+                scale,
+                (3000, 2000),
+                recipe,
+                1400,
+                scale,
+                true,
+                interim,
+            )
+            .unwrap()
+            .image
+            .to_rgb32f()
         };
         // Without the whole decode's estimate the draft warps as with an
         // estimate that found nothing (here: no correction) ...

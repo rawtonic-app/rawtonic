@@ -149,27 +149,6 @@ pub fn persist_exif_if_missing(source_path: &Path, source_path_str: &str, file_b
     }
 }
 
-pub fn write_rrexif_sidecar(source_path_str: &str, target_image_path: &Path) -> Result<(), String> {
-    let source_path = Path::new(source_path_str);
-
-    let exif_data = if let Some(existing) = read_rrexif_sidecar(source_path) {
-        existing
-    } else if let Ok(bytes) = fs::read(source_path) {
-        read_exif_data_from_bytes(source_path_str, &bytes)
-    } else {
-        return Ok(());
-    };
-
-    if exif_data.is_empty() {
-        return Ok(());
-    }
-
-    let mut metadata = load_primary_metadata(target_image_path);
-    metadata.exif = Some(exif_data);
-    save_primary_metadata(target_image_path, &metadata)
-        .map_err(|e| format!("Failed to write sidecar: {}", e))
-}
-
 #[cfg(test)]
 mod sidecar_write_tests {
     use super::*;
