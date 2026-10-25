@@ -292,9 +292,12 @@ describe("Develop tool contracts", () => {
     } });
     mount();
     openGroups();
-    expect(screen.getByText("Effects bypassed")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Enable Effects" }));
+    expect(screen.getByRole("button", { name: "Effects" }).getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: "Effects" }));
     expect(useEditorStore.getState().adjustments.sectionVisibility.effects).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Effects" }));
+    expect(useEditorStore.getState().adjustments.sectionVisibility.effects).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Effects" }));
     fireEvent.click(screen.getByRole("button", { name: "Copy and apply Light effects" }), { altKey: true });
     expect(useEditorStore.getState().toolClipboard?.values).toEqual({ glowAmount: 20, halationAmount: 10, flareAmount: 5 });
     fireEvent.click(screen.getByRole("button", { name: "Reset Light effects" }));
@@ -303,6 +306,10 @@ describe("Develop tool contracts", () => {
     expect([a.vignetteAmount, a.grainAmount]).toEqual([-20, 30]);
     expect(screen.getByRole("button", { name: "Copy and apply LUT" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Reset LUT" })).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "Detail" }));
+    fireEvent.click(screen.getByRole("button", { name: "Effects" }));
+    expect(useEditorStore.getState().adjustments.sectionVisibility.effects).toBe(false);
+    expect(useEditorStore.getState().adjustments.grainAmount).toBe(30);
   });
 
   it("keeps the Even grain of recipes from before the structure choice", () => {

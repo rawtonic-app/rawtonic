@@ -35,7 +35,6 @@ describe('Tool copy of Clarity', () => {
   });
 });
 
-
 describe('Tool copy of LUT', () => {
   it('carries the table and input space with the selected LUT', () => {
     const source = { ...INITIAL_ADJUSTMENTS, lutPath: '/qa/own.cube', lutName: 'Own table', lutSize: 2, lutData: "AAAAAA==", lutIsSceneReferred: true, lutIntensity: 70 } as Adjustments;
@@ -43,9 +42,10 @@ describe('Tool copy of LUT', () => {
   });
 });
 
-
-it('keeps grain settings in the Detail copy, sync and preset group', () => {
-  const grain = ADJUSTMENT_GROUPS.details.find(group => group.label === 'modals.copyPaste.groups.grain');
-  expect(grain?.keys).toEqual(['grainAmount', 'grainRoughness', 'grainSize', 'grainStructure', 'grainVersion']);
-  expect(ADJUSTMENT_GROUPS.effects.some(group => group.label === 'modals.copyPaste.groups.grain')).toBe(false);
+describe('Detail copy groups', () => {
+  it('keeps grain settings in the Detail copy, sync and preset group', () => {
+    const grain = ADJUSTMENT_GROUPS.details.find(group => group.label === 'modals.copyPaste.groups.grain');
+    expect(grain?.keys).toEqual(['grainAmount', 'grainRoughness', 'grainSize', 'grainStructure', 'grainVersion']);
+    expect(ADJUSTMENT_GROUPS.effects.some(group => group.label === 'modals.copyPaste.groups.grain')).toBe(false);
+  });
 });

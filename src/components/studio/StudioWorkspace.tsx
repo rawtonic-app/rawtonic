@@ -7,6 +7,7 @@ import {
   type ReactNode,
   type MouseEvent,
 } from "react";
+import LibraryToolbarPlacement from "./LibraryToolbarPlacement";
 import { useLibraryHeaderFits } from "./libraryHeaderLayout";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -540,7 +541,7 @@ export default function StudioWorkspace(props: Props) {
   const libraryToolbarRef = useRef<HTMLDivElement>(null);
   const compactLibraryHeader = useLibraryHeaderFits(
     uiScale, libraryToolbarRef,
-    JSON.stringify([uiScale, i18n.resolvedLanguage, filterCriteria, searchCriteria, props.flagCounts]),
+    JSON.stringify([uiScale, i18n.resolvedLanguage, filterCriteria, !!searchCriteria.text.trim(), searchCriteria.tags, props.flagCounts]),
     !develop && panels.bars && !!sessionBar.library,
   );
   const imageFlags = useLibraryStore((s) => s.imageFlags);
@@ -708,7 +709,7 @@ export default function StudioWorkspace(props: Props) {
   const libraryToolbar = (
     <div
       ref={libraryToolbarRef}
-      className={`studio-library-toolbar${compactLibraryHeader ? " studio-workspace is-in-header" : ""}`}
+      className={`studio-library-toolbar studio-controls${compactLibraryHeader ? " is-in-header" : ""}`}
       onClickCapture={(e) => focusWorkspaceControl(e.target)}
     >
       <button
@@ -1218,7 +1219,9 @@ export default function StudioWorkspace(props: Props) {
             </>
           ) : (
             <>
-              {compactLibraryHeader ? createPortal(libraryToolbar, sessionBar.library!) : libraryToolbar}
+              <LibraryToolbarPlacement header={sessionBar.library} compact={compactLibraryHeader}>
+                {libraryToolbar}
+              </LibraryToolbarPlacement>
               {metadataOpen && <StudioMetadataFilter />}
               <StudioBrowser
                 {...browserProps}

@@ -118,22 +118,22 @@
   color: var(--studio-text);
   --tools-width: 300px;
 }
-.studio-workspace button,
-.studio-workspace input,
-.studio-workspace select {
+:is(.studio-workspace, .studio-controls) button,
+:is(.studio-workspace, .studio-controls) input,
+:is(.studio-workspace, .studio-controls) select {
   font: inherit;
 }
 /* In the base layer so that Tailwind colour classes (layered utilities) of the
    inherited panels still apply: unlayered, this turned their dark text on the
    white accent (text-button-text) light. */
 @layer base {
-  .studio-workspace button,
-  .studio-workspace input,
-  .studio-workspace select {
+  :is(.studio-workspace, .studio-controls) button,
+  :is(.studio-workspace, .studio-controls) input,
+  :is(.studio-workspace, .studio-controls) select {
     color: inherit;
   }
 }
-.studio-workspace button {
+:is(.studio-workspace, .studio-controls) button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -146,28 +146,28 @@
   border-radius: 2px;
   flex-shrink: 0;
 }
-.studio-workspace button:hover:not(:disabled),
-.studio-workspace button[role="option"][data-active] {
+:is(.studio-workspace, .studio-controls) button:hover:not(:disabled),
+:is(.studio-workspace, .studio-controls) button[role="option"][data-active] {
   background: #ffffff0c;
   color: #fff;
 }
-.studio-workspace button:disabled {
+:is(.studio-workspace, .studio-controls) button:disabled {
   opacity: 0.32;
   cursor: default;
 }
-.studio-workspace button:focus-visible,
-.studio-workspace input:focus-visible,
-.studio-workspace select:focus-visible,
-.studio-workspace summary:focus-visible,
+:is(.studio-workspace, .studio-controls) button:focus-visible,
+:is(.studio-workspace, .studio-controls) input:focus-visible,
+:is(.studio-workspace, .studio-controls) select:focus-visible,
+:is(.studio-workspace, .studio-controls) summary:focus-visible,
 .studio-panel-resizer:focus-visible {
   outline: 2px solid #a9c9e1;
   outline-offset: -2px;
 }
-.studio-workspace button[aria-pressed="true"] {
+:is(.studio-workspace, .studio-controls) button[aria-pressed="true"] {
   color: #d1e5f7;
   background: #7893aa24;
 }
-.studio-workspace select {
+:is(.studio-workspace, .studio-controls) select {
   background: #242527;
   border: 1px solid #4b4c50;
   border-radius: 3px;
@@ -4681,6 +4681,11 @@ img.relight-pattern-preview { object-fit: cover; }
   flex: 1;
   min-width: 0;
 }
+.studio-controls {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--studio-text);
+}
 .studio-library-toolbar.is-in-header {
   flex-direction: row;
   flex-wrap: nowrap;
@@ -4726,8 +4731,6 @@ img.relight-pattern-preview { object-fit: cover; }
   .studio-metadata-toggle > span:not(.studio-filter-count) {
     display: none;
   }
-}
-@container library-toolbar (max-width: 1100px) {
   .studio-library-filters {
     gap: 5px;
     flex-wrap: nowrap;
@@ -4738,4 +4741,16 @@ img.relight-pattern-preview { object-fit: cover; }
   .studio-search {
     flex-basis: 160px;
   }
+}
+.studio-effects-master {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--studio-line);
+  font-size: 10px;
+}
+.studio-effects-master > span {
+  color: var(--studio-muted);
+  font-size: 9px;
 }

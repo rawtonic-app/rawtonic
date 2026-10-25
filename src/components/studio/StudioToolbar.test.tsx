@@ -218,8 +218,20 @@ it("moves the Library controls into the header only when the scaled width fits",
     onContextMenu={noop} onEditorContextMenu={noop} onCopy={noop} onPaste={noop}
     onReset={noop} onZoom={noop} requestThumbnails={noop} settings={null} onSettings={noop}
   />);
-  const search = screen.getByRole("searchbox");
+  const search = screen.getByRole("searchbox") as HTMLInputElement;
   expect(slot.contains(search)).toBe(true);
+  const toolbar = slot.querySelector(".studio-library-toolbar")!;
+  const toolbarBounds = vi.spyOn(toolbar, "getBoundingClientRect").mockReturnValue({ right: 1000 } as DOMRect);
+  const searchBounds = vi.spyOn(search, "getBoundingClientRect").mockReturnValue({ right: 1100 } as DOMRect);
+  search.focus();
+  // Typing reveals Clear/Save; their measured overflow moves the same tree.
+  fireEvent.change(search, { target: { value: "layout" } });
+  expect(slot.contains(search)).toBe(false);
+  expect(document.activeElement).toBe(search);
+  expect(search.value).toBe("layout");
+  toolbarBounds.mockRestore();
+  searchBounds.mockRestore();
+  search.setSelectionRange(2, 4);
   expect(screen.getByRole("button", { name: "Picked 12" })).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "Sort photographs" })).toBeTruthy();
   act(() => {
@@ -227,6 +239,9 @@ it("moves the Library controls into the header only when the scaled width fits",
     window.dispatchEvent(new Event("resize"));
   });
   expect(slot.querySelector("input")).toBeNull();
+  expect(screen.getByRole("searchbox")).toBe(search);
+  expect(document.activeElement).toBe(search);
+  expect([search.selectionStart, search.selectionEnd]).toEqual([2, 4]);
   expect(view.container.querySelector(".studio-library-toolbar input")).toBeTruthy();
   act(() => {
     Object.defineProperty(window, "innerWidth", { value: 1728, configurable: true });

@@ -781,6 +781,24 @@ export default function StudioDevelop() {
         className="studio-tools-scroll"
         inert={Boolean(selectedImage && !selectedImage.isReady)}
       >
+        {selectedImage && !layer && inTab("all", "detail") && (
+          <div className="studio-effects-master">
+            <button
+              aria-label={t("studio.develop.groups.effects")}
+              aria-pressed={values.sectionVisibility?.effects !== false}
+              disabled={!panelsReady}
+              title={t(values.sectionVisibility?.effects !== false
+                ? "studio.develop.toolGroup.turnOff" : "studio.develop.toolGroup.turnOn",
+                { tool: t("studio.develop.groups.effects") })}
+              onClick={toolSwitch("effects").onToggle}
+            >
+              {values.sectionVisibility?.effects !== false ? <Eye size={12} /> : <EyeOff size={12} />}
+              {t("studio.develop.groups.effects")}
+            </button>
+            <span>{[t("adjustments.effects.vignette"), t("adjustments.effects.grain"),
+              t("studio.develop.groups.lightEffects"), "LUT"].join(" · ")}</span>
+          </div>
+        )}
         {!selectedImage && (
           <p className="studio-help">
             {t("studio.develop.noPhoto")}
@@ -793,7 +811,6 @@ export default function StudioDevelop() {
             [
               ["color", t("studio.develop.tabs.color")],
               ["details", t("studio.develop.tabs.detail")],
-              ["effects", t("studio.develop.groups.effects")],
             ] as const
           )
             .filter(([key]) => values.sectionVisibility?.[key] === false)
