@@ -29,11 +29,16 @@ export interface CropSectionsState {
 }
 
 interface ConfirmModalState {
+  cancelText?: string;
   confirmText?: string;
   confirmVariant?: string;
   isOpen: boolean;
   message?: string;
+  onCancel?(): void;
   onConfirm?(): void;
+  onSecondary?(): void;
+  secondaryText?: string;
+  secondaryVariant?: string;
   title?: string;
 }
 

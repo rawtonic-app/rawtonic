@@ -1520,6 +1520,13 @@
       "verifyProgress_many": "Verificando · {{count}} arquivos conferidos",
       "verifyProgress_other": "Verificando · {{count}} arquivos conferidos"
     },
+    "unsaved": {
+      "cancel": "Cancelar",
+      "discard": "Descartar alterações não guardadas",
+      "message": "Não foi possível guardar estas alterações: {{files}}. Abrir outra biblioteca agora perde-as. Tente novamente para as guardar primeiro, descarte-as ou cancele para ficar nesta biblioteca.",
+      "retry": "Tentar novamente",
+      "title": "Alterações não guardadas"
+    },
     "welcome": {
       "body": "Crie um projeto portátil para o seu próximo ensaio. Mantenha capturas, ajustes e entregas juntos, do primeiro quadro à seleção final.",
       "create": "Criar um projeto",

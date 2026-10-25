@@ -1520,6 +1520,13 @@
       "verifyProgress_many": "Verifica · {{count}} file controllati",
       "verifyProgress_other": "Verifica · {{count}} file controllati"
     },
+    "unsaved": {
+      "cancel": "Annulla",
+      "discard": "Scarta modifiche non salvate",
+      "message": "Queste modifiche non sono state salvate: {{files}}. Aprendo ora un’altra libreria andranno perse. Riprova per salvarle prima, scartale o annulla per restare in questa libreria.",
+      "retry": "Riprova",
+      "title": "Modifiche non salvate"
+    },
     "welcome": {
       "body": "Crea un progetto portatile per il tuo prossimo servizio. Tieni insieme scatti, modifiche e consegne, dal primo fotogramma alla selezione finale.",
       "create": "Crea un progetto",

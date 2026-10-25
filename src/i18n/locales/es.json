@@ -1520,6 +1520,13 @@
       "verifyProgress_many": "Verificando · {{count}} archivos comprobados",
       "verifyProgress_other": "Verificando · {{count}} archivos comprobados"
     },
+    "unsaved": {
+      "cancel": "Cancelar",
+      "discard": "Descartar cambios sin guardar",
+      "message": "No se pudieron guardar estos cambios: {{files}}. Si abres ahora otra biblioteca, se perderán. Reintenta para guardarlos primero, descártalos o cancela para quedarte en esta biblioteca.",
+      "retry": "Reintentar",
+      "title": "Cambios sin guardar"
+    },
     "welcome": {
       "body": "Crea un proyecto portátil para tu próxima sesión de fotos. Mantén juntas las tomas, los ajustes y las entregas, desde la primera imagen hasta la selección final.",
       "create": "Crear un proyecto",

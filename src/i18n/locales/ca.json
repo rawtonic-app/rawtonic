@@ -1520,6 +1520,13 @@
       "verifyProgress_many": "Verificant · {{count}} fitxers comprovats",
       "verifyProgress_other": "Verificant · {{count}} fitxers comprovats"
     },
+    "unsaved": {
+      "cancel": "Cancel·la",
+      "discard": "Descarta els canvis no desats",
+      "message": "No s’han pogut desar aquests canvis: {{files}}. Si ara obres una altra biblioteca, es perdran. Torna-ho a provar per desar-los primer, descarta’ls o cancel·la per quedar-te en aquesta biblioteca.",
+      "retry": "Torna-ho a provar",
+      "title": "Canvis no desats"
+    },
     "welcome": {
       "body": "Crea un projecte portàtil per a la teva propera sessió de fotos. Mantén juntes les preses, els ajustaments i els lliuraments, des de la primera imatge fins a la selecció final.",
       "create": "Crea un projecte",

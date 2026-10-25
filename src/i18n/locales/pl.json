@@ -1576,6 +1576,13 @@
       "verifyProgress_many": "Weryfikacja · sprawdzono {{count}} plików",
       "verifyProgress_other": "Weryfikacja · sprawdzono {{count}} pliku"
     },
+    "unsaved": {
+      "cancel": "Anuluj",
+      "discard": "Odrzuć niezapisane zmiany",
+      "message": "Nie udało się zapisać tych zmian: {{files}}. Otwarcie teraz innej biblioteki spowoduje ich utratę. Spróbuj ponownie, aby najpierw je zapisać, odrzuć je lub anuluj, aby pozostać w tej bibliotece.",
+      "retry": "Spróbuj ponownie",
+      "title": "Zmiany niezapisane"
+    },
     "welcome": {
       "body": "Utwórz przenośny projekt na następną sesję zdjęciową. Trzymaj ujęcia, edycje i materiały do oddania razem, od pierwszej klatki po ostateczny wybór.",
       "create": "Utwórz projekt",

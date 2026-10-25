@@ -1520,6 +1520,13 @@
       "verifyProgress_many": "Vérification · {{count}} fichiers vérifiés",
       "verifyProgress_other": "Vérification · {{count}} fichiers vérifiés"
     },
+    "unsaved": {
+      "cancel": "Annuler",
+      "discard": "Abandonner les modifications",
+      "message": "Ces modifications n’ont pas pu être enregistrées : {{files}}. Ouvrir une autre bibliothèque maintenant les perd. Réessayez pour les enregistrer d’abord, abandonnez-les ou annulez pour rester dans cette bibliothèque.",
+      "retry": "Réessayer",
+      "title": "Modifications non enregistrées"
+    },
     "welcome": {
       "body": "Créez un projet portable pour votre prochaine prise de vue. Gardez ensemble prises de vue, retouches et livrables, de la première image à la sélection finale.",
       "create": "Créer un projet",

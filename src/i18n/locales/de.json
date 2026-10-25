@@ -1464,6 +1464,13 @@
       "verifyProgress_one": "Prüfen · {{count}} Datei geprüft",
       "verifyProgress_other": "Prüfen · {{count}} Dateien geprüft"
     },
+    "unsaved": {
+      "cancel": "Abbrechen",
+      "discard": "Ungespeicherte Änderungen verwerfen",
+      "message": "Diese Änderungen konnten nicht gespeichert werden: {{files}}. Wenn jetzt eine andere Bibliothek geöffnet wird, gehen sie verloren. Erneut versuchen, um sie zuerst zu speichern, verwerfen oder abbrechen, um in dieser Bibliothek zu bleiben.",
+      "retry": "Erneut versuchen",
+      "title": "Änderungen nicht gespeichert"
+    },
     "welcome": {
       "body": "Ein Shooting oder deine ganze Sammlung? Wähle die passende Organisation — die Bearbeitungswerkzeuge sind dieselben.",
       "create": "Projekt erstellen",

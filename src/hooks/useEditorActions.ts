@@ -49,7 +49,7 @@ import { withOwnBitmapIds } from '../utils/bitmapIds';
 import { appliedStyleOf, recordStyle, revertStyle, withStyleValues } from '../utils/appliedStyle';
 import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
-import { registerQuitFlush } from '../utils/quit';
+import { registerLibrarySwitchReset, registerQuitFlush } from '../utils/quit';
 import { draftFor, flushSliderDraft, renderDraft, updateDraft } from '../utils/sliderDraft';
 import { saveFailure } from './useLibraryActions';
 import { clampViewerZoom } from '../utils/viewerDisplay';
@@ -73,20 +73,33 @@ const isIdentityCurve = (points?: Array<Coord>) =>
   !points ||
   (points.length === 2 && points[0].x === 0 && points[0].y === 0 && points[1].x === 255 && points[1].y === 255);
 
-export const debouncedSave = debounce((path: string, adjustmentsToSave: Adjustments) => {
+/** Counts library switches (`switchLibraryAfterSaves`): a save is written
+ * only to the library it was made in. */
+let libraryEpoch = 0;
+let switchingLibrary = false;
+
+const writeRecipe = debounce((path: string, adjustmentsToSave: Adjustments, epoch: number) => {
+  if (epoch !== libraryEpoch || switchingLibrary) {
+    // Made before or during a library switch: written now it would go to
+    // the library opened since.
+    console.warn(`Dropped a save of ${path} made before the library was switched.`);
+    return Promise.resolve(undefined);
+  }
   const save = () => invoke<void>(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments: adjustmentsToSave });
   // A returned-to photograph must read its recipe after its flushed save, and
   // multiple writes to that photograph must retain the user's edit order.
   const previous = pendingMetadataSaves.get(path);
   const pending = (previous ? previous.then(save) : save())
     .then(() => {
-      unsavedRecipes.delete(path);
+      if (epoch === libraryEpoch) unsavedRecipes.delete(path);
       return undefined;
     })
     .catch((err) => {
       // A persistence error must not turn reopening into a silent undo. Keep
-      // the unsaved recipe until a later successful write supersedes it.
-      unsavedRecipes.set(path, adjustmentsToSave);
+      // the unsaved recipe until a later successful write supersedes it
+      // (not past a library switch: it is retried in the library it was
+      // made in, or discarded).
+      if (epoch === libraryEpoch) unsavedRecipes.set(path, adjustmentsToSave);
       console.error('Auto-save failed:', err);
       toast.error(`Failed to save changes: ${err}`);
       return adjustmentsToSave;
@@ -98,6 +111,12 @@ export const debouncedSave = debounce((path: string, adjustmentsToSave: Adjustme
   });
   return pending;
 }, 300);
+
+/** Saves the recipe of `path` (debounced) into the library open now. */
+export const debouncedSave = Object.assign(
+  (path: string, adjustmentsToSave: Adjustments) => writeRecipe(path, adjustmentsToSave, libraryEpoch),
+  { flush: () => writeRecipe.flush(), cancel: () => writeRecipe.cancel() },
+);
 
 type ScheduledRecipe = { path: string; adjustments: Adjustments };
 let readScheduledRecipe: (() => ScheduledRecipe | null) | null = null;
@@ -138,6 +157,8 @@ export async function flushRecipeSaves(): Promise<string[]> {
   }
   const failed: string[] = [];
   for (const [path, adjustments] of [...unsavedRecipes]) {
+    // Gone meanwhile: saved, superseded or left with a switched library.
+    if (unsavedRecipes.get(path) !== adjustments) continue;
     try {
       await invoke(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments });
       if (unsavedRecipes.get(path) === adjustments) unsavedRecipes.delete(path);
@@ -152,6 +173,20 @@ export async function flushRecipeSaves(): Promise<string[]> {
 registerQuitFlush(async () =>
   (await flushRecipeSaves()).map((path) => `Edits of ${path.split(/[\\/]/).pop() ?? path}`),
 );
+
+// Past a library switch's barrier the old library's saves are written or
+// discarded: forget them, and drop every save made until the switch ends
+// (the photograph open before it still belongs to the old library).
+registerLibrarySwitchReset(() => {
+  libraryEpoch++;
+  switchingLibrary = true;
+  unsavedRecipes.clear();
+  pendingMetadataSaves.clear();
+  return () => {
+    libraryEpoch++;
+    switchingLibrary = false;
+  };
+});
 
 /** A batch recipe command (a `SaveFailure` on error): tells the user what
  * was not saved and resolves with those paths, so the saved ones still

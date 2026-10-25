@@ -1464,6 +1464,13 @@
       "verifyProgress_one": "Verifying · {{count}} file checked",
       "verifyProgress_other": "Verifying · {{count}} files checked"
     },
+    "unsaved": {
+      "cancel": "Cancel",
+      "discard": "Discard Unsaved Edits",
+      "message": "These edits could not be saved: {{files}}. Opening another library now loses them. Retry to save them first, discard them, or cancel to stay in this library.",
+      "retry": "Retry",
+      "title": "Edits Not Saved"
+    },
     "welcome": {
       "body": "One shoot or your whole collection? Choose how to organize your photos — the editing tools are the same.",
       "create": "Create a project",
