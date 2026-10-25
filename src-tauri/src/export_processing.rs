@@ -1509,8 +1509,11 @@ pub async fn run_headless_export(
     }
 
     let output_path = std::path::Path::new(&session.output);
-    let is_explicit_file_path =
-        paths.len() == 1 && output_path.extension().is_some() && !output_path.is_dir();
+    // Recipes write into the output folder (their subfolders).
+    let is_explicit_file_path = session.recipes.is_none()
+        && paths.len() == 1
+        && output_path.extension().is_some()
+        && !output_path.is_dir();
 
     if is_explicit_file_path {
         if let Some(parent) = output_path.parent() {
@@ -1569,16 +1572,28 @@ pub async fn run_headless_export(
         }
     };
 
+    let recipes = match &session.recipes {
+        Some(file) => headless_recipes(file)?,
+        None => vec![HeadlessRecipe {
+            format: session.format,
+            settings: export_settings,
+        }],
+    };
+    let targets = recipes
+        .into_iter()
+        .map(|recipe| ExportTarget {
+            output_folder_or_file: session.output.clone(),
+            is_explicit_file_path,
+            base_origin_folders: vec![session.source.clone()],
+            export_settings: recipe.settings,
+            output_format: recipe.format,
+            tracking: None,
+        })
+        .collect();
+
     export_images_impl(
         paths,
-        vec![ExportTarget {
-            output_folder_or_file: session.output,
-            is_explicit_file_path,
-            base_origin_folders: vec![session.source],
-            export_settings,
-            output_format: session.format,
-            tracking: None,
-        }],
+        targets,
         mode,
         state.clone(),
         app_handle.clone(),
@@ -1592,6 +1607,26 @@ pub async fn run_headless_export(
         Ok(Err(errors)) => Err(format!("Export completed with {} errors.", errors)),
         Err(_) => Err("Export task panicked or was cancelled.".to_string()),
     }
+}
+
+/// A recipe of a headless export with `--recipes`: the format and the
+/// settings an export recipe saves (sizes, metadata, subfolder, …).
+#[derive(serde::Deserialize)]
+struct HeadlessRecipe {
+    format: String,
+    settings: ExportSettings,
+}
+
+/// The recipes of a `--recipes` file: a JSON array of `{format, settings}`.
+fn headless_recipes(file: &str) -> Result<Vec<HeadlessRecipe>, String> {
+    let content =
+        std::fs::read_to_string(file).map_err(|e| format!("Failed to read recipes file: {}", e))?;
+    let recipes: Vec<HeadlessRecipe> = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse recipes file: {}", e))?;
+    if recipes.is_empty() {
+        return Err("The recipes file lists no recipe.".to_string());
+    }
+    Ok(recipes)
 }
 
 #[tauri::command]
@@ -1987,6 +2022,30 @@ fn estimate_sizes(
 #[cfg(test)]
 mod tests {
     use super::{ExportTarget, PhotoItem, export_in_turn, is_open_edit, plan_output_path};
+
+    #[test]
+    fn a_recipes_file_lists_each_recipes_format_and_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("recipes.json");
+        std::fs::write(
+            &file,
+            r#"[
+              {"format": "jpg", "settings": {"jpegQuality": 80, "resize": {"mode": "width", "value": 2048, "dontEnlarge": true}, "keepMetadata": false, "stripGps": true, "filenameTemplate": "{original_filename}_web", "subfolder": "web"}},
+              {"format": "tiff", "settings": {"jpegQuality": 90, "tiffBitDepth": 16, "keepMetadata": true, "stripGps": false, "colorSpace": "adobeRgb", "subfolder": "print"}}
+            ]"#,
+        )
+        .unwrap();
+        let recipes = super::headless_recipes(file.to_str().unwrap()).unwrap();
+        assert_eq!(recipes.len(), 2);
+        assert_eq!(recipes[0].format, "jpg");
+        assert_eq!(recipes[0].settings.subfolder.as_deref(), Some("web"));
+        assert_eq!(
+            recipes[1].settings.tiff_bit_depth,
+            super::TiffBitDepth::Sixteen
+        );
+        std::fs::write(&file, "[]").unwrap();
+        assert!(super::headless_recipes(file.to_str().unwrap()).is_err());
+    }
 
     #[test]
     fn a_job_paused_or_cancelled_while_its_photo_waited_does_not_start_it() {

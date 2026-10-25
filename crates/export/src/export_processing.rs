@@ -901,7 +901,7 @@ pub fn apply_export_geometry(
         None => {
             let (target_w, target_h) = resize_target(src_w, src_h, export_settings.resize.as_ref());
             if target_w != src_w || target_h != src_h {
-                image = image.resize(target_w, target_h, imageops::FilterType::Lanczos3);
+                image = crate::lanczos::resize(&image, target_w, target_h);
             }
             if let Some(sharpening) = &export_settings.output_sharpening {
                 crate::output_sharpening::apply(&mut image, sharpening);
@@ -924,11 +924,7 @@ pub fn apply_export_geometry(
         }
         Some(geometry) => {
             if geometry.photo_w != src_w || geometry.photo_h != src_h {
-                image = image.resize_exact(
-                    geometry.photo_w,
-                    geometry.photo_h,
-                    imageops::FilterType::Lanczos3,
-                );
+                image = crate::lanczos::resize_exact(&image, geometry.photo_w, geometry.photo_h);
             }
             if let Some(sharpening) = &export_settings.output_sharpening {
                 crate::output_sharpening::apply(&mut image, sharpening);

@@ -94,6 +94,9 @@ impl Drop for PerformanceStage {
             "ms": self.started.elapsed().as_secs_f64() * 1000.0,
             "footprint_mb": footprint.map(|(current, _)| current as f64 / 1e6),
             "peak_mb": footprint.map(|(_, peak)| peak as f64 / 1e6),
+            // When and where it ended: stages of parallel work on a timeline.
+            "epoch_ms": epoch_ms(),
+            "thread": std::thread::current().name().unwrap_or(""),
         });
         emit(&record);
     }

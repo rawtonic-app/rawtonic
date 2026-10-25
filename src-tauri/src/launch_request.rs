@@ -27,6 +27,9 @@ pub struct HeadlessExportSession {
     pub adjustments_override: Option<String>,
     /// Upper limit for files exported at the same time (`--jobs`).
     pub max_jobs: Option<usize>,
+    /// A JSON file of recipes (`--recipes`) exported together instead of
+    /// the format and settings above, as ticked recipes in the app.
+    pub recipes: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -59,6 +62,7 @@ pub fn parse_launch_args(args: &[String]) -> LaunchRequest {
         let mut keep_creator_contact = false;
         let mut adjustments_override = None;
         let mut max_jobs = None;
+        let mut recipes = None;
 
         if let Some(src) = iter.next()
             && !src.starts_with('-')
@@ -140,6 +144,14 @@ pub fn parse_launch_args(args: &[String]) -> LaunchRequest {
                         adjustments_override = Some(adj.clone());
                     }
                 }
+                "--recipes" => {
+                    let Some(file) = iter.next() else {
+                        return LaunchRequest::InvalidHeadless(
+                            "Missing value for --recipes; expected a JSON file.".to_string(),
+                        );
+                    };
+                    recipes = Some(file.clone());
+                }
                 _ => {}
             }
         }
@@ -155,6 +167,7 @@ pub fn parse_launch_args(args: &[String]) -> LaunchRequest {
             keep_creator_contact,
             adjustments_override,
             max_jobs,
+            recipes,
         });
     }
 
@@ -251,5 +264,30 @@ mod tests {
             };
             assert_eq!(session.keep_creator_contact, keep);
         }
+    }
+
+    #[test]
+    fn headless_exports_take_a_recipes_file() {
+        let args = |extra: &[&str]| -> Vec<String> {
+            ["export", "/qa/Capture", "--output", "/qa/Output"]
+                .iter()
+                .chain(extra)
+                .map(|s| s.to_string())
+                .collect()
+        };
+        let LaunchRequest::HeadlessExport(session) =
+            parse_launch_args(&args(&["--recipes", "/qa/recipes.json"]))
+        else {
+            panic!("headless export");
+        };
+        assert_eq!(session.recipes.as_deref(), Some("/qa/recipes.json"));
+        let LaunchRequest::HeadlessExport(session) = parse_launch_args(&args(&[])) else {
+            panic!("headless export");
+        };
+        assert_eq!(session.recipes, None);
+        assert!(matches!(
+            parse_launch_args(&args(&["--recipes"])),
+            LaunchRequest::InvalidHeadless(_)
+        ));
     }
 }
