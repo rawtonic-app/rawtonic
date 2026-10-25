@@ -1269,8 +1269,11 @@ mod tests {
     fn culling_undo_follows_asset_identity_after_a_move_and_refuses_missing_unmanaged_files() {
         use rawtonic_catalog::{Library, Mode};
         let temp = tempfile::tempdir().unwrap();
-        let lib = Library::create(temp.path(), "Undo move", Mode::Session).unwrap();
-        let source = temp.path().join("Capture/source.nef");
+        // The library and the resolved paths are canonical: on macOS the
+        // temporary folder /var/… is /private/var/….
+        let root = temp.path().canonicalize().unwrap();
+        let lib = Library::create(&root, "Undo move", Mode::Session).unwrap();
+        let source = root.join("Capture/source.nef");
         fs::write(&source, b"synthetic original").unwrap();
         let asset = lib.add_asset(&source).unwrap();
         let receipt = write_culling_sidecar(
@@ -1283,7 +1286,7 @@ mod tests {
             None,
         )
         .unwrap();
-        let moved = temp.path().join("Selects/moved.nef");
+        let moved = root.join("Selects/moved.nef");
         fs::rename(&source, &moved).unwrap();
         lib.relocate(&source, &moved).unwrap();
         let values = successful_targets(resolve_culling_targets(
@@ -1293,7 +1296,7 @@ mod tests {
                 asset_id: receipt.asset_id,
                 directory: receipt.directory,
             }],
-            temp.path().to_str(),
+            root.to_str(),
         ));
         assert_eq!(values[0].path, moved.to_string_lossy());
         write_culling_sidecar(values.into_iter().next().unwrap(), None).unwrap();
