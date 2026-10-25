@@ -114,6 +114,9 @@ pub struct GeometryParams {
     pub lens_profile_exact: bool,
     /// Minimum zoom of the corrected frame (`zoom` of the lens parameters).
     pub lens_zoom: f32,
+    /// `LensDistortionParams::exact_zoom`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub lens_zoom_exact: bool,
     pub tca_vr: f32,
     pub tca_vb: f32,
     /// Growth of tca_vr / tca_vb with the squared relative radius.
@@ -172,6 +175,7 @@ impl Default for GeometryParams {
             lens_model: 0,
             lens_profile_exact: false,
             lens_zoom: 1.0,
+            lens_zoom_exact: false,
             tca_vr: 1.0,
             tca_vb: 1.0,
             tca_vr2: 0.0,
@@ -244,6 +248,9 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         lens_zoom: lens_params
             .and_then(|p| p.get("zoom").and_then(|k| k.as_f64()))
             .unwrap_or(1.0) as f32,
+        lens_zoom_exact: lens_params
+            .and_then(|p| p.get("exact_zoom").and_then(|k| k.as_bool()))
+            .unwrap_or(false),
         tca_vr: lens_params
             .and_then(|p| p.get("tca_vr").and_then(|k| k.as_f64()))
             .unwrap_or(1.0) as f32,
@@ -1097,6 +1104,48 @@ fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32
 
         (mapped_dx * mapped_dx + mapped_dy * mapped_dy).sqrt() / ru
     };
+
+    // The camera's framing itself (`lens_zoom_exact`, scaled like the
+    // distortion by the amount), zoomed further only where a border pixel
+    // would still sample outside (manual distortion, an amount below 100 %, a
+    // fitted curve's bulge), without a margin. Every border pixel is checked
+    // at the position the warp samples (0 … width − 1, `interpolate_pixel`);
+    // `INSIDE` covers its f32 rounding.
+    if has_lens_correction && params.lens_zoom_exact {
+        const INSIDE: f64 = 0.01;
+        let zoom = (1.0 + (params.lens_zoom as f64 - 1.0) * lens_dist_amt.clamp(0.0, 1.0)).max(1.0);
+        let (last_x, last_y) = (width as f64 - 1.0, height as f64 - 1.0);
+        // A pixel that samples its own position (no distortion at this
+        // amount) is inside as it is.
+        let inside = |dx: f64, dy: f64, s: f64| {
+            let g = ratio(dx / s, dy / s) / s;
+            let (x, y) = (cx + dx * g, cy + dy * g);
+            (g - 1.0).abs() < 1e-12
+                || ((INSIDE..=last_x - INSIDE).contains(&x)
+                    && (INSIDE..=last_y - INSIDE).contains(&y))
+        };
+        let columns = (0..(width as u32).max(1)).map(f64::from);
+        let rows = (0..(height as u32).max(1)).map(f64::from);
+        return columns
+            .flat_map(|x| [(x, 0.0), (x, last_y)])
+            .chain(rows.flat_map(|y| [(0.0, y), (last_x, y)]))
+            .fold(zoom, |scale, (px, py)| {
+                let (dx, dy) = (px - cx, py - cy);
+                if inside(dx, dy, scale) {
+                    return scale;
+                }
+                let (mut lo, mut hi) = (scale, 8.0f64);
+                for _ in 0..48 {
+                    let mid = 0.5 * (lo + hi);
+                    if inside(dx, dy, mid) {
+                        hi = mid;
+                    } else {
+                        lo = mid;
+                    }
+                }
+                hi
+            });
+    }
 
     let mut max_scale: f64 = 1.0;
 
@@ -7476,6 +7525,42 @@ mod manual_distortion_tests {
         };
         assert_eq!(compute_lens_auto_crop_scale(&params, w, h), 1.0);
     }
+
+    #[test]
+    fn an_exact_lens_zoom_is_the_framing_unless_an_edge_needs_more() {
+        let (w, h) = (3000.0f32, 2000.0f32);
+        // A zoom that keeps every edge inside (the top edge's middle maps
+        // just inside, as Sony's camera framing): exactly that zoom, where
+        // the warp's own framing adds its margin on top.
+        let framed = GeometryParams {
+            lens_distortion_enabled: true,
+            lens_distortion_amount: 1.0,
+            lens_profile_exact: true,
+            lens_model: 1,
+            lens_dist_k3: -0.0215,
+            lens_zoom: 1.01,
+            ..Default::default()
+        };
+        let exact = GeometryParams {
+            lens_zoom_exact: true,
+            ..framed.clone()
+        };
+        assert_eq!(compute_lens_auto_crop_scale(&exact, w, h), 1.01f32 as f64);
+        assert!(compute_lens_auto_crop_scale(&framed, w, h) > 1.01f32 as f64 + 1e-3);
+        // A zoom too small for the edges grows until they stay inside.
+        let short = GeometryParams {
+            lens_zoom: 1.0,
+            lens_dist_k3: -0.06,
+            ..exact
+        };
+        let s = compute_lens_auto_crop_scale(&short, w, h);
+        let source = |r: f64| {
+            let c = short.lens_dist_k3 as f64;
+            r * (c * r + 1.0 - c)
+        };
+        let edge = 1000.0 / 1500.0f64.hypot(1000.0);
+        assert!(s > 1.0 && source(edge / s) <= edge + 1e-9, "zoom {s}");
+    }
 }
 
 #[cfg(test)]
@@ -7621,6 +7706,75 @@ mod warp_points_tests {
                 );
             }
         }
+    }
+
+    /// With the camera's framing exact (no margin), a binding edge still
+    /// keeps its last row and column (barrel data whose edges move out).
+    #[test]
+    fn an_exact_lens_zoom_leaves_no_black_border() {
+        let (w, h) = (1500u32, 1000u32);
+        let grey = image::Rgb([0.5f32, 0.5, 0.5]);
+        let flat = DynamicImage::ImageRgb32F(image::ImageBuffer::from_pixel(w, h, grey));
+        // The last: a maximum inside the top edge, between its middle and
+        // corner (PTLens b −0.3, c 0.414).
+        for (k2, k3, zoom) in [
+            (0.0f32, -0.02f32, 1.0f32),
+            (0.0, -0.0215, 1.01),
+            (0.0, -0.06, 1.0),
+            (-0.3, 0.414, 1.0),
+        ] {
+            let params = GeometryParams {
+                lens_distortion_enabled: true,
+                lens_distortion_amount: 1.0,
+                lens_profile_exact: true,
+                lens_model: 1,
+                lens_dist_k2: k2,
+                lens_dist_k3: k3,
+                lens_zoom: zoom,
+                lens_zoom_exact: true,
+                ..Default::default()
+            };
+            let out = warp_image_geometry(&flat, params).into_rgb32f();
+            let border = (0..w)
+                .flat_map(|x| [(x, 0), (x, h - 1)])
+                .chain((0..h).flat_map(|y| [(0, y), (w - 1, y)]));
+            for (x, y) in border {
+                let value = out.get_pixel(x, y)[0];
+                assert!(
+                    value > 0.4,
+                    "k2 {k2} k3 {k3} zoom {zoom}: ({x},{y}) = {value}"
+                );
+            }
+        }
+    }
+
+    /// At a distortion amount of 0 the exact framing moves no pixel: the
+    /// same image as with the distortion switched off.
+    #[test]
+    fn an_exact_lens_zoom_at_zero_amount_is_the_unwarped_image() {
+        let (w, h) = (600u32, 400u32);
+        let image = coordinates(w, h);
+        let exact = GeometryParams {
+            lens_distortion_enabled: true,
+            lens_distortion_amount: 0.0,
+            lens_profile_exact: true,
+            lens_model: 1,
+            lens_dist_k3: -0.02,
+            lens_zoom: 1.0,
+            lens_zoom_exact: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            compute_lens_auto_crop_scale(&exact, w as f32, h as f32),
+            1.0
+        );
+        let off = GeometryParams {
+            lens_distortion_enabled: false,
+            ..exact.clone()
+        };
+        let a = warp_image_geometry(&image, exact).into_rgb32f();
+        let b = warp_image_geometry(&image, off).into_rgb32f();
+        assert_eq!(a.as_raw(), b.as_raw());
     }
 
     #[test]

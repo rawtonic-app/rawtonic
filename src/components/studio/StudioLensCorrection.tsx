@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { isCurrentEditorImage, useEditorActions } from "../../hooks/useEditorActions";
-import { CAMERA_CA_VERSION, INITIAL_ADJUSTMENTS, autoCaOn, type Adjustments } from "../../utils/adjustments";
+import { CAMERA_CA_VERSION, CAMERA_GEOMETRY_VERSION, INITIAL_ADJUSTMENTS, autoCaOn, type Adjustments } from "../../utils/adjustments";
 import { Invokes } from "../ui/AppProperties";
 import AdjustmentControl from "./AdjustmentControl";
 import { ToolGroup } from "./StudioDevelop";
@@ -91,6 +91,7 @@ export default function StudioLensCorrection() {
       lensDistortionParams: profile.params,
       lensCorrectionMode: "camera",
       cameraCaVersion: CAMERA_CA_VERSION,
+      cameraGeometryVersion: CAMERA_GEOMETRY_VERSION,
     }));
 
   const params = (maker: string, model: string) =>

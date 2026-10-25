@@ -30,7 +30,7 @@ pub const LENS_UNRESOLVED: &str = "unresolved";
 /// What a recipe's lens parameters were resolved for, and the parameters:
 /// the mode and the lens (chosen or detected), for the camera's own data its
 /// CA version, then the parameters themselves (normalised; none when there
-/// are none). Parameters cleared or changed by anything but a resolution no
+/// are none) and, where it has one, its geometry version. Parameters cleared or changed by anything but a resolution no
 /// longer match it.
 pub fn lens_profile_stamp(recipe: &Value) -> String {
     let field = |key: &str| {
@@ -55,7 +55,16 @@ pub fn lens_profile_stamp(recipe: &Value) -> String {
         })
         .unwrap_or(Value::Null);
     let stamp = if mode == crate::embedded_lens::CAMERA_MODE {
-        serde_json::json!([mode, field(crate::embedded_lens::CA_VERSION_KEY), params])
+        let mut stamp =
+            serde_json::json!([mode, field(crate::embedded_lens::CA_VERSION_KEY), params]);
+        // Recipes from before the geometry version keep their stamps.
+        let geometry = field(crate::embedded_lens::GEOMETRY_VERSION_KEY);
+        if !geometry.is_null()
+            && let Some(stamp) = stamp.as_array_mut()
+        {
+            stamp.push(geometry);
+        }
+        stamp
     } else {
         serde_json::json!([mode, field("lensMaker"), field("lensModel"), params])
     };
@@ -373,6 +382,64 @@ pub fn resolve_unresolved(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pasted_camera_lens_choice_resolves_offline_from_older_facts_of_unchanged_formats() {
+        use crate::source_facts::{SourceFacts, forget, register};
+        let params =
+            crate::lens_correction::LensDistortionParams::ptlens(0.01, -0.02, 0.0, [0.0; 3]);
+        // A new edit's Lens Correction (geometry version 1) pasted onto
+        // offline photos whose previews were made before it (facts v6).
+        let pasted = serde_json::json!({
+            "lensCorrectionMode": "camera", "cameraCaVersion": 1,
+            crate::embedded_lens::GEOMETRY_VERSION_KEY: 1,
+        });
+        for (name, resolves) in [
+            ("DSCF0002.RAF", true),
+            ("P1000002.RW2", true),
+            ("DSC00002.ARW", false),
+        ] {
+            let source = Path::new("/offline/volume/Paste").join(name);
+            register(
+                &source.to_string_lossy(),
+                SourceFacts {
+                    version: 6,
+                    camera_lens: Some(params.clone()),
+                    ..Default::default()
+                },
+            );
+            let mut recipe = pasted.clone();
+            resolve_lens_params_in_adjustments(
+                &mut recipe,
+                LensLookup::Fresh,
+                &None,
+                None,
+                &source,
+            );
+            forget(&source.to_string_lossy());
+            assert_eq!(
+                recipe[LENS_PROFILE_FOR] != LENS_UNRESOLVED,
+                resolves,
+                "{name}"
+            );
+            if resolves {
+                assert_eq!(
+                    recipe["lensDistortionParams"],
+                    serde_json::to_value(&params).unwrap()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_camera_geometry_version_joins_the_stamp_only_where_set() {
+        let old = serde_json::json!({"lensCorrectionMode": "camera", "cameraCaVersion": 1});
+        // Stamps saved before the key still match their recipes.
+        assert_eq!(lens_profile_stamp(&old), r#"["camera",1,null]"#);
+        let mut new = old.clone();
+        new[crate::embedded_lens::GEOMETRY_VERSION_KEY] = serde_json::json!(1);
+        assert_eq!(lens_profile_stamp(&new), r#"["camera",1,null,1]"#);
+    }
     use crate::lens_correction::{lenses_for_maker, load_lensfun_dir, resolve_lens_params};
 
     fn zoom_db(dir: &Path) -> (crate::lens_correction::LensDatabase, String) {

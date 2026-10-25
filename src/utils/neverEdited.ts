@@ -1,6 +1,7 @@
 import {
   AUTO_CA_VERSION,
   CAMERA_CA_VERSION,
+  CAMERA_GEOMETRY_VERSION,
   FRINGE_VERSION,
   initialAdjustmentsFor,
   normalizeLoadedAdjustments,
@@ -26,8 +27,10 @@ export function applyNeverEditedDefaults(recipe: Adjustments, saved: unknown, is
   if (camera?.params) {
     recipe.lensCorrectionMode = 'camera';
     recipe.lensDistortionParams = camera.params;
-    // With the camera's data its current CA version, as embedded_lens.rs.
+    // With the camera's data its current CA and geometry versions, as
+    // embedded_lens.rs.
     recipe.cameraCaVersion = CAMERA_CA_VERSION;
+    recipe.cameraGeometryVersion = CAMERA_GEOMETRY_VERSION;
   }
   return recipe;
 }

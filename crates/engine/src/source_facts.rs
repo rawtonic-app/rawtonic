@@ -33,7 +33,10 @@ use crate::lens_correction::LensDistortionParams;
 /// 5: `lensfun_default` scaled to the body's crop factor (camera list
 /// fallback by loose name) and with the profile's whole lateral CA.
 /// 6: `image_key_median` (lowered Highlights of tone version 3).
-pub const VERSION: u32 = 6;
+/// 7: `camera_lens` at camera geometry version 1
+/// (`embedded_lens::GEOMETRY_VERSION`), `camera_lens_geometry` for recipes
+/// of older geometry versions.
+pub const VERSION: u32 = 7;
 
 /// The file facts the rendering of one photograph uses.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
@@ -70,6 +73,10 @@ pub struct SourceFacts {
     /// `embedded_lens::params_for`: the camera's lens correction data.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub camera_lens: Option<LensDistortionParams>,
+    /// `camera_lens` at older camera geometry versions, where it differs
+    /// (version 7 on).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub camera_lens_geometry: std::collections::BTreeMap<u64, Option<LensDistortionParams>>,
     /// `embedded_lens::lensfun_default`: maker, model and parameters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lensfun_default: Option<(String, String, LensDistortionParams)>,
@@ -184,6 +191,15 @@ impl StoredColour {
 }
 
 impl SourceFacts {
+    /// The camera's lens data at camera geometry version `geometry`, one
+    /// these facts carry (`embedded_lens::facts_geometry_version`).
+    pub fn camera_lens_at(&self, geometry: u64) -> Option<LensDistortionParams> {
+        match self.camera_lens_geometry.get(&geometry) {
+            Some(params) => params.clone(),
+            None => self.camera_lens.clone(),
+        }
+    }
+
     /// The measured image key ([10th, 90th, 50th] percentile, as
     /// `image_key::measure`); the median 0 (unknown) in facts from before
     /// version 6.
@@ -222,6 +238,14 @@ pub fn collect(path: &str) -> SourceFacts {
     }
     let source = std::path::Path::new(path);
     let diffraction = crate::diffraction::sigmas_for_path(path);
+    let camera_lens_at = |geometry| {
+        crate::embedded_lens::params_for_version(source, crate::embedded_lens::CA_VERSION, geometry)
+    };
+    let camera_lens = camera_lens_at(crate::embedded_lens::GEOMETRY_VERSION);
+    let camera_lens_geometry = (0..crate::embedded_lens::GEOMETRY_VERSION)
+        .map(|geometry| (geometry, camera_lens_at(geometry)))
+        .filter(|(_, params)| *params != camera_lens)
+        .collect();
     let mut facts = SourceFacts {
         version: VERSION,
         base_look: Some(crate::baseline_exposure::base_look(path).into()),
@@ -235,7 +259,8 @@ pub fn collect(path: &str) -> SourceFacts {
         diffraction_sigma_v1: diffraction
             .v1
             .filter(|_| diffraction.v1 != diffraction.current),
-        camera_lens: crate::embedded_lens::params_for(source),
+        camera_lens,
+        camera_lens_geometry,
         lensfun_default: crate::embedded_lens::lensfun_default(source),
     };
     facts.set_image_key(crate::image_key::for_path(path));
@@ -333,6 +358,7 @@ mod tests {
             diffraction_v1_differs: false,
             diffraction_sigma_v1: None,
             camera_lens: None,
+            camera_lens_geometry: Default::default(),
             lensfun_default: None,
         };
         let json = serde_json::to_string(&facts).unwrap();

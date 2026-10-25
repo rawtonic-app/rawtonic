@@ -161,6 +161,12 @@ pub struct LensDistortionParams {
     /// models that crop inside the sensor corners (Panasonic, Olympus).
     #[serde(default = "unit_zoom", skip_serializing_if = "is_unit_zoom")]
     zoom: f64,
+    /// The zoom is the camera's framing itself, not only its minimum: the
+    /// frame's edges are checked after it, without the warp's margin
+    /// (`cameraGeometryVersion` 1; parameters without it keep the warp's
+    /// framing).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    exact_zoom: bool,
     /// Growth of the red and blue scales with the squared radius relative
     /// to the half diagonal (the camera's own CA data, embedded_lens.rs;
     /// lensfun's poly3 lateral CA, `to_warp_tca`).
@@ -197,6 +203,7 @@ impl LensDistortionParams {
             vig_k2: vignetting[1],
             vig_k3: vignetting[2],
             zoom: 1.0,
+            exact_zoom: false,
             tca_vr2: 0.0,
             tca_vb2: 0.0,
         }
@@ -246,6 +253,13 @@ impl LensDistortionParams {
     /// The same parameters with a minimum zoom (at least 1).
     pub fn with_zoom(mut self, zoom: f64) -> Self {
         self.zoom = if zoom.is_finite() { zoom.max(1.0) } else { 1.0 };
+        self
+    }
+
+    /// The same parameters with the zoom as the camera's framing itself
+    /// (`exact`) or as its minimum.
+    pub fn with_exact_zoom(mut self, exact: bool) -> Self {
+        self.exact_zoom = exact;
         self
     }
 }
@@ -628,6 +642,7 @@ impl Lens {
             vig_k2: vig_k2 * s2 * s2,
             vig_k3: vig_k3 * s2 * s2 * s2,
             zoom: 1.0,
+            exact_zoom: false,
             tca_vr2,
             tca_vb2,
         })

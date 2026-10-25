@@ -548,6 +548,10 @@ export interface Adjustments {
    * `CA_VERSION`): 1 = also Panasonic's; missing = Fujifilm and Sony only
    * (recipes from before it, so saving them again keeps their parameters). */
   cameraCaVersion?: number;
+  /** How camera mode reads the camera data's geometry (embedded_lens.rs
+   * `GEOMETRY_VERSION`): 1 = Sony's distortion as Camera Raw reads it;
+   * missing = as before (saving such recipes again keeps their parameters). */
+  cameraGeometryVersion?: number;
   lensDistortionAmount: number;
   lensVignetteAmount: number;
   lensTcaAmount: number;
@@ -1315,6 +1319,8 @@ export const AI_DENOISE_VERSION = 3;
 
 /** The cameras' CA data new edits read in camera lens mode (notes: reference/lateral-ca.md). */
 export const CAMERA_CA_VERSION = 1;
+/** How new edits read the camera data's geometry in camera lens mode (notes: parity-gaps/G71). */
+export const CAMERA_GEOMETRY_VERSION = 1;
 /** The automatic lateral CA new RAW edits start with (notes: reference/lateral-ca.md). */
 export const AUTO_CA_VERSION = 3;
 
@@ -1353,6 +1359,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         clarityVersion: CLARITY_VERSION,
         fringeVersion: FRINGE_VERSION,
         cameraCaVersion: CAMERA_CA_VERSION,
+        cameraGeometryVersion: CAMERA_GEOMETRY_VERSION,
         autoCaVersion: AUTO_CA_VERSION,
         defringeVersion: DEFRINGE_VERSION,
         sharpenVersion: SHARPEN_VERSION,
@@ -1793,6 +1800,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     // carry the key (never-edited RAWs get it in useImageLoader).
     fringeVersion: loadedAdjustments.fringeVersion,
     cameraCaVersion: loadedAdjustments.cameraCaVersion,
+    cameraGeometryVersion: loadedAdjustments.cameraGeometryVersion,
     autoCaVersion: loadedAdjustments.autoCaVersion,
     renderVersion: loadedRenderVersion(loadedAdjustments),
     ...normalizeRelight(loadedAdjustments.relightLights, loadedAdjustments.relightDepth),
@@ -2031,6 +2039,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         'diffractionVersion',
         'autoChromaticAberration',
         'cameraCaVersion',
+        'cameraGeometryVersion',
         'autoCaVersion',
       ],
     },

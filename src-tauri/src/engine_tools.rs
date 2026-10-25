@@ -162,7 +162,8 @@ fn print_lateral_ca() {
 
 /// Tool: the camera's own lens data (`embedded_lens::read`) of the RAWs in
 /// `$LENS_FILES` (`;`-separated) as warp parameters, with the read time,
-/// then the parameters a recipe without `cameraCaVersion` gets.
+/// then the parameters a recipe without `cameraCaVersion` and
+/// `cameraGeometryVersion` gets.
 #[test]
 #[ignore = "tool: needs LENS_FILES"]
 fn print_embedded_lens() {
@@ -175,7 +176,7 @@ fn print_embedded_lens() {
         let start = std::time::Instant::now();
         let data = read(std::path::Path::new(path));
         let elapsed = start.elapsed();
-        let legacy = read_version(std::path::Path::new(path), 0);
+        let legacy = read_version(std::path::Path::new(path), 0, 0);
         println!(
             "{path}\t{elapsed:?}\t{}\t{}",
             json(data.as_ref().and_then(to_params)),
