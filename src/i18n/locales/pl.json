@@ -975,6 +975,10 @@
       "stop": "Zatrzymaj",
       "stopped": "Podglądy zatrzymane po {{done}}"
     },
+    "still": {
+      "label": "Podgląd",
+      "title": "Jego miniatura, pokazywana podczas wywoływania zdjęcia; wywołany obraz zaraz ją zastąpi."
+    },
     "toasts": {
       "discarded": "Usunięte pliki podglądów: {{files}}",
       "failed": "Podglądy: {{err}}"
@@ -1523,6 +1527,8 @@
       "title": "Zarządzanie danymi"
     },
     "general": {
+      "autoAdvance": "Automatyczne przejście",
+      "autoAdvanceDesc": "W module Wywoływanie klawisz oceny, wyboru, odrzucenia lub usunięcia flagi przechodzi do następnego zdjęcia, więc selekcja wymaga jednego klawisza na zdjęcie.",
       "builtinPresets": "Wbudowane ustawienia",
       "builtinPresetsDesc": "Pokazuj własne style i ustawienia Rawtonic w panelu Style i ustawienia oraz w menu ustawień narzędzi.",
       "createXmp": "Twórz brakujące pliki XMP",
@@ -1532,6 +1538,7 @@
       "developToolsDesc": "Strona zdjęcia, po której są narzędzia Wywoływania. Gdy narzędzia są po prawej, lewy panel pokazuje Nawigator, Foldery i Albumy do przełączania zdjęć.",
       "developToolsLeft": "Lewo",
       "developToolsRight": "Prawo",
+      "enableAutoAdvance": "Przejdź do następnego zdjęcia po ocenie lub oflagowaniu",
       "enableOsTitlebar": "Włącz systemowy pasek tytułu",
       "enableXmpSync": "Włącz synchronizację XMP",
       "nativeTitlebar": "Natywny pasek tytułu",

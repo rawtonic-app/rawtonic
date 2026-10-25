@@ -590,6 +590,10 @@ pub struct AppSettings {
     /// preset menus (missing: shown).
     #[serde(default)]
     pub show_builtin_presets: Option<bool>,
+    /// Develop: a rating or flag key steps to the next photograph (missing:
+    /// off).
+    #[serde(default)]
+    pub auto_advance: Option<bool>,
     pub last_root_path: Option<String>,
     #[serde(default)]
     pub root_folders: Vec<String>,
@@ -802,6 +806,7 @@ impl Default for AppSettings {
             dismissed_update_version: None,
             crash_reports: None,
             show_builtin_presets: None,
+            auto_advance: None,
             usage_stats: None,
             last_root_path: None,
             root_folders: Vec::new(),

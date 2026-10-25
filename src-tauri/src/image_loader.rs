@@ -1001,6 +1001,7 @@ pub async fn load_image(
         }
 
         let held_key = cache_key.clone();
+        let decoded_cache_app = app_handle.clone();
         let ((pristine_img, measures), exif_data_loaded) = tokio::task::spawn_blocking(move || {
             if generation_tracker.load(Ordering::SeqCst) != my_generation {
                 return Err("Load cancelled".to_string());
@@ -1014,11 +1015,28 @@ pub async fn load_image(
             // cells for their 1:1 previews: a cell made the primary opens
             // on its decode (finished first, when under way) instead of
             // decoding the RAW again.
+            // Stepping through photographs: the prefetch decoding this one
+            // ahead is finished and taken over (one decoding another is
+            // cancelled for this decode).
             let held = crate::multi_view_prefetch::held_or_pending_decode(
                 &held_key,
                 &settings,
                 std::time::Duration::from_secs(3),
-            );
+            )
+            .or_else(|| {
+                crate::proxy_worker::decode_for_open(&held_key, std::time::Duration::from_secs(3))
+            })
+            .or_else(|| {
+                // Kept by a prefetch that ended since the cache was looked at.
+                use tauri::Manager;
+                decoded_cache_app
+                    .state::<AppState>()
+                    .decoded_image_cache
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get_measured(&held_key)
+                    .map(|(image, _, measures)| (image, measures))
+            });
             // Its decode goes first (the background work waits).
             let _decoding = held.is_none().then(crate::multi_view_prefetch::PrimaryDecode::start);
 

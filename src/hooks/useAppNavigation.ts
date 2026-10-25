@@ -8,7 +8,7 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { Invokes, LibraryViewMode, ImageFile } from '../components/ui/AppProperties';
+import { Invokes, LibraryViewMode, ImageFile, type Activation } from '../components/ui/AppProperties';
 import type { FolderTree } from '../utils/folderTree';
 import { Adjustments, INITIAL_ADJUSTMENTS } from '../utils/adjustments';
 import { globalImageCache } from '../utils/ImageLRUCache';
@@ -144,11 +144,22 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
           shown: useEditorStore.getState().hasRenderedFirstFrame ? 1 : 0,
         });
       }
+      useEditorStore.getState().setEditor({ stillPreview: null });
       if (wasInEditor && useEditorStore.getState().hasRenderedFirstFrame) {
-        void invoke(Invokes.ActivatePhoto, {
+        void invoke<Activation>(Invokes.ActivatePhoto, {
           path,
           adjustments: globalImageCache.get(path)?.adjustments ?? null,
-        }).catch(() => {});
+        })
+          .then((shown) => {
+            // Its thumbnail is on screen natively: held (instead of the
+            // previous photograph's frame) until its first developed frame,
+            // and marked as a preview meanwhile.
+            const now = useEditorStore.getState();
+            if (shown === 'still' && now.selectedImage?.path === path && !now.hasRenderedFirstFrame) {
+              now.setEditor({ stillPreview: path, holdingNativeFrame: true });
+            }
+          })
+          .catch(() => {});
       }
 
       useEditorStore.getState().patchesSentToBackend.clear();
@@ -188,7 +199,8 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       if (holdingNativeFrame) {
         setTimeout(() => {
           const now = useEditorStore.getState();
-          if (now.selectedImage?.path === path && now.holdingNativeFrame) {
+          // A still of this photograph stays until its developed frame.
+          if (now.selectedImage?.path === path && now.holdingNativeFrame && now.stillPreview !== path) {
             useEditorStore.getState().setEditor({ holdingNativeFrame: false });
           }
         }, HOLD_FRAME_MS);

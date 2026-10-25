@@ -915,6 +915,10 @@
       "stop": "중지",
       "stopped": "{{done}}개 후 미리 보기 중지됨"
     },
+    "still": {
+      "label": "미리 보기",
+      "title": "사진을 현상하는 동안 표시되는 썸네일입니다. 곧 현상된 이미지로 바뀝니다."
+    },
     "toasts": {
       "discarded": "삭제한 미리 보기 파일: {{files}}",
       "failed": "미리 보기: {{err}}"
@@ -1367,6 +1371,8 @@
       "title": "데이터 관리"
     },
     "general": {
+      "autoAdvance": "자동 넘기기",
+      "autoAdvanceDesc": "현상에서 별점, 선택, 거부, 플래그 해제 키를 누르면 다음 사진으로 넘어가므로 사진 한 장에 키 하나로 골라낼 수 있습니다.",
       "builtinPresets": "기본 제공 프리셋",
       "builtinPresetsDesc": "스타일 및 프리셋과 도구의 프리셋 메뉴에 Rawtonic 자체 스타일과 프리셋을 표시합니다.",
       "createXmp": "누락된 XMP 파일 생성",
@@ -1376,6 +1382,7 @@
       "developToolsDesc": "현상 도구를 사진의 어느 쪽에 표시할지 정합니다. 오른쪽에 두면 왼쪽 패널에 사진을 전환하는 탐색기, 폴더, 앨범이 표시됩니다.",
       "developToolsLeft": "왼쪽",
       "developToolsRight": "오른쪽",
+      "enableAutoAdvance": "별점이나 플래그 후 다음 사진으로 이동",
       "enableOsTitlebar": "OS 제목 표시줄 활성화",
       "enableXmpSync": "XMP 동기화 활성화",
       "nativeTitlebar": "네이티브 제목 표시줄",

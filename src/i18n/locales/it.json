@@ -949,6 +949,10 @@
       "stop": "Interrompi",
       "stopped": "Anteprime interrotte dopo {{done}}"
     },
+    "still": {
+      "label": "Anteprima",
+      "title": "La sua miniatura, mostrata mentre la foto viene sviluppata; l’immagine sviluppata la sostituisce a breve."
+    },
     "toasts": {
       "discarded": "File di anteprima eliminati: {{files}}",
       "failed": "Anteprime: {{err}}"
@@ -1464,6 +1468,8 @@
       "title": "Gestione Dati"
     },
     "general": {
+      "autoAdvance": "Avanzamento automatico",
+      "autoAdvanceDesc": "In Sviluppo, un tasto di valutazione, scelta, scarto o rimozione del contrassegno passa alla foto successiva: la selezione richiede un tasto per foto.",
       "builtinPresets": "Preset inclusi",
       "builtinPresetsDesc": "Mostra gli stili e i preset di Rawtonic in Stili e preset e nei menu dei preset degli strumenti.",
       "createXmp": "Crea File XMP Mancanti",
@@ -1473,6 +1479,7 @@
       "developToolsDesc": "Il lato della foto in cui si trovano gli strumenti di Sviluppo. Con gli strumenti a destra, il pannello sinistro mostra Navigatore, Cartelle e Album per cambiare foto.",
       "developToolsLeft": "Sinistra",
       "developToolsRight": "Destra",
+      "enableAutoAdvance": "Passa alla foto successiva dopo una valutazione o un contrassegno",
       "enableOsTitlebar": "Abilita Barra del Titolo di Sistema",
       "enableXmpSync": "Abilita Sincronizzazione XMP",
       "nativeTitlebar": "Barra del Titolo Nativa",

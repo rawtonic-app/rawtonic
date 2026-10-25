@@ -250,7 +250,7 @@ fn held_bytes(held: &VecDeque<HeldDecode>) -> usize {
 /// Bytes of decodes held at most: an eighth of the physical memory (3 GB
 /// of 24 GB: five to ten 24–61 MP decodes), none while the system is short
 /// of memory (each preview is then written right after its decode).
-fn hold_budget() -> usize {
+pub(crate) fn hold_budget() -> usize {
     #[cfg(feature = "performance-profiling")]
     if let Some(mb) = std::env::var("RAWTONIC_MV_HOLD_MB")
         .ok()

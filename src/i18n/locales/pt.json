@@ -949,6 +949,10 @@
       "stop": "Parar",
       "stopped": "Pré-visualizações paradas após {{done}}"
     },
+    "still": {
+      "label": "Pré-visualização",
+      "title": "A sua miniatura, mostrada enquanto a fotografia é revelada; a imagem revelada substitui-a num instante."
+    },
     "toasts": {
       "discarded": "Ficheiros de pré-visualização descartados: {{files}}",
       "failed": "Pré-visualizações: {{err}}"
@@ -1464,6 +1468,8 @@
       "title": "Gerenciamento de Dados"
     },
     "general": {
+      "autoAdvance": "Avanço automático",
+      "autoAdvanceDesc": "Em Revelação, uma tecla de classificação, escolha, rejeição ou remoção da marca passa à fotografia seguinte, e a seleção pede uma tecla por fotografia.",
       "builtinPresets": "Predefinições incluídas",
       "builtinPresetsDesc": "Mostrar os estilos e predefinições próprios do Rawtonic em Estilos e predefinições e nos menus de predefinições das ferramentas.",
       "createXmp": "Criar Arquivos XMP Ausentes",
@@ -1473,6 +1479,7 @@
       "developToolsDesc": "O lado da foto em que ficam as ferramentas de Revelação. Com as ferramentas à direita, o painel esquerdo mostra o Navegador, as Pastas e os Álbuns para trocar de foto.",
       "developToolsLeft": "Esquerda",
       "developToolsRight": "Direita",
+      "enableAutoAdvance": "Passar à fotografia seguinte após classificar ou marcar",
       "enableOsTitlebar": "Ativar Barra de Título do SO",
       "enableXmpSync": "Ativar Sincronização XMP",
       "nativeTitlebar": "Barra de Título Nativa",

@@ -1261,6 +1261,16 @@ pub fn get_cache_key_hash(path_str: &str) -> Option<String> {
     compute_thumbnail_cache_hash(path_str, &adjustments_bytes)
 }
 
+/// The medium thumbnail cached for `path_str` as it is stored now (recipe
+/// and file), if there is one; nothing is generated.
+pub(crate) fn cached_medium_thumbnail(app_handle: &AppHandle, path_str: &str) -> Option<PathBuf> {
+    let hash = get_cache_key_hash(path_str)?;
+    let path = get_thumb_cache_dir(app_handle)
+        .ok()?
+        .join(format!("{hash}_medium.jpg"));
+    path.is_file().then_some(path)
+}
+
 pub fn get_cached_or_generate_thumbnail_image(
     path_str: &str,
     app_handle: &AppHandle,

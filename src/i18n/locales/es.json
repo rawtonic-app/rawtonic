@@ -949,6 +949,10 @@
       "stop": "Detener",
       "stopped": "Previsualizaciones detenidas tras {{done}}"
     },
+    "still": {
+      "label": "Vista previa",
+      "title": "Su miniatura, mostrada mientras se revela la foto; la imagen revelada la sustituye en un momento."
+    },
     "toasts": {
       "discarded": "Archivos de previsualización descartados: {{files}}",
       "failed": "Previsualizaciones: {{err}}"
@@ -1464,6 +1468,8 @@
       "title": "Gestión de datos"
     },
     "general": {
+      "autoAdvance": "Avance automático",
+      "autoAdvanceDesc": "En Revelado, una tecla de valoración, selección, rechazo o quitar marca pasa a la foto siguiente, así el descarte pide una tecla por foto.",
       "builtinPresets": "Ajustes integrados",
       "builtinPresetsDesc": "Mostrar los estilos y ajustes propios de Rawtonic en Estilos y ajustes y en los menús de ajustes de las herramientas.",
       "createXmp": "Crear archivos XMP faltantes",
@@ -1473,6 +1479,7 @@
       "developToolsDesc": "El lado de la foto en el que están las herramientas de Revelado. Con las herramientas a la derecha, el panel izquierdo muestra el Navegador, las Carpetas y los Álbumes para cambiar de foto.",
       "developToolsLeft": "Izquierda",
       "developToolsRight": "Derecha",
+      "enableAutoAdvance": "Pasar a la foto siguiente tras valorar o marcar",
       "enableOsTitlebar": "Activar barra de título del SO",
       "enableXmpSync": "Activar sincronización XMP",
       "nativeTitlebar": "Barra de título nativa",

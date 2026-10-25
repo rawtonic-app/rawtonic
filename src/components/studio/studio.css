@@ -1419,6 +1419,10 @@
   font-size: 10.5px;
   white-space: nowrap;
 }
+.studio-offline-badge.studio-still-badge {
+  background: color-mix(in srgb, var(--studio-muted) 22%, transparent);
+  color: var(--studio-text);
+}
 /* A preview build in the top bar: progress and Stop, then its report. */
 .studio-preview-build {
   display: inline-flex;

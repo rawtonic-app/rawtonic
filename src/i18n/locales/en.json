@@ -923,6 +923,10 @@
       "stop": "Stop",
       "stopped": "Previews stopped after {{done}}"
     },
+    "still": {
+      "label": "Preview",
+      "title": "Its thumbnail, shown while the photograph is developed; the developed frame replaces it in a moment."
+    },
     "toasts": {
       "discarded": "Preview files discarded: {{files}}",
       "failed": "Previews: {{err}}"
@@ -1405,6 +1409,8 @@
       "title": "Data Management"
     },
     "general": {
+      "autoAdvance": "Auto-advance",
+      "autoAdvanceDesc": "In Develop, a rating, pick, reject or unflag key moves on to the next photograph, so culling takes one key per photograph.",
       "builtinPresets": "Built-in presets",
       "builtinPresetsDesc": "Show Rawtonic's own styles and presets in Styles & presets and in the tools' preset menus.",
       "createXmp": "Create Missing XMP Files",
@@ -1414,6 +1420,7 @@
       "developToolsDesc": "The side of the photo the Develop tools are on. With the tools on the right, the left panel shows the Navigator, Folders and Albums to switch photos.",
       "developToolsLeft": "Left",
       "developToolsRight": "Right",
+      "enableAutoAdvance": "Move to the next photograph after rating or flagging",
       "enableOsTitlebar": "Enable OS Titlebar",
       "enableXmpSync": "Enable XMP Sync",
       "nativeTitlebar": "Native Titlebar",

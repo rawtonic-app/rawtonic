@@ -923,6 +923,10 @@
       "stop": "Stoppen",
       "stopped": "Vorschauen nach {{done}} gestoppt"
     },
+    "still": {
+      "label": "Vorschau",
+      "title": "Ihr Miniaturbild, gezeigt, während das Foto entwickelt wird; das entwickelte Bild ersetzt es gleich."
+    },
     "toasts": {
       "discarded": "Vorschaudateien verworfen: {{files}}",
       "failed": "Vorschauen: {{err}}"
@@ -1405,6 +1409,8 @@
       "title": "Datenverwaltung"
     },
     "general": {
+      "autoAdvance": "Automatisch weiter",
+      "autoAdvanceDesc": "In Entwickeln geht eine Bewertungs-, Auswahl-, Ablehnungs- oder Markierung-entfernen-Taste zum nächsten Foto weiter, so braucht das Aussortieren eine Taste pro Foto.",
       "builtinPresets": "Mitgelieferte Vorgaben",
       "builtinPresetsDesc": "Rawtonics eigene Stile und Vorgaben unter Stile & Vorgaben und in den Vorgaben-Menüs der Werkzeuge zeigen.",
       "createXmp": "Fehlende XMP-Dateien erstellen",
@@ -1414,6 +1420,7 @@
       "developToolsDesc": "Auf welcher Seite des Fotos die Entwickeln-Werkzeuge stehen. Mit den Werkzeugen rechts zeigt das linke Bedienfeld Navigator, Ordner und Alben zum Wechseln der Fotos.",
       "developToolsLeft": "Links",
       "developToolsRight": "Rechts",
+      "enableAutoAdvance": "Nach Bewerten oder Markieren zum nächsten Foto",
       "enableOsTitlebar": "OS-Titelleiste aktivieren",
       "enableXmpSync": "XMP-Sync aktivieren",
       "nativeTitlebar": "Native Titelleiste",

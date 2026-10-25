@@ -1,5 +1,5 @@
 import { act, cleanup, renderHook } from '@testing-library/react';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppNavigationProps, useAppNavigation } from './useAppNavigation';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useEditorStore } from '../store/useEditorStore';
@@ -119,4 +119,69 @@ it('finds the root folder a path is in, not one that merely shares its name pref
   expect(rootContaining('/photos/2024/a', ['/photos', '/photos/2024'])).toBe('/photos/2024');
   expect(rootContaining('/photos/2024', ['/photos/2024'])).toBe('/photos/2024');
   expect(rootContaining('D:\\Shoots\\Day 1', ['D:\\Shoots'])).toBe('D:\\Shoots');
+});
+
+describe('stepping to a photograph without a preview proxy', () => {
+  const stepFromReady = async (activation: string) => {
+    const { useUIStore } = await import('../store/useUIStore');
+    useUIStore.getState().setUI({ activeView: 'editor' });
+    invoke.mockImplementation((command) =>
+      Promise.resolve(command === 'activate_photo' ? activation : undefined),
+    );
+    useEditorStore.getState().setEditor({
+      selectedImage: { path: '/s/a.NEF', isReady: true } as never,
+      hasRenderedFirstFrame: true,
+      stillPreview: null,
+    });
+    const { result } = renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
+    await act(async () => {
+      await result.current.handleImageSelect('/s/b.NEF', true);
+    });
+  };
+  afterEach(() => vi.useRealTimers());
+
+  it('marks its thumbnail on screen as a preview and keeps it until the developed frame', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    await stepFromReady('still');
+    expect(useEditorStore.getState().stillPreview).toBe('/s/b.NEF');
+    expect(useEditorStore.getState().holdingNativeFrame).toBe(true);
+    // The hold that would let the webview cover the previous photograph's
+    // frame does not end while the still of this one is shown.
+    act(() => vi.advanceTimersByTime(5000));
+    expect(useEditorStore.getState().holdingNativeFrame).toBe(true);
+    // The first developed frame replaces it in place (useTauriListeners'
+    // wgpu-frame-ready).
+    act(() => useEditorStore.getState().setEditor({ hasRenderedFirstFrame: true, holdingNativeFrame: false, stillPreview: null }));
+    expect(useEditorStore.getState().stillPreview).toBeNull();
+  });
+
+  it('marks nothing when a developed frame from its proxy is on the way', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    await stepFromReady('developed');
+    expect(useEditorStore.getState().stillPreview).toBeNull();
+    act(() => vi.advanceTimersByTime(5000));
+    expect(useEditorStore.getState().holdingNativeFrame).toBe(false);
+  });
+
+  it('never marks a still that arrives after the developed frame', async () => {
+    let answer!: (value: string) => void;
+    const { useUIStore } = await import('../store/useUIStore');
+    useUIStore.getState().setUI({ activeView: 'editor' });
+    invoke.mockImplementation((command) =>
+      command === 'activate_photo' ? new Promise((resolve) => { answer = resolve; }) : Promise.resolve(undefined),
+    );
+    useEditorStore.getState().setEditor({
+      selectedImage: { path: '/s/a.NEF', isReady: true } as never,
+      hasRenderedFirstFrame: true,
+      stillPreview: null,
+    });
+    const { result } = renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
+    await act(async () => {
+      await result.current.handleImageSelect('/s/b.NEF', true);
+    });
+    act(() => useEditorStore.getState().setEditor({ hasRenderedFirstFrame: true, holdingNativeFrame: false }));
+    await act(async () => answer('still'));
+    expect(useEditorStore.getState().stillPreview).toBeNull();
+    expect(useEditorStore.getState().holdingNativeFrame).toBe(false);
+  });
 });

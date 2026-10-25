@@ -1946,25 +1946,39 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
     }
 }
 
+/// What `activate_photo` put on screen.
+#[derive(serde::Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum Activation {
+    /// Nothing (not a RAW, the viewer not at fit, no proxy or thumbnail).
+    None,
+    /// A frame developed from the photograph's preview proxy is on its way.
+    Developed,
+    /// Its cached thumbnail, until its first developed frame (a preview).
+    Still,
+}
+
 /// Shows the photograph at `path` at once, natively (Capture One swaps its
 /// preview files the same way): its preview proxy (in memory or on disk) is
 /// developed with its recipe (`adjustments` from the editor's cache, else
 /// the stored one, else the defaults) and presented in the fit placement,
 /// before the webview has updated its state. The editor then loads the
-/// photograph as usual and renders the same frame again. Returns whether a
-/// frame was started (false: no proxy, or the viewer is not at fit).
+/// photograph as usual and renders the same frame again. Without a proxy
+/// (never opened, previews not built) its cached thumbnail is shown instead
+/// (`show_still`), so a step never keeps the previous photograph on screen
+/// while the RAW decodes. Returns what was put on screen.
 #[tauri::command]
 pub(crate) async fn activate_photo(
     path: String,
     adjustments: Option<serde_json::Value>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
-) -> Result<bool, String> {
+) -> Result<Activation, String> {
     #[cfg(feature = "performance-profiling")]
     let received = crate::performance::epoch_ms();
     let (source_path, sidecar_path) = parse_virtual_path(&path);
     if !formats::is_raw_file(&source_path) {
-        return Ok(false);
+        return Ok(Activation::None);
     }
     let Some(viewport) = state
         .gpu_context
@@ -1986,7 +2000,7 @@ pub(crate) async fn activate_photo(
             "[PERF] {}",
             serde_json::json!({ "stage": "activate_photo_skipped", "reason": "no viewport" })
         );
-        return Ok(false);
+        return Ok(Activation::None);
     };
     // Only previews made for the recipe's decode variant stand in (a virtual
     // copy's may differ from its master's, `preview_proxy::stands_for`).
@@ -2003,7 +2017,7 @@ pub(crate) async fn activate_photo(
             "[PERF] {}",
             serde_json::json!({ "stage": "activate_photo_skipped", "reason": "other decode variant" })
         );
-        return Ok(false);
+        return Ok(Activation::None);
     }
     *state
         .current_source
@@ -2030,7 +2044,7 @@ pub(crate) async fn activate_photo(
                     "[PERF] {}",
                     serde_json::json!({ "stage": "activate_photo_skipped", "reason": "no proxy" })
                 );
-                return Ok(false);
+                return Ok(show_still(&app_handle, &path, viewport).await);
             };
             state
                 .proxy_memory
@@ -2046,7 +2060,7 @@ pub(crate) async fn activate_photo(
         .unwrap_or_else(|e| e.into_inner())
         != path
     {
-        return Ok(false);
+        return Ok(Activation::None);
     }
     let mut recipe = adjustments
         .filter(|a| a.is_object())
@@ -2123,7 +2137,71 @@ pub(crate) async fn activate_photo(
     tokio::spawn(async move {
         let _ = rx.await;
     });
-    Ok(true)
+    Ok(Activation::Developed)
+}
+
+/// The photograph's cached medium thumbnail (developed with its stored
+/// recipe, or the camera's preview of an unedited RAW: already turned and
+/// cropped as it is shown), presented natively in the fit placement of
+/// `viewport` until its first developed frame: real pixels of that
+/// photograph at once instead of the previous one, then refined in the
+/// same place. Nothing when there is no thumbnail, another photograph was
+/// asked for meanwhile, or a developed frame of it is already shown.
+async fn show_still(app_handle: &tauri::AppHandle, path: &str, viewport: [f32; 4]) -> Activation {
+    let state = app_handle.state::<AppState>();
+    let Some(context) = state
+        .gpu_context
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+    else {
+        return Activation::None;
+    };
+    let (app, wanted) = (app_handle.clone(), path.to_string());
+    let still = tokio::task::spawn_blocking(move || {
+        let file = crate::file_management::cached_medium_thumbnail(&app, &wanted)?;
+        let bytes = std::fs::read(file).ok()?;
+        let mut still = image::load_from_memory_with_format(&bytes, image::ImageFormat::Jpeg)
+            .ok()?
+            .to_rgba8();
+        gpu_processing::srgb_to_display(context.display_space, &mut still);
+        Some((still, context))
+    })
+    .await
+    .ok()
+    .flatten();
+    let Some((still, context)) = still else {
+        return Activation::None;
+    };
+    // Asked for another photograph meanwhile.
+    if *state
+        .current_source
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        != path
+    {
+        return Activation::None;
+    }
+    let mut display = context.display.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(display) = display.as_mut() else {
+        return Activation::None;
+    };
+    // A developed frame of it came first, or the viewer was zoomed.
+    if display.frame_path() == Some(path) || display.viewport != Some(viewport) {
+        return Activation::None;
+    }
+    let (width, height) = still.dimensions();
+    let rect = gpu_processing::fit_placement(viewport, width as f32, height as f32);
+    if !display.present_still(&context.device, &context.queue, &still, path, rect) {
+        return Activation::None;
+    }
+    #[cfg(feature = "performance-profiling")]
+    log::info!(
+        "[PERF] {}",
+        serde_json::json!({ "stage": "still_preview_presented", "width": width, "height": height,
+            "epoch_ms": crate::performance::epoch_ms() })
+    );
+    Activation::Still
 }
 
 /// Renders the split view's before side (`js_adjustments`: the unedited

@@ -397,6 +397,53 @@ impl DecodedImageCache {
         self.items.push((path, image, exif));
         self.forget_dropped_measures();
     }
+
+    /// A decode made ahead for a photograph not open yet (the next one while
+    /// stepping through photographs): kept only when it fits beside the
+    /// decode used last (the open photograph's) within `budget` (at least
+    /// the cache's own), so it never pushes that one out; older ones make
+    /// room. Whether it is kept. Two 45 MP decodes take 1.1 GB, more than
+    /// the cache keeps otherwise: the caller's budget follows the machine's
+    /// memory.
+    pub fn offer_ahead(
+        &mut self,
+        path: String,
+        image: Arc<DynamicImage>,
+        exif: HashMap<String, String>,
+        measures: Option<crate::image_loader::DecodeMeasures>,
+        budget: usize,
+    ) -> bool {
+        let budget = budget.max(self.byte_budget);
+        if let Some(pos) = self.items.iter().position(|(p, _, _)| *p == path) {
+            self.items.remove(pos);
+        }
+        let bytes = image.as_bytes().len();
+        let last = self
+            .items
+            .last()
+            .map_or(0, |(_, img, _)| img.as_bytes().len());
+        if self.capacity < 2 || last + bytes > budget {
+            self.forget_dropped_measures();
+            return false;
+        }
+        let mut retained: usize = self
+            .items
+            .iter()
+            .map(|(_, img, _)| img.as_bytes().len())
+            .sum();
+        while self.items.len() > 1
+            && (self.items.len() >= self.capacity || retained + bytes > budget)
+        {
+            retained -= self.items.remove(0).1.as_bytes().len();
+        }
+        self.measures.remove(&path);
+        if let Some(measures) = measures {
+            self.measures.insert(path.clone(), measures);
+        }
+        self.items.push((path, image, exif));
+        self.forget_dropped_measures();
+        true
+    }
 }
 
 #[cfg(test)]
@@ -515,6 +562,43 @@ mod decoded_cache_tests {
         assert_eq!(cache.items.len(), 1);
         cache.insert("fc9313-large".into(), megapixels(70), HashMap::new(), None);
         assert!(cache.items.is_empty());
+    }
+
+    #[test]
+    fn a_decode_made_ahead_never_pushes_out_the_open_photograph() {
+        let mut cache = DecodedImageCache::new(5);
+        let megapixels = |mp: u32| Arc::new(DynamicImage::new_rgb32f(mp * 1000, 1000));
+        cache.insert("previous".into(), megapixels(24), HashMap::new(), None);
+        cache.insert("open".into(), megapixels(24), HashMap::new(), None);
+        // The next 24 MP photo fits beside the open one; the older one goes.
+        assert!(cache.offer_ahead("next".into(), megapixels(24), HashMap::new(), None, 0));
+        assert!(cache.get("previous").is_none());
+        assert!(cache.get("open").is_some());
+        assert!(cache.get("next").is_some());
+        // Beside an open 45 MP photo a 45 MP one does not fit the cache's
+        // own budget: not kept; within a larger budget it is.
+        let mut large = DecodedImageCache::new(5);
+        large.insert("open".into(), megapixels(45), HashMap::new(), None);
+        assert!(!large.offer_ahead("next".into(), megapixels(45), HashMap::new(), None, 0));
+        assert!(large.get("open").is_some());
+        assert!(large.get("next").is_none());
+        assert!(large.offer_ahead("next".into(), megapixels(45), HashMap::new(), None, 3 << 30));
+        assert!(large.get("open").is_some());
+        assert!(large.get("next").is_some());
+        // The next decode kept ahead lets the one before go, never the open one.
+        large.get("open");
+        assert!(large.offer_ahead(
+            "after".into(),
+            megapixels(45),
+            HashMap::new(),
+            None,
+            1200 << 20
+        ));
+        assert!(large.get("open").is_some() && large.get("after").is_some());
+        assert!(large.get("next").is_none());
+        // Nothing is kept ahead in a cache of one decode or none.
+        let mut one = DecodedImageCache::new(1);
+        assert!(!one.offer_ahead("next".into(), megapixels(12), HashMap::new(), None, 3 << 30));
     }
 
     #[test]

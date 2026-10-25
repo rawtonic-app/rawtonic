@@ -358,6 +358,9 @@ export interface MyLens {
   model: string;
 }
 
+/** What `activate_photo` put on screen natively for the next photograph. */
+export type Activation = 'none' | 'developed' | 'still';
+
 /** Crop grid: always, only while the frame is dragged (Capture One), or off. */
 export type CropGrid = 'always' | 'drag' | 'off';
 
@@ -365,6 +368,8 @@ export interface AppSettings {
   checkForUpdates?: boolean;
   /** Rawtonic's own presets and styles in the Styles panel and the tools' preset menus (missing: shown). */
   showBuiltinPresets?: boolean;
+  /** Develop: a rating or flag key steps to the next photograph (missing: off). */
+  autoAdvance?: boolean;
   /** Offer a crash report after Rawtonic quit unexpectedly (missing: yes). */
   crashReports?: boolean;
   /** Anonymous weekly usage statistics (ADR 0017); off unless true. */
