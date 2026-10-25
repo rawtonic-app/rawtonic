@@ -1115,10 +1115,14 @@ fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32
         const INSIDE: f64 = 0.01;
         let zoom = (1.0 + (params.lens_zoom as f64 - 1.0) * lens_dist_amt.clamp(0.0, 1.0)).max(1.0);
         let (last_x, last_y) = (width as f64 - 1.0, height as f64 - 1.0);
+        // A pixel that samples its own position (no distortion at this
+        // amount) is inside as it is.
         let inside = |dx: f64, dy: f64, s: f64| {
             let g = ratio(dx / s, dy / s) / s;
             let (x, y) = (cx + dx * g, cy + dy * g);
-            (INSIDE..=last_x - INSIDE).contains(&x) && (INSIDE..=last_y - INSIDE).contains(&y)
+            (g - 1.0).abs() < 1e-12
+                || ((INSIDE..=last_x - INSIDE).contains(&x)
+                    && (INSIDE..=last_y - INSIDE).contains(&y))
         };
         let columns = (0..(width as u32).max(1)).map(f64::from);
         let rows = (0..(height as u32).max(1)).map(f64::from);
@@ -7738,6 +7742,35 @@ mod warp_points_tests {
                 );
             }
         }
+    }
+
+    /// At a distortion amount of 0 the exact framing moves no pixel: the
+    /// same image as with the distortion switched off.
+    #[test]
+    fn an_exact_lens_zoom_at_zero_amount_is_the_unwarped_image() {
+        let (w, h) = (600u32, 400u32);
+        let image = coordinates(w, h);
+        let exact = GeometryParams {
+            lens_distortion_enabled: true,
+            lens_distortion_amount: 0.0,
+            lens_profile_exact: true,
+            lens_model: 1,
+            lens_dist_k3: -0.02,
+            lens_zoom: 1.0,
+            lens_zoom_exact: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            compute_lens_auto_crop_scale(&exact, w as f32, h as f32),
+            1.0
+        );
+        let off = GeometryParams {
+            lens_distortion_enabled: false,
+            ..exact.clone()
+        };
+        let a = warp_image_geometry(&image, exact).into_rgb32f();
+        let b = warp_image_geometry(&image, off).into_rgb32f();
+        assert_eq!(a.as_raw(), b.as_raw());
     }
 
     #[test]
