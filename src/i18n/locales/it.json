@@ -1373,7 +1373,11 @@
       "importFrom": "Inizia da Lightroom o Capture One",
       "open": "Apri un progetto",
       "tagline": "File locali. Modifiche non distruttive. Le tue foto.",
-      "title": "Un posto per ogni incarico."
+      "title": "Un posto per ogni incarico.",
+      "toolsHint": "Puoi cambiarlo in seguito in Preferenze → Generale.",
+      "toolsLeft": "Strumenti a sinistra",
+      "toolsRight": "Strumenti a destra",
+      "toolsSide": "Dove preferisci gli strumenti di Sviluppo?"
     }
   },
   "settings": {

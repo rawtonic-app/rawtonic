@@ -1279,7 +1279,11 @@
       "importFrom": "从 Lightroom 或 Capture One 开始",
       "open": "打开项目",
       "tagline": "本地文件。无损编辑。你的照片。",
-      "title": "每个项目，都有归处。"
+      "title": "每个项目，都有归处。",
+      "toolsHint": "您可以稍后在偏好设置 → 常规中更改。",
+      "toolsLeft": "工具在左侧",
+      "toolsRight": "工具在右侧",
+      "toolsSide": "您希望将显影工具放在哪一侧？"
     }
   },
   "settings": {

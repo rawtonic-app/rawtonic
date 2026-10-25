@@ -1279,7 +1279,11 @@
       "importFrom": "Lightroom または Capture One から始める",
       "open": "プロジェクトを開く",
       "tagline": "ローカルファイル。非破壊編集。あなたの写真。",
-      "title": "すべての仕事に、ひとつの場所を。"
+      "title": "すべての仕事に、ひとつの場所を。",
+      "toolsHint": "後から環境設定 → 一般で変更できます。",
+      "toolsLeft": "ツールを左に配置",
+      "toolsRight": "ツールを右に配置",
+      "toolsSide": "現像ツールをどちら側に配置しますか？"
     }
   },
   "settings": {

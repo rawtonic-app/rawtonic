@@ -1429,7 +1429,11 @@
       "importFrom": "Zacznij od Lightroom lub Capture One",
       "open": "Otwórz projekt",
       "tagline": "Pliki lokalne. Edycja niedestrukcyjna. Twoje zdjęcia.",
-      "title": "Miejsce na każde zlecenie."
+      "title": "Miejsce na każde zlecenie.",
+      "toolsHint": "Możesz to później zmienić w Preferencje → Ogólne.",
+      "toolsLeft": "Narzędzia po lewej",
+      "toolsRight": "Narzędzia po prawej",
+      "toolsSide": "Gdzie umieścić narzędzia wywoływania?"
     }
   },
   "settings": {

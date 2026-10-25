@@ -1279,7 +1279,11 @@
       "importFrom": "從 Lightroom 或 Capture One 開始",
       "open": "開啟專案",
       "tagline": "本機檔案。非破壞性編輯。你的照片。",
-      "title": "每個案子，都有歸處。"
+      "title": "每個案子，都有歸處。",
+      "toolsHint": "您可以稍後在偏好設定 → 一般中變更。",
+      "toolsLeft": "工具在左側",
+      "toolsRight": "工具在右側",
+      "toolsSide": "您希望將顯影工具放在哪一側？"
     }
   },
   "settings": {

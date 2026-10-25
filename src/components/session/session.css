@@ -640,3 +640,29 @@
 /* Native checkboxes draw no shadow; the row around the focused one shows it. */
 .session-sync-dialog label:has(> input:focus-visible) { outline: 2px solid #b4c8d3; outline-offset: 1px; border-radius: 3px; }
 .session-sync-skipped { display: grid; gap: 2px; max-height: 160px; overflow: auto; font-size: 11px; width: 100%; }
+
+/* First-start choice uses native radios: Tab, arrows and Space all work. */
+.session-tools-side {
+  margin-top: 24px;
+  border: 0;
+  padding: 0;
+  min-width: 0;
+  max-width: 100%;
+}
+.session-tools-side legend { width: 100%; font-size: 14px; margin-bottom: 12px; }
+.session-tools-side-options { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+.session-tools-side-options label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 12px 16px;
+  border: 1px solid var(--app-border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.session-tools-side-options label:has(:checked) { background: var(--app-card-active); border-color: var(--app-text-secondary); }
+.session-tools-side-options label:hover { background: var(--app-bg-secondary); }
+.session-tools-side-options input { accent-color: var(--app-text-primary); }
+.session-tools-side p { margin-top: 10px; font-size: 12px; }

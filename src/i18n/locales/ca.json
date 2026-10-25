@@ -1373,7 +1373,11 @@
       "importFrom": "Comença des de Lightroom o Capture One",
       "open": "Obre un projecte",
       "tagline": "Fitxers locals. Edició no destructiva. Les teves fotos.",
-      "title": "Un lloc per a cada encàrrec."
+      "title": "Un lloc per a cada encàrrec.",
+      "toolsHint": "Ho pots canviar més endavant a Preferències → General.",
+      "toolsLeft": "Eines a l’esquerra",
+      "toolsRight": "Eines a la dreta",
+      "toolsSide": "On vols les eines de Revelatge?"
     }
   },
   "settings": {

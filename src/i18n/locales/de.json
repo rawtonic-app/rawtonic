@@ -1317,7 +1317,11 @@
       "importFrom": "Aus Lightroom oder Capture One importieren…",
       "open": "Projekt oder Katalog öffnen",
       "tagline": "Lokale Dateien. Nicht-destruktive Bearbeitung. Deine Fotos.",
-      "title": "Deine Fotos. Deine Arbeitsweise."
+      "title": "Deine Fotos. Deine Arbeitsweise.",
+      "toolsHint": "Du kannst das später unter Einstellungen → Allgemein ändern.",
+      "toolsLeft": "Werkzeuge links",
+      "toolsRight": "Werkzeuge rechts",
+      "toolsSide": "Wo möchtest du die Entwickeln-Werkzeuge?"
     }
   },
   "settings": {

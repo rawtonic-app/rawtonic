@@ -1373,7 +1373,11 @@
       "importFrom": "Começar pelo Lightroom ou Capture One",
       "open": "Abrir um projeto",
       "tagline": "Arquivos locais. Edição não destrutiva. Suas fotos.",
-      "title": "Um lugar para cada trabalho."
+      "title": "Um lugar para cada trabalho.",
+      "toolsHint": "Pode alterar esta opção mais tarde em Preferências → Geral.",
+      "toolsLeft": "Ferramentas à esquerda",
+      "toolsRight": "Ferramentas à direita",
+      "toolsSide": "Onde prefere as ferramentas de Revelação?"
     }
   },
   "settings": {

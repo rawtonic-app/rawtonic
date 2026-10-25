@@ -45,6 +45,8 @@ afterEach(() => cleanup());
 beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
+  localStorage.clear();
+  useUIStore.setState({ studioToolLayout: "tools-left" });
   useUIStore.setState({ activeView: "library" });
   useLibraryStore.setState({
     rootPaths: [],
@@ -100,6 +102,7 @@ describe("Session workspace keyboard flows", () => {
       expect(navigate).toHaveBeenCalledWith(`${directory}/Capture`, true),
     );
     expect(screen.getByText("Acme")).toBeTruthy();
+    expect(localStorage.getItem("rawtonic.studio.layout")).toBe("tools-left");
   });
   it("keeps offline and pending-XMP status available as compact icons", async () => {
     const user = userEvent.setup();

@@ -1279,7 +1279,11 @@
       "importFrom": "Lightroom 또는 Capture One에서 시작",
       "open": "프로젝트 열기",
       "tagline": "로컬 파일. 비파괴 편집. 당신의 사진.",
-      "title": "모든 작업을 위한 한 곳."
+      "title": "모든 작업을 위한 한 곳.",
+      "toolsHint": "나중에 환경 설정 → 일반에서 변경할 수 있습니다.",
+      "toolsLeft": "왼쪽에 도구 배치",
+      "toolsRight": "오른쪽에 도구 배치",
+      "toolsSide": "현상 도구를 어느 쪽에 배치할까요?"
     }
   },
   "settings": {
