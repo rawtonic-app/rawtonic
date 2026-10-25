@@ -1107,12 +1107,12 @@ fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32
 
     // The camera's framing itself (`lens_zoom_exact`, scaled like the
     // distortion by the amount), zoomed further only where a border pixel
-    // would still sample outside (manual distortion, an amount below 100 %),
-    // without a margin. The warp samples pixel positions 0 … width − 1
-    // (`interpolate_pixel`); `INSIDE` covers its f32 rounding.
+    // would still sample outside (manual distortion, an amount below 100 %, a
+    // fitted curve's bulge), without a margin. Every border pixel is checked
+    // at the position the warp samples (0 … width − 1, `interpolate_pixel`);
+    // `INSIDE` covers its f32 rounding.
     if has_lens_correction && params.lens_zoom_exact {
         const INSIDE: f64 = 0.01;
-        const STEPS: usize = 32;
         let zoom = (1.0 + (params.lens_zoom as f64 - 1.0) * lens_dist_amt.clamp(0.0, 1.0)).max(1.0);
         let (last_x, last_y) = (width as f64 - 1.0, height as f64 - 1.0);
         let inside = |dx: f64, dy: f64, s: f64| {
@@ -1120,16 +1120,11 @@ fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32
             let (x, y) = (cx + dx * g, cy + dy * g);
             (INSIDE..=last_x - INSIDE).contains(&x) && (INSIDE..=last_y - INSIDE).contains(&y)
         };
-        return (0..=STEPS)
-            .flat_map(|i| {
-                let t = i as f64 / STEPS as f64;
-                [
-                    (t * last_x, 0.0),
-                    (t * last_x, last_y),
-                    (0.0, t * last_y),
-                    (last_x, t * last_y),
-                ]
-            })
+        let columns = (0..(width as u32).max(1)).map(f64::from);
+        let rows = (0..(height as u32).max(1)).map(f64::from);
+        return columns
+            .flat_map(|x| [(x, 0.0), (x, last_y)])
+            .chain(rows.flat_map(|y| [(0.0, y), (last_x, y)]))
             .fold(zoom, |scale, (px, py)| {
                 let (dx, dy) = (px - cx, py - cy);
                 if inside(dx, dy, scale) {
@@ -7712,12 +7707,20 @@ mod warp_points_tests {
         let (w, h) = (1500u32, 1000u32);
         let grey = image::Rgb([0.5f32, 0.5, 0.5]);
         let flat = DynamicImage::ImageRgb32F(image::ImageBuffer::from_pixel(w, h, grey));
-        for (k3, zoom) in [(-0.02f32, 1.0f32), (-0.0215, 1.01), (-0.06, 1.0)] {
+        // The last: a maximum inside the top edge, between its middle and
+        // corner (PTLens b −0.3, c 0.414).
+        for (k2, k3, zoom) in [
+            (0.0f32, -0.02f32, 1.0f32),
+            (0.0, -0.0215, 1.01),
+            (0.0, -0.06, 1.0),
+            (-0.3, 0.414, 1.0),
+        ] {
             let params = GeometryParams {
                 lens_distortion_enabled: true,
                 lens_distortion_amount: 1.0,
                 lens_profile_exact: true,
                 lens_model: 1,
+                lens_dist_k2: k2,
                 lens_dist_k3: k3,
                 lens_zoom: zoom,
                 lens_zoom_exact: true,
@@ -7729,7 +7732,10 @@ mod warp_points_tests {
                 .chain((0..h).flat_map(|y| [(0, y), (w - 1, y)]));
             for (x, y) in border {
                 let value = out.get_pixel(x, y)[0];
-                assert!(value > 0.4, "k3 {k3} zoom {zoom}: ({x},{y}) = {value}");
+                assert!(
+                    value > 0.4,
+                    "k2 {k2} k3 {k3} zoom {zoom}: ({x},{y}) = {value}"
+                );
             }
         }
     }

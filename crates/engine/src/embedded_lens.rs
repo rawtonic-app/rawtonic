@@ -189,6 +189,8 @@ pub struct SonyFrame {
     /// developed 3:2 frame's; below 1 for aspect crops), which the
     /// vignetting and CA data keep.
     pub frame_reach: f64,
+    /// Its width over its height.
+    pub aspect: f64,
     /// An interchangeable-lens body (`SonyLensSettings::interchangeable_lens`).
     pub interchangeable_lens: bool,
 }
@@ -198,6 +200,7 @@ impl SonyFrame {
     pub const FULL: SonyFrame = SonyFrame {
         reach: 1.0,
         frame_reach: 1.0,
+        aspect: 1.5,
         interchangeable_lens: false,
     };
 }
@@ -215,6 +218,7 @@ fn sony_sensor_frame(source: &RawSource) -> Option<SonyFrame> {
     let reach = w.hypot(h) / (sensor_w as f64).hypot(sensor_h as f64);
     (w > 0.0 && h > 0.0 && (0.5..=1.0).contains(&reach)).then_some(SonyFrame {
         reach,
+        aspect: w / h,
         ..SonyFrame::FULL
     })
 }
@@ -253,26 +257,41 @@ pub fn sony_lens(
         .enumerate()
         .map(|(i, &(_, k))| (i as f64 / last / frame.reach, k))
         .collect();
-    let scale = if frame.interchangeable_lens {
-        // The 3:2 frame's border (the camera frames it, then crops to the
-        // aspect ratio: A7C 4:3 and ZV-E10 16:9 frames 0.27 and 0.31 JPEG px
-        // median against the camera's JPEG, 2.4 and 1.0 with their own
-        // border, 0.33 with the sensor's margins included; 24 ILC files:
-        // 0.42 median), in output radii from the shorter side's midpoint to
-        // the corner; the curve is linear between its knots.
-        let corner = 1.0 / frame.frame_reach;
-        let short = corner / 1.5f64.hypot(1.0);
-        let peak = curve
+    // The largest k on a frame's border, whose radii run from the shorter
+    // side's midpoint (`short`) to the corner; the curve is linear between
+    // its knots.
+    let peak = |short: f64, corner: f64| {
+        curve
             .iter()
             .map(|&(r, _)| r)
             .filter(|r| (short..corner).contains(r))
             .chain([short, corner])
             .map(|r| interpolate(&curve, r))
-            .fold(f64::MIN, f64::max);
-        1.0 / peak
+            .fold(f64::MIN, f64::max)
+    };
+    let short_of = |aspect: f64| 1.0 / aspect.max(1.0 / aspect).hypot(1.0);
+    // The 3:2 frame's border in output radii (an aspect crop lies inside).
+    let full_corner = 1.0 / frame.frame_reach;
+    let full_peak = peak(short_of(1.5) * full_corner, full_corner);
+    // Interchangeable-lens bodies: the 3:2 frame's border (the camera frames
+    // it, then crops to the aspect ratio: A7C 4:3 and ZV-E10 16:9 frames 0.27
+    // and 0.31 JPEG px median against the camera's JPEG, 2.4 and 1.0 with
+    // their own border, 0.33 with the sensor's margins included; 24 ILC
+    // files: 0.42 median).
+    let scale = if frame.interchangeable_lens {
+        1.0 / full_peak
     } else {
         1.0
     };
+    // An aspect crop whose border that framing takes beyond the 3:2 frame's
+    // reach: the camera corrects the whole sensor before cropping (HX95,
+    // ZV-1 II and RX0 II 16:9: up to 2.4 % beyond the top edge), but the
+    // warp only has the cropped frame's pixels and would zoom in instead, so
+    // such a frame keeps version 0's reading (notes: parity-gaps/G71).
+    let needed = scale * peak(short_of(frame.aspect), 1.0);
+    if needed > (scale * full_peak).max(1.0) + 1e-3 {
+        return Some(data);
+    }
     let (distortion, zoom) = framed_curve(|u| scale * interpolate(&curve, u))?;
     Some(EmbeddedLensData {
         distortion,
@@ -2481,6 +2500,7 @@ mod tests {
         let cropped = SonyFrame {
             reach,
             frame_reach: reach,
+            aspect: 4.0 / 3.0,
             ..frame
         };
         let data = sony_lens(&RX100M3_DISTORTION_VALUES, None, None, cropped, 1).unwrap();
@@ -2493,6 +2513,35 @@ mod tests {
                 "4:3 u {u}: {got} vs {expected}"
             );
         }
+    }
+
+    #[test]
+    fn sony_frames_without_the_pixels_their_framing_samples_keep_version_0() {
+        // ZV-1 II at 6.9 mm (as stored): k = 1.024 at a 16:9 frame's top
+        // edge, which the camera corrects from the sensor beyond the crop.
+        const ZV1M2: [f64; 17] = [
+            11.0, 1036.0, 1064.0, 1000.0, 844.0, 585.0, 230.0, -207.0, -702.0, -1218.0, -1728.0,
+            -2225.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        ];
+        let wide = SonyFrame {
+            reach: 5472.0f64.hypot(3080.0) / 5504.0f64.hypot(3672.0),
+            frame_reach: 5472.0f64.hypot(3080.0) / 5472.0f64.hypot(3648.0),
+            aspect: 5472.0 / 3080.0,
+            interchangeable_lens: false,
+        };
+        let data = sony_lens(&ZV1M2, None, None, wide, 1).unwrap();
+        assert_eq!(data, sony_lens(&ZV1M2, None, None, wide, 0).unwrap());
+        assert!(!data.exact_zoom);
+        // RX100 VI data stay inside the same frame: version 1.
+        const RX100M6: [f64; 17] = [
+            11.0, -827.0, -821.0, -801.0, -767.0, -719.0, -653.0, -571.0, -468.0, -337.0, -180.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        ];
+        assert!(sony_lens(&RX100M6, None, None, wide, 1).unwrap().exact_zoom);
+        // Data that need more than the sensor in a full frame are no crop's
+        // doing: version 1, framed inside.
+        let full = sony_lens(&SONY_DISTORTION_VALUES, None, None, SonyFrame::FULL, 1).unwrap();
+        assert!(full.exact_zoom);
     }
 
     #[test]
