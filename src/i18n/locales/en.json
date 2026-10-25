@@ -179,7 +179,8 @@
       "zoom_100": "Zoom to 100 %",
       "zoom_fit": "Zoom to Fit",
       "zoom_in": "Zoom In",
-      "zoom_out": "Zoom Out"
+      "zoom_out": "Zoom Out",
+      "clear_recent": "Clear Menu"
     },
     "menus": {
       "app": "{{app}}",
@@ -209,7 +210,9 @@
       "colorLabel": "Color Label",
       "flag": "Flag",
       "panels": "Panels",
-      "rating": "Rating"
+      "rating": "Rating",
+      "recent": "Open Recent",
+      "recipes": "Export with Recipe"
     }
   },
   "contextMenus": {

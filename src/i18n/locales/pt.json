@@ -179,7 +179,8 @@
       "zoom_100": "Zoom 100 %",
       "zoom_fit": "Ajustar à janela",
       "zoom_in": "Ampliar",
-      "zoom_out": "Reduzir"
+      "zoom_out": "Reduzir",
+      "clear_recent": "Limpar menu"
     },
     "menus": {
       "app": "{{app}}",
@@ -209,7 +210,9 @@
       "colorLabel": "Etiqueta de cor",
       "flag": "Marca",
       "panels": "Painéis",
-      "rating": "Classificação"
+      "rating": "Classificação",
+      "recent": "Abrir recentes",
+      "recipes": "Exportar com receita"
     }
   },
   "contextMenus": {

@@ -412,6 +412,7 @@ export interface AppSettings {
   pinnedFolders?: string[];
   lastRootPath: string | null;
   rootFolders?: string[];
+  recentLibraries?: string[];
   libraryViewMode?: LibraryViewMode;
   sortCriteria?: SortCriteria;
   /** Legacy: there is no theme choice any more; old values are kept but ignored. */

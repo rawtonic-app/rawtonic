@@ -179,7 +179,8 @@
       "zoom_100": "Zoom al 100 %",
       "zoom_fit": "Ajusta a la finestra",
       "zoom_in": "Amplia",
-      "zoom_out": "Redueix"
+      "zoom_out": "Redueix",
+      "clear_recent": "Buida el menú"
     },
     "menus": {
       "app": "{{app}}",
@@ -209,7 +210,9 @@
       "colorLabel": "Etiqueta de color",
       "flag": "Marca",
       "panels": "Taulers",
-      "rating": "Valoració"
+      "rating": "Valoració",
+      "recent": "Obre recents",
+      "recipes": "Exporta amb recepta"
     }
   },
   "contextMenus": {

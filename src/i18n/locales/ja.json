@@ -179,7 +179,8 @@
       "zoom_100": "100 %表示",
       "zoom_fit": "ウインドウに合わせる",
       "zoom_in": "拡大",
-      "zoom_out": "縮小"
+      "zoom_out": "縮小",
+      "clear_recent": "メニューを消去"
     },
     "menus": {
       "app": "{{app}}",
@@ -209,7 +210,9 @@
       "colorLabel": "カラーラベル",
       "flag": "フラグ",
       "panels": "パネル",
-      "rating": "レーティング"
+      "rating": "レーティング",
+      "recent": "最近使ったライブラリ",
+      "recipes": "レシピで書き出し"
     }
   },
   "contextMenus": {

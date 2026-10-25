@@ -179,7 +179,8 @@
       "zoom_100": "Powiększenie 100 %",
       "zoom_fit": "Dopasuj do okna",
       "zoom_in": "Powiększ",
-      "zoom_out": "Pomniejsz"
+      "zoom_out": "Pomniejsz",
+      "clear_recent": "Wyczyść menu"
     },
     "menus": {
       "app": "{{app}}",
@@ -209,7 +210,9 @@
       "colorLabel": "Etykieta koloru",
       "flag": "Flaga",
       "panels": "Panele",
-      "rating": "Ocena"
+      "rating": "Ocena",
+      "recent": "Otwórz ostatnie",
+      "recipes": "Eksportuj z recepturą"
     }
   },
   "contextMenus": {

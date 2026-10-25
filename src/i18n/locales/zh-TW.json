@@ -179,7 +179,8 @@
       "zoom_100": "縮放至 100 %",
       "zoom_fit": "符合視窗",
       "zoom_in": "放大",
-      "zoom_out": "縮小"
+      "zoom_out": "縮小",
+      "clear_recent": "清除選單"
     },
     "menus": {
       "app": "{{app}}",
@@ -209,7 +210,9 @@
       "colorLabel": "色彩標籤",
       "flag": "旗標",
       "panels": "面板",
-      "rating": "星等"
+      "rating": "星等",
+      "recent": "打開最近使用",
+      "recipes": "使用配方匯出"
     }
   },
   "contextMenus": {

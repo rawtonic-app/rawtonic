@@ -13,7 +13,7 @@
  * menu splits them from Undo), File for libraries, import and export.
  */
 import { effectiveCombos, KEYBIND_DEFINITIONS } from './keyboardUtils';
-import { appCommand, appCommandEnabled } from './appCommands';
+import { appCommand, appCommandEnabled, appMenuCommands } from './appCommands';
 
 export type NativeRole =
   | 'services'
@@ -39,6 +39,7 @@ type Entry =
       /** The key the menu shows when the action has several (Redo: ⇧⌘Z). */
       preferCombo?: string[];
     }
+  | { dynamic: 'recent' | 'recipes' }
   | { submenu: string; items: Entry[] }
   | { native: NativeRole };
 
@@ -76,11 +77,13 @@ export const MENU_LAYOUT: TopMenu[] = [
     items: [
       c('new_session'),
       c('open_session'),
+      { dynamic: 'recent' },
       'separator',
       c('import_photos'),
       c('tether_capture'),
       'separator',
       c('toggle_export'),
+      { dynamic: 'recipes' },
       'separator',
       { native: 'closeWindow' },
     ],
@@ -222,6 +225,7 @@ export interface BuiltMenu {
   combos: Map<string, string>;
   /** Commands shown with a check mark. */
   checks: Set<string>;
+  commands: string[];
 }
 
 export const MENU_ID_PREFIX = 'cmd:';
@@ -295,6 +299,15 @@ export function buildMenuSpec(
     entries.map((entry): MenuNode => {
       if (entry === 'separator') return { kind: 'separator' };
       if ('native' in entry) return { kind: 'native', role: entry.native, label: t(`appMenu.native.${entry.native}`, { app }) };
+      if ('dynamic' in entry) return {
+        kind: 'submenu', label: t(`appMenu.submenus.${entry.dynamic}`),
+        items: [
+          ...appMenuCommands(entry.dynamic).map(([command, handler]): MenuNode => ({
+            kind: 'item', id: `${MENU_ID_PREFIX}${command}`, label: handler.menu!.label, enabled: enabled(command),
+          })),
+          ...(entry.dynamic === 'recent' ? [{ kind: 'separator' } as MenuNode, item({ command: 'clear_recent' })] : []),
+        ],
+      };
       if ('submenu' in entry) return { kind: 'submenu', label: t(`appMenu.submenus.${entry.submenu}`), items: nodes(entry.items) };
       return item(entry);
     });
@@ -306,7 +319,13 @@ export function buildMenuSpec(
       items: nodes(top.items),
     }),
   );
-  return { spec: { menus }, combos, checks };
+  const commands: string[] = [];
+  const collect = (nodes: MenuNode[]) => nodes.forEach((node) => {
+    if (node.kind === 'item') commands.push(node.id.slice(MENU_ID_PREFIX.length));
+    if (node.kind === 'submenu') collect(node.items);
+  });
+  collect(menus);
+  return { spec: { menus }, combos, checks, commands };
 }
 
 /** Every command the layout places. */
@@ -315,7 +334,8 @@ export function menuCommands(): string[] {
   const walk = (entries: Entry[]) => {
     for (const entry of entries) {
       if (entry === 'separator' || 'native' in entry) continue;
-      if ('submenu' in entry) walk(entry.items);
+      if ('dynamic' in entry) { if (entry.dynamic === 'recent') out.push('clear_recent'); }
+      else if ('submenu' in entry) walk(entry.items);
       else out.push(entry.command);
     }
   };
@@ -331,7 +351,7 @@ export interface MenuItemState {
 
 /** The enabled and checked state of every command item now. */
 export function menuItemStates(menu: BuiltMenu, enabled: (command: string) => boolean = appCommandEnabled): MenuItemState[] {
-  return menuCommands().map((command) => {
+  return menu.commands.map((command) => {
     const state: MenuItemState = { id: `${MENU_ID_PREFIX}${command}`, enabled: enabled(command) };
     if (menu.checks.has(command)) state.checked = !!appCommand(command)?.checked?.();
     return state;

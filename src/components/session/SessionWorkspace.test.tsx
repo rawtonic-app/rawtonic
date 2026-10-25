@@ -1,3 +1,6 @@
+import { useSettingsStore } from "../../store/useSettingsStore";
+import { appCommand, runAppCommand } from "../../utils/appCommands";
+import type { AppSettings } from "../ui/AppProperties";
 import "../../i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, cleanup, act, within } from "@testing-library/react";
@@ -46,6 +49,7 @@ beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
   localStorage.clear();
+  useSettingsStore.setState({ appSettings: null });
   useUIStore.setState({ studioToolLayout: "tools-left" });
   useUIStore.setState({ activeView: "library" });
   useLibraryStore.setState({
@@ -579,4 +583,31 @@ it("lets form controls receive keys that the dialog does not handle", async () =
   await user.keyboard("{Escape}");
   expect(handler).toHaveBeenCalledTimes(2);
   expect(document.querySelector("dialog[open]")).toBeNull();
+});
+
+it('opens recent libraries through the normal workflow, records success and clears only the menu', async () => {
+  useSettingsStore.setState({ appSettings: { recentLibraries: ['/jobs/Old'] } as AppSettings });
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (command, args) => command === 'session_open' ? summary : base(command, args));
+  const navigate = vi.fn(async () => {});
+  render(<SessionWorkspace onNavigate={navigate} />);
+  act(() => { expect(runAppCommand('recent:/jobs/Old')).toBe(true); });
+  await waitFor(() => expect(navigate).toHaveBeenCalledWith('/jobs/Acme/Capture', true));
+  await waitFor(() => expect(useSettingsStore.getState().appSettings?.recentLibraries).toEqual(['/jobs/Acme', '/jobs/Old']));
+  expect(invoke).toHaveBeenCalledWith('save_settings', { settings: expect.objectContaining({ recentLibraries: ['/jobs/Acme', '/jobs/Old'] }) });
+  act(() => { expect(runAppCommand('clear_recent')).toBe(true); });
+  expect(useSettingsStore.getState().appSettings?.recentLibraries).toEqual([]);
+  expect(appCommand('recent:/jobs/Old')).toBeUndefined();
+  expect(useLibraryStore.getState().sessionDirectory).toBe('/jobs/Acme');
+});
+
+it('keeps offline recents after a failed open and never records the failed attempt', async () => {
+  useSettingsStore.setState({ appSettings: { recentLibraries: ['/offline/Session'] } as AppSettings });
+  vi.mocked(invoke).mockRejectedValue(new Error('Drive is disconnected'));
+  const navigate = vi.fn(async () => {});
+  render(<SessionWorkspace onNavigate={navigate} />);
+  act(() => { runAppCommand('recent:/offline/Session'); });
+  await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Error: Drive is disconnected'));
+  expect(navigate).not.toHaveBeenCalled();
+  expect(useSettingsStore.getState().appSettings?.recentLibraries).toEqual(['/offline/Session']);
 });

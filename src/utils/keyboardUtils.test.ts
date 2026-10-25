@@ -2,6 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { KEYBIND_DEFINITIONS, buildComboMap, conflictingActions, shortcutHint } from './keyboardUtils';
 
 describe('keybinds', () => {
+  it.each([
+    ['view_grid', ['KeyG']], ['view_loupe', ['KeyE']], ['view_develop', ['KeyD']],
+    ['flag_pick', ['KeyP']], ['flag_unflag', ['KeyU']], ['flag_reject', ['shift', 'KeyX']],
+  ])('binds and rebinds %s through the shared table', (action, combo) => {
+    expect(buildComboMap(null).get(combo.join('+'))).toContain(action);
+    const rebound = buildComboMap({ [action as string]: ['ctrl', 'KeyF12'] });
+    expect(rebound.get(combo.join('+')) ?? []).not.toContain(action);
+    expect(rebound.get('ctrl+KeyF12')).toContain(action);
+    expect(buildComboMap({ [action as string]: [] }).get(combo.join('+')) ?? []).not.toContain(action);
+  });
   it('bind Capture One keys with Lightroom aliases', () => {
     const map = buildComboMap(null);
     expect(map.get('KeyB')).toEqual(['tool_brush']);
@@ -27,7 +37,7 @@ describe('keybinds', () => {
   });
 
   it('drop the defaults once the user assigns a key, and an empty key disables', () => {
-    const map = buildComboMap({ tool_brush: ['KeyG'], show_original: [] });
+    const map = buildComboMap({ tool_brush: ['KeyG'], view_grid: [], show_original: [] });
     expect(map.get('KeyG')).toEqual(['tool_brush']);
     expect(map.has('KeyB')).toBe(false);
     expect(map.has('KeyK')).toBe(false);
@@ -37,9 +47,8 @@ describe('keybinds', () => {
   it('keep every default key unique within a view', () => {
     const map = buildComboMap(null);
     const clashes = [...map].filter(([, actions]) => {
-      const sections = actions.map((a) => KEYBIND_DEFINITIONS.find((d) => d.action === a)!.section);
       // Library-only and Develop-only actions may share a key.
-      return actions.length > 1 && !(sections.includes('tools') && actions.length === 2);
+      return actions.length > 1 && !(actions.includes('view_loupe') && actions.includes('tool_erase') && actions.length === 2);
     });
     expect(clashes).toEqual([]);
   });

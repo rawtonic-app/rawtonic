@@ -1,3 +1,5 @@
+import { buildComboMap, normalizeCombo } from "../../utils/keyboardUtils";
+import { withRecentLibrary } from "../../utils/recentLibraries";
 import { validNamingTemplate, validSequenceStart, type NamePreview } from "../../utils/namingTemplates";
 import NamingEditor from "../ui/NamingEditor";
 import LibraryTransferDialog, { type TransferPurpose } from "./LibraryTransferDialog";
@@ -80,7 +82,7 @@ import { catalogChanged } from "../../utils/catalogWrites";
 import "./session.css";
 import { noteTool } from "../contribute/usageStats";
 import { flagTargets, viewerShown } from "../../utils/viewerMode";
-import { notifyAppCommandsChanged, registerAppCommands } from "../../utils/appCommands";
+import { notifyAppCommandsChanged, registerAppCommands, runAppCommand } from "../../utils/appCommands";
 
 export interface SessionSummary {
   directory: string;
@@ -430,6 +432,11 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           rootFolders: [root],
         });
       await onNavigate(await join(root, summary.manifest.capture), true);
+      const current = useSettingsStore.getState();
+      if (current.appSettings) void current.handleSettingsChange({
+        ...current.appSettings,
+        recentLibraries: withRecentLibrary(current.appSettings.recentLibraries, root),
+      });
     },
     [onNavigate],
   );
@@ -903,6 +910,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     flag: (_flag: number) => {},
     newSession: () => {},
     openSession: () => {},
+    openRecent: (_directory: string) => {},
     importPhotos: () => {},
     idle: false,
     flaggable: false,
@@ -918,6 +926,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       setForm("create");
     },
     openSession: () => void openSession(),
+    openRecent: (directory: string) => void openRecentDirectory(directory),
     importPhotos: () => openIngest(),
     idle: !busy && !importing && !form,
     // As the keys: with a library open, no dialog over it.
@@ -949,6 +958,34 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     });
   }, []);
 
+  const recentLibraries = useSettingsStore((state) => state.appSettings?.recentLibraries);
+  const settingsLoaded = useSettingsStore((state) => !!state.appSettings);
+  useEffect(() => {
+    if (!settingsLoaded || recentLibraries !== undefined || !isTauri()) return;
+    let active = true;
+    void invoke<string | null>(Invokes.SessionLastDirectory).then((directory) => {
+      const current = useSettingsStore.getState();
+      if (active && directory && current.appSettings && current.appSettings.recentLibraries === undefined) {
+        void current.handleSettingsChange({ ...current.appSettings, recentLibraries: [directory] });
+      }
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [settingsLoaded, recentLibraries]);
+  useEffect(() => registerAppCommands({
+    clear_recent: {
+      enabled: () => !!useSettingsStore.getState().appSettings?.recentLibraries?.length,
+      run: () => {
+        const current = useSettingsStore.getState();
+        if (current.appSettings) void current.handleSettingsChange({ ...current.appSettings, recentLibraries: [] });
+      },
+    },
+    ...Object.fromEntries((recentLibraries ?? []).map((directory) => [`recent:${directory}`, {
+      menu: { group: 'recent' as const, label: directory },
+      enabled: () => menuCommands.current.idle,
+      run: () => menuCommands.current.openRecent(directory),
+    }])),
+  }), [recentLibraries]);
+
   useLayoutEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -965,21 +1002,18 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         return;
       }
       if (
-        e.ctrlKey ||
-        e.metaKey ||
-        e.altKey ||
         document.querySelector('dialog[open], [aria-modal="true"]') ||
         target.closest('input,textarea,select,[contenteditable="true"]')
       )
         return;
-      // Pick P, unflag U, reject ⇧X: plain X is the proof margin (Capture
-      // One's key, user decision 2026-10-11).
-      const key = e.key.toLowerCase();
-      const flag = key === "p" ? 1 : key === "u" ? 0 : key === "x" && e.shiftKey ? -1 : null;
-      if (session && flag !== null) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        menuCommands.current.flag(flag);
+      const settings = useSettingsStore.getState();
+      const actions = buildComboMap(settings.appSettings?.keybinds).get(normalizeCombo(e, settings.osPlatform).join('+')) ?? [];
+      for (const action of actions) {
+        if (action.startsWith('flag_') && runAppCommand(action)) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          break;
+        }
       }
     };
     window.addEventListener("keydown", handler, true);
@@ -1001,6 +1035,9 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       title: t("session.dialogs.openTitle"),
     });
     if (typeof directory !== "string") return;
+    await openRecentDirectory(directory);
+  };
+  const openRecentDirectory = async (directory: string) => {
     setBusy(true);
     setError("");
     try {

@@ -179,7 +179,8 @@
       "zoom_100": "Zoom 100 %",
       "zoom_fit": "Ganzes Bild",
       "zoom_in": "Einzoomen",
-      "zoom_out": "Auszoomen"
+      "zoom_out": "Auszoomen",
+      "clear_recent": "Menü löschen"
     },
     "menus": {
       "app": "{{app}}",
@@ -209,7 +210,9 @@
       "colorLabel": "Farbmarkierung",
       "flag": "Markierung",
       "panels": "Leisten",
-      "rating": "Bewertung"
+      "rating": "Bewertung",
+      "recent": "Benutzte Dokumente",
+      "recipes": "Mit Rezept exportieren"
     }
   },
   "contextMenus": {

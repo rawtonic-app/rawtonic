@@ -81,6 +81,21 @@
           "accelerator": "CmdOrCtrl+KeyO"
         },
         {
+          "kind": "submenu",
+          "label": "Open Recent",
+          "items": [
+            {
+              "kind": "separator"
+            },
+            {
+              "kind": "item",
+              "id": "cmd:clear_recent",
+              "label": "Clear Menu",
+              "enabled": false
+            }
+          ]
+        },
+        {
           "kind": "separator"
         },
         {
@@ -106,6 +121,11 @@
           "label": "Export…",
           "enabled": false,
           "accelerator": "CmdOrCtrl+Shift+KeyE"
+        },
+        {
+          "kind": "submenu",
+          "label": "Export with Recipe",
+          "items": []
         },
         {
           "kind": "separator"
