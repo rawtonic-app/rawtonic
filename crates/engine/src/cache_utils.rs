@@ -131,11 +131,13 @@ pub fn calculate_thumbnail_base_hash(adjustments: &serde_json::Value) -> u64 {
 /// Key of the uncropped preview's base (the photo before its geometry), so
 /// crop-mode geometry changes reuse it. Leaves the crop and the geometry out
 /// unless the base carries retouching placed in the mask frame (patches,
-/// spots, face retouch), which moves with the geometry.
+/// spots, face retouch), which moves with the geometry, or a film negative
+/// (its conversion corrects the lens vignetting on the scan).
 pub fn calculate_visual_hash(path: &str, adjustments: &serde_json::Value) -> u64 {
     let mut hasher = DefaultHasher::new();
     path.hash(&mut hasher);
-    let placed = crate::image_loader::has_base_retouch(adjustments);
+    let placed = crate::image_loader::has_base_retouch(adjustments)
+        || crate::negative::is_active(adjustments);
 
     if let Some(obj) = adjustments.as_object() {
         for (key, value) in obj {
@@ -463,6 +465,22 @@ mod resampling_hash_tests {
             assert_ne!(hash(&plain), hash(&negative(0.0, true)));
             assert_ne!(hash(&negative(0.0, true)), hash(&negative(0.5, true)));
         }
+        // The uncropped base of a negative holds its vignetting correction.
+        let vignette = |amount: f64| {
+            let mut recipe = negative(0.0, true);
+            recipe["lensVignetteAmount"] = serde_json::json!(amount);
+            recipe
+        };
+        assert_ne!(
+            calculate_visual_hash("/a.CR3", &vignette(50.0)),
+            calculate_visual_hash("/a.CR3", &vignette(100.0))
+        );
+        let mut plain_vignette = plain.clone();
+        plain_vignette["lensVignetteAmount"] = serde_json::json!(50.0);
+        assert_eq!(
+            calculate_visual_hash("/a.CR3", &plain),
+            calculate_visual_hash("/a.CR3", &plain_vignette)
+        );
     }
 }
 

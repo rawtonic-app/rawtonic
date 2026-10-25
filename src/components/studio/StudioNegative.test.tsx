@@ -150,3 +150,14 @@ it("drops a first conversion's analysis when the tool is reset meanwhile", async
   await act(async () => answer(ANALYSIS));
   expect(useEditorStore.getState().adjustments.negative).toBeUndefined();
 });
+
+it("drops a first conversion's analysis when the photo's adjustments are reset meanwhile", async () => {
+  let answer: (value: unknown) => void = () => {};
+  invoke.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+  render(<StudioNegative disabled={false} onInteraction={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "B&W negative" }));
+  // Reset Adjustments replaces the recipe while the analysis runs.
+  act(() => useEditorStore.setState({ adjustments: structuredClone(INITIAL_ADJUSTMENTS) }));
+  await act(async () => answer(ANALYSIS));
+  expect(useEditorStore.getState().adjustments.negative).toBeUndefined();
+});

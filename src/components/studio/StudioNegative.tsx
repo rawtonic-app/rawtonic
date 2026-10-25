@@ -56,7 +56,8 @@ export default function StudioNegative({
     if (!path) return;
     const request = ++autoRequest.current;
     const generation = negativeAnalysisGeneration();
-    const hadTool = !!useEditorStore.getState().adjustments.negative;
+    const started = useEditorStore.getState().adjustments;
+    const hadTool = !!started.negative;
     setAnalysing(true);
     try {
       const next = await autoNegative(path, useEditorStore.getState().adjustments, type);
@@ -65,7 +66,9 @@ export default function StudioNegative({
         if (prev.negative) {
           return { ...prev, negative: { ...prev.negative, base: next.base, highlight: next.highlight } };
         }
-        return hadTool ? prev : { ...prev, negative: next };
+        // A first conversion lands only on the recipe it was asked for: a
+        // reset or any other change meanwhile keeps the recipe as it is.
+        return hadTool || prev !== started ? prev : { ...prev, negative: next };
       });
     } catch (error) {
       toast.error(t("studio.develop.negative.analyzeFailed", { error: String(error) }));
