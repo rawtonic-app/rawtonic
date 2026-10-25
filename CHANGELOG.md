@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Clarity without dark rings beside narrow bright edges** (`clarityVersion` 3, new edits): Clarity measures local contrast against a local mean that leaves out samples standing far above their surroundings, so slats, balusters, window frames and sky between branches no longer get darker rings beside them; texture gains at least as much as before. Saved edits keep their Clarity.
 - Import metadata presets add creator, copyright (with a capture-year token), description, usage terms, credit and keywords. They fill empty fields unless explicitly set to overwrite; contact details are opt-in. Copy writes XMP after verified publication, while Add keeps metadata in the catalog pending the usual later XMP sync. Independent RAW/JPEG photographs sharing a stem retain the existing XMP ownership limit and report a warning.
   Selecting a preset also adopts readable embedded descriptions, keywords and IPTC fields so the new sidecar preserves them. Unreadable embedded XMP is ignored, as in capture-fact reading, and never blocks the photo's import.
 

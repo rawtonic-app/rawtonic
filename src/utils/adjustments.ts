@@ -1276,7 +1276,7 @@ export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 export const TONE_VERSION = 3;
 
 /** The Clarity response new edits start with (notes: parity-gaps/G06-presence.md). */
-export const CLARITY_VERSION = 2;
+export const CLARITY_VERSION = 3;
 
 /** The edge-fringe pass new RAW edits start with (notes: reference/edge-fringes.md). */
 export const FRINGE_VERSION = 4;

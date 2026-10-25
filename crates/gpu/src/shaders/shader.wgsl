@@ -243,7 +243,8 @@ struct GlobalAdjustments {
     // portable grain (apply_portable_grain).
     grain_version: u32,
     // The recipe's Clarity (`clarityVersion`): 1 the band against the plain
-    // large blur, 2 against clarity_base.
+    // large blur, 2 against clarity_base, 3 against the robust local mean
+    // (clarity_guide.wgsl).
     clarity_version: u32,
     // Median of the decode's linear luminance (image_key.rs); 0 = unknown.
     image_key_median: f32,
@@ -344,6 +345,9 @@ struct AllAdjustments {
 @group(0) @binding(9) var structure_blur_texture: texture_2d<f32>;
 // Blur of sigma 1 px for the luminance noise reduction's finest band.
 @group(0) @binding(17) var nr_blur_texture: texture_2d<f32>;
+// Clarity version 3's base (log2 luminance) at the tile's pixels, a texture
+// over its input region (clarity_guide.wgsl).
+@group(0) @binding(27) var clarity_guide_texture: texture_2d<f32>;
 @group(0) @binding(18) var relight_depth_texture: texture_2d<f32>;
 @group(0) @binding(19) var relight_camera_texture: texture_2d<f32>;
 @group(0) @binding(20) var relight_scene_texture: texture_2d<f32>;
@@ -2986,6 +2990,31 @@ fn apply_band_contrast_log(
     let luma = max(get_luma(color_linear), 0.0001);
     let own_log = log2(luma);
     let band = 2.0 * tanh((own_log - clarity_base(coords, own_log, scale)) * 0.5);
+    let noise_floor = smoothstep(0.0, 0.004, luma * exposure_gain);
+    return mix(color_linear, color_linear * exp2(band * amount), noise_floor);
+}
+
+// Clarity version 3: amounts, keeping at least version 2's texture gain
+// (11 photos: median log-gain ratio to version 2 about 1.04 / 1.04 / 1.02
+// at +100 / +50 / -50; notes: parity-gaps/G06-presence.md).
+const CLARITY3_GAIN_RAISE: f32 = 1.12;
+const CLARITY3_GAIN_LOWER: f32 = 0.28;
+// Clarity version 3: the band in log2 luminance against a local mean that
+// leaves out samples standing far above their surroundings (narrow bright
+// edges) for pixels at or below their own, and those far below for pixels
+// above (clarity_guide.wgsl), so narrow bright edges leave no dark rings.
+fn apply_band_contrast_robust(
+    color_linear: vec3<f32>,
+    coords: vec2<i32>,
+    amount: f32,
+    exposure_gain: f32
+) -> vec3<f32> {
+    if (amount == 0.0) {
+        return color_linear;
+    }
+    let luma = max(get_luma(color_linear), 0.0001);
+    let own_log = log2(luma);
+    let band = 2.0 * tanh((own_log - textureLoad(clarity_guide_texture, coords, 0).r) * 0.5);
     let noise_floor = smoothstep(0.0, 0.004, luma * exposure_gain);
     return mix(color_linear, color_linear * exp2(band * amount), noise_floor);
 }
@@ -7185,7 +7214,10 @@ fn main(
     let exposure_gain = exp2(t_exposure);
     locally_contrasted_rgb = apply_band_contrast(locally_contrasted_rgb, clarity_blurred,
         band_amount(t_structure, STRUCTURE_GAIN_RAISE, STRUCTURE_GAIN_LOWER), is_raw, exposure_gain);
-    if (adjustments.global.clarity_version >= 2u) {
+    if (adjustments.global.clarity_version >= 3u) {
+        locally_contrasted_rgb = apply_band_contrast_robust(locally_contrasted_rgb, vec2<i32>(id.xy),
+            band_amount(t_clarity, CLARITY3_GAIN_RAISE, CLARITY3_GAIN_LOWER), exposure_gain);
+    } else if (adjustments.global.clarity_version >= 2u) {
         locally_contrasted_rgb = apply_band_contrast_log(locally_contrasted_rgb, vec2<i32>(id.xy), scale,
             band_amount(t_clarity, CLARITY2_GAIN_RAISE, CLARITY2_GAIN_LOWER), exposure_gain);
     } else {

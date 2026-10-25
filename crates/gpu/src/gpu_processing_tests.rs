@@ -10548,6 +10548,38 @@ fn render_window_margin_covers_the_widest_read() {
     assert!(wide > render_window_margin(&plain.uniforms, 60_000, 2000));
 }
 
+#[test]
+fn render_window_margin_covers_clarity_version_3s_base() {
+    // A 9000 x 6000 px photo: the base reads twice its radius (40 x scale)
+    // around the tile, beyond the blurs' overlap plus radius.
+    let radius = (40.0_f32 * 6000.0 / 1080.0).ceil() as u32;
+    let v3 = get_all_adjustments_from_json(&json!({"clarity": 30, "clarityVersion": 3}), true, Some(2));
+    assert!(render_window_margin(&v3.uniforms, 9000, 6000) >= 2 * radius);
+    // Older Clarity and v3 without Clarity keep their margin.
+    let v2 = get_all_adjustments_from_json(&json!({"clarity": 30, "clarityVersion": 2}), true, Some(2));
+    let unused = get_all_adjustments_from_json(&json!({"clarityVersion": 3}), true, Some(2));
+    let plain = get_all_adjustments_from_json(&json!({}), true, Some(2));
+    let margin = render_window_margin(&plain.uniforms, 9000, 6000);
+    assert!(margin < 2 * radius);
+    assert_eq!(render_window_margin(&v2.uniforms, 9000, 6000), margin);
+    assert_eq!(render_window_margin(&unused.uniforms, 9000, 6000), margin);
+}
+
+#[test]
+fn clarity_version_3_reads_its_own_base_and_no_blur() {
+    let json = |version: u32| json!({"clarity": 40, "clarityVersion": version});
+    let blurs = |version| required_blurs(&get_all_adjustments_from_json(&json(version), true, Some(2)).uniforms);
+    assert_eq!(blurs(1), [false, false, false, true, false]);
+    assert_eq!(blurs(2), [false, false, true, true, false]);
+    assert_eq!(blurs(3), [false; 5]);
+    let guided = |profile: serde_json::Value| clarity_guided(&get_all_adjustments_from_json(&profile, true, Some(2)).uniforms);
+    assert!(guided(json(3)));
+    assert!(!guided(json(2)));
+    assert!(!guided(json!({"clarityVersion": 3})));
+    // Clarity on a layer only.
+    assert!(guided(json!({"clarityVersion": 3, "masks": [{"id": "l", "name": "L", "visible": true, "invert": false, "opacity": 100, "subMasks": [all_sub_mask()], "adjustments": {"clarity": 40}}]})));
+}
+
 /// A context whose texture limit is lowered to `max_dim`.
 fn limited_context(context: &GpuContext, max_dim: u32) -> GpuContext {
     let mut limited = context.clone();
@@ -10833,6 +10865,133 @@ fn clarity_version_2_cuts_the_halo_beside_a_narrow_bright_edge() {
     assert!(
         (a2 - a0) > 0.75 * (a1 - a0),
         "version 2 keeps most of the texture gain: {a2} vs {a1} (neutral {a0})"
+    );
+}
+
+/// Clarity version 3's base reads the input up to twice its radius beyond a
+/// tile (`run_guide`): far beyond the 128-pixel tile overlap on a 5400-pixel
+/// photo, so rows next to a tile seam render as the same content inside a
+/// tile.
+#[test]
+#[ignore = "requires a native GPU; Clarity version 3 at tile seams"]
+fn clarity_version_3_joins_tiles_exactly() {
+    let context = context();
+    let width = 5400;
+    let content = |y: i64, x: u32| {
+        let mut h = (y.div_euclid(16) as u32).wrapping_mul(0x9e37_79b9);
+        h ^= h >> 15;
+        let band = 0.1 + 0.8 * (h % 1000) as f32 / 1000.0;
+        let v = if x % 97 < 3 {
+            0.95
+        } else {
+            band + 0.05 * (x as f32 / width as f32)
+        };
+        image::Rgb([v, v * 0.9, v * 0.8])
+    };
+    let photo = |height: u32, shift: i64| {
+        DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
+            content(y as i64 - shift, x)
+        }))
+    };
+    let seam = 2048;
+    let rows = |shift: u32| Roi {
+        x: 0,
+        y: seam - 150 + shift,
+        width,
+        height: 300,
+    };
+    for render_version in [1, 3] {
+        let profile = json!({"clarity": 80, "renderVersion": render_version, "clarityVersion": 3});
+        let render = |source: &DynamicImage, roi: Roi| {
+            chunk_test_render(
+                &context,
+                source,
+                &profile,
+                false,
+                RenderOutputPrecision::SixteenBit,
+                Some(roi),
+            )
+            .unwrap()
+            .into_rgb16()
+        };
+        let at_seam = render(&photo(6000, 0), rows(0));
+        let inside = render(&photo(7024, 1024), rows(1024));
+        let diff = at_seam
+            .as_raw()
+            .iter()
+            .zip(inside.as_raw())
+            .map(|(a, b)| a.abs_diff(*b))
+            .max()
+            .unwrap();
+        assert!(
+            diff <= 1,
+            "render version {render_version}: a seam row renders as a tile's inside: {diff}"
+        );
+    }
+}
+
+/// Clarity version 3's base leaves a narrow bright stripe out of its dark
+/// surroundings' mean: they darken far less than with version 2, out to the
+/// 20–40 px where version 2's sampled base still rose, while texture away
+/// from the stripe gains at least as much.
+#[test]
+#[ignore = "requires a native GPU; Clarity version 3 halos beside a narrow bright stripe"]
+fn clarity_version_3_cuts_the_halo_beside_a_narrow_bright_edge() {
+    let context = context();
+    let (width, height) = (1200u32, 800u32);
+    let source = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
+        let v = if (598..602).contains(&x) && y < 400 {
+            0.9
+        } else if y >= 500 {
+            0.3 + 0.06 * (((x / 6 + y / 6) % 2) as f32 - 0.5)
+        } else {
+            0.2
+        };
+        image::Rgb([v, v, v])
+    }));
+    let render = |profile: serde_json::Value| {
+        chunk_test_render(
+            &context,
+            &source,
+            &profile,
+            false,
+            RenderOutputPrecision::SixteenBit,
+            None,
+        )
+        .unwrap()
+        .into_rgb16()
+    };
+    let neutral = render(json!({"renderVersion": 3}));
+    let v2 = render(json!({"renderVersion": 3, "clarity": 100, "clarityVersion": 2}));
+    let v3 = render(json!({"renderVersion": 3, "clarity": 100, "clarityVersion": 3}));
+    let level = |img: &image::ImageBuffer<image::Rgb<u16>, Vec<u16>>, x: u32, y: u32| {
+        img.get_pixel(x, y)[1] as f64
+    };
+    let halo = |img: &image::ImageBuffer<image::Rgb<u16>, Vec<u16>>, near: u32, far: u32| {
+        let xs: Vec<u32> = (600 - far..=600 - near).chain(600 + near..=600 + far).collect();
+        xs.iter()
+            .map(|&x| level(&neutral, x, 200) - level(img, x, 200))
+            .sum::<f64>()
+            / xs.len() as f64
+    };
+    let amplitude = |img: &image::ImageBuffer<image::Rgb<u16>, Vec<u16>>| {
+        let row: Vec<f64> = (100..1100).map(|x| level(img, x, 650)).collect();
+        let mean = row.iter().sum::<f64>() / row.len() as f64;
+        (row.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / row.len() as f64).sqrt()
+    };
+    let (near2, near3) = (halo(&v2, 6, 20), halo(&v3, 6, 20));
+    let (far2, far3) = (halo(&v2, 20, 40), halo(&v3, 20, 40));
+    let (a0, a2, a3) = (amplitude(&neutral), amplitude(&v2), amplitude(&v3));
+    println!(
+        "halo 6-20 px v2 {near2:.0} v3 {near3:.0}; 20-40 px v2 {far2:.0} v3 {far3:.0}; \
+         texture amplitude neutral {a0:.0} v2 {a2:.0} v3 {a3:.0}"
+    );
+    assert!(near2 > 500.0, "version 2 darkens beside the stripe: {near2}");
+    assert!(near3 < 0.5 * near2, "version 3 cuts the near halo: {near3} vs {near2}");
+    assert!(far3 < 0.5 * far2.max(1.0), "and the farther one: {far3} vs {far2}");
+    assert!(
+        a3 - a0 >= a2 - a0,
+        "version 3 keeps version 2's texture gain: {a3} vs {a2} (neutral {a0})"
     );
 }
 

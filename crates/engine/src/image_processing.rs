@@ -3325,7 +3325,9 @@ pub struct GlobalAdjustments {
     /// portable grain.
     pub grain_version: u32,
     /// The recipe's Clarity (`clarity_version`): 1 the band against a plain
-    /// blur, 2 against an edge-aware base (fewer halos at narrow edges).
+    /// blur, 2 against an edge-aware base (fewer halos at narrow edges), 3
+    /// against a local mean without the samples far above or below their
+    /// surroundings (no dark rings beside narrow bright edges).
     pub clarity_version: u32,
     /// Median of the decode's linear luminance (image_key.rs), like
     /// `image_key`; 0 = unknown. Lowered Highlights (tone version 3) adapts
@@ -6440,16 +6442,19 @@ pub fn grain_version(adjustments: &serde_json::Value) -> u64 {
 
 /// The recipe key naming the Clarity response it was made with.
 pub const CLARITY_VERSION_KEY: &str = "clarityVersion";
-/// The newest Clarity: 2 (2026-10-24) measures a pixel's medium-scale band in
-/// log luminance against a base taken from the large blur at the pixel and at
-/// sixteen points around it (plus the small blur), each weighted by how close
-/// its level is to the pixel's own, so a narrow bright edge pulls the base of
-/// its darker surroundings up less: per unit of texture gain the dark halo
-/// 1–6 px beside slats, frames and branches is 19–68 % of version 1's on six
-/// held-out photos (about half on a synthetic stripe); farther out it shrinks
-/// less (notes: parity-gaps/G06-presence.md "Clarity halos").
-/// Recipes without the key keep version 1.
-pub const CLARITY_VERSION: u64 = 2;
+/// The newest Clarity: 3 (2026-10-25) measures a pixel's medium-scale band
+/// in log luminance against a local mean that leaves out the samples
+/// standing far above their own surroundings (pixels above their own use the
+/// mean without those far below), so narrow bright edges leave no dark rings
+/// beside them: per unit of texture gain at +100 the ring 1–30 px beside
+/// slats, balusters, frames and branches is smaller than version 2's in 29 of
+/// 33 measurements on 11 photos and 16 of 18 on 6 held-out ones, at or below
+/// the better of Camera Raw and Capture One in 17 of 33 and 12 of 18 (notes:
+/// parity-gaps/G06-presence.md "Clarity halos"). 2 (2026-10-24) took the base
+/// from the large blur at the pixel and sixteen points around it, weighted by
+/// how close their level is to the pixel's own. Recipes without the key keep
+/// version 1.
+pub const CLARITY_VERSION: u64 = 3;
 
 /// The recipe's Clarity version, 1 when missing, never newer than this
 /// renderer knows.
@@ -6841,6 +6846,7 @@ mod clarity_version_tests {
         assert_eq!(version(json!({"clarity": 40})), 1);
         assert_eq!(version(json!({"clarity": 40, "clarityVersion": 1})), 1);
         assert_eq!(version(json!({"clarity": 40, "clarityVersion": 2})), 2);
+        assert_eq!(version(json!({"clarity": 40, "clarityVersion": 3})), 3);
         // A newer version than this renderer knows renders with its newest.
         assert_eq!(
             version(json!({"clarityVersion": 9})),

@@ -41,7 +41,7 @@
         "whites": 15,
         "blacks": -8,
         "clarity": 12,
-        "clarityVersion": 2
+        "clarityVersion": 3
       }
     },
     {
@@ -355,7 +355,7 @@
         "contrast": 15,
         "vibrance": 20,
         "clarity": 10,
-        "clarityVersion": 2
+        "clarityVersion": 3
       }
     },
     {

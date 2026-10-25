@@ -2547,6 +2547,22 @@ struct BlurParams {
     flags: u32,
 }
 
+/// Parameters of one of Clarity version 3's base passes
+/// (clarity_guide.wgsl `GuideParams`).
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct GuideParams {
+    area: [u32; 4],
+    source: [u32; 4],
+    window_origin: [u32; 2],
+    full_size: [u32; 2],
+    output_origin: [u32; 2],
+    aux_origin: [u32; 2],
+    radius: u32,
+    flags: u32,
+    _pad: [u32; 2],
+}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct FlareParams {
@@ -2668,6 +2684,11 @@ pub struct GpuProcessor {
     h_blur_pipeline: wgpu::ComputePipeline,
     v_blur_pipeline: wgpu::ComputePipeline,
     blur_params_buffer: wgpu::Buffer,
+    /// Clarity version 3's base passes (clarity_guide.wgsl) by output
+    /// format (r, rg, rgba), the pipelines and one parameter buffer per pass.
+    guide_bgls: [wgpu::BindGroupLayout; 3],
+    guide_pipelines: [wgpu::ComputePipeline; 4],
+    guide_params_buffers: [wgpu::Buffer; 4],
 
     flare_bgl_0: wgpu::BindGroupLayout,
     flare_bgl_1: wgpu::BindGroupLayout,
@@ -3505,6 +3526,8 @@ struct BlurTile {
     /// whether the blurs carry the mean log luminance (Clarity version 2).
     geometry: [u32; 9],
     views: [Option<wgpu::TextureView>; 5],
+    /// Clarity version 3's guided-filter coefficients (`run_guide`).
+    guide: Option<wgpu::TextureView>,
     /// The detail stage of this tile and the settings it was computed with.
     detail: Option<(DetailKey, wgpu::TextureView)>,
     bytes: usize,
@@ -3586,7 +3609,7 @@ fn clarity_reach(adjustments: &AllAdjustments, scale: f32) -> u32 {
             .iter()
             .take(adjustments.mask_count as usize)
             .any(|m| m.clarity != 0.0);
-    if g.clarity_version < 2 || !used {
+    if g.clarity_version != 2 || !used {
         return 0;
     }
     2 * (10.0 * scale).clamp(1.0, 60.0).round() as u32
@@ -3610,6 +3633,25 @@ fn blur_rows_beyond(index: usize, radius: u32, whole_blur_radius: bool, reach: u
     (radius + beyond_tile).saturating_sub(TILE_OVERLAP)
 }
 
+/// Whether the recipe uses Clarity version 3 (its guided-filter base) on
+/// the photo or a layer.
+fn clarity_guided(adjustments: &AllAdjustments) -> bool {
+    let g = &adjustments.global;
+    g.clarity_version >= 3
+        && (g.clarity != 0.0
+            || adjustments
+                .mask_adjustments
+                .iter()
+                .take(adjustments.mask_count as usize)
+                .any(|m| m.clarity != 0.0))
+}
+
+/// Clarity version 3's base radius at preview scale `scale`: the large
+/// blur's (40 px at 1080 px, `run_blur`).
+fn clarity_guide_radius(scale: f32) -> u32 {
+    (40.0 * scale).ceil().max(1.0) as u32
+}
+
 fn required_blurs(adjustments: &AllAdjustments) -> [bool; 5] {
     let g = &adjustments.global;
     // Structure uses the small blur (index 2) and Clarity the large one
@@ -3621,7 +3663,9 @@ fn required_blurs(adjustments: &AllAdjustments) -> [bool; 5] {
     // its bands.
     let luma_nr = g.luma_noise_reduction != 0.0;
     // Clarity version 2 also weighs the small blur into its base.
-    let clarity_v2 = g.clarity_version >= 2;
+    let clarity_v2 = g.clarity_version == 2;
+    // Clarity version 3 reads its own base (`run_guide`), no blur.
+    let clarity_blur = g.clarity_version < 3;
     let mut required = [
         g.sharpness != 0.0 || g.color_noise_reduction != 0.0 || luma_nr,
         g.sharpness != 0.0
@@ -3633,7 +3677,7 @@ fn required_blurs(adjustments: &AllAdjustments) -> [bool; 5] {
             || g.centré != 0.0
             || g.halation_amount > 0.0
             || (clarity_v2 && g.clarity != 0.0),
-        g.clarity != 0.0 || g.dehaze != 0.0 || g.glow_amount > 0.0,
+        (clarity_blur && g.clarity != 0.0) || g.dehaze != 0.0 || g.glow_amount > 0.0,
         luma_nr,
     ];
     for m in adjustments
@@ -3649,7 +3693,8 @@ fn required_blurs(adjustments: &AllAdjustments) -> [bool; 5] {
             || m.color_noise_reduction != 0.0;
         required[2] |=
             m.structure != 0.0 || m.halation_amount > 0.0 || (clarity_v2 && m.clarity != 0.0);
-        required[3] |= m.clarity != 0.0 || m.dehaze != 0.0 || m.glow_amount > 0.0;
+        required[3] |=
+            (clarity_blur && m.clarity != 0.0) || m.dehaze != 0.0 || m.glow_amount > 0.0;
         if m.luma_noise_reduction != 0.0 {
             required[1] = true;
             required[4] = true;
@@ -4201,6 +4246,90 @@ impl GpuProcessor {
             mapped_at_creation: false,
         });
 
+        let guide_shader = create_shader(
+            device,
+            "Clarity Guide Shader",
+            include_str!("shaders/clarity_guide.wgsl"),
+        )?;
+        let sampled = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
+        // One layout per output format (bindings 3, 4, 5 of clarity_guide.wgsl).
+        let guide_bgls = [
+            (3, wgpu::TextureFormat::R32Float),
+            (4, wgpu::TextureFormat::Rg32Float),
+            (5, wgpu::TextureFormat::Rgba32Float),
+        ]
+        .map(|(binding, format)| {
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Clarity Guide BGL"),
+                entries: &[
+                    sampled(0),
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    sampled(2),
+                    wgpu::BindGroupLayoutEntry {
+                        binding,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            format,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                ],
+            })
+        });
+        let guide_pipeline = |entry: &str, layout: usize| {
+            create_compute_pipeline(
+                device,
+                &wgpu::ComputePipelineDescriptor {
+                    label: Some("Clarity Guide Pipeline"),
+                    layout: Some(&device.create_pipeline_layout(
+                        &wgpu::PipelineLayoutDescriptor {
+                            label: Some("Clarity Guide Pipeline Layout"),
+                            bind_group_layouts: &[Some(&guide_bgls[layout])],
+                            immediate_size: 0,
+                        },
+                    )),
+                    module: &guide_shader,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    cache: None,
+                },
+            )
+        };
+        let guide_pipelines = [
+            guide_pipeline("local_mean_horizontal", 0)?,
+            guide_pipeline("local_mean_vertical", 1)?,
+            guide_pipeline("robust_horizontal", 2)?,
+            guide_pipeline("robust_vertical", 0)?,
+        ];
+        let guide_params_buffers = std::array::from_fn(|_| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Clarity Guide Params Buffer"),
+                size: std::mem::size_of::<GuideParams>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        });
+
         let flare_shader =
             create_shader(device, "Flare Shader", include_str!("shaders/flare.wgsl"))?;
 
@@ -4623,6 +4752,17 @@ impl GpuProcessor {
 
         bind_group_layout_entries.push(storage_entry(24, true));
         bind_group_layout_entries.push(storage_entry(26, true));
+        // Clarity version 3's guided-filter coefficients (clarity_guide.wgsl).
+        bind_group_layout_entries.push(wgpu::BindGroupLayoutEntry {
+            binding: 27,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        });
 
         let main_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Main BGL"),
@@ -4862,6 +5002,9 @@ impl GpuProcessor {
             h_blur_pipeline,
             v_blur_pipeline,
             blur_params_buffer,
+            guide_bgls,
+            guide_pipelines,
+            guide_params_buffers,
             flare_bgl_0,
             flare_bgl_1,
             flare_threshold_pipeline,
@@ -5686,6 +5829,138 @@ impl GpuProcessor {
             4,
         )?;
         Ok(mean_rgb8(&pixels).map(|rgb| display_to_srgb(self.context.display_space, rgb)))
+    }
+
+    /// Clarity version 3's base for the pixels of `tile` (photo pixels),
+    /// written at their place in a texture over the tile's input region
+    /// `region` (clarity_guide.wgsl). Each pass covers exactly what the next
+    /// one reads, ending at the photo's edges, so tiles join exactly; the
+    /// first reads the input up to twice the radius beyond the tile
+    /// (`render_window_margin`). `window` is the photo window the input
+    /// texture holds. Returns the base texture and its bytes.
+    #[allow(clippy::too_many_arguments)]
+    fn run_guide(
+        &self,
+        input: &wgpu::TextureView,
+        tile: Roi,
+        region: Roi,
+        window: Roi,
+        [full_width, full_height]: [u32; 2],
+        scale: f32,
+        srgb_input: bool,
+    ) -> (wgpu::TextureView, usize) {
+        let device = &self.context.device;
+        let queue = &self.context.queue;
+        let radius = clarity_guide_radius(scale);
+        // The tile widened by `x` sideways and `y` up and down, within the photo.
+        let widen = |x: u32, y: u32| {
+            let left = tile.x.saturating_sub(x);
+            let top = tile.y.saturating_sub(y);
+            [
+                left,
+                top,
+                (tile.x + tile.width + x).min(full_width) - left,
+                (tile.y + tile.height + y).min(full_height) - top,
+            ]
+        };
+        let means = widen(radius, 2 * radius);
+        let deviations = widen(radius, radius);
+        let sums = [tile.x, deviations[1], tile.width, deviations[3]];
+        let tile_area = [tile.x, tile.y, tile.width, tile.height];
+        let texture = |label, area: [u32; 4], format| {
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: wgpu::Extent3d {
+                        width: area[2],
+                        height: area[3],
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::STORAGE_BINDING,
+                    view_formats: &[],
+                })
+                .create_view(&Default::default())
+        };
+        let mean_texture = texture(
+            "Clarity base local mean",
+            means,
+            wgpu::TextureFormat::R32Float,
+        );
+        let deviation_texture = texture(
+            "Clarity base deviations",
+            deviations,
+            wgpu::TextureFormat::Rg32Float,
+        );
+        let sums_texture = texture(
+            "Clarity base sums",
+            sums,
+            wgpu::TextureFormat::Rgba32Float,
+        );
+        let output = texture(
+            "Clarity base",
+            [0, 0, region.width, region.height],
+            wgpu::TextureFormat::R32Float,
+        );
+        let common = GuideParams {
+            window_origin: [window.x, window.y],
+            full_size: [full_width, full_height],
+            output_origin: [region.x, region.y],
+            aux_origin: [deviations[0], deviations[1]],
+            radius,
+            flags: u32::from(srgb_input) << 1,
+            ..Default::default()
+        };
+        let window_area = [window.x, window.y, window.width, window.height];
+        // (area written, input, the area it holds, aux, output binding, output)
+        let passes = [
+            (means, input, window_area, input, 3, &mean_texture),
+            (deviations, &mean_texture, means, input, 4, &deviation_texture),
+            (sums, &deviation_texture, deviations, input, 5, &sums_texture),
+            (tile_area, &sums_texture, sums, &deviation_texture, 3, &output),
+        ];
+        let mut encoder = device.create_command_encoder(&Default::default());
+        for (index, (area, from, source, aux, binding, to)) in passes.into_iter().enumerate() {
+            let buffer = &self.guide_params_buffers[index];
+            let params = GuideParams {
+                area,
+                source,
+                ..common
+            };
+            queue.write_buffer(buffer, 0, bytemuck::bytes_of(&params));
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Clarity Guide BG"),
+                layout: &self.guide_bgls[binding as usize - 3],
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(from),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(aux),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding,
+                        resource: wgpu::BindingResource::TextureView(to),
+                    },
+                ],
+            });
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&self.guide_pipelines[index]);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.dispatch_workgroups(area[2].div_ceil(16), area[3].div_ceil(16), 1);
+        }
+        queue.submit(Some(encoder.finish()));
+        (output, region.width as usize * region.height as usize * 4)
     }
 
     fn high_precision_tile(&self) -> &HighPrecisionTile {
@@ -6844,10 +7119,12 @@ impl GpuProcessor {
             height,
             TILE_SIZE,
             TILE_OVERLAP,
+            // Clarity version 3's base (4 bytes a pixel) counted as a blur.
             blur_requirements
                 .iter()
                 .filter(|&&required| required)
-                .count(),
+                .count()
+                + usize::from(clarity_guided(&adjustments)),
         ) <= BLUR_CACHE_BYTES;
 
         let output_len = if output_to_display {
@@ -7011,6 +7288,7 @@ impl GpuProcessor {
                         BlurTile {
                             geometry,
                             views: Default::default(),
+                            guide: None,
                             detail: None,
                             bytes: 0,
                         }
@@ -7156,6 +7434,31 @@ impl GpuProcessor {
                 let clarity_blur = run_blur(2, 8.0);
                 let structure_blur = run_blur(3, 40.0);
                 let nr_blur = run_blur(4, 2.0);
+                let clarity_guide = if clarity_guided(&adjustments) {
+                    if force_full_preparation || tile.guide.is_none() {
+                        let (view, bytes) = self.run_guide(
+                            input_texture_view,
+                            tile_rect,
+                            Roi {
+                                x: input_x_start,
+                                y: input_y_start,
+                                width: input_width,
+                                height: input_height,
+                            },
+                            window,
+                            [width, height],
+                            scale,
+                            adjustments.global.is_raw_image != 1,
+                        );
+                        if tile.guide.is_none() {
+                            tile.bytes += bytes;
+                        }
+                        tile.guide = Some(view);
+                    }
+                    tile.guide.clone()
+                } else {
+                    None
+                };
                 // Display frames cache the detail stage with the blurs if all
                 // their tiles fit the cache budget (`detail_fits`).
                 // 32-bit floats: 16-bit rounding flipped strongly saturated
@@ -7345,6 +7648,12 @@ impl GpuProcessor {
                 bind_group_entries.push(wgpu::BindGroupEntry {
                     binding: 26,
                     resource: lut_shaper.as_entire_binding(),
+                });
+                bind_group_entries.push(wgpu::BindGroupEntry {
+                    binding: 27,
+                    resource: wgpu::BindingResource::TextureView(
+                        clarity_guide.as_ref().unwrap_or(&self.dummy_blur_view),
+                    ),
                 });
                 let crop_x_start = x_start - input_x_start;
                 let crop_y_start = y_start - input_y_start;
@@ -7782,6 +8091,8 @@ const FLARE_WINDOW_ERROR: &str = "Light flare needs the whole photo on the GPU."
 /// - blurs (`run_blur`): each tile's blur covers the tile and `TILE_OVERLAP`
 ///   around it, the horizontal pass reads its radius further (largest base
 ///   radius 40, Structure);
+/// - Clarity version 3's base (`run_guide`): twice its radius (40 x scale)
+///   around the tile;
 /// - Highlights' local contrast (`apply_highlights_adjustment`): 7.5 x scale;
 /// - Defringe (`apply_defringe`): up to 18 detail-scaled pixels (the
 ///   second detector, `apply_defringe2`, up to 16);
@@ -7822,8 +8133,14 @@ fn render_window_margin(adjustments: &AllAdjustments, width: u32, height: u32) -
         .min(u32::MAX as f32 / 4.0) as u32
         + 1;
     let kernels = 6;
+    let clarity = if clarity_guided(adjustments) {
+        2 * clarity_guide_radius(blur_scale)
+    } else {
+        0
+    };
     // Two more pixels for rounding.
     blur.max(highlights)
+        .max(clarity)
         .max(defringe)
         .max(moire)
         .max(aberration)
