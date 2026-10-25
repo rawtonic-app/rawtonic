@@ -1062,11 +1062,58 @@ pub async fn clear_preview_cache(
         outside_previews_dir()
     }
     .ok_or("No previews folder")?;
-    let removed = tauri::async_runtime::spawn_blocking(move || {
-        preview_proxy::discard(&dir, kinds(full_only), None)
+    let root = if session {
+        preview_proxy::session_root(
+            &Path::new(folder.as_deref().ok_or("No library folder")?).join("_"),
+        )
+        .ok_or("No previews library")?
+    } else {
+        app_handle
+            .path()
+            .app_cache_dir()
+            .map_err(|e| e.to_string())?
+    };
+    let expected = if session {
+        root.join(".cache/previews")
+    } else {
+        root.join("previews")
+    };
+    let removed = tauri::async_runtime::spawn_blocking(move || -> Result<usize, String> {
+        if !dir.exists() {
+            return Ok(0);
+        }
+        let checked =
+            crate::storage_fs::owned_directory(&root, &expected).map_err(|e| e.to_string())?;
+        if crate::storage_fs::owned_directory(&root, &dir).map_err(|e| e.to_string())? != checked {
+            return Err("The open library changed; refresh previews before clearing".into());
+        }
+        let before = preview_proxy::usage(&checked);
+        crate::storage_fs::evict(
+            &root,
+            &checked,
+            0,
+            |path| {
+                path.file_name().is_some_and(|name| {
+                    let name = name.to_string_lossy();
+                    if full_only {
+                        name.ends_with(".full.rtpx")
+                    } else {
+                        name.ends_with(".rtpx")
+                    }
+                })
+            },
+            |_| false,
+        )
+        .map_err(|e| e.to_string())?;
+        let after = preview_proxy::usage(&checked);
+        usize::try_from(
+            (before.standard_count + before.full_count)
+                .saturating_sub(after.standard_count + after.full_count),
+        )
+        .map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| e.to_string())??;
     if !full_only {
         *app_handle
             .state::<AppState>()

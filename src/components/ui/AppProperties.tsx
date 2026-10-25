@@ -37,6 +37,11 @@ export const OPTION_SEPARATOR = 'separator';
 export const OPTION_HEADER = 'header';
 
 export enum Invokes {
+  StorageUsage = 'storage_usage',
+  RestoreThumbnail = 'restore_thumbnail',
+  StorageCancelScan = 'storage_cancel_scan',
+  StorageClear = 'storage_clear',
+  StorageApplyLimits = 'storage_apply_limits',
   DeleteFilesWithAssociated = 'delete_files_with_associated',
   DeleteFilesFromDisk = 'delete_files_from_disk',
   PreviewNegativeConversion = 'preview_negative_conversion',
@@ -94,7 +99,6 @@ export enum Invokes {
   ClearAllSidecars = 'clear_all_sidecars',
   ClearAiTags = 'clear_ai_tags',
   ClearAllTags = 'clear_all_tags',
-  ClearThumbnailCache = 'clear_thumbnail_cache',
   CopyFiles = 'copy_files',
   CreateFolder = 'create_folder',
   CreateVirtualCopy = 'create_virtual_copy',
@@ -437,6 +441,8 @@ export interface AppSettings {
   linearRawMode?: string;
   thumbnailWorkerThreads?: number;
   imageCacheSize?: number;
+  thumbnailCacheLimitGb?: number;
+  aiCacheLimitGb?: number;
   rawPreprocessingColorNr?: number;
   rawPreprocessingSharpening?: number;
   applyPreprocessingToNonRaws?: boolean;

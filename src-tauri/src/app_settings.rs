@@ -740,6 +740,10 @@ pub struct AppSettings {
     #[serde(default)]
     pub image_cache_size: Option<u32>,
     #[serde(default)]
+    pub thumbnail_cache_limit_gb: Option<u32>,
+    #[serde(default)]
+    pub ai_cache_limit_gb: Option<u32>,
+    #[serde(default)]
     pub tonemapper_override_enabled: Option<bool>,
     #[serde(default)]
     pub default_raw_tonemapper: Option<String>,
@@ -883,6 +887,8 @@ impl Default for AppSettings {
             keybinds: HashMap::new(),
             thumbnail_worker_threads: Some(4),
             image_cache_size: Some(5),
+            thumbnail_cache_limit_gb: Some(2),
+            ai_cache_limit_gb: Some(5),
             tonemapper_override_enabled: Some(false),
             default_raw_tonemapper: Some("agx".to_string()),
             default_non_raw_tonemapper: Some("basic".to_string()),

@@ -14,6 +14,7 @@ import {
   Images,
   Mouse,
   Touchpad,
+  HardDrive,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -40,6 +41,7 @@ import {
 import Text from '../ui/Text';
 import AboutSettings from './AboutSettings';
 import PreviewSettings from './PreviewSettings';
+import StorageSettings from './StorageSettings';
 import UpdateSettings from './UpdateSettings';
 import CrashReportSettings from './CrashReportSettings';
 import UsageStatsSettings from './UsageStatsSettings';
@@ -113,7 +115,6 @@ interface ProcessingSettings {
   useFullDpiRendering: boolean;
   useWgpuRenderer: boolean;
   thumbnailWorkerThreads: number;
-  imageCacheSize: number;
   rawPreprocessingColorNr: number;
   rawPreprocessingSharpening: number;
   applyPreprocessingToNonRaws: boolean;
@@ -373,8 +374,6 @@ export default function SettingsPanel({
   const { t } = useTranslation();
   const [isClearing, setIsClearing] = useState(false);
   const [clearMessage, setClearMessage] = useState('');
-  const [isClearingCache, setIsClearingCache] = useState(false);
-  const [cacheClearMessage, setCacheClearMessage] = useState('');
   const [isClearingAiTags, setIsClearingAiTags] = useState(false);
   const [aiTagsClearMessage, setAiTagsClearMessage] = useState('');
   const [isClearingTags, setIsClearingTags] = useState(false);
@@ -415,7 +414,6 @@ export default function SettingsPanel({
     useWgpuRenderer:
       appSettings?.useWgpuRenderer ?? osPlatform !== 'linux',
     thumbnailWorkerThreads: appSettings?.thumbnailWorkerThreads ?? 4,
-    imageCacheSize: appSettings?.imageCacheSize ?? 5,
     rawPreprocessingColorNr: appSettings?.rawPreprocessingColorNr ?? 0.5,
     rawPreprocessingSharpening: appSettings?.rawPreprocessingSharpening ?? 0.35,
     applyPreprocessingToNonRaws: appSettings?.applyPreprocessingToNonRaws ?? false,
@@ -442,6 +440,7 @@ export default function SettingsPanel({
       // Its own page (Lightroom keeps previews in Catalog Settings, Capture
       // One in its Image preferences), not the end of a long one.
       { id: 'previews', label: t('previews.settings.title'), icon: Images },
+      { id: 'storage', label: t('storage.title'), icon: HardDrive },
       { id: 'shortcuts', label: t('settings.categories.shortcuts'), icon: Keyboard },
       { id: 'about', label: 'About', icon: Info },
     ],
@@ -523,7 +522,6 @@ export default function SettingsPanel({
       useFullDpiRendering: appSettings?.useFullDpiRendering ?? false,
       useWgpuRenderer: appSettings?.useWgpuRenderer ?? true,
       thumbnailWorkerThreads: appSettings?.thumbnailWorkerThreads ?? 4,
-      imageCacheSize: appSettings?.imageCacheSize ?? 5,
       rawPreprocessingColorNr: appSettings?.rawPreprocessingColorNr ?? 0.5,
       rawPreprocessingSharpening: appSettings?.rawPreprocessingSharpening ?? 0.35,
       applyPreprocessingToNonRaws: appSettings?.applyPreprocessingToNonRaws ?? false,
@@ -774,35 +772,6 @@ export default function SettingsPanel({
   const shortcutTagVariants = {
     visible: { opacity: 1, scale: 1, transition: { type: 'spring' as const, stiffness: 500, damping: 30 } },
     exit: { opacity: 0, scale: 0.8, transition: { duration: 0.15 } },
-  };
-
-  const executeClearCache = async () => {
-    setIsClearingCache(true);
-    setCacheClearMessage(t('settings.data.statuses.clearingCache'));
-    try {
-      await invoke(Invokes.ClearThumbnailCache);
-      setCacheClearMessage(t('settings.data.statuses.cacheSuccess'));
-      onLibraryRefresh();
-    } catch (err) {
-      console.error('Failed to clear thumbnail cache:', err);
-      setCacheClearMessage(`Error: ${err}`);
-    } finally {
-      setTimeout(() => {
-        setIsClearingCache(false);
-        setCacheClearMessage('');
-      }, EXECUTE_TIMEOUT);
-    }
-  };
-
-  const handleClearCache = () => {
-    setConfirmModalState({
-      confirmText: t('settings.data.modals.confirmClearCache'),
-      confirmVariant: 'primary',
-      isOpen: true,
-      message: t('settings.data.modals.cacheMessage'),
-      onConfirm: executeClearCache,
-      title: t('settings.data.modals.confirmCacheTitle'),
-    });
   };
 
   const closeConfirmModal = () => {
@@ -1588,24 +1557,6 @@ export default function SettingsPanel({
                       </SettingItem>
 
                       <SettingItem
-                        label={t('settings.processing.imageCache')}
-                        description={t('settings.processing.imageCacheDesc')}
-                      >
-                        <Slider
-                          label={t('settings.processing.images')}
-                          min={2}
-                          max={10}
-                          step={1}
-                          value={processingSettings.imageCacheSize}
-                          defaultValue={5}
-                          onChange={(e) =>
-                            handleProcessingSettingChange('imageCacheSize', parseInt(String(e.target.value)))
-                          }
-                          fillOrigin="min"
-                        />
-                      </SettingItem>
-
-                      <SettingItem
                         label={t('settings.processing.wgpu')}
                         description={
                           osPlatform === 'linux'
@@ -1880,16 +1831,6 @@ export default function SettingsPanel({
                       />
 
                       <DataActionItem
-                        buttonAction={handleClearCache}
-                        buttonText={t('settings.data.clearThumbnailButton')}
-                        description={t('settings.data.clearThumbnailDesc')}
-                        icon={<Trash2 size={16} className="mr-2" />}
-                        isProcessing={isClearingCache}
-                        message={cacheClearMessage}
-                        title={t('settings.data.clearThumbnail')}
-                      />
-
-                      <DataActionItem
                         buttonAction={async () => {
                           if (logPath && !logPathLoading && !logPathError) {
                             await invoke(Invokes.ShowInFinder, { path: logPath });
@@ -1916,6 +1857,12 @@ export default function SettingsPanel({
                       />
                     </div>
                   </div>
+                </motion.div>
+              )}
+
+              {activeCategory === 'storage' && (
+                <motion.div key="storage" className="pref-page">
+                  <StorageSettings appSettings={appSettings} onSettingsChange={onSettingsChange} onLibraryRefresh={onLibraryRefresh} />
                 </motion.div>
               )}
 

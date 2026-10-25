@@ -77,6 +77,8 @@ mod session_bridge;
 mod snapshots;
 mod spot_removal;
 mod startup;
+mod storage;
+mod storage_fs;
 mod tagging;
 mod tagging_utils;
 mod update_check;
@@ -234,6 +236,10 @@ pub fn run() {
             let app_handle = app.handle().clone();
 
             library_search::announce_facts_to(app_handle.clone());
+            if let Err(error) = storage::remove_models_on_start(&app_handle) {
+                log::error!("Pending model removal failed: {error}");
+            }
+            storage::start_maintenance(app_handle.clone());
             if let Ok(cache_dir) = app_handle.path().app_cache_dir() {
                 preview_proxy::set_outside_sessions_dir(cache_dir.join("previews"));
                 crate::exif_processing::initialize_cache_dir(cache_dir);
@@ -737,6 +743,11 @@ pub fn run() {
             editor_preview::render_split_before,
             editor_preview::prewarm_mask_source,
             cache_utils::clear_image_caches,
+            storage::storage_usage,
+            file_management::restore_thumbnail,
+            storage::storage_cancel_scan,
+            storage::storage_clear,
+            storage::storage_apply_limits,
             update_check::check_updates,
             contribute::contribution_app_info,
             contribute::contribution_available,
@@ -843,7 +854,6 @@ pub fn run() {
             file_management::handle_import_presets_from_files,
             file_management::handle_export_presets_to_file,
             file_management::clear_all_sidecars,
-            file_management::clear_thumbnail_cache,
             file_management::set_color_label_for_paths,
             file_management::set_rating_for_paths,
             file_management::restore_culling,

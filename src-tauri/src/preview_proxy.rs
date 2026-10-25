@@ -734,6 +734,7 @@ pub fn read(source: &Path, settings: &AppSettings) -> Option<Proxy> {
 /// use (automatic discarding goes by the last use).
 pub fn read_kind(source: &Path, kind: ProxyKind, settings: &AppSettings) -> Option<Proxy> {
     let path = proxy_path_of(source, kind)?;
+    let _file_use = crate::storage_fs::pin_file(&path);
     let bytes = fs::read(&path).ok()?;
     let proxy = decode_checked(&bytes, |header| {
         let current = header_is_current(header, source, settings);
@@ -784,6 +785,7 @@ pub fn read_full_rows(
     cols: (u32, u32),
 ) -> Option<ProxyRows> {
     let path = proxy_path_of(source, ProxyKind::Full)?;
+    let _file_use = crate::storage_fs::pin_file(&path);
     let bytes = fs::read(&path).ok()?;
     let proxy = decode_rows(&bytes, rows, cols, |header| {
         let current = header_is_current(header, source, settings);
@@ -1031,6 +1033,7 @@ fn store(
     before_band: &(dyn Fn() + Sync),
 ) -> Result<ProxyKey, String> {
     let path = proxy_path_of(source, kind).ok_or("No previews folder")?;
+    let _file_use = crate::storage_fs::pin_file(&path);
     let key = current_key(source, settings, variant).ok_or("Source file unavailable")?;
     let sample = content_sample(source);
     let bytes = encode_with_sample(
@@ -1084,7 +1087,9 @@ fn proxy_files(dir: &Path) -> impl Iterator<Item = (PathBuf, ProxyKind, fs::Meta
             } else {
                 return None;
             };
-            let meta = entry.metadata().ok().filter(fs::Metadata::is_file)?;
+            let meta = fs::symlink_metadata(entry.path())
+                .ok()
+                .filter(fs::Metadata::is_file)?;
             Some((entry.path(), kind, meta))
         })
 }
@@ -1121,7 +1126,7 @@ pub fn discard(dir: &Path, kinds: &[ProxyKind], unused_for: Option<Duration>) ->
                         .is_some_and(|idle| idle >= age)
                 })
         })
-        .filter(|(path, _, _)| fs::remove_file(path).is_ok())
+        .filter(|(path, _, _)| crate::storage_fs::remove_if_unpinned(path))
         .count()
 }
 
@@ -1130,7 +1135,7 @@ pub fn discard_source(source: &Path, kinds: &[ProxyKind]) -> usize {
     kinds
         .iter()
         .filter_map(|&kind| proxy_path_of(source, kind))
-        .filter(|path| fs::remove_file(path).is_ok())
+        .filter(|path| crate::storage_fs::remove_if_unpinned(path))
         .count()
 }
 
@@ -1223,7 +1228,7 @@ pub fn enforce_standard_limit(dir: &Path, limit: u64) -> usize {
                 !labels_file(&label, &path)
                     || labelled_source(dir, &label).is_some_and(|source| source_available(&source))
             });
-        if evictable && fs::remove_file(&path).is_ok() {
+        if evictable && crate::storage_fs::remove_if_unpinned(&path) {
             total -= len;
             removed += 1;
         }

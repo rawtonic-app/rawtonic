@@ -1913,6 +1913,74 @@
     "sizeAria": "Mida de la taca",
     "visualize": "Visualitza les taques"
   },
+  "storage": {
+    "aiLimit": "AI result limit",
+    "atLeast": "At least {{size}} (scan limit reached)",
+    "cancel": "Cancel scan",
+    "categories": {
+      "aiResults": {
+        "description": "Rebuildable denoised mosaics on disk. Subject masks, depth maps and face analyses are cached in memory; saved mask rasters and edits are kept with photographs and are never cleared here.",
+        "title": "AI results"
+      },
+      "compiledModels": {
+        "description": "Small completion markers for model preparation. Clearing makes preparation run again; compiled weights inside downloaded models are included in their size.",
+        "title": "Model first-run markers"
+      },
+      "decoded": {
+        "description": "Decoded pixel data retained in RAM, not on disk. Clearing releases cache references; pixels used by the viewer or exports stay in memory.",
+        "title": "Decoded images (memory)"
+      },
+      "exif": {
+        "description": "Disposable copies of metadata read from photographs; originals and sidecars are kept.",
+        "title": "Metadata read cache"
+      },
+      "logs": {
+        "description": "Diagnostic logs. Clear removes rotated logs only; the current app.log remains open and is kept.",
+        "title": "Logs"
+      },
+      "models": {
+        "description": "Model weights needed by local AI tools. Removing them requires a new download on next use. Installed GPU provider plug-ins are kept.",
+        "title": "Downloaded AI models"
+      },
+      "previews": {
+        "description": "Standard and 1:1 previews for photographs outside managed libraries. Clearing removes offline viewing until the originals are available again.",
+        "title": "Previews outside libraries"
+      },
+      "scratch": {
+        "description": "Temporary data inside Rawtonic’s own cache scratch directory. System temporary folders and other applications’ data are excluded.",
+        "title": "App scratch files"
+      },
+      "session": {
+        "description": "Only the open library’s .cache directory. Previews rebuild when originals are available; clearing removes offline viewing. Catalogs, photographs, masks, edits, Output and Trash are kept.",
+        "title": "Current library cache"
+      },
+      "systemModels": {
+        "description": "Compiled model data managed by the operating system. Read-only; Rawtonic does not remove it.",
+        "title": "System compiled-model cache"
+      },
+      "thumbnails": {
+        "description": "Small and medium Library images, rebuilt from photographs or available previews.",
+        "title": "Thumbnails"
+      }
+    },
+    "clear": "Clear",
+    "cleared": "Cache cleared. Files in use or used within the last minute were kept.",
+    "confirmRemove": "Remove on next launch",
+    "description": "Rebuildable app data and the current library cache. Clearing these leaves photographs, catalogs, edits, sidecars, Output and Trash untouched.",
+    "failed": "Storage could not be updated. Check that the drive is available and try again.",
+    "images_one": "{{count}} image",
+    "images_many": "{{count}} images",
+    "images_other": "{{count}} images",
+    "limitsDescription": "Least recently used files are removed automatically within a minute. Files in use, staging files and entries used in the last minute are kept, so a cache may temporarily exceed its limit. Standard previews also keep offline photographs; 1:1 preview expiry is set in Previews.",
+    "modelsConfirm": "Downloaded AI models will be removed when Rawtonic next starts, before any model loads. AI tools will download them again when needed (internet required). Your edits and AI masks saved with photographs are kept.",
+    "modelsPending": "Model removal is scheduled for the next launch. AI tools will download models again when needed.",
+    "refresh": "Refresh sizes",
+    "removeModels": "Remove downloaded models…",
+    "scanning": "Calculating sizes…",
+    "thumbnailLimit": "Thumbnail limit",
+    "title": "Storage",
+    "unavailable": "Size unavailable"
+  },
   "studio": {
     "adjustment": {
       "scrubHint": "Arrossega per ajustar · doble clic per restablir",
