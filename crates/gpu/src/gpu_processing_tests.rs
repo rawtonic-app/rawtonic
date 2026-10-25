@@ -7483,6 +7483,33 @@ fn wide_gamut_exports_keep_colours_beyond_srgb_and_match_inside_it() {
         // The grey patch: no warning.
         assert_eq!(at(&warned, 17, y), at(&proofed, 17, y), "warning on grey");
     }
+    // With gamut mapping (`renderVersion` 4) the proof shows the colours the
+    // mapped sRGB export keeps, too.
+    let mapped = render_with(
+        json!({ "saturation": 20, "renderVersion": 4 }),
+        OutputColorSpace::Srgb,
+        3,
+    );
+    let mapped_proof = render_with(
+        json!({ "saturation": 20, "softProof": "srgb", "renderVersion": 4 }),
+        OutputColorSpace::DisplayP3,
+        3,
+    );
+    let mut differs = false;
+    for y in (2..height).step_by(5) {
+        for x in (1..width).step_by(3) {
+            let (a, b) = (at(&mapped, x, y), at(&mapped_proof, x, y));
+            differs |= at(&srgb, x, y) != a;
+            for c in 0..3 {
+                let encoded = |v: f64| TransferCurve::Srgb.from_linear(v.clamp(0.0, 1.0));
+                assert!(
+                    (encoded(a[c]) - encoded(b[c])).abs() < 2.0 / 255.0,
+                    "mapped proof at {x},{y}: {a:?} vs {b:?}"
+                );
+            }
+        }
+    }
+    assert!(differs, "the mapping changed no colour beyond sRGB");
 }
 
 /// CAM16 hue angle (degrees) of a linear sRGB colour under the viewing
@@ -10490,6 +10517,12 @@ fn one_render_for_several_outputs_matches_their_own_renders() {
             false,
         ),
         (layer_sums_profile(0.2, 0.5), true),
+        // Gamut mapping (`renderVersion` 4) on colours beyond each output.
+        (json!({"renderVersion":4}), false),
+        (
+            json!({"renderVersion":4,"exposure":0.3,"saturation":40}),
+            false,
+        ),
     ];
     let mut checked = 0;
     for (recipe, with_masks) in &recipes {
