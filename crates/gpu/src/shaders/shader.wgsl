@@ -247,6 +247,8 @@ struct GlobalAdjustments {
     clarity_version: u32,
     // Median of the decode's linear luminance (image_key.rs); 0 = unknown.
     image_key_median: f32,
+    // 1: colours outside the output space keep their hue (restore_hue).
+    gamut_mapping: u32,
 }
 
 struct MaskAdjustments {
@@ -539,8 +541,116 @@ fn nr_decode(p: vec3<f32>) -> vec3<f32> {
 // Lightroom's destination gamut warning colour (linear sRGB).
 const PROOF_WARNING_COLOUR: vec3<f32> = vec3<f32>(1.0, 0.0, 0.0);
 
+// Hue space of the gamut mapping: CAM16 (D65, adapting luminance 64 lux / 5π,
+// grey background 20 %, complete adaptation), its adapted cone responses
+// (linear sRGB in, scaled by F_L / 100) and opponent axes scaled so white
+// has lightness 1. Its hue angle is CAM16's hue; the first axis is its
+// achromatic response, increasing with lightness. Clipping per channel
+// turns saturated blue lights purple or cyan and red-orange flowers red;
+// Oklab constant-hue lines turn blue LEDs teal (notes:
+// parity-gaps/G01-base-profiles.md, 2026-10-25).
+const CAM_IN_R: vec3<f32> = vec3<f32>(0.084755396, 0.168648653, 0.0197274085);
+const CAM_IN_G: vec3<f32> = vec3<f32>(0.0413088283, 0.208882542, 0.0229392433);
+const CAM_IN_B: vec3<f32> = vec3<f32>(0.00703622307, 0.0372341657, 0.22890093);
+const CAM_OUT_R: vec3<f32> = vec3<f32>(19.4533531, -15.6877361, -0.104409575);
+const CAM_OUT_G: vec3<f32> = vec3<f32>(-3.85022504, 7.97938598, -0.467827343);
+const CAM_OUT_B: vec3<f32> = vec3<f32>(0.0283169887, -0.815738796, 4.44801081);
+const CAM_OPP_J: vec3<f32> = vec3<f32>(31.3391443, 15.6695721, 0.783478607);
+const CAM_OPP_A: vec3<f32> = vec3<f32>(15.6695721, -17.0940787, 1.42450656);
+const CAM_OPP_B: vec3<f32> = vec3<f32>(1.74106357, 1.74106357, -3.48212714);
+const CAM_CONE_R: vec3<f32> = vec3<f32>(0.0209239186, 0.0205145376, 0.0131001925);
+const CAM_CONE_G: vec3<f32> = vec3<f32>(0.0209239186, -0.0405287206, -0.0118720495);
+const CAM_CONE_B: vec3<f32> = vec3<f32>(0.0209239186, -0.0100070915, -0.286566712);
+const CAM_KNEE: f32 = 27.13;
+
+fn linear_srgb_to_cam(c: vec3<f32>) -> vec3<f32> {
+    let cone = vec3<f32>(dot(CAM_IN_R, c), dot(CAM_IN_G, c), dot(CAM_IN_B, c));
+    let y = pow(max(abs(cone), vec3<f32>(1e-12)), vec3<f32>(0.42));
+    let r = sign(cone) * y / (y + CAM_KNEE);
+    return vec3<f32>(dot(CAM_OPP_J, r), dot(CAM_OPP_A, r), dot(CAM_OPP_B, r));
+}
+
+fn cam_to_linear_srgb(p: vec3<f32>) -> vec3<f32> {
+    let r = vec3<f32>(dot(CAM_CONE_R, p), dot(CAM_CONE_G, p), dot(CAM_CONE_B, p));
+    let a = min(abs(r), vec3<f32>(0.9999));
+    let cone = sign(r) * pow(max(CAM_KNEE * a / (1.0 - a), vec3<f32>(1e-12)), vec3<f32>(1.0 / 0.42));
+    return vec3<f32>(dot(CAM_OUT_R, cone), dot(CAM_OUT_G, cone), dot(CAM_OUT_B, cone));
+}
+
+fn mat3_inverse(m: mat3x3<f32>) -> mat3x3<f32> {
+    let a = cross(m[1], m[2]);
+    let b = cross(m[2], m[0]);
+    let c = cross(m[0], m[1]);
+    return transpose(mat3x3<f32>(a, b, c)) * (1.0 / dot(m[0], a));
+}
+
+// How far a colour lies outside the unit cube (positive) or inside it
+// (negative, the distance to its nearest face).
+fn unit_cube_excess(c: vec3<f32>) -> f32 {
+    let beyond = max(c - vec3<f32>(1.0), -c);
+    return max(beyond.x, max(beyond.y, beyond.z));
+}
+
+// A colour outside a space, clipped to its unit cube (`clipped`, the
+// space's linear RGB by `to_space`), turned back to the hue of `source`
+// (linear sRGB): the clipped colour's lightness and chroma at the source's
+// CAM16 hue, its chroma lowered to the gamut where that hue holds less. The
+// clip keeps texture and colourfulness; only the hue it bends is restored.
+fn restore_hue(source: vec3<f32>, clipped: vec3<f32>, to_space: mat3x3<f32>) -> vec3<f32> {
+    let wanted = linear_srgb_to_cam(source);
+    let chroma_wanted = length(wanted.yz);
+    if (chroma_wanted < 1e-6) {
+        return clipped;
+    }
+    let direction = wanted.yz / chroma_wanted;
+    let kept = linear_srgb_to_cam(mat3_inverse(to_space) * clipped);
+    let chroma = length(kept.yz);
+    let full = to_space * cam_to_linear_srgb(vec3<f32>(kept.x, direction * chroma));
+    var high_excess = unit_cube_excess(full);
+    if (high_excess <= 0.0) {
+        return clamp(full, vec3<f32>(0.0), vec3<f32>(1.0));
+    }
+    // The chroma where the colour meets the cube: bracketed by halving, then
+    // found by false position (Illinois) on the distance to the cube, which
+    // is smooth near the root, so neighbouring colours land on neighbouring
+    // chromas (halving alone left steps of several output codes).
+    var low = 0.0;
+    var high = chroma;
+    var low_excess = unit_cube_excess(to_space * cam_to_linear_srgb(vec3<f32>(kept.x, vec2<f32>(0.0))));
+    for (var i = 0; i < 4; i++) {
+        let middle = 0.5 * (low + high);
+        let excess = unit_cube_excess(to_space * cam_to_linear_srgb(vec3<f32>(kept.x, direction * middle)));
+        if (excess <= 0.0) {
+            low = middle;
+            low_excess = excess;
+        } else {
+            high = middle;
+            high_excess = excess;
+        }
+    }
+    var side = 0;
+    for (var i = 0; i < 3; i++) {
+        let guess = low + (high - low) * clamp(-low_excess / max(high_excess - low_excess, 1e-12), 0.0, 1.0);
+        let excess = unit_cube_excess(to_space * cam_to_linear_srgb(vec3<f32>(kept.x, direction * guess)));
+        if (excess <= 0.0) {
+            low = guess;
+            low_excess = excess;
+            if (side == -1) { high_excess *= 0.5; }
+            side = -1;
+        } else {
+            high = guess;
+            high_excess = excess;
+            if (side == 1) { low_excess *= 0.5; }
+            side = 1;
+        }
+    }
+    let root = low + (high - low) * clamp(-low_excess / max(high_excess - low_excess, 1e-12), 0.0, 1.0);
+    return clamp(to_space * cam_to_linear_srgb(vec3<f32>(kept.x, direction * root)), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
 // The last step: display values → the output space's primaries and curve
-// (output_color_space.rs; sRGB for the display), clipped to its gamut.
+// (output_color_space.rs; sRGB for the display), clipped to its gamut
+// (with `gamut_mapping`, at the colour's own hue).
 fn encode_output(d: vec3<f32>) -> vec3<f32> {
     let proof = adjustments.global.output_space.y;
     // sRGB output of a colour inside the sRGB cube: already its encoding.
@@ -553,14 +663,21 @@ fn encode_output(d: vec3<f32>) -> vec3<f32> {
     // colours outside it, as Lightroom's destination gamut warning does.
     if (proof != 0u) {
         let proofed = adjustments.global.proof_matrix * colour;
-        let kept = clamp(proofed, vec3<f32>(0.0), vec3<f32>(1.0));
+        var kept = clamp(proofed, vec3<f32>(0.0), vec3<f32>(1.0));
         if (adjustments.global.output_space.z != 0u && any(abs(proofed - kept) > vec3<f32>(1.0 / 255.0))) {
             colour = PROOF_WARNING_COLOUR;
         } else {
+            if (adjustments.global.gamut_mapping != 0u && any(proofed != kept)) {
+                kept = restore_hue(colour, kept, adjustments.global.proof_matrix);
+            }
             colour = adjustments.global.proof_inverse * kept;
         }
     }
-    let linear = clamp(adjustments.global.output_matrix * colour, vec3<f32>(0.0), vec3<f32>(1.0));
+    let unclipped = adjustments.global.output_matrix * colour;
+    var linear = clamp(unclipped, vec3<f32>(0.0), vec3<f32>(1.0));
+    if (adjustments.global.gamut_mapping != 0u && any(unclipped != linear)) {
+        linear = restore_hue(colour, linear, adjustments.global.output_matrix);
+    }
     switch (adjustments.global.output_space.x) {
         case 2u: { return pow(linear, vec3<f32>(256.0 / 563.0)); }
         case 3u: { return pow(linear, vec3<f32>(256.0 / 461.0)); }

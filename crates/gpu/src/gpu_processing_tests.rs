@@ -7485,6 +7485,267 @@ fn wide_gamut_exports_keep_colours_beyond_srgb_and_match_inside_it() {
     }
 }
 
+/// CAM16 hue angle (degrees) of a linear sRGB colour under the viewing
+/// conditions of the shader's gamut mapping (`linear_srgb_to_cam`).
+fn cam16_hue_degrees(c: [f64; 3]) -> f64 {
+    const CONE: [[f64; 3]; 3] = [
+        [0.084755396, 0.168648653, 0.0197274085],
+        [0.0413088283, 0.208882542, 0.0229392433],
+        [0.00703622307, 0.0372341657, 0.22890093],
+    ];
+    let r = CONE.map(|row| {
+        let x = row[0] * c[0] + row[1] * c[1] + row[2] * c[2];
+        let y = x.abs().powf(0.42);
+        x.signum() * y / (y + 27.13)
+    });
+    let a = r[0] - 12.0 * r[1] / 11.0 + r[2] / 11.0;
+    let b = (r[0] + r[1] - 2.0 * r[2]) / 9.0;
+    b.atan2(a).to_degrees()
+}
+
+#[test]
+#[ignore = "requires a native GPU; gamut mapping of renderVersion 4 against the clip"]
+fn gamut_mapping_keeps_the_hue_outside_the_output_space_and_every_pixel_inside_it() {
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+    let context = context();
+    let (width, height) = (64u32, 32u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // Left half: colours inside sRGB (saturated ones near its boundary too);
+    // right half: colours only ProPhoto holds, as a wide decode delivers
+    // them: a deep blue light, a red-orange flower, a green beyond P3.
+    let colour = |x: u32, y: u32| -> [f32; 3] {
+        let level = 0.04 + 0.3 * (y as f32 / height as f32);
+        let base = if x < width / 2 {
+            [
+                [0.8, 0.3, 0.02],
+                [0.02, 0.1, 0.9],
+                [0.4, 0.4, 0.4],
+                [0.05, 0.6, 0.1],
+            ][(x / 8) as usize]
+        } else {
+            [
+                [-0.12, -0.03, 1.3],
+                [1.35, 0.22, -0.09],
+                [-0.45, 1.2, -0.12],
+                [0.9, -0.08, 1.1],
+            ][((x - width / 2) / 8) as usize]
+        };
+        base.map(|v| v * level * 3.0)
+    };
+    let data: Vec<f16> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .flat_map(|(x, y)| {
+            let [r, g, b] = colour(x, y);
+            [
+                f16::from_f32(r),
+                f16::from_f32(g),
+                f16::from_f32(b),
+                f16::ONE,
+            ]
+        })
+        .collect();
+    let view = context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Wide-gamut input"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&data),
+        )
+        .create_view(&Default::default());
+    let render = |render_version: u32, space: OutputColorSpace| -> Vec<u16> {
+        let recipe = json!({ "renderVersion": render_version });
+        let mut adjustments = get_all_adjustments_from_json(&recipe, true, Some(3));
+        adjustments.global.output_space[0] = space.shader_code();
+        adjustments.global.output_matrix =
+            crate::image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        let RenderedPixels::U16(pixels) = pixels else {
+            unreachable!()
+        };
+        pixels
+    };
+    let linear = |pixels: &[u16], space: OutputColorSpace, x: u32, y: u32| -> [f64; 3] {
+        let i = ((y * width + x) * 4) as usize;
+        let rgb = [pixels[i], pixels[i + 1], pixels[i + 2]]
+            .map(|v| space.transfer().to_linear(v as f64 / 65535.0));
+        space
+            .to_linear_srgb()
+            .map(|row| row[0] * rgb[0] + row[1] * rgb[1] + row[2] * rgb[2])
+    };
+    let hue_error = |a: f64, b: f64| ((a - b + 540.0) % 360.0 - 180.0).abs();
+    // The unclipped colour: the ProPhoto export holds all of them.
+    let unclipped = render(4, OutputColorSpace::ProPhoto);
+    for space in [OutputColorSpace::Srgb, OutputColorSpace::DisplayP3] {
+        let clipped = render(3, space);
+        let mapped = render(4, space);
+        let (mut clip_error, mut mapped_error, mut outside, mut inside) = (0.0, 0.0, 0, 0);
+        for y in 0..height {
+            for x in 0..width {
+                let i = ((y * width + x) * 4) as usize;
+                let source = linear(&unclipped, OutputColorSpace::ProPhoto, x, y);
+                let in_space = space
+                    .from_linear_srgb()
+                    .map(|row| row[0] * source[0] + row[1] * source[1] + row[2] * source[2]);
+                if in_space.iter().all(|&v| (0.001..=0.999).contains(&v)) {
+                    assert_eq!(
+                        clipped[i..i + 3],
+                        mapped[i..i + 3],
+                        "{space:?}: colour inside the space changed at {x},{y}"
+                    );
+                    inside += 1;
+                    continue;
+                }
+                if in_space.iter().all(|&v| (-0.01..=1.01).contains(&v)) {
+                    // At the boundary: within the ProPhoto export's rounding.
+                    continue;
+                }
+                let wanted = cam16_hue_degrees(source);
+                let mapped_hue = cam16_hue_degrees(linear(&mapped, space, x, y));
+                let clip_hue = cam16_hue_degrees(linear(&clipped, space, x, y));
+                assert!(
+                    hue_error(mapped_hue, wanted) < 1.0,
+                    "{space:?} at {x},{y}: hue {mapped_hue:.2} vs {wanted:.2}"
+                );
+                clip_error += hue_error(clip_hue, wanted);
+                mapped_error += hue_error(mapped_hue, wanted);
+                outside += 1;
+            }
+        }
+        assert!(
+            outside > 100 && inside > 100,
+            "{space:?}: {outside} colours outside, {inside} inside"
+        );
+        assert!(
+            mapped_error < clip_error / 4.0,
+            "{space:?}: mean hue error {:.2} vs the clip's {:.2}",
+            mapped_error / outside as f64,
+            clip_error / outside as f64
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; gamut mapping of renderVersion 4 along smooth gradients"]
+fn gamut_mapping_keeps_smooth_gradients_smooth() {
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+    let context = context();
+    let (width, height) = (1024u32, 4u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // Fine ramps between colours only ProPhoto holds (a green beside the
+    // sRGB cube's red-free face, a deep blue, a red-orange): neighbouring
+    // pixels differ by far less than one output code before the mapping.
+    let ramps: [[[f32; 3]; 2]; 4] = [
+        [[-0.36, 1.09, 0.07], [-0.34, 1.09, 0.11]],
+        [[-0.12, -0.04, 1.2], [-0.10, -0.01, 1.3]],
+        [[1.3, 0.20, -0.10], [1.3, 0.26, -0.07]],
+        [[-0.30, 0.50, 0.95], [-0.20, 0.55, 0.95]],
+    ];
+    let data: Vec<f16> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .flat_map(|(x, y)| {
+            let [from, to] = ramps[y as usize];
+            let t = x as f32 / (width - 1) as f32;
+            let c: [f32; 3] = std::array::from_fn(|i| (from[i] + (to[i] - from[i]) * t) * 0.35);
+            [
+                f16::from_f32(c[0]),
+                f16::from_f32(c[1]),
+                f16::from_f32(c[2]),
+                f16::ONE,
+            ]
+        })
+        .collect();
+    let view = context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Wide-gamut ramps"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&data),
+        )
+        .create_view(&Default::default());
+    for space in [OutputColorSpace::Srgb, OutputColorSpace::DisplayP3] {
+        // The Classic look (0): no look table between the ramp and the output.
+        let mut adjustments =
+            get_all_adjustments_from_json(&json!({ "renderVersion": 4 }), true, Some(0));
+        adjustments.global.output_space[0] = space.shader_code();
+        adjustments.global.output_matrix =
+            crate::image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        let RenderedPixels::U16(pixels) = pixels else {
+            unreachable!()
+        };
+        for y in 0..height {
+            let at = |x: u32| ((y * width + x) * 4) as usize;
+            let steps: Vec<i32> = (1..width)
+                .flat_map(|x| (0..3).map(move |c| (x, c)))
+                .map(|(x, c)| (pixels[at(x) + c] as i32 - pixels[at(x - 1) + c] as i32).abs())
+                .collect();
+            let largest = *steps.iter().max().unwrap();
+            // One 8-bit code is 257 here; a smooth ramp of 1024 pixels moves
+            // each channel by far less per pixel.
+            assert!(
+                largest <= 257,
+                "{space:?} ramp {y}: a step of {largest} sixteen-bit codes"
+            );
+        }
+    }
+}
+
 /// Shadows and Blacks under the Camera Raw look take their gain from the
 /// blurred luminance, so a step in that gain shows as contour lines along the
 /// blur and, below the black ramp, as grey blobs in deep black. A smooth grey
