@@ -4,7 +4,7 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
 import { useEditorStore } from '../store/useEditorStore';
 import { INITIAL_ADJUSTMENTS, newNegative, type Adjustments } from './adjustments';
-import { sameAnalysisInputs, sameFilm, withPickedFilmBase } from './negative';
+import { sameAnalysisInputs, sameFilm, setFilmBasePicking, startFilmBasePick, withPickedFilmBase } from './negative';
 import type { SelectedImage } from '../components/ui/AppProperties';
 
 const recipe = (): Adjustments => ({
@@ -16,23 +16,32 @@ beforeEach(() => {
   useEditorStore.setState({
     ...useEditorStore.getInitialState(),
     selectedImage: { path: '/s/neg.NEF', isRaw: true, isReady: true } as SelectedImage,
-    filmBasePicking: true,
   });
+  setFilmBasePicking(true);
 });
 
 it('sets a picked film base without turning the tool on', () => {
-  const next = withPickedFilmBase(recipe(), '/s/neg.NEF', [0.8, 0.5, 0.3]);
+  const prev = recipe();
+  const next = withPickedFilmBase(prev, startFilmBasePick('/s/neg.NEF', prev), [0.8, 0.5, 0.3]);
   expect(next.negative).toMatchObject({ base: [0.8, 0.5, 0.3], enabled: false });
 });
 
-it('drops a pick that arrives after the picker was cancelled or the photo changed', () => {
+it('drops a pick after the picker was cancelled or re-armed, the photo changed or another film was set', () => {
   const prev = recipe();
-  useEditorStore.setState({ filmBasePicking: false });
-  expect(withPickedFilmBase(prev, '/s/neg.NEF', [0.8, 0.5, 0.3])).toBe(prev);
-  useEditorStore.setState({ filmBasePicking: true });
-  expect(withPickedFilmBase(prev, '/s/other.NEF', [0.8, 0.5, 0.3])).toBe(prev);
+  const pick = startFilmBasePick('/s/neg.NEF', prev);
+  setFilmBasePicking(false);
+  expect(withPickedFilmBase(prev, pick, [0.8, 0.5, 0.3])).toBe(prev);
+  // Cancelled and armed again: the old sample is not this session's.
+  setFilmBasePicking(true);
+  expect(withPickedFilmBase(prev, pick, [0.8, 0.5, 0.3])).toBe(prev);
+  const fresh = startFilmBasePick('/s/neg.NEF', prev);
+  expect(withPickedFilmBase(prev, { ...fresh, path: '/s/other.NEF' }, [0.8, 0.5, 0.3])).toBe(prev);
   const without = { ...prev, negative: undefined };
-  expect(withPickedFilmBase(without, '/s/neg.NEF', [0.8, 0.5, 0.3])).toBe(without);
+  expect(withPickedFilmBase(without, fresh, [0.8, 0.5, 0.3])).toBe(without);
+  // A preset set another film while sampling.
+  const preset = { ...prev, negative: newNegative([0.9, 0.6, 0.3], [0.2, 0.1, 0.05]) };
+  expect(withPickedFilmBase(preset, fresh, [0.8, 0.5, 0.3])).toBe(preset);
+  expect(withPickedFilmBase(prev, fresh, [0.8, 0.5, 0.3]).negative?.base).toEqual([0.8, 0.5, 0.3]);
 });
 
 it('tells a reframed photo and another film apart', () => {

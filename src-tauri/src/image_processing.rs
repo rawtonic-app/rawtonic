@@ -41,6 +41,7 @@ pub async fn calculate_auto_adjustments(
     state: tauri::State<'_, AppState>,
     tone_mapper: Option<String>,
     base_curve: Option<String>,
+    js_adjustments: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
     let (original_image, path, is_raw) = match crate::image_loader::original_image(&state).await {
         Ok(loaded) => (loaded.image, loaded.path, loaded.is_raw),
@@ -69,6 +70,12 @@ pub async fn calculate_auto_adjustments(
         .to_string_lossy()
         .to_string();
     tauri::async_runtime::spawn_blocking(move || {
+        // A film negative's Auto reads the positive being edited.
+        let original_image = rawtonic_engine::negative::apply_for_recipe(
+            std::borrow::Cow::Borrowed(original_image.as_ref()),
+            js_adjustments.as_ref().unwrap_or(&serde_json::Value::Null),
+            is_raw,
+        );
         auto_adjustments_json(
             &original_image,
             &source_path,

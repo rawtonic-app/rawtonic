@@ -5,7 +5,13 @@ import { useTranslation } from "react-i18next";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
 import type { NegativeKind, NegativeSettings } from "../../utils/adjustments";
-import { autoNegative, negativeAnalysisGeneration, sameAnalysisInputs, sameFilm } from "../../utils/negative";
+import {
+  autoNegative,
+  negativeAnalysisGeneration,
+  sameAnalysisInputs,
+  sameFilm,
+  setFilmBasePicking,
+} from "../../utils/negative";
 import AdjustmentControl from "./AdjustmentControl";
 
 const CHANNELS = ["red", "green", "blue"] as const;
@@ -40,7 +46,6 @@ export default function StudioNegative({
   const negative = useEditorStore((s) => s.adjustments.negative ?? null);
   const path = useEditorStore((s) => s.selectedImage?.path);
   const picking = useEditorStore((s) => s.filmBasePicking);
-  const setEditor = useEditorStore((s) => s.setEditor);
   const { setAdjustments } = useEditorActions();
   const [analysing, setAnalysing] = useState(false);
 
@@ -133,13 +138,7 @@ export default function StudioNegative({
           title={t("studio.develop.negative.pickBase")}
           aria-pressed={picking}
           disabled={disabled}
-          onClick={() =>
-            setEditor({
-              filmBasePicking: !picking,
-              isWbPickerActive: false,
-              colorPickerTarget: null,
-            })
-          }
+          onClick={() => setFilmBasePicking(!picking)}
         >
           <Pipette size={15} />
         </button>

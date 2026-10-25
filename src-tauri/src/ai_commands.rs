@@ -481,6 +481,13 @@ pub(crate) fn geometry_key(
             val.to_string().hash(&mut geo_hasher);
         }
     }
+    // AI inputs read a film negative's positive (`negative::apply_for_recipe`).
+    if let Some(negative) = rawtonic_engine::negative::settings(js_adjustments) {
+        "negative".hash(&mut geo_hasher);
+        serde_json::to_string(&negative)
+            .unwrap_or_default()
+            .hash(&mut geo_hasher);
+    }
     hasher.update(&geo_hasher.finish().to_le_bytes());
     hasher.finalize().to_hex().to_string()
 }
@@ -1555,6 +1562,22 @@ mod tests {
         let c = serde_json::json!({"exposure": 1.0, "transformRotate": 5.0});
         assert_eq!(geometry_key(&x, &a), geometry_key(&x, &b));
         assert_ne!(geometry_key(&x, &a), geometry_key(&x, &c));
+        // A film negative's conversion changes the AI input; switched off, not.
+        let negative = |exposure: f64, enabled: bool| {
+            let mut recipe = a.clone();
+            recipe["negative"] = serde_json::json!({"version": 1, "enabled": enabled,
+                "base": [0.8, 0.5, 0.3], "highlight": [0.1, 0.05, 0.02], "exposure": exposure});
+            recipe
+        };
+        assert_eq!(
+            geometry_key(&x, &a),
+            geometry_key(&x, &negative(0.0, false))
+        );
+        assert_ne!(geometry_key(&x, &a), geometry_key(&x, &negative(0.0, true)));
+        assert_ne!(
+            geometry_key(&x, &negative(0.0, true)),
+            geometry_key(&x, &negative(0.5, true))
+        );
         assert_ne!(
             geometry_key(&x, &a),
             geometry_key(&loaded("y.raf", &decode), &a)

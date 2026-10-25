@@ -84,11 +84,45 @@ export function sameFilm(a?: NegativeSettings | null, b?: NegativeSettings | nul
   );
 }
 
+/** Bumped each time the film base picker is armed or disarmed: a sample
+ * from an earlier picker session is dropped. */
+let pickSession = 0;
+export const filmBasePickSession = () => pickSession;
+/** Arms (or disarms) the film base picker, ending any earlier session. */
+export function setFilmBasePicking(on: boolean) {
+  pickSession += 1;
+  useEditorStore.getState().setEditor(
+    on ? { filmBasePicking: true, isWbPickerActive: false, colorPickerTarget: null } : { filmBasePicking: false },
+  );
+}
+
+/** What a film base pick was asked for: the photo, the picker session and
+ * the film the recipe named then. */
+export interface FilmBasePick {
+  path: string;
+  session: number;
+  film?: NegativeSettings | null;
+}
+
+export const startFilmBasePick = (path: string, adjustments: Adjustments): FilmBasePick => ({
+  path,
+  session: pickSession,
+  film: adjustments.negative,
+});
+
 /** The recipe with a picked film base, or `prev` when the pick no longer
- * applies: the picker was cancelled or another photo is shown (`path`), or
- * the conversion is gone. The tool's eye is left as it is. */
-export function withPickedFilmBase(prev: Adjustments, path: string, base: Rgb): Adjustments {
+ * applies: the picker was cancelled or re-armed, another photo is shown,
+ * the conversion is gone or names another film (a preset, a snapshot) than
+ * when the sample was asked for. The tool's eye is left as it is. */
+export function withPickedFilmBase(prev: Adjustments, pick: FilmBasePick, base: Rgb): Adjustments {
   const state = useEditorStore.getState();
-  if (!state.filmBasePicking || state.selectedImage?.path !== path || !prev.negative) return prev;
+  if (
+    !state.filmBasePicking ||
+    pick.session !== pickSession ||
+    state.selectedImage?.path !== pick.path ||
+    !prev.negative ||
+    !sameFilm(prev.negative, pick.film)
+  )
+    return prev;
   return { ...prev, negative: { ...prev.negative, base } };
 }

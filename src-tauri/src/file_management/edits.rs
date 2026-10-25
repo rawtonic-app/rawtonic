@@ -631,17 +631,24 @@ pub async fn apply_auto_adjustments_to_paths(
                     let (source_path, sidecar_path) = parse_virtual_path(path);
                     let source_path_str = source_path.to_string_lossy().to_string();
 
+                    let recipe = crate::exif_processing::load_sidecar(&sidecar_path).adjustments;
+                    // A film negative's Auto reads its positive, converted
+                    // from the full decode as the editor converts it.
+                    let negative = rawtonic_engine::negative::is_active(&recipe);
                     let file_bytes = fs::read(&source_path).map_err(|e| e.to_string())?;
                     let image = image_loader::load_base_image_from_bytes(
                         &file_bytes,
                         &source_path_str,
-                        true,
+                        !negative,
                         &settings,
                         None,
                     )
                     .map_err(|e| e.to_string())?;
-
-                    let recipe = crate::exif_processing::load_sidecar(&sidecar_path).adjustments;
+                    let positive = rawtonic_engine::negative::apply_for_recipe(
+                        std::borrow::Cow::Borrowed(&image),
+                        &recipe,
+                        crate::formats::is_raw_file(&source_path_str),
+                    );
                     let tone_mapper = recipe
                         .get("toneMapper")
                         .and_then(|value| value.as_str())
@@ -651,7 +658,7 @@ pub async fn apply_auto_adjustments_to_paths(
                         .and_then(|value| value.as_str())
                         .map(str::to_string);
                     let auto_adjustments_json = crate::image_processing::auto_adjustments_json(
-                        &image,
+                        &positive,
                         &source_path_str,
                         crate::formats::is_raw_file(&source_path_str),
                         tone_mapper.as_deref(),

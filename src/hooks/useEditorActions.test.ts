@@ -16,7 +16,7 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
-import { INITIAL_ADJUSTMENTS, PasteMode } from '../utils/adjustments';
+import { INITIAL_ADJUSTMENTS, PasteMode, newNegative } from '../utils/adjustments';
 import { AppSettings, Invokes } from '../components/ui/AppProperties';
 import { COMMIT_INTERVAL_MS, registerSliderDraftRenderer } from '../utils/sliderDraft';
 import { cropEditCancelled, cropGestureEnded, cropGestureStarted } from '../utils/cropGesture';
@@ -113,11 +113,23 @@ it('asks for the auto method of the edit\'s base look', async () => {
   const { result } = renderHook(useEditorActions);
   act(() => { void result.current.handleAutoAdjustments(); });
   await finish(Invokes.CalculateAutoAdjustments, { exposure: 0.5 });
-  expect(invoke).toHaveBeenCalledWith(Invokes.CalculateAutoAdjustments, { toneMapper: 'standard', baseCurve: 'standard' });
+  expect(invoke).toHaveBeenCalledWith(Invokes.CalculateAutoAdjustments, {
+    toneMapper: 'standard', baseCurve: 'standard', jsAdjustments: null,
+  });
   useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, toneMapper: 'basic', baseCurve: 'linear' } });
   act(() => { void result.current.handleAutoAdjustments(); });
   await finish(Invokes.CalculateAutoAdjustments, { exposure: 0.5 });
-  expect(invoke).toHaveBeenLastCalledWith(Invokes.CalculateAutoAdjustments, { toneMapper: 'basic', baseCurve: 'linear' });
+  expect(invoke).toHaveBeenLastCalledWith(Invokes.CalculateAutoAdjustments, {
+    toneMapper: 'basic', baseCurve: 'linear', jsAdjustments: null,
+  });
+  // A film negative's Auto reads the positive: the recipe goes along.
+  const negative = { ...INITIAL_ADJUSTMENTS, negative: newNegative([0.7, 0.4, 0.2], [0.1, 0.05, 0.02]) };
+  useEditorStore.setState({ adjustments: negative });
+  act(() => { void result.current.handleAutoAdjustments(); });
+  await finish(Invokes.CalculateAutoAdjustments, { exposure: 0.5 });
+  expect(invoke).toHaveBeenLastCalledWith(Invokes.CalculateAutoAdjustments, {
+    toneMapper: 'standard', baseCurve: 'standard', jsAdjustments: negative,
+  });
 });
 
 it('puts the auto black point into an untouched luma curve only', async () => {

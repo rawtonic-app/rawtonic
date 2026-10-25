@@ -538,7 +538,9 @@ export function useEditorActions() {
       const baseCurve = current.baseCurve ?? null;
       const { autoBlackPoint, ...autoAdjustments }: Adjustments & { autoBlackPoint?: number } = await invoke(
         Invokes.CalculateAutoAdjustments,
-        { toneMapper, baseCurve },
+        // A film negative's Auto reads the positive (the conversion and the
+        // lens vignetting it corrects on the scan).
+        { toneMapper, baseCurve, jsAdjustments: current.negative ? current : null },
       );
       if (!isCurrentEditorImage(selectedImage.path)) return;
       setAdjustments((prev: Adjustments) => ({
