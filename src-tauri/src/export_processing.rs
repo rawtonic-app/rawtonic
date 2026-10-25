@@ -1552,7 +1552,11 @@ pub async fn run_headless_export(
             .map_err(|e| format!("Failed to create output directory: {}", e))?;
         output_path
     };
-    ensure_writable_folder(output_folder)?;
+    // Recipes choose their own folders (subfolders, the originals' folder);
+    // without them the output folder is where every file goes.
+    if session.recipes.is_none() {
+        ensure_writable_folder(output_folder)?;
+    }
 
     println!("Found {} images to export. Processing...", paths.len());
 
