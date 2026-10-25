@@ -1,7 +1,7 @@
+import { invoke } from '@tauri-apps/api/core';
 import { Invokes, type SelectedImage } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
 import type { Adjustments } from './adjustments';
-import { invokeEditStep } from './editGate';
 
 type Rgb = [number, number, number];
 
@@ -81,14 +81,14 @@ export function neutralSliders(rgb: Rgb) {
  * `null` while the photo's preview is not ready. */
 export async function autoWhiteBalance(image: SelectedImage): Promise<Partial<Adjustments> | null> {
   if (image.isRaw) {
-    const kelvin = await invokeEditStep<{ temperature: number; tint: number } | null>(Invokes.AutoWhiteBalance, {
+    const kelvin = await invoke<{ temperature: number; tint: number } | null>(Invokes.AutoWhiteBalance, {
       path: image.path,
     });
     if (kelvin) {
       return { whiteBalance: 'auto', wbTemperature: kelvin.temperature, wbTint: kelvin.tint, temperature: 0, tint: 0 };
     }
   }
-  const grey = await invokeEditStep<Rgb | null>(Invokes.SamplePreviewGreyWorld, { path: image.path });
+  const grey = await invoke<Rgb | null>(Invokes.SamplePreviewGreyWorld, { path: image.path });
   return grey && neutralSliders(grey);
 }
 
@@ -105,14 +105,14 @@ export async function whiteBalanceForCurrentPreview(request: PreviewSample) {
   // adjustment and solve exactly (sampling the developed pixels let contrast,
   // saturation and curves exaggerate the cast).
   if (request.useWgpu) {
-    const linear = await invokeEditStep<Rgb | null>(Invokes.SamplePreviewWhiteBalance, {
+    const linear = await invoke<Rgb | null>(Invokes.SamplePreviewWhiteBalance, {
       path: request.image.path, normalizedX: request.normalizedX, normalizedY: request.normalizedY,
     });
     if (!linear || !stillCurrent()) return null;
     // RAWs: the white balance in Kelvin and tint, from the camera's own
     // calibration (Lightroom's eyedropper); the relative sliders go to zero.
     if (request.image.isRaw) {
-      const kelvin = await invokeEditStep<{ temperature: number; tint: number } | null>(
+      const kelvin = await invoke<{ temperature: number; tint: number } | null>(
         Invokes.WhiteBalanceFromSample,
         { imagePath: request.image.path, rgb: linear },
       ).catch(() => null);

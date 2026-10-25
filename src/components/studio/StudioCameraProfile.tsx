@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import OperationError from "../ui/OperationError";
 import { Invokes } from "../ui/AppProperties";
-import { invokeEditStep } from "../../utils/editGate";
 
 export interface CameraProfileEntry {
   value: string;
@@ -57,7 +56,7 @@ export default function StudioCameraProfile({
         filters: [{ name: t("studio.profile.dcpFilter"), extensions: ["dcp", "DCP"] }],
       });
       if (typeof source !== "string") return;
-      const entry = await invokeEditStep<CameraProfileEntry>(
+      const entry = await invoke<CameraProfileEntry>(
         Invokes.ImportCameraProfile,
         { source, imagePath },
       );

@@ -10,7 +10,6 @@ import { changedCopyableKeys } from '../utils/multiView';
 import { samePhotograph, withoutDetections } from '../utils/settingsClipboard';
 import { frameDrawnMasks } from '../utils/maskGeometry';
 import { globalImageCache } from '../utils/ImageLRUCache';
-import { onSettle } from '../utils/editGate';
 import {
   sameAdjustmentValue,
   withClarityVersion,
@@ -193,10 +192,7 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       flush();
       sendLive();
     });
-    // Written at once before the photograph is only shown (utils/editGate).
-    const stopSettling = onSettle(() => flush.flush());
     return () => {
-      stopSettling();
       unsubscribe();
       // Switching it off keeps what was already done (for the photographs
       // selected when it was done).

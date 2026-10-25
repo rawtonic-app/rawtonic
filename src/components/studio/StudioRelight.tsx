@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Plus,
   Trash2,
@@ -37,7 +38,6 @@ import { useRelightStore } from "../../store/useRelightStore";
 import RelightPatternPreview from "./RelightPatternPreview";
 import AdjustmentControl from "./AdjustmentControl";
 import { Invokes } from "../ui/AppProperties";
-import { invokeEditStep } from "../../utils/editGate";
 
 const errorText = (e: unknown) =>
   e instanceof Error ? e.message : typeof e === "string" ? e : "";
@@ -105,7 +105,7 @@ export default function StudioRelight({
     setBusy(true);
     setError(null);
     try {
-      const result = await invokeEditStep<RelightDepth>(Invokes.GenerateRelightDepth, {
+      const result = await invoke<RelightDepth>(Invokes.GenerateRelightDepth, {
         jsAdjustments: asked,
       });
       const current = useEditorStore.getState();
@@ -197,7 +197,7 @@ export default function StudioRelight({
     });
     if (typeof path !== "string") return;
     try {
-      const data = await invokeEditStep<string>(Invokes.LoadRelightPattern, { path });
+      const data = await invoke<string>(Invokes.LoadRelightPattern, { path });
       update({
         pattern: "custom",
         customPattern: {

@@ -7,7 +7,6 @@ import { waitForPendingMetadataSave } from './useEditorActions';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { useUIStore } from '../store/useUIStore';
 import { Invokes } from '../components/ui/AppProperties';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from '../utils/adjustments';
 
@@ -58,21 +57,6 @@ afterEach(() => {
 });
 
 describe('Edit all selected', () => {
-  it('writes the last edits when the key that shows the photograph alone turns it off', () => {
-    const { rerender } = renderHook(({ on }) => useEditAllSelected(on, selection), { initialProps: { on: true } });
-    edit({ exposure: 0.5 });
-    // F: Edit all goes off in the same key event (MultiViewStage); its last
-    // edits are written before the full screen begins (utils/editGate).
-    const onKey = () =>
-      act(() => {
-        useUIStore.setState({ activeView: 'editor', isFullScreen: true });
-        rerender({ on: false });
-      });
-    window.addEventListener('keydown', onKey, { once: true });
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f' }));
-    useUIStore.setState({ isFullScreen: false });
-    expect(pasted()).toEqual([{ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { exposure: 0.5 } }]);
-  });
   it('saves Linux browser cells and refreshes them without native live-display IPC', async () => {
     useSettingsStore.setState({ osPlatform: 'linux' });
     const before = useMultiViewStore.getState().recipeRevision;

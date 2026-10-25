@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Trans, useTranslation } from "react-i18next";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useUIStore } from "../../store/useUIStore";
@@ -6,7 +7,6 @@ import { isCurrentEditorImage, useEditorActions } from "../../hooks/useEditorAct
 import type { GuideLine, UprightMode } from "../../utils/adjustments";
 import { GUIDE_COLORS } from "../../utils/guideLines";
 import { Invokes, Panel } from "../ui/AppProperties";
-import { invokeEditStep } from "../../utils/editGate";
 
 /** `calculate_upright` (UprightResult in upright.rs). */
 interface UprightResult {
@@ -85,7 +85,7 @@ export default function StudioUpright() {
     if (!path) return;
     setBusy(next);
     try {
-      const result = await invokeEditStep<UprightResult | null>(Invokes.CalculateUpright, {
+      const result = await invoke<UprightResult | null>(Invokes.CalculateUpright, {
         mode: next,
         adjustments: useEditorStore.getState().adjustments,
       });

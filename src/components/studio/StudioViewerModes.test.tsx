@@ -10,16 +10,18 @@ import { Panel, type AppSettings, type ImageFile, type SelectedImage } from "../
 import { IDLE_CURSOR_MS } from "./useIdleCursor";
 import { followPhotoFullScreen } from "../../utils/photoFullScreen";
 import { useQuickAdjust } from "./useQuickAdjust";
-import { ContextMenuProvider, useContextMenu, type ContextMenuContextValue } from "../../context/ContextMenuContext";
 
 vi.mock("../../utils/photoFullScreen", () => ({ followPhotoFullScreen: vi.fn(() => Promise.resolve()) }));
 const editorPointerDown = vi.fn();
+const editorWheel = vi.fn();
 const editorMenu = vi.fn();
 vi.mock("./useQuickAdjust", () => ({ useQuickAdjust: vi.fn(() => null) }));
 vi.mock("../panel/Editor", () => ({
+  // As the real Editor: a native wheel listener on its container.
   default: () => (
     <div
       data-testid="native-viewer"
+      ref={(el) => el?.addEventListener("wheel", editorWheel)}
       onPointerDownCapture={editorPointerDown}
       onContextMenu={editorMenu}
     />
@@ -91,26 +93,12 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
-  // No pointer left held down (a view-only mode waits for its release).
-  fireEvent.pointerUp(window);
   cleanup();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
 const noop = () => {};
-// The menus the workspace's provider shows (to open one before a mode).
-let menus: ContextMenuContextValue | null = null;
-function MenuProbe() {
-  menus = useContextMenu();
-  return null;
-}
-const withMenus = ({ children }: { children: React.ReactNode }) => (
-  <ContextMenuProvider>
-    <MenuProbe />
-    {children}
-  </ContextMenuProvider>
-);
 const workspace = (list = files) =>
   render(
     <StudioWorkspace
@@ -134,7 +122,6 @@ const workspace = (list = files) =>
       settings={null}
       onSettings={noop}
     />,
-    { wrapper: withMenus },
   );
 const key = (k: string) => fireEvent.keyDown(document, { key: k, code: `Key${k.toUpperCase()}` });
 
@@ -250,21 +237,6 @@ it("puts Develop's crop and layer aside in the full screen and brings them back 
   expect(useEditorStore.getState().activeMaskContainerId).toBe("layer-1");
 });
 
-it("brings the layer's brush or gradient back after the full screen while the layer still has it", () => {
-  useUIStore.setState({ activeView: "editor", activePanel: Panel.Masks });
-  useEditorStore.setState((s) => ({
-    adjustments: { ...s.adjustments, masks: [{ id: "layer-1", subMasks: [{ id: "brush-1" }] }] } as never,
-    activeMaskContainerId: "layer-1",
-    activeMaskId: "brush-1",
-  }));
-  workspace();
-  act(() => useUIStore.getState().toggleFullScreen());
-  expect(useEditorStore.getState()).toMatchObject({ activeMaskContainerId: null, activeMaskId: null });
-  act(() => useUIStore.getState().toggleFullScreen());
-  expect(useEditorStore.getState()).toMatchObject({ activeMaskContainerId: "layer-1", activeMaskId: "brush-1" });
-  useEditorStore.setState((s) => ({ adjustments: { ...s.adjustments, masks: [] }, activeMaskContainerId: null, activeMaskId: null }));
-});
-
 it("does not switch cursor tools while the photograph is shown alone", () => {
   useUIStore.setState({ activeView: "editor" });
   workspace();
@@ -362,6 +334,19 @@ it("opens the loupe with E on the Library's active photograph, loading it when a
   expect(useUIStore.getState().libraryLoupe).toBe(true);
 });
 
+it("keeps a wheel with Cmd/Ctrl held (the editor's crop zoom) from the photograph while it only shows; a pinch still zooms", () => {
+  useUIStore.setState({ libraryLoupe: true });
+  workspace();
+  const viewer = screen.getByTestId("native-viewer");
+  fireEvent.keyDown(window, { key: "Meta" });
+  fireEvent.wheel(viewer, { deltaY: -10, metaKey: true });
+  expect(editorWheel).not.toHaveBeenCalled();
+  fireEvent.keyUp(window, { key: "Meta" });
+  // A trackpad pinch: ctrlKey set by the system, no key held.
+  fireEvent.wheel(viewer, { deltaY: -10, ctrlKey: true });
+  expect(editorWheel).toHaveBeenCalledOnce();
+});
+
 it("opens no context menu of edit commands over the photograph shown alone or in the loupe", () => {
   useUIStore.setState({ activeView: "editor" });
   workspace();
@@ -371,14 +356,4 @@ it("opens no context menu of edit commands over the photograph shown alone or in
   act(() => useUIStore.getState().toggleFullScreen());
   fireEvent.contextMenu(screen.getByTestId("native-viewer"));
   expect(editorMenu).toHaveBeenCalledOnce();
-});
-
-it("closes a menu already open when the photograph is then only shown", () => {
-  useUIStore.setState({ activeView: "editor" });
-  workspace();
-  const undo = vi.fn();
-  act(() => menus!.showContextMenu(10, 10, [{ label: "Undo", onClick: undo }]));
-  expect(menus!.menuState.isVisible).toBe(true);
-  act(() => useUIStore.getState().toggleFullScreen());
-  expect(menus!.menuState.isVisible).toBe(false);
 });

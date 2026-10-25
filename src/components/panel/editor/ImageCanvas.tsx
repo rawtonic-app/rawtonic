@@ -107,7 +107,6 @@ import {
   type PromptGesture,
 } from '../../../utils/objectPrompts';
 import { objectSelectionBusy } from '../../../hooks/useAiMasking';
-import { trackEdit } from '../../../utils/editGate';
 
 /** Screen pixels outside the crop frame where a drag rotates the photo. */
 const CROP_ROTATE_BAND = 36;
@@ -2041,8 +2040,7 @@ const ImageCanvas = memo(
             .catch((error) => toast.error(`Could not sample the colour: ${error}`));
           return;
         }
-        // Its answer becomes the edit: settled before the photograph is only shown.
-        void trackEdit(whiteBalanceForCurrentPreview({
+        void whiteBalanceForCurrentPreview({
           image: selectedImage, adjustments, finalPreviewUrl,
           normalizedX: x / imgLogicalWidth, normalizedY: y / imgLogicalHeight,
           useWgpu: isWgpuActive,
@@ -2057,7 +2055,7 @@ const ImageCanvas = memo(
           if (useEditorStore.getState().selectedImage === selectedImage && requestId === whiteBalanceRequestRef.current) {
             toast.error(`Could not sample white balance: ${error}`);
           }
-        }));
+        });
       },
       [
         isWbPickerActive,

@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
 import { updateAdjustments } from '../hooks/useEditorActions';
@@ -9,7 +10,6 @@ import {
   type ColorRange,
 } from './adjustments';
 import { srgbToOklch } from './oklab';
-import { invokeEditStep } from './editGate';
 
 /** Colour ranges of a recipe, or none. */
 export const colorRangesOf = (adjustments: Partial<Adjustments>): ColorRange[] =>
@@ -21,7 +21,7 @@ export const colorRangesOf = (adjustments: Partial<Adjustments>): ColorRange[] =
  * existing range to it. Returns false when nothing was sampled.
  */
 export async function pickColorRange(path: string, target: string, x: number, y: number) {
-  const rgb = await invokeEditStep<[number, number, number] | null>(Invokes.SamplePreviewColor, {
+  const rgb = await invoke<[number, number, number] | null>(Invokes.SamplePreviewColor, {
     path,
     normalizedX: x,
     normalizedY: y,

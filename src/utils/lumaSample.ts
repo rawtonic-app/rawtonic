@@ -1,10 +1,10 @@
+import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
 import { Mask } from '../components/panel/right/Masks';
 import { useEditorStore } from '../store/useEditorStore';
 import { updateAdjustments } from '../hooks/useEditorActions';
 import { adjustmentsForMaskCommand } from '../hooks/useMaskOverlay';
 import type { Adjustments } from './adjustments';
-import { invokeEditStep } from './editGate';
 
 /** The tones under a sample on the photo, in percent of white as the luma
  * range compares them (`sample_luma_tones` in the engine): a robust darkest
@@ -162,7 +162,7 @@ export async function sampleLumaRange(layerId: string, sample: LumaSampleArea, a
   if (!selectedImage?.isReady) return false;
   const path = selectedImage.path;
   const area = (sample.width ?? 0) > 0 && (sample.height ?? 0) > 0;
-  const tones = await invokeEditStep<LumaSample | null>(Invokes.SampleLumaRange, {
+  const tones = await invoke<LumaSample | null>(Invokes.SampleLumaRange, {
     x: sample.x,
     y: sample.y,
     width: area ? sample.width : 0,

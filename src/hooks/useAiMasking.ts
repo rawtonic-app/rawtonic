@@ -12,7 +12,6 @@ import { SubMask } from '../components/panel/right/Masks';
 import { Invokes, Panel } from '../components/ui/AppProperties';
 import { GEOMETRY_KEYS, ORIENTATION_KEYS } from '../utils/geometryKeys';
 import type { ObjectPrompt } from '../utils/objectPrompts';
-import { asLoaded, invokeEditStep } from '../utils/editGate';
 
 /** The adjustments that warp the photo before its orientation (the engine's
  * `GEOMETRY_KEYS`): AI masks are computed in, and record, this frame. Upright
@@ -373,7 +372,7 @@ export function useAiMasking() {
 
     try {
       const transformAdjustments = getTransformAdjustments(adjustments);
-      const newParameters = await invokeEditStep<Record<string, unknown>>(Invokes.GenerateAiSubjectMask, {
+      const newParameters = await invoke<Record<string, unknown>>(Invokes.GenerateAiSubjectMask, {
         jsAdjustments: transformAdjustments,
         endPoint: [endPoint.x, endPoint.y],
         flipHorizontal: adjustments.flipHorizontal,
@@ -429,7 +428,7 @@ export function useAiMasking() {
         taskId: subMaskId,
       });
 
-      return !asLoaded(() => applyAiResult(selectedImage.path, subMaskId, newParameters, DEPTH_LIMITS));
+      return !applyAiResult(selectedImage.path, subMaskId, newParameters, DEPTH_LIMITS);
     } catch (error) {
       if (isPhotoChanged(error)) return true;
       toastAiError(error, `AI Depth Mask Failed: ${error}`);
@@ -457,7 +456,7 @@ export function useAiMasking() {
         taskId: subMaskId,
       });
 
-      return !asLoaded(() => applyAiResult(selectedImage.path, subMaskId, newParameters));
+      return !applyAiResult(selectedImage.path, subMaskId, newParameters);
     } catch (error) {
       if (isPhotoChanged(error)) return true;
       toastAiError(error, `AI Foreground Mask Failed: ${error}`);
@@ -485,7 +484,7 @@ export function useAiMasking() {
         taskId: subMaskId,
       });
 
-      return !asLoaded(() => applyAiResult(selectedImage.path, subMaskId, newParameters));
+      return !applyAiResult(selectedImage.path, subMaskId, newParameters);
     } catch (error) {
       if (isPhotoChanged(error)) return true;
       toastAiError(error, `AI Sky Mask Failed: ${error}`);
@@ -527,7 +526,7 @@ export function useAiMasking() {
       if (now && (JSON.stringify(now.parts ?? []) !== JSON.stringify(parts) || (now.person ?? null) !== person)) {
         return true;
       }
-      asLoaded(() => applyAiResult(selectedImage.path, subMaskId, newParameters));
+      applyAiResult(selectedImage.path, subMaskId, newParameters);
       return true;
     } catch (error) {
       toastAiError(error, `People mask failed: ${error}`);
@@ -625,12 +624,10 @@ export function useAiMasking() {
         // and redo stays. An edit still waiting to become a step is settled
         // first, so it is replaced too.
         debouncedSetHistory.flush();
-        asLoaded(() =>
-          now.setEditor((state) =>
-            state.selectedImage?.path !== path
-              ? state
-              : { adjustments: placeIn(state.adjustments), history: state.history.map(placeIn) },
-          ),
+        now.setEditor((state) =>
+          state.selectedImage?.path !== path
+            ? state
+            : { adjustments: placeIn(state.adjustments), history: state.history.map(placeIn) },
         );
       })
       .catch((error) => console.error('Placing Lightroom masks failed:', error));
@@ -666,7 +663,7 @@ export function useAiMasking() {
       if (!pending || requestedAutoMasks.current.has(key)) continue;
       requestedAutoMasks.current.add(key);
       if (sub.type !== 'ai-depth' && (!sub.parameters || Object.keys(sub.parameters).length === 0)) {
-        asLoaded(() => updateSubMask(sub.id, { parameters: { maskDataBase64: null, grow: 0, feather: 0 } }));
+        updateSubMask(sub.id, { parameters: { maskDataBase64: null, grow: 0, feather: 0 } });
       }
       const run =
         sub.type === 'ai-depth'
@@ -748,7 +745,7 @@ export function useAiMasking() {
         // again until the geometry or the items change.
         if (pending(placed.spots) + pending(placed.redEyes) === pending(sent.spots) + pending(sent.redEyes)) return;
         done();
-        asLoaded(() => setAdjustments((prev: Adjustments) =>
+        setAdjustments((prev: Adjustments) =>
           retouchBasis(prev) !== sentBasis
             ? prev
             : {
@@ -756,7 +753,7 @@ export function useAiMasking() {
                 spots: merged(prev.spots ?? [], sent.spots, placed.spots),
                 redEyes: merged(prev.redEyes ?? [], sent.redEyes, placed.redEyes),
               },
-        ));
+        );
       })
       .catch((error) => {
         done();

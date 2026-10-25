@@ -7,7 +7,6 @@ import { useEditorStore } from "../../../store/useEditorStore";
 import type { RedEye } from "../../../utils/adjustments";
 import { GEOMETRY_KEYS, ORIENTATION_KEYS } from "../../../utils/geometryKeys";
 import { Invokes } from "../../ui/AppProperties";
-import { invokeEditStep } from "../../../utils/editGate";
 
 interface Props {
   /** The displayed photograph's box in the viewer's (zoomed) content. */
@@ -159,7 +158,7 @@ export default function RedEyeOverlay({
     const path = selectedImage.path;
     setSearch({ x, y, radius, pending: true });
     try {
-      const pupil = await invokeEditStep<Pupil | null>(Invokes.DetectRedEye, {
+      const pupil = await invoke<Pupil | null>(Invokes.DetectRedEye, {
         x,
         y,
         radius,
@@ -207,7 +206,7 @@ export default function RedEyeOverlay({
     const { selectedImage, adjustments } = useEditorStore.getState();
     const path = selectedImage?.path;
     try {
-      const [ix, iy] = await invokeEditStep<[number, number]>(Invokes.RedEyePoint, {
+      const [ix, iy] = await invoke<[number, number]>(Invokes.RedEyePoint, {
         x,
         y,
         jsAdjustments: adjustments,

@@ -1,4 +1,4 @@
-import { create, type StateCreator } from 'zustand';
+import { create } from 'zustand';
 import {
   ImageFile,
   Panel,
@@ -9,8 +9,6 @@ import {
   CollapsibleSectionsState,
 } from '../components/ui/AppProperties';
 import { useEditorStore } from './useEditorStore';
-import { refuseEditsWhen, settleEdits } from '../utils/editGate';
-import { viewerOnly } from '../utils/viewerMode';
 import {
   type PanelGroup,
   type PanelRequest,
@@ -310,45 +308,7 @@ export function isAnyModalOpen(state: UIState): boolean {
   );
 }
 
-// An update that shows the photograph alone, waiting for edits to settle.
-let heldEntry: Partial<UIState> | null = null;
-
-/** Every update of the store passes here: one that only shows the
- * photograph (the loupe, a full screen) begins once the edits under way
- * have settled (utils/editGate), at once when nothing is still on its way
- * back, so no edit accepted before is refused. A later choice of mode
- * replaces an entry still waiting. */
-const withSettledEntry =
-  (config: StateCreator<UIState>): StateCreator<UIState> =>
-  (set, get, api) => {
-    const gated = ((partial: UIState | Partial<UIState> | ((state: UIState) => UIState | Partial<UIState>), replace?: boolean) => {
-      const state = get();
-      const next = typeof partial === 'function' ? partial(state) : partial;
-      if (next === state) return;
-      // An explicit choice of viewer (G, E, Esc: also one that names the
-      // mode already shown) or another module drops it.
-      if (heldEntry && ('libraryLoupe' in next || 'isFullScreen' in next || next.activeView !== undefined && next.activeView !== state.activeView))
-        heldEntry = null;
-      if (!viewerOnly(state) && viewerOnly({ ...state, ...next })) {
-        const settling = settleEdits();
-        if (settling) {
-          const entry = next;
-          heldEntry = entry;
-          void settling.then(() => {
-            if (heldEntry !== entry) return;
-            heldEntry = null;
-            gated(entry);
-          });
-          return;
-        }
-      }
-      set(next as UIState, replace as false);
-    }) as typeof set;
-    api.setState = gated;
-    return config(gated, get, api);
-  };
-
-export const useUIStore = create<UIState>()(withSettledEntry((set, get) => ({
+export const useUIStore = create<UIState>((set, get) => ({
   activeView: 'library',
   gridColumns: 0,
   isFullScreen: false,
@@ -593,7 +553,4 @@ export const useUIStore = create<UIState>()(withSettledEntry((set, get) => ({
       const layout = setPanelGroups(readModuleLayout(state.uiVisibility.modules, module), groups, true);
       return { uiVisibility: { ...state.uiVisibility, modules: { ...state.uiVisibility.modules, [module]: layout } } };
     }),
-})));
-
-// The loupe and the full screen only show the photograph (utils/editGate).
-refuseEditsWhen(() => viewerOnly(useUIStore.getState()));
+}));

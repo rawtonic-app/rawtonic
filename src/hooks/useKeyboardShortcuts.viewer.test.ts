@@ -176,8 +176,8 @@ it("rates the shown photograph in the full screen", () => {
 });
 
 it("leaves the full screen first on Escape, even with a picker or the crop open", () => {
-  useEditorStore.setState({ isStraightenActive: true });
   useUIStore.setState({ activeView: "editor", isFullScreen: true, activePanel: Panel.Crop });
+  useEditorStore.setState({ isStraightenActive: true });
   press("Escape");
   expect(useUIStore.getState()).toMatchObject({ isFullScreen: false, activePanel: Panel.Crop });
   expect(useEditorStore.getState().isStraightenActive).toBe(true);
@@ -219,8 +219,8 @@ it("keeps the crop Escape restores across a full screen in the middle of croppin
 });
 
 it("ignores recipe-changing keys in the full screen and keeps them outside it", () => {
-  useEditorStore.setState((s) => ({ adjustments: { ...s.adjustments, orientationSteps: 0 } as never }));
   useUIStore.setState({ activeView: "editor", isFullScreen: true });
+  useEditorStore.setState((s) => ({ adjustments: { ...s.adjustments, orientationSteps: 0 } as never }));
   press("BracketRight", { key: "]" });
   expect(useEditorStore.getState().adjustments.orientationSteps).toBe(0);
   useUIStore.setState({ isFullScreen: false });
@@ -236,8 +236,8 @@ it("loads the Library's active photograph before F shows it alone", () => {
 });
 
 it("ignores recipe keys in the Library's loupe, but keeps undoing file operations there", () => {
-  useEditorStore.setState((s) => ({ adjustments: { ...s.adjustments, orientationSteps: 0 } as never }));
   useUIStore.setState({ activeView: "library", libraryLoupe: true });
+  useEditorStore.setState((s) => ({ adjustments: { ...s.adjustments, orientationSteps: 0 } as never }));
   press("BracketRight", { key: "]" });
   expect(useEditorStore.getState().adjustments.orientationSteps).toBe(0);
   press("KeyZ", { metaKey: true });
