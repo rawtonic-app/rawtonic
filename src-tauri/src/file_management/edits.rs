@@ -451,6 +451,13 @@ fn pasted_into(
                     from.replace_layers,
                     &mut || uuid::Uuid::new_v4().to_string(),
                 ),
+                None if k == "masks" => {
+                    let mut layers = v.clone();
+                    rawtonic_engine::masks::prepare_layers_for_photo(&mut layers, &mut || {
+                        uuid::Uuid::new_v4().to_string()
+                    });
+                    layers
+                }
                 _ => v.clone(),
             };
             new_map.insert(k.clone(), v);
@@ -1872,6 +1879,50 @@ mod tests {
             pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
         });
         assert!(failed.is_empty(), "{failed:?}");
+    }
+
+    #[test]
+    fn preset_without_layers_preserves_the_photos_own_mask_bitmap() {
+        let (_temp, paths) = session_with_photos(1);
+        let (source, sidecar) = parse_virtual_path(&paths[0]);
+        let before = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+        let after = pasted_metadata(
+            &paths[0],
+            &source,
+            &sidecar,
+            &serde_json::json!({"exposure": 1}),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(after.adjustments["masks"], before["masks"]);
+    }
+
+    #[test]
+    fn preset_ai_masks_wait_for_each_target_photo_even_with_legacy_bitmaps() {
+        let (_temp, paths) = session_with_photos(2);
+        for bitmap in [Value::Null, serde_json::json!("data:source")] {
+            let mut sky = sky_layer("preset-sky", "data:source");
+            sky["subMasks"][0]["parameters"]["maskDataBase64"] = bitmap;
+            let preset = serde_json::json!({"masks": [sky]});
+            let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
+                pasted_metadata(path, source, sidecar, &preset, None, None, None)
+            });
+            assert!(failed.is_empty(), "{failed:?}");
+            let mut ids = Vec::new();
+            for path in &paths {
+                let saved =
+                    crate::exif_processing::load_sidecar(&parse_virtual_path(path).1).adjustments;
+                let sub = &saved["masks"][0]["subMasks"][0];
+                assert!(sub["parameters"]["maskDataBase64"].is_null());
+                assert_eq!(sub["parameters"]["detectPending"], true);
+                assert_ne!(sub["id"], "preset-sky-c");
+                ids.push(sub["id"].clone());
+            }
+            assert_ne!(ids[0], ids[1]);
+            assert_eq!(preset["masks"][0]["subMasks"][0]["id"], "preset-sky-c");
+        }
     }
 
     /// Timing of a sync of 100 library photographs (the recipe writes

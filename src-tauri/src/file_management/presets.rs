@@ -16,6 +16,7 @@ use uuid::Uuid;
 pub struct Preset {
     pub id: String,
     pub name: String,
+    #[serde(serialize_with = "serialize_preset_adjustments")]
     pub adjustments: Value,
     #[serde(rename = "includeMasks", skip_serializing_if = "Option::is_none")]
     pub include_masks: Option<bool>,
@@ -29,6 +30,15 @@ pub struct Preset {
     /// A preset of one tool's menu: that tool's parameters, kept on update.
     #[serde(rename = "toolKeys", skip_serializing_if = "Option::is_none")]
     pub tool_keys: Option<Vec<String>>,
+}
+
+/// Apply the same parameter-only storage to top-level presets, folder
+/// children, imports returned to the editor, and exported preset files.
+fn serialize_preset_adjustments<S: serde::Serializer>(
+    adjustments: &Value,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    rawtonic_engine::masks::without_detections(adjustments).serialize(serializer)
 }
 
 #[derive(Serialize)]
@@ -383,6 +393,32 @@ pub fn handle_export_presets_to_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saving_presets_keeps_ai_parameters_without_photo_detection_data() {
+        let preset: Preset = serde_json::from_value(serde_json::json!({
+            "id": "sky", "name": "Sky", "adjustments": {"masks": [{"subMasks": [
+                {"id": "s", "type": "ai-sky", "parameters": {"maskDataBase64": "data:source", "warp": {}, "grow": 10}},
+                {"id": "p", "type": "ai-people", "parameters": {"parts": [], "mask_data_base64": "data:stale"}},
+                {"id": "o", "type": "ai-subject", "parameters": {"prompts": [{"x": 10, "y": 20}], "maskDataBase64": "data:object"}},
+                {"id": "b", "type": "brush", "parameters": {"strokes": [1]}}
+            ]}]}
+        })).unwrap();
+        let saved = serde_json::to_value(&preset).unwrap();
+        let subs = &saved["adjustments"]["masks"][0]["subMasks"];
+        assert!(subs[0]["parameters"].get("maskDataBase64").is_none());
+        assert!(subs[0]["parameters"].get("warp").is_none());
+        assert_eq!(subs[0]["parameters"]["grow"], 10);
+        assert!(subs[1]["parameters"].get("mask_data_base64").is_none());
+        assert_eq!(subs[1]["parameters"]["parts"], serde_json::json!([]));
+        assert!(subs[2]["parameters"].get("maskDataBase64").is_none());
+        assert_eq!(subs[2]["parameters"]["prompts"][0]["x"], 10);
+        assert_eq!(subs[3]["parameters"]["strokes"], serde_json::json!([1]));
+        assert_eq!(
+            preset.adjustments["masks"][0]["subMasks"][0]["parameters"]["maskDataBase64"],
+            "data:source"
+        );
+    }
 
     #[test]
     fn automatic_tool_folder_origin_survives_storage() {

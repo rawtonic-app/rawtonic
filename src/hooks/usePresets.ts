@@ -16,6 +16,7 @@ import {
 } from '../utils/adjustments';
 import { Folder, Invokes, Preset } from '../components/ui/AppProperties';
 import { frameDrawnMasks } from '../utils/maskGeometry';
+import { presetToSave } from '../utils/settingsClipboard';
 import { registerQuitFlush } from '../utils/quit';
 
 /** The settings a preset takes from `current`: the copyable keys (masks and
@@ -44,7 +45,7 @@ export function collectPresetAdjustments(
     if (presetType === 'tool' && sameAdjustmentValue(currentValue, defaults[key as keyof Adjustments])) continue;
     presetAdjustments[key] = currentValue;
   }
-  return withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(presetAdjustments, current), current), current), current);
+  return presetToSave(withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(presetAdjustments, current), current), current), current));
 }
 
 export enum PresetListType {
@@ -187,7 +188,7 @@ export function usePresets(
     adjustments.masks
       ? {
           ...adjustments,
-          masks: frameDrawnMasks(adjustments.masks, current, photoWidth, photoHeight),
+          masks: frameDrawnMasks(presetToSave(adjustments).masks!, current, photoWidth, photoHeight),
         }
       : adjustments;
   const defaults = initialAdjustmentsFor(isRaw);
@@ -264,7 +265,7 @@ export function usePresets(
    * parameters for later updates. */
   const addToolPreset = (name: string, adjustments: Partial<Adjustments>, folderName: string, toolKeys: string[]) => {
     const preset: Preset = {
-      adjustments,
+      adjustments: presetToSave(adjustments),
       toolKeys,
       id: crypto.randomUUID(),
       name,
@@ -463,7 +464,7 @@ export function usePresets(
       }
 
       const newPreset: Preset = {
-        adjustments: JSON.parse(JSON.stringify(presetToDuplicate.adjustments)),
+        adjustments: presetToSave(structuredClone(presetToDuplicate.adjustments)),
         id: crypto.randomUUID(),
         name: `${presetToDuplicate.name} Copy`,
         includeMasks: presetToDuplicate.includeMasks,

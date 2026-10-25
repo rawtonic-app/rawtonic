@@ -320,6 +320,100 @@ pub fn pending_detections_message(pending: &[PendingDetection]) -> String {
         .join("; ")
 }
 
+/// Detection output is tied to one photograph. Keep selection intent and
+/// refinement settings when saving a preset or transferring its layers.
+const DETECTION_RESULT_KEYS: [&str; 8] = [
+    "maskDataBase64",
+    "mask_data_base64",
+    DETECT_PENDING,
+    "rotation",
+    "flipHorizontal",
+    "flipVertical",
+    "orientationSteps",
+    "warp",
+];
+
+fn clear_detection(sub: &mut Value) -> bool {
+    if !sub
+        .get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|t| DETECTED_TYPES.contains(&t))
+    {
+        return false;
+    }
+    let Some(sub) = sub.as_object_mut() else {
+        return false;
+    };
+    let Some(parameters) = sub
+        .entry("parameters")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+    else {
+        return false;
+    };
+    for key in DETECTION_RESULT_KEYS {
+        parameters.remove(key);
+    }
+    true
+}
+
+/// Clear AI detections before applying layers to a different photograph or
+/// from a preset (including legacy presets with bitmaps). Used by paste,
+/// preset application and new captures. Object prompts stay recorded, but
+/// their bitmap stays inactive/pending until the user points at an object
+/// on the target photo; they are never detected from source coordinates.
+/// A photo's own loaded recipe never passes through this function.
+pub fn prepare_layers_for_photo(layers: &mut Value, new_id: &mut dyn FnMut() -> String) {
+    for layer in layers.as_array_mut().into_iter().flatten() {
+        for sub in layer
+            .get_mut("subMasks")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            let snake_bitmap = sub
+                .get("parameters")
+                .is_some_and(|p| p.get("mask_data_base64").is_some());
+            if !clear_detection(sub) {
+                continue;
+            }
+            let parameters = &mut sub["parameters"];
+            parameters["maskDataBase64"] = Value::Null;
+            if snake_bitmap {
+                parameters["mask_data_base64"] = Value::Null;
+            }
+            if nothing_to_detect(parameters) {
+                continue;
+            }
+            parameters[DETECT_PENDING] = Value::Bool(true);
+            sub["id"] = Value::String(new_id());
+        }
+    }
+}
+
+/// A preset stores AI selection parameters only, never photo bitmaps or
+/// their geometry. Return a copy so saving/exporting does not change the
+/// photo's own recipe, and loading needs no preset-file migration.
+pub fn without_detections(adjustments: &Value) -> Value {
+    let mut out = adjustments.clone();
+    for layer in out
+        .get_mut("masks")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        for sub in layer
+            .get_mut("subMasks")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            clear_detection(sub);
+        }
+    }
+    out
+}
+
 /// Layers pasted or synced (`pasted`, the source's chosen layers) into a
 /// photograph's own (`own`): a pasted layer replaces the photograph's layer
 /// of the same id (pasted before: a second sync updates it instead of
@@ -340,37 +434,14 @@ pub fn paste_layers(
     replace: bool,
     new_id: &mut dyn FnMut() -> String,
 ) -> Value {
-    let mut pasted: Vec<Value> = pasted.as_array().cloned().unwrap_or_default();
+    let mut pasted = pasted.clone();
     if !same_photo {
-        for layer in &mut pasted {
-            let Some(subs) = layer.get_mut("subMasks").and_then(Value::as_array_mut) else {
-                continue;
-            };
-            for sub in subs {
-                let detected = sub
-                    .get("type")
-                    .and_then(Value::as_str)
-                    .is_some_and(|t| DETECTED_TYPES.contains(&t));
-                let Some(parameters) = sub.get_mut("parameters") else {
-                    continue;
-                };
-                if !detected || nothing_to_detect(parameters) {
-                    continue;
-                }
-                let Some(parameters) = parameters.as_object_mut() else {
-                    continue;
-                };
-                for key in ["maskDataBase64", "mask_data_base64"] {
-                    if parameters.contains_key(key) {
-                        parameters.insert(key.into(), Value::Null);
-                    }
-                }
-                parameters.insert("maskDataBase64".into(), Value::Null);
-                parameters.insert(DETECT_PENDING.into(), Value::Bool(true));
-                sub["id"] = Value::String(new_id());
-            }
-        }
+        prepare_layers_for_photo(&mut pasted, new_id);
     }
+    let pasted = match pasted {
+        Value::Array(layers) => layers,
+        _ => Vec::new(),
+    };
     if replace {
         return Value::Array(pasted);
     }

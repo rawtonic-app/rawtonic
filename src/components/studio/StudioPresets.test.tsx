@@ -231,6 +231,32 @@ describe("importing presets and styles", () => {
 });
 
 describe("preset amount", () => {
+  it("keeps the target detection while changing Amount and recomputes after restoring the base masks", async () => {
+    await renderTool();
+    const sky = (id: string, bitmap: string | null) => [{ id: "sky", subMasks: [
+      { id, type: "ai-sky", parameters: { maskDataBase64: bitmap, grow: 10 } },
+    ] }] as never;
+    act(() => usePresetStore.setState({ presets: [{ preset: {
+      id: "sky-preset", name: "Sky preset", adjustments: { masks: sky("source", "data:source") },
+    } }] }));
+    fireEvent.click(screen.getByRole("button", { name: /Sky preset/ }));
+    const target = { ...INITIAL_ADJUSTMENTS, masks: sky("target", "data:target") };
+    act(() => useEditorStore.setState({ adjustments: target }));
+    const slider = screen.getByLabelText("Preset amount");
+    fireEvent.change(slider, { target: { value: "80" } });
+    let next = setAdjustments.mock.lastCall![0](target);
+    expect(next.masks).toEqual(target.masks);
+    act(() => useEditorStore.setState({ adjustments: next }));
+    fireEvent.change(slider, { target: { value: "20" } });
+    next = setAdjustments.mock.lastCall![0](next);
+    expect(next.masks).toEqual(INITIAL_ADJUSTMENTS.masks);
+    act(() => useEditorStore.setState({ adjustments: next }));
+    fireEvent.change(slider, { target: { value: "80" } });
+    next = setAdjustments.mock.lastCall![0](next);
+    expect(next.masks[0].subMasks[0].id).not.toBe("source");
+    expect(next.masks[0].subMasks[0].parameters).toMatchObject({ maskDataBase64: null, detectPending: true });
+  });
+
   it("blends the last preset applied to the open photo with its settings before", async () => {
     await renderTool();
     fireEvent.click(screen.getByRole("button", { name: /High contrast/ }));

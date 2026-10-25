@@ -239,11 +239,12 @@ export default function StudioPresets() {
   const changeAmount = (value: number) => {
     if (!amount || amount.path !== selectedImage?.path) return;
     setAmount({ ...amount, value });
-    const blended = blendPreset(
-      amount.base,
-      presetValues(amount.preset.adjustments) as unknown as Record<string, unknown>,
-      value / 100,
-    );
+    const values = presetValues(amount.preset.adjustments);
+    // Above half strength the preset's mask is already on this photo.
+    // Keep its pending/completed detection across Amount moves; returning
+    // from the base masks below half strength starts a fresh detection.
+    if (amount.value >= 50 && values.masks) values.masks = currentAdjustments().masks;
+    const blended = blendPreset(amount.base, values as unknown as Record<string, unknown>, value / 100);
     setAdjustments((current) => ({ ...current, ...amount.base, ...blended }) as typeof current);
   };
   const exportPreset = async (preset: Preset) => {

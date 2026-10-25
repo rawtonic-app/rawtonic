@@ -15,6 +15,20 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) 
 const options = { includeMasks: false, includeCropTransform: false, presetType: 'tool' as const };
 
 describe('collectPresetAdjustments', () => {
+  it('saves AI mask intent without bitmaps or source geometry and keeps the photo unchanged', () => {
+    const current = { masks: [{ id: 'layer', subMasks: [
+      { id: 'sky', type: 'ai-sky', parameters: { maskDataBase64: 'data:source', warp: {}, grow: 10 } },
+      { id: 'people', type: 'ai-people', parameters: { parts: [], mask_data_base64: 'data:stale' } },
+      { id: 'object', type: 'ai-subject', parameters: { prompts: [{ x: 10, y: 20 }], maskDataBase64: 'data:object' } },
+    ] }] } as unknown as Adjustments;
+    const saved = collectPresetAdjustments(current, {}, { ...options, includeMasks: true });
+    const subs = saved.masks![0].subMasks;
+    expect(subs[0].parameters).toEqual({ grow: 10 });
+    expect(subs[1].parameters).toEqual({ parts: [] });
+    expect(subs[2].parameters).toEqual({ prompts: [{ x: 10, y: 20 }] });
+    expect(current.masks[0].subMasks[0].parameters.maskDataBase64).toBe('data:source');
+  });
+
   it('never takes the sharpening response on its own', () => {
     // A response-1 photo with RAW defaults and a changed exposure: the tool
     // preset changes exposure only, not the sharpening of where it is applied.
