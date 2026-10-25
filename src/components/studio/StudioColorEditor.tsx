@@ -82,14 +82,16 @@ export default function StudioColorEditor({
   copy,
 }: Props) {
   const { t } = useTranslation();
-  const { pickerTarget, activeId, showRange, setEditor } = useEditorStore(
-    useShallow((s) => ({
-      pickerTarget: s.colorPickerTarget,
-      activeId: s.activeColorRangeId,
-      showRange: s.colorRangeShow,
-      setEditor: s.setEditor,
-    })),
-  );
+  const { photo, pickerTarget, activeId, showRange, setEditor } =
+    useEditorStore(
+      useShallow((s) => ({
+        photo: s.selectedImage?.path,
+        pickerTarget: s.colorPickerTarget,
+        activeId: s.activeColorRangeId,
+        showRange: s.colorRangeShow,
+        setEditor: s.setEditor,
+      })),
+    );
   const ranges = colorRangesOf(values);
   const skin = skinRangeOf(ranges);
   const [mode, setMode] = useState<Mode>(
@@ -225,9 +227,9 @@ export default function StudioColorEditor({
   );
   const wheel = (
     <StudioColorRangeWheel
-      // A new editing target ends a drag on the old one (its pending
-      // geometry is dropped, never written into the new range).
-      key={`${layerId ?? "photo"}:${mode}:${wheelPicking ? "pick" : (active?.id ?? "none")}`}
+      // A new editing target (photo, layer, range) ends a drag on the old
+      // one: its pending geometry is dropped, never written elsewhere.
+      key={`${photo}:${layerId ?? "photo"}:${mode}:${wheelPicking ? "pick" : (active?.id ?? "none")}`}
       ranges={mode === "skin" ? (skin ? [skin] : []) : listed}
       active={wheelPicking ? undefined : active}
       disabled={disabled || (wheelAdds && ranges.length >= limit)}

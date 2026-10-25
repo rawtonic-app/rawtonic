@@ -245,6 +245,41 @@ describe("range wheel <-> sliders", () => {
     ).toBe("25");
   });
 
+  it("another photograph mid-drag ends the drag (copied ranges share ids)", () => {
+    useEditorStore.setState({
+      selectedImage: { path: "/a.cr3" } as never,
+    });
+    render(<Harness initial={[skinish()]} />);
+    openTool();
+    wheelSvg();
+    const edge = screen.getByRole("slider", {
+      name: "Range hue edge, counter-clockwise",
+    });
+    fireEvent.pointerDown(edge, { button: 0, ...at(75, 0.06) });
+    fireEvent.pointerMove(edge, at(90, 0.06));
+    act(() =>
+      useEditorStore.setState({ selectedImage: { path: "/b.cr3" } as never }),
+    );
+    fireEvent.pointerMove(edge, at(100, 0.06));
+    fireEvent.pointerUp(edge);
+    expect(changes).toHaveLength(0);
+    useEditorStore.setState({ selectedImage: null });
+  });
+
+  it("a near-grey range keeps its width on a press without movement", () => {
+    const range = { ...newColorRange(50, 0.004, 0.6), chromaRange: 50 };
+    render(<Harness initial={[range]} />);
+    openTool();
+    wheelSvg();
+    const edge = screen.getByRole("slider", {
+      name: "Range outer saturation edge",
+    });
+    fireEvent.pointerDown(edge, { button: 0, ...at(50, 0.018) });
+    fireEvent.pointerMove(edge, at(50, 0.018));
+    fireEvent.pointerUp(edge);
+    expect(changes).toHaveLength(0);
+  });
+
   it("follows the sliders: a new hue range moves the edge handles", () => {
     const range = skinish();
     const { rerender } = render(<Harness initial={[range]} />);

@@ -45,9 +45,6 @@ export function wheelColor(x: number, y: number) {
 const GREY_NONE = 0.004;
 const GREY_FULL = 0.015;
 
-/** The chroma the saturation-range handles divide by (never 0). */
-const centreChroma = (range: ColorRange) => Math.max(range.chroma, 0.005);
-
 /**
  * The range's selection as the renderer builds it (image_processing.rs
  * `pack_color_ranges`, shader `color_range_weight`): the nominal edges
@@ -93,15 +90,24 @@ export function rangeBand(range: ColorRange) {
 export const hueRangeForEdge = (range: ColorRange, edgeHue: number) =>
   Math.round(clampTo(Math.abs(hueDelta(edgeHue, range.hue)), 5, 90));
 
-/** Saturation range (0–100) that puts the band's inner edge at `chroma`. */
+/** Saturation range (0–100) that puts the band's inner edge at `chroma`
+ * (the inverse of `rangeBand`; a grey sample's band does not depend on it). */
 export const chromaRangeForInner = (range: ColorRange, chroma: number) =>
-  Math.round(clampTo((1 - chroma / centreChroma(range)) * 100, 0, 100));
+  range.chroma > 0
+    ? Math.round(clampTo((1 - chroma / range.chroma) * 100, 0, 100))
+    : range.chromaRange;
 
 /** Saturation range (0–100) that puts the band's outer edge at `chroma`. */
-export const chromaRangeForOuter = (range: ColorRange, chroma: number) => {
-  const c = centreChroma(range);
-  return Math.round(clampTo(((chroma - 0.01 - c) / (2 * c)) * 100, 0, 100));
-};
+export const chromaRangeForOuter = (range: ColorRange, chroma: number) =>
+  range.chroma > 0
+    ? Math.round(
+        clampTo(
+          ((chroma - 0.01 - range.chroma) / (2 * range.chroma)) * 100,
+          0,
+          100,
+        ),
+      )
+    : range.chromaRange;
 
 /** Annular sector from hue a to b (a < b) between two chroma radii. */
 function sectorPath(a: number, b: number, chromaLo: number, chromaHi: number) {
