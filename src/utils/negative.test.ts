@@ -41,6 +41,13 @@ it('drops a pick after the picker was cancelled or re-armed, the photo changed o
   // A preset set another film while sampling.
   const preset = { ...prev, negative: newNegative([0.9, 0.6, 0.3], [0.2, 0.1, 0.05]) };
   expect(withPickedFilmBase(preset, fresh, [0.8, 0.5, 0.3])).toBe(preset);
+  // The lens vignetting changed while sampling.
+  expect(withPickedFilmBase({ ...prev, lensVignetteAmount: 30 }, fresh, [0.8, 0.5, 0.3]).negative?.base)
+    .toEqual(prev.negative?.base);
+  // The colour editor's picker took over.
+  useEditorStore.setState({ colorPickerTarget: 'new' });
+  expect(withPickedFilmBase(prev, fresh, [0.8, 0.5, 0.3])).toBe(prev);
+  useEditorStore.setState({ colorPickerTarget: null });
   expect(withPickedFilmBase(prev, fresh, [0.8, 0.5, 0.3]).negative?.base).toEqual([0.8, 0.5, 0.3]);
 });
 

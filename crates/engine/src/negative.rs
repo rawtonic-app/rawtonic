@@ -279,8 +279,19 @@ pub fn apply_for_recipe<'a>(
         other => DynamicImage::ImageRgb32F(other.into_rgb32f()),
     };
     let (width, height) = (image.width(), image.height());
+    // The scan's vignetting, also when `adjustments` is a converted base's
+    // recipe (whose warp leaves it to this pass).
+    let unmarked = if adjustments.get(CONVERTED_KEY).is_some() {
+        let mut recipe = adjustments.clone();
+        if let Some(object) = recipe.as_object_mut() {
+            object.remove(CONVERTED_KEY);
+        }
+        Cow::Owned(recipe)
+    } else {
+        Cow::Borrowed(adjustments)
+    };
     let vignette = crate::image_processing::VignetteGain::of(
-        &crate::image_processing::get_geometry_params_from_json(adjustments),
+        &crate::image_processing::get_geometry_params_from_json(&unmarked),
         width,
         height,
     );
@@ -892,6 +903,31 @@ mod tests {
             "{found:?}"
         );
         assert!((found.base[2] / base[2] - 1.0).abs() < 0.01, "{found:?}");
+    }
+
+    #[test]
+    fn a_converted_base_recipe_converts_a_decode_alike() {
+        // Mask sources convert the pristine decode with the render's
+        // (marked) recipe: the scan's vignetting is corrected all the same.
+        let mut adjustments = json!({"lensCorrectionMode": "manual", "lensVignetteAmount": 100.0,
+            "lensDistortionParams": {"vig_k1": -0.4}});
+        adjustments[KEY] = on();
+        let scan = DynamicImage::ImageRgb32F(Rgb32FImage::from_pixel(
+            32,
+            24,
+            image::Rgb([0.2, 0.1, 0.05]),
+        ));
+        let plain = apply_for_recipe(Cow::Borrowed(&scan), &adjustments, true).into_owned();
+        let marked = apply_for_recipe(
+            Cow::Borrowed(&scan),
+            &converted_base_recipe(&adjustments),
+            true,
+        )
+        .into_owned();
+        assert_eq!(plain.to_rgb32f().as_raw(), marked.to_rgb32f().as_raw());
+        // And the vignetting is in it (a corner differs from the centre).
+        let rgb = plain.to_rgb32f();
+        assert_ne!(rgb.get_pixel(0, 0), rgb.get_pixel(16, 12));
     }
 
     #[test]

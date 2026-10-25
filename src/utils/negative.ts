@@ -97,31 +97,36 @@ export function setFilmBasePicking(on: boolean) {
 }
 
 /** What a film base pick was asked for: the photo, the picker session and
- * the film the recipe named then. */
+ * the recipe then (its film and the framing and lens corrections the
+ * sample was taken with). */
 export interface FilmBasePick {
   path: string;
   session: number;
-  film?: NegativeSettings | null;
+  adjustments: Adjustments;
 }
 
 export const startFilmBasePick = (path: string, adjustments: Adjustments): FilmBasePick => ({
   path,
   session: pickSession,
-  film: adjustments.negative,
+  adjustments,
 });
 
 /** The recipe with a picked film base, or `prev` when the pick no longer
- * applies: the picker was cancelled or re-armed, another photo is shown,
- * the conversion is gone or names another film (a preset, a snapshot) than
- * when the sample was asked for. The tool's eye is left as it is. */
+ * applies: the picker was cancelled, re-armed or another picker took over,
+ * another photo is shown, the conversion is gone or names another film (a
+ * preset, a snapshot), or the framing or lens corrections the sample was
+ * taken with changed. The tool's eye is left as it is. */
 export function withPickedFilmBase(prev: Adjustments, pick: FilmBasePick, base: Rgb): Adjustments {
   const state = useEditorStore.getState();
   if (
     !state.filmBasePicking ||
     pick.session !== pickSession ||
     state.selectedImage?.path !== pick.path ||
+    state.colorPickerTarget !== null ||
+    state.isWbPickerActive ||
     !prev.negative ||
-    !sameFilm(prev.negative, pick.film)
+    !sameFilm(prev.negative, pick.adjustments.negative) ||
+    !sameAnalysisInputs(prev, pick.adjustments)
   )
     return prev;
   return { ...prev, negative: { ...prev.negative, base } };

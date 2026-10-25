@@ -119,6 +119,7 @@ export default function StudioColorEditor({
       colorPickerTarget: pickerTarget === target ? null : target,
       colorPickerLayer: layerId ?? null,
       isWbPickerActive: false,
+      filmBasePicking: false,
     });
   /** A press on the wheel while picking (or with no range yet). */
   const pickOnWheel = (hue: number, chroma: number) => {
