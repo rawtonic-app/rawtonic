@@ -1282,8 +1282,9 @@ export const TONE_VERSION = 3;
 /** The Clarity response new edits start with (notes: parity-gaps/G06-presence.md). */
 export const CLARITY_VERSION = 2;
 
-/** The edge-fringe pass new RAW edits start with (notes: reference/edge-fringes.md). */
-export const FRINGE_VERSION = 4;
+/** The edge-fringe pass new RAW edits start with (notes: reference/edge-fringes.md):
+ * 5 = version 4's pass computed on the GPU. */
+export const FRINGE_VERSION = 5;
 
 /** The Defringe detector new edits start with (notes: reference/defringe.md). */
 export const DEFRINGE_VERSION = 2;

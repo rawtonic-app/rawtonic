@@ -158,6 +158,28 @@ pub fn reach(scale: f32) -> usize {
     Geometry::at(scale).reach()
 }
 
+/// The stage's distances at `scale` for the GPU pass (`super::gpu`): the
+/// Gaussian weights of the direction, side and profile reads, the search
+/// length and the push beyond it.
+pub(super) struct Distances {
+    pub direction: Vec<f32>,
+    pub side: Vec<f32>,
+    pub profile: Vec<f32>,
+    pub search: usize,
+    pub push: f32,
+}
+
+pub(super) fn distances(scale: f32) -> Distances {
+    let geometry = Geometry::at(scale);
+    Distances {
+        direction: geometry.direction.weights(),
+        side: geometry.side.weights(),
+        profile: geometry.profile.weights(),
+        search: geometry.search,
+        push: geometry.push,
+    }
+}
+
 fn smooth(v: f32, lo: f32, hi: f32) -> f32 {
     let t = ((v - lo) / (hi - lo)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)

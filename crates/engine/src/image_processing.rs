@@ -3028,8 +3028,12 @@ pub fn transformed_region(
             });
     }
 
-    if let Some(fringe) = plan.fringe {
-        crate::edge_fringe::apply(&mut warped, ww as usize, wh as usize, 3, fringe);
+    if let Some(fringe) = plan.fringe
+        && let Err(e) = crate::edge_fringe::apply(&mut warped, ww as usize, wh as usize, 3, fringe)
+    {
+        // The caller renders the whole frame instead, which reports it.
+        log::error!("Region edge-fringe pass failed: {e}");
+        return None;
     }
 
     let spatial = &plan.spatial;
@@ -7876,7 +7880,8 @@ mod region_tests {
                 let plain = apply_spatial_transformations(warped.clone(), &adjustments)
                     .0
                     .into_owned();
-                let fringed = crate::edge_fringe::apply_for_recipe(warped, &adjustments, 1.0);
+                let fringed =
+                    crate::edge_fringe::apply_for_recipe(warped, &adjustments, 1.0).unwrap();
                 let (whole, _) = apply_spatial_transformations(fringed, &adjustments);
                 assert_ne!(bits(&plain), bits(&whole), "the pass changes {adjustments}");
                 let (fw, fh) = whole.dimensions();
