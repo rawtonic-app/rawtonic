@@ -275,10 +275,24 @@ export function cancelAiMaskPrecompute() {
 }
 
 /** The models' lifecycle in the workspace: showing the Library unloads them,
- * and the backend's own unloads (idle, memory pressure) stop loading them
- * ahead. */
+ * the backend's own unloads (idle, memory pressure) stop loading them ahead,
+ * and Develop builds their GPU kernels once for someone who has not masked
+ * (`warmUpAiMaskModels`). */
 export function useAiModelLifecycle(develop: boolean) {
   const wasDevelop = useRef(develop);
+  const photoDecoded = useEditorStore((s) => !!s.selectedImage?.isDecoded);
+  const photoPath = useEditorStore((s) => s.selectedImage?.path);
+  const masksPanelOpen = useUIStore((s) => s.activePanel === Panel.Masks);
+  // Someone who has not masked yet: nothing is loaded ahead, but the models'
+  // GPU kernels are built once in the background, in Develop only (not in
+  // the Library's loupe), after the photo's full decode (its frames first)
+  // and only on a photo that stays open.
+  useEffect(() => {
+    if (!develop || !photoDecoded || !photoPath) return;
+    if (masksPanelOpen || maskingUsedRecently() || maskingToolsUsedBefore()) return;
+    const timer = window.setTimeout(warmUpAiMaskModels, AI_WARM_UP_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [develop, masksPanelOpen, photoDecoded, photoPath]);
   useEffect(() => {
     if (wasDevelop.current && !develop) leaveDevelop();
     // Entering Develop (or starting in it): the models start loading at once,
@@ -870,15 +884,6 @@ export function useAiMasking() {
       return () => window.clearTimeout(timer);
     }
   }, [masksPanelOpen, selectedImagePathKey, selectedImageReady]);
-  // Someone who has not masked yet: nothing is loaded ahead, but the models'
-  // GPU kernels are built once in the background, after the photo's full
-  // decode (its frames first) and only on a photo that stays open.
-  useEffect(() => {
-    if (!selectedImageDecoded || !selectedImagePathKey) return;
-    if (masksPanelOpen || maskingUsedRecently() || maskingToolsUsedBefore()) return;
-    const timer = window.setTimeout(warmUpAiMaskModels, AI_WARM_UP_DELAY_MS);
-    return () => window.clearTimeout(timer);
-  }, [masksPanelOpen, selectedImageDecoded, selectedImagePathKey]);
   useEffect(() => () => cancelAiMaskPrecompute(), [selectedImagePathKey]);
 
   return { handleGenerateAiMask };

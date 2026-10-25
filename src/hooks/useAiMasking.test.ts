@@ -23,7 +23,6 @@ import {
   AI_MASKS_AHEAD_DELAY_MS,
   AI_MODELS_UNLOADED_EVENT,
   AI_WARM_UP_DELAY_MS,
-  leaveDevelop,
   objectSelectionBusy,
   openMaskingTools,
   resetAiMaskSession,
@@ -1090,12 +1089,17 @@ describe("masking models loaded with Develop and dropped again", () => {
       adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [] },
     });
 
+  const develop = () => {
+    renderHook(() => useAiMasking());
+    return renderHook(({ develop }) => useAiModelLifecycle(develop), { initialProps: { develop: true } });
+  };
+
   it("builds the models' GPU kernels once in the background for someone who never masked", async () => {
     invoke.mockResolvedValue(null);
     useUIStore.setState({ activePanel: Panel.Adjustments });
     // Not before the photo is decoded: its frames come first.
     photo("/s/a.NEF");
-    renderHook(() => useAiMasking());
+    const workspace = develop();
     await wait(AI_WARM_UP_DELAY_MS + 200);
     expect(calls("warm_up_ai_mask_models")).toHaveLength(0);
     act(() => decodedPhoto("/s/a.NEF"));
@@ -1109,17 +1113,38 @@ describe("masking models loaded with Develop and dropped again", () => {
     expect(calls("warm_up_ai_mask_models")).toHaveLength(1);
     expect(calls("precompute_ai_foreground_mask")).toHaveLength(0);
     // The next visit asks again (the backend skips models that ran before).
-    act(() => leaveDevelop());
+    workspace.rerender({ develop: false });
+    workspace.rerender({ develop: true });
     act(() => decodedPhoto("/s/c.NEF"));
     await waitFor(() => expect(calls("warm_up_ai_mask_models")).toHaveLength(2), {
       timeout: AI_WARM_UP_DELAY_MS + 1000,
     });
   });
 
-  it("waits for a photo that stays open before building them", async () => {
+  it("builds nothing in the Library's loupe, only in Develop", async () => {
     invoke.mockResolvedValue(null);
     decodedPhoto("/s/a.NEF");
     renderHook(() => useAiMasking());
+    const workspace = renderHook(({ develop }) => useAiModelLifecycle(develop), {
+      initialProps: { develop: false },
+    });
+    await wait(AI_WARM_UP_DELAY_MS + 200);
+    expect(calls("warm_up_ai_mask_models")).toHaveLength(0);
+    workspace.rerender({ develop: true });
+    await waitFor(() => expect(calls("warm_up_ai_mask_models")).toHaveLength(1), {
+      timeout: AI_WARM_UP_DELAY_MS + 1000,
+    });
+    // Back in the Library (which cancels it), the loupe asks for nothing.
+    workspace.rerender({ develop: false });
+    act(() => decodedPhoto("/s/b.NEF"));
+    await wait(AI_WARM_UP_DELAY_MS + 200);
+    expect(calls("warm_up_ai_mask_models")).toHaveLength(1);
+  });
+
+  it("waits for a photo that stays open before building them", async () => {
+    invoke.mockResolvedValue(null);
+    decodedPhoto("/s/a.NEF");
+    develop();
     await wait(AI_WARM_UP_DELAY_MS / 2);
     act(() => decodedPhoto("/s/b.NEF"));
     await wait(AI_WARM_UP_DELAY_MS / 2 + 100);
@@ -1133,7 +1158,7 @@ describe("masking models loaded with Develop and dropped again", () => {
     usedBefore();
     invoke.mockResolvedValue(null);
     decodedPhoto("/s/a.NEF");
-    renderHook(() => useAiMasking());
+    develop();
     await waitFor(() => expect(pathsOf("precompute_ai_foreground_mask")).toEqual(["/s/a.NEF"]));
     await wait(AI_WARM_UP_DELAY_MS + 200);
     expect(calls("warm_up_ai_mask_models")).toHaveLength(0);

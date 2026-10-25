@@ -1327,15 +1327,23 @@ async fn load_core_ml(
 
 /// Whether the Subject (`sky` false) or Sky model on Core ML has never run
 /// in this app on this macOS build (`FirstRunMarker`), so its first use
-/// would wait for Metal to build its GPU kernels.
-#[cfg(target_os = "macos")]
+/// would wait for Metal to build its GPU kernels. Always false away from
+/// macOS.
 pub fn core_ml_first_run_pending(app_handle: &tauri::AppHandle, sky: bool) -> bool {
-    let (label, files) = if sky {
-        ("sky", &SKY_CORE_ML_FILES)
-    } else {
-        ("subject", &SUBJECT_CORE_ML_FILES)
-    };
-    first_run_marker(app_handle, label, files).is_some_and(|marker| !marker.is_set())
+    #[cfg(target_os = "macos")]
+    {
+        let (label, files) = if sky {
+            ("sky", &SKY_CORE_ML_FILES)
+        } else {
+            ("subject", &SUBJECT_CORE_ML_FILES)
+        };
+        first_run_marker(app_handle, label, files).is_some_and(|marker| !marker.is_set())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app_handle, sky);
+        false
+    }
 }
 
 /// The first-run marker of a Core ML program of the model pack, named after
