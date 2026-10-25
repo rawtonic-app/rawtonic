@@ -137,6 +137,11 @@ describe('RAW detail defaults', () => {
     expect('fringeVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(saved, true)))).toBe(false);
     const versioned = { ...INITIAL_ADJUSTMENTS, fringeVersion: 1 } as Adjustments;
     expect(normalizeLoadedAdjustments(versioned, true).fringeVersion).toBe(1);
+    // Version 5 is version 4 on the GPU: new edits take it, edits saved with
+    // version 4 keep the CPU pass.
+    expect(FRINGE_VERSION).toBe(5);
+    const fourth = { ...INITIAL_ADJUSTMENTS, fringeVersion: 4 } as Adjustments;
+    expect(normalizeLoadedAdjustments(fourth, true).fringeVersion).toBe(4);
   });
 
   it('keep the Defringe detector a saved recipe rendered with', () => {
