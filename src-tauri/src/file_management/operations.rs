@@ -383,7 +383,7 @@ pub async fn move_files(
 /// The steps and label of moving the photos `source_paths` (with their
 /// sidecars, virtual copies and companions) into `destination_folder`: a
 /// rename on the same drive, a copy move to another (ADR 0016).
-fn plan_move(
+pub(crate) fn plan_move(
     source_paths: &[String],
     destination_folder: &str,
 ) -> Result<(Vec<rawtonic_fileops::Step>, Vec<PathBuf>, String), String> {
@@ -413,7 +413,7 @@ fn plan_move(
     let to_library = library_above(dest_path)?;
     for image in &images {
         let owner = owning_session(image.parent().unwrap_or(Path::new("")), || {
-            rawtonic_engine::session_layout::library_root(image)
+            crate::outside_photos::session_of(image)
         })?;
         if let Some(refusal) = leaving_for_another_library(owner, &to_library) {
             return Err(refusal);
@@ -592,7 +592,7 @@ pub async fn plan_move_folder(
 /// it, into `destination`: a rename on the same drive, a copy move of the
 /// whole folder to another (ADR 0016). A folder that holds a session or
 /// catalog is refused: its database is open and its own paths are relative.
-fn plan_folder_move(
+pub(crate) fn plan_folder_move(
     folder: &Path,
     destination: &Path,
 ) -> Result<(rawtonic_fileops::Step, String), String> {
@@ -657,7 +657,7 @@ fn plan_folder_move(
     let owners = match library_above(&parent)? {
         Some((session, true)) => vec![session],
         Some((_, false)) => Vec::new(),
-        None => rawtonic_engine::session_layout::registered_libraries_below(folder),
+        None => crate::outside_photos::sessions_below(folder),
     };
     if let Some(refusal) = owners
         .into_iter()

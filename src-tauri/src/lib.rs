@@ -59,6 +59,7 @@ mod merges;
 mod multi_view;
 mod multi_view_prefetch;
 mod negative_conversion;
+mod outside_photos;
 #[cfg(feature = "performance-profiling")]
 mod performance;
 mod preset_converter;
@@ -231,6 +232,9 @@ pub fn run() {
             let app_handle = app.handle().clone();
 
             library_search::announce_facts_to(app_handle.clone());
+            if let Ok(config_dir) = app_handle.path().app_config_dir() {
+                outside_photos::load_records(config_dir.join("outside-photos.json"));
+            }
             if let Ok(cache_dir) = app_handle.path().app_cache_dir() {
                 preview_proxy::set_outside_sessions_dir(cache_dir.join("previews"));
                 crate::exif_processing::initialize_cache_dir(cache_dir);

@@ -17,7 +17,7 @@ mod albums;
 mod edits;
 mod folders;
 mod listing;
-mod operations;
+pub(crate) mod operations;
 mod presets;
 mod thumbnails;
 mod xmp_sync;

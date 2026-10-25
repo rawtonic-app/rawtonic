@@ -32,6 +32,20 @@ pub fn set_outside_photos(library: &Path, photos: HashSet<PathBuf>) {
     }
 }
 
+/// Every registered library with its photographs outside its folder (to
+/// persist the registry).
+pub fn outside_photos_snapshot() -> Vec<(PathBuf, Vec<PathBuf>)> {
+    let outside = OUTSIDE.read().unwrap_or_else(|e| e.into_inner());
+    outside
+        .iter()
+        .map(|(dir, photos)| {
+            let mut photos: Vec<_> = photos.iter().cloned().collect();
+            photos.sort();
+            (dir.clone(), photos)
+        })
+        .collect()
+}
+
 /// Every library that registered photographs at or below `folder` (a
 /// folder libraries keep photographs in outside their own; several sessions
 /// may), in registration order.

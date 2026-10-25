@@ -62,18 +62,22 @@ fn registered_form(source: &Path) -> PathBuf {
         _ => source.to_path_buf(),
     }
 }
-/// The library that manages `source`: the session or catalog folder above
-/// it; else the session that keeps it outside its folder (moved there by
-/// the app, ADR 0016; every session opened since start-up, whichever
-/// library is open now; a folder by the photographs below it); else the
-/// open catalog.
-fn library_for(source: &Path) -> Option<PathBuf> {
+/// The library that owns `source` — the one lookup every caller uses: the
+/// session or catalog folder above it; else the session that keeps it
+/// outside its folder, as recorded (`outside_photos`: whichever library is
+/// open, also after a restart and while that session's drive is away; a
+/// folder by the photographs below it); else the open catalog.
+pub(crate) fn owner_of(source: &Path) -> Option<PathBuf> {
     if source.is_dir() {
         return library_for_folder(source);
     }
     session_for(source)
-        .or_else(|| rawtonic_engine::session_layout::registered_library(source))
+        .or_else(|| crate::outside_photos::session_of(source))
         .or_else(open_catalog)
+}
+
+fn library_for(source: &Path) -> Option<PathBuf> {
+    owner_of(source)
 }
 
 fn open_catalog() -> Option<PathBuf> {
@@ -108,10 +112,7 @@ pub(crate) fn libraries_for_folder(folder: &Path) -> Vec<PathBuf> {
     if let Some(dir) = session_for(&folder.join("_")) {
         return vec![dir];
     }
-    let mut all = rawtonic_engine::session_layout::registered_libraries_below(folder);
-    if all.is_empty() {
-        all = rawtonic_engine::session_layout::registered_libraries_below(&registered_form(folder));
-    }
+    let mut all = crate::outside_photos::sessions_below(folder);
     all.extend(open_catalog());
     all
 }
@@ -143,14 +144,11 @@ pub(crate) fn refresh_outside_photos() {
     }
 }
 
-/// Registers with the engine which photographs the session `dir` keeps
-/// outside its folder (none for a catalog: it manages every path), so
-/// their recipes' session resources resolve there. Sessions stay registered
-/// once opened, also after another library opens, so exports queued from
-/// them keep their resources; a session that cannot be read keeps what was
-/// registered.
+/// Records again which photographs the session `dir` keeps outside its
+/// folder (`outside_photos::record`); a session that cannot be read keeps
+/// what was recorded.
 pub(crate) fn register_outside_photos(dir: &Path) {
-    if let Err(e) = try_register_outside_photos(dir) {
+    if let Err(e) = crate::outside_photos::record(dir) {
         log::warn!("{e}");
     }
 }
@@ -158,17 +156,7 @@ pub(crate) fn register_outside_photos(dir: &Path) {
 /// `register_outside_photos`, failing when the session cannot be read (its
 /// drive is away, its database cannot be opened).
 pub(crate) fn try_register_outside_photos(dir: &Path) -> Result<(), String> {
-    if dir.join("catalog.json").is_file() {
-        return Ok(());
-    }
-    if !dir.join("session.json").is_file() {
-        return Err(format!("The session {} is not available", dir.display()));
-    }
-    let photos = Library::open(dir)
-        .and_then(|lib| lib.outside_photos())
-        .map_err(|e| format!("The session {} cannot be read: {e:#}", dir.display()))?;
-    rawtonic_engine::session_layout::set_outside_photos(dir, photos.into_iter().collect());
-    Ok(())
+    crate::outside_photos::record(dir)
 }
 
 /// The sessions that keep any of `paths` (photographs, possibly virtual
@@ -183,8 +171,7 @@ pub(crate) fn outside_owners(paths: &[String]) -> Vec<String> {
             }
             // Also while its session's drive is away: the export then fails
             // until it is back (`try_register_outside_photos`).
-            rawtonic_engine::session_layout::registered_library(&source)
-                .map(|dir| dir.to_string_lossy().into_owned())
+            crate::outside_photos::session_of(&source).map(|dir| dir.to_string_lossy().into_owned())
         })
         .collect();
     owners.sort();

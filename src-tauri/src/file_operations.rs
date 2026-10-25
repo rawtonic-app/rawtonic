@@ -2697,6 +2697,100 @@ mod tests {
         crate::session_bridge::set_active_for_test(None);
     }
 
+    /// The owner of a session photograph outside every library folder is
+    /// one recorded fact with one lookup (`outside_photos`,
+    /// `session_bridge::owner_of`): after a restart (the records reloaded
+    /// from their file), with a catalog open and the session's own drive
+    /// away, every caller still names that session — the owner lookup, the
+    /// recipe resources, a folder's owners, an export's owners (whose run
+    /// then fails until the session is back), an operation's recorded
+    /// owner (whose records wait for it) and the move guard (review of
+    /// #304, rounds 1–4).
+    #[test]
+    fn every_owner_lookup_names_the_recorded_session_while_it_is_away() {
+        let _active = crate::session_bridge::library_test_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let records = root.join("config/outside-photos.json");
+        fs::create_dir_all(records.parent().unwrap()).unwrap();
+        crate::outside_photos::set_record_file_for_test(Some(records.clone()));
+        let dir = session(&root.join("Disk"));
+        let photo = dir.join("Capture/A.NEF");
+        fs::write(&photo, "a").unwrap();
+        let lib = Library::open(&dir).unwrap();
+        lib.add_asset(&photo).unwrap();
+        let drive = root.join("Drive/Shoots");
+        fs::create_dir_all(&drive).unwrap();
+        let moved = drive.join("A.NEF");
+        fs::rename(&photo, &moved).unwrap();
+        lib.relocate(&photo, &moved).unwrap();
+        drop(lib);
+        crate::outside_photos::record(&dir).unwrap();
+        assert!(records.is_file());
+        // A restart: nothing in memory, the records loaded from the file.
+        rawtonic_engine::session_layout::set_outside_photos(&dir, HashSet::new());
+        crate::outside_photos::load_records(records.clone());
+        // A catalog open; the session's drive away.
+        let catalog = root.join("Catalog");
+        Library::create(&catalog, "Catalog", rawtonic_catalog::Mode::Catalog).unwrap();
+        crate::session_bridge::set_active_for_test(Some(catalog.clone()));
+        let away = root.join("Disk away");
+        fs::rename(root.join("Disk"), &away).unwrap();
+
+        assert_eq!(crate::session_bridge::owner_of(&moved), Some(dir.clone()));
+        assert_eq!(
+            crate::session_bridge::library_dir_for(&moved),
+            Some(dir.clone())
+        );
+        assert_eq!(
+            rawtonic_engine::session_layout::library_root(&moved),
+            Some(dir.clone())
+        );
+        assert_eq!(
+            crate::session_bridge::libraries_for_folder(&drive),
+            [dir.clone(), catalog.clone()]
+        );
+        let paths = [moved.to_string_lossy().into_owned()];
+        assert_eq!(
+            crate::session_bridge::outside_owners(&paths),
+            [dir.to_string_lossy()]
+        );
+        assert!(crate::session_bridge::try_register_outside_photos(&dir).is_err());
+        let steps = vec![Step::system_trash(&moved)];
+        let context = operation_context(&steps, HashMap::new());
+        assert_eq!(recorded_library_of(&context), Some(dir.clone()));
+        let error =
+            crate::file_management::operations::plan_move(&paths, &catalog.to_string_lossy())
+                .unwrap_err();
+        assert!(error.contains("of the session Job into the library Catalog"), "{error}");
+        assert!(crate::file_management::operations::plan_folder_move(&drive, &catalog).is_err());
+        let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
+        let trash = BesideTrash(root.join(".trash"));
+        let op = journal
+            .execute_in_context(
+                "trash",
+                "Delete",
+                steps,
+                context,
+                &trash,
+                &rawtonic_fileops::Unobserved,
+            )
+            .unwrap();
+        assert!(
+            sync_catalog(&op, true)
+                .unwrap_err()
+                .starts_with(LIBRARY_AWAY)
+        );
+        // Back: the records follow.
+        fs::rename(&away, root.join("Disk")).unwrap();
+        sync_catalog(&op, true).unwrap();
+        let lib = Library::open(&dir).unwrap();
+        assert!(lib.asset_at(&moved).unwrap().unwrap().missing);
+        rawtonic_engine::session_layout::set_outside_photos(&dir, HashSet::new());
+        crate::outside_photos::set_record_file_for_test(None);
+        crate::session_bridge::set_active_for_test(None);
+    }
+
     /// The one library a test operation recorded for all its steps.
     fn recorded_library_of(context: &Option<serde_json::Value>) -> Option<PathBuf> {
         let libraries = context.as_ref()?.get("libraries")?.as_object()?;
