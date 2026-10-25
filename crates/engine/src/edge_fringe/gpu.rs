@@ -39,7 +39,6 @@ const TILE: usize = 1024;
 /// The widest window radius of the luminance and colour-line stages (their
 /// models are kept for that many virtual rows beyond the tile).
 const MAX_RADIUS: usize = 3;
-const GROUP: u32 = 16;
 
 struct Pipelines {
     device: Arc<wgpu::Device>,
@@ -275,10 +274,10 @@ fn run(
     let (tile_w, tile_h) = (tile.min(w), tile.min(h));
     let (cap_w, cap_h) = ((tile_w + 2 * halo).min(w), (tile_h + 2 * halo).min(h));
     // Each buffer holds a tile and its virtual rows; the last also the
-    // records of its 16 × 16 blocks after them.
+    // records of its 8 × 8 blocks after them.
     let planes = cap_w * (cap_h + 2 * MAX_RADIUS);
-    let blocks_width = cap_w.div_ceil(GROUP as usize);
-    let blocks = blocks_width * (cap_h + 2 * MAX_RADIUS).div_ceil(GROUP as usize);
+    let blocks_width = cap_w.div_ceil(8);
+    let blocks = blocks_width * (cap_h + 2 * MAX_RADIUS).div_ceil(8);
     let buffer_bytes = ((planes + blocks) * 16) as u64;
     let limits = device.limits();
     if buffer_bytes > u64::from(limits.max_storage_buffer_binding_size)
@@ -330,27 +329,28 @@ fn run(
         base.side = packed(&d.side)?;
         base.profile = packed(&d.profile)?;
     }
-    // The stages' passes in order: (pipeline, rows beyond the tile it
-    // covers on each side, whether it writes the next stage's input).
-    let mut passes: Vec<(&wgpu::ComputePipeline, usize, bool)> = Vec::new();
+    // The stages' passes in order: (pipeline, workgroup side, rows beyond
+    // the tile it covers on each side, whether it writes the next stage's
+    // input).
+    let mut passes: Vec<(&wgpu::ComputePipeline, u32, usize, bool)> = Vec::new();
     if axial.is_some() {
         passes.extend([
-            (&pipelines.axial_across, 0, false),
-            (&pipelines.axial_down, 0, false),
-            (&pipelines.axial_moves, 0, false),
-            (&pipelines.axial_apply, 0, true),
+            (&pipelines.axial_across, 16, 0, false),
+            (&pipelines.axial_down, 8, 0, false),
+            (&pipelines.axial_moves, 16, 0, false),
+            (&pipelines.axial_apply, 16, 0, true),
         ]);
     }
     passes.extend([
-        (&pipelines.suppress_edges, r, false),
-        (&pipelines.suppress_models, r, false),
-        (&pipelines.suppress_apply, 0, true),
+        (&pipelines.suppress_edges, 8, r, false),
+        (&pipelines.suppress_models, 8, r, false),
+        (&pipelines.suppress_apply, 16, 0, true),
     ]);
     if plan.colour_lines {
         passes.extend([
-            (&pipelines.line_weights, r, false),
-            (&pipelines.line_maps, r, false),
-            (&pipelines.line_apply, 0, true),
+            (&pipelines.line_weights, 8, r, false),
+            (&pipelines.line_maps, 8, r, false),
+            (&pipelines.line_apply, 16, 0, true),
         ]);
     }
 
@@ -453,20 +453,21 @@ fn run(
             let mut input = 0;
             {
                 let mut pass = encoder.begin_compute_pass(&Default::default());
-                let dispatch = |pass: &mut wgpu::ComputePass, width: usize, rows: usize| {
-                    pass.dispatch_workgroups(
-                        (width as u32).div_ceil(GROUP),
-                        (rows as u32).div_ceil(GROUP),
-                        1,
-                    );
-                };
+                let dispatch =
+                    |pass: &mut wgpu::ComputePass, group: u32, width: usize, rows: usize| {
+                        pass.dispatch_workgroups(
+                            (width as u32).div_ceil(group),
+                            (rows as u32).div_ceil(group),
+                            1,
+                        );
+                    };
                 pass.set_pipeline(&pipelines.unpack);
                 pass.set_bind_group(0, &groups[0], &[]);
-                dispatch(&mut pass, in_w, in_h);
-                for &(pipeline, beyond, writes) in &passes {
+                dispatch(&mut pass, 16, in_w, in_h);
+                for &(pipeline, group, beyond, writes) in &passes {
                     pass.set_pipeline(pipeline);
                     pass.set_bind_group(0, &groups[input], &[]);
-                    dispatch(&mut pass, in_w, in_h + 2 * beyond);
+                    dispatch(&mut pass, group, in_w, in_h + 2 * beyond);
                     if writes {
                         input = 1 - input;
                     }
@@ -474,7 +475,7 @@ fn run(
                 // The tile's own pixels, packed, into the other buffer.
                 pass.set_pipeline(&pipelines.pack);
                 pass.set_bind_group(0, &groups[input], &[]);
-                dispatch(&mut pass, x1 - x0, y1 - y0);
+                dispatch(&mut pass, 16, x1 - x0, y1 - y0);
             }
             let slot = count % 2;
             count += 1;
