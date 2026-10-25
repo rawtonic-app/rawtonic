@@ -39,3 +39,35 @@ export function withOwnBitmapIds(adjustments: Adjustments, shown?: Adjustments):
     })),
   };
 }
+
+/** Sent in place of a mask bitmap the native side already holds under the
+ * component's id (`CACHED_BITMAP` in crates/engine/src/adjustment_utils.rs).
+ * A null bitmap means the component has none and renders nothing. */
+export const CACHED_BITMAP = 'cached';
+const MASK_DATA_KEYS = ['maskDataBase64', 'mask_data_base64'] as const;
+
+/** In `subMasks` (a copy about to be sent to the native side), refers to
+ * each mask bitmap already `sent` under its component's id instead of
+ * sending it again; returns the ids carrying their bitmap for the first time,
+ * to be added to `sent` once the request went through. A component without a
+ * bitmap (a People selection with its last part unticked) renders none and
+ * is forgotten in `sent`: a bitmap computed under that id later goes out
+ * whole instead of being referred to. */
+export function referToSentMaskBitmaps(subMasks: SubMask[] | undefined, sent: Set<string>): string[] {
+  const newlySent: string[] = [];
+  if (!Array.isArray(subMasks)) return newlySent;
+  for (const sub of subMasks) {
+    const parameters = sub.parameters as Record<string, unknown> | undefined;
+    if (!sub.id || !parameters) continue;
+    const keys = MASK_DATA_KEYS.filter((key) => key in parameters);
+    if (keys.length === 0) continue;
+    if (keys.every((key) => parameters[key] === null || parameters[key] === undefined)) {
+      sent.delete(sub.id);
+    } else if (sent.has(sub.id)) {
+      for (const key of keys) if (parameters[key] != null) parameters[key] = CACHED_BITMAP;
+    } else {
+      newlySent.push(sub.id);
+    }
+  }
+  return newlySent;
+}

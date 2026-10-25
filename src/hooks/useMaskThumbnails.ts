@@ -6,6 +6,7 @@ import { Invokes } from '../components/ui/AppProperties';
 import { Mask, type SubMask } from '../components/panel/right/Masks';
 import type { Adjustments, AiPatch, MaskContainer } from '../utils/adjustments';
 import { GEOMETRY_KEYS, ORIENTATION_KEYS } from '../utils/geometryKeys';
+import { referToSentMaskBitmaps } from '../utils/bitmapIds';
 
 /**
  * Mask thumbnails in the layer list (Lightroom's Masks panel shows one per
@@ -88,13 +89,7 @@ export function componentThumbnailKey(sub: SubMask, maskVersion?: number): strin
 function requestAdjustments(adjustments: Adjustments): Adjustments {
   const { patchesSentToBackend } = useEditorStore.getState();
   const payload = structuredClone(adjustments);
-  const strip = (subMasks?: SubMask[]) =>
-    subMasks?.forEach((sub) => {
-      if (!sub.id || !sub.parameters || !patchesSentToBackend.has(sub.id)) return;
-      for (const key of MASK_DATA_KEYS) {
-        if (sub.parameters[key] !== undefined) sub.parameters[key] = null;
-      }
-    });
+  const strip = (subMasks?: SubMask[]) => referToSentMaskBitmaps(subMasks, patchesSentToBackend);
   payload.masks?.forEach((mask: MaskContainer) => strip(mask.subMasks));
   payload.aiPatches?.forEach((patch: AiPatch) => {
     if (patch.id && patch.patchData && patchesSentToBackend.has(patch.id)) patch.patchData = null;

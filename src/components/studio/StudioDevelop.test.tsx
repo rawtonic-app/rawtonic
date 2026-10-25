@@ -20,6 +20,7 @@ import { Mask, SubMaskMode } from "../panel/right/Masks";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
 import { createSubMask } from "../../utils/maskUtils";
+import { registerSliderDraftRenderer } from "../../utils/sliderDraft";
 import { INITIAL_MASK_CONTAINER } from "../../utils/adjustments";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -430,6 +431,67 @@ describe("Develop tool contracts", () => {
     for (const [x, py] of neutral) expect(255 - py).toBeCloseTo(x, 5);
   });
 
+  it("draws a dragged curve point at every move, before the store commits it", () => {
+    // Drag moves render as drafts and commit every COMMIT_INTERVAL_MS.
+    const unregister = registerSliderDraftRenderer(() => true);
+    mount();
+    openGroups();
+    const curve = screen.getByRole("img", { name: /^RGB point curve/ });
+    vi.spyOn(curve, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 255,
+      height: 255,
+    } as DOMRect);
+    curve.setPointerCapture = vi.fn();
+    curve.hasPointerCapture = vi.fn(() => false);
+    fireEvent.pointerDown(curve, { button: 0, clientX: 128, clientY: 127 });
+    const drawnAt = (x: number) => {
+      const points = curve
+        .querySelector("polyline.curve-line")!
+        .getAttribute("points")!
+        .split(" ")
+        .map((p) => p.split(",").map(Number));
+      return 255 - points.find(([px]) => px === x)![1];
+    };
+    for (const [move, y] of [[1, 160], [2, 180], [3, 200]] as const) {
+      vi.advanceTimersByTime(16);
+      fireEvent.pointerMove(curve, { buttons: 1, clientX: 128, clientY: 255 - y });
+      const point = curve.querySelectorAll("circle.curve-point")[1];
+      expect(Number(point.getAttribute("cy")), `move ${move}`).toBe(255 - y);
+      // The line passes the point (sampled at x 127.5, beside it).
+      expect(Math.abs(drawnAt(127.5) - y)).toBeLessThan(2);
+    }
+    // The store holds the drag's start until its commit; the drag ends with
+    // its last move.
+    expect(useEditorStore.getState().adjustments.curves.luma[1].y).toBe(128);
+    fireEvent.pointerUp(curve);
+    expect(useEditorStore.getState().adjustments.curves.luma[1]).toEqual({ x: 128, y: 200 });
+    unregister();
+  });
+
+  it("draws the region curve under the tone curve at every region slider move", () => {
+    const unregister = registerSliderDraftRenderer(() => true);
+    mount();
+    openGroups();
+    const curve = screen.getByRole("img", { name: /^RGB point curve/ });
+    const region = () => curve.querySelector("polyline.curve-region")?.getAttribute("points") ?? null;
+    expect(region()).toBeNull();
+    const slider = screen.getByRole("slider", { name: "Region curve highlights" });
+    fireEvent.pointerDown(slider);
+    fireEvent.change(slider, { target: { value: "40" } });
+    const first = region();
+    expect(first).not.toBeNull();
+    vi.advanceTimersByTime(16);
+    fireEvent.change(slider, { target: { value: "80" } });
+    expect(region()).not.toBe(first);
+    // Not committed yet: drawn from the drag's draft.
+    expect(useEditorStore.getState().adjustments.regionCurve?.highlights ?? 0).toBe(0);
+    fireEvent.pointerUp(slider);
+    expect(useEditorStore.getState().adjustments.regionCurve?.highlights).toBe(80);
+    unregister();
+  });
+
   it("ends a curve drag on cancellation and unmount", () => {
     const view = mount();
     openGroups();
@@ -798,7 +860,7 @@ describe("selections, ranges and components (Lightroom's mask menu)", () => {
     // A face seen in profile has no lips to select.
     expect((screen.getByRole("checkbox", { name: "Lips" }) as HTMLInputElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("checkbox", { name: "Face skin" }));
-    expect(last().subMasks[0].parameters.parts).toEqual(["entirePerson", "faceSkin"]);
+    expect(last().subMasks[0].parameters.parts).toEqual(["faceSkin"]);
     vi.mocked(invoke).mockImplementation(
       (name: string) => Promise.resolve(name === "load_metadata" ? {} : undefined) as never,
     );

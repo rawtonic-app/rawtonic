@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
 import {
@@ -21,6 +21,8 @@ import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useUIStore } from "../../store/useUIStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
+import { useDragSend } from "../../hooks/useDragSend";
+import { useSliderDraft } from "../../utils/sliderDraft";
 import {
   INITIAL_ADJUSTMENTS,
   initialAdjustmentsFor,
@@ -30,6 +32,7 @@ import {
   LONG_CURVE_VERSION,
   editedCurvesVersion,
   type Adjustments,
+  type Coord,
   type Curves,
   type GrainStructure,
   effectiveGrainStructure,
@@ -185,6 +188,29 @@ export function ToolGroup({
   );
 }
 
+/** The region curve under the luma curve; a region slider's drag draws it
+ * at every move (from the drag's draft), re-rendering only this line; a
+ * point drag does not re-render it. */
+const RegionCurveLine = memo(function RegionCurveLine({ region }: { region: RegionCurve }) {
+  const path = useEditorStore((s) => s.selectedImage?.path);
+  const dragged = useSliderDraft(
+    path,
+    (adjustments) => adjustments.regionCurve as RegionCurve | undefined,
+  );
+  const shown = dragged ? { ...INITIAL_REGION_CURVE, ...dragged } : region;
+  if (isNeutralRegionCurve(shown)) return null;
+  return (
+    <polyline
+      points={Array.from({ length: 65 }, (_, i) => {
+        const x = i / 64;
+        return `${x * 255},${255 - regionCurveValue(shown, x) * 255}`;
+      }).join(" ")}
+      fill="none"
+      className="curve-region"
+    />
+  );
+});
+
 function PointCurve({
   curves,
   region,
@@ -207,24 +233,47 @@ function PointCurve({
     "luma" | "luminance" | "red" | "green" | "blue"
   >("luma");
   const [selected, setSelected] = useState<number | null>(null);
+  // A drag draws its points as they move, like a slider its knob; the
+  // store gets them at the slider cadence and commits every
+  // COMMIT_INTERVAL_MS (sliderDraft.ts), too seldom to draw from.
+  const [dragged, setDragged] = useState<Coord[] | null>(null);
   // Curves without a Luminance curve start it neutral.
-  const points = curves[channel] ?? [
-    { x: 0, y: 0 },
-    { x: 255, y: 255 },
-  ];
+  const points = dragged ??
+    curves[channel] ?? [
+      { x: 0, y: 0 },
+      { x: 255, y: 255 },
+    ];
+  const latest = useRef(points);
+  latest.current = points;
+  const send = useDragSend((next: Coord[]) =>
+    onChange({ ...curves, [channel]: next }),
+  );
   const dragging = useRef(false);
   const interaction = useRef(onInteraction);
   interaction.current = onInteraction;
   useEffect(
     () => () => {
+      send.flush();
       if (dragging.current) interaction.current(false);
     },
-    [],
+    [send],
   );
   const end = () => {
+    send.flush();
     if (dragging.current) interaction.current(false);
     dragging.current = false;
+    setDragged(null);
   };
+  const drawn = useMemo(() => {
+    const curve =
+      channel === "luminance"
+        ? renderedLuminancePoints(points)
+        : renderedPoints(points, wholeCurves);
+    return Array.from({ length: 129 }, (_, i) => {
+      const x = i * (255 / 128);
+      return `${x},${255 - pointCurveValue(curve, x)}`;
+    }).join(" ");
+  }, [channel, points, wholeCurves]);
   const position = (event: React.PointerEvent<SVGSVGElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     return {
@@ -291,6 +340,7 @@ function PointCurve({
           if (disabled || !dragging.current || !e.buttons || selected === null)
             return;
           const p = position(e);
+          const points = latest.current;
           const next = points.map((q, i) =>
             i === selected
               ? {
@@ -307,7 +357,9 @@ function PointCurve({
                 }
               : q,
           );
-          onChange({ ...curves, [channel]: next });
+          latest.current = next;
+          setDragged(next);
+          send.push(next);
         }}
         onPointerUp={(e) => {
           if (e.currentTarget.hasPointerCapture(e.pointerId))
@@ -324,25 +376,9 @@ function PointCurve({
           </g>
         ))}
         <line x1="0" y1="255" x2="255" y2="0" className="curve-reference" />
-        {channel === "luma" && region && !isNeutralRegionCurve(region) && (
-          <polyline
-            points={Array.from({ length: 65 }, (_, i) => {
-              const x = i / 64;
-              return `${x * 255},${255 - regionCurveValue(region, x) * 255}`;
-            }).join(" ")}
-            fill="none"
-            className="curve-region"
-          />
-        )}
+        {channel === "luma" && region && <RegionCurveLine region={region} />}
         <polyline
-          points={Array.from({ length: 129 }, (_, i) => {
-            const x = i * (255 / 128);
-            const drawn =
-              channel === "luminance"
-                ? renderedLuminancePoints(points)
-                : renderedPoints(points, wholeCurves);
-            return `${x},${255 - pointCurveValue(drawn, x)}`;
-          }).join(" ")}
+          points={drawn}
           fill="none"
           className={`curve-line curve-${channel}`}
         />
