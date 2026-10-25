@@ -343,8 +343,6 @@ export default function StudioWorkspace(props: Props) {
   // it or take its clicks (an edit already under way still completes). They
   // are put aside and come back with Develop (same photograph).
   const viewOnly = libraryViewer || isFullScreen;
-  // Bumped when a gesture held as the view opened is released.
-  const [suspendAfterRelease, setSuspendAfterRelease] = useState(0);
   const suspended = useRef<{
     path: string | null;
     panel: Panel | null;
@@ -354,30 +352,20 @@ export default function StudioWorkspace(props: Props) {
     faces: boolean;
     relightHandles: boolean;
   } | null>(null);
-  // A pointer or a ⌘/Ctrl held down, followed from the start: a gesture
-  // under way when the view opens (a brush stroke) finishes first, and the
-  // wheel guard below knows a key pressed before the view.
-  const held = useRef({ pointer: false, modifier: false });
+  // A ⌘/Ctrl held down, followed from the start, so the wheel guard below
+  // also knows a key pressed before the view opened.
+  const modifierHeld = useRef(false);
   useEffect(() => {
-    const onPointer = (e: PointerEvent) => {
-      held.current.pointer = e.type === "pointerdown";
-    };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Control" || e.key === "Meta") held.current.modifier = e.type === "keydown";
+      if (e.key === "Control" || e.key === "Meta") modifierHeld.current = e.type === "keydown";
     };
     const release = () => {
-      held.current = { pointer: false, modifier: false };
+      modifierHeld.current = false;
     };
-    window.addEventListener("pointerdown", onPointer, true);
-    window.addEventListener("pointerup", onPointer, true);
-    window.addEventListener("pointercancel", onPointer, true);
     window.addEventListener("keydown", onKey, true);
     window.addEventListener("keyup", onKey, true);
     window.addEventListener("blur", release);
     return () => {
-      window.removeEventListener("pointerdown", onPointer, true);
-      window.removeEventListener("pointerup", onPointer, true);
-      window.removeEventListener("pointercancel", onPointer, true);
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("keyup", onKey, true);
       window.removeEventListener("blur", release);
@@ -387,24 +375,6 @@ export default function StudioWorkspace(props: Props) {
     const ui = useUIStore.getState();
     const editor = useEditorStore.getState();
     const relight = useRelightStore.getState();
-    if (viewOnly && held.current.pointer) {
-      // A stroke or drag under way completes on its photograph first: its
-      // tool is put aside once the pointer is released (after the tool's
-      // own release handlers have run).
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const released = () => {
-        window.removeEventListener("pointerup", released);
-        window.removeEventListener("pointercancel", released);
-        timer = setTimeout(() => setSuspendAfterRelease((n) => n + 1), 0);
-      };
-      window.addEventListener("pointerup", released);
-      window.addEventListener("pointercancel", released);
-      return () => {
-        window.removeEventListener("pointerup", released);
-        window.removeEventListener("pointercancel", released);
-        clearTimeout(timer);
-      };
-    }
     if (viewOnly) {
       suspended.current ??= {
         path: editor.selectedImage?.path ?? null,
@@ -459,7 +429,7 @@ export default function StudioWorkspace(props: Props) {
       isSpotToolActive: saved.spot,
       showFaceBlemishes: saved.faces,
     });
-  }, [viewOnly, develop, suspendAfterRelease]);
+  }, [viewOnly, develop]);
   // In the Library a photograph that stops matching the filter (rated
   // while culling) gives way to the one now in its place; with none left
   // the grid comes back.
@@ -492,7 +462,7 @@ export default function StudioWorkspace(props: Props) {
     const element = viewerRef.current;
     if (!viewOnly || !element) return;
     const onWheel = (e: WheelEvent) => {
-      if (!held.current.modifier) return;
+      if (!modifierHeld.current) return;
       e.preventDefault();
       e.stopPropagation();
     };

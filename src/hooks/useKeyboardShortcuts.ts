@@ -21,6 +21,7 @@ import { useMultiViewStore, type CellZoomKey } from '../store/useMultiViewStore'
 import { orderedSelection, stepPrimary } from '../utils/multiView';
 import { isTetherConnected, TETHER_CAPTURE_EVENT } from '../components/session/tether';
 import { libraryViewer, viewerOnly, viewerShown } from '../utils/viewerMode';
+import { afterPointerRelease } from '../utils/heldPointer';
 
 /** The photograph an arrow key moves to in the Library, from `index` of
  * `count`. Left/Right step one and wrap around; in the grid (`columns` per
@@ -566,7 +567,11 @@ export const useKeyboardShortcuts = ({
           if (!s.ui.isFullScreen && s.ui.activeView !== 'editor' && active && active !== s.editor.selectedImage?.path) {
             handleImageSelect(active, false);
           }
-          useUIStore.getState().toggleFullScreen();
+          // A stroke under way ends before the viewer changes its size.
+          if (s.ui.isFullScreen) useUIStore.getState().toggleFullScreen();
+          else afterPointerRelease(() => {
+            if (!useUIStore.getState().isFullScreen) useUIStore.getState().toggleFullScreen();
+          });
         },
       },
       toggle_window_fullscreen: {

@@ -243,3 +243,28 @@ it("ignores recipe keys in the Library's loupe, but keeps undoing file operation
   press("KeyZ", { metaKey: true });
   expect(props.handleUndoFileOperation).toHaveBeenCalledOnce();
 });
+
+it("opens the full screen after a brush stroke held as F is pressed, not in the middle of it", () => {
+  vi.useFakeTimers();
+  try {
+    useUIStore.setState({ activeView: "editor", activePanel: Panel.Masks });
+    useEditorStore.setState({ activeMaskContainerId: "layer-1", activeMaskId: "brush-1" });
+    // The stroke keeps its points in screen coordinates until its release:
+    // the viewer must not change its size before that.
+    window.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    press("KeyF");
+    expect(useUIStore.getState().isFullScreen).toBe(false);
+    expect(useEditorStore.getState()).toMatchObject({ activeMaskContainerId: "layer-1", activeMaskId: "brush-1" });
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    expect(useUIStore.getState().isFullScreen).toBe(false);
+    vi.runAllTimers();
+    expect(useUIStore.getState().isFullScreen).toBe(true);
+    // Without a pointer held, F opens it at once.
+    press("KeyF");
+    press("KeyF");
+    expect(useUIStore.getState().isFullScreen).toBe(true);
+  } finally {
+    useEditorStore.setState({ activeMaskContainerId: null, activeMaskId: null });
+    vi.useRealTimers();
+  }
+});
