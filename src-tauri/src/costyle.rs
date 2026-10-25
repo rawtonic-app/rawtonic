@@ -22,7 +22,8 @@
 //! colours or inverted ranges, white balance multipliers (camera
 //! specific), noise reduction (different baselines), lens and keystone
 //! settings, retouching. `untranslated_settings` names them for the import
-//! report.
+//! report, along with approximate skin entries, unsupported bounds/clipped
+//! values, unknown/malformed entries and ranges beyond the recipe limits.
 
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
@@ -312,8 +313,8 @@ fn hue_difference(a: f64, b: f64) -> f64 {
 /// takes (−100 all), 13 smoothness, 15 inverted. Rawtonic's ranges are
 /// symmetric windows in Oklab hue (at most eight); all-colour and inverted
 /// entries are not translated. List 2 is a skin entry: fields 14/16/17 are
-/// H/S/L uniformity. Its picked colour is the target, with our approximate
-/// unit conversion below (reported as a partial Colour Editor import).
+/// H/S/L uniformity. Its picked colour is the target; both selection and
+/// uniformity are approximate and reported as a partial Colour Editor import.
 fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
     let mut ranges = Vec::new();
     let mut untranslated = false;
@@ -346,11 +347,13 @@ fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
             untranslated = true;
             continue;
         }
-        // Uniformity is only an approximation (notably for lightness on
-        // dark picks); name the tool in the partial-import report. The
+        // Skin selection and uniformity are approximate (also without
+        // uniformity): the chroma band now follows the picked target,
+        // whereas the Advanced shape fit used CE_CHROMA. Name the tool in
+        // the partial-import report. The
         // range model cannot express an upper saturation bound, nor keep
         // asymmetric hue edges and the skin's picked target independently.
-        untranslated |= uniformity
+        untranslated |= skin
             || f[12] != 100.0
             || (skin && (f[9] + f[10]).abs() > 1e-6)
             || !(0.0..=50.0).contains(&f[13])
@@ -767,12 +770,14 @@ fn default_curves() -> Value {
     })
 }
 
-/// Settings in a style that `convert_costyle_to_preset` does not translate
+/// Settings in a style that `convert_costyle_to_preset` cannot fully translate
 /// (see the module comment), as codes the import report names: `profile`,
 /// `filmCurve`, `colorEditor`, `whiteBalance`, `noiseReduction`, `lens`,
 /// and `curves` for curves that come over only approximately (measured: a
-/// few levels off Capture One's renders).
-/// Only settings that change something are listed, so a `.cos` file's
+/// few levels off Capture One's renders). `colorEditor` also covers approximate
+/// skin ranges, unsupported bounds/clipped values, unknown/malformed entries,
+/// inverted/all-colour ranges and ranges beyond the recipe limits.
+/// Only settings that change something, or cannot be interpreted, are listed, so a `.cos` file's
 /// defaults (ICC `EMBEDDED`, an `Auto` film curve, white balance `1;1;1`,
 /// zero amounts) report nothing.
 pub fn untranslated_settings(content: &str) -> Vec<&'static str> {
@@ -799,8 +804,8 @@ pub fn untranslated_settings(content: &str) -> Vec<&'static str> {
     {
         out.push("filmCurve");
     }
-    // Colour ranges Rawtonic's colour editor cannot take (all colours,
-    // inverted, more than eight).
+    // Approximate skin ranges and unsupported, clipped, malformed, unknown
+    // or excess colour ranges (see color_editor_ranges).
     if s.get("ColorCorrections")
         .is_some_and(|v| color_editor_ranges(v).1)
     {
@@ -935,7 +940,24 @@ mod tests {
         assert_eq!(r["lightnessRange"], json!(100));
         assert_eq!(r["smoothness"], json!(45.835));
         assert_eq!(super::untranslated_settings(style), ["colorEditor"]);
-        assert!(super::untranslated_settings(&style.replace(",-100,60,", ",-100,100,")).is_empty());
+        assert_eq!(
+            super::untranslated_settings(&style.replace(",-100,60,", ",-100,100,")),
+            ["colorEditor"],
+            "amount-only skin selection is approximate too"
+        );
+        let advanced = style.replace("1,1,2,", "1,1,1,");
+        assert_eq!(super::untranslated_settings(&advanced), ["colorEditor"]);
+        assert!(
+            super::untranslated_settings(&advanced.replace(",-100,60,", ",-100,100,")).is_empty()
+        );
+        let advanced = advanced.replace(",-100,60,", ",-100,100,");
+        for partial in [
+            advanced.replace(",100,15,", ",100,60,"), // smoothness outside the decoded range
+            advanced.replace(",-100,100,", ",-101,100,"), // saturation floor clipped
+            advanced.replace(",3,-10,1,", ",3,-10,100,"), // lightness shift clipped
+        ] {
+            assert_eq!(super::untranslated_settings(&partial), ["colorEditor"]);
+        }
     }
 
     #[test]
