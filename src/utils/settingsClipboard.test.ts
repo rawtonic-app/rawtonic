@@ -113,13 +113,18 @@ describe('settings clipboard', () => {
   });
 
   it('never pastes another photo’s AI bitmap; a virtual copy of the same keeps it', () => {
-    const pasted = { masks: [layer('sky', 'ai-sky', { maskDataBase64: 'data:source', grow: 10 }), layer('people', 'ai-people', { parts: [] })] } as unknown as Partial<Adjustments>;
+    const pasted = { masks: [
+      layer('sky', 'ai-sky', { maskDataBase64: 'data:source', grow: 10,
+        rotation: 10, flipHorizontal: true, flipVertical: true, orientationSteps: 1, warp: { perspective: 5 }, detectPending: false }),
+      layer('people', 'ai-people', { parts: [], maskDataBase64: 'data:stale', detectPending: true, warp: {} }),
+    ] } as unknown as Partial<Adjustments>;
     const onOther = pasteInto(recipe({}), pasted, { samePhoto: false, replaceLayers: false })!;
     expect(onOther.masks[0].subMasks[0].parameters).toEqual({ maskDataBase64: null, grow: 10, detectPending: true });
     expect(onOther.masks[0].subMasks[0].id).not.toBe('sky-c');
     expect(onOther.masks[1].subMasks[0].id).toBe('people-c');
+    expect(onOther.masks[1].subMasks[0].parameters).toEqual({ parts: [], maskDataBase64: null });
     const onCopy = pasteInto(recipe({}), pasted, { samePhoto: true, replaceLayers: false })!;
-    expect(onCopy.masks[0].subMasks[0].parameters).toMatchObject({ maskDataBase64: 'data:source' });
+    expect(onCopy.masks).toEqual(pasted.masks);
   });
 
   it('starts a never-edited recipe as a new edit and refuses more layers than applied', () => {

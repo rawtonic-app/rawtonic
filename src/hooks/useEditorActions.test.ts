@@ -633,23 +633,42 @@ describe('Auto straighten', () => {
   });
 });
 
-it.each(['ai-sky', 'ai-foreground', 'ai-depth', 'ai-people', 'ai-subject'])('applies a legacy %s preset to the open photo as a fresh pending detection', async (type) => {
-  const { result } = renderHook(useEditorActions);
-  const parameters = {
-    maskDataBase64: 'data:source', grow: 10,
-    ...(type === 'ai-people' ? { parts: ['hair'], person: null } : {}),
-    ...(type === 'ai-depth' ? { minDepth: 0.2, maxDepth: 0.6 } : {}),
-    ...(type === 'ai-subject' ? { prompts: [{ type: 'point', x: 100, y: 200 }] } : {}),
-  };
-  const masks = [{ id: 'sky-layer', visible: true, subMasks: [{
-    id: 'source-sky', type, parameters,
-  }] }] as never;
-  act(() => { void result.current.applyAdjustmentsToPaths({ masks }, ['/first.dng', '/second.dng']); });
-  const sub = useEditorStore.getState().adjustments.masks[0].subMasks[0];
-  expect(sub.id).not.toBe('source-sky');
-  expect(sub.parameters).toEqual({ ...parameters, maskDataBase64: null, detectPending: true });
-  await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
-  expect(invoke).toHaveBeenCalledWith(Invokes.ApplyAdjustmentsToPaths, expect.objectContaining({ paths: ['/second.dng'] }));
-  expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === Invokes.ApplyAdjustmentsToPaths)).toHaveLength(1);
-  expect(masks).toMatchObject([{ subMasks: [{ parameters: { maskDataBase64: 'data:source' } }] }]);
+describe('AI preset layers', () => {
+  it.each(['ai-sky', 'ai-foreground', 'ai-depth', 'ai-people', 'ai-subject'])('applies a legacy %s preset to the open photo as a fresh pending detection', async (type) => {
+    const { result } = renderHook(useEditorActions);
+    const parameters = {
+      maskDataBase64: 'data:source', grow: 10,
+      ...(type === 'ai-people' ? { parts: ['hair'], person: null } : {}),
+      ...(type === 'ai-depth' ? { minDepth: 0.2, maxDepth: 0.6 } : {}),
+      ...(type === 'ai-subject' ? { prompts: [{ type: 'point', x: 100, y: 200 }] } : {}),
+    };
+    const masks = [{ id: 'sky-layer', visible: true, subMasks: [{
+      id: 'source-sky', type, parameters,
+    }] }] as never;
+    act(() => { void result.current.applyAdjustmentsToPaths({ masks }, ['/first.dng', '/second.dng']); });
+    const sub = useEditorStore.getState().adjustments.masks[0].subMasks[0];
+    expect(sub.id).not.toBe('source-sky');
+    expect(sub.parameters).toEqual({ ...parameters, maskDataBase64: null, detectPending: true });
+    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    expect(invoke).toHaveBeenCalledWith(Invokes.ApplyAdjustmentsToPaths, expect.objectContaining({ paths: ['/second.dng'] }));
+    expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === Invokes.ApplyAdjustmentsToPaths)).toHaveLength(1);
+    expect(masks).toMatchObject([{ subMasks: [{ parameters: { maskDataBase64: 'data:source' } }] }]);
+  });
+
+  it('keeps explicit preset nulls on the open photo as on the closed targets', async () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => useEditorStore.setState({ adjustments: {
+      ...useEditorStore.getState().adjustments, lutPath: 'previous.cube',
+    } }));
+    const masks = [{ id: 'sky', visible: true, subMasks: [{
+      id: 'source', type: 'ai-sky', parameters: { maskDataBase64: 'data:source' },
+    }] }] as never;
+    const partial = { masks, lutPath: null, lutData: null, crop: null };
+    act(() => { void result.current.applyAdjustmentsToPaths(partial, ['/first.dng', '/second.dng']); });
+    expect(useEditorStore.getState().adjustments).toMatchObject({ lutPath: null, lutData: null, crop: null });
+    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    expect(invoke).toHaveBeenCalledWith(Invokes.ApplyAdjustmentsToPaths, expect.objectContaining({
+      paths: ['/second.dng'], adjustments: expect.objectContaining({ lutPath: null, lutData: null, crop: null }),
+    }));
+  });
 });

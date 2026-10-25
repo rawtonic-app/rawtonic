@@ -192,6 +192,7 @@ function pastedOpen(
   const merged = pasteInto(base && !(base as { is_null?: boolean }).is_null ? base : null, pasted, {
     samePhoto: Boolean(paste && samePhotograph(paste.source, open.path)),
     replaceLayers: paste?.replaceLayers ?? true,
+    keepNulls: !paste,
     newEdit: paste?.newEdit ? (open.isRaw ? paste.newEdit.raw : paste.newEdit.other) : undefined,
   });
   if (!merged) {
