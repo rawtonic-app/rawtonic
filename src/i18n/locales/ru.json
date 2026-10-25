@@ -123,6 +123,7 @@
       "auto_adjust": "Автонастройка",
       "auto_white_balance": "Автоматический баланс белого",
       "check_updates": "Проверить обновления…",
+      "clear_recent": "Очистить меню",
       "color_label_blue": "Синяя",
       "color_label_green": "Зелёная",
       "color_label_none": "Нет",
@@ -179,8 +180,7 @@
       "zoom_100": "Масштаб 100 %",
       "zoom_fit": "По размеру окна",
       "zoom_in": "Увеличить",
-      "zoom_out": "Уменьшить",
-      "clear_recent": "Очистить меню"
+      "zoom_out": "Уменьшить"
     },
     "menus": {
       "app": "{{app}}",

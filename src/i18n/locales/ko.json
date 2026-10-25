@@ -123,6 +123,7 @@
       "auto_adjust": "자동 조정",
       "auto_white_balance": "자동 화이트 밸런스",
       "check_updates": "업데이트 확인…",
+      "clear_recent": "메뉴 지우기",
       "color_label_blue": "파란색",
       "color_label_green": "초록색",
       "color_label_none": "없음",
@@ -179,8 +180,7 @@
       "zoom_100": "100 % 확대/축소",
       "zoom_fit": "창에 맞추기",
       "zoom_in": "확대",
-      "zoom_out": "축소",
-      "clear_recent": "메뉴 지우기"
+      "zoom_out": "축소"
     },
     "menus": {
       "app": "{{app}}",

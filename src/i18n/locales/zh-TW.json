@@ -123,6 +123,7 @@
       "auto_adjust": "自動調整",
       "auto_white_balance": "自動白平衡",
       "check_updates": "檢查更新項目…",
+      "clear_recent": "清除選單",
       "color_label_blue": "藍色",
       "color_label_green": "綠色",
       "color_label_none": "無",
@@ -179,8 +180,7 @@
       "zoom_100": "縮放至 100 %",
       "zoom_fit": "符合視窗",
       "zoom_in": "放大",
-      "zoom_out": "縮小",
-      "clear_recent": "清除選單"
+      "zoom_out": "縮小"
     },
     "menus": {
       "app": "{{app}}",

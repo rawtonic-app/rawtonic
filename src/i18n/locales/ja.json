@@ -123,6 +123,7 @@
       "auto_adjust": "自動補正",
       "auto_white_balance": "自動ホワイトバランス",
       "check_updates": "アップデートを確認…",
+      "clear_recent": "メニューを消去",
       "color_label_blue": "ブルー",
       "color_label_green": "グリーン",
       "color_label_none": "なし",
@@ -179,8 +180,7 @@
       "zoom_100": "100 %表示",
       "zoom_fit": "ウインドウに合わせる",
       "zoom_in": "拡大",
-      "zoom_out": "縮小",
-      "clear_recent": "メニューを消去"
+      "zoom_out": "縮小"
     },
     "menus": {
       "app": "{{app}}",

@@ -123,6 +123,7 @@
       "auto_adjust": "Réglage automatique",
       "auto_white_balance": "Balance des blancs automatique",
       "check_updates": "Rechercher des mises à jour…",
+      "clear_recent": "Effacer le menu",
       "color_label_blue": "Bleu",
       "color_label_green": "Vert",
       "color_label_none": "Aucune",
@@ -179,8 +180,7 @@
       "zoom_100": "Zoom à 100 %",
       "zoom_fit": "Ajuster à la fenêtre",
       "zoom_in": "Zoom avant",
-      "zoom_out": "Zoom arrière",
-      "clear_recent": "Effacer le menu"
+      "zoom_out": "Zoom arrière"
     },
     "menus": {
       "app": "{{app}}",

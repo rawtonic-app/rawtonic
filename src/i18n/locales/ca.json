@@ -123,6 +123,7 @@
       "auto_adjust": "Ajust automàtic",
       "auto_white_balance": "Balanç de blancs automàtic",
       "check_updates": "Cerca actualitzacions…",
+      "clear_recent": "Buida el menú",
       "color_label_blue": "Blau",
       "color_label_green": "Verd",
       "color_label_none": "Cap",
@@ -179,8 +180,7 @@
       "zoom_100": "Zoom al 100 %",
       "zoom_fit": "Ajusta a la finestra",
       "zoom_in": "Amplia",
-      "zoom_out": "Redueix",
-      "clear_recent": "Buida el menú"
+      "zoom_out": "Redueix"
     },
     "menus": {
       "app": "{{app}}",
