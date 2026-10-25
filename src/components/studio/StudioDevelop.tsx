@@ -796,7 +796,7 @@ export default function StudioDevelop() {
               {t("studio.develop.groups.effects")}
             </button>
             <span>{[t("adjustments.effects.vignette"), t("adjustments.effects.grain"),
-              t("studio.develop.groups.lightEffects"), "LUT"].join(" · ")}</span>
+              t("studio.develop.groups.lightEffects"), t("adjustments.effects.lut")].join(" · ")}</span>
           </div>
         )}
         {!selectedImage && (

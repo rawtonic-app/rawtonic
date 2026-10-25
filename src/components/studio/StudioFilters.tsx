@@ -125,7 +125,7 @@ export default function StudioFilters({
       {sessionDirectory && onToggleMetadata && (
         <button
           className="studio-metadata-toggle"
-          aria-label={t("studio.library.metadataFilter.button")}
+          aria-label={`${t("studio.library.metadataFilter.button")}${chosen > 0 ? ` ${chosen.toLocaleString()}` : ""}`}
           aria-pressed={!!metadataOpen}
           title={t("studio.library.metadataFilter.toggle")}
           onClick={onToggleMetadata}

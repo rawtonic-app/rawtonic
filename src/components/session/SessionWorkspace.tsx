@@ -23,6 +23,8 @@ import {
   ChevronDown,
   Database,
   FolderOpen,
+  FileWarning,
+  RefreshCw,
   FolderPlus,
   FolderSync,
   FolderPlus as FolderAdd,
@@ -1274,19 +1276,27 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 count.title = count.scrollWidth > count.clientWidth ? (count.textContent ?? "") : "";
               }}
             >
+              <span className="session-count-total">
               {t("session.bar.photos", {
                 count: session.assets,
                 formatted: session.assets.toLocaleString(),
               })}
               {session.picked > 0 && ` · ${t("session.bar.picked", { count: session.picked })}`}
+              </span>
               {(session.missing ?? 0) > 0 && (
-                <span className="session-count-offline" title={t("offline.sessionCountTitle")}>
-                  {` · ${t("offline.sessionCount", { count: session.missing })}`}
+                <span className="session-count-offline" role="img"
+                  aria-label={t("offline.sessionCount", { count: session.missing })}
+                  title={t("offline.sessionCountTitle")}>
+                  <FileWarning className="session-count-status-icon" size={13} aria-hidden />
+                  <span className="session-count-status-text" aria-hidden>{` · ${t("offline.sessionCount", { count: session.missing })}`}</span>
                 </span>
               )}
               {session.xmp_pending > 0 && (
-                <span title={t("session.bar.xmpPendingTitle")}>
-                  {` · ${t("session.bar.xmpPending", { count: session.xmp_pending })}`}
+                <span className="session-count-pending" role="img"
+                  aria-label={t("session.bar.xmpPending", { count: session.xmp_pending })}
+                  title={t("session.bar.xmpPendingTitle")}>
+                  <RefreshCw className="session-count-status-icon" size={13} aria-hidden />
+                  <span className="session-count-status-text" aria-hidden>{` · ${t("session.bar.xmpPending", { count: session.xmp_pending })}`}</span>
                 </span>
               )}
             </span>

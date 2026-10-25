@@ -4669,7 +4669,8 @@ img.relight-pattern-preview { object-fit: cover; }
   flex: 0 0 auto;
   gap: 5px;
 }
-.studio-app .session-bar:has(.is-in-header) .session-count,
+.studio-app .session-bar:has(.is-in-header) .session-count-total,
+.studio-app .session-bar:has(.is-in-header) .session-count-status-text,
 .studio-app .session-bar:has(.is-in-header) .session-mark,
 .studio-app .session-bar:has(.is-in-header) .session-action > span {
   display: none;
@@ -4753,4 +4754,23 @@ img.relight-pattern-preview { object-fit: cover; }
 .studio-effects-master > span {
   color: var(--studio-muted);
   font-size: 9px;
+}
+
+.session-count-status-icon {
+  display: none;
+}
+.studio-app .session-bar:has(.is-in-header) .session-count {
+  display: flex;
+  flex: none;
+  overflow: visible;
+  gap: 6px;
+}
+.studio-app .session-bar:has(.is-in-header) .session-count-status-icon {
+  display: inline-block;
+  color: #e5bc72;
+}
+@container library-toolbar (max-width: 770px) {
+  .studio-library-filters {
+    flex-wrap: wrap;
+  }
 }
