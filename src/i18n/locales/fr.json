@@ -1826,6 +1826,11 @@
         "hintEmpty": "Prélevez une couleur dans la photo pour régler cette plage de couleur.",
         "hintPicking": "Cliquez sur une couleur dans la photo.",
         "lightness": "Luminosité",
+        "mode": {
+          "ranges": "Plages",
+          "skin": "Carnation"
+        },
+        "modesAria": "Mode de l'éditeur de couleurs",
         "pickAgainAria": "Prélever à nouveau la couleur de la plage",
         "pickAgainTitle": "Prélever à nouveau la couleur de cette plage",
         "pickAria": "Prélever une plage de couleur",
@@ -1837,9 +1842,26 @@
         "selectRange": "Sélectionner cette plage de couleur",
         "showAria": "Afficher la plage",
         "showTitle": "Afficher la plage sélectionnée (le reste en gris)",
+        "skin": {
+          "amount": "Intensité",
+          "hintEmpty": "Prélevez la peau dans la photo (ou sa couleur sur la roue), puis uniformisez-la avec Uniformité.",
+          "hintPicking": "Cliquez sur la peau dans la photo.",
+          "pickAria": "Prélever la carnation",
+          "pickTitle": "Prélever la peau dans la photo"
+        },
         "smoothness": "Lissage",
         "title": "Éditeur de couleurs",
-        "uniformity": "Uniformité"
+        "uniformity": "Uniformité",
+        "wheel": {
+          "aria": "Roue de plage de couleur",
+          "chromaHi": "Bord extérieur de saturation de la plage",
+          "chromaLo": "Bord intérieur de saturation de la plage",
+          "colour": "Couleur de la plage",
+          "colourText": "Teinte {{hue}}°, chroma {{chroma}}",
+          "hueHi": "Bord de teinte de la plage, sens antihoraire",
+          "hueLo": "Bord de teinte de la plage, sens horaire",
+          "title": "Faites glisser le centre ou les bords de la plage ; cliquez ailleurs pour l'y déplacer"
+        }
       },
       "grading": {
         "hueAria": "Teinte ({{range}})",

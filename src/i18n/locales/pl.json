@@ -1885,6 +1885,11 @@
         "hintEmpty": "Pobierz kolor ze zdjęcia, aby dostosować ten zakres koloru.",
         "hintPicking": "Kliknij kolor na zdjęciu.",
         "lightness": "Jasność",
+        "mode": {
+          "ranges": "Zakresy",
+          "skin": "Odcień skóry"
+        },
+        "modesAria": "Tryb edytora kolorów",
         "pickAgainAria": "Pobierz ponownie kolor zakresu",
         "pickAgainTitle": "Pobierz ponownie kolor tego zakresu",
         "pickAria": "Pobierz zakres koloru",
@@ -1896,9 +1901,26 @@
         "selectRange": "Wybierz ten zakres koloru",
         "showAria": "Pokaż zakres",
         "showTitle": "Pokaż wybrany zakres (reszta na szaro)",
+        "skin": {
+          "amount": "Wartość",
+          "hintEmpty": "Pobierz skórę ze zdjęcia (lub jej kolor z koła), a następnie wyrównaj ją suwakami Jednolitość.",
+          "hintPicking": "Kliknij skórę na zdjęciu.",
+          "pickAria": "Pobierz odcień skóry",
+          "pickTitle": "Pobierz skórę ze zdjęcia"
+        },
         "smoothness": "Wygładzenie",
         "title": "Edytor kolorów",
-        "uniformity": "Jednolitość"
+        "uniformity": "Jednolitość",
+        "wheel": {
+          "aria": "Koło zakresu kolorów",
+          "chromaHi": "Zewnętrzna krawędź nasycenia zakresu",
+          "chromaLo": "Wewnętrzna krawędź nasycenia zakresu",
+          "colour": "Kolor zakresu",
+          "colourText": "Barwa {{hue}}°, chroma {{chroma}}",
+          "hueHi": "Krawędź barwy zakresu, przeciwnie do ruchu wskazówek",
+          "hueLo": "Krawędź barwy zakresu, zgodnie z ruchem wskazówek",
+          "title": "Przeciągnij środek lub krawędzie zakresu; kliknij gdzie indziej, aby go tam przenieść"
+        }
       },
       "grading": {
         "hueAria": "Odcień ({{range}})",

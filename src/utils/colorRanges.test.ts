@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { pickColorRange } from './colorRanges';
+import { applyColorPick, pickColorRange } from './colorRanges';
 import { INITIAL_ADJUSTMENTS, MAX_LAYER_COLOR_RANGES, type MaskContainer } from './adjustments';
 import { useEditorStore } from '../store/useEditorStore';
 import { Invokes, type SelectedImage } from '../components/ui/AppProperties';
@@ -63,4 +63,24 @@ it('ignores samples for another photograph', async () => {
   vi.mocked(invoke).mockResolvedValue([255, 0, 0]);
   expect(await pickColorRange('/other.cr3', 'new', 0.5, 0.5)).toBe(false);
   expect(useEditorStore.getState().adjustments.colorRanges ?? []).toHaveLength(0);
+});
+
+it('picks skin into one skin tone range and moves it on the next pick', async () => {
+  vi.mocked(invoke).mockResolvedValue([200, 150, 120]);
+  useEditorStore.setState({ colorPickerTarget: 'skin' });
+  expect(await pickColorRange('/a.cr3', 'skin', 0.5, 0.5)).toBe(true);
+  const [skin] = useEditorStore.getState().adjustments.colorRanges!;
+  expect(skin.kind).toBe('skin');
+  expect(useEditorStore.getState().activeColorRangeId).toBe(skin.id);
+  vi.mocked(invoke).mockResolvedValue([120, 80, 60]);
+  await pickColorRange('/a.cr3', 'skin', 0.2, 0.2);
+  const ranges = useEditorStore.getState().adjustments.colorRanges!;
+  expect(ranges).toHaveLength(1);
+  expect(ranges[0].id).toBe(skin.id);
+  expect(ranges[0].lightness).toBeLessThan(skin.lightness);
+});
+
+it('adds no range beyond the limit', () => {
+  const full = Array.from({ length: 4 }, () => applyColorPick([], 'new', 4, 10, 0.1, 0.5).ranges[0]);
+  expect(applyColorPick(full, 'skin', 4, 50, 0.06, 0.6)).toEqual({ ranges: full, id: null });
 });

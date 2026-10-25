@@ -243,6 +243,10 @@ export const INITIAL_LEVELS: Levels = {
  */
 export interface ColorRange {
   id: string;
+  /** "skin": the colour editor's skin tone range (at most one per recipe or
+   * layer; shown in the Skin tone mode). The renderer treats it like any
+   * other range. */
+  kind?: "skin";
   /** Sampled colour: Oklab hue (degrees), chroma and lightness. */
   hue: number;
   chroma: number;
@@ -272,9 +276,15 @@ export const MAX_COLOR_RANGES = 8;
 /** Ranges a mask layer can hold (the renderer keeps four per layer). */
 export const MAX_LAYER_COLOR_RANGES = 4;
 
-export function newColorRange(hue: number, chroma: number, lightness: number): ColorRange {
+export function newColorRange(
+  hue: number,
+  chroma: number,
+  lightness: number,
+  kind?: "skin",
+): ColorRange {
   return {
     id: uuidv4(),
+    ...(kind ? { kind } : {}),
     hue,
     chroma,
     lightness,

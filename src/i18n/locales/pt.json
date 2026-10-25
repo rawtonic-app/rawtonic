@@ -1826,6 +1826,11 @@
         "hintEmpty": "Capture uma cor na foto para ajustar essa faixa de cor.",
         "hintPicking": "Clique em uma cor na foto.",
         "lightness": "Luminosidade",
+        "mode": {
+          "ranges": "Intervalos",
+          "skin": "Tom de pele"
+        },
+        "modesAria": "Modo do editor de cor",
         "pickAgainAria": "Capturar de novo a cor da faixa",
         "pickAgainTitle": "Capturar de novo a cor desta faixa",
         "pickAria": "Capturar uma faixa de cor",
@@ -1837,9 +1842,26 @@
         "selectRange": "Selecionar esta faixa de cor",
         "showAria": "Mostrar faixa",
         "showTitle": "Mostrar a faixa selecionada (o resto em cinza)",
+        "skin": {
+          "amount": "Quantidade",
+          "hintEmpty": "Capture a pele na foto (ou a cor na roda) e depois uniformize-a com Uniformidade.",
+          "hintPicking": "Clique na pele na foto.",
+          "pickAria": "Capturar o tom de pele",
+          "pickTitle": "Capturar a pele na foto"
+        },
         "smoothness": "Suavidade",
         "title": "Editor de cores",
-        "uniformity": "Uniformidade"
+        "uniformity": "Uniformidade",
+        "wheel": {
+          "aria": "Roda do intervalo de cor",
+          "chromaHi": "Borda externa de saturação do intervalo",
+          "chromaLo": "Borda interna de saturação do intervalo",
+          "colour": "Cor do intervalo",
+          "colourText": "Matiz {{hue}}°, croma {{chroma}}",
+          "hueHi": "Borda de matiz do intervalo, sentido anti-horário",
+          "hueLo": "Borda de matiz do intervalo, sentido horário",
+          "title": "Arraste o centro ou as bordas do intervalo; clique noutro ponto para movê-lo para lá"
+        }
       },
       "grading": {
         "hueAria": "Matiz ({{range}})",

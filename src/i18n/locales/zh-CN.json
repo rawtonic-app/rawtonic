@@ -1729,6 +1729,11 @@
         "hintEmpty": "在照片中吸取颜色以调整该颜色范围。",
         "hintPicking": "点击照片中的颜色。",
         "lightness": "明度",
+        "mode": {
+          "ranges": "范围",
+          "skin": "肤色"
+        },
+        "modesAria": "颜色编辑器模式",
         "pickAgainAria": "重新吸取范围颜色",
         "pickAgainTitle": "重新吸取此范围的颜色",
         "pickAria": "吸取颜色范围",
@@ -1740,9 +1745,26 @@
         "selectRange": "选择此颜色范围",
         "showAria": "显示范围",
         "showTitle": "显示所选范围（其余为灰色）",
+        "skin": {
+          "amount": "数量",
+          "hintEmpty": "在照片中拾取皮肤（或在色轮上点选其颜色），然后用均匀度使其均匀。",
+          "hintPicking": "点击照片中的皮肤。",
+          "pickAria": "拾取肤色",
+          "pickTitle": "在照片中拾取皮肤"
+        },
         "smoothness": "平滑度",
         "title": "颜色编辑器",
-        "uniformity": "均匀度"
+        "uniformity": "均匀度",
+        "wheel": {
+          "aria": "颜色范围色轮",
+          "chromaHi": "范围外侧饱和度边缘",
+          "chromaLo": "范围内侧饱和度边缘",
+          "colour": "范围颜色",
+          "colourText": "色相 {{hue}}°，彩度 {{chroma}}",
+          "hueHi": "范围色相边缘（逆时针侧）",
+          "hueLo": "范围色相边缘（顺时针侧）",
+          "title": "拖动范围的中心或边缘；点击其他位置可将范围移到那里"
+        }
       },
       "grading": {
         "hueAria": "{{range}}色相",

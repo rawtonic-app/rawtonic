@@ -1767,6 +1767,11 @@
         "hintEmpty": "Pick a colour in the photo to adjust that colour range.",
         "hintPicking": "Click a colour in the photo.",
         "lightness": "Lightness",
+        "mode": {
+          "ranges": "Ranges",
+          "skin": "Skin tone"
+        },
+        "modesAria": "Color editor mode",
         "pickAgainAria": "Pick the range colour again",
         "pickAgainTitle": "Pick this range's colour again",
         "pickAria": "Pick a colour range",
@@ -1778,9 +1783,26 @@
         "selectRange": "Select this colour range",
         "showAria": "Show range",
         "showTitle": "Show the selected range (everything else grey)",
+        "skin": {
+          "amount": "Amount",
+          "hintEmpty": "Pick skin in the photo (or its colour on the wheel), then even it out with Uniformity.",
+          "hintPicking": "Click skin in the photo.",
+          "pickAria": "Pick the skin tone",
+          "pickTitle": "Pick skin in the photo"
+        },
         "smoothness": "Smoothness",
         "title": "Color editor",
-        "uniformity": "Uniformity"
+        "uniformity": "Uniformity",
+        "wheel": {
+          "aria": "Color range wheel",
+          "chromaHi": "Range outer saturation edge",
+          "chromaLo": "Range inner saturation edge",
+          "colour": "Range colour",
+          "colourText": "Hue {{hue}}°, chroma {{chroma}}",
+          "hueHi": "Range hue edge, counter-clockwise",
+          "hueLo": "Range hue edge, clockwise",
+          "title": "Drag the range's centre or edges; click elsewhere to move the range there"
+        }
       },
       "grading": {
         "hueAria": "{{range}} hue",

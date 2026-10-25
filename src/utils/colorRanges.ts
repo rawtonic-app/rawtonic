@@ -15,10 +15,41 @@ import { srgbToOklch } from './oklab';
 export const colorRangesOf = (adjustments: Partial<Adjustments>): ColorRange[] =>
   (adjustments.colorRanges as ColorRange[] | undefined) ?? [];
 
+/** The skin tone range among a recipe's or layer's ranges, if any. */
+export const skinRangeOf = (ranges: ColorRange[]) => ranges.find((r) => r.kind === 'skin');
+
+/**
+ * The ranges after a pick of an Oklab colour: 'new' adds a range, 'skin'
+ * adds the skin tone range or moves the existing one there, a range id
+ * moves that range. Returns the ranges and the picked range's id (null when
+ * the limit left no room).
+ */
+export function applyColorPick(
+  ranges: ColorRange[],
+  target: string,
+  limit: number,
+  hue: number,
+  chroma: number,
+  lightness: number,
+): { ranges: ColorRange[]; id: string | null } {
+  const skin = target === 'skin' ? skinRangeOf(ranges) : undefined;
+  const id = skin?.id ?? target;
+  if (target === 'new' || (target === 'skin' && !skin)) {
+    if (ranges.length >= limit) return { ranges, id: null };
+    const range = newColorRange(hue, chroma, lightness, target === 'skin' ? 'skin' : undefined);
+    return { ranges: [...ranges, range], id: range.id };
+  }
+  return {
+    ranges: ranges.map((range) => (range.id === id ? { ...range, hue, chroma, lightness } : range)),
+    id,
+  };
+}
+
 /**
  * Samples the displayed colour (11 × 11 preview pixels) at a normalised
- * position and adds a colour editor range there ('new') or moves an
- * existing range to it. Returns false when nothing was sampled.
+ * position and adds a colour editor range there ('new'), adds or moves the
+ * skin tone range ('skin') or moves an existing range to it. Returns false
+ * when nothing was sampled.
  */
 export async function pickColorRange(path: string, target: string, x: number, y: number) {
   const rgb = await invoke<[number, number, number] | null>(Invokes.SamplePreviewColor, {
@@ -29,17 +60,13 @@ export async function pickColorRange(path: string, target: string, x: number, y:
   const state = useEditorStore.getState();
   if (!rgb || state.selectedImage?.path !== path) return false;
   const { hue, chroma, lightness } = srgbToOklch(rgb);
-  let activeId = target;
+  let activeId: string | null = target;
   // A picker started on a layer edits that layer's ranges.
   const layer = state.colorPickerLayer;
   const next = (ranges: ColorRange[], limit: number) => {
-    if (target === 'new') {
-      if (ranges.length >= limit) return ranges;
-      const range = newColorRange(hue, chroma, lightness);
-      activeId = range.id;
-      return [...ranges, range];
-    }
-    return ranges.map((range) => (range.id === target ? { ...range, hue, chroma, lightness } : range));
+    const picked = applyColorPick(ranges, target, limit, hue, chroma, lightness);
+    activeId = picked.id;
+    return picked.ranges;
   };
   updateAdjustments((prev: Adjustments) =>
     layer
