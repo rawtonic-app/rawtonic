@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Flag, FlagOff, ListFilter, X } from "lucide-react";
+import { Flag, FlagOff, ListFilter, X, Images, ListPlus } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
@@ -10,7 +10,7 @@ import { filterAsRule, scopeRule, selectionCount } from "../../utils/librarySear
 import { useSmartAlbumEditor } from "./SmartAlbumEditor";
 
 const flags = [
-  { value: "all", label: "studio.library.flags.all", Icon: null },
+  { value: "all", label: "studio.library.flags.all", Icon: Images },
   { value: "picked", label: "studio.library.flags.picked", Icon: Flag },
   { value: "unflagged", label: "studio.library.flags.unflagged", Icon: FlagOff },
   { value: "rejected", label: "studio.library.flags.rejected", Icon: X },
@@ -78,6 +78,7 @@ export default function StudioFilters({
             return (
             <button
               key={value}
+              aria-label={`${label} ${counts[value].toLocaleString()}`}
               aria-pressed={(filter.flag ?? "all") === value}
               onClick={() => setFilter({ flag: value as FlagFilter })}
               title={t("studio.library.filters.matching", {
@@ -87,7 +88,7 @@ export default function StudioFilters({
               })}
             >
               {Icon && <Icon size={12} />}
-              <span className={Icon ? "studio-flag-label" : undefined}>{label}</span>{" "}
+              <span className="studio-flag-label">{label}</span>{" "}
               <span className="studio-filter-count">
                 {counts[value].toLocaleString()}
               </span>
@@ -124,6 +125,7 @@ export default function StudioFilters({
       {sessionDirectory && onToggleMetadata && (
         <button
           className="studio-metadata-toggle"
+          aria-label={t("studio.library.metadataFilter.button")}
           aria-pressed={!!metadataOpen}
           title={t("studio.library.metadataFilter.toggle")}
           onClick={onToggleMetadata}
@@ -136,6 +138,7 @@ export default function StudioFilters({
       {sessionDirectory && (
         <button
           className="studio-clear-filters"
+          aria-label={t("studio.library.smartAlbums.fromFilter")}
           hidden={!active}
           disabled={!asSmartAlbum}
           title={
@@ -152,7 +155,8 @@ export default function StudioFilters({
             })
           }
         >
-          {t("studio.library.smartAlbums.fromFilter")}
+          <ListPlus size={12} />
+          <span>{t("studio.library.smartAlbums.fromFilter")}</span>
         </button>
       )}
       <button
@@ -172,7 +176,8 @@ export default function StudioFilters({
           setSearch({ text: "", tags: [] });
         }}
       >
-        {t("studio.library.filters.clear")}
+        <X size={12} />
+        <span>{t("studio.library.filters.clear")}</span>
       </button>
     </div>
   );

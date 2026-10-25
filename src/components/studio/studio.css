@@ -4653,3 +4653,88 @@ img.relight-pattern-preview { object-fit: cover; }
   color: #e8c38f;
   font-size: 10px;
 }
+
+/* At wide Library widths the filters join the session chrome. The workspace
+   decides using logical width, including the user's interface scale. */
+.session-library-slot:empty {
+  display: none;
+}
+.studio-app .session-bar:has(.is-in-header) {
+  gap: 8px;
+}
+.studio-app .session-bar:has(.is-in-header) .session-bar-start {
+  flex: 0 1 150px;
+}
+.studio-app .session-bar:has(.is-in-header) .session-bar-end {
+  flex: 0 0 auto;
+  gap: 5px;
+}
+.studio-app .session-bar:has(.is-in-header) .session-count,
+.studio-app .session-bar:has(.is-in-header) .session-mark,
+.studio-app .session-bar:has(.is-in-header) .session-action > span {
+  display: none;
+}
+.studio-app .session-bar:has(.is-in-header) .session-action {
+  padding: 6px;
+}
+.session-library-slot {
+  flex: 1;
+  min-width: 0;
+}
+.studio-library-toolbar.is-in-header {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  min-height: 0;
+  height: 34px;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
+}
+.is-in-header .studio-library-filters {
+  flex-wrap: nowrap;
+  gap: 5px;
+}
+.is-in-header .studio-search {
+  flex: 1 1 110px;
+}
+.is-in-header .studio-library-filters select {
+  flex: 0 1 auto;
+  max-width: 100px;
+}
+.is-in-header .studio-filter select {
+  max-width: 95px;
+}
+.is-in-header .studio-flag-label,
+.is-in-header .studio-metadata-toggle > span:not(.studio-filter-count),
+.is-in-header .studio-clear-filters > span {
+  display: none;
+}
+.is-in-header .studio-flag-filters button,
+.is-in-header .studio-clear-filters,
+.is-in-header .studio-metadata-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 5px;
+}
+/* The fallback row can be narrower than the window because of the sidebar. */
+@container library-toolbar (max-width: 1100px) {
+  .studio-flag-label,
+  .studio-metadata-toggle > span:not(.studio-filter-count) {
+    display: none;
+  }
+}
+@container library-toolbar (max-width: 1100px) {
+  .studio-library-filters {
+    gap: 5px;
+    flex-wrap: nowrap;
+  }
+  .studio-library-filters select {
+    max-width: 110px;
+  }
+  .studio-search {
+    flex-basis: 160px;
+  }
+}

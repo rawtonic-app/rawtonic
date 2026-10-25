@@ -1929,6 +1929,10 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
       ],
     },
     {
+      label: 'modals.copyPaste.groups.grain',
+      keys: [Effect.GrainAmount, Effect.GrainRoughness, Effect.GrainSize, 'grainStructure', 'grainVersion'],
+    },
+    {
       label: 'modals.copyPaste.groups.chromaticAberration',
       keys: [
         DetailsAdjustment.ChromaticAberrationRedCyan,
@@ -1958,10 +1962,6 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         'vignetteStyle',
         'vignetteHighlights',
       ],
-    },
-    {
-      label: 'modals.copyPaste.groups.grain',
-      keys: [Effect.GrainAmount, Effect.GrainRoughness, Effect.GrainSize, 'grainStructure', 'grainVersion'],
     },
     {
       label: 'modals.copyPaste.groups.halationGlow',
