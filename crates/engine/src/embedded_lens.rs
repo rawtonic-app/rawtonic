@@ -7,7 +7,9 @@
 //! (notes: BENCHMARKS.md): radii are normalized by half the image diagonal; a
 //! corrected pixel at radius r samples the uncorrected image at
 //! r · k(r) / k(1), so the corners stay corners. Fujifilm: nine knots, k =
-//! 1 + value / 100; Sony: n knots at (i + ½) / n, k = 1 + value / 16384.
+//! 1 + value / 100; Sony: n knots, k = 1 + value / 16384, at (i + ½) / n
+//! before `cameraGeometryVersion` 1 and as Camera Raw reads them since
+//! (`sony_lens`).
 //! Fujifilm vignetting: brightness in percent of the centre at the same knots
 //! (not yet checked against a flat field). Lateral chromatic aberration:
 //! Fujifilm, Sony and (since `cameraCaVersion` 1) Panasonic.
@@ -171,6 +173,40 @@ pub fn sony_curves_with_ca(
         zoom: 1.0,
         chromatic: chromatic.and_then(sony_chromatic),
     })
+}
+
+/// Sony's curves for a frame whose corner lies at `reach` of the radius the
+/// data refer to (aspect crops of the 3:2 sensor), as camera geometry
+/// version `geometry` reads them. Version 0: the distortion knots at
+/// (i + ½) / n, the corners kept on the corners. Version 1: Camera Raw's
+/// (and the camera JPEG's) mapping, measured on 13 ARW files of 9 bodies
+/// (notes: parity-gaps/G71): the knots lie at i / (n − 1), first on the
+/// centre and last on the 3:2 corner, and an output radius u samples the
+/// sensor at u k(u) without normalization — strong barrel data (last knot
+/// below 0, RX100 / RX100 III / RX100 IV / ZV-1) crops inside the sensor
+/// corners as the camera does. The vignetting and CA knots stay at
+/// (i + ½) / n.
+pub fn sony_lens(
+    distortion: &[f64],
+    vignetting: Option<&[f64]>,
+    chromatic: Option<&[f64]>,
+    reach: f64,
+    geometry: u64,
+) -> Option<EmbeddedLensData> {
+    let mut data = sony_curves_with_ca(distortion, vignetting, chromatic)?;
+    if geometry == 0 {
+        return Some(reframed(data, reach));
+    }
+    let last = (data.distortion.len() - 1) as f64;
+    for (i, point) in data.distortion.iter_mut().enumerate() {
+        point.0 = i as f64 / last;
+    }
+    let mut data = reframed(data, reach);
+    let curve = std::mem::take(&mut data.distortion);
+    let (framed, zoom) = framed_curve(|u| interpolate(&curve, u))?;
+    data.distortion = framed;
+    data.zoom = zoom;
+    Some(data)
 }
 
 fn sony_chromatic(values: &[f64]) -> Option<Vec<(f64, f64, f64)>> {
@@ -653,13 +689,36 @@ pub fn ca_version_of(adjustments: &serde_json::Value) -> u64 {
         .min(CA_VERSION)
 }
 
-/// The correction data stored in the RAW file, if any.
-pub fn read(path: &Path) -> Option<EmbeddedLensData> {
-    read_version(path, CA_VERSION)
+/// The recipe key naming how a camera-mode recipe's camera data were read
+/// as geometry (knot positions, framing).
+pub const GEOMETRY_VERSION_KEY: &str = "cameraGeometryVersion";
+/// The newest: 1 (2026-10-26) reads Sony's distortion as Camera Raw does
+/// (`sony_lens`). Recipes without the key keep their parameters; saving them
+/// again fills in the same as before.
+pub const GEOMETRY_VERSION: u64 = 1;
+
+/// The recipe's camera geometry version: `cameraGeometryVersion`, 0 when
+/// missing.
+pub fn geometry_version_of(adjustments: &serde_json::Value) -> u64 {
+    adjustments
+        .get(GEOMETRY_VERSION_KEY)
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0)
+        .min(GEOMETRY_VERSION)
 }
 
-/// The correction data as camera CA version `ca_version` read it.
-pub fn read_version(path: &Path, ca_version: u64) -> Option<EmbeddedLensData> {
+/// The correction data stored in the RAW file, if any.
+pub fn read(path: &Path) -> Option<EmbeddedLensData> {
+    read_version(path, CA_VERSION, GEOMETRY_VERSION)
+}
+
+/// The correction data as camera CA version `ca_version` and camera
+/// geometry version `geometry_version` read them.
+pub fn read_version(
+    path: &Path,
+    ca_version: u64,
+    geometry_version: u64,
+) -> Option<EmbeddedLensData> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
     let source = RawSource::new(path).ok()?;
     let mut reader = source.reader();
@@ -727,26 +786,28 @@ pub fn read_version(path: &Path, ca_version: u64) -> Option<EmbeddedLensData> {
             let chromatic = sr2.as_ref().and_then(|sr2| values(sr2, SR2_CHROMATIC));
             if let Some(distortion) = values(&ifd, SONY_DISTORTION) {
                 let vignetting = values(&ifd, SONY_VIGNETTING).filter(|_| vignetting_auto);
-                return sony_curves_with_ca(
+                return sony_lens(
                     &distortion,
                     vignetting.as_deref(),
                     chromatic.as_deref(),
-                )
-                .map(|d| reframed(d, reach));
+                    reach,
+                    geometry_version,
+                );
             }
             // Older bodies (NEX, early ILCE) keep the parameters only in the
             // encrypted SR2 directory (tags 0x797d / 0x7982 there), which
             // Camera Raw reads too.
             let sr2 = sr2?;
             let vignetting = values(&sr2, SR2_VIGNETTING).filter(|_| vignetting_auto);
-            sony_curves_with_ca(
+            sony_lens(
                 &values(&sr2, SR2_DISTORTION)?,
                 vignetting.as_deref(),
                 chromatic.as_deref(),
+                reach,
+                geometry_version,
             )
-            .map(|d| reframed(d, reach))
         }
-        "dng" => sony_dng_lens(&source).or_else(|| adobe_profile(&source)),
+        "dng" => sony_dng_lens(&source, geometry_version).or_else(|| adobe_profile(&source)),
         "cr3" => canon_ctmd_lens(path),
         "rw2" | "rwl" => {
             let path = path.to_str()?;
@@ -938,19 +999,46 @@ pub fn to_params(data: &EmbeddedLensData) -> Option<LensDistortionParams> {
 /// The recipe value of the lens mode that uses the camera's data.
 pub const CAMERA_MODE: &str = "camera";
 
-/// Parameters from the camera's data for `source`, if it carries any.
+/// Parameters from the camera's data for `source`, if it carries any, at
+/// the current versions (`current_geometry_version`).
 pub fn params_for(source: &Path) -> Option<LensDistortionParams> {
-    params_for_version(source, CA_VERSION)
+    params_for_version(source, CA_VERSION, current_geometry_version(source))
 }
 
-/// Parameters from the camera's data for a recipe: as its camera CA
-/// version reads them (`cameraCaVersion`), so a recipe saved again keeps
-/// rendering as it was made.
+/// The camera geometry version `params_for` reads `source` with: the
+/// newest, except offline from facts registered before it, which carry an
+/// older version's data.
+pub fn current_geometry_version(source: &Path) -> u64 {
+    crate::source_facts::registered(&source.to_string_lossy()).map_or(GEOMETRY_VERSION, |facts| {
+        facts_geometry_version(facts.version)
+    })
+}
+
+/// The `source_facts` versions from which `camera_lens` is read at camera
+/// geometry version 1, 2, … (older versions in `camera_lens_geometry`).
+const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7];
+
+/// The camera geometry version facts of `facts_version` carry.
+pub fn facts_geometry_version(facts_version: u32) -> u64 {
+    GEOMETRY_FACTS
+        .iter()
+        .filter(|&&from| facts_version >= from)
+        .count() as u64
+}
+
+/// Parameters from the camera's data for a recipe: as its camera CA and
+/// geometry versions read them (`cameraCaVersion`,
+/// `cameraGeometryVersion`), so a recipe saved again keeps rendering as it
+/// was made.
 pub fn params_for_recipe(
     source: &Path,
     adjustments: &serde_json::Value,
 ) -> Option<LensDistortionParams> {
-    params_for_version(source, ca_version_of(adjustments))
+    params_for_version(
+        source,
+        ca_version_of(adjustments),
+        geometry_version_of(adjustments),
+    )
 }
 
 /// The `source_facts` version from which `camera_lens` carries Panasonic
@@ -958,15 +1046,16 @@ pub fn params_for_recipe(
 const PANASONIC_CA_FACTS: u32 = 3;
 
 /// Whether `params_for_recipe` gives the camera data the recipe reads. Not
-/// offline when the registered facts predate what its camera CA version
-/// reads (a Panasonic preview made before its CA data was read): saving then
-/// keeps the recipe's parameters instead of dropping the camera's CA
-/// correction.
+/// offline when the registered facts predate what its camera CA or
+/// geometry version reads (a Panasonic preview made before its CA data was
+/// read, any preview made before its geometry version): saving then keeps
+/// the recipe's parameters instead of replacing them with other data.
 pub fn recipe_params_known(source: &Path, adjustments: &serde_json::Value) -> bool {
     crate::source_facts::registered(&source.to_string_lossy()).is_none_or(|facts| {
-        facts.version >= PANASONIC_CA_FACTS
+        (facts.version >= PANASONIC_CA_FACTS
             || ca_version_of(adjustments) == 0
-            || !is_panasonic(source)
+            || !is_panasonic(source))
+            && geometry_version_of(adjustments) <= facts_geometry_version(facts.version)
     })
 }
 
@@ -977,20 +1066,27 @@ fn is_panasonic(source: &Path) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("rw2") || e.eq_ignore_ascii_case("rwl"))
 }
 
-fn params_for_version(source: &Path, ca_version: u64) -> Option<LensDistortionParams> {
+/// Parameters from the camera's data for `source` as camera CA version
+/// `ca_version` and geometry version `geometry_version` read them.
+pub fn params_for_version(
+    source: &Path,
+    ca_version: u64,
+    geometry_version: u64,
+) -> Option<LensDistortionParams> {
     // Read once per file (and modification time): opening a photograph,
     // its thumbnail and its export all ask, and reading the RAW header costs
     // several milliseconds.
     type Cache = std::sync::Mutex<
         std::collections::HashMap<
-            (std::path::PathBuf, std::time::SystemTime, u64),
+            (std::path::PathBuf, std::time::SystemTime, u64, u64),
             Option<LensDistortionParams>,
         >,
     >;
     // Offline: the data the file had (source_facts), read at the current
-    // version; version 0 had no Panasonic CA and no CA-only data.
+    // versions; CA version 0 had no Panasonic CA and no CA-only data,
+    // older geometry versions' data are kept where they differ.
     if let Some(facts) = crate::source_facts::registered(&source.to_string_lossy()) {
-        let params = facts.camera_lens.clone();
+        let params = facts.camera_lens_at(geometry_version);
         if ca_version == 0 && is_panasonic(source) {
             return params
                 .map(LensDistortionParams::without_tca)
@@ -1000,14 +1096,14 @@ fn params_for_version(source: &Path, ca_version: u64) -> Option<LensDistortionPa
     }
     static CACHE: std::sync::OnceLock<Cache> = std::sync::OnceLock::new();
     let modified = std::fs::metadata(source).and_then(|m| m.modified()).ok();
-    let key = modified.map(|time| (source.to_path_buf(), time, ca_version));
+    let key = modified.map(|time| (source.to_path_buf(), time, ca_version, geometry_version));
     let cache = CACHE.get_or_init(Default::default);
     if let Some(key) = &key
         && let Some(params) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(key)
     {
         return params.clone();
     }
-    let params = read_version(source, ca_version)
+    let params = read_version(source, ca_version, geometry_version)
         .as_ref()
         .and_then(to_params);
     if let Some(key) = key {
@@ -1030,7 +1126,8 @@ fn params_for_version(source: &Path, ca_version: u64) -> Option<LensDistortionPa
 /// RAWs also get the current `fringeVersion` (`edge_fringe::apply_default`)
 /// and `autoCaVersion` (`lateral_ca::apply_default`), a photo without any
 /// recipe the current `renderVersion` and `sharpenVersion`, and with the
-/// camera's data its current `cameraCaVersion`.
+/// camera's data its current `cameraCaVersion` and `cameraGeometryVersion`
+/// (`current_geometry_version`).
 pub fn apply_default(adjustments: &mut serde_json::Value, source: &Path) {
     if !(adjustments.is_null() || adjustments.is_object())
         || adjustments.get("lensCorrectionMode").is_some()
@@ -1055,6 +1152,10 @@ pub fn apply_default(adjustments: &mut serde_json::Value, source: &Path) {
         adjustments["lensCorrectionMode"] = serde_json::json!(CAMERA_MODE);
         adjustments["lensDistortionParams"] = serde_json::to_value(params).unwrap_or_default();
         adjustments[CA_VERSION_KEY] = serde_json::json!(CA_VERSION);
+        let geometry = current_geometry_version(source);
+        if geometry > 0 {
+            adjustments[GEOMETRY_VERSION_KEY] = serde_json::json!(geometry);
+        }
         return;
     }
     let Some((maker, model, params)) = lensfun_default(source) else {
@@ -1285,7 +1386,7 @@ fn adobe_private_blocks(data: &[u8]) -> Vec<([u8; 4], &[u8])> {
 /// plane identity); Camera Raw takes distortion and vignetting from the SR2
 /// data kept in the DNG (A7C II DNG: corners and midtones 0.2-0.4 EV darker
 /// without the vignetting), under the camera's settings, as for the ARW.
-fn sony_dng_lens(source: &RawSource) -> Option<EmbeddedLensData> {
+fn sony_dng_lens(source: &RawSource, geometry: u64) -> Option<EmbeddedLensData> {
     let decoder = rawler::get_decoder(source).ok()?;
     let metadata = decoder
         .raw_metadata(source, &rawler::decoders::RawDecodeParams::default())
@@ -1321,7 +1422,7 @@ fn sony_dng_lens(source: &RawSource) -> Option<EmbeddedLensData> {
     };
     // The lateral CA is the DNG's WarpRectilinear, applied when decoding.
     let reach = user_crop_diagonal(decoder.as_ref()).unwrap_or(1.0);
-    sony_curve(&distortion, vignetting.as_deref()).map(|d| reframed(d, reach))
+    sony_lens(&distortion, vignetting.as_deref(), None, reach, geometry)
 }
 
 /// Curves for a frame cropped from the one the data refer to, whose corner
@@ -2111,6 +2212,58 @@ mod tests {
                 "r = {r}"
             );
         }
+    }
+
+    /// Where the warp's output radius `u` samples the source with `params`
+    /// (lens zoom, then the PTLens curve), radii relative to the half
+    /// diagonal.
+    fn warp_source_radius(data: &EmbeddedLensData, u: f64) -> f64 {
+        let coefficients = fit_distortion(&data.distortion).unwrap();
+        let q = u / data.zoom.max(1.0);
+        q * ptlens(q, coefficients)
+    }
+
+    // RX100 III at 8.8 mm (DistortionCorrParams as stored): strong barrel,
+    // the last knot well below 1.
+    const RX100M3_DISTORTION_VALUES: [f64; 17] = [
+        11.0, 1265.0, 1218.0, 1083.0, 860.0, 562.0, 209.0, -179.0, -580.0, -972.0, -1353.0,
+        -1725.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    ];
+
+    #[test]
+    fn sony_geometry_version_1_knots_span_centre_to_corner_without_reframing() {
+        // Camera Raw's mapping (G71): output radius u samples u k(u), the
+        // knots at i / (n − 1), not normalized to the corner — unless that
+        // samples beyond the sensor corner (k(1) > 1): then the corners
+        // stay on the corners.
+        for values in [&SONY_DISTORTION_VALUES[..], &RX100M3_DISTORTION_VALUES[..]] {
+            let n = values[0] as usize;
+            let k = |u: f64| {
+                let curve: Vec<(f64, f64)> = (0..n)
+                    .map(|i| (i as f64 / (n - 1) as f64, 1.0 + values[1 + i] / 16384.0))
+                    .collect();
+                interpolate(&curve, u)
+            };
+            for (reach, tolerance) in [(1.0, 2e-4), (0.784, 2e-4)] {
+                let data = sony_lens(values, None, None, reach, 1).unwrap();
+                let corner = data.zoom.min(1.0);
+                assert_eq!(corner < 1.0, k(reach) > 1.0);
+                for i in 1..=20 {
+                    let u = i as f64 / 20.0;
+                    let expected = corner * u * k(corner * u * reach);
+                    let got = warp_source_radius(&data, u);
+                    assert!(
+                        (got - expected).abs() < tolerance,
+                        "n {n} reach {reach} u {u}: {got} vs {expected}"
+                    );
+                }
+            }
+        }
+        // Version 0 keeps the half-step knots, corners on the corners.
+        let old = sony_lens(&RX100M3_DISTORTION_VALUES, None, None, 1.0, 0).unwrap();
+        assert_eq!(old, sony_curve(&RX100M3_DISTORTION_VALUES, None).unwrap());
+        assert_eq!(old.distortion[0].0, 0.5 / 11.0);
+        assert_eq!(old.zoom, 1.0);
     }
 
     // Fujifilm GFX 50R with GF63mmF2.8 R WR: eight knots (values as stored).

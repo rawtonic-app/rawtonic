@@ -206,7 +206,14 @@ function pastedOpen(
 /** The settings that choose a lens correction; its data
  * (`lensDistortionParams`) is each photograph's own (its camera, lens,
  * focal length). */
-const LENS_CHOICE_KEYS = ['lensCorrectionMode', 'lensMaker', 'lensModel', 'cameraCaVersion', 'lensDistortionParams'];
+const LENS_CHOICE_KEYS = [
+  'lensCorrectionMode',
+  'lensMaker',
+  'lensModel',
+  'cameraCaVersion',
+  'cameraGeometryVersion',
+  'lensDistortionParams',
+];
 
 /** `lensProfileFor` of a recipe whose lens data is not resolved for its lens
  * choice yet (`lens_recipe::LENS_UNRESOLVED`): every save and render
@@ -218,9 +225,11 @@ const LENS_UNRESOLVED = 'unresolved';
 function lensChoice(recipe: Adjustments): unknown[] {
   const field = (key: string) => (recipe as unknown as Record<string, unknown>)[key] ?? null;
   const mode = field('lensCorrectionMode') ?? 'manual';
-  return mode === 'camera'
-    ? [mode, field('cameraCaVersion'), field('lensDistortionParams')]
-    : [mode, field('lensMaker'), field('lensModel'), field('lensDistortionParams')];
+  if (mode !== 'camera') return [mode, field('lensMaker'), field('lensModel'), field('lensDistortionParams')];
+  // Recipes from before the geometry version keep their stamps.
+  const geometry = field('cameraGeometryVersion');
+  const stamp = [mode, field('cameraCaVersion'), field('lensDistortionParams')];
+  return geometry === null ? stamp : [...stamp, geometry];
 }
 
 /** `next` (`current` with `pasted`, for the open photograph): a pasted lens

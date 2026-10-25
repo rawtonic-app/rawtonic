@@ -30,7 +30,7 @@ pub const LENS_UNRESOLVED: &str = "unresolved";
 /// What a recipe's lens parameters were resolved for, and the parameters:
 /// the mode and the lens (chosen or detected), for the camera's own data its
 /// CA version, then the parameters themselves (normalised; none when there
-/// are none). Parameters cleared or changed by anything but a resolution no
+/// are none) and, where it has one, its geometry version. Parameters cleared or changed by anything but a resolution no
 /// longer match it.
 pub fn lens_profile_stamp(recipe: &Value) -> String {
     let field = |key: &str| {
@@ -55,7 +55,16 @@ pub fn lens_profile_stamp(recipe: &Value) -> String {
         })
         .unwrap_or(Value::Null);
     let stamp = if mode == crate::embedded_lens::CAMERA_MODE {
-        serde_json::json!([mode, field(crate::embedded_lens::CA_VERSION_KEY), params])
+        let mut stamp =
+            serde_json::json!([mode, field(crate::embedded_lens::CA_VERSION_KEY), params]);
+        // Recipes from before the geometry version keep their stamps.
+        let geometry = field(crate::embedded_lens::GEOMETRY_VERSION_KEY);
+        if !geometry.is_null()
+            && let Some(stamp) = stamp.as_array_mut()
+        {
+            stamp.push(geometry);
+        }
+        stamp
     } else {
         serde_json::json!([mode, field("lensMaker"), field("lensModel"), params])
     };
