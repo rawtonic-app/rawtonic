@@ -134,6 +134,9 @@ const READ_AHEAD_LIMIT: u64 = 128 * 1024 * 1024;
 /// The bytes `ReadAhead` holds at most (files read but not yet taken).
 const READ_AHEAD_BUDGET: u64 = 384 * 1024 * 1024;
 
+/// The files (each an open handle) `ReadAhead` holds at most.
+const READ_AHEAD_FILES: usize = 16;
+
 /// A file `ReadAhead` read: open, as it was when opened, its bytes and
 /// their SHA-256.
 pub(crate) struct ReadFile {
@@ -147,36 +150,42 @@ pub(crate) struct ReadFile {
 /// Bytes read ahead and not yet taken.
 #[derive(Default)]
 struct Budget {
-    held: std::sync::Mutex<u64>,
+    /// Bytes and files (each with its open handle) read and not yet taken.
+    held: std::sync::Mutex<(u64, usize)>,
     freed: std::sync::Condvar,
 }
 
 impl Budget {
-    /// Waits until `len` more bytes fit (always for the first), unless
-    /// `stop` is set; whether they were taken.
+    /// Waits until a file of `len` more bytes fits (always the first),
+    /// unless `stop` is set; whether it was taken.
     fn take(&self, len: u64, stop: &AtomicBool) -> bool {
         let mut held = self.held.lock().expect("budget");
-        while *held > 0 && *held + len > READ_AHEAD_BUDGET {
+        while held.1 > 0 && (held.0 + len > READ_AHEAD_BUDGET || held.1 >= READ_AHEAD_FILES) {
             if stop.load(Ordering::Acquire) {
                 return false;
             }
             held = self.freed.wait(held).expect("budget");
         }
-        *held += len;
+        held.0 += len;
+        held.1 += 1;
         !stop.load(Ordering::Acquire)
     }
 
     fn give(&self, len: u64) {
-        *self.held.lock().expect("budget") -= len;
+        let mut held = self.held.lock().expect("budget");
+        held.0 -= len;
+        held.1 -= 1;
+        drop(held);
         self.freed.notify_all();
     }
 }
 
 /// Reads the files of an import ahead, in the order they are copied, while
 /// those before are written and checked: one thread reads files into
-/// memory (up to `READ_AHEAD_BUDGET` bytes not yet taken), another hashes
-/// them. Only reads; a file it skipped (too large, unreadable) or that is
-/// copied out of turn is read by its copy as usual (`copy_verified`).
+/// memory (up to `READ_AHEAD_BUDGET` bytes and `READ_AHEAD_FILES` files
+/// not yet taken), another hashes them. Only reads; a file it skipped (too
+/// large, unreadable) or that is copied out of turn is read by its copy as
+/// usual (`copy_verified`).
 pub(crate) struct ReadAhead {
     order: std::collections::HashMap<PathBuf, usize>,
     head: std::cell::RefCell<Option<ReadFile>>,
@@ -794,6 +803,33 @@ mod tests {
         let ahead = ReadAhead::start(paths.clone());
         assert!(ahead.take(&paths[3]).is_none());
         assert_eq!(ahead.take(&paths[4]).unwrap().buffer.len(), 10_004);
+    }
+
+    /// However small the files, at most `READ_AHEAD_FILES` (each with an
+    /// open handle) wait to be taken: the reader waits for the copies.
+    #[test]
+    fn read_ahead_holds_a_bounded_number_of_files() {
+        let d = tempfile::tempdir().unwrap();
+        let paths: Vec<PathBuf> = (0..READ_AHEAD_FILES * 4)
+            .map(|i| {
+                let path = d.path().join(format!("{i}.JPG"));
+                fs::write(&path, [i as u8; 16]).unwrap();
+                path
+            })
+            .collect();
+        let ahead = ReadAhead::start(paths.clone());
+        let held = || *ahead.budget.held.lock().unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while held().1 < READ_AHEAD_FILES && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert_eq!(held().1, READ_AHEAD_FILES);
+        // Taking files lets the reader go on; every file arrives.
+        for (i, path) in paths.iter().enumerate() {
+            assert_eq!(ahead.take(path).unwrap().buffer, [i as u8; 16]);
+            assert!(held().1 <= READ_AHEAD_FILES);
+        }
     }
 
     /// The drive cache is flushed once per volume for everything synced to
