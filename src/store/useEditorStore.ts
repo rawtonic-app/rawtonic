@@ -10,7 +10,10 @@ import { maskOverlayAfterEdit, type MaskOverlayAuto, type NativeMaskOverlay } fr
 import type { OutputColorSpace } from '../components/ui/ExportImportProperties';
 import type { LayerSolo } from '../utils/layerSolo';
 import { DEFAULT_SPLIT_POSITION } from '../utils/beforeAfter';
-import { recordEditOrder } from '../utils/undoOrder';
+import { historyOrders,
+  setHistoryOrders,
+  inheritHistoryOrders,
+  newEditOrder } from '../utils/undoOrder';
 import { noteEdit } from '../components/contribute/usageStats';
 
 export interface InteractivePatch {
@@ -304,11 +307,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     heldHistory = null;
     // Usage statistics (only while switched on): the tools this step used.
     noteEdit(get().history[get().historyIndex], newAdj);
-    recordEditOrder(newAdj);
+    const order = newEditOrder();
     set((state) => {
       const newHistory = state.history.slice(0, state.historyIndex + 1);
       newHistory.push(newAdj);
-      if (newHistory.length > 50) newHistory.shift();
+      const orders = [
+        ...historyOrders(state.history).slice(0, state.historyIndex + 1),
+        order,
+      ];
+      if (newHistory.length > 50) {
+        newHistory.shift();
+        orders.shift();
+      }
+      setHistoryOrders(newHistory, orders);
       return { history: newHistory, historyIndex: newHistory.length - 1, historyPending: false };
     });
   },
@@ -359,8 +370,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
       // The clicked snapshot was evicted by the size cap or the new branch.
       // Record returning to it, retaining the just-committed edit for Undo.
-      recordEditOrder(target);
+      const order = newEditOrder();
       const history = [...state.history, target].slice(-50);
+      setHistoryOrders(
+        history,
+        [...historyOrders(state.history), order].slice(-50),
+      );
       return { history, historyIndex: history.length - 1, adjustments: target };
     });
   },
@@ -407,6 +422,12 @@ let lastOpened: { path: string; size: { width: number; height: number } | null }
 // View state that follows the edits (one place, so every way of editing a
 // layer counts: sliders, typed values, presets, undo).
 useEditorStore.subscribe((state, previous) => {
+  if (state.history !== previous.history)
+    inheritHistoryOrders(
+      previous.history,
+      state.history,
+      state.selectedImage?.path === previous.selectedImage?.path,
+    );
   const patch: Partial<EditorState> = {};
   if (state.selectedImage?.path !== previous.selectedImage?.path) {
     debouncedSetHistory.cancel();

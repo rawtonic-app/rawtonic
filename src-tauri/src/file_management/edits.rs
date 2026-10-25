@@ -815,6 +815,7 @@ pub enum CullingValue {
 pub struct CullingChange {
     pub path: String,
     pub asset_id: Option<String>,
+    pub directory: Option<String>,
     pub before: CullingValue,
     pub after: CullingValue,
 }
@@ -825,6 +826,7 @@ pub struct CullingWrite {
     pub path: String,
     pub value: CullingValue,
     pub asset_id: Option<String>,
+    pub directory: Option<String>,
 }
 
 #[tauri::command]
@@ -834,6 +836,10 @@ pub async fn set_color_label_for_paths(
     directory: Option<String>,
     app_handle: AppHandle,
 ) -> Result<Vec<CullingChange>, SaveFailure> {
+    let directory = directory.or_else(|| {
+        crate::session_bridge::active_library_directory()
+            .map(|dir| dir.to_string_lossy().into_owned())
+    });
     culling_worker(
         paths
             .into_iter()
@@ -841,6 +847,7 @@ pub async fn set_color_label_for_paths(
                 path,
                 value: CullingValue::Color(color.clone()),
                 asset_id: None,
+                directory: None,
             })
             .collect(),
         directory,
@@ -856,6 +863,10 @@ pub async fn set_rating_for_paths(
     directory: Option<String>,
     app_handle: AppHandle,
 ) -> Result<Vec<CullingChange>, SaveFailure> {
+    let directory = directory.or_else(|| {
+        crate::session_bridge::active_library_directory()
+            .map(|dir| dir.to_string_lossy().into_owned())
+    });
     culling_worker(
         paths
             .into_iter()
@@ -863,6 +874,7 @@ pub async fn set_rating_for_paths(
                 path,
                 value: CullingValue::Rating(rating),
                 asset_id: None,
+                directory: None,
             })
             .collect(),
         directory,
@@ -878,20 +890,15 @@ pub async fn restore_culling(
     app_handle: AppHandle,
 ) -> Result<Vec<CullingChange>, SaveFailure> {
     let all: Vec<_> = values.iter().map(|write| write.path.clone()).collect();
-    super::blocking(move || {
-        crate::session_bridge::with_library_target(directory.as_deref(), || {
-            match resolve_culling_targets(values, directory.as_deref()) {
-                Ok(values) => write_culling(values, directory.clone(), &app_handle),
-                Err(error) => unsaved(&all, &error).map(|()| Vec::new()),
-            }
-        })
-    })
+    let failures = all.clone();
+    super::blocking(
+        move || match resolve_culling_targets(values, directory.as_deref()) {
+            Ok(values) => write_culling(values, directory, &app_handle),
+            Err(error) => unsaved(&all, &error).map(|()| Vec::new()),
+        },
+    )
     .await
-    .map_err(|error| SaveFailure {
-        message: error,
-        failed: Vec::new(),
-        culling: Vec::new(),
-    })?
+    .unwrap_or_else(|error| unsaved(&failures, &error).map(|()| Vec::new()))
 }
 
 /// Undo follows a managed photo's catalog identity through rename, trash and
@@ -900,15 +907,21 @@ fn resolve_culling_targets(
     mut values: Vec<CullingWrite>,
     directory: Option<&str>,
 ) -> Result<Vec<CullingWrite>, String> {
-    let library = directory
-        .map(|dir| rawtonic_catalog::Library::open(Path::new(dir)))
-        .transpose()
-        .map_err(|e| e.to_string())?;
+    let mut libraries = HashMap::new();
     for write in &mut values {
         if let Some(id) = &write.asset_id {
-            let lib = library
-                .as_ref()
+            let owner = write
+                .directory
+                .as_deref()
+                .or(directory)
                 .ok_or_else(|| "Undo needs its original library".to_string())?;
+            if !libraries.contains_key(owner) {
+                libraries.insert(
+                    owner.to_string(),
+                    rawtonic_catalog::Library::open(Path::new(owner)).map_err(|e| e.to_string())?,
+                );
+            }
+            let lib = &libraries[owner];
             let asset = lib.asset(id).map_err(|e| e.to_string())?;
             let copy = write.path.rsplit_once("?vc=").map(|(_, copy)| copy);
             if let Some(copy) = copy {
@@ -921,11 +934,54 @@ fn resolve_culling_targets(
                 asset.path.to_string_lossy(),
                 copy.map(|id| format!("?vc={id}")).unwrap_or_default()
             );
+            write.directory = Some(owner.to_string());
         } else if !parse_virtual_path(&write.path).0.is_file() {
             return Err("The photograph is no longer at its original location".into());
         }
     }
     Ok(values)
+}
+
+/// Read target ids with one connection per owning library. Connections stay
+/// on this blocking worker; only strings pass to the parallel sidecar jobs.
+fn prepare_culling_targets(
+    mut values: Vec<CullingWrite>,
+    selected: Option<&str>,
+) -> Result<Vec<CullingWrite>, String> {
+    let mut libraries = HashMap::new();
+    for write in &mut values {
+        if write.asset_id.is_some() {
+            continue;
+        } // Already validated from an undo receipt.
+        let source = parse_virtual_path(&write.path).0;
+        let owner = crate::session_bridge::culling_library_for(&source, selected.map(Path::new));
+        write.directory = owner.as_ref().map(|dir| dir.to_string_lossy().into_owned());
+        if let Some(owner) = owner {
+            if !libraries.contains_key(&owner) {
+                libraries.insert(
+                    owner.clone(),
+                    rawtonic_catalog::Library::open(&owner).map_err(|e| e.to_string())?,
+                );
+            }
+            write.asset_id = libraries[&owner]
+                .asset_at(&source)
+                .map_err(|e| e.to_string())?
+                .map(|asset| asset.id);
+        }
+        if write.asset_id.is_none() && !source.is_file() {
+            return Err(
+                "The photograph is no longer registered or available at this location".into(),
+            );
+        }
+    }
+    Ok(values)
+}
+
+fn write_prepared_culling(write: CullingWrite, xmp: Option<bool>) -> Result<CullingChange, String> {
+    let owner = write.directory.clone();
+    crate::session_bridge::with_culling_owner(owner.as_deref(), || {
+        write_culling_sidecar(write, xmp)
+    })
 }
 
 async fn culling_worker(
@@ -934,13 +990,9 @@ async fn culling_worker(
     app_handle: AppHandle,
 ) -> Result<Vec<CullingChange>, SaveFailure> {
     let paths: Vec<_> = values.iter().map(|write| write.path.clone()).collect();
-    super::blocking(move || {
-        crate::session_bridge::with_library_target(directory.as_deref(), || {
-            write_culling(values, directory.clone(), &app_handle)
-        })
-    })
-    .await
-    .unwrap_or_else(|e| unsaved(&paths, &e).map(|()| Vec::new()))
+    super::blocking(move || write_culling(values, directory, &app_handle))
+        .await
+        .unwrap_or_else(|error| unsaved(&paths, &error).map(|()| Vec::new()))
 }
 
 fn write_culling(
@@ -948,37 +1000,58 @@ fn write_culling(
     directory: Option<String>,
     app_handle: &AppHandle,
 ) -> Result<Vec<CullingChange>, SaveFailure> {
-    let total = values.len();
+    let paths: Vec<_> = values.iter().map(|write| write.path.clone()).collect();
+    let values =
+        prepare_culling_targets(values, directory.as_deref()).map_err(|error| SaveFailure {
+            message: error,
+            failed: paths.clone(),
+            culling: Vec::new(),
+        })?;
     let mut changed = Vec::new();
     let mut failures = Vec::new();
-    let flags: Vec<_> = values
-        .iter()
-        .filter_map(|write| match write.value {
-            CullingValue::Flag(flag) => Some((write.path.clone(), flag)),
-            _ => None,
-        })
-        .collect();
-    if !flags.is_empty() {
-        let result = directory
-            .ok_or_else(|| "Flag Undo needs its library".to_string())
-            .and_then(|dir| crate::session_bridge::write_flag_values(&dir, flags.clone()));
-        match result {
+    let mut flags: HashMap<String, Vec<(String, i8)>> = HashMap::new();
+    for write in &values {
+        if let CullingValue::Flag(flag) = write.value {
+            if let Some(owner) = write.directory.as_ref().or(directory.as_ref()) {
+                flags
+                    .entry(owner.clone())
+                    .or_default()
+                    .push((write.path.clone(), flag));
+            } else {
+                failures.push((write.path.clone(), "Flag Undo needs its library".into()));
+            }
+        }
+    }
+    for (owner, flags) in flags {
+        match crate::session_bridge::write_flag_values(&owner, flags.clone()) {
             Ok(receipts) => changed.extend(receipts),
             Err(error) => failures.extend(flags.into_iter().map(|(path, _)| (path, error.clone()))),
         }
     }
     let xmp = xmp_sync(app_handle);
     let mut seen = std::collections::HashSet::new();
-    for write in values {
-        if matches!(write.value, CullingValue::Flag(_)) || !seen.insert(write.path.clone()) {
-            continue;
-        }
-        match write_culling_sidecar(write.clone(), xmp) {
+    let sidecars: Vec<_> = values
+        .into_iter()
+        .filter(|write| {
+            !matches!(write.value, CullingValue::Flag(_)) && seen.insert(write.path.clone())
+        })
+        .collect();
+    // Preserve the old parallel batch path. Each task installs its own resolved
+    // owner scope; the existing field-edit mutex still protects read/modify/write.
+    for (path, result) in sidecars
+        .into_par_iter()
+        .map(|write| {
+            let path = write.path.clone();
+            (path, write_prepared_culling(write, xmp))
+        })
+        .collect::<Vec<_>>()
+    {
+        match result {
             Ok(receipt) => changed.push(receipt),
-            Err(error) => failures.push((write.path, error)),
+            Err(error) => failures.push((path, error)),
         }
     }
-    SaveFailure::check(total, failures).map_err(|mut error| {
+    SaveFailure::check(paths.len(), failures).map_err(|mut error| {
         error.culling = changed.clone();
         error
     })?;
@@ -1015,13 +1088,18 @@ fn write_culling_sidecar(write: CullingWrite, xmp: Option<bool>) -> Result<Culli
     if let Some(create) = xmp {
         sync_metadata_to_xmp(&source, &metadata, create);
     }
-    let asset_id = crate::session_bridge::library_dir_for(&source)
-        .and_then(|dir| rawtonic_catalog::Library::open(&dir).ok())
-        .and_then(|lib| lib.asset_at(&source).ok().flatten())
-        .map(|asset| asset.id);
+    let owner = crate::session_bridge::library_dir_for(&source);
+    let asset_id = write.asset_id.or_else(|| {
+        owner
+            .as_ref()
+            .and_then(|dir| rawtonic_catalog::Library::open(dir).ok())
+            .and_then(|lib| lib.asset_at(&source).ok().flatten())
+            .map(|asset| asset.id)
+    });
     Ok(CullingChange {
         path: write.path,
         asset_id,
+        directory: owner.map(|dir| dir.to_string_lossy().into_owned()),
         before,
         after: write.value,
     })
@@ -1113,6 +1191,7 @@ mod tests {
                             path: path.clone(),
                             value,
                             asset_id: None,
+                            directory: None,
                         },
                         None,
                     )
@@ -1140,6 +1219,7 @@ mod tests {
                     path: receipt.path.clone(),
                     value: receipt.before.clone(),
                     asset_id: receipt.asset_id.clone(),
+                    directory: receipt.directory.clone(),
                 }],
                 temp.path().to_str(),
             )
@@ -1173,6 +1253,7 @@ mod tests {
                 path: source.to_string_lossy().into_owned(),
                 value: CullingValue::Rating(4),
                 asset_id: None,
+                directory: None,
             },
             None,
         )
@@ -1185,6 +1266,7 @@ mod tests {
                 path: receipt.path.clone(),
                 value: receipt.before.clone(),
                 asset_id: receipt.asset_id,
+                directory: receipt.directory,
             }],
             temp.path().to_str(),
         )
@@ -1197,7 +1279,8 @@ mod tests {
                 vec![CullingWrite {
                     path: receipt.path,
                     value: receipt.before,
-                    asset_id: None
+                    asset_id: None,
+                    directory: None,
                 }],
                 None
             )
@@ -1238,6 +1321,7 @@ mod tests {
                         path: path.clone(),
                         value,
                         asset_id: None,
+                        directory: None,
                     },
                     None,
                 )
@@ -1250,6 +1334,7 @@ mod tests {
                     path: receipt.path,
                     value: receipt.before,
                     asset_id: receipt.asset_id,
+                    directory: receipt.directory,
                 }],
                 temp.path().to_str(),
             )
@@ -1267,7 +1352,7 @@ mod tests {
 
     #[test]
     fn queued_culling_write_and_undo_keep_their_original_catalog() {
-        use crate::session_bridge::with_library_target;
+        use crate::session_bridge::with_culling_owner;
         use rawtonic_catalog::{Library, Mode};
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("external.nef");
@@ -1284,9 +1369,9 @@ mod tests {
             .unwrap();
         }
         let directory = first.directory.to_str();
-        let receipt = with_library_target(directory, || {
+        let receipt = with_culling_owner(directory, || {
             // A nested job choosing another library restores the caller's target.
-            with_library_target(second.directory.to_str(), || {
+            with_culling_owner(second.directory.to_str(), || {
                 assert_eq!(
                     crate::session_bridge::library_dir_for(&source),
                     Some(second.directory.clone())
@@ -1297,6 +1382,7 @@ mod tests {
                     path: source.to_string_lossy().into_owned(),
                     value: CullingValue::Rating(4),
                     asset_id: None,
+                    directory: None,
                 },
                 None,
             )
@@ -1305,12 +1391,13 @@ mod tests {
         assert_eq!(receipt.before, CullingValue::Rating(1));
         assert_eq!(first.metadata(&a.id).unwrap().rating, 4);
         assert_eq!(second.metadata(&b.id).unwrap().rating, 3);
-        with_library_target(directory, || {
+        with_culling_owner(directory, || {
             let values = resolve_culling_targets(
                 vec![CullingWrite {
                     path: receipt.path,
                     value: receipt.before,
                     asset_id: receipt.asset_id,
+                    directory: receipt.directory,
                 }],
                 directory,
             )
@@ -1319,6 +1406,152 @@ mod tests {
         });
         assert_eq!(first.metadata(&a.id).unwrap().rating, 1);
         assert_eq!(second.metadata(&b.id).unwrap().rating, 3);
+    }
+
+    #[test]
+    fn culling_resolves_real_owners_before_pinning_the_selected_library() {
+        use rawtonic_catalog::{Library, Mode};
+        let temp = tempfile::tempdir().unwrap();
+        let session =
+            Library::create(&temp.path().join("session"), "Session", Mode::Session).unwrap();
+        let catalog =
+            Library::create(&temp.path().join("catalog"), "Catalog", Mode::Catalog).unwrap();
+        let outside = temp.path().join("outside.nef");
+        fs::write(&outside, b"synthetic original").unwrap();
+        let inside = session.directory.join("Capture/inside.nef");
+        fs::write(&inside, b"synthetic original").unwrap();
+        let make = |path: &Path| CullingWrite {
+            path: path.to_string_lossy().into_owned(),
+            value: CullingValue::Rating(3),
+            asset_id: None,
+            directory: None,
+        };
+        let writes =
+            prepare_culling_targets(vec![make(&outside)], session.directory.to_str()).unwrap();
+        let receipt = write_prepared_culling(writes.into_iter().next().unwrap(), None).unwrap();
+        assert!(receipt.asset_id.is_none());
+        assert_eq!(session.summary().unwrap().assets, 0);
+        assert_eq!(
+            crate::exif_processing::load_sidecar_file(
+                &parse_virtual_path(&outside.to_string_lossy()).1
+            )
+            .rating,
+            3
+        );
+        let writes =
+            prepare_culling_targets(vec![make(&inside)], catalog.directory.to_str()).unwrap();
+        write_prepared_culling(writes.into_iter().next().unwrap(), None).unwrap();
+        assert!(session.asset_at(&inside).unwrap().is_some());
+        assert!(catalog.asset_at(&inside).unwrap().is_none());
+        let vanished = temp.path().join("vanished.nef");
+        assert!(
+            prepare_culling_targets(vec![make(&vanished)], session.directory.to_str()).is_err()
+        );
+    }
+
+    #[test]
+    fn culling_receipt_keeps_implicit_owner_when_no_library_is_selected() {
+        use rawtonic_catalog::{Library, Mode};
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Implicit owner", Mode::Session).unwrap();
+        let source = temp.path().join("Capture/source.nef");
+        fs::write(&source, b"synthetic original").unwrap();
+        let asset = lib.add_asset(&source).unwrap();
+        let receipt = write_culling_sidecar(
+            CullingWrite {
+                path: source.to_string_lossy().into_owned(),
+                value: CullingValue::Rating(4),
+                asset_id: None,
+                directory: None,
+            },
+            None,
+        )
+        .unwrap();
+        assert_eq!(receipt.directory.as_deref(), temp.path().to_str());
+        let values = resolve_culling_targets(
+            vec![CullingWrite {
+                path: receipt.path,
+                value: receipt.before,
+                asset_id: receipt.asset_id,
+                directory: receipt.directory,
+            }],
+            None,
+        )
+        .unwrap();
+        write_prepared_culling(values.into_iter().next().unwrap(), None).unwrap();
+        assert_eq!(lib.metadata(&asset.id).unwrap().rating, 0);
+    }
+
+    #[test]
+    #[ignore = "manual metadata writer comparison; prints timings, not a timing gate"]
+    fn measure_culling_batch_receipt_overhead() {
+        use rawtonic_catalog::{Library, Mode};
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Metadata timing", Mode::Session).unwrap();
+        let paths: Vec<_> = (0..80)
+            .map(|n| {
+                let source = temp.path().join(format!("Capture/{n}.nef"));
+                fs::write(&source, b"synthetic original").unwrap();
+                let asset = lib.add_asset(&source).unwrap();
+                lib.save_editor_state(
+                    &asset.id,
+                    &serde_json::json!({"version":1,"rating":0,"tags":[],"adjustments":{}}),
+                )
+                .unwrap();
+                source.to_string_lossy().into_owned()
+            })
+            .collect();
+        // Baseline is the previous rating writer: the same parallel loop,
+        // field guard, latest sidecar load and normal atomic catalog/XMP save.
+        let baseline = |rating| {
+            paths.par_iter().for_each(|path| {
+                let _turn = sidecar_field_edit();
+                let mut metadata =
+                    crate::exif_processing::load_sidecar(&parse_virtual_path(path).1);
+                metadata.rating = rating;
+                save_sidecar(path, &metadata).unwrap();
+            });
+        };
+        let receipts = |rating| {
+            let values = paths
+                .iter()
+                .map(|path| CullingWrite {
+                    path: path.clone(),
+                    value: CullingValue::Rating(rating),
+                    asset_id: None,
+                    directory: None,
+                })
+                .collect();
+            let values = prepare_culling_targets(values, temp.path().to_str()).unwrap();
+            values.into_par_iter().for_each(|write| {
+                write_prepared_culling(write, None).unwrap();
+            });
+        };
+        baseline(0);
+        receipts(1);
+        for (name, rating) in [
+            ("baseline", 2),
+            ("receipts", 3),
+            ("receipts", 4),
+            ("baseline", 5),
+        ] {
+            let start = std::time::Instant::now();
+            if name == "baseline" {
+                baseline(rating);
+            } else {
+                receipts(rating);
+            }
+            println!(
+                "CULLING_BENCH {name} photos=80 ms={:.3}",
+                start.elapsed().as_secs_f64() * 1000.0
+            );
+            assert!(
+                lib.all_metadata()
+                    .unwrap()
+                    .iter()
+                    .all(|(_, metadata)| metadata.rating == rating)
+            );
+        }
     }
 
     fn sky_layer(id: &str, data: &str) -> Value {

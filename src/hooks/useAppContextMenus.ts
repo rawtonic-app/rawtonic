@@ -46,7 +46,8 @@ import { toast } from 'react-toastify';
 import { loadPresetLibrary, usePresetStore, type UserPreset } from './usePresets';
 import { useTranslation } from 'react-i18next';
 import { useContextMenu } from '../context/ContextMenuContext';
-import { canUndo, canRedo, undo, redo } from '../utils/appUndo';
+import { canUndo, canRedo, getUndoLabel,
+  getRedoLabel, undo, redo } from '../utils/appUndo';
 import { useEditorStore } from '../store/useEditorStore';
 import { isRawInLibrary, useLibraryStore } from '../store/useLibraryStore';
 import { useProcessStore } from '../store/useProcessStore';
@@ -242,8 +243,8 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           onClick: () => setPanel(Panel.Export),
         },
         { type: OPTION_SEPARATOR },
-        { label: t('contextMenus.editor.undo'), icon: Undo, onClick: () => { void undo(); }, disabled: !canUndo() },
-        { label: t('contextMenus.editor.redo'), icon: Redo, onClick: () => { void redo(); }, disabled: !canRedo() },
+        { label: getUndoLabel(), icon: Undo, onClick: () => { void undo(); }, disabled: !canUndo() },
+        { label: getRedoLabel(), icon: Redo, onClick: () => { void redo(); }, disabled: !canRedo() },
         { type: OPTION_SEPARATOR },
         {
           label: t('contextMenus.editor.copyAdjustments'),

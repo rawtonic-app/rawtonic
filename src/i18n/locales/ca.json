@@ -4102,6 +4102,18 @@
       "reset": "Restablir"
     }
   },
+  "undoHistory": {
+    "color": "Estableix l’etiqueta de color",
+    "edit": "Edició",
+    "file": "Canvi de fitxer",
+    "flag": "Estableix la marca",
+    "move": "Mou",
+    "rating": "Estableix la puntuació",
+    "redoAction": "Refés: {{action}}",
+    "rename": "Canvia el nom",
+    "trash": "Mou a la paperera",
+    "undoAction": "Desfés: {{action}}"
+  },
   "updates": {
     "appImage": "També pots actualitzar aquest AppImage amb AppImageUpdate.",
     "available": "Rawtonic {{version}} està disponible",

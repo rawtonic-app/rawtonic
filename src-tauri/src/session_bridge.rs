@@ -21,13 +21,13 @@ fn active() -> &'static Mutex<Option<PathBuf>> {
     ACTIVE_LIBRARY.get_or_init(|| Mutex::new(None))
 }
 thread_local! {
-    // A blocking metadata job keeps the catalog selected at input time even
-    // when another library opens before the queued job reaches its sidecars.
-    static WRITE_LIBRARY: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+    // Each Rayon task pins one already-resolved photo owner. This prevents
+    // another window/library opening from redirecting its sidecar helpers.
+    static WRITE_LIBRARY: std::cell::RefCell<Option<Option<PathBuf>>> = const { std::cell::RefCell::new(None) };
 }
 
-pub(crate) fn with_library_target<T>(directory: Option<&str>, work: impl FnOnce() -> T) -> T {
-    struct RestoreTarget(Option<PathBuf>);
+pub(crate) fn with_culling_owner<T>(directory: Option<&str>, work: impl FnOnce() -> T) -> T {
+    struct RestoreTarget(Option<Option<PathBuf>>);
     impl Drop for RestoreTarget {
         fn drop(&mut self) {
             WRITE_LIBRARY.with(|target| {
@@ -35,7 +35,7 @@ pub(crate) fn with_library_target<T>(directory: Option<&str>, work: impl FnOnce(
             });
         }
     }
-    let previous = WRITE_LIBRARY.with(|target| target.replace(directory.map(PathBuf::from)));
+    let previous = WRITE_LIBRARY.with(|target| target.replace(Some(directory.map(PathBuf::from))));
     let _restore = RestoreTarget(previous);
     work()
 }
@@ -82,17 +82,29 @@ fn registered_form(source: &Path) -> PathBuf {
         _ => source.to_path_buf(),
     }
 }
+/// Resolve by the original ownership rule: a photograph's own session first,
+/// otherwise the catalog selected when the command was submitted. An open
+/// session does not claim files in other folders.
+pub(crate) fn culling_library_for(source: &Path, selected: Option<&Path>) -> Option<PathBuf> {
+    session_for(source).or_else(|| {
+        selected
+            .filter(|dir| dir.join("catalog.json").is_file())
+            .map(Path::to_path_buf)
+    })
+}
+
+pub(crate) fn active_library_directory() -> Option<PathBuf> {
+    active().lock().ok()?.clone()
+}
+
 fn library_for(source: &Path) -> Option<PathBuf> {
-    WRITE_LIBRARY
-        .with(|target| target.borrow().clone())
-        .or_else(|| session_for(source))
-        .or_else(|| {
-            active()
-                .lock()
-                .ok()?
-                .clone()
-                .filter(|dir| dir.join("catalog.json").is_file())
-        })
+    // This scope is installed per photograph, only AFTER its real owner was
+    // resolved or its receipt's asset id validated; None explicitly means an
+    // unmanaged sidecar. Never install the UI's selected directory directly.
+    if let Some(owner) = WRITE_LIBRARY.with(|target| target.borrow().clone()) {
+        return owner;
+    }
+    culling_library_for(source, active_library_directory().as_deref())
 }
 
 /// The session or open catalog that manages `path`, if any.
@@ -1007,6 +1019,7 @@ pub(crate) fn write_flag_values(
         receipts.push(CullingChange {
             path: path.to_string_lossy().into_owned(),
             asset_id: Some(id),
+            directory: Some(lib.directory.to_string_lossy().into_owned()),
             before: CullingValue::Flag(flag),
             after: CullingValue::Flag(*after),
         });

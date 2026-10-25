@@ -3908,6 +3908,18 @@
       "reset": "重置"
     }
   },
+  "undoHistory": {
+    "color": "設定色彩標籤",
+    "edit": "編輯",
+    "file": "檔案變更",
+    "flag": "設定旗標",
+    "move": "移動",
+    "rating": "設定評分",
+    "redoAction": "重做{{action}}",
+    "rename": "重新命名",
+    "trash": "移至垃圾桶",
+    "undoAction": "復原{{action}}"
+  },
   "updates": {
     "appImage": "你也可以使用 AppImageUpdate 更新此 AppImage。",
     "available": "Rawtonic {{version}} 已可使用",

@@ -3994,6 +3994,18 @@
       "reset": "Zurücksetzen"
     }
   },
+  "undoHistory": {
+    "color": "Farbmarkierung festlegen",
+    "edit": "Bearbeitung",
+    "file": "Dateiänderung",
+    "flag": "Markierung festlegen",
+    "move": "Verschieben",
+    "rating": "Bewertung festlegen",
+    "redoAction": "{{action}} wiederholen",
+    "rename": "Umbenennen",
+    "trash": "In den Papierkorb verschieben",
+    "undoAction": "{{action}} rückgängig"
+  },
   "updates": {
     "appImage": "Dieses AppImage lässt sich auch mit AppImageUpdate aktualisieren.",
     "available": "Rawtonic {{version}} ist verfügbar",

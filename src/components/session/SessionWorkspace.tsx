@@ -868,9 +868,9 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       // Rapid P/X/U commands must reach SQLite in keyboard order. Apply only
       // acknowledged changes, and never paint a previous session's response.
       noteTool("culling");
-      return catalogAction('Set Flag', async () => {
+      return catalogAction('flag', async ({ resolvePaths }) => {
         const changed = await invokeInOrder<CullingChange[]>(Invokes.SessionSetFlag, {
-          directory: session.directory, paths, flag,
+          directory: session.directory, paths: resolvePaths(paths), flag,
         });
         if (useLibraryStore.getState().sessionDirectory === session.directory) {
           showCullingChanges(changed);

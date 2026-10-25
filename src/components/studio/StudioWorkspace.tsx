@@ -49,7 +49,7 @@ import {
   ListChecks,
   Maximize,
 } from "lucide-react";
-import { canUndo, canRedo, undo, redo, useCatalogUndoStore } from '../../utils/appUndo';
+import { canUndo, canRedo, getUndoLabel, getRedoLabel, undo, redo, useCatalogUndoStore } from '../../utils/appUndo';
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useUIStore } from "../../store/useUIStore";
@@ -201,6 +201,7 @@ export default function StudioWorkspace(props: Props) {
     transformWrapperRef,
   } = props;
   const { t, i18n } = useTranslation();
+  // Labels and routing read both histories; subscribe so they update on either change.
   useCatalogUndoStore();
   const { selectedImage, splitView, previousPhoto } = useEditorStore(
     useShallow((s) => ({
@@ -1245,7 +1246,7 @@ export default function StudioWorkspace(props: Props) {
                   </button>
                   <div className="studio-toolbar-divider" />
                   <button
-                    title={withShortcut(t("studio.workspace.viewer.undo"), "⌘Z")}
+                    title={withShortcut(getUndoLabel(), "⌘Z")}
                     aria-label={t("studio.workspace.viewer.undo")}
                     disabled={!panelsReady || !canUndo()}
                     onClick={() => {
@@ -1255,7 +1256,7 @@ export default function StudioWorkspace(props: Props) {
                     <Undo2 size={15} />
                   </button>
                   <button
-                    title={withShortcut(t("studio.workspace.viewer.redo"), "⇧⌘Z")}
+                    title={withShortcut(getRedoLabel(), "⇧⌘Z")}
                     aria-label={t("studio.workspace.viewer.redo")}
                     disabled={!panelsReady || !canRedo()}
                     onClick={() => {

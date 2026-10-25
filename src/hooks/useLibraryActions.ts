@@ -46,6 +46,9 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
     const directory = useLibraryStore.getState().sessionDirectory;
     const previousRatings = Object.fromEntries(pathsToRate.map((p) => [p, imageRatings[p]]));
 
+    let previousAtWrite = previousRatings;
+    let pathsWritten = pathsToRate;
+
     setLibrary((state) => {
       const newRatings = { ...state.imageRatings };
       pathsToRate.forEach((p) => {
@@ -55,8 +58,15 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
     });
 
     noteTool('culling');
-    void catalogAction('Set Rating', async () => {
-      const changes = await invokeInOrder<CullingChange[]>(Invokes.SetRatingForPaths, { paths: pathsToRate, rating: finalRating, ...(directory ? { directory } : {}) });
+    void catalogAction("rating", async ({ resolvePaths }) => {
+      pathsWritten = resolvePaths(pathsToRate);
+      previousAtWrite = Object.fromEntries(
+        pathsToRate.map((path, index) => [
+          pathsWritten[index],
+          previousRatings[path],
+        ]),
+      );
+      const changes = await invokeInOrder<CullingChange[]>(Invokes.SetRatingForPaths, { paths: pathsWritten, rating: finalRating, ...(directory ? { directory } : {}) });
       if (useLibraryStore.getState().sessionDirectory === directory && changes) showCullingChanges(changes);
       return changes;
     }).catch((err) => {
@@ -64,13 +74,13 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
       console.error(err);
       // Photos whose rating was not saved show their previous one again
       // (unless rated anew meanwhile).
-      const { message, failed } = saveFailure(err, pathsToRate);
+      const { message, failed } = saveFailure(err, pathsWritten);
       setLibrary((state) => {
         const ratings = { ...state.imageRatings };
         failed.forEach((p) => {
           if (ratings[p] !== finalRating) return;
-          if (previousRatings[p] === undefined) delete ratings[p];
-          else ratings[p] = previousRatings[p];
+          if (previousAtWrite[p] === undefined) delete ratings[p];
+          else ratings[p] = previousAtWrite[p];
         });
         return { imageRatings: ratings };
       });
@@ -101,6 +111,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
     const finalColor = color !== null && color === currentColor ? null : color;
 
     const directory = useLibraryStore.getState().sessionDirectory;
+    let pathsWritten = pathsToUpdate;
     const applyLabel = (paths: string[]) =>
       setLibrary((state) => ({
         imageList: state.imageList.map((image: ImageFile) => {
@@ -113,13 +124,16 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
         }),
       }));
     try {
-      await catalogAction('Set Color Label', () => invokeInOrder<CullingChange[]>(Invokes.SetColorLabelForPaths, { paths: pathsToUpdate, color: finalColor, ...(directory ? { directory } : {}) }));
-      if (useLibraryStore.getState().sessionDirectory === directory) applyLabel(pathsToUpdate);
+      await catalogAction("color", ({ resolvePaths }) => {
+        pathsWritten = resolvePaths(pathsToUpdate);
+        return invokeInOrder<CullingChange[]>(Invokes.SetColorLabelForPaths, { paths: pathsWritten, color: finalColor, ...(directory ? { directory } : {}) });
+      });
+      if (useLibraryStore.getState().sessionDirectory === directory) applyLabel(pathsWritten);
     } catch (err) {
       if (useLibraryStore.getState().sessionDirectory !== directory) return;
       // The photos that were saved show their new label.
-      const { message, failed } = saveFailure(err, pathsToUpdate);
-      applyLabel(pathsToUpdate.filter((p) => !failed.includes(p)));
+      const { message, failed } = saveFailure(err, pathsWritten);
+      applyLabel(pathsWritten.filter((p) => !failed.includes(p)));
       toast.error(`Failed to set color label: ${message}`);
     }
   }, []);

@@ -3908,6 +3908,18 @@
       "reset": "リセット"
     }
   },
+  "undoHistory": {
+    "color": "カラーラベルの設定",
+    "edit": "編集",
+    "file": "ファイルの変更",
+    "flag": "フラグの設定",
+    "move": "移動",
+    "rating": "評価の設定",
+    "redoAction": "{{action}}をやり直す",
+    "rename": "名前の変更",
+    "trash": "ゴミ箱に移動",
+    "undoAction": "{{action}}を取り消す"
+  },
   "updates": {
     "appImage": "この AppImage は AppImageUpdate でも更新できます。",
     "available": "Rawtonic {{version}} が利用可能です",

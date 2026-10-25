@@ -4102,6 +4102,18 @@
       "reset": "Redefinir"
     }
   },
+  "undoHistory": {
+    "color": "Definir etiqueta de cor",
+    "edit": "Edição",
+    "file": "Alteração de ficheiro",
+    "flag": "Definir marcação",
+    "move": "Mover",
+    "rating": "Definir classificação",
+    "redoAction": "Refazer: {{action}}",
+    "rename": "Renomear",
+    "trash": "Mover para o lixo",
+    "undoAction": "Desfazer: {{action}}"
+  },
   "updates": {
     "appImage": "Também pode atualizar este AppImage com o AppImageUpdate.",
     "available": "Rawtonic {{version}} está disponível",
