@@ -91,6 +91,7 @@ import {
 } from "../../utils/panelLayout";
 import {
   buildComboMap,
+  fieldOwnsKey,
   normalizeCombo,
   shortcutHint,
 } from "../../utils/keyboardUtils";
@@ -668,8 +669,7 @@ export default function StudioWorkspace(props: Props) {
       if (
         e.defaultPrevented ||
         document.querySelector('dialog[open],[aria-modal="true"]') ||
-        (e.target instanceof HTMLElement &&
-          e.target.closest('input,textarea,select,[contenteditable="true"]'))
+        fieldOwnsKey(e.target, e.code)
       )
         return;
       const settings = useSettingsStore.getState();
