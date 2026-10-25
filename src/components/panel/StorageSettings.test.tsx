@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
@@ -182,4 +183,78 @@ it("restores a scheduled model removal after returning to Storage", async () => 
       }) as HTMLButtonElement
     ).disabled,
   ).toBe(true);
+});
+
+it("confirms before clearing previews needed for offline viewing", async () => {
+  vi.mocked(invoke).mockImplementation((command) =>
+    Promise.resolve(
+      command === Invokes.StorageUsage
+        ? [
+            {
+              category: "previews",
+              bytes: 2048,
+              files: 2,
+              path: "/cache/previews",
+              clearable: true,
+            },
+          ]
+        : undefined,
+    ),
+  );
+  render(
+    <StorageSettings
+      appSettings={{} as AppSettings}
+      onSettingsChange={vi.fn()}
+      onLibraryRefresh={vi.fn()}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "storage.clear" }));
+  expect(invoke).not.toHaveBeenCalledWith(
+    Invokes.StorageClear,
+    expect.anything(),
+  );
+  expect(screen.getByText("storage.previewsConfirm")).toBeTruthy();
+});
+
+it("keeps selective 1:1 clearing behind the same confirmed Storage action", async () => {
+  vi.mocked(invoke).mockImplementation((command) =>
+    Promise.resolve(
+      command === Invokes.StorageUsage
+        ? [
+            {
+              category: "previews",
+              bytes: 2048,
+              files: 2,
+              path: "/cache/previews",
+              clearable: true,
+            },
+          ]
+        : undefined,
+    ),
+  );
+  render(
+    <StorageSettings
+      appSettings={{} as AppSettings}
+      onSettingsChange={vi.fn()}
+      onLibraryRefresh={vi.fn()}
+    />,
+  );
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "previews.settings.discardFullButton",
+    }),
+  );
+  expect(screen.getByText("storage.fullPreviewsConfirm")).toBeTruthy();
+  fireEvent.click(
+    within(screen.getByRole("dialog")).getByRole("button", {
+      name: "storage.clear",
+    }),
+  );
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith(Invokes.StorageClear, {
+      category: "previews",
+      confirmed: true,
+      fullOnly: true,
+    }),
+  );
 });

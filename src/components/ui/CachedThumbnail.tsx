@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ImgHTMLAttributes } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { Image as ImageIcon } from "lucide-react";
 import { Invokes } from "./AppProperties";
+import { noteThumbnailUse } from "../../utils/thumbnailCacheUse";
 import { useProcessStore } from "../../store/useProcessStore";
 
 const restoring = new Map<string, Promise<[string, string]>>();
@@ -35,15 +36,13 @@ function restore(path: string) {
  * viewport queue or retaining inline pixel data for the whole library. */
 export default function CachedThumbnail({
   sourcePath,
-  medium = false,
   src,
   alt,
   ...props
 }: Omit<ImgHTMLAttributes<HTMLImageElement>, "onError"> & {
   sourcePath: string;
-  medium?: boolean;
 }) {
-  const identity = `${sourcePath}|${src}|${medium}`;
+  const identity = `${sourcePath}|${src}`;
   const current = useRef(identity);
   current.current = identity;
   const mounted = useRef(false);
@@ -60,7 +59,7 @@ export default function CachedThumbnail({
   }, []);
   useEffect(() => {
     attempted.current = false;
-  }, [sourcePath, medium]);
+  }, [sourcePath]);
   const shown = replacement?.identity === identity ? replacement.url : src;
   if (!shown)
     return <ImageIcon size={24} aria-label={alt} className={props.className} />;
@@ -71,6 +70,7 @@ export default function CachedThumbnail({
       alt={alt}
       onLoad={(event) => {
         attempted.current = false;
+        noteThumbnailUse(shown);
         props.onLoad?.(event);
       }}
       onError={() => {
@@ -80,7 +80,7 @@ export default function CachedThumbnail({
         void restore(sourcePath)
           .then((paths) => {
             if (!mounted.current || current.current !== identity) return;
-            setReplacement({ identity, url: paths[medium ? 1 : 0] });
+            setReplacement({ identity, url: paths[0] });
           })
           .catch(() => {
             /* Keep the placeholder for an unavailable original. */

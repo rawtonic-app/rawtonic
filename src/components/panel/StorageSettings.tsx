@@ -16,7 +16,6 @@ type Category =
   | "models"
   | "compiledModels"
   | "logs"
-  | "scratch"
   | "session"
   | "exif"
   | "systemModels";
@@ -34,12 +33,14 @@ interface Props {
   appSettings: AppSettings;
   onSettingsChange(settings: AppSettings): Promise<void>;
   onLibraryRefresh(): void;
+  onOpenPreviews?(): void;
 }
 
 export default function StorageSettings({
   appSettings,
   onSettingsChange,
   onLibraryRefresh,
+  onOpenPreviews,
 }: Props) {
   const { t } = useTranslation();
   const library = useLibraryStore((s) => s.sessionDirectory);
@@ -47,7 +48,10 @@ export default function StorageSettings({
   const [busy, setBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState(false);
-  const [modelsConfirm, setModelsConfirm] = useState(false);
+  const [confirmation, setConfirmation] = useState<{
+    category: Category;
+    fullOnly: boolean;
+  } | null>(null);
   const [modelsPending, setModelsPending] = useState(false);
   const [cleared, setCleared] = useState(false);
   const request = useRef<string | null>(null);
@@ -88,14 +92,15 @@ export default function StorageSettings({
     };
   }, [refresh, cancel, library]);
 
-  const clear = async (category: Category) => {
+  const clear = async (category: Category, fullOnly = false) => {
     setBusy(true);
     setError(false);
     setCleared(false);
     try {
       await invoke(Invokes.StorageClear, {
         category,
-        confirmed: category === "models",
+        confirmed: ["models", "previews", "session"].includes(category),
+        ...(fullOnly ? { fullOnly: true } : {}),
         ...(category === "session" ? { sessionDirectory: library } : {}),
       });
       if (!mounted.current) return;
@@ -159,7 +164,9 @@ export default function StorageSettings({
     if (!(category in spec)) return null;
     const setting = spec[category as keyof typeof spec];
     const options =
-      category === "decoded" ? [2, 3, 4, 5, 6, 7, 8, 9, 10] : [0, 1, 2, 5, 10, 20, 50];
+      category === "decoded"
+        ? [2, 3, 4, 5, 6, 7, 8, 9, 10]
+        : [0, 1, 2, 5, 10, 20, 50];
     if (!options.includes(setting.value)) options.push(setting.value);
     return (
       <label className="flex items-center gap-2 text-sm">
@@ -216,6 +223,9 @@ export default function StorageSettings({
         )}
         {scanning && <span role="status">{t("storage.scanning")}</span>}
       </div>
+      {onOpenPreviews && (
+        <Button onClick={onOpenPreviews}>{t("storage.previewSettings")}</Button>
+      )}
       {error && <p role="alert">{t("storage.failed")}</p>}
       {cleared && <p role="status">{t("storage.cleared")}</p>}
       {(modelsPending || entries.some((entry) => entry.pendingRemoval)) && (
@@ -245,6 +255,16 @@ export default function StorageSettings({
           </div>
           <div className="pref-control flex flex-col items-end gap-2">
             {limit(entry.category)}
+            {["previews", "session"].includes(entry.category) && (
+              <Button
+                disabled={busy || !entry.clearable || entry.bytes === 0}
+                onClick={() =>
+                  setConfirmation({ category: entry.category, fullOnly: true })
+                }
+              >
+                {t("previews.settings.discardFullButton")}
+              </Button>
+            )}
             {entry.clearable && (
               <Button
                 disabled={
@@ -254,8 +274,11 @@ export default function StorageSettings({
                     (modelsPending || entry.pendingRemoval))
                 }
                 onClick={() =>
-                  entry.category === "models"
-                    ? setModelsConfirm(true)
+                  ["models", "previews", "session"].includes(entry.category)
+                    ? setConfirmation({
+                        category: entry.category,
+                        fullOnly: false,
+                      })
                     : void clear(entry.category)
                 }
               >
@@ -268,13 +291,30 @@ export default function StorageSettings({
         </div>
       ))}
       <ConfirmModal
-        isOpen={modelsConfirm}
-        title={t("storage.removeModels")}
-        message={t("storage.modelsConfirm")}
-        confirmText={t("storage.confirmRemove")}
+        isOpen={confirmation !== null}
+        title={
+          confirmation?.category === "models"
+            ? t("storage.removeModels")
+            : t("storage.clear")
+        }
+        message={
+          confirmation?.category === "models"
+            ? t("storage.modelsConfirm")
+            : confirmation?.fullOnly
+              ? t("storage.fullPreviewsConfirm")
+              : t("storage.previewsConfirm")
+        }
+        confirmText={
+          confirmation?.category === "models"
+            ? t("storage.confirmRemove")
+            : t("storage.clear")
+        }
         confirmVariant="destructive"
-        onClose={() => setModelsConfirm(false)}
-        onConfirm={() => void clear("models")}
+        onClose={() => setConfirmation(null)}
+        onConfirm={() =>
+          confirmation &&
+          void clear(confirmation.category, confirmation.fullOnly)
+        }
       />
     </section>
   );

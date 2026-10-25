@@ -17,6 +17,8 @@ vi.mock("@tauri-apps/api/core", () => ({
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 it("regenerates an evicted cache file and retries with a fresh asset URL", async () => {
@@ -97,7 +99,7 @@ it("shows a placeholder when regeneration fails without issuing repeated request
   expect(invoke).toHaveBeenCalledTimes(1);
 });
 
-it("restores medium cache URLs with Windows path separators", async () => {
+it("restores cache URLs with Windows path separators", async () => {
   vi.mocked(invoke).mockResolvedValue([
     "C:\\cache\\small.jpg",
     "C:\\cache\\medium.jpg",
@@ -105,7 +107,6 @@ it("restores medium cache URLs with Windows path separators", async () => {
   const view = render(
     <CachedThumbnail
       sourcePath="C:\\photos\\a.RAW"
-      medium
       src="asset://missing.jpg"
       alt="medium"
     />,
@@ -113,7 +114,7 @@ it("restores medium cache URLs with Windows path separators", async () => {
   fireEvent.error(view.getByAltText("medium"));
   await waitFor(() =>
     expect(view.getByAltText("medium").getAttribute("src")).toMatch(
-      /^asset:\/\/C:\/cache\/medium.jpg\?recovered=/,
+      /^asset:\/\/C:\/cache\/small.jpg\?recovered=/,
     ),
   );
 });
@@ -139,4 +140,26 @@ it("can recover a later eviction after an image has successfully loaded", async 
   fireEvent.load(view.getByAltText("again"));
   fireEvent.error(view.getByAltText("again"));
   await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
+});
+
+it("records actual cache reads for the storage LRU policy", async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
+    setTimeout(callback, 16),
+  );
+  const key = "a".repeat(64);
+  const view = render(
+    <CachedThumbnail
+      sourcePath="/photos/read.RAW"
+      src={`asset:///cache/${key}_small.jpg`}
+      alt="read"
+    />,
+  );
+  fireEvent.load(view.getByAltText("read"));
+  await act(async () => vi.advanceTimersByTime(20));
+  expect(invoke).toHaveBeenCalledWith("storage_touch_thumbnails", {
+    keys: [key],
+  });
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
 });

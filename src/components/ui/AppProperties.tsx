@@ -39,6 +39,7 @@ export const OPTION_HEADER = 'header';
 export enum Invokes {
   StorageUsage = 'storage_usage',
   RestoreThumbnail = 'restore_thumbnail',
+  StorageTouchThumbnails = 'storage_touch_thumbnails',
   StorageCancelScan = 'storage_cancel_scan',
   StorageClear = 'storage_clear',
   StorageApplyLimits = 'storage_apply_limits',
@@ -182,8 +183,6 @@ export enum Invokes {
   ProblemReportContext = 'problem_report_context',
   ProblemReportScreenshot = 'problem_report_screenshot',
   DiscardPreviews = 'discard_previews',
-  PreviewCacheUsage = 'preview_cache_usage',
-  ClearPreviewCache = 'clear_preview_cache',
   ApplyPreviewLimits = 'apply_preview_limits',
   LoadEmbeddedPreview = 'load_embedded_preview',
   LoadMetadata = 'load_metadata',
@@ -696,19 +695,6 @@ export interface PreviewBuildProgress {
   failed: Array<{ path: string; reason: string }>;
 }
 
-/** Disk use of a previews folder (`PreviewUsage` in preview_proxy.rs). */
-export interface PreviewUsage {
-  standardCount: number;
-  standardBytes: number;
-  fullCount: number;
-  fullBytes: number;
-}
-
-/** `PreviewCacheInfo` in proxy_worker.rs. */
-export interface PreviewCacheInfo {
-  session: { dir: string; usage: PreviewUsage } | null;
-  outside: { dir: string; usage: PreviewUsage } | null;
-}
 
 export interface SelectedImage {
   exif: { [key: string]: string } | null;

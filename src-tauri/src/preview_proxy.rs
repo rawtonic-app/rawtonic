@@ -1063,10 +1063,10 @@ fn mark_used_at(path: &Path, time: SystemTime) {
     }
 }
 
-/// Disk use of a previews folder.
-#[derive(Serialize, Debug, Default, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct PreviewUsage {
+/// Test-only disk counters for preview retention policy checks.
+#[cfg(test)]
+#[derive(Debug, Default, Clone, PartialEq)]
+struct PreviewUsage {
     pub standard_count: u64,
     pub standard_bytes: u64,
     pub full_count: u64,
@@ -1094,8 +1094,9 @@ fn proxy_files(dir: &Path) -> impl Iterator<Item = (PathBuf, ProxyKind, fs::Meta
         })
 }
 
-/// How many previews of each kind `dir` holds, and their size on disk.
-pub fn usage(dir: &Path) -> PreviewUsage {
+/// Test-only counters for preview retention policy checks.
+#[cfg(test)]
+fn usage(dir: &Path) -> PreviewUsage {
     let mut usage = PreviewUsage::default();
     for (_, kind, meta) in proxy_files(dir) {
         match kind {

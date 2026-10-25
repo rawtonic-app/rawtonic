@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { CheckCircle, Loader2, XCircle } from "lucide-react";
+import CachedThumbnail from "../ui/CachedThumbnail";
 import { useEscapeToClose } from "../../hooks/useEscapeToClose";
 import type { MergeKind, MergeModalState } from "../../store/useUIStore";
 
@@ -302,7 +303,7 @@ export default function MergeModal({
           ) : (
             <div className="merge-message">
               {thumbnail && (
-                <img className="merge-source" src={thumbnail} alt="" />
+                <CachedThumbnail sourcePath={sourcePaths[Math.floor(sourcePaths.length / 2)]} className="merge-source" src={thumbnail} alt="" />
               )}
               <Loader2 className="animate-spin" size={20} />
               <p>{progressMessage || t("modals.merge.working")}</p>

@@ -1,4 +1,6 @@
 import "../../i18n";
+import { invoke } from "@tauri-apps/api/core";
+import { useProcessStore } from "../../store/useProcessStore";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, renderHook } from "@testing-library/react";
@@ -257,4 +259,16 @@ describe("stepping the primary in the multi view", () => {
     expect(useEditorStore.getState().panelsHeld).toBe(false);
     expect(panelsShowReady(useEditorStore.getState())).toBe(false);
   });
+});
+
+it("does not re-render native multi-view cells for an asset recovery query alone", async () => {
+  useProcessStore.setState({ thumbnails: { [paths[0]]: "asset:///cache/pixels.jpg" } });
+  setup();
+  await act(async () => {});
+  const before = vi.mocked(invoke).mock.calls.filter(([command]) => command === "set_multi_view").length;
+  expect(before).toBeGreaterThan(0);
+  act(() => useProcessStore.getState().setProcess({ thumbnails: { [paths[0]]: "asset:///cache/pixels.jpg?recovered=1" } }));
+  expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === "set_multi_view")).toHaveLength(before);
+  act(() => useProcessStore.getState().setProcess({ thumbnails: { [paths[0]]: "asset:///cache/new-recipe.jpg" } }));
+  expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === "set_multi_view").length).toBeGreaterThan(before);
 });

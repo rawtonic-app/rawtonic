@@ -24,7 +24,6 @@ pub enum Category {
     Models,
     CompiledModels,
     Logs,
-    Scratch,
     Session,
     Exif,
     SystemModels,
@@ -58,7 +57,6 @@ fn app_owned(app: &tauri::AppHandle, category: Category) -> Result<Option<OwnedD
         Category::AiResults => (data.clone(), data.join("ai-denoise-cache")),
         Category::Models => (data.clone(), data.join("models")),
         Category::CompiledModels => (cache.clone(), cache.join("ai-first-runs")),
-        Category::Scratch => (cache.clone(), cache.join("scratch")),
         Category::Exif => (cache.clone(), cache.join("exif")),
         Category::Logs => {
             let directory = paths.app_log_dir().map_err(|e| e.to_string())?;
@@ -99,6 +97,48 @@ fn pinned(path: &Path) -> bool {
             .is_none_or(|age| age < Duration::from_secs(60))
 }
 
+fn touch_thumbnails_at(root: &Path, keys: &[String]) -> std::io::Result<()> {
+    if keys.len() > 500
+        || keys
+            .iter()
+            .any(|key| key.len() != 64 || !key.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Invalid thumbnail cache keys",
+        ));
+    }
+    let directory = root.join("thumbnails");
+    if !directory.exists() {
+        return Ok(());
+    }
+    let directory = storage_fs::owned_directory(root, &directory)?;
+    for key in keys {
+        for size in ["small", "medium"] {
+            let path = directory.join(format!("{}_{}.jpg", key.to_ascii_lowercase(), size));
+            let _pin = storage_fs::pin_file(&path);
+            storage_fs::mark_used(&path);
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn storage_touch_thumbnails(
+    app: tauri::AppHandle,
+    keys: Vec<String>,
+) -> Result<(), String> {
+    let root = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| error.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        touch_thumbnails_at(&root, &keys).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 #[tauri::command]
 pub fn storage_cancel_scan(request_id: String) {
     if let Some(cancel) = SCANS
@@ -133,7 +173,6 @@ pub async fn storage_usage(
             Category::Models,
             Category::CompiledModels,
             Category::Logs,
-            Category::Scratch,
             Category::Exif,
             Category::Session,
             Category::SystemModels,
@@ -254,13 +293,44 @@ pub(crate) fn remove_models_on_start(app: &tauri::AppHandle) -> Result<(), Strin
     remove_pending_models(&marker, &owned)
 }
 
+fn clear_owned_cache(
+    owned: &OwnedDirectory,
+    category: Category,
+    full_only: bool,
+) -> std::io::Result<()> {
+    let directory = if full_only && category == Category::Session {
+        owned.directory.join("previews")
+    } else {
+        owned.directory.clone()
+    };
+    if !directory.exists() {
+        return Ok(());
+    }
+    storage_fs::clear_tree(&owned.root, &directory, &|path| {
+        (category == Category::Logs && path.file_name().is_some_and(|name| name == "app.log"))
+            || (full_only
+                && !path
+                    .file_name()
+                    .is_some_and(|name| name.to_string_lossy().ends_with(".full.rtpx")))
+            || pinned(path)
+    })
+}
+
 #[tauri::command]
 pub async fn storage_clear(
     app: tauri::AppHandle,
     category: Category,
     confirmed: bool,
     session_directory: Option<String>,
+    full_only: Option<bool>,
 ) -> Result<(), String> {
+    let full_only = full_only.unwrap_or(false);
+    if full_only && !matches!(category, Category::Previews | Category::Session) {
+        return Err("This category has no 1:1 previews".into());
+    }
+    if matches!(category, Category::Previews | Category::Session) && !confirmed {
+        return Err("Preview clearing requires confirmation".into());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = MAINTENANCE.lock().unwrap_or_else(|e| e.into_inner());
         if category == Category::Decoded {
@@ -291,15 +361,9 @@ pub async fn storage_clear(
                 return Err("The open library changed; refresh Storage before clearing".into());
             }
         }
-        if owned.directory.exists() {
-            storage_fs::clear_tree(&owned.root, &owned.directory, &|path| {
-                (category == Category::Logs && path.file_name().is_some_and(|n| n == "app.log"))
-                    || pinned(path)
-            })
-            .map_err(|e| e.to_string())?;
-        }
+        clear_owned_cache(&owned, category, full_only).map_err(|error| error.to_string())?;
         SIZES.lock().unwrap_or_else(|e| e.into_inner()).clear();
-        if matches!(category, Category::Previews | Category::Session) {
+        if !full_only && matches!(category, Category::Previews | Category::Session) {
             *app.state::<AppState>()
                 .proxy_memory
                 .lock()
@@ -374,6 +438,73 @@ pub(crate) fn start_maintenance(app: tauri::AppHandle) {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn webview_reads_refresh_lru_and_cannot_touch_an_original() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let cache = root.join("thumbnails");
+        fs::create_dir(&cache).unwrap();
+        let key = "a".repeat(64);
+        let thumbnail = cache.join(format!("{key}_small.jpg"));
+        fs::write(&thumbnail, b"thumbnail").unwrap();
+        fs::File::open(&thumbnail)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(std::time::UNIX_EPOCH))
+            .unwrap();
+        touch_thumbnails_at(&root, &[key]).unwrap();
+        assert!(fs::metadata(&thumbnail).unwrap().modified().unwrap() > std::time::UNIX_EPOCH);
+        let original = root.join("original.RAW");
+        fs::write(&original, b"original").unwrap();
+        let before = fs::metadata(&original).unwrap().modified().unwrap();
+        assert!(touch_thumbnails_at(&root, &["../original.RAW".into()]).is_err());
+        assert_eq!(fs::metadata(original).unwrap().modified().unwrap(), before);
+    }
+
+    #[test]
+    fn full_preview_clearing_preserves_standard_previews_and_other_session_data() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let cache = root.join(".cache");
+        fs::create_dir_all(cache.join("previews")).unwrap();
+        let standard = cache.join("previews/a.rtpx");
+        let full = cache.join("previews/a.full.rtpx");
+        let analysis = cache.join("analysis.bin");
+        for path in [&standard, &full, &analysis] {
+            fs::write(path, b"cache").unwrap();
+            fs::File::open(path)
+                .unwrap()
+                .set_times(fs::FileTimes::new().set_modified(std::time::UNIX_EPOCH))
+                .unwrap();
+        }
+        let protected = [
+            "Capture/original.RAW",
+            "Output/export.jpg",
+            "Trash/kept.RAW",
+            "masks/mask.bin",
+            "session.sqlite",
+            "photo.xmp",
+        ];
+        for path in protected {
+            let path = root.join(path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, b"original data").unwrap();
+        }
+        let owned = OwnedDirectory {
+            root: root.clone(),
+            directory: cache,
+        };
+        clear_owned_cache(&owned, Category::Session, true).unwrap();
+        assert!(!full.exists());
+        assert!(standard.exists());
+        assert!(analysis.exists());
+        clear_owned_cache(&owned, Category::Session, false).unwrap();
+        assert!(!standard.exists());
+        assert!(!analysis.exists());
+        for path in protected {
+            assert_eq!(fs::read(root.join(path)).unwrap(), b"original data");
+        }
+    }
 
     #[test]
     fn models_need_confirmation_and_are_removed_only_on_the_next_start() {
