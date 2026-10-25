@@ -11,7 +11,7 @@ import { Adjustments, MaskContainer, Coord } from '../utils/adjustments';
 import { SubMask } from '../components/panel/right/Masks';
 import { Invokes, Panel } from '../components/ui/AppProperties';
 import { GEOMETRY_KEYS, ORIENTATION_KEYS } from '../utils/geometryKeys';
-import { promptFrameKey, type ObjectPrompt } from '../utils/objectPrompts';
+import type { ObjectPrompt } from '../utils/objectPrompts';
 
 /** The adjustments that warp the photo before its orientation (the engine's
  * `GEOMETRY_KEYS`): AI masks are computed in, and record, this frame. Upright
