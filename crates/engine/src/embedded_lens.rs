@@ -189,8 +189,6 @@ pub struct SonyFrame {
     /// developed 3:2 frame's; below 1 for aspect crops), which the
     /// vignetting and CA data keep.
     pub frame_reach: f64,
-    /// Its width over its height.
-    pub aspect: f64,
     /// An interchangeable-lens body (`SonyLensSettings::interchangeable_lens`).
     pub interchangeable_lens: bool,
 }
@@ -200,7 +198,6 @@ impl SonyFrame {
     pub const FULL: SonyFrame = SonyFrame {
         reach: 1.0,
         frame_reach: 1.0,
-        aspect: 1.5,
         interchangeable_lens: false,
     };
 }
@@ -218,7 +215,6 @@ fn sony_sensor_frame(source: &RawSource) -> Option<SonyFrame> {
     let reach = w.hypot(h) / (sensor_w as f64).hypot(sensor_h as f64);
     (w > 0.0 && h > 0.0 && (0.5..=1.0).contains(&reach)).then(|| SonyFrame {
         reach,
-        aspect: w / h,
         ..SonyFrame::FULL
     })
 }
@@ -226,15 +222,16 @@ fn sony_sensor_frame(source: &RawSource) -> Option<SonyFrame> {
 /// Sony's curves for `frame`, as camera geometry version `geometry` reads
 /// them. Version 0: the distortion knots at (i + ½) / n, the corners kept on
 /// the corners. Version 1: the mapping Camera Raw and the cameras' JPEGs
-/// show (notes: parity-gaps/G71, 57 ARW files of 49 bodies): the knots lie
-/// at i / (n − 1), first on the centre and last on the corner of the
-/// sensor's active area (`sony_sensor_frame`), and an output radius u
-/// samples the sensor at A u k(u). Fixed-lens bodies frame
-/// with A = 1, so strong barrel data (RX100, ZV-1) crop inside the sensor
-/// corners; interchangeable-lens bodies with the largest frame that samples
-/// no point beyond the sensor's edges, A = 1 / max k on the frame's border
-/// (corners on the corners for pincushion data). The vignetting and CA
-/// data keep version 0's reading (not re-measured).
+/// show (notes: parity-gaps/G71, 45 ARW files of 41 bodies with the
+/// camera's correction on): the knots lie at i / (n − 1), first on the
+/// centre and last on the corner of the sensor's active area
+/// (`sony_sensor_frame`), and an output radius u samples the sensor at
+/// A u k(u). Fixed-lens bodies frame with A = 1, so strong barrel data
+/// (RX100, ZV-1) crop inside the sensor corners; interchangeable-lens bodies
+/// with the largest frame that samples no point beyond the 3:2 frame's
+/// edges, A = 1 / max k on its border (corners on the corners for pincushion
+/// data), before an aspect crop. The vignetting and CA data keep version 0's
+/// reading (not re-measured).
 pub fn sony_lens(
     distortion: &[f64],
     vignetting: Option<&[f64]>,
@@ -257,14 +254,19 @@ pub fn sony_lens(
         .map(|(i, &(_, k))| (i as f64 / last / frame.reach, k))
         .collect();
     let scale = if frame.interchangeable_lens {
-        // The border's radii run from the shorter side's midpoint to the
-        // corner; the curve is linear between its knots.
-        let short = 1.0 / frame.aspect.max(1.0 / frame.aspect).hypot(1.0);
+        // The 3:2 frame's border (the camera frames it, then crops to the
+        // aspect ratio: A7C 4:3 and ZV-E10 16:9 frames 0.27 and 0.31 JPEG px
+        // median against the camera's JPEG, 2.4 and 1.0 with their own
+        // border, 0.33 with the sensor's margins included; 24 ILC files:
+        // 0.42 median), in output radii from the shorter side's midpoint to
+        // the corner; the curve is linear between its knots.
+        let corner = 1.0 / frame.frame_reach;
+        let short = corner / 1.5f64.hypot(1.0);
         let peak = curve
             .iter()
             .map(|&(r, _)| r)
-            .filter(|r| (short..1.0).contains(r))
-            .chain([short, 1.0])
+            .filter(|r| (short..corner).contains(r))
+            .chain([short, corner])
             .map(|r| interpolate(&curve, r))
             .fold(f64::MIN, f64::max);
         1.0 / peak
@@ -2452,6 +2454,23 @@ mod tests {
         }
         // The short side's middle samples the sensor's edge.
         assert!((warp_source_radius(&data, short) - short).abs() < 4e-4);
+        // An aspect crop (4:3 of the 3:2 sensor) keeps the sensor's framing.
+        let reach = 4.0f64.hypot(3.0) / 4.5f64.hypot(3.0);
+        let cropped = SonyFrame {
+            reach,
+            frame_reach: reach,
+            ..frame
+        };
+        let data = sony_lens(&RX100M3_DISTORTION_VALUES, None, None, cropped, 1).unwrap();
+        for i in 1..=20 {
+            let u = i as f64 / 20.0;
+            let expected = scale * u * k(u * reach);
+            let got = warp_source_radius(&data, u);
+            assert!(
+                (got - expected).abs() < 4e-4,
+                "4:3 u {u}: {got} vs {expected}"
+            );
+        }
     }
 
     #[test]
