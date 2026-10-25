@@ -261,10 +261,19 @@ pub struct PinnedPhoto {
     pub metadata: Option<rawtonic_metadata::Metadata>,
     /// The EXIF its editor state or EXIF cache holds (`read_rrexif_sidecar`):
     /// what its files embed of it, and its capture date for names and file
-    /// times. None when none was read yet: the export's decode reads it
-    /// from the file, under `owner`, as for any first decode.
+    /// times. None when none was read yet (a photo never decoded): the
+    /// export then reads it from the original itself (`exif`).
     #[serde(default)]
     pub exif: Option<std::collections::BTreeMap<String, String>>,
+    /// Without `exif`: whether its export embeds the EXIF its decode reads
+    /// from the original. It does unless the library keeps the photo's
+    /// editor state beside a sidecar file, where the decode's map goes to
+    /// the file, which the library's state outranks (as on main).
+    #[serde(default)]
+    pub exif_from_original: bool,
+    /// The EXIF read from the original when it is embedded, once.
+    #[serde(skip)]
+    pub from_original: std::sync::OnceLock<Option<std::collections::HashMap<String, String>>>,
     /// The session or catalog that owns it (None: no library), under which
     /// its export runs (`with_culling_owner`), never the library open then.
     #[serde(default)]
@@ -272,18 +281,43 @@ pub struct PinnedPhoto {
 }
 
 impl PinnedPhoto {
-    /// The EXIF of `source` as this snapshot has it, else as its decode
-    /// stored it (under the photo's owner).
+    /// The EXIF of `source` as this snapshot has it, else as the original
+    /// file holds it (what its first decode caches), never as a sidecar or
+    /// library holds it by now.
     pub(crate) fn exif(&self, source: &Path) -> Option<std::collections::HashMap<String, String>> {
         match &self.exif {
             Some(exif) => Some(exif.clone().into_iter().collect()),
-            None => exif_processing::read_rrexif_sidecar(source),
+            None if !self.exif_from_original => None,
+            None => self
+                .from_original
+                .get_or_init(|| {
+                    let path = source.to_string_lossy();
+                    let exif = match read_file_mapped(source) {
+                        Ok(bytes) => exif_processing::read_exif_data_from_bytes(&path, &bytes),
+                        Err(_) => exif_processing::read_exif_data_from_bytes(
+                            &path,
+                            &fs::read(source).ok()?,
+                        ),
+                    };
+                    (!exif.is_empty()).then_some(exif)
+                })
+                .clone(),
         }
     }
 
-    /// The capture date of `source` as this snapshot has it (`exif`).
+    /// The capture date of `source` (`exif`), for its files' times.
     pub(crate) fn capture_date(&self, source: &Path) -> chrono::DateTime<chrono::Utc> {
         exif_processing::capture_date_with(source, &|| self.exif(source))
+    }
+
+    /// The capture date of `source` before it is decoded, for its names:
+    /// the snapshot's, else the file's own (`capture_date_with`).
+    fn naming_date(&self, source: &Path) -> chrono::DateTime<chrono::Utc> {
+        exif_processing::capture_date_with(source, &|| {
+            self.exif
+                .as_ref()
+                .map(|exif| exif.clone().into_iter().collect())
+        })
     }
 }
 
@@ -344,12 +378,21 @@ pub(crate) fn pin_photos(
                     Some(adjustments) if is_open_edit(path, open_path) => adjustments.clone(),
                     _ => saved.adjustments,
                 };
+                let exif = exif_processing::read_rrexif_sidecar(&source);
+                let primary = exif_processing::get_primary_sidecar_path(&source);
+                let library_state = || {
+                    crate::session_bridge::read_editor_sidecar(&primary).is_some_and(|state| {
+                        serde_json::from_value::<crate::image_processing::ImageMetadata>(state)
+                            .is_ok()
+                    })
+                };
                 Ok(PinnedPhoto {
                     adjustments,
                     metadata,
-                    exif: exif_processing::read_rrexif_sidecar(&source)
-                        .map(|exif| exif.into_iter().collect()),
+                    exif_from_original: exif.is_none() && !(primary.exists() && library_state()),
+                    exif: exif.map(|exif| exif.into_iter().collect()),
                     owner: owner.clone(),
+                    from_original: Default::default(),
                 })
             })
         })
@@ -1294,7 +1337,7 @@ fn export_photo(
     }
     let is_raw = is_raw_file(&source_path_str);
     let original_path = std::path::Path::new(&source_path_str);
-    let file_date = pinned.capture_date(original_path);
+    let file_date = pinned.naming_date(original_path);
 
     // Each recipe's file is named (and recorded) right before it is
     // written, as when each recipe was its own export.
