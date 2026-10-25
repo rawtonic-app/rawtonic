@@ -1083,7 +1083,9 @@ describe("layer panel (Capture One's list, Lightroom's components)", () => {
       fireEvent.click(within(screen.getAllByRole("menu").at(-1)!).getByRole("menuitem", { name: item }));
       expect(shape(before)).toEqual(shape(before + 1));
     });
-  });
+    // 22 layers made and checked: ~2 s alone, over the 5 s default within
+    // the full parallel run on a 6-core laptop.
+  }, 20_000);
 
   it("disables the quick row, as the + menu, until the photo is ready", () => {
     withMenu();
