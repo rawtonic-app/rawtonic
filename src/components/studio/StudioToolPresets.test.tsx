@@ -13,7 +13,7 @@ import { INITIAL_ADJUSTMENTS, type Adjustments } from "../../utils/adjustments";
 import type { AppSettings, Preset } from "../ui/AppProperties";
 import type { ToolParams } from "./StudioToolCopy";
 import { groupPresets } from "./StudioPresets";
-import { presetFitsTool, toolPresetToSave } from "./toolPresets";
+import { presetFitsTool, presetPreview, toolPresetToSave } from "./toolPresets";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const mockInvoke = vi.mocked(invoke);
@@ -341,4 +341,9 @@ describe("saving a tool preset", () => {
     const current = { ...INITIAL_ADJUSTMENTS, colorNoiseReduction: 30, colorNoiseVersion: 10 } as Adjustments;
     expect(toolPresetToSave(current, ["colorNoiseReduction"]).colorNoiseVersion).toBe(10);
   });
+});
+
+it('does not hover-preview AI preset masks with another photograph bitmap', () => {
+  const masks = [{ subMasks: [{ type: 'ai-sky', parameters: { maskDataBase64: 'data:source' } }] }] as never;
+  expect(presetPreview(INITIAL_ADJUSTMENTS, { masks }, true)).toBeNull();
 });

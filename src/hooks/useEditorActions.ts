@@ -33,6 +33,7 @@ import { splitViewAvailable } from '../utils/beforeAfter';
 import { beforeAdjustments } from '../utils/beforeSnapshot';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
 import {
+  DETECTED_TYPES,
   RESPONSES_CHOSEN,
   RESPONSE_KEYS,
   chosenSettings,
@@ -168,8 +169,8 @@ export function rememberOpenedRecipe(path: string, opened: OpenedRecipe) {
   openedRecipe = { path, ...opened };
 }
 
-/** The open photograph `open` with `pasted` (from `paste`), as the backend
- * pastes onto a closed photograph (`pasteInto`, `masks::paste_layers`): onto
+/** The open photograph `open` with `pasted` (from `paste`, null: a preset),
+ * as the backend pastes onto a closed photograph (`pasteInto`, `masks::paste_layers`): onto
  * its saved recipe while it is not edited since it was opened (then made
  * into the editor's recipe as loading does), else onto its edit. Its AI
  * bitmaps a paste changed get ids of their own (the renderer keeps bitmaps
@@ -178,7 +179,7 @@ function pastedOpen(
   open: { path: string; isRaw: boolean },
   current: Adjustments,
   pasted: Partial<Adjustments>,
-  paste: { source: string; replaceLayers: boolean; newEdit?: ReturnType<typeof newEditResponses> },
+  paste: { source: string; replaceLayers: boolean; newEdit?: ReturnType<typeof newEditResponses> } | null,
 ): Adjustments | null {
   const { history, historyPending } = useEditorStore.getState();
   // Not edited since loading: its only step is the recipe loading made (a
@@ -189,9 +190,9 @@ function pastedOpen(
       : null;
   const base = opened ? (opened.saved as Adjustments | null) : current;
   const merged = pasteInto(base && !(base as { is_null?: boolean }).is_null ? base : null, pasted, {
-    samePhoto: samePhotograph(paste.source, open.path),
-    replaceLayers: paste.replaceLayers,
-    newEdit: paste.newEdit ? (open.isRaw ? paste.newEdit.raw : paste.newEdit.other) : undefined,
+    samePhoto: Boolean(paste && samePhotograph(paste.source, open.path)),
+    replaceLayers: paste?.replaceLayers ?? true,
+    newEdit: paste?.newEdit ? (open.isRaw ? paste.newEdit.raw : paste.newEdit.other) : undefined,
   });
   if (!merged) {
     toast.error(i18next.t('studio.develop.layers.limitReached', { limit: MAX_RENDERED_LAYERS }));
@@ -789,12 +790,18 @@ export function useEditorActions() {
       const paste = pasteFrom
         ? { source: pasteFrom, replaceLayers, ...(asChosen ? { newEdit: newEditResponses() } : {}) }
         : null;
-      const pastedOntoOpen = Boolean(paste && open);
-      if (open && paste) {
+      const presetWithAiMasks = adjustmentsToApply.masks?.some((layer) =>
+        layer.subMasks.some((sub) => DETECTED_TYPES.has(sub.type)),
+      );
+      const pastedOntoOpen = Boolean(open && (paste || presetWithAiMasks));
+      if (open && pastedOntoOpen) {
         // At once, as one step: a drag's moves since the last commit are
         // part of the edit it is pasted onto.
         flushSliderDraft();
         const current = useEditorStore.getState().adjustments;
+        // Preset layers replace the photo's layers, with the same fresh
+        // detections as paste. Save the open photo through its editor only:
+        // a parallel batch write could replace a newly completed detection.
         const merged = pastedOpen(open, current, adjustmentsToApply, paste);
         if (merged) {
           const next = withPastedLensUnresolved(merged, current, adjustmentsToApply);

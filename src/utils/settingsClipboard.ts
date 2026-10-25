@@ -197,15 +197,29 @@ function pastedLayers(own: MaskContainer[] | undefined, pasted: MaskContainer[],
   return layers;
 }
 
-function withPendingDetections(layer: MaskContainer): MaskContainer {
+/** The shared paste/preset reset for a target photo. A bitmapless Object
+ * component remains pending until the user selects an object there. */
+export function withPendingDetections(layer: MaskContainer): MaskContainer {
   return {
     ...layer,
     subMasks: layer.subMasks.map((sub: SubMask) => {
       const parameters = (sub.parameters ?? {}) as Record<string, unknown>;
-      if (!DETECTED_TYPES.has(sub.type) || nothingToDetect(parameters)) return sub;
-      const next: Record<string, unknown> = { ...parameters, maskDataBase64: null, [DETECT_PENDING]: true };
-      if ('mask_data_base64' in next) next.mask_data_base64 = null;
+      if (!DETECTED_TYPES.has(sub.type)) return sub;
+      const next = { ...parameters };
+      for (const key of DETECTION_RESULT_KEYS) delete next[key];
+      next.maskDataBase64 = null;
+      if ('mask_data_base64' in parameters) next.mask_data_base64 = null;
+      if (nothingToDetect(parameters)) return { ...sub, parameters: next };
+      next[DETECT_PENDING] = true;
       return { ...sub, id: crypto.randomUUID(), parameters: next };
     }),
   };
+}
+
+/** Presets keep selection intent only. This makes a new value; a photo's own
+ * bitmaps and existing preset files are never changed by reading/applying. */
+export function presetToSave<T extends Partial<Adjustments>>(adjustments: T): T {
+  return adjustments.masks
+    ? { ...adjustments, masks: withoutDetections(adjustments.masks) as MaskContainer[] }
+    : adjustments;
 }

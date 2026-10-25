@@ -9,6 +9,7 @@ import {
   withSharpenVersion,
   type Adjustments,
 } from "../../utils/adjustments";
+import { DETECTED_TYPES, withPendingDetections } from "../../utils/settingsClipboard";
 import { developmentSignature } from "../../utils/aiDenoise";
 import { COPIED_ALONG, pick } from "./StudioToolCopy";
 
@@ -42,6 +43,9 @@ export function presetFitsTool(preset: Preset, toolKeys: readonly string[]) {
  * colour noise filter): the preview re-renders the open source only, so it
  * would show something else than applying the preset does. */
 export function presetPreview(current: Adjustments, adjustments: Partial<Adjustments>, isRaw: boolean): Adjustments | null {
+  // Detection needs the target photo, can be expensive and commits a bitmap.
+  // A hover override cannot run that edit safely.
+  if (adjustments.masks?.some((layer) => layer.subMasks.some((sub) => DETECTED_TYPES.has(sub.type)))) return null;
   const previewed = { ...current, ...presetValues(adjustments) } as Adjustments;
   return developmentSignature(previewed, isRaw) === developmentSignature(current, isRaw) ? previewed : null;
 }
@@ -58,12 +62,15 @@ export function toolPresetToSave(current: Adjustments, keys: string[]): Partial<
 
 /** A preset's settings as applying it writes them (the versions that say
  * how its values render, filled in for presets from before them), for the
- * hover preview. */
-export const presetValues = (adjustments: Partial<Adjustments>): Partial<Adjustments> =>
-  withPresetClarityVersion(
+ * hover preview and Amount control. AI layers start without source data. */
+export function presetValues(adjustments: Partial<Adjustments>): Partial<Adjustments> {
+  const target = structuredClone(adjustments);
+  if (target.masks) target.masks = target.masks.map(withPendingDetections);
+  return withPresetClarityVersion(
     withDiffractionVersion(
       withLumaNoiseVersion(
-        withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(withGrainStructure(structuredClone(adjustments))))),
+        withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(withGrainStructure(target)))),
       ),
     ),
   );
+}

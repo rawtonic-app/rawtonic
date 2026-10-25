@@ -183,6 +183,11 @@ fn next_state(lib: &Library, next: &NextCapture, previous: Option<&str>) -> Opti
 /// or a preset's parameters: marked unresolved, resolved by its first render
 /// and save (`rawtonic_engine::lens_recipe`).
 fn for_new_capture(mut adjustments: Value) -> Value {
+    if let Some(layers) = adjustments.get_mut("masks") {
+        rawtonic_engine::masks::prepare_layers_for_photo(layers, &mut || {
+            uuid::Uuid::new_v4().to_string()
+        });
+    }
     if let Some(map) = adjustments.as_object_mut()
         && map.contains_key("lensCorrectionMode")
     {
@@ -896,6 +901,22 @@ mod tests {
             &cancel,
         );
         assert!(again.skipped && none.is_none());
+    }
+
+    #[test]
+    fn new_capture_preset_masks_wait_for_the_new_photo() {
+        let own = json!({"masks": [{"subMasks": [{"id": "source", "type": "ai-sky",
+            "parameters": {"maskDataBase64": "data:source"}}]}]});
+        let first = for_new_capture(own.clone());
+        let second = for_new_capture(own.clone());
+        let sub = &first["masks"][0]["subMasks"][0];
+        assert!(sub["parameters"]["maskDataBase64"].is_null());
+        assert_eq!(sub["parameters"]["detectPending"], true);
+        assert_ne!(sub["id"], second["masks"][0]["subMasks"][0]["id"]);
+        assert_eq!(
+            own["masks"][0]["subMasks"][0]["parameters"]["maskDataBase64"],
+            "data:source"
+        );
     }
 
     #[test]
