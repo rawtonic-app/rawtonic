@@ -311,22 +311,54 @@ fn hue_difference(a: f64, b: f64) -> f64 {
 /// extent below/above that colour (HSV degrees), 11 the lowest saturation it
 /// takes (−100 all), 13 smoothness, 15 inverted. Rawtonic's ranges are
 /// symmetric windows in Oklab hue (at most eight); all-colour and inverted
-/// entries are not translated.
+/// entries are not translated. List 2 is a skin entry: fields 14/16/17 are
+/// H/S/L uniformity. Its picked colour is the target, with our approximate
+/// unit conversion below (reported as a partial Colour Editor import).
 fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
     let mut ranges = Vec::new();
     let mut untranslated = false;
-    for entry in value.split(';') {
-        let f: Vec<f64> = entry
-            .split(',')
-            .map(|n| n.trim().parse().unwrap_or(0.0))
-            .collect();
-        if f.len() < 18 || f[1] == 0.0 || (f[3] == 0.0 && f[4] == 0.0 && f[5] == 0.0) {
+    let mut skin_seen = false;
+    for entry in value.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+        let Some(f) =
+            numbers(entry, ',').filter(|v| v.len() == 18 && v.iter().all(|n| n.is_finite()))
+        else {
+            untranslated = true;
+            continue;
+        };
+        if f[1] == 0.0 {
             continue;
         }
-        if f[0] == 0.0 || f[15] != 0.0 || ranges.len() >= 8 {
+        let skin = f[2] == 2.0;
+        if !skin && f[2] != 1.0 {
             untranslated = true;
             continue;
         }
+        let uniformity = skin && [f[14], f[16], f[17]].iter().any(|u| *u != 0.0);
+        if f[3] == 0.0 && f[4] == 0.0 && f[5] == 0.0 && !uniformity {
+            continue;
+        }
+        if f[0] != 1.0
+            || f[15] != 0.0
+            || ranges.len() >= 8
+            || (skin && skin_seen)
+            || f[6..9].iter().any(|c| !(0.0..=255.0).contains(c))
+        {
+            untranslated = true;
+            continue;
+        }
+        // Uniformity is only an approximation (notably for lightness on
+        // dark picks); name the tool in the partial-import report. The
+        // range model cannot express an upper saturation bound, nor keep
+        // asymmetric hue edges and the skin's picked target independently.
+        untranslated |= uniformity
+            || f[12] != 100.0
+            || (skin && (f[9] + f[10]).abs() > 1e-6)
+            || !(0.0..=50.0).contains(&f[13])
+            || !(-100.0..=100.0).contains(&f[11])
+            || (skin
+                && [f[14], f[16], f[17]]
+                    .iter()
+                    .any(|u| !(0.0..=100.0).contains(u)));
         // Capture One turns hues as an HSV turn of the range's colour at
         // 60 % of its saturation and 80 % of its value would (the pixels a
         // range takes are rarely its pure colour), measured in Oklab.
@@ -349,7 +381,11 @@ fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
                 CE_LIGHT_DOWN
             };
         let round = |x: f64| (x * 1000.0).round() / 1000.0;
-        ranges.push(json!({
+        let (picked_l, picked_c, picked_h) = srgb_to_oklch(pure);
+        untranslated |= (2.0 * CE_HUE_SCALE * turn).abs() > 100.0
+            || saturation.abs() > 100.0
+            || lightness.abs() > 100.0;
+        let mut range = json!({
             "id": Uuid::new_v4().to_string(),
             "hue": round((hue + 0.5 * (below + above)).rem_euclid(360.0)),
             "chroma": CE_CHROMA,
@@ -364,7 +400,24 @@ fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
             "hueUniformity": 0,
             "saturationUniformity": 0,
             "lightnessUniformity": 0,
-        }));
+        });
+        if skin {
+            range["kind"] = json!("skin");
+            // Unlike an Advanced range, the centre is also the uniformity
+            // target: retain the picked colour, not a typical-pixel proxy.
+            range["hue"] = json!(round(picked_h));
+            range["chroma"] = json!((picked_c * 1e6).round() / 1e6);
+            range["lightness"] = json!((picked_l * 1e6).round() / 1e6);
+            for (key, field, scale) in [
+                ("hueUniformity", 14, SKIN_UNIFORMITY_H),
+                ("saturationUniformity", 16, SKIN_UNIFORMITY_S),
+                ("lightnessUniformity", 17, SKIN_UNIFORMITY_L),
+            ] {
+                range[key] = json!(round(f[field].clamp(0.0, 100.0) * scale));
+            }
+            skin_seen = true;
+        }
+        ranges.push(range);
     }
     (ranges, untranslated)
 }
@@ -383,6 +436,16 @@ const CE_CHROMA: f64 = 0.12;
 const CE_CHROMA_FLOOR: f64 = 0.883;
 const CE_LIGHT_UP: f64 = 16.65;
 const CE_LIGHT_DOWN: f64 = 15.37;
+
+// Our unit conversion, measured on own headless renders against C1's
+// change from its neutral render: three portraits, separate H/S/L at 50,
+// equal-photo normalized squared Oklab residual on hand-marked skin.
+// Fourth portrait and strengths 75/100 excluded from the conversion fit.
+// Approximate, not parity: notes reference/capture-one-color-editor.md and
+// benchmark-results/cx11-skin-import-2026-10-25/ (includes held-out error).
+const SKIN_UNIFORMITY_H: f64 = 0.59;
+const SKIN_UNIFORMITY_S: f64 = 0.09;
+const SKIN_UNIFORMITY_L: f64 = 0.13;
 
 /// Reads the `<E K="…" V="…"/>` entries; later entries win (a `.cos` file
 /// lists defaults before the variant's values).
@@ -828,6 +891,108 @@ mod tests {
         println!(
             "converted {ok}, refused {failed}, with colour ranges {with_ranges}, untranslated {reports:?}"
         );
+    }
+
+    #[test]
+    fn imports_skin_uniformity_without_amount_shifts() {
+        let style = r#"<SL><E K="ColorCorrections" V="1,1,2,0,0,0,180,120,90,-25,35,-100,100,15,40,0,60,80"/></SL>"#;
+        let a = super::convert_costyle_to_preset(style, "skin")
+            .unwrap()
+            .adjustments;
+        let r = &a["colorRanges"][0];
+        assert_eq!(r["kind"], json!("skin"));
+        let (l, c, h) = super::srgb_to_oklch([180.0 / 255.0, 120.0 / 255.0, 90.0 / 255.0]);
+        for (key, expected) in [("hue", h), ("chroma", c), ("lightness", l)] {
+            assert!((r[key].as_f64().unwrap() - expected).abs() < 0.001, "{key}");
+        }
+        for (key, expected) in [
+            ("hueUniformity", 23.6),
+            ("saturationUniformity", 5.4),
+            ("lightnessUniformity", 10.4),
+        ] {
+            assert!((r[key].as_f64().unwrap() - expected).abs() < 0.001, "{key}");
+        }
+        assert_eq!(
+            super::untranslated_settings(style),
+            ["colorEditor"],
+            "approximation must be visible"
+        );
+    }
+
+    #[test]
+    fn reports_unsupported_skin_fields_and_keeps_supported_amounts() {
+        // Upper saturation bound is not represented by the range model.
+        let style = r#"<SL><E K="ColorCorrections" V="1,1,2,3,-10,1,180,120,90,-30,30,-100,60,15,0,0,0,0"/></SL>"#;
+        let a = super::convert_costyle_to_preset(style, "skin")
+            .unwrap()
+            .adjustments;
+        assert_eq!(a["colorRanges"][0]["kind"], json!("skin"));
+        let r = &a["colorRanges"][0];
+        assert!(r["hueShift"].as_f64().unwrap() > 0.0);
+        assert_eq!(r["saturation"], json!(-11.51));
+        assert_eq!(r["lightnessShift"], json!(16.65));
+        assert_eq!(r["chromaRange"], json!(100.0));
+        assert_eq!(r["lightnessRange"], json!(100));
+        assert_eq!(r["smoothness"], json!(45.835));
+        assert_eq!(super::untranslated_settings(style), ["colorEditor"]);
+        assert!(super::untranslated_settings(&style.replace(",-100,60,", ",-100,100,")).is_empty());
+    }
+
+    #[test]
+    fn skin_entries_respect_enable_and_single_skin_range_limit() {
+        let skin = "1,1,2,0,0,0,180,120,90,-30,30,-100,100,15,50,0,0,0";
+        let (ranges, report) = super::color_editor_ranges(&format!("{skin};{skin}"));
+        assert_eq!(ranges.len(), 1);
+        assert!(report, "a second skin range must be reported");
+        let (ranges, report) = super::color_editor_ranges(&skin.replacen("1,1,2", "1,0,2", 1));
+        assert!(ranges.is_empty());
+        assert!(!report);
+        let (ranges, report) = super::color_editor_ranges(&skin.replace(",50,0,0,0", ",0,0,0,0"));
+        assert!(ranges.is_empty());
+        assert!(!report);
+        let advanced = skin.replacen("1,1,2", "1,1,1", 1);
+        assert!(
+            super::color_editor_ranges(&advanced).0.is_empty(),
+            "unused Basic/Advanced uniformity fields do nothing"
+        );
+        let advanced = "1,1,1,5,0,0,180,120,90,-30,30,-100,100,15,0,0,0,0";
+        let mixed = format!("{advanced};{skin}");
+        let (ranges, report) = super::color_editor_ranges(&mixed);
+        assert_eq!(ranges.len(), 2);
+        assert!(report, "skin uniformity is approximate");
+        assert!(ranges[0].get("kind").is_none());
+        assert_eq!(ranges[1]["kind"], json!("skin"));
+        let full = format!("{};{skin}", [advanced; 8].join(";"));
+        assert_eq!(super::color_editor_ranges(&full).0.len(), 8);
+        assert!(super::color_editor_ranges(&full).1);
+    }
+
+    #[test]
+    fn malformed_or_unknown_active_color_entries_are_reported() {
+        for entry in [
+            "1,1,2,0,0,0,180,120,90", // truncated
+            "1,1,2,0,0,0,180,120,90,-30,30,-100,100,15,NaN,0,0,0",
+            "1,1,2,0,0,0,180,120,90,-30,30,-100,100,15,oops,0,0,0",
+            "1,1,2,0,0,0,180,120,90,-30,30,-100,100,15,50,0,0,0,99", // future field
+            "1,1,3,5,0,0,180,120,90,-30,30,-100,100,15,0,0,0,0",     // unknown list
+            "1,1,2,0,0,0,180,120,90,-30,30,-100,100,15,50,1,0,0",    // inverted
+            "0,1,2,0,0,0,180,120,90,-30,30,-100,100,15,50,0,0,0",    // all colours
+        ] {
+            // Keep a supported edit so this tests the partial-import report;
+            // a style with only an unsupported look is refused outright.
+            let style = format!(
+                r#"<SL><E K="Exposure" V="0.1"/><E K="ColorCorrections" V="{entry}"/></SL>"#
+            );
+            let a = super::convert_costyle_to_preset(&style, "x")
+                .unwrap()
+                .adjustments;
+            assert!(a.get("colorRanges").is_none(), "{entry}");
+            assert_eq!(
+                super::untranslated_settings(&style),
+                ["colorEditor"],
+                "{entry}"
+            );
+        }
     }
 
     #[test]
