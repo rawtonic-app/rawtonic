@@ -284,7 +284,6 @@
       "failed": "Edita amb ha fallat: {{error}}",
       "generatedAreas": "Edita amb encara no està disponible per a fotos amb zones generades: {{names}}",
       "label": "Edita amb",
-      "libraryChanged": "S’ha obert una altra biblioteca abans que Edita amb acabés: s’han cancel·lat els renderitzats pendents.",
       "notLinked": "Renderitzat, però no afegit a la biblioteca: {{error}}",
       "openIn": "Obre a",
       "recipe": "Recepta",

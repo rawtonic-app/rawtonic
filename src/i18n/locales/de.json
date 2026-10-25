@@ -283,7 +283,6 @@
       "failed": "Bearbeiten mit fehlgeschlagen: {{error}}",
       "generatedAreas": "„Bearbeiten mit“ ist für Fotos mit generierten Bereichen noch nicht verfügbar: {{names}}",
       "label": "Bearbeiten mit",
-      "libraryChanged": "Eine andere Bibliothek wurde geöffnet, bevor „Bearbeiten mit“ fertig war: Die noch nicht gerenderten Dateien wurden abgebrochen.",
       "notLinked": "Gerendert, aber nicht zur Bibliothek hinzugefügt: {{error}}",
       "openIn": "Öffnen in",
       "recipe": "Rezept",

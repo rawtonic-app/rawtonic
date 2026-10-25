@@ -264,7 +264,7 @@ export enum Invokes {
   OpenWithPrefs = 'open_with_prefs',
   EditWithApps = 'edit_with_apps',
   EditWithSetRecipe = 'edit_with_set_recipe',
-  EditWithTargets = 'edit_with_targets',
+  EditWithStart = 'edit_with_start',
   EditWithFinish = 'edit_with_finish',
   StartBackgroundIndexing = 'start_background_indexing',
   MergePhotos = 'merge_photos',

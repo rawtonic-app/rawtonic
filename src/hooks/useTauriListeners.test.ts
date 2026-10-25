@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { useTauriListeners } from "./useTauriListeners";
 import { useProcessStore } from "../store/useProcessStore";
 import { useLibraryStore } from "../store/useLibraryStore";
-import { useEditorStore } from '../store/useEditorStore';
+import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { CLOSED_MERGE_MODAL, useUIStore } from '../store/useUIStore';
 import type { ImageFile, SelectedImage } from '../components/ui/AppProperties';
 import { invoke } from "@tauri-apps/api/core";
@@ -608,4 +608,33 @@ it('keeps the undo history of an Edit With render decoded again after a save', (
   // …and the kept one comes back: undo and redo still work.
   expect(useEditorStore.getState().history).toBe(steps);
   expect(useEditorStore.getState().historyIndex).toBe(1);
+});
+
+it('keeps an undo step still pending when an Edit With render is decoded again', () => {
+  renderHook(() => useTauriListeners({
+    refreshAllFolderTrees: vi.fn(), handleSelectSubfolder: vi.fn(),
+    refreshImageList: vi.fn(), markGenerated: vi.fn(),
+  }));
+  const steps = [{ exposure: 0 }, { exposure: 0.3 }] as never[];
+  const edit = { exposure: 0.9 } as never;
+  useEditorStore.getState().setEditor({
+    isSliderDragging: false,
+    selectedImage: { path: '/s/A_edit.tiff', isReady: true, isDecoded: true } as SelectedImage,
+    adjustments: edit,
+    history: steps,
+    historyIndex: 1,
+  });
+  // The last edit's undo step waits for its debounce.
+  debouncedSetHistory(edit);
+  act(() => callbacks.get('edit-with-saved')!({ payload: { path: '/s/A_edit.tiff' } }));
+  // Its timer fires while the render decodes.
+  act(() => debouncedSetHistory.flush());
+  act(() => useEditorStore.getState().setEditor({ history: [edit], historyIndex: 0 }));
+  act(() => useEditorStore.getState().setEditor({
+    selectedImage: { path: '/s/A_edit.tiff', isReady: true, isDecoded: true } as SelectedImage,
+  }));
+  const { history, historyIndex, adjustments } = useEditorStore.getState();
+  expect(history.slice(0, 2)).toEqual(steps);
+  expect(history[historyIndex]).toEqual(adjustments);
+  expect(historyIndex).toBe(2);
 });

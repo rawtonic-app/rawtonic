@@ -284,7 +284,6 @@
       "failed": "Editar com falhou: {{error}}",
       "generatedAreas": "Editar com ainda não está disponível para fotografias com áreas geradas: {{names}}",
       "label": "Editar com",
-      "libraryChanged": "Foi aberta outra biblioteca antes de Editar com terminar: as renderizações ainda por fazer foram canceladas.",
       "notLinked": "Renderizado, mas não adicionado à biblioteca: {{error}}",
       "openIn": "Abrir em",
       "recipe": "Receita",

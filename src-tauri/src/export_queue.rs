@@ -7,7 +7,8 @@
 //! resumes single jobs and follows each photo (`export-item-progress`).
 use crate::app_state::AppState;
 use crate::export_processing::{
-    ExportAdjustmentsMode, ExportSettings, ExportTarget, export_images_impl,
+    ExportAdjustmentsMode, ExportSettings, ExportTarget, PinnedPhoto, export_images_impl,
+    photo_inputs,
 };
 use rawtonic_export::queue::{ExportQueue, Item, ItemState, Job, JobState, RunEnd};
 use serde::{Deserialize, Serialize};
@@ -72,20 +73,53 @@ pub struct ExportRequest {
     pub output_format: String,
     pub current_edit_path: Option<String>,
     pub current_edit_adjustments: Option<Value>,
-    /// The session or catalog open when it was queued (filled in by
-    /// `enqueue_all`). Recipes and metadata are read through the open one,
-    /// so its photos are not exported while another is open: the job stops
-    /// and resumes once that library is open again.
+    /// Each photo's recipe and library metadata, read when it was queued
+    /// (`pin`): the job renders them, whichever library is open when it
+    /// runs. None only in jobs queued before they were pinned.
     #[serde(default)]
-    pub library: Option<std::path::PathBuf>,
+    pub pinned: Option<Vec<PinnedPhoto>>,
+}
+
+impl ExportRequest {
+    /// Reads what each photo is exported with now, through the library that
+    /// manages it (`photo_inputs`), unless that was done already.
+    pub fn pin(&mut self) -> Result<(), String> {
+        if self.pinned.is_some() {
+            return Ok(());
+        }
+        let now = ExportAdjustmentsMode::UseSidecars {
+            active_path: self.current_edit_path.clone(),
+            active_adjustments: self.current_edit_adjustments.clone(),
+        };
+        self.pinned = Some(
+            self.paths
+                .iter()
+                .enumerate()
+                .map(|(index, path)| photo_inputs(&now, index, path))
+                .collect::<Result<_, _>>()?,
+        );
+        Ok(())
+    }
+
+    /// How the runner reads the photos' recipes: as pinned.
+    fn adjustments_mode(self) -> ExportAdjustmentsMode {
+        match self.pinned {
+            Some(photos) => ExportAdjustmentsMode::Pinned {
+                active_path: self.current_edit_path,
+                photos: Arc::new(photos),
+            },
+            None => ExportAdjustmentsMode::UseSidecars {
+                active_path: self.current_edit_path,
+                active_adjustments: self.current_edit_adjustments,
+            },
+        }
+    }
 }
 
 /// Which photos of a queued job to render and where their state goes.
 #[derive(Clone)]
 pub struct Tracking {
     pub job: String,
-    /// `ExportRequest::library`.
-    library: Option<std::path::PathBuf>,
     /// Indices still to export; the others finished in an earlier run.
     pub pending: Arc<HashSet<usize>>,
     pub already_done: usize,
@@ -177,22 +211,9 @@ impl Tracking {
         self.paused.load(Ordering::SeqCst)
     }
     /// Reserves photo export for this job: false once it is paused,
-    /// cancelled on its own or settled, or when the library it was queued
-    /// in is no longer the open one (the job then stops as cancelled, to be
-    /// resumed with that library open). An admitted photo must end with
+    /// cancelled on its own or settled. An admitted photo must end with
     /// `finished` (or with the run being cancelled as a whole).
     pub fn admit(&self) -> bool {
-        if !library_still_open(
-            self.library.as_deref(),
-            crate::session_bridge::active_library_directory().as_deref(),
-        ) {
-            log::warn!(
-                "Export '{}' stopped: the library it was queued in is no longer open",
-                self.job
-            );
-            self.cancelled.store(true, Ordering::SeqCst);
-            return false;
-        }
         self.run.admit(&self.paused, &self.cancelled)
     }
     /// An admitted photo's attempt begins: its source is read next.
@@ -362,23 +383,35 @@ fn label_for(request: &ExportRequest) -> String {
 }
 
 /// Adds an export to the queue and starts the queue if it is idle.
-pub fn enqueue(app: &AppHandle, request: ExportRequest) -> Result<String, String> {
-    enqueue_all(app, vec![request]).map(|mut ids| ids.remove(0))
+pub async fn enqueue(app: &AppHandle, request: ExportRequest) -> Result<String, String> {
+    enqueue_all(app, vec![request])
+        .await
+        .map(|mut ids| ids.remove(0))
 }
 
 /// Adds exports to the queue together (a photo set's ticked recipes, which
 /// then run as one: each photo is developed once for all of them) and
-/// starts the queue if it is idle.
-pub fn enqueue_all(
+/// starts the queue if it is idle. Each is pinned first (`pin`).
+pub async fn enqueue_all(
     app: &AppHandle,
     mut requests: Vec<ExportRequest>,
 ) -> Result<Vec<String>, String> {
-    let open = crate::session_bridge::active_library_directory();
-    for request in &mut requests {
-        if request.library.is_none() {
-            request.library = open.clone();
+    requests = tauri::async_runtime::spawn_blocking(move || {
+        for request in &mut requests {
+            request.pin()?;
         }
-    }
+        Ok::<_, String>(requests)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    enqueue_pinned(app, requests)
+}
+
+/// `enqueue_all` for requests already pinned.
+pub fn enqueue_pinned(
+    app: &AppHandle,
+    requests: Vec<ExportRequest>,
+) -> Result<Vec<String>, String> {
     let requests = requests
         .iter()
         .map(|request| Ok((label_for(request), serde_json::to_value(request)?, request)))
@@ -397,11 +430,6 @@ pub fn enqueue_all(
     Ok(ids)
 }
 
-/// Whether a job queued in `queued_in` may export now that `open` is open.
-fn library_still_open(queued_in: Option<&Path>, open: Option<&Path>) -> bool {
-    queued_in.is_none_or(|queued_in| open == Some(queued_in))
-}
-
 /// Whether two queued exports render the same photos with the same recipes
 /// (develop settings) and so can share each photo's develop.
 fn same_photos(a: &Value, b: &Value) -> bool {
@@ -409,7 +437,7 @@ fn same_photos(a: &Value, b: &Value) -> bool {
         "paths",
         "currentEditPath",
         "currentEditAdjustments",
-        "library",
+        "pinned",
     ]
     .iter()
     .all(|key| a.get(key) == b.get(key))
@@ -580,7 +608,6 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
             .collect();
         let tracking = Tracking {
             job: job.id.clone(),
-            library: request.library.clone(),
             already_done: items.len() - pending.len(),
             pending: Arc::new(pending),
             cancelled: Arc::new(AtomicBool::new(false)),
@@ -625,12 +652,9 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
     let (tx, rx) = tokio::sync::oneshot::channel();
     let state = app.state::<AppState>();
     let started = export_images_impl(
-        request.paths,
+        request.paths.clone(),
         targets,
-        ExportAdjustmentsMode::UseSidecars {
-            active_path: request.current_edit_path,
-            active_adjustments: request.current_edit_adjustments,
-        },
+        request.adjustments_mode(),
         state,
         app.clone(),
         Some(tx),
@@ -707,22 +731,40 @@ pub fn export_queue_remove(job: String, app: AppHandle) -> Result<(), String> {
 mod tests {
 
     #[test]
-    fn a_job_exports_only_while_its_library_is_open() {
-        let a = Path::new("/Jobs/A.session");
-        let b = Path::new("/Jobs/B.catalog");
-        assert!(library_still_open(Some(a), Some(a)));
-        assert!(!library_still_open(Some(a), Some(b)));
-        assert!(!library_still_open(Some(a), None));
-        // Queued with no library open (folders): never held back.
-        assert!(library_still_open(None, Some(b)));
-        assert!(library_still_open(None, None));
+    fn jobs_pinned_to_different_recipes_never_share_a_develop() {
+        let job = |exposure: f64| serde_json::json!({"paths": ["/p/a.nef"], "currentEditPath": null, "currentEditAdjustments": null, "pinned": [{"adjustments": {"exposure": exposure}, "metadata": null}]});
+        assert!(same_photos(&job(1.0), &job(1.0)));
+        assert!(!same_photos(&job(1.0), &job(2.0)));
     }
 
     #[test]
-    fn jobs_of_different_libraries_never_share_a_develop() {
-        let job = |library: &str| serde_json::json!({"paths": ["/p/a.nef"], "currentEditPath": null, "currentEditAdjustments": null, "library": library});
-        assert!(same_photos(&job("/A"), &job("/A")));
-        assert!(!same_photos(&job("/A"), &job("/B")));
+    fn a_queued_export_keeps_the_recipe_and_metadata_it_was_queued_with() {
+        use rawtonic_catalog::{Library, Mode};
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("S");
+        let lib = Library::create(&dir, "S", Mode::Session).unwrap();
+        let source = dir.join("Capture/A.jpg");
+        std::fs::write(&source, b"jpeg").unwrap();
+        let asset = lib.add_asset(&source).unwrap();
+        let recipe = |exposure: f64, rating: u8| json!({"version": 1, "rating": rating, "adjustments": {"exposure": exposure}});
+        lib.save_editor_state(&asset.id, &recipe(1.0, 4)).unwrap();
+        let path = source.to_string_lossy().into_owned();
+        let mut request: ExportRequest = serde_json::from_value(json!({
+            "paths": [path], "outputFolderOrFile": "/out", "isExplicitFilePath": false,
+            "baseOriginFolders": [], "exportSettings": {"jpegQuality": 85, "keepMetadata": true, "stripGps": false},
+            "outputFormat": "jpeg", "currentEditPath": null, "currentEditAdjustments": null,
+        }))
+        .unwrap();
+        request.pin().unwrap();
+
+        // Changed (or another library opened) before the job runs.
+        lib.save_editor_state(&asset.id, &recipe(2.0, 1)).unwrap();
+        assert_eq!(lib.metadata(&asset.id).unwrap().rating, 1);
+        let request: ExportRequest =
+            serde_json::from_value(serde_json::to_value(&request).unwrap()).unwrap();
+        let photo = photo_inputs(&request.adjustments_mode(), 0, &path).unwrap();
+        assert_eq!(photo.adjustments["exposure"], json!(1.0));
+        assert_eq!(photo.metadata.unwrap().rating, 4);
     }
 
     use super::*;

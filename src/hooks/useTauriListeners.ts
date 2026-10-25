@@ -12,7 +12,7 @@ import {
   useProcessStore,
 } from '../store/useProcessStore';
 import { followsExportItems, loadExportItems } from '../components/studio/StudioExportQueue';
-import { useEditorStore } from '../store/useEditorStore';
+import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { libraryImageIndex } from '../utils/libraryIndex';
@@ -330,8 +330,13 @@ export function useTauriListeners({
         // Its undo history stays: the load starts a new one, which is
         // replaced by the kept one once the photograph is ready again.
         const reload = () => {
+          const shown = useEditorStore.getState().selectedImage;
+          if (!shown?.isDecoded || shown.path.split('?vc=')[0] !== path) return;
+          // An undo step still waiting for its debounce goes into the
+          // history kept, not into the loader's new one.
+          debouncedSetHistory.flush();
           const { selectedImage, adjustments, history, historyIndex, setEditor } = useEditorStore.getState();
-          if (!selectedImage?.isDecoded || selectedImage.path.split('?vc=')[0] !== path) return;
+          if (!selectedImage) return;
           debouncedSave(selectedImage.path, adjustments);
           debouncedSave.flush();
           setEditor({ selectedImage: { ...selectedImage, isDecoded: false, isReady: false } });

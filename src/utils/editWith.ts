@@ -2,10 +2,10 @@ import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
 import type { ExportPreset, ExportSettings } from '../components/ui/ExportImportProperties';
 import { DEFAULT_RECIPE_DRAFT, exportSettingsFromDraft, exportSettingsFromPreset, savedRecipes } from './exportRecipes';
-import { currentEditForExport, useEditorStore } from '../store/useEditorStore';
+import { currentEditForExport, debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useProcessStore, type ExportJob } from '../store/useProcessStore';
-import { debouncedSave } from '../hooks/useEditorActions';
+import { flushRecipeSaves } from '../hooks/useEditorActions';
 
 /** A program offered by Open With / Edit With (`open_with.rs`). */
 export interface AppChoice {
@@ -85,13 +85,14 @@ export interface EditWithResult {
   problems: string[];
 }
 
-/** The export requests of an Edit With: each photograph to its own file
- * (named by `edit_with_targets`), with the recipe's settings. Only where the
- * file goes differs from an Export with that recipe, so the renders are the
- * same bytes; except that Edit With writes no separate mask files: a recipe
- * that exports them gets one flattened image with every layer applied (the
- * other program edits one file), not the main image of such an Export. */
-export function editRequests(targets: EditTarget[], recipe: EditRecipe) {
+/** The export request of an Edit With render, without the photograph and
+ * its file (`edit_with_start` names one for each and pins its recipe). Only
+ * where the file goes differs from an Export with that recipe, so the
+ * renders are the same bytes; except that Edit With writes no separate mask
+ * files: a recipe that exports them gets one flattened image with every
+ * layer applied (the other program edits one file), not the main image of
+ * such an Export. */
+export function editRequest(recipe: EditRecipe) {
   const exportSettings: ExportSettings = {
     ...recipe.settings,
     // An explicit file: not beside the original by template, no mask files.
@@ -100,15 +101,15 @@ export function editRequests(targets: EditTarget[], recipe: EditRecipe) {
     filenameTemplate: null,
     exportMasks: false,
   };
-  return targets.map(({ source, target }) => ({
-    paths: [source],
-    outputFolderOrFile: target,
+  return {
+    paths: [] as string[],
+    outputFolderOrFile: '',
     isExplicitFilePath: true,
     baseOriginFolders: useLibraryStore.getState().rootPaths,
     exportSettings,
     outputFormat: recipe.outputFormat,
     ...currentEditForExport(useEditorStore.getState()),
-  }));
+  };
 }
 
 const settled = (state: ExportJob['state']) => state !== 'queued' && state !== 'running' && state !== 'paused';
@@ -116,25 +117,12 @@ const settled = (state: ExportJob['state']) => state !== 'queued' && state !== '
 /** Waits until the queue has finished `jobs`: the ids that were done. Each
  * job's last seen state counts, so one the queue dropped after it finished
  * (it keeps only the latest finished jobs) is still known as done; one
- * removed while still waiting counts as not done. When `abandon()` turns
- * true first, the jobs not finished are cancelled and `abandoned` is set. */
-export function waitForJobs(
-  jobs: string[],
-  abandon: () => boolean = () => false,
-): Promise<{ done: Set<string>; abandoned: boolean }> {
+ * removed while still waiting counts as not done. */
+export function waitForJobs(jobs: string[]): Promise<Set<string>> {
   return new Promise((resolve) => {
     const seen = new Map<string, ExportJob['state']>();
+    let stop: (() => void) | null = null;
     let ended = false;
-    let stops: Array<() => void> = [];
-    const finish = (abandoned: boolean) => {
-      ended = true;
-      stops.forEach((stop) => stop());
-      const done = new Set(jobs.filter((id) => seen.get(id) === 'done'));
-      if (abandoned)
-        for (const id of jobs)
-          if (!done.has(id)) invoke(Invokes.ExportQueueCancel, { job: id }).catch(() => {});
-      resolve({ done, abandoned });
-    };
     const check = () => {
       if (ended) return;
       const present = new Set<string>();
@@ -147,38 +135,39 @@ export function waitForJobs(
         const state = seen.get(id);
         return state !== undefined && (!present.has(id) || settled(state));
       });
-      if (finished) finish(false);
-      else if (abandon()) finish(true);
+      if (!finished) return;
+      ended = true;
+      stop?.();
+      resolve(new Set(jobs.filter((id) => seen.get(id) === 'done')));
     };
-    stops = [useProcessStore.subscribe(check), useLibraryStore.subscribe(check)];
+    stop = useProcessStore.subscribe(check);
     check();
+    if (ended) stop();
   });
 }
 
 export interface EditWithRun extends EditWithResult {
   rendered: number;
   failed: number;
-  /** Another session or catalog was opened before the renders were done:
-   * the rest were cancelled (they would have rendered with its recipes). */
-  libraryChanged: boolean;
 }
 
 /** Renders `paths` with `recipe` beside their originals, adds the renders to
- * the library stacked with their originals and opens them in `program`. */
+ * the library stacked with their originals and opens them in `program`. The
+ * editor's pending edits are saved first, and its undo step recorded; each
+ * render then takes its photograph's recipe and metadata as they were when
+ * it was queued, also if another library is opened meanwhile. */
 export async function runEditWith(paths: string[], recipe: EditRecipe, program: string): Promise<EditWithRun> {
-  debouncedSave.flush();
-  const library = useLibraryStore.getState().sessionDirectory;
-  const targets = await invoke<EditTarget[]>(Invokes.EditWithTargets, {
+  debouncedSetHistory.flush();
+  const unsaved = new Set(await flushRecipeSaves());
+  const notSaved = paths.filter((path) => unsaved.has(path));
+  if (notSaved.length) throw new Error(`Edits not saved: ${notSaved.join(', ')}`);
+  const { targets, jobs } = await invoke<{ targets: EditTarget[]; jobs: string[] }>(Invokes.EditWithStart, {
     paths,
-    extension: recipe.outputFormat,
+    recipe: editRequest(recipe),
   });
-  const jobs = await invoke<string[]>(Invokes.ExportImagesBatch, { requests: editRequests(targets, recipe) });
-  const { done, abandoned } = await waitForJobs(
-    jobs,
-    () => useLibraryStore.getState().sessionDirectory !== library,
-  );
+  const done = await waitForJobs(jobs);
   const rendered = targets.filter((_, i) => done.has(jobs[i]));
-  const counts = { rendered: rendered.length, failed: targets.length - rendered.length, libraryChanged: abandoned };
+  const counts = { rendered: rendered.length, failed: targets.length - rendered.length };
   if (!rendered.length) return { ...counts, linked: 0, problems: [] };
   const result = await invoke<EditWithResult>(Invokes.EditWithFinish, { items: rendered, program });
   return { ...counts, ...result };

@@ -3,14 +3,15 @@
 //!
 //! Open With hands the original files to the program the user picks and
 //! never writes or moves them. Edit With renders each photograph through the
-//! normal export (the frontend queues it with the chosen recipe to the files
-//! `edit_with_targets` names), then `edit_with_finish` registers each render
+//! normal export (`edit_with_start` queues it, pinned, with the chosen
+//! recipe to a free name beside the original), then `edit_with_finish` registers each render
 //! as a photograph of its own stacked with its original
 //! (`Library::set_derived_from`), opens them all in the program in one
 //! launch and watches them, so a save there refreshes the thumbnail.
 //!
 //! The programs offered for a file come from LaunchServices on macOS. Other
 //! systems report `supported: false` and the menus show the entries disabled.
+use crate::export_queue::ExportRequest;
 use rawtonic_catalog::Library;
 use rawtonic_export::sidecars::parse_virtual_path;
 use serde::{Deserialize, Serialize};
@@ -153,14 +154,16 @@ fn original_files(paths: &[String]) -> Vec<PathBuf> {
 
 /// A free name for a render of `original` beside it: `NAME_edit.ext`, then
 /// `NAME_edit-2.ext`, … Names in `taken` (other renders of the same run)
-/// count as used. The render itself is written no-clobber, so a file that
-/// appears in between makes it fail rather than be overwritten.
+/// count as used. A folder that cannot be listed or a library that cannot
+/// say whether a name is registered frees no name: planning fails. The
+/// render itself is written no-clobber, so a file that appears in between
+/// makes it fail rather than be overwritten.
 pub fn edit_target(
     original: &Path,
     extension: &str,
     taken: &HashSet<PathBuf>,
-    registered: &dyn Fn(&Path) -> bool,
-) -> PathBuf {
+    registered: &dyn Fn(&Path) -> Result<bool, String>,
+) -> Result<PathBuf, String> {
     let folder = original.parent().unwrap_or(Path::new(""));
     let stem = original
         .file_stem()
@@ -170,46 +173,48 @@ pub fn edit_target(
     // render never depends on whether the volume tells them apart.
     let lower = |path: &Path| path.file_name().map(|n| n.to_string_lossy().to_lowercase());
     let mut used: HashSet<String> = fs::read_dir(folder)
-        .map(|entries| {
+        .and_then(|entries| {
             entries
-                .flatten()
-                .map(|entry| entry.file_name().to_string_lossy().to_lowercase())
+                .map(|entry| Ok(entry?.file_name().to_string_lossy().to_lowercase()))
                 .collect()
         })
-        .unwrap_or_default();
+        .map_err(|e| format!("{} cannot be listed: {e}", folder.display()))?;
     used.extend(
         taken
             .iter()
             .filter(|t| t.parent() == Some(folder))
             .filter_map(|t| lower(t)),
     );
-    (1u32..)
-        .map(|n| {
-            let suffix = if n == 1 {
-                String::new()
-            } else {
-                format!("-{n}")
-            };
-            folder.join(format!("{stem}{EDIT_SUFFIX}{suffix}.{extension}"))
-        })
-        .find(|path| {
-            lower(path).is_some_and(|name| {
-                // A sidecar left by an earlier render of that name
-                // (`NAME_edit.tiff.rrdata`, `NAME_edit.xmp`) or a library
-                // photograph still registered there (its file gone) keeps it
-                // taken: the new render must not become that photograph.
-                let stem = name
-                    .rsplit_once('.')
-                    .map_or(name.as_str(), |(stem, _)| stem);
-                !used.contains(&name)
-                    && !used
-                        .iter()
-                        .any(|entry| entry.starts_with(&format!("{name}.")))
-                    && !used.contains(&format!("{stem}.xmp"))
-                    && !registered(path)
-            })
-        })
-        .expect("a free name")
+    for n in 1u32.. {
+        let suffix = if n == 1 {
+            String::new()
+        } else {
+            format!("-{n}")
+        };
+        let path = folder.join(format!("{stem}{EDIT_SUFFIX}{suffix}.{extension}"));
+        let Some(name) = lower(&path) else {
+            continue;
+        };
+        // A sidecar left by an earlier render of that name
+        // (`NAME_edit.tiff.rrdata`, `NAME_edit.xmp`) or a library
+        // photograph still registered there (its file gone) keeps it
+        // taken: the new render must not become that photograph.
+        let name_stem = name
+            .rsplit_once('.')
+            .map_or(name.as_str(), |(stem, _)| stem);
+        let free = !used.contains(&name)
+            && !used
+                .iter()
+                .any(|entry| entry.starts_with(&format!("{name}.")))
+            && !used.contains(&format!("{name_stem}.xmp"));
+        if free && !registered(&path)? {
+            return Ok(path);
+        }
+    }
+    Err(format!(
+        "No free name for a render of {}.",
+        original.display()
+    ))
 }
 
 fn prefs_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -507,21 +512,97 @@ pub fn edit_with_set_recipe(recipe: String, app: AppHandle) -> Result<(), String
     update_prefs(&app, |prefs| prefs.edit_recipe = Some(recipe))
 }
 
-/// Free names beside the originals for the renders of `paths`.
-#[tauri::command]
-pub fn edit_with_targets(paths: Vec<String>, extension: String) -> Result<Vec<EditTarget>, String> {
-    plan_targets(paths, &extension, &|original| {
-        crate::session_bridge::library_dir_for(original)
-    })
+/// What `edit_with_start` queued: each render's file and its export job.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditWithStart {
+    pub targets: Vec<EditTarget>,
+    pub jobs: Vec<String>,
 }
 
-/// The error `edit_with_targets` starts with when a photograph has areas a
+/// Queues the renders of `paths`, each with `recipe` (an export request
+/// without paths or output) to the free name `plan_edits` gives it.
+#[tauri::command]
+pub async fn edit_with_start(
+    paths: Vec<String>,
+    recipe: ExportRequest,
+    app: AppHandle,
+) -> Result<EditWithStart, String> {
+    let state = app.clone();
+    let (targets, requests) = tauri::async_runtime::spawn_blocking(move || {
+        let state = state.state::<crate::app_state::AppState>();
+        plan_edits(
+            paths,
+            recipe,
+            &|original| crate::session_bridge::library_dir_for(original),
+            &|adjustments| {
+                let mut adjustments = adjustments.clone();
+                crate::adjustment_utils::hydrate_adjustments(&state, &mut adjustments);
+                rawtonic_engine::image_loader::has_generated_areas(&adjustments)
+            },
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let jobs = crate::export_queue::enqueue_pinned(&app, requests)?;
+    Ok(EditWithStart { targets, jobs })
+}
+
+/// The error `plan_edits` starts with when a photograph has areas a
 /// generative model made: its render would hand them to another program
 /// whose saves need not keep the AI marking, so Edit With is not offered
 /// for it yet (the frontend says so; Open With hands over the original).
 pub const GENERATED_AREAS: &str = "generated-areas";
 
-/// `edit_with_targets` with the library of each original from `library_for`.
+/// The export of each photograph of `paths` with `recipe` to its own file
+/// beside its original, pinned (`ExportRequest::pin`): what is checked here
+/// is what renders. Refused as a whole, before anything is written, if one
+/// has generated areas (`generated`, on its pinned recipe) or no name can
+/// be reserved for it.
+fn plan_edits(
+    paths: Vec<String>,
+    recipe: ExportRequest,
+    library_for: &dyn Fn(&Path) -> Option<PathBuf>,
+    generated: &dyn Fn(&serde_json::Value) -> bool,
+) -> Result<(Vec<EditTarget>, Vec<ExportRequest>), String> {
+    let targets = plan_targets(paths, &recipe.output_format, library_for)?;
+    let requests = targets
+        .iter()
+        .map(|target| {
+            let mut request = ExportRequest {
+                paths: vec![target.source.clone()],
+                output_folder_or_file: target.target.clone(),
+                is_explicit_file_path: true,
+                pinned: None,
+                ..recipe.clone()
+            };
+            request.pin()?;
+            Ok(request)
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let names: Vec<String> = requests
+        .iter()
+        .filter(|request| {
+            request
+                .pinned
+                .iter()
+                .flatten()
+                .any(|photo| generated(&photo.adjustments))
+        })
+        .map(|request| {
+            let (file, _) = parse_virtual_path(&request.paths[0]);
+            file.file_name()
+                .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+        })
+        .collect();
+    if !names.is_empty() {
+        return Err(format!("{GENERATED_AREAS}: {}", names.join(", ")));
+    }
+    Ok((targets, requests))
+}
+
+/// Free names beside the originals for the renders of `paths`, with the
+/// library of each original from `library_for`.
 fn plan_targets(
     paths: Vec<String>,
     extension: &str,
@@ -530,29 +611,9 @@ fn plan_targets(
     if extension.is_empty() || !extension.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err(format!("{extension:?} is not a file extension."));
     }
-    let generated: Vec<&String> = paths
-        .iter()
-        .filter(|path| {
-            let (_, sidecar) = parse_virtual_path(path);
-            rawtonic_engine::image_loader::has_generated_areas(
-                &crate::exif_processing::load_sidecar(&sidecar).adjustments,
-            )
-        })
-        .collect();
-    if !generated.is_empty() {
-        let names: Vec<String> = generated
-            .iter()
-            .map(|path| {
-                let (file, _) = parse_virtual_path(path);
-                file.file_name()
-                    .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
-            })
-            .collect();
-        return Err(format!("{GENERATED_AREAS}: {}", names.join(", ")));
-    }
     let mut taken = HashSet::new();
     let mut seen = HashSet::new();
-    let mut libraries: HashMap<PathBuf, Option<Library>> = HashMap::new();
+    let mut libraries: HashMap<PathBuf, Library> = HashMap::new();
     paths
         .into_iter()
         .filter(|path| seen.insert(path.clone()))
@@ -562,18 +623,23 @@ fn plan_targets(
                 return Err(format!("{} is not available.", original.display()));
             }
             let library = library_for(&original);
-            let lib = library.as_ref().and_then(|dir| {
-                libraries
-                    .entry(dir.clone())
-                    .or_insert_with(|| Library::open(dir).ok())
-                    .as_ref()
-            });
-            // A library that cannot answer frees no name here: linking the
-            // render refuses a registered one later.
-            let registered = |path: &Path| {
-                lib.is_some_and(|lib| lib.registered_ignoring_case(path).unwrap_or(false))
+            let lib = match &library {
+                Some(dir) => Some(match libraries.entry(dir.clone()) {
+                    std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                    std::collections::hash_map::Entry::Vacant(entry) => entry.insert(
+                        Library::open(dir)
+                            .map_err(|e| format!("{} cannot be read: {e:#}", dir.display()))?,
+                    ),
+                }),
+                None => None,
             };
-            let target = edit_target(&original, extension, &taken, &registered);
+            let registered = |path: &Path| match &lib {
+                Some(lib) => lib
+                    .registered_ignoring_case(path)
+                    .map_err(|e| format!("{e:#}")),
+                None => Ok(false),
+            };
+            let target = edit_target(&original, extension, &taken, &registered)?;
             taken.insert(target.clone());
             Ok(EditTarget {
                 library: library.map(|dir| dir.to_string_lossy().into_owned()),
@@ -917,30 +983,51 @@ mod tests {
         let original = tmp.path().join("DSC_0001.NEF");
         fs::write(&original, b"raw").unwrap();
         let mut taken = HashSet::new();
-        let first = edit_target(&original, "tif", &taken, &|_| false);
+        let first = edit_target(&original, "tif", &taken, &|_| Ok(false)).unwrap();
         assert_eq!(first, tmp.path().join("DSC_0001_edit.tif"));
         // Another render of the same run, then files already there.
         taken.insert(first.clone());
         assert_eq!(
-            edit_target(&original, "tif", &taken, &|_| false),
+            edit_target(&original, "tif", &taken, &|_| Ok(false)).unwrap(),
             tmp.path().join("DSC_0001_edit-2.tif")
         );
         fs::write(tmp.path().join("DSC_0001_edit-2.tif"), b"there").unwrap();
         assert_eq!(
-            edit_target(&original, "tif", &taken, &|_| false),
+            edit_target(&original, "tif", &taken, &|_| Ok(false)).unwrap(),
             tmp.path().join("DSC_0001_edit-3.tif")
         );
         // A name that differs only in case is taken too (case-insensitive volumes).
         fs::write(tmp.path().join("DSC_0001_EDIT-3.TIF"), b"there").unwrap();
         assert_eq!(
-            edit_target(&original, "tif", &taken, &|_| false),
+            edit_target(&original, "tif", &taken, &|_| Ok(false)).unwrap(),
             tmp.path().join("DSC_0001_edit-4.tif")
         );
         // A different format starts again.
         assert_eq!(
-            edit_target(&original, "jpg", &HashSet::new(), &|_| false),
+            edit_target(&original, "jpg", &HashSet::new(), &|_| Ok(false)).unwrap(),
             tmp.path().join("DSC_0001_edit.jpg")
         );
+    }
+
+    #[test]
+    fn no_name_is_given_when_it_cannot_be_confirmed_free() {
+        let tmp = tempfile::tempdir().unwrap();
+        let original = tmp.path().join("A.NEF");
+        fs::write(&original, b"raw").unwrap();
+        // The library cannot say whether the name is registered.
+        assert!(edit_target(&original, "tif", &HashSet::new(), &|_| Err("busy".into())).is_err());
+        // The folder cannot be listed.
+        let gone = tmp.path().join("gone/A.NEF");
+        assert!(edit_target(&gone, "tif", &HashSet::new(), &|_| Ok(false)).is_err());
+        // A library that cannot be opened.
+        let error = plan_targets(
+            vec![original.to_string_lossy().into_owned()],
+            "tif",
+            &|_| Some(tmp.path().join("not-a-library")),
+        )
+        .unwrap_err();
+        assert!(error.contains("not-a-library"), "{error}");
+        assert_eq!(fs::read_dir(tmp.path()).unwrap().count(), 1);
     }
 
     #[test]
@@ -953,9 +1040,10 @@ mod tests {
         let a = a.to_string_lossy().into_owned();
         let b = b.to_string_lossy().into_owned();
         let copy = format!("{a}?vc=x1");
-        let targets = edit_with_targets(
+        let targets = plan_targets(
             vec![a.clone(), copy.clone(), b.clone(), a.clone()],
-            "tif".into(),
+            "tif",
+            &|_| None,
         )
         .unwrap();
         let names: Vec<_> = targets
@@ -979,8 +1067,8 @@ mod tests {
                 (b, "B_edit.tif".to_string()),
             ]
         );
-        assert!(edit_with_targets(vec![a.clone()], "t/f".into()).is_err());
-        assert!(edit_with_targets(vec![format!("{a}.missing")], "tif".into()).is_err());
+        assert!(plan_targets(vec![a.clone()], "t/f", &|_| None).is_err());
+        assert!(plan_targets(vec![format!("{a}.missing")], "tif", &|_| None).is_err());
         // Planning writes nothing.
         assert_eq!(fs::read_dir(tmp.path()).unwrap().count(), 2);
     }
@@ -1087,8 +1175,23 @@ mod tests {
         assert!(link_render(&lib, &source.to_string_lossy(), &render).is_err());
     }
 
+    fn tiff_recipe(current_edit: Option<(&Path, serde_json::Value)>) -> ExportRequest {
+        serde_json::from_value(serde_json::json!({
+            "paths": [], "outputFolderOrFile": "", "isExplicitFilePath": true,
+            "baseOriginFolders": [], "outputFormat": "tiff",
+            "exportSettings": {"jpegQuality": 90, "keepMetadata": true, "stripGps": false},
+            "currentEditPath": current_edit.as_ref().map(|(path, _)| path.to_string_lossy()),
+            "currentEditAdjustments": current_edit.map(|(_, adjustments)| adjustments),
+        }))
+        .unwrap()
+    }
+
     #[test]
     fn photographs_with_generated_areas_are_not_edited_with_another_program() {
+        let generated = |adjustments: &serde_json::Value| {
+            rawtonic_engine::image_loader::has_generated_areas(adjustments)
+        };
+        let patches = serde_json::json!({"aiPatches": [{"visible": true, "patchData": {"color": "iVBORw0K", "mask": "iVBORw0K"}}]});
         let tmp = tempfile::tempdir().unwrap();
         let plain = tmp.path().join("A.jpg");
         let patched = tmp.path().join("B.jpg");
@@ -1097,27 +1200,40 @@ mod tests {
         fs::write(
             tmp.path().join("B.jpg.rrdata"),
             serde_json::to_vec(&serde_json::json!({
-                "version": 1, "rating": 0,
-                "adjustments": {"aiPatches": [{"visible": true, "patchData": {"color": "iVBORw0K", "mask": "iVBORw0K"}}]},
+                "version": 1, "rating": 0, "adjustments": patches,
             }))
             .unwrap(),
         )
         .unwrap();
-        let paths = [&plain, &patched]
-            .map(|p| p.to_string_lossy().into_owned())
-            .to_vec();
-        let error = plan_targets(paths, "tiff", &|_| None).unwrap_err();
+        let path = |p: &Path| p.to_string_lossy().into_owned();
+        let error = plan_edits(
+            vec![path(&plain), path(&patched)],
+            tiff_recipe(None),
+            &|_| None,
+            &generated,
+        )
+        .unwrap_err();
         assert_eq!(error, format!("{GENERATED_AREAS}: B.jpg"));
+        // The open photograph is checked with the editor's recipe, which
+        // its render takes, not with the one saved last.
+        let error = plan_edits(
+            vec![path(&plain)],
+            tiff_recipe(Some((&plain, patches.clone()))),
+            &|_| None,
+            &generated,
+        )
+        .unwrap_err();
+        assert_eq!(error, format!("{GENERATED_AREAS}: A.jpg"));
         // Nothing planned or written.
         assert_eq!(fs::read_dir(tmp.path()).unwrap().count(), 3);
-        assert_eq!(
-            plan_targets(vec![plain.to_string_lossy().into_owned()], "tiff", &|_| {
-                None
-            })
-            .unwrap()
-            .len(),
-            1
-        );
+
+        let (targets, requests) =
+            plan_edits(vec![path(&plain)], tiff_recipe(None), &|_| None, &generated).unwrap();
+        assert_eq!(targets.len(), 1);
+        assert_eq!(requests[0].output_folder_or_file, targets[0].target);
+        assert_eq!(requests[0].paths, [path(&plain)]);
+        // Pinned: the render takes the recipe that was checked.
+        assert!(requests[0].pinned.as_ref().is_some_and(|p| p.len() == 1));
     }
 
     #[test]

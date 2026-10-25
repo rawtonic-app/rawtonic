@@ -10,6 +10,7 @@ import { useProcessStore } from '../store/useProcessStore';
 import { currentEditForExport, useEditorStore } from '../store/useEditorStore';
 import { exportSettingsFromDraft, savedRecipes, type RecipeDraft } from './exportRecipes';
 import { noteTool } from '../components/contribute/usageStats';
+import { flushRecipeSaves } from '../hooks/useEditorActions';
 
 export interface PlannedExport {
   recipe: ExportPreset | null;
@@ -107,6 +108,9 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
       });
     }
     const started = requests.length;
+    // Each photograph's recipe is read when queued (`ExportRequest::pin`):
+    // its edits are saved first.
+    if (started) await flushRecipeSaves();
     if (started) {
       if (!queued)
         useProcessStore.getState().setExportState({

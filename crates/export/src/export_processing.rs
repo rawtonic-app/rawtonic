@@ -174,6 +174,24 @@ pub enum ExportAdjustmentsMode {
         active_adjustments: Option<Value>,
     },
     GlobalOverride(Value),
+    /// Each photo's recipe and library metadata as read when the export
+    /// was queued, in the order of its paths (`photos[i]` for `paths[i]`):
+    /// a queued export renders what was queued, whichever library is open
+    /// by the time it runs. `active_path` is the photo the editor showed,
+    /// whose decoded source may be reused.
+    Pinned {
+        active_path: Option<String>,
+        photos: Arc<Vec<PinnedPhoto>>,
+    },
+}
+
+/// What one photo of a queued export is exported with (`Pinned`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PinnedPhoto {
+    pub adjustments: Value,
+    /// Its library metadata; None outside a session or catalog.
+    pub metadata: Option<rawtonic_metadata::Metadata>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

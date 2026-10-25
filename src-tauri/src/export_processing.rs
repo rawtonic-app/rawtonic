@@ -235,6 +235,38 @@ fn is_open_edit(path: &str, open_path: Option<&str>) -> bool {
     open_path == Some(path)
 }
 
+/// The recipe and library metadata `path` (the export's `index`-th) is
+/// exported with. A pinned export takes only what it was queued with; the
+/// other modes read the saved recipe (or the editor's, for the open photo)
+/// and the metadata of the library that manages the photo now.
+pub(crate) fn photo_inputs(
+    mode: &ExportAdjustmentsMode,
+    index: usize,
+    path: &str,
+) -> Result<PinnedPhoto, String> {
+    let (source, sidecar) = parse_virtual_path(path);
+    let adjustments = match mode {
+        ExportAdjustmentsMode::Pinned { photos, .. } => {
+            return photos
+                .get(index)
+                .cloned()
+                .ok_or_else(|| format!("{path} was not queued with its recipe"));
+        }
+        ExportAdjustmentsMode::GlobalOverride(adjustments) => adjustments.clone(),
+        ExportAdjustmentsMode::UseSidecars {
+            active_path,
+            active_adjustments: Some(adjustments),
+        } if is_open_edit(path, active_path.as_deref()) => adjustments.clone(),
+        ExportAdjustmentsMode::UseSidecars { .. } => {
+            crate::exif_processing::load_sidecar(&sidecar).adjustments
+        }
+    };
+    Ok(PinnedPhoto {
+        adjustments,
+        metadata: crate::session_bridge::catalog_metadata(&source),
+    })
+}
+
 fn set_timestamps_from_exif(src: &Path, dst: &Path) {
     set_capture_file_times(dst, exif_processing::get_creation_date_from_path(src));
 }
@@ -245,10 +277,10 @@ fn save_image_with_metadata(
     source_path_str: &str,
     export_settings: &ExportSettings,
     generated: bool,
+    catalog: &dyn Fn() -> Option<rawtonic_metadata::Metadata>,
 ) -> Result<(), String> {
     let source_file = Path::new(source_path_str);
     let exif_sidecar = || exif_processing::read_rrexif_sidecar(source_file);
-    let catalog = || crate::session_bridge::catalog_metadata(source_file);
     save_export_image(
         image,
         source_path_str,
@@ -258,7 +290,7 @@ fn save_image_with_metadata(
             path: output_path,
             format: "",
             exif_sidecar: &exif_sidecar,
-            catalog: &catalog,
+            catalog,
             write: &write_export_bytes,
         },
     )
@@ -286,6 +318,7 @@ fn export_masks_for_image(
     state: &tauri::State<AppState>,
     is_raw: bool,
     app_handle: &tauri::AppHandle,
+    catalog: &dyn Fn() -> Option<rawtonic_metadata::Metadata>,
     cancellation_token: &AtomicBool,
 ) -> Result<(), String> {
     ensure_export_not_cancelled(cancellation_token)?;
@@ -384,6 +417,7 @@ fn export_masks_for_image(
                 source_path_str,
                 export_settings,
                 rawtonic_engine::image_loader::has_generated_areas(js_adjustments),
+                catalog,
             )?;
             ensure_export_not_cancelled(cancellation_token)?;
 
@@ -733,12 +767,19 @@ pub(crate) async fn export_images_impl(
 
     let _export_task = tokio::spawn(async move {
         let _task_guard = task_guard;
-        let recipes = paths.iter().map(|path| match &adjustments_mode {
-            ExportAdjustmentsMode::GlobalOverride(adj) => adj.clone(),
-            ExportAdjustmentsMode::UseSidecars { .. } => {
-                crate::exif_processing::load_sidecar(&parse_virtual_path(path).1).adjustments
-            }
-        });
+        let recipes = paths
+            .iter()
+            .enumerate()
+            .map(|(index, path)| match &adjustments_mode {
+                ExportAdjustmentsMode::GlobalOverride(adj) => adj.clone(),
+                ExportAdjustmentsMode::Pinned { photos, .. } => photos
+                    .get(index)
+                    .map(|photo| photo.adjustments.clone())
+                    .unwrap_or_default(),
+                ExportAdjustmentsMode::UseSidecars { .. } => {
+                    crate::exif_processing::load_sidecar(&parse_virtual_path(path).1).adjustments
+                }
+            });
         prepare_ai_denoise(&app_handle, recipes).await;
         let settings = load_settings(app_handle.clone()).unwrap_or_default();
         let targets = Arc::new(targets);
@@ -1114,33 +1155,24 @@ fn export_photo(
 
     let state = app_handle.state::<AppState>();
     let image_path_str = item.image_path_str;
-    let (source_path, sidecar_path) = parse_virtual_path(image_path_str);
+    let (source_path, _) = parse_virtual_path(image_path_str);
     let source_path_str = source_path.to_string_lossy().to_string();
 
     let is_current_edit = match adjustments_mode {
-        ExportAdjustmentsMode::UseSidecars { active_path, .. } => {
+        ExportAdjustmentsMode::UseSidecars { active_path, .. }
+        | ExportAdjustmentsMode::Pinned { active_path, .. } => {
             is_open_edit(image_path_str, active_path.as_deref())
         }
         ExportAdjustmentsMode::GlobalOverride(_) => false,
     };
 
-    let mut js_adjustments = match adjustments_mode {
-        ExportAdjustmentsMode::UseSidecars {
-            active_adjustments, ..
-        } => {
-            if is_current_edit {
-                if let Some(adj) = active_adjustments {
-                    adj.clone()
-                } else {
-                    crate::exif_processing::load_sidecar(&sidecar_path).adjustments
-                }
-            } else {
-                crate::exif_processing::load_sidecar(&sidecar_path).adjustments
-            }
-        }
-        ExportAdjustmentsMode::GlobalOverride(adj) => adj.clone(),
+    let PinnedPhoto {
+        adjustments: mut js_adjustments,
+        metadata,
+    } = match photo_inputs(adjustments_mode, item.global_index, image_path_str) {
+        Ok(inputs) => inputs,
+        Err(e) => return fail_all(e),
     };
-
     hydrate_adjustments(&state, &mut js_adjustments);
     // A never-edited photo exports with the camera's lens data,
     // as Develop shows it (profile corrections on by default).
@@ -1341,7 +1373,7 @@ fn export_photo(
 
     let source_file = Path::new(&source_path_str);
     let exif_sidecar = || exif_processing::read_rrexif_sidecar(source_file);
-    let catalog = || crate::session_bridge::catalog_metadata(source_file);
+    let catalog = || metadata.clone();
     results.extend(export_in_turn(images, plan, |target, output_path| {
         let export_settings = &targets[target].export_settings;
         {
@@ -1419,6 +1451,7 @@ fn export_photo(
                     &state,
                     is_raw,
                     app_handle,
+                    &catalog,
                     &finish_photo,
                 )?;
             }
@@ -1464,9 +1497,10 @@ pub async fn export_images(
             output_format,
             current_edit_path,
             current_edit_adjustments,
-            library: None,
+            pinned: None,
         },
     )
+    .await
 }
 
 /// The exports of a photo set's ticked recipes, queued together so they run
@@ -1479,7 +1513,7 @@ pub async fn export_images_batch(
     if requests.iter().any(|request| request.paths.is_empty()) || requests.is_empty() {
         return Err("Nothing to export.".to_string());
     }
-    crate::export_queue::enqueue_all(&app_handle, requests)
+    crate::export_queue::enqueue_all(&app_handle, requests).await
 }
 
 pub async fn run_headless_export(
