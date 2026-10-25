@@ -4,7 +4,10 @@
 //! Subject (BiRefNet; on Core ML about 0.5 GB, 1.6 GB more once it has run)
 //! and Sky, SAM 2.1, depth, MI-GAN and the face models are loaded when a photo opens in
 //! Develop for someone who used the masking tools before (the webview asks,
-//! `useAiMasking`; not while memory is short), or on first use. They are
+//! `useAiMasking`; not while memory is short), or on first use. For
+//! someone who has not masked, Subject and Sky are loaded once per install
+//! and macOS build only to build Core ML's GPU kernels, then dropped
+//! (`warm_up_ai_mask_models`). They are
 //! dropped again, with what was computed from them (SAM's embedding, the
 //! depth map, the faces found):
 //! - after `IDLE_UNLOAD` without masking use, when no computation runs;
