@@ -1880,7 +1880,7 @@
         "title": "Protokolle"
       },
       "models": {
-        "description": "Modellgewichte für lokale KI-Werkzeuge. Nach dem Entfernen werden sie bei der nächsten Nutzung erneut heruntergeladen.",
+        "description": "Modellgewichte für lokale KI-Werkzeuge. Nach dem Entfernen werden sie bei der nächsten Nutzung erneut heruntergeladen. Installierte GPU-Erweiterungen bleiben erhalten.",
         "title": "Heruntergeladene KI-Modelle"
       },
       "previews": {

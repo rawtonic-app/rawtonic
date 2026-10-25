@@ -234,8 +234,16 @@ fn remove_pending_models(marker: &Path, owned: &OwnedDirectory) -> Result<(), St
         return Ok(());
     }
     if owned.directory.exists() {
-        storage_fs::clear_tree(&owned.root, &owned.directory, &|_| false)
-            .map_err(|e| e.to_string())?;
+        storage_fs::clear_tree(&owned.root, &owned.directory, &|path| {
+            [
+                rawtonic_onnx::Provider::Cuda,
+                rawtonic_onnx::Provider::WebGpu,
+            ]
+            .iter()
+            .filter_map(|provider| provider.library_file())
+            .any(|name| path.file_name().is_some_and(|file| file == name))
+        })
+        .map_err(|e| e.to_string())?;
     }
     std::fs::remove_file(marker).map_err(|e| e.to_string())
 }
@@ -284,12 +292,6 @@ pub async fn storage_clear(
             }
         }
         if owned.directory.exists() {
-            if category == Category::Previews {
-                // Existing preview policy protects offline photographs during
-                // automatic eviction; an explicit Clear discards both kinds.
-                storage_fs::owned_directory(&owned.root, &owned.directory)
-                    .map_err(|e| e.to_string())?;
-            }
             storage_fs::clear_tree(&owned.root, &owned.directory, &|path| {
                 (category == Category::Logs && path.file_name().is_some_and(|n| n == "app.log"))
                     || pinned(path)
@@ -380,6 +382,8 @@ mod tests {
         let models = root.join("models");
         fs::create_dir_all(models.join("compiled/weights")).unwrap();
         fs::write(models.join("network.onnx"), b"weights").unwrap();
+        let provider = rawtonic_onnx::Provider::Cuda.library_file().unwrap();
+        fs::write(models.join(provider), b"installed plugin").unwrap();
         fs::write(models.join("compiled/weights/bin"), b"compiled").unwrap();
         let photo = root.join("original.RAW");
         fs::write(&photo, b"original").unwrap();
@@ -400,6 +404,10 @@ mod tests {
         remove_pending_models(&marker, &owned).unwrap();
         assert!(!models.join("network.onnx").exists());
         assert!(!models.join("compiled/weights/bin").exists());
+        assert_eq!(
+            fs::read(models.join(provider)).unwrap(),
+            b"installed plugin"
+        );
         assert!(!marker.exists());
         assert_eq!(fs::read(photo).unwrap(), b"original");
     }

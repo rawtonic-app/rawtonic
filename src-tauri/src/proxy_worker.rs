@@ -1063,7 +1063,10 @@ pub async fn clear_preview_cache(
     }
     .ok_or("No previews folder")?;
     let root = if session {
-        crate::session_bridge::active_library_directory().ok_or("No open library")?
+        preview_proxy::session_root(
+            &Path::new(folder.as_deref().ok_or("No library folder")?).join("_"),
+        )
+        .ok_or("No previews library")?
     } else {
         app_handle
             .path()
@@ -1076,6 +1079,9 @@ pub async fn clear_preview_cache(
         root.join("previews")
     };
     let removed = tauri::async_runtime::spawn_blocking(move || -> Result<usize, String> {
+        if !dir.exists() {
+            return Ok(0);
+        }
         let checked =
             crate::storage_fs::owned_directory(&root, &expected).map_err(|e| e.to_string())?;
         if crate::storage_fs::owned_directory(&root, &dir).map_err(|e| e.to_string())? != checked {

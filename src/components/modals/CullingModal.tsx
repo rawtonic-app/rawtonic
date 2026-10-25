@@ -1,3 +1,4 @@
+import CachedThumbnail from "../ui/CachedThumbnail";
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
@@ -43,7 +44,7 @@ function ImageThumbnail({ path, thumbnails, isSelected, onToggle, children }: Im
       }`}
       onClick={onToggle}
     >
-      <img
+      <CachedThumbnail sourcePath={path}
         src={thumbnailUrl}
         alt={path}
         className={`w-full h-full object-cover transition-opacity ${isSelected ? 'opacity-100' : 'opacity-75 group-hover:opacity-100'}`}
@@ -351,7 +352,7 @@ export default function CullingModal({
                             {t('modals.culling.bestImage')}
                           </Text>
                           <div className="relative rounded-md overflow-hidden border-2 border-green-500">
-                            <img
+                            <CachedThumbnail sourcePath={group.representative.path}
                               src={thumbnails[group.representative.path]}
                               alt="Representative"
                               className="w-full h-full object-cover"

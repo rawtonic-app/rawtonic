@@ -66,8 +66,6 @@ pub type CacheAccess = fn(&Path) -> Box<dyn Send>;
 pub struct MatchFilter {
     backend: Box<dyn Backend>,
     cache_dir: Option<PathBuf>,
-    /// Oldest cached results go once the cache is larger.
-    cache_limit: Option<u64>,
     cache_used: Option<fn(&Path)>,
     cache_access: Option<CacheAccess>,
 }
@@ -77,16 +75,9 @@ impl MatchFilter {
         Self {
             backend,
             cache_dir,
-            cache_limit: None,
             cache_used: None,
             cache_access: None,
         }
-    }
-
-    /// Keeps the cache below `bytes`, dropping the least recently written.
-    pub fn with_cache_limit(mut self, bytes: u64) -> Self {
-        self.cache_limit = Some(bytes);
-        self
     }
 
     /// Notifies the cache owner of a hit for its least-recently-used policy.
@@ -216,9 +207,6 @@ impl MosaicDenoiser for MatchFilter {
         if let Some(path) = self.cache_path(key).filter(|_| same_backend) {
             // A cache that cannot be written only costs the next run time.
             let _ = write_cache(&path, &out);
-            if let (Some(limit), Some(dir)) = (self.cache_limit, path.parent()) {
-                prune(dir, limit);
-            }
         }
         Ok(out)
     }
@@ -259,31 +247,6 @@ fn read_cache(path: &Path, len: usize) -> Option<Vec<f32>> {
         .map(|&b| half::f16::from_le_bytes(b).to_f32())
         .collect();
     values.iter().all(|v| v.is_finite()).then_some(values)
-}
-
-/// Deletes the oldest `.f16` files until the folder holds at most `limit` bytes.
-fn prune(dir: &Path, limit: u64) {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-    let mut files: Vec<(std::time::SystemTime, u64, PathBuf)> = entries
-        .flatten()
-        .filter(|e| e.path().extension().is_some_and(|x| x == "f16"))
-        .filter_map(|e| {
-            let meta = e.metadata().ok()?;
-            Some((meta.modified().ok()?, meta.len(), e.path()))
-        })
-        .collect();
-    let mut total: u64 = files.iter().map(|f| f.1).sum();
-    files.sort();
-    for (_, len, path) in files {
-        if total <= limit {
-            break;
-        }
-        if fs::remove_file(&path).is_ok() {
-            total -= len;
-        }
-    }
 }
 
 /// A temporary file of its own beside the target (the app and the CLI share

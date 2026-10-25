@@ -744,6 +744,7 @@ pub fn run() {
             editor_preview::prewarm_mask_source,
             cache_utils::clear_image_caches,
             storage::storage_usage,
+            file_management::restore_thumbnail,
             storage::storage_cancel_scan,
             storage::storage_clear,
             storage::storage_apply_limits,

@@ -38,6 +38,7 @@ export const OPTION_HEADER = 'header';
 
 export enum Invokes {
   StorageUsage = 'storage_usage',
+  RestoreThumbnail = 'restore_thumbnail',
   StorageCancelScan = 'storage_cancel_scan',
   StorageClear = 'storage_clear',
   StorageApplyLimits = 'storage_apply_limits',

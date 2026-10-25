@@ -1220,6 +1220,32 @@ pub(crate) fn emit_thumbnail_generated(
     );
 }
 
+/// Rebuilds a missing disk-cache entry without replacing the viewport queue.
+#[tauri::command]
+pub async fn restore_thumbnail(
+    path: String,
+    app_handle: AppHandle,
+) -> Result<(String, String), String> {
+    super::blocking(move || {
+        let state = app_handle.state::<AppState>();
+        let gpu = crate::gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
+        let settings = load_settings(app_handle.clone()).unwrap_or_default();
+        let directory = get_thumb_cache_dir(&app_handle)?;
+        generate_single_thumbnail_and_cache(
+            &path,
+            &directory,
+            gpu.as_ref(),
+            None,
+            false,
+            &app_handle,
+            &settings,
+        )
+        .map(|(small, medium, _, _)| (small, medium))
+        .ok_or_else(|| "Thumbnail source is unavailable".to_string())
+    })
+    .await?
+}
+
 pub fn get_thumb_cache_dir(app_handle: &AppHandle) -> Result<PathBuf, String> {
     let cache_dir = app_handle
         .path()
@@ -1250,6 +1276,8 @@ pub(crate) fn cached_medium_thumbnail(app_handle: &AppHandle, path_str: &str) ->
         .ok()?
         .join(format!("{hash}_medium.jpg"));
     if path.is_file() {
+        // The pin protects the timestamp update from eviction; the returned
+        // path is subsequently protected by its recent-use lease.
         let _file_use = crate::storage_fs::pin_file(&path);
         crate::storage_fs::mark_used(&path);
         Some(path)

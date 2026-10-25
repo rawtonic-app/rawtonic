@@ -1,3 +1,4 @@
+import CachedThumbnail from "../ui/CachedThumbnail";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
@@ -748,7 +749,7 @@ export default function StudioNavigation({
       <ToolGroup key="navigator" title="Navigator" label={t("studio.library.navigator.title")}>
         <div className="studio-navigator">
           {preview ? (
-            <img src={preview} alt={image?.path.split("/").pop()} />
+            <CachedThumbnail sourcePath={image!.path} src={preview} alt={image?.path.split("/").pop()} />
           ) : (
             <span>{t("studio.library.navigator.empty")}</span>
           )}

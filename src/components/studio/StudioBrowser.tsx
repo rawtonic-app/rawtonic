@@ -16,6 +16,7 @@ import { useUIStore } from "../../store/useUIStore";
 import { type ImageFile } from "../ui/AppProperties";
 import { imageFlag } from "../../utils/culling";
 import { PerfProfiler, performanceDiagnosticsEnabled, reportForcedLayout, reportPerformance } from '../../hooks/usePerformanceDiagnostics';
+import CachedThumbnail from "../ui/CachedThumbnail";
 import { startTileDrag } from "./tileDrag";
 import { reportLibraryPresentation } from '../../utils/libraryListing';
 import { offlineTitle } from '../../utils/offline';
@@ -105,7 +106,7 @@ const Tile = memo(function Tile({
       >
         <span className="studio-photo-image">
           {url ? (
-            <img src={url} alt="" draggable={false} decoding="async" onLoad={() => {
+            <CachedThumbnail sourcePath={file.path} src={url} alt="" draggable={false} decoding="async" onLoad={() => {
               if (!performanceDiagnosticsEnabled || firstLoad.current.reported) return;
               firstLoad.current.reported = true;
               reportPerformance('library_thumbnail_load', {

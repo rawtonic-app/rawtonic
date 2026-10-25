@@ -1998,7 +1998,7 @@
         "title": "Logs"
       },
       "models": {
-        "description": "Model weights needed by local AI tools. Removing them requires a new download on next use.",
+        "description": "Model weights needed by local AI tools. Removing them requires a new download on next use. Installed GPU provider plug-ins are kept.",
         "title": "Downloaded AI models"
       },
       "previews": {

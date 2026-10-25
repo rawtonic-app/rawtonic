@@ -91,6 +91,16 @@ fn refused() -> io::Error {
     )
 }
 
+/// Files and directories may disappear between read_dir and stat when an
+/// atomic cache writer publishes or drops its staging file.
+fn if_present<T>(result: io::Result<T>) -> io::Result<Option<T>> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 pub fn usage(directory: &Path, cancelled: &AtomicBool, budget: Duration) -> io::Result<Usage> {
     if !directory.exists() {
         return Ok(Usage::default());
@@ -102,7 +112,10 @@ pub fn usage(directory: &Path, cancelled: &AtomicBool, budget: Duration) -> io::
     let mut result = Usage::default();
     let mut pending = vec![directory.to_path_buf()];
     while let Some(dir) = pending.pop() {
-        for entry in fs::read_dir(dir)? {
+        let Some(entries) = if_present(fs::read_dir(dir))? else {
+            continue;
+        };
+        for entry in entries {
             if cancelled.load(Ordering::Relaxed) {
                 return Err(io::Error::new(
                     io::ErrorKind::Interrupted,
@@ -113,8 +126,12 @@ pub fn usage(directory: &Path, cancelled: &AtomicBool, budget: Duration) -> io::
                 result.incomplete = true;
                 return Ok(result);
             }
-            let entry = entry?;
-            let metadata = fs::symlink_metadata(entry.path())?;
+            let Some(entry) = if_present(entry)? else {
+                continue;
+            };
+            let Some(metadata) = if_present(fs::symlink_metadata(entry.path()))? else {
+                continue;
+            };
             if metadata.file_type().is_symlink() {
                 continue;
             }
@@ -139,12 +156,21 @@ pub fn evict(
     eligible: impl Fn(&Path) -> bool,
     pinned: impl Fn(&Path) -> bool,
 ) -> io::Result<Usage> {
-    let directory = owned_directory(root, directory)?;
+    let Some(directory) = if_present(owned_directory(root, directory))? else {
+        return Ok(Usage::default());
+    };
     let mut files = Vec::new();
     let mut total = Usage::default();
-    for entry in fs::read_dir(&directory)? {
-        let entry = entry?;
-        let meta = fs::symlink_metadata(entry.path())?;
+    let Some(entries) = if_present(fs::read_dir(&directory))? else {
+        return Ok(total);
+    };
+    for entry in entries {
+        let Some(entry) = if_present(entry)? else {
+            continue;
+        };
+        let Some(meta) = if_present(fs::symlink_metadata(entry.path()))? else {
+            continue;
+        };
         if !meta.is_file() || meta.file_type().is_symlink() {
             continue;
         }
@@ -173,8 +199,15 @@ pub fn evict(
             remove_owned_file(root, &directory, name)?;
             Ok(true)
         })
-        .transpose()?
-        .unwrap_or(false);
+        .transpose();
+        let removed = match removed {
+            Ok(removed) => removed.unwrap_or(false),
+            Err(error) => {
+                log::debug!("Cache entry could not be removed: {error}");
+                total.incomplete = true;
+                continue;
+            }
+        };
         if !removed {
             continue;
         }
@@ -326,6 +359,46 @@ fn open_cache_file(_path: &Path) -> io::Result<fs::File> {
     Err(refused())
 }
 
+/// Recurses only through validated cache subdirectories, never through links.
+/// The root itself and directory structure stay in place for active writers.
+pub fn clear_tree(
+    root: &Path,
+    directory: &Path,
+    pinned: &impl Fn(&Path) -> bool,
+) -> io::Result<()> {
+    let Some(directory) = if_present(owned_directory(root, directory))? else {
+        return Ok(());
+    };
+    let mut failure = None;
+    if let Some(entries) = if_present(fs::read_dir(&directory))? {
+        for entry in entries {
+            let Some(entry) = if_present(entry)? else {
+                continue;
+            };
+            let Some(metadata) = if_present(fs::symlink_metadata(entry.path()))? else {
+                continue;
+            };
+            if metadata.is_dir()
+                && !metadata.file_type().is_symlink()
+                && let Err(error) = clear_tree(root, &entry.path(), pinned)
+            {
+                failure.get_or_insert(error);
+            }
+        }
+    }
+    match evict(root, &directory, 0, |_| true, pinned) {
+        Ok(remaining) if remaining.incomplete => {
+            failure
+                .get_or_insert_with(|| io::Error::other("Some cache files could not be removed"));
+        }
+        Err(error) => {
+            failure.get_or_insert(error);
+        }
+        _ => {}
+    }
+    failure.map_or(Ok(()), Err)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,6 +431,41 @@ mod tests {
                 .incomplete
         );
     }
+    #[test]
+    fn size_walk_tolerates_staging_files_disappearing() {
+        let (_temp, _root, cache) = fixture();
+        let stop = AtomicBool::new(false);
+        let ready = std::sync::Barrier::new(2);
+        for index in 0..100 {
+            fs::write(cache.join(format!("stable-{index}")), b"cache").unwrap();
+        }
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let first = tempfile::NamedTempFile::new_in(&cache).unwrap();
+                ready.wait();
+                drop(first);
+                while !stop.load(Ordering::Relaxed) {
+                    let mut file = tempfile::NamedTempFile::new_in(&cache).unwrap();
+                    use std::io::Write;
+                    file.write_all(b"temporary cache data").unwrap();
+                }
+            });
+            ready.wait();
+            let mut failure = None;
+            for _ in 0..1000 {
+                if let Err(error) = usage(&cache, &AtomicBool::new(false), Duration::from_secs(2)) {
+                    failure = Some(error);
+                    break;
+                }
+            }
+            stop.store(true, Ordering::Relaxed);
+            assert!(
+                failure.is_none(),
+                "a vanished staging file aborted the size walk: {failure:?}"
+            );
+        });
+    }
+
     #[test]
     fn clear_refuses_root_parent_and_outside_paths() {
         let (_temp, root, cache) = fixture();
@@ -437,32 +545,10 @@ mod tests {
             assert!(cache.join(name).exists());
         }
     }
-}
 
-/// Recurses only through validated cache subdirectories, never through links.
-/// The root itself and directory structure stay in place for active writers.
-pub fn clear_tree(
-    root: &Path,
-    directory: &Path,
-    pinned: &impl Fn(&Path) -> bool,
-) -> io::Result<()> {
-    let directory = owned_directory(root, directory)?;
-    for entry in fs::read_dir(&directory)? {
-        let entry = entry?;
-        let metadata = fs::symlink_metadata(entry.path())?;
-        if metadata.is_dir() && !metadata.file_type().is_symlink() {
-            clear_tree(root, &entry.path(), pinned)?;
-        }
-    }
-    evict(root, &directory, 0, |_| true, pinned)?;
-    Ok(())
-}
-
-#[cfg(all(test, unix))]
-mod sibling_link_tests {
+    #[cfg(unix)]
     #[test]
     fn a_link_through_a_sibling_never_authorizes_a_photo_directory() {
-        use super::*;
         use std::os::unix::fs::symlink;
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().canonicalize().unwrap();
@@ -484,11 +570,8 @@ mod sibling_link_tests {
         );
         assert_eq!(fs::read(photos.join("original.RAW")).unwrap(), b"original");
     }
-}
 
-#[cfg(all(test, unix))]
-mod active_file_tests {
-    use super::*;
+    #[cfg(unix)]
     #[test]
     fn active_reader_survives_clear_until_its_lease_ends() {
         let temp = tempfile::tempdir().unwrap();
@@ -510,6 +593,7 @@ mod active_file_tests {
         );
         assert!(!path.exists());
     }
+    #[cfg(unix)]
     #[test]
     fn owned_root_aliases_and_canonical_descendants_work_together() {
         use std::os::unix::fs::symlink;
@@ -524,6 +608,7 @@ mod active_file_tests {
         assert!(!owned.join("cache/nested/result").exists());
     }
 
+    #[cfg(unix)]
     #[test]
     fn an_entry_pinned_after_listing_is_kept_even_above_the_limit() {
         use std::sync::atomic::AtomicUsize;
@@ -546,6 +631,43 @@ mod active_file_tests {
         assert!(path.exists());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn an_unremovable_entry_does_not_prevent_evicting_other_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let cache = root.join("cache");
+        fs::create_dir(&cache).unwrap();
+        let old = cache.join("old.jpg");
+        let next = cache.join("next.jpg");
+        for (path, age) in [(&old, 1), (&next, 2)] {
+            fs::write(path, b"data").unwrap();
+            fs::File::open(path)
+                .unwrap()
+                .set_times(fs::FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(age)))
+                .unwrap();
+        }
+        let result = evict(
+            &root,
+            &cache,
+            4,
+            |path| {
+                if path == old {
+                    fs::remove_file(path).unwrap();
+                    fs::create_dir(path).unwrap(); // Replacement cannot be unlinked as a file.
+                }
+                true
+            },
+            |_| false,
+        )
+        .unwrap();
+        assert_eq!(result.bytes, 4);
+        assert!(result.incomplete);
+        assert!(old.is_dir());
+        assert!(!next.exists());
+    }
+
+    #[cfg(unix)]
     #[test]
     fn marking_use_does_not_follow_a_link_to_an_original() {
         use std::os::unix::fs::symlink;

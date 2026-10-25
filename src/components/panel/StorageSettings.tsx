@@ -159,7 +159,7 @@ export default function StorageSettings({
     if (!(category in spec)) return null;
     const setting = spec[category as keyof typeof spec];
     const options =
-      category === "decoded" ? [0, 1, 2, 3, 5, 10] : [0, 1, 2, 5, 10, 20, 50];
+      category === "decoded" ? [2, 3, 4, 5, 6, 7, 8, 9, 10] : [0, 1, 2, 5, 10, 20, 50];
     if (!options.includes(setting.value)) options.push(setting.value);
     return (
       <label className="flex items-center gap-2 text-sm">

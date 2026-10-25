@@ -1,10 +1,14 @@
 import "../../i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { invoke } from "@tauri-apps/api/core";
+import { useProcessStore } from "../../store/useProcessStore";
 import StudioBrowser, { isEmptySpace } from "./StudioBrowser";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import type { ImageFile } from "../ui/AppProperties";
 import { clearLibrarySelection, reselectForDevelop } from "./workspaceInteractions";
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(), convertFileSrc: (path: string) => `asset://${path}` }));
 
 const file = (path: string): ImageFile => ({
   path,
@@ -53,6 +57,8 @@ const click = (target: Element, x: number, y: number, up: { x: number; y: number
 };
 
 beforeEach(() => {
+  useProcessStore.setState({ thumbnails: {}, mediumThumbnails: {} });
+  vi.mocked(invoke).mockReset();
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -233,4 +239,16 @@ describe("filmstrip wheel", () => {
     expect(wheel(browser).defaultPrevented).toBe(false);
     expect(browser.scrollLeft).toBe(200);
   });
+});
+
+it("recovers an evicted thumbnail when its Library tile becomes visible", async () => {
+  vi.mocked(invoke).mockResolvedValue(["/cache/restored.jpg", "/cache/medium.jpg"]);
+  useProcessStore.setState({ thumbnails: { "/s/a.NEF": "asset:///cache/evicted.jpg" } });
+  const view = grid();
+  fireEvent.error(view.container.querySelector("img")!);
+  await waitFor(() => expect(view.container.querySelector("img")?.getAttribute("src")).toContain("restored.jpg?recovered="));
+  expect(invoke).toHaveBeenCalledWith("restore_thumbnail", { path: "/s/a.NEF" });
+  fireEvent.error(view.container.querySelector("img")!);
+  await waitFor(() => expect(view.container.querySelector("img")).toBeNull());
+  expect(invoke).toHaveBeenCalledTimes(1);
 });
