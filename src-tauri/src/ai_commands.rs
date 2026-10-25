@@ -1105,6 +1105,9 @@ pub async fn warm_up_ai_mask_models(
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
+    if WARM_UP_FELL_BACK.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok(());
+    }
     let guard = AiTaskGuard::new(&state.active_ai_tasks, task_id);
     let stop = || {
         if guard.token.is_cancelled() {
@@ -1115,11 +1118,13 @@ pub async fn warm_up_ai_mask_models(
             None
         }
     };
+    // Once for both models: masking use during Subject's warm-up keeps Sky
+    // too.
+    let uses = LIFECYCLE.uses();
     for kind in [AutoMask::Subject, AutoMask::Sky] {
         if !crate::ai_processing::core_ml_first_run_pending(&app_handle, kind == AutoMask::Sky) {
             continue;
         }
-        let uses = LIFECYCLE.uses();
         let _running = LIFECYCLE.run();
         let outcome = warm_up_model(
             network(&state, &app_handle, kind, false),
@@ -1150,11 +1155,21 @@ pub async fn warm_up_ai_mask_models(
                 return Ok(());
             }
             WarmUp::Failed(e) => log::warn!("AI {name} mask: building ahead failed: {e}"),
-            WarmUp::NotInstalled | WarmUp::NotRun => {}
+            WarmUp::NotInstalled => {}
+            // Core ML failed and ONNX Runtime was loaded instead: no first
+            // run is recorded, so nothing more is loaded for a warm-up
+            // until the app starts again.
+            WarmUp::NotRun => {
+                WARM_UP_FELL_BACK.store(true, std::sync::atomic::Ordering::Relaxed);
+                return Ok(());
+            }
         }
     }
     Ok(())
 }
+
+/// A warm-up loaded ONNX Runtime instead of Core ML in this launch.
+static WARM_UP_FELL_BACK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// What `warm_up_model` did with one model.
 #[derive(Debug, PartialEq)]
