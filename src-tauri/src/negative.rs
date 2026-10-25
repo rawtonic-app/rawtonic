@@ -33,8 +33,8 @@ pub(crate) async fn analyze_negative(
         return Ok(None);
     };
     tauri::async_runtime::spawn_blocking(move || {
-        let (scan, frame) = negative::analysis_image(&image, &js_adjustments);
-        Ok(negative::analyze(&scan, is_raw, frame))
+        let scan = negative::analysis_image(&image, &js_adjustments);
+        Ok(negative::analyze_image(&scan, is_raw))
     })
     .await
     .map_err(|error| format!("Negative analysis failed: {error}"))?

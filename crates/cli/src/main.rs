@@ -346,8 +346,8 @@ fn with_negative(
         std::path::Path::new(source),
     )
     .map_err(anyhow::Error::msg)?;
-    let (scan, frame) = rawtonic_engine::negative::analysis_image(&base, &recipe);
-    let analysis = rawtonic_engine::negative::analyze(&scan, is_raw, frame)
+    let scan = rawtonic_engine::negative::analysis_image(&base, &recipe);
+    let analysis = rawtonic_engine::negative::analyze_image(&scan, is_raw)
         .with_context(|| format!("{source}: too small to analyse"))?;
     eprintln!(
         "{source}: film base {:?} ({}), highlight {:?}",

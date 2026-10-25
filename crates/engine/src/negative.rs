@@ -345,15 +345,22 @@ pub fn analysis_recipe(adjustments: &Value) -> (Value, Option<[f32; 4]>) {
 /// Long side, in pixels, of the image [`analyze`] looks at.
 pub const ANALYSIS_DIM: u32 = 1600;
 
-/// The image [`analyze`] looks at and its frame: `source` (the photo's
-/// decode, `is_raw` as for [`apply_for_recipe`]) reduced to [`ANALYSIS_DIM`],
-/// warped and turned as `adjustments` show it, without crop, conversion or
-/// retouching ([`analysis_recipe`]), and the crop in its pixels. The editor's
-/// Auto and `rawtonic export --negative` both analyse this.
-pub fn analysis_image(
-    source: &DynamicImage,
-    adjustments: &Value,
-) -> (DynamicImage, Option<[f32; 4]>) {
+/// What [`analyze`] looks at: the scan as shown (lens-corrected) and its
+/// frame, and the same scan before vignetting correction, where white
+/// clipping shows as the sensor or scanner recorded it (None: no
+/// vignetting correction, `image` is that).
+pub struct AnalysisImage {
+    pub image: DynamicImage,
+    pub frame: Option<[f32; 4]>,
+    pub uncorrected: Option<DynamicImage>,
+}
+
+/// The [`AnalysisImage`] of `source` (the photo's decode, `is_raw` as for
+/// [`apply_for_recipe`]): reduced to [`ANALYSIS_DIM`], warped and turned as
+/// `adjustments` show it, without crop, conversion or retouching
+/// ([`analysis_recipe`]), and the crop in its pixels. The editor's Auto and
+/// `rawtonic export --negative` both analyse this.
+pub fn analysis_image(source: &DynamicImage, adjustments: &Value) -> AnalysisImage {
     let (recipe, crop) = analysis_recipe(adjustments);
     let (w, h) = (source.width().max(1), source.height().max(1));
     let scale = (ANALYSIS_DIM as f32 / w.max(h) as f32).min(1.0);
@@ -367,12 +374,29 @@ pub fn analysis_image(
         Cow::Borrowed(source)
     };
     let actual = reduced.width() as f32 / w as f32;
-    let warped = crate::image_processing::apply_geometry_warp(reduced, &recipe);
-    let (shown, _) = crate::adjustment_utils::apply_spatial_transformations(warped, &recipe);
-    (
-        shown.into_owned(),
-        crop.map(|rect| rect.map(|v| v * actual)),
+    let (rw, rh) = (reduced.width(), reduced.height());
+    let shown = |recipe: &Value, reduced: &DynamicImage| {
+        let warped = crate::image_processing::apply_geometry_warp(reduced, recipe);
+        crate::adjustment_utils::apply_spatial_transformations(warped, recipe)
+            .0
+            .into_owned()
+    };
+    let vignetting = crate::image_processing::VignetteGain::of(
+        &crate::image_processing::get_geometry_params_from_json(&recipe),
+        rw,
+        rh,
     )
+    .is_some();
+    let uncorrected = vignetting.then(|| {
+        let mut plain = recipe.clone();
+        plain["lensVignetteEnabled"] = Value::Bool(false);
+        shown(&plain, &reduced)
+    });
+    AnalysisImage {
+        image: shown(&recipe, &reduced),
+        frame: crop.map(|rect| rect.map(|v| v * actual)),
+        uncorrected,
+    }
 }
 
 /// Without a crop: the image's border strip (share of each side) searched
@@ -499,6 +523,22 @@ fn otsu_split(values: &[f32]) -> (usize, f32) {
 /// cropped to the frame or masked black) the frame's own thinnest part
 /// stands in.
 pub fn analyze(image: &DynamicImage, is_raw: bool, frame: Option<[f32; 4]>) -> Option<Analysis> {
+    analyze_scan(image, None, is_raw, frame)
+}
+
+/// [`analyze`] of an [`AnalysisImage`].
+pub fn analyze_image(scan: &AnalysisImage, is_raw: bool) -> Option<Analysis> {
+    analyze_scan(&scan.image, scan.uncorrected.as_ref(), is_raw, scan.frame)
+}
+
+/// [`analyze`], white clipping read from `uncorrected` (the same pixels
+/// before vignetting correction) when given.
+fn analyze_scan(
+    image: &DynamicImage,
+    uncorrected: Option<&DynamicImage>,
+    is_raw: bool,
+    frame: Option<[f32; 4]>,
+) -> Option<Analysis> {
     let rgb = match image {
         DynamicImage::ImageRgb32F(buffer) => Cow::Borrowed(buffer),
         other => Cow::<Rgb32FImage>::Owned(other.to_rgb32f()),
@@ -511,6 +551,9 @@ pub fn analyze(image: &DynamicImage, is_raw: bool, frame: Option<[f32; 4]>) -> O
         let p = [p[0], p[1], p[2]];
         if is_raw { p } else { p.map(srgb_to_linear) }
     };
+    let uncorrected = uncorrected
+        .map(DynamicImage::to_rgb32f)
+        .filter(|u| u.dimensions() == (w, h));
     let (fw, fh) = (w as f32, h as f32);
     // The frame (x0, y0, x1, y1) and whether a pixel is beside it.
     let crop = frame
@@ -552,7 +595,12 @@ pub fn analyze(image: &DynamicImage, is_raw: bool, frame: Option<[f32; 4]>) -> O
             }
             let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
             if beside(px, py) {
-                border.push(p);
+                let recorded = uncorrected
+                    .as_ref()
+                    .map_or(p, |u| linear(u.get_pixel(x, y)));
+                if !clipped(&recorded, is_raw) {
+                    border.push(p);
+                }
             } else if inside(px, py, interior) {
                 frame_samples.push(p);
             }
@@ -570,10 +618,7 @@ pub fn analyze(image: &DynamicImage, is_raw: bool, frame: Option<[f32; 4]>) -> O
     let thinner = 10f32.powf(BASE_BELOW_SHADOWS);
     let mut candidates: Vec<[f32; 3]> = border
         .into_iter()
-        .filter(|p| {
-            !clipped(p, is_raw)
-                && (0..3).all(|c| p[c] >= 0.9 * thinnest[c] && p[c] <= thinner * thinnest[c])
-        })
+        .filter(|p| (0..3).all(|c| p[c] >= 0.9 * thinnest[c] && p[c] <= thinner * thinnest[c]))
         .collect();
     // Enough of the border must be film for a reliable base.
     let base_from_border = candidates.len() >= 64;
@@ -932,6 +977,34 @@ mod tests {
     }
 
     #[test]
+    fn white_clipping_is_read_before_vignetting_correction() {
+        // An unclipped rebate (green 0.855 at most) that a strong
+        // vignetting correction lifts above 1, around a frame whose
+        // thinnest is 0.5: still the film base.
+        let image = DynamicImage::ImageRgb32F(Rgb32FImage::from_fn(200, 150, |x, y| {
+            let border = !(14..186).contains(&x) || !(14..136).contains(&y);
+            let v = if border {
+                0.855
+            } else {
+                0.5 * 0.1f32.powf(x as f32 / 200.0)
+            };
+            image::Rgb([v; 3])
+        }));
+        let recipe = json!({"lensCorrectionMode": "camera", "lensVignetteAmount": 100.0,
+            "lensDistortionParams": {"vig_k1": -0.8}});
+        let scan = analysis_image(&image, &recipe);
+        assert!(scan.uncorrected.is_some());
+        let lifted = scan.image.to_rgb32f();
+        assert!(
+            lifted.get_pixel(0, 0)[1] > 1.0,
+            "{:?}",
+            lifted.get_pixel(0, 0)
+        );
+        let found = analyze_image(&scan, true).unwrap();
+        assert!(found.base_from_border, "{found:?}");
+    }
+
+    #[test]
     fn deep_scans_keep_their_dense_highlights() {
         // A 16-bit or RAW scan's densest highlights lie below an 8-bit
         // code 1 without being clipped: they set the highlight.
@@ -1005,10 +1078,11 @@ mod tests {
             image::imageops::FilterType::Nearest,
         ));
         let crop = json!({"crop": {"x": 240.0, "y": 240.0, "width": 2720.0, "height": 1920.0}});
-        let (image, frame) = analysis_image(&big, &crop);
-        assert_eq!((image.width(), image.height()), (1600, 1200));
-        assert_eq!(frame, Some([120.0, 120.0, 1360.0, 960.0]));
-        let found = analyze(&image, true, frame).unwrap();
+        let scan = analysis_image(&big, &crop);
+        assert_eq!((scan.image.width(), scan.image.height()), (1600, 1200));
+        assert_eq!(scan.frame, Some([120.0, 120.0, 1360.0, 960.0]));
+        assert!(scan.uncorrected.is_none());
+        let found = analyze_image(&scan, true).unwrap();
         for c in 0..3 {
             assert!((found.base[c] / base[c] - 1.0).abs() < 0.01, "{found:?}");
             assert!(

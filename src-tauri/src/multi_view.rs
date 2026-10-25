@@ -610,8 +610,12 @@ fn load_source(
         return Ok((image, 1.0, facts, "decoded"));
     }
     // The previews stand for the master recipe's decode variant
-    // (`preview_proxy::stands_for`); a cell of another one decodes.
-    let proxy_fits = !is_raw || crate::preview_proxy::stands_for(&source_path, recipe);
+    // (`preview_proxy::stands_for`); a cell of another one decodes. A film
+    // negative converts the full-resolution decode (the conversion is not
+    // linear: a reduced proxy or fast decode averages transmittance first).
+    let negative = !reduced_source_allowed(recipe);
+    let proxy_fits =
+        !negative && (!is_raw || crate::preview_proxy::stands_for(&source_path, recipe));
     if let Some(proxy) = state
         .proxy_memory
         .lock()
@@ -642,23 +646,38 @@ fn load_source(
         };
         return Ok((Arc::new(proxy.image), scale, facts, "proxy-disk"));
     }
-    decode(&source_path, &source_str, is_raw, &settings, recipe)
+    decode(
+        &source_path,
+        &source_str,
+        is_raw,
+        is_raw && !negative,
+        &settings,
+        recipe,
+    )
+}
+
+/// Whether a cell of `recipe` may develop from a reduced source (a preview
+/// proxy, a fast decode): not a film negative, whose conversion is not
+/// linear and reads the full-resolution decode, as the export does.
+fn reduced_source_allowed(recipe: &serde_json::Value) -> bool {
+    !rawtonic_engine::negative::is_active(recipe)
 }
 
 fn decode(
     source_path: &Path,
     source_str: &str,
     is_raw: bool,
+    fast: bool,
     settings: &crate::app_settings::AppSettings,
     recipe: &serde_json::Value,
 ) -> Result<(Arc<DynamicImage>, f32, Facts, &'static str), String> {
     let bytes = read_file_mapped(source_path).map_err(|e| e.to_string())?;
     let image = crate::image_loader::load_base_image_for_recipe(
-        &bytes, source_str, is_raw, settings, None, None, recipe,
+        &bytes, source_str, fast, settings, None, None, recipe,
     )
     .map_err(|e| e.to_string())?;
     let (width, height) = image.dimensions();
-    let scale = if is_raw {
+    let scale = if fast {
         crate::raw_processing::get_fast_demosaic_scale_factor(&bytes, width, height)
     } else {
         1.0
@@ -1588,7 +1607,9 @@ pub(crate) fn full_size_of(path: &str) -> Option<(u32, u32)> {
 /// says the rest): retouching and masks that read the warped photograph
 /// need all of it.
 fn region_from_rows_possible(recipe: &serde_json::Value) -> bool {
+    // A film negative converts the whole full-resolution decode.
     if crate::image_loader::has_base_retouch(recipe)
+        || rawtonic_engine::negative::is_active(recipe)
         || crate::image_loader::retouch_needs_full_resolution(recipe)
     {
         return false;
@@ -2966,6 +2987,18 @@ mod tests {
         .map(|(path, ..)| path)
         .collect();
         assert_eq!(order, ["large", "small", "unknown", "pending"]);
+    }
+
+    #[test]
+    fn negative_cells_develop_from_the_full_decode() {
+        let negative = serde_json::json!({"negative": {"version": 1, "enabled": true,
+            "base": [0.7, 0.4, 0.2], "highlight": [0.07, 0.04, 0.02]}});
+        assert!(!reduced_source_allowed(&negative));
+        assert!(!region_from_rows_possible(&negative));
+        assert!(!interim_region_possible(&negative));
+        let off = serde_json::json!({"negative": {"version": 1, "enabled": false}});
+        assert!(reduced_source_allowed(&off));
+        assert!(reduced_source_allowed(&serde_json::json!({})));
     }
 
     #[test]
