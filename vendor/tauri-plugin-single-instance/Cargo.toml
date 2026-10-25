@@ -27,7 +27,7 @@ autotests = false
 autobenches = false
 description = "Ensure a single instance of your tauri app is running."
 readme = "README.md"
-license = "Apache-2.0 OR MIT"
+license = "(Apache-2.0 OR MIT) AND AGPL-3.0-or-later"
 repository = "https://github.com/tauri-apps/plugins-workspace"
 
 [package.metadata.platforms.support.windows]

@@ -3,7 +3,7 @@ name = "tauri-plugin-single-instance"
 version = "2.5.4"
 description = "Ensure a single instance of your tauri app is running."
 authors = { workspace = true }
-license = { workspace = true }
+license = "(Apache-2.0 OR MIT) AND AGPL-3.0-or-later"
 edition = { workspace = true }
 rust-version = { workspace = true }
 repository = { workspace = true }

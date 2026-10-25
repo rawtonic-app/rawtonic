@@ -20,7 +20,7 @@ build, so an invalid id still fails plugin setup as in 2.5.4. `Cargo.toml` and
 `Cargo.toml.orig` require zbus 6; the copy of upstream's
 `tests/dbus_errors.rs` builds its test bus owner the same way.
 
-Checked on Linux (CachyOS, zbus 6.0.0): upstream's D-Bus test
+Before the invocation-directory change, checked on Linux (CachyOS, zbus 6.0.0): upstream's D-Bus test
 (`dbus-run-session -- cargo test --test dbus_errors -- --ignored`, run in a
 standalone copy of this folder because a patched crate's dev-dependencies are
 not in our lockfile) passes 10 of 10 runs — a missing or invalid bus address
@@ -29,7 +29,9 @@ second instance's setup, and a second instance hands its arguments and working
 directory to the primary over the real bus and exits.
 
 It is patched in through `[patch.crates-io]` in the workspace `Cargo.toml`.
-Remove it when a tauri-plugin-single-instance release uses zbus 6. ADR 0005.
+Remove it only when an upstream release both uses zbus 6 and supports forwarding
+the invocation directory with the same AppImage rule. Otherwise preserve the
+resolver and its app call site when updating the dependency. ADR 0005.
 
 The Linux sender resolves its forwarded working directory against the AppImage
 runtime's `OWD` (or the shell's `PWD` for `--appimage-extract-and-run`) before
@@ -38,3 +40,10 @@ so relative paths follow the same rule for initial and forwarded launches.
 The process cwd stays unchanged for WebKit helpers; non-AppImage launches
 still forward `current_dir()`. This Rawtonic resolver is AGPL-3.0-or-later.
 Keep this behavior when replacing the zbus patch with an upstream release.
+
+The invocation-directory change has resolution-unit-test coverage with fake
+environment values on macOS, not a live D-Bus or manual AppImage check. The
+`PWD` fallback is unchanged from PR #345, which measured an extract-and-run
+AppImage; this follow-up did not repeat that check for a forwarded launch.
+The crate's combined license expression includes the AGPL resolver; upstream
+license texts and `LICENSE.spdx` remain unchanged.
