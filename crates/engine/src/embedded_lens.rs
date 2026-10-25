@@ -522,6 +522,9 @@ pub struct NikonLensInfo {
     pub distortion_flag: u8,
     /// DistortionInfo coefficients as stored (offsets 0x14, 0x1c, 0x24, 0x2c).
     pub distortion: [f64; 4],
+    /// DistortionInfo's framing scale (offset 0x40): the corrected frame
+    /// shows the sensor at `u p(u) / (1 + framing)` (see `nikon_curve`).
+    pub framing: Option<f64>,
     /// VignetteInfo coefficients as stored (offsets 0x14 … 0x44, every
     /// second one) and the strength factor at offset 0x60.
     pub vignetting: [f64; 4],
@@ -578,6 +581,7 @@ pub fn parse_nikon_nef_info(blob: &[u8]) -> Option<NikonLensInfo> {
     let distortion_info = distortion_info.filter(|d| d.len() >= 0x34 && d.starts_with(b"0100"))?;
     let vignette_info = vignette_info.filter(|v| v.len() >= 0x68 && v.starts_with(b"0100"));
     let distortion = [0x14, 0x1c, 0x24, 0x2c].map(|at| srational(distortion_info, at));
+    let framing = srational(distortion_info, 0x40).filter(|v| v.abs() < 0.3);
     let vignetting = vignette_info.map(|v| [0x14, 0x24, 0x34, 0x44].map(|at| srational(v, at)));
     let strength = vignette_info.and_then(|v| {
         let den = u32_at(v, 0x64)?;
@@ -591,6 +595,7 @@ pub fn parse_nikon_nef_info(blob: &[u8]) -> Option<NikonLensInfo> {
             distortion[2]?,
             distortion[3]?,
         ],
+        framing,
         vignetting: match vignetting {
             Some([Some(a), Some(b), Some(c), Some(d)]) => [a, b, c, d],
             _ => [0.0; 4],
@@ -715,20 +720,36 @@ pub fn nikon_compact_curve(values: &[f64]) -> Option<EmbeddedLensData> {
 /// are used for both. F-mount DSLRs that write the block (D780 flag 2,
 /// D6 flag 0) are left alone: Camera Raw does not correct them (with the
 /// data, the D6/D780 corners came out 0.55 EV brighter than its render).
-pub fn nikon_curve(info: &NikonLensInfo) -> Option<EmbeddedLensData> {
+///
+/// `framed` (camera geometry version 2) frames as the camera does: with
+/// the radius relative to the corrected frame's half-diagonal, an output
+/// pixel at `u` shows the sensor at `u p(u) / (1 + f)`, f being the framing
+/// scale DistortionInfo stores (the camera's full-size JPEG of 57 Z-mount
+/// files of 13 bodies, FX, DX, 1:1 and 16:9 frames, to 0.04 % of the
+/// radius; Camera Raw frames as the JPEG; notes: parity-gaps/G71), as the
+/// exact zoom (`exact_zoom`). Unframed (and for data without that value),
+/// the corners stay on the sensor's corners.
+pub fn nikon_curve(info: &NikonLensInfo, framed: bool) -> Option<EmbeddedLensData> {
     let [d1, d2, d3, d4] = info.distortion;
     // The fourth term was zero in every file seen; its power is unknown.
     if !matches!(info.distortion_flag, 1 | 3) || d4 != 0.0 {
         return None;
     }
     let p = |r: f64| 1.0 + r * r * (d3 + r * (d2 + r * d1));
-    let corner = p(1.0);
-    let distortion: Vec<(f64, f64)> = (1..=FORMULA_KNOTS)
-        .map(|i| {
-            let u = i as f64 / FORMULA_KNOTS as f64;
-            (u, p(u) / corner)
-        })
-        .collect();
+    let framing = info.framing.filter(|_| framed);
+    let (distortion, zoom) = match framing {
+        Some(f) => framed_curve(|u| p(u) / (1.0 + f))?,
+        None => {
+            let corner = p(1.0);
+            let curve = (1..=FORMULA_KNOTS)
+                .map(|i| {
+                    let u = i as f64 / FORMULA_KNOTS as f64;
+                    (u, p(u) / corner)
+                })
+                .collect::<Vec<_>>();
+            (curve, 1.0)
+        }
+    };
     let [v1, v2, v3, v4] = info.vignetting;
     let t = info.vignetting_strength;
     let vignetting =
@@ -746,8 +767,8 @@ pub fn nikon_curve(info: &NikonLensInfo) -> Option<EmbeddedLensData> {
         maker: "Nikon",
         distortion,
         vignetting: vignetting.filter(|c| c.iter().all(|&(_, b)| b > 0.05 && b <= 1.5)),
-        zoom: 1.0,
-        exact_zoom: false,
+        zoom,
+        exact_zoom: framing.is_some(),
         chromatic: None,
     })
 }
@@ -789,9 +810,10 @@ pub fn ca_version_of(adjustments: &serde_json::Value) -> u64 {
 /// as geometry (knot positions, framing).
 pub const GEOMETRY_VERSION_KEY: &str = "cameraGeometryVersion";
 /// The newest: 1 (2026-10-26) reads Sony's distortion as Camera Raw does
-/// (`sony_lens`). Recipes without the key keep their parameters; saving them
-/// again fills in the same as before.
-pub const GEOMETRY_VERSION: u64 = 1;
+/// (`sony_lens`); 2 (2026-10-26) frames Nikon Z data as the camera does
+/// (`nikon_curve`). Recipes without the key keep their parameters; saving
+/// them again fills in the same as before.
+pub const GEOMETRY_VERSION: u64 = 2;
 
 /// The recipe's camera geometry version: `cameraGeometryVersion`, 0 when
 /// missing.
@@ -944,7 +966,7 @@ pub fn read_version(
                 _ => return None,
             };
             match parse_nikon_nef_info(&blob) {
-                Some(info) => nikon_curve(&info),
+                Some(info) => nikon_curve(&info, geometry_version >= 2),
                 None => nikon_compact_curve(&parse_nikon_compact_distortion(&blob)?),
             }
         }
@@ -1173,12 +1195,12 @@ pub fn current_geometry_version(source: &Path) -> u64 {
 
 /// The `source_facts` versions from which `camera_lens` is read at camera
 /// geometry version 1, 2, … (older versions in `camera_lens_geometry`).
-const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7];
+const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7, 8];
 
 /// The file formats (extensions) whose data camera geometry version 1, 2, …
 /// reads differently from the version before: 1 Sony's (ARW, and Adobe DNG
-/// Converter's DNGs of Sony bodies).
-const GEOMETRY_FORMATS: [&[&str]; GEOMETRY_VERSION as usize] = [&["arw", "dng"]];
+/// Converter's DNGs of Sony bodies), 2 Nikon's (NEF; NRW share its reader).
+const GEOMETRY_FORMATS: [&[&str]; GEOMETRY_VERSION as usize] = [&["arw", "dng"], &["nef", "nrw"]];
 
 /// The camera geometry version facts of `facts_version` carry.
 pub fn facts_geometry_version(facts_version: u32) -> u64 {
@@ -1916,6 +1938,10 @@ mod tests {
 
     /// A NikonNEFInfo blob with a Z 6 + NIKKOR Z 24-70mm f/4 S file's values.
     fn nikon_blob(distortion_flag: u8) -> Vec<u8> {
+        nikon_blob_framed(distortion_flag, Some(0.064596))
+    }
+
+    fn nikon_blob_framed(distortion_flag: u8, framing: Option<f64>) -> Vec<u8> {
         let rational = |v: f64| {
             let mut b = ((v * 1048576.0).round() as i32).to_le_bytes().to_vec();
             b.extend_from_slice(&1048576u32.to_le_bytes());
@@ -1925,8 +1951,12 @@ mod tests {
         dist.extend_from_slice(&[distortion_flag, 1, 0, 0]);
         dist.extend(rational(21.6));
         dist.extend_from_slice(&4u32.to_le_bytes());
-        for v in [0.018975, -0.012295, 0.041512, 0.0] {
+        for v in [0.018975, -0.012295, 0.041512, 0.0, 0.0] {
             dist.extend(rational(v));
+        }
+        dist.resize(0x40, 0);
+        if let Some(framing) = framing {
+            dist.extend(rational(framing));
         }
         dist.resize(84, 0);
         let mut vig = b"0100".to_vec();
@@ -1966,7 +1996,7 @@ mod tests {
         let info = parse_nikon_nef_info(&nikon_blob(3)).unwrap();
         assert_eq!(info.distortion_flag, 3);
         assert!((info.vignetting_strength - 541.0 / 1024.0).abs() < 1e-12);
-        let data = nikon_curve(&info).unwrap();
+        let data = nikon_curve(&info, false).unwrap();
         // Adobe DNG Converter wrote FixVignetteRadial k = 0.227971,
         // 0.062092, −0.336579, 0.419177 for this file.
         let k = [0.227971, 0.062092, -0.336579, 0.419177];
@@ -1984,11 +2014,57 @@ mod tests {
         }
         // Corrections marked optional by the lens apply as well.
         let optional = parse_nikon_nef_info(&nikon_blob(1)).unwrap();
-        assert_eq!(nikon_curve(&optional), Some(data));
+        assert_eq!(nikon_curve(&optional, false), Some(data));
         // DSLR blocks (flag 0 or 2) are not used.
         for flag in [0, 2] {
-            assert!(nikon_curve(&parse_nikon_nef_info(&nikon_blob(flag)).unwrap()).is_none());
+            assert!(
+                nikon_curve(&parse_nikon_nef_info(&nikon_blob(flag)).unwrap(), false).is_none()
+            );
         }
+    }
+
+    #[test]
+    fn nikon_framing_follows_the_scale_the_camera_stores() {
+        let info = parse_nikon_nef_info(&nikon_blob(3)).unwrap();
+        assert!((info.framing.unwrap() - 0.064596).abs() < 1e-6);
+        let [d1, d2, d3, _] = info.distortion;
+        let p = |r: f64| 1.0 + r * r * (d3 + r * (d2 + r * d1));
+        // The camera's JPEG (and Camera Raw): an output pixel at radius u
+        // shows the sensor at u p(u) / (1 + framing), so its corners lie
+        // inside the sensor's (Z 6 at 52 mm: 0.980 of the half-diagonal).
+        let data = nikon_curve(&info, true).unwrap();
+        assert!(data.exact_zoom);
+        assert!((data.zoom - 1.01398).abs() < 1e-4, "zoom {}", data.zoom);
+        for i in 1..=20 {
+            let u = i as f64 / 20.0;
+            let warp = warp_source_radius(&data, u);
+            let camera = u * p(u) / (1.0 + 0.064596);
+            assert!((warp - camera).abs() < 2e-4, "u {u}: {warp} vs {camera}");
+        }
+        // Without the framing value, or for recipes of an earlier camera
+        // geometry version, the corners stay on the sensor's corners.
+        let unframed = parse_nikon_nef_info(&nikon_blob_framed(3, None)).unwrap();
+        assert_eq!(unframed.framing, None);
+        assert_eq!(nikon_curve(&unframed, true), nikon_curve(&info, false));
+        let old = nikon_curve(&info, false).unwrap();
+        assert_eq!((old.zoom, old.exact_zoom), (1.0, false));
+    }
+
+    #[test]
+    fn offline_facts_carry_the_geometry_version_they_were_read_at() {
+        // Facts version 7 carry Sony's knots (1), 8 also Nikon's framing (2).
+        assert_eq!(facts_geometry_version(6), 0);
+        assert_eq!(facts_geometry_version(7), 1);
+        assert_eq!(facts_geometry_version(8), 2);
+        assert_eq!(
+            facts_geometry_version(crate::source_facts::VERSION),
+            GEOMETRY_VERSION
+        );
+        // A NEF's version 7 facts predate Nikon's framing; an ARW's hold.
+        assert_eq!(known_geometry_version(Path::new("a.nef"), 7), 1);
+        assert_eq!(known_geometry_version(Path::new("a.NRW"), 7), 1);
+        assert_eq!(known_geometry_version(Path::new("a.arw"), 7), 2);
+        assert_eq!(known_geometry_version(Path::new("a.nef"), 8), 2);
     }
 
     #[test]
@@ -2587,8 +2663,8 @@ mod tests {
         assert_eq!(never["lensCorrectionMode"], CAMERA_MODE);
         assert!(never.get(GEOMETRY_VERSION_KEY).is_none());
         forget(&path);
-        // Formats geometry version 1 reads as before: the old facts answer.
-        for name in ["DSCF0001.RAF", "P1000001.RW2", "_DSC0001.NEF"] {
+        // Formats the geometry versions read as before: the old facts answer.
+        for name in ["DSCF0001.RAF", "P1000001.RW2"] {
             let other = Path::new("/offline/volume/Job/Capture").join(name);
             register(
                 &other.to_string_lossy(),
@@ -2603,6 +2679,23 @@ mod tests {
             assert_eq!(params_for_recipe(&other, &new), Some(v0.clone()));
             forget(&other.to_string_lossy());
         }
+        // A NEF's facts from before version 2 answer up to version 1 only.
+        let nef = Path::new("/offline/volume/Job/Capture/_DSC0001.NEF");
+        register(
+            &nef.to_string_lossy(),
+            SourceFacts {
+                version: 7,
+                camera_lens: Some(v0.clone()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(current_geometry_version(nef), 1);
+        assert!(recipe_params_known(
+            nef,
+            &serde_json::json!({GEOMETRY_VERSION_KEY: 1})
+        ));
+        assert!(!recipe_params_known(nef, &new));
+        forget(&nef.to_string_lossy());
     }
 
     // Fujifilm GFX 50R with GF63mmF2.8 R WR: eight knots (values as stored).

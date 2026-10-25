@@ -36,7 +36,8 @@ use crate::lens_correction::LensDistortionParams;
 /// 7: `camera_lens` at camera geometry version 1
 /// (`embedded_lens::GEOMETRY_VERSION`), `camera_lens_geometry` for recipes
 /// of older geometry versions.
-pub const VERSION: u32 = 7;
+/// 8: `camera_lens` at camera geometry version 2 (Nikon Z framing).
+pub const VERSION: u32 = 8;
 
 /// The file facts the rendering of one photograph uses.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
