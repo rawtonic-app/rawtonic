@@ -2855,7 +2855,7 @@ mod tests {
             );
             assert_eq!(
                 crate::session_bridge::libraries_for_folder(&drive),
-                [renamed.clone()]
+                std::slice::from_ref(&renamed)
             );
             assert_eq!(
                 crate::session_bridge::outside_owners(&paths),
