@@ -486,9 +486,10 @@ fn add_one(
     // rating, label and keywords) in one transaction; they are read, never
     // written. An unreadable sidecar keeps the file out.
     let mut report = if let Some(preset) = metadata {
-        library.add_files_with_metadata_edit(&[source.to_path_buf()], |photo, metadata| {
-            preset.prepare(photo, source, metadata)
-        })?
+        library.add_files_with_metadata_edit(
+            &[source.to_path_buf()],
+            |photo, metadata, initialized| preset.prepare(photo, source, metadata, initialized),
+        )?
     } else {
         library.add_files(&[source.to_path_buf()])?
     };

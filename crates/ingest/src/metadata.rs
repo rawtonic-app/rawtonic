@@ -97,6 +97,7 @@ impl ImportMetadata {
         photo: &std::path::Path,
         source: &std::path::Path,
         metadata: &mut Metadata,
+        initialized: bool,
     ) -> Result<()> {
         let (embedded, embedded_year) = crate::capture::import_metadata(photo)?;
         let year = embedded_year.unwrap_or_else(|| {
@@ -111,10 +112,18 @@ impl ImportMetadata {
             (&mut metadata.creator, embedded.creator),
             (&mut metadata.copyright, embedded.copyright),
             (&mut metadata.description, embedded.description),
+            (&mut metadata.title, embedded.title),
+            (&mut metadata.label, embedded.label),
         ] {
             if target.trim().is_empty() {
                 *target = value;
             }
+        }
+        // A preset must not make Add ineligible for the later camera-rating
+        // pass before adopting that rating. Explicit sidecar zero/reject wins.
+        if !initialized {
+            metadata.rating = embedded.rating;
+            metadata.flag = embedded.flag;
         }
         for (key, value) in embedded.iptc {
             if metadata.iptc.get(&key).is_none_or(|v| v.trim().is_empty()) {
@@ -147,7 +156,12 @@ pub(crate) fn apply_to_copy(
     };
     let asset = library.asset(id)?;
     let mut metadata = library.metadata(id)?;
-    preset.prepare(&asset.path, &result.source, &mut metadata)?;
+    preset.prepare(
+        &asset.path,
+        &result.source,
+        &mut metadata,
+        library.metadata_initialized(id)?,
+    )?;
     library.set_metadata(id, &metadata)?;
     match library.sync_xmp(id) {
         Ok(()) => result.sidecar = Some(asset.path.with_extension("xmp")),

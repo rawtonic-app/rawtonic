@@ -181,9 +181,13 @@ impl PlannedAsset {
     /// Edit initial metadata before registration, in the same transaction
     /// as the asset. Retain the observed XMP digest for later conflict-aware
     /// sync, but leave it pending because the sidecar has not been written.
-    pub fn edit_metadata(mut self, edit: impl FnOnce(&mut Metadata) -> Result<()>) -> Result<Self> {
+    pub fn edit_metadata(
+        mut self,
+        edit: impl FnOnce(&mut Metadata, bool) -> Result<()>,
+    ) -> Result<Self> {
+        let initialized = self.metadata.is_some();
         let metadata = self.metadata.get_or_insert_default();
-        edit(metadata)?;
+        edit(metadata, initialized)?;
         metadata.validate()?;
         self.metadata_edited = true;
         Ok(self)
@@ -466,14 +470,16 @@ impl Library {
     /// Add with a metadata edit in the registration transaction, retaining
     /// the same identity, companion and unfinished-ingest checks as add_files.
     /// Sidecars are read only; edited metadata remains pending XMP sync.
+    /// The callback receives whether sidecar/editor metadata was initialized,
+    /// so an explicit zero rating is distinguishable from an empty default.
     pub fn add_files_with_metadata_edit(
         &self,
         paths: &[PathBuf],
-        mut edit: impl FnMut(&Path, &mut Metadata) -> Result<()>,
+        mut edit: impl FnMut(&Path, &mut Metadata, bool) -> Result<()>,
     ) -> Result<AddReport> {
         self.add_files_prepared(paths, |plan| {
             let path = plan.path.clone();
-            plan.edit_metadata(|metadata| edit(&path, metadata))
+            plan.edit_metadata(|metadata, initialized| edit(&path, metadata, initialized))
         })
     }
 

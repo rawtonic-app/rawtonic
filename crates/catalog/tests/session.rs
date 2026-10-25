@@ -130,3 +130,52 @@ fn large_recipe_values_are_stored_once_across_history_steps() {
         json!(bitmap)
     );
 }
+
+#[test]
+fn xmp_ownership_is_scoped_to_the_exact_folder_and_complete_stem() {
+    let temp = tempfile::tempdir().unwrap();
+    let lib = Library::create(&temp.path().join("Catalog"), "Ownership", Mode::Catalog).unwrap();
+    let capture = lib.directory.join("Capture");
+    std::fs::create_dir_all(capture.join("nested")).unwrap();
+    let external = temp.path().join("External");
+    std::fs::create_dir_all(&external).unwrap();
+    let photo = capture.join("name.multi.NEF");
+    for path in [
+        &photo,
+        &capture.join("name.multi.extra.JPG"),
+        &capture.join("nested/name.multi.JPG"),
+        &external.join("name.multi.JPG"),
+    ] {
+        std::fs::write(path, b"photograph").unwrap();
+        lib.add_asset(path).unwrap();
+    }
+    let asset = lib.asset_at(&photo).unwrap().unwrap();
+    lib.sync_xmp(&asset.id).unwrap();
+    let xmp = photo.with_extension("xmp");
+    let before = std::fs::read(&xmp).unwrap();
+    // A real sibling, including one without an extension, must still block.
+    let sibling = capture.join("name.multi.JPG");
+    std::fs::write(&sibling, b"independent photograph").unwrap();
+    lib.add_asset(&sibling).unwrap();
+    assert!(
+        lib.sync_xmp(&asset.id)
+            .unwrap_err()
+            .to_string()
+            .contains("pair resolution")
+    );
+    assert_eq!(std::fs::read(&xmp).unwrap(), before);
+
+    let bare = external.join("bare");
+    let extended = external.join("bare.JPG");
+    std::fs::write(&bare, b"bare").unwrap();
+    std::fs::write(&extended, b"extended").unwrap();
+    let bare_id = lib.add_asset(&bare).unwrap().id;
+    lib.add_asset(&extended).unwrap();
+    assert!(
+        lib.sync_xmp(&bare_id)
+            .unwrap_err()
+            .to_string()
+            .contains("pair resolution")
+    );
+    assert!(!bare.with_extension("xmp").exists());
+}

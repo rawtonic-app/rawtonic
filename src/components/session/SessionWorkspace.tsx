@@ -1684,7 +1684,6 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
               label={t("session.fields.filenameTemplate")} job={session?.manifest.name} />
 
             <NextCaptureFields value={nextCaptureForm} onChange={setNextCaptureForm} presets={presets} />
-            <IngestMetadata adding={ingestMode === "add"} value={importMetadata} onChange={setImportMetadata} />
             <div className="session-copy-note">
               <Check size={16} />
               <span>

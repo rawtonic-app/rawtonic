@@ -487,3 +487,157 @@ fn creator_only_preset_keeps_embedded_descriptive_fields_and_keywords() {
     assert_eq!(metadata.iptc["city"], "Harbour city");
     assert_eq!(metadata.iptc["usageTerms"], "Existing terms");
 }
+
+#[test]
+fn add_preset_preserves_embedded_culling_and_explicit_sidecar_zero() {
+    let d = tempfile::tempdir().unwrap();
+    let source = d.path().join("rated.jpg");
+    embedded_jpeg(
+        &source,
+        &Metadata {
+            rating: 4,
+            label: "Red".into(),
+            ..Metadata::default()
+        },
+    );
+    let preset = ImportMetadata {
+        creator: "Creator".into(),
+        ..ImportMetadata::default()
+    };
+    for sidecar in [false, true] {
+        if sidecar {
+            rawtonic_metadata::write_xmp(
+                &source.with_extension("xmp"),
+                &Metadata {
+                    label: "Blue".into(),
+                    ..Metadata::default()
+                },
+                None,
+                None,
+            )
+            .unwrap();
+        }
+        let lib = Library::create(
+            &d.path().join(format!("Catalog-{sidecar}")),
+            "Catalog",
+            Mode::Catalog,
+        )
+        .unwrap();
+        let results = rawtonic_ingest::batch::add_batch_with_metadata(
+            &lib,
+            std::slice::from_ref(&source),
+            None,
+            |_| rawtonic_ingest::batch::Medium::Disk,
+            &AtomicBool::new(false),
+            Some(&preset),
+            |_| {},
+        )
+        .unwrap();
+        let id = results[0].asset_id.as_ref().unwrap();
+        let metadata = lib.metadata(id).unwrap();
+        assert_eq!(metadata.creator, "Creator");
+        assert_eq!(metadata.rating, if sidecar { 0 } else { 4 });
+        assert_eq!(metadata.label, if sidecar { "Blue" } else { "Red" });
+        lib.record_facts(
+            id,
+            &rawtonic_ingest::capture::capture_facts(&source).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            lib.metadata(id).unwrap(),
+            metadata,
+            "later facts must not erase the preset or culling state"
+        );
+    }
+}
+
+#[test]
+fn add_preset_adopts_exif_camera_rating_without_an_xmp_packet() {
+    let d = tempfile::tempdir().unwrap();
+    let source = d.path().join("rated.NEF");
+    // TIFF IFD0 Rating (0x4746), SHORT, four stars.
+    fs::write(
+        &source,
+        b"II\x2a\0\x08\0\0\0\x01\0\x46\x47\x03\0\x01\0\0\0\x04\0\0\0\0\0\0\0",
+    )
+    .unwrap();
+    let preset = ImportMetadata {
+        creator: "Creator".into(),
+        ..ImportMetadata::default()
+    };
+    let lib = Library::create(&d.path().join("Catalog"), "Catalog", Mode::Catalog).unwrap();
+    let result = rawtonic_ingest::batch::add_batch_with_metadata(
+        &lib,
+        &[source],
+        None,
+        |_| rawtonic_ingest::batch::Medium::Disk,
+        &AtomicBool::new(false),
+        Some(&preset),
+        |_| {},
+    )
+    .unwrap();
+    let metadata = lib.metadata(result[0].asset_id.as_ref().unwrap()).unwrap();
+    assert_eq!(metadata.rating, 4);
+    assert_eq!(metadata.creator, "Creator");
+}
+
+#[test]
+fn invalid_optional_exif_creator_does_not_block_import_or_resume() {
+    let d = tempfile::tempdir().unwrap();
+    let source = d.path().join("oversized.NEF");
+    // A structurally valid TIFF Artist value beyond the catalog metadata limit.
+    let creator = vec![b'A'; 1_000_002];
+    let packet = rawtonic_metadata::export_xmp(
+        &Metadata {
+            copyright: "Existing embedded rights".into(),
+            ..Metadata::default()
+        },
+        "Test",
+    )
+    .unwrap();
+    let mut tiff = b"II\x2a\0\x08\0\0\0\x02\0\x3b\x01\x02\0".to_vec();
+    tiff.extend((creator.len() as u32).to_le_bytes());
+    tiff.extend(38_u32.to_le_bytes());
+    tiff.extend([0xbc, 0x02, 0x01, 0x00]); // XMP tag 700, BYTE
+    tiff.extend((packet.len() as u32).to_le_bytes());
+    tiff.extend((38_u32 + creator.len() as u32).to_le_bytes());
+    tiff.extend(0_u32.to_le_bytes());
+    tiff.extend(creator);
+    tiff.extend(packet.as_bytes());
+    fs::write(&source, tiff).unwrap();
+    let next = d.path().join("next.NEF");
+    fs::write(&next, b"next raw").unwrap();
+    let lib = Library::create(&d.path().join("Library"), "Library", Mode::Session).unwrap();
+    let preset = ImportMetadata {
+        creator: "Creator".into(),
+        ..ImportMetadata::default()
+    };
+    let options = BatchOptions {
+        template: "{orig}",
+        sequence_start: 1,
+        backup: None,
+        folder: None,
+        roots: &[],
+        pair_raw: None,
+        album: None,
+        metadata: Some(&preset),
+    };
+    let job = rawtonic_ingest::queue::create_job(&lib, &[source, next], &options).unwrap();
+    let results =
+        rawtonic_ingest::queue::run_job(&lib, &job, &AtomicBool::new(false), |_| {}).unwrap();
+    assert_eq!(results.len(), 2);
+    assert!(results.iter().all(|r| r.error.is_none()), "{results:?}");
+    for r in results {
+        let metadata = lib.metadata(r.asset_id.as_ref().unwrap()).unwrap();
+        assert_eq!(metadata.creator, "Creator");
+        if r.source.file_name().unwrap() == "oversized.NEF" {
+            assert_eq!(metadata.copyright, "Existing embedded rights");
+        }
+    }
+    assert!(lib.unfinished_ingest_jobs().unwrap().is_empty());
+    assert!(
+        rawtonic_ingest::queue::run_job(&lib, &job, &AtomicBool::new(false), |_| {})
+            .unwrap()
+            .is_empty()
+    );
+}

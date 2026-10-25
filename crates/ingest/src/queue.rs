@@ -264,6 +264,10 @@ pub fn run_job(
         // Before ItemState::Done, so a crash or catalog-write failure repeats it.
         // XMP conflicts remain pending and are reported with the photograph.
         // Duplicates belonging to earlier jobs are left untouched.
+        // A resumed unfinished item intentionally reapplies its immutable
+        // snapshot, including explicit overwrites. Completed items never replay.
+        // Catalog-write errors stop here for retry rather than silently losing
+        // the requested preset; optional camera fields were validated earlier.
         if let Some(metadata) = &options.metadata {
             for result in &mut done {
                 crate::metadata::apply_to_copy(library, result, metadata)?;

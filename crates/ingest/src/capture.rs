@@ -75,11 +75,27 @@ pub(crate) fn import_metadata(
             )
         })
         .map(|date| date.year());
+    // XMP is validated by read_xmp; validate each optional EXIF fallback
+    // before adopting it, retaining valid embedded fields if one is bad.
+    let camera_text = |value: Option<String>| {
+        let candidate = rawtonic_metadata::Metadata {
+            creator: value.unwrap_or_default(),
+            ..Default::default()
+        };
+        if candidate.validate().is_ok() {
+            candidate.creator
+        } else {
+            String::new()
+        }
+    };
     if metadata.creator.trim().is_empty() {
-        metadata.creator = capture.creator.unwrap_or_default();
+        metadata.creator = camera_text(capture.creator);
     }
     if metadata.copyright.trim().is_empty() {
-        metadata.copyright = capture.copyright.unwrap_or_default();
+        metadata.copyright = camera_text(capture.copyright);
+    }
+    if metadata.rating == 0 && metadata.flag == 0 {
+        metadata.rating = capture.rating.unwrap_or_default();
     }
     Ok((metadata, year))
 }

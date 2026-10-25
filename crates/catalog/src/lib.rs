@@ -1200,14 +1200,59 @@ impl Library {
         Ok(metadata)
     }
 
+    /// Check only possible owners, using the existing (root_id, rel_path)
+    /// index. Never deserialize every catalog asset for each imported photo.
+    /// Roots can overlap after relocation, so check all matching root prefixes.
+    fn xmp_owners(&self, photo: &Path) -> Result<usize> {
+        let sidecar = photo.with_extension("xmp");
+        let mut roots = self.conn.prepare("SELECT id,path,external FROM roots")?;
+        let roots = roots.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, bool>(2)?,
+            ))
+        })?;
+        let mut candidates = self.conn.prepare(
+            "SELECT rel_path FROM assets WHERE root_id=?1 AND rel_path=?2
+             UNION ALL
+             SELECT rel_path FROM assets WHERE root_id=?1 AND rel_path>=?3 AND rel_path<?4",
+        )?;
+        let mut count = 0;
+        for root in roots {
+            let (id, path, external) = root?;
+            let base = if external {
+                Path::new(&path)
+            } else {
+                &self.directory
+            };
+            let Ok(relative) = photo.strip_prefix(base) else {
+                continue;
+            };
+            let stem = relative.with_extension("");
+            let stem = stem.to_str().context("Paths must be valid UTF-8")?;
+            // '.' followed by any extension lies before '/' in SQLite's
+            // binary collation. Also include an extensionless sibling.
+            let lower = format!("{stem}.");
+            let upper = format!("{stem}/");
+            for relative in candidates.query_map(params![id, stem, lower, upper], |row| {
+                row.get::<_, String>(0)
+            })? {
+                if base.join(relative?).with_extension("xmp") == sidecar {
+                    count += 1;
+                    if count > 1 {
+                        return Ok(count);
+                    }
+                }
+            }
+        }
+        Ok(count)
+    }
+
     pub fn sync_xmp(&self, asset: &str) -> Result<()> {
         let a = self.asset(asset)?;
         // RAW+JPEG siblings would share a stem; refuse ambiguity rather than clobber.
-        let same_stem = self
-            .assets(None)?
-            .iter()
-            .filter(|other| other.path.with_extension("xmp") == a.path.with_extension("xmp"))
-            .count();
+        let same_stem = self.xmp_owners(&a.path)?;
         ensure!(
             same_stem == 1,
             "RAW/JPEG sidecar ownership needs pair resolution"
