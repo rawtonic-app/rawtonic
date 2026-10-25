@@ -161,3 +161,17 @@ it("drops a first conversion's analysis when the photo's adjustments are reset m
   await act(async () => answer(ANALYSIS));
   expect(useEditorStore.getState().adjustments.negative).toBeUndefined();
 });
+
+it("drops an analysis when a preset or snapshot set another film meanwhile", async () => {
+  let answer: (value: unknown) => void = () => {};
+  invoke.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+  useEditorStore.setState({
+    adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), negative: newNegative([0.5, 0.5, 0.5], [0.1, 0.1, 0.1]) },
+  });
+  render(<StudioNegative disabled={false} onInteraction={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Find film base and highlights" }));
+  const preset = newNegative([0.9, 0.6, 0.3], [0.2, 0.1, 0.05]);
+  act(() => useEditorStore.setState((s) => ({ adjustments: { ...s.adjustments, negative: preset } })));
+  await act(async () => answer(ANALYSIS));
+  expect(useEditorStore.getState().adjustments.negative).toEqual(preset);
+});

@@ -18,12 +18,10 @@ async fn loaded(
     Ok((loaded.path == path).then_some((loaded.image, loaded.is_raw)))
 }
 
-/// Size (long side, pixels) the analysis looks at the photo in.
-const ANALYSIS_DIM: u32 = 1600;
-
 /// The film base and the frame's highlight of the loaded photo `path`
-/// (`negative::analyze`): the scan with the geometry of `js_adjustments`,
-/// its crop as the frame. None when `path` is not the loaded photo.
+/// (`negative::analyze` of `negative::analysis_image`: the scan with the
+/// geometry of `js_adjustments`, its crop as the frame). None when `path` is
+/// not the loaded photo.
 #[tauri::command]
 pub(crate) async fn analyze_negative(
     path: String,
@@ -35,22 +33,8 @@ pub(crate) async fn analyze_negative(
         return Ok(None);
     };
     tauri::async_runtime::spawn_blocking(move || {
-        let (recipe, crop) = negative::analysis_recipe(&js_adjustments);
-        let (w, h) = (image.width(), image.height());
-        let scale = crate::editor_preview::reduced_preview_scale(w, h, &recipe, ANALYSIS_DIM)
-            .unwrap_or(1.0);
-        let base = crate::editor_preview::reduced_preview_base(
-            &image,
-            1.0,
-            w,
-            h,
-            &recipe,
-            ANALYSIS_DIM,
-            scale,
-            is_raw,
-        )?;
-        let frame = crop.map(|rect| rect.map(|v| v * base.scale));
-        Ok(negative::analyze(&base.image, is_raw, frame))
+        let (scan, frame) = negative::analysis_image(&image, &js_adjustments);
+        Ok(negative::analyze(&scan, is_raw, frame))
     })
     .await
     .map_err(|error| format!("Negative analysis failed: {error}"))?

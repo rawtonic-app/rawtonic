@@ -330,6 +330,39 @@ pub fn analysis_recipe(adjustments: &Value) -> (Value, Option<[f32; 4]>) {
     (recipe, crop)
 }
 
+/// Long side, in pixels, of the image [`analyze`] looks at.
+pub const ANALYSIS_DIM: u32 = 1600;
+
+/// The image [`analyze`] looks at and its frame: `source` (the photo's
+/// decode, `is_raw` as for [`apply_for_recipe`]) reduced to [`ANALYSIS_DIM`],
+/// warped and turned as `adjustments` show it, without crop, conversion or
+/// retouching ([`analysis_recipe`]), and the crop in its pixels. The editor's
+/// Auto and `rawtonic export --negative` both analyse this.
+pub fn analysis_image(
+    source: &DynamicImage,
+    adjustments: &Value,
+) -> (DynamicImage, Option<[f32; 4]>) {
+    let (recipe, crop) = analysis_recipe(adjustments);
+    let (w, h) = (source.width().max(1), source.height().max(1));
+    let scale = (ANALYSIS_DIM as f32 / w.max(h) as f32).min(1.0);
+    let reduced = if scale < 1.0 {
+        Cow::Owned(crate::image_processing::downscale_f32_image(
+            source,
+            ((w as f32 * scale).round() as u32).max(1),
+            ((h as f32 * scale).round() as u32).max(1),
+        ))
+    } else {
+        Cow::Borrowed(source)
+    };
+    let actual = reduced.width() as f32 / w as f32;
+    let warped = crate::image_processing::apply_geometry_warp(reduced, &recipe);
+    let (shown, _) = crate::adjustment_utils::apply_spatial_transformations(warped, &recipe);
+    (
+        shown.into_owned(),
+        crop.map(|rect| rect.map(|v| v * actual)),
+    )
+}
+
 /// Without a crop: the image's border strip (share of each side) searched
 /// for film base.
 const BORDER: f32 = 0.06;
@@ -841,6 +874,30 @@ mod tests {
             "{found:?}"
         );
         assert!((found.base[2] / base[2] - 1.0).abs() < 0.01, "{found:?}");
+    }
+
+    #[test]
+    fn the_analysis_image_is_reduced_with_its_frame() {
+        // The synthetic scan at 4×, cropped to its frame.
+        let (small, base, highlight) = scan(Some(0.95));
+        let big = DynamicImage::ImageRgb32F(image::imageops::resize(
+            &small.to_rgb32f(),
+            1600 * 2,
+            1200 * 2,
+            image::imageops::FilterType::Nearest,
+        ));
+        let crop = json!({"crop": {"x": 240.0, "y": 240.0, "width": 2720.0, "height": 1920.0}});
+        let (image, frame) = analysis_image(&big, &crop);
+        assert_eq!((image.width(), image.height()), (1600, 1200));
+        assert_eq!(frame, Some([120.0, 120.0, 1360.0, 960.0]));
+        let found = analyze(&image, true, frame).unwrap();
+        for c in 0..3 {
+            assert!((found.base[c] / base[c] - 1.0).abs() < 0.01, "{found:?}");
+            assert!(
+                (found.highlight[c] / highlight[c] - 1.0).abs() < 0.02,
+                "{found:?}"
+            );
+        }
     }
 
     #[test]

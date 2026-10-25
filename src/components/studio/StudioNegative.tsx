@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
 import type { NegativeKind, NegativeSettings } from "../../utils/adjustments";
-import { autoNegative, negativeAnalysisGeneration } from "../../utils/negative";
+import { autoNegative, negativeAnalysisGeneration, sameAnalysisInputs, sameFilm } from "../../utils/negative";
 import AdjustmentControl from "./AdjustmentControl";
 
 const CHANNELS = ["red", "green", "blue"] as const;
@@ -63,12 +63,16 @@ export default function StudioNegative({
       const next = await autoNegative(path, useEditorStore.getState().adjustments, type);
       if (!next || request !== autoRequest.current || generation !== negativeAnalysisGeneration()) return;
       setAdjustments((prev) => {
-        if (prev.negative) {
-          return { ...prev, negative: { ...prev.negative, base: next.base, highlight: next.highlight } };
-        }
         // A first conversion lands only on the recipe it was asked for: a
         // reset or any other change meanwhile keeps the recipe as it is.
-        return hadTool || prev !== started ? prev : { ...prev, negative: next };
+        if (!hadTool) return prev === started ? { ...prev, negative: next } : prev;
+        // Then only while the photo is framed as analysed and nothing else
+        // (a preset, a snapshot, the picker) set a film base meanwhile; the
+        // print controls moved meanwhile keep their values.
+        if (!prev.negative || !sameAnalysisInputs(prev, started) || !sameFilm(prev.negative, started.negative)) {
+          return prev;
+        }
+        return { ...prev, negative: { ...prev.negative, base: next.base, highlight: next.highlight } };
       });
     } catch (error) {
       toast.error(t("studio.develop.negative.analyzeFailed", { error: String(error) }));

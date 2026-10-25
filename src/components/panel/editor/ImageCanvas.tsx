@@ -28,7 +28,7 @@ import type { OverlayMode } from './overlays/CompositionOverlays';
 import CompositionOverlays from './overlays/CompositionOverlays';
 import { calculateStraightenAngle } from '../../../utils/cropUtils';
 import { pickColorRange } from '../../../utils/colorRanges';
-import { pickFilmBase } from '../../../utils/negative';
+import { pickFilmBase, withPickedFilmBase } from '../../../utils/negative';
 import { sampleLumaRange } from '../../../utils/lumaSample';
 import TargetedAdjustmentOverlay from './TargetedAdjustmentOverlay';
 import RelightOverlay from './RelightOverlay';
@@ -2036,12 +2036,9 @@ const ImageCanvas = memo(
           const path = selectedImage.path;
           void pickFilmBase(path, adjustments, x / imgLogicalWidth, y / imgLogicalHeight)
             .then((base) => {
-              const current = useEditorStore.getState();
-              if (!base || requestId !== whiteBalanceRequestRef.current || current.selectedImage?.path !== path) return;
-              setAdjustments((prev: Adjustments) =>
-                prev.negative ? { ...prev, negative: { ...prev.negative, enabled: true, base } } : prev,
-              );
-              current.setEditor({ filmBasePicking: false });
+              if (!base || requestId !== whiteBalanceRequestRef.current) return;
+              setAdjustments((prev: Adjustments) => withPickedFilmBase(prev, path, base));
+              useEditorStore.getState().setEditor({ filmBasePicking: false });
             })
             .catch((error) => toast.error(`Could not sample the film base: ${error}`));
           return;

@@ -340,17 +340,14 @@ fn with_negative(
         &rawtonic_engine::image_loader::BaseImageOptions::default().for_recipe(&recipe, is_raw),
         None,
     )?;
-    // The scan as shown before its crop, the crop as the frame.
+    // The scan as the editor's Auto analyses it (`analysis_image`).
     rawtonic_export::exif_processing::prepare_recipe_lens(
         &mut recipe,
         std::path::Path::new(source),
     )
     .map_err(anyhow::Error::msg)?;
-    let (shown, crop) = rawtonic_engine::negative::analysis_recipe(&recipe);
-    let warped = rawtonic_engine::image_processing::apply_geometry_warp(&base, &shown);
-    let (scan, _) =
-        rawtonic_engine::adjustment_utils::apply_spatial_transformations(warped, &shown);
-    let analysis = rawtonic_engine::negative::analyze(&scan, is_raw, crop)
+    let (scan, frame) = rawtonic_engine::negative::analysis_image(&base, &recipe);
+    let analysis = rawtonic_engine::negative::analyze(&scan, is_raw, frame)
         .with_context(|| format!("{source}: too small to analyse"))?;
     eprintln!(
         "{source}: film base {:?} ({}), highlight {:?}",

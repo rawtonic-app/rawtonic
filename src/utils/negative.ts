@@ -59,3 +59,36 @@ export const cancelNegativeAnalysis = () => {
   analysisGeneration += 1;
 };
 export const negativeAnalysisGeneration = () => analysisGeneration;
+
+/** Whether two recipes frame the scan alike for the analysis (crop,
+ * turns, flips, straightening, transform and lens corrections). */
+export function sameAnalysisInputs(a: Partial<Adjustments>, b: Partial<Adjustments>) {
+  const inputs = (r: Partial<Adjustments>) =>
+    JSON.stringify(
+      Object.entries(r)
+        .filter(
+          ([key]) =>
+            ['crop', 'rotation', 'orientationSteps', 'flipHorizontal', 'flipVertical', 'guidedPerspective'].includes(
+              key,
+            ) || key.startsWith('transform') || key.startsWith('lens'),
+        )
+        .sort(([x], [y]) => x.localeCompare(y)),
+    );
+  return inputs(a) === inputs(b);
+}
+
+/** Whether two conversions name the same film (base and highlight). */
+export function sameFilm(a?: NegativeSettings | null, b?: NegativeSettings | null) {
+  return (
+    !!a && !!b && a.base.every((v, i) => v === b.base[i]) && a.highlight.every((v, i) => v === b.highlight[i])
+  );
+}
+
+/** The recipe with a picked film base, or `prev` when the pick no longer
+ * applies: the picker was cancelled or another photo is shown (`path`), or
+ * the conversion is gone. The tool's eye is left as it is. */
+export function withPickedFilmBase(prev: Adjustments, path: string, base: Rgb): Adjustments {
+  const state = useEditorStore.getState();
+  if (!state.filmBasePicking || state.selectedImage?.path !== path || !prev.negative) return prev;
+  return { ...prev, negative: { ...prev.negative, base } };
+}

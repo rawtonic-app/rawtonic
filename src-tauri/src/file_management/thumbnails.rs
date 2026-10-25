@@ -268,7 +268,12 @@ pub(crate) fn develop_thumbnail(
     // A preview proxy (preview_proxy.rs) develops the thumbnail like the
     // editor does, also for never-edited RAWs (RAW defaults and the camera's
     // lens data), so the Library and the placeholder show the edited look.
+    // A film negative converts the full-resolution decode, as the editor and
+    // the export do (the conversion is not linear: a reduced proxy or fast
+    // decode would average transmittance before converting).
+    let negative = rawtonic_engine::negative::is_active(&adjustments);
     let proxy = (is_raw
+        && !negative
         && preloaded_image.is_none()
         && gpu_context.is_some()
         && crate::preview_proxy::stands_for(&source_path, &adjustments))
@@ -387,7 +392,7 @@ pub(crate) fn develop_thumbnail(
                 let img = image_loader::load_base_image_for_recipe(
                     file_slice,
                     &source_path_str,
-                    true,
+                    !negative,
                     &settings,
                     None,
                     None,
