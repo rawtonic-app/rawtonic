@@ -1142,6 +1142,7 @@ pub fn estimate_versus(image: &Rgb32FImage, own: CaModel) -> Option<CaModel> {
         );
     }
     replaced.then_some(best.1)
+}
 
 /// Measurement tool (notes: reference/lateral-ca.md): the photo's own
 /// lateral CA at full resolution, as the median red and blue shift / radius
