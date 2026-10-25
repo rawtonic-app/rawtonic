@@ -131,13 +131,14 @@ pub fn is_active(adjustments: &Value) -> bool {
     settings(adjustments).is_some()
 }
 
-/// Marks a recipe copy whose base [`apply_for_recipe`] has converted
-/// already (never saved: base builders set it on their own copy).
+/// Marks a recipe copy whose base [`apply_for_recipe`] has converted, the
+/// lens vignetting corrected on the scan (never saved: base builders set
+/// it on their own copy).
 pub const CONVERTED_KEY: &str = "negativeConvertedBase";
 
 /// The recipe a base converted by [`apply_for_recipe`] is warped with:
 /// `adjustments` marked [`CONVERTED_KEY`] when the conversion is on, so the
-/// warp's lens vignetting acts as on the scan ([`vignette_power`]).
+/// warp does not correct the vignetting a second time.
 pub fn converted_base_recipe(adjustments: &Value) -> Cow<'_, Value> {
     if !is_active(adjustments) {
         return Cow::Borrowed(adjustments);
@@ -147,13 +148,9 @@ pub fn converted_base_recipe(adjustments: &Value) -> Cow<'_, Value> {
     Cow::Owned(recipe)
 }
 
-/// The vignetting exponents (`GeometryParams::vignette_power`) of a
-/// recipe from [`converted_base_recipe`]; None for any other recipe.
-pub fn vignette_power(adjustments: &Value) -> Option<[f32; 3]> {
-    if adjustments.get(CONVERTED_KEY).and_then(Value::as_bool) != Some(true) {
-        return None;
-    }
-    settings(adjustments).map(|n| Conversion::new(&n).transmittance_powers())
+/// Whether `adjustments` is a recipe from [`converted_base_recipe`].
+pub fn is_converted(adjustments: &Value) -> bool {
+    adjustments.get(CONVERTED_KEY).and_then(Value::as_bool) == Some(true) && is_active(adjustments)
 }
 
 /// The per-pixel conversion of [`Negative`], prepared once per image.
@@ -186,20 +183,6 @@ impl Conversion {
             inv_range,
             stops,
             offset: n.exposure.clamp(-10.0, 10.0) + HIGHLIGHT_LINEAR.log2(),
-        }
-    }
-
-    /// Per channel, the exponent `p` with which a gain `g` on the
-    /// transmitted light becomes the gain `g^p` on the positive (the
-    /// conversion is a power law in transmittance per channel; the
-    /// black-and-white mean shares one exponent).
-    pub fn transmittance_powers(&self) -> [f32; 3] {
-        let per_channel = self
-            .inv_range
-            .map(|inv_range| -self.stops * inv_range * std::f32::consts::LOG10_2);
-        match self.kind {
-            Kind::Color => per_channel,
-            Kind::Bw => [(per_channel[0] + per_channel[1] + per_channel[2]) / 3.0; 3],
         }
     }
 
@@ -240,25 +223,43 @@ fn linear_to_srgb(v: f32) -> f32 {
     }
 }
 
-/// Converts `pixels` (interleaved, `channels` per pixel, the first three
-/// RGB) in place. `linear`: the values are linear light (RAW decodes), else
-/// sRGB-encoded (they are decoded, converted and encoded again, as the
-/// renderer decodes such bases).
-pub fn apply(pixels: &mut [f32], channels: usize, linear: bool, negative: &Negative) {
+/// Converts `pixels` (interleaved rows of `width`, `channels` per pixel,
+/// the first three RGB) in place. `linear`: the values are linear light
+/// (RAW decodes), else sRGB-encoded (they are decoded, converted and encoded
+/// again, as the renderer decodes such bases). `vignette`: the lens
+/// vignetting correction, applied to the scan's values first, as the warp
+/// applies it to a base.
+pub fn apply(
+    pixels: &mut [f32],
+    width: usize,
+    channels: usize,
+    linear: bool,
+    negative: &Negative,
+    vignette: Option<crate::image_processing::VignetteGain>,
+) {
     let conversion = Conversion::new(negative);
-    pixels.par_chunks_mut(channels * 1024).for_each(|chunk| {
-        for pixel in chunk.chunks_exact_mut(channels) {
-            let mut t = [pixel[0], pixel[1], pixel[2]];
-            if !linear {
-                t = t.map(srgb_to_linear);
+    pixels
+        .par_chunks_mut(channels * width.max(1))
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, pixel) in row.chunks_exact_mut(channels).enumerate() {
+                if let Some(vignette) = vignette {
+                    let gain = vignette.at(x as f32, y as f32);
+                    for value in &mut pixel[..3] {
+                        *value *= gain;
+                    }
+                }
+                let mut t = [pixel[0], pixel[1], pixel[2]];
+                if !linear {
+                    t = t.map(srgb_to_linear);
+                }
+                let mut e = conversion.positive(t);
+                if !linear {
+                    e = e.map(linear_to_srgb);
+                }
+                pixel[..3].copy_from_slice(&e);
             }
-            let mut e = conversion.positive(t);
-            if !linear {
-                e = e.map(linear_to_srgb);
-            }
-            pixel[..3].copy_from_slice(&e);
-        }
-    });
+        });
 }
 
 /// The base image converted when `adjustments` holds an active negative;
@@ -276,9 +277,16 @@ pub fn apply_for_recipe<'a>(
         image @ (DynamicImage::ImageRgb32F(_) | DynamicImage::ImageRgba32F(_)) => image,
         other => DynamicImage::ImageRgb32F(other.into_rgb32f()),
     };
+    let (width, height) = (image.width(), image.height());
+    let vignette = crate::image_processing::VignetteGain::of(
+        &crate::image_processing::get_geometry_params_from_json(adjustments),
+        width,
+        height,
+    );
+    let width = width as usize;
     match &mut image {
-        DynamicImage::ImageRgb32F(buffer) => apply(buffer, 3, is_raw, &negative),
-        DynamicImage::ImageRgba32F(buffer) => apply(buffer, 4, is_raw, &negative),
+        DynamicImage::ImageRgb32F(buffer) => apply(buffer, width, 3, is_raw, &negative, vignette),
+        DynamicImage::ImageRgba32F(buffer) => apply(buffer, width, 4, is_raw, &negative, vignette),
         _ => unreachable!("converted to 32-bit float above"),
     }
     Cow::Owned(image)
@@ -644,48 +652,50 @@ mod tests {
     }
 
     #[test]
-    fn vignetting_on_the_converted_base_equals_correcting_the_scan() {
-        use crate::image_processing::{GeometryParams, warp_image_geometry};
-        for kind in ["color", "bw"] {
+    fn the_scan_is_corrected_for_vignetting_once() {
+        use crate::image_processing::{apply_geometry_warp, get_geometry_params_from_json};
+        let lens = json!({"lensCorrectionMode": "manual", "lensVignetteAmount": 100.0,
+            "lensDistortionParams": {"vig_k1": -0.4, "vig_k2": 0.1}});
+        for (kind, is_raw) in [("color", true), ("bw", true), ("color", false)] {
             let mut v = on();
             v["type"] = json!(kind);
-            v["balance"] = json!([20, 0, -30]);
-            let adjustments = recipe(v);
-            let scan = Rgb32FImage::from_fn(64, 48, |x, y| {
+            let mut adjustments = lens.clone();
+            adjustments[KEY] = v;
+            assert!(get_geometry_params_from_json(&adjustments).lens_vignette_enabled);
+            let scan = DynamicImage::ImageRgb32F(Rgb32FImage::from_fn(64, 48, |x, y| {
                 image::Rgb([
                     0.1 + 0.01 * x as f32,
                     0.05 + 0.005 * y as f32,
                     0.03 + 0.002 * (x + y) as f32,
                 ])
-            });
-            let scan = DynamicImage::ImageRgb32F(scan);
-            let params = GeometryParams {
-                vig_k1: -0.4,
-                vig_k2: 0.1,
-                ..GeometryParams::default()
-            };
-            // The scan corrected, then converted.
-            let corrected = warp_image_geometry(&scan, params.clone());
-            let expected = apply_for_recipe(Cow::Owned(corrected), &adjustments, true).into_owned();
-            // Converted, then corrected with the marked recipe's exponents.
-            let converted = apply_for_recipe(Cow::Borrowed(&scan), &adjustments, true).into_owned();
-            let marked = converted_base_recipe(&adjustments);
-            let power = vignette_power(&marked);
-            assert!(power.is_some() && vignette_power(&adjustments).is_none());
-            let actual = warp_image_geometry(
-                &converted,
-                GeometryParams {
-                    vignette_power: power,
-                    ..params
-                },
+            }));
+            // The scan corrected by the warp, then converted (no geometry
+            // but vignetting: the warp samples whole pixels).
+            let mut plain = adjustments.clone();
+            plain.as_object_mut().unwrap().remove(KEY);
+            let corrected = apply_geometry_warp(&scan, &plain).into_owned();
+            let mut expected = corrected.to_rgb32f();
+            apply(
+                &mut expected,
+                64,
+                3,
+                is_raw,
+                &settings(&adjustments).unwrap(),
+                None,
             );
-            for (a, e) in actual
-                .to_rgb32f()
-                .pixels()
-                .zip(expected.to_rgb32f().pixels())
-            {
+            // Converted with the correction, then warped with the marked
+            // recipe: no second correction.
+            let converted = apply_for_recipe(Cow::Borrowed(&scan), &adjustments, is_raw);
+            let marked = converted_base_recipe(&adjustments);
+            assert!(is_converted(&marked) && !is_converted(&adjustments));
+            assert!(!get_geometry_params_from_json(&marked).lens_vignette_enabled);
+            let actual = apply_geometry_warp(converted, &marked).to_rgb32f();
+            for (a, e) in actual.pixels().zip(expected.pixels()) {
                 for c in 0..3 {
-                    assert!((a[c] / e[c] - 1.0).abs() < 1e-3, "{kind}: {a:?} vs {e:?}");
+                    assert!(
+                        (a[c] / e[c] - 1.0).abs() < 1e-3,
+                        "{kind} {is_raw}: {a:?} vs {e:?}"
+                    );
                 }
             }
         }

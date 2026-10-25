@@ -197,7 +197,14 @@ pub(crate) fn reduced_preview_scale(
     preview_dim: u32,
 ) -> Option<f32> {
     let has_patches = crate::image_loader::retouch_needs_full_resolution(adjustments);
-    if has_patches || adjustments["lensBlurEnabled"].as_bool().unwrap_or(false) {
+    // A retouched film negative: retouched, then converted, at full
+    // resolution as the export does (the conversion is not linear).
+    let retouched_negative = rawtonic_engine::negative::is_active(adjustments)
+        && crate::image_loader::has_base_retouch(adjustments);
+    if has_patches
+        || retouched_negative
+        || adjustments["lensBlurEnabled"].as_bool().unwrap_or(false)
+    {
         return None;
     }
     let crop: Option<image_processing::Crop> =
@@ -333,9 +340,16 @@ fn build_reduced_preview_base(
     let height = ((full_height as f32 * scale).round() as u32).max(1);
     // A film negative is converted before it is reduced: the conversion is
     // not linear, so converting averages would differ from the export's
-    // averages of converted pixels.
-    let source =
-        rawtonic_engine::negative::apply_for_recipe(Cow::Borrowed(source), adjustments, is_raw);
+    // averages of converted pixels. Exports retouch before converting; a
+    // retouched negative is converted after its (reduced) retouching here,
+    // and the editor builds such bases at full resolution instead
+    // (`reduced_preview_scale`).
+    let retouch = crate::image_loader::has_base_retouch(adjustments);
+    let source = if retouch {
+        Cow::Borrowed(source)
+    } else {
+        rawtonic_engine::negative::apply_for_recipe(Cow::Borrowed(source), adjustments, is_raw)
+    };
     let reduced = if width < source.width() || height < source.height() {
         Cow::Owned(downscale_f32_image(&source, width, height))
     } else {
@@ -351,10 +365,18 @@ fn build_reduced_preview_base(
             }
         }
     }
-    let retouched = if crate::image_loader::has_base_retouch(adjustments) {
-        Cow::Owned(
-            crate::image_loader::composite_patches_on_scaled_image(&reduced, adjustments, scale)
+    let retouched = if retouch {
+        rawtonic_engine::negative::apply_for_recipe(
+            Cow::Owned(
+                crate::image_loader::composite_patches_on_scaled_image(
+                    &reduced,
+                    adjustments,
+                    scale,
+                )
                 .map_err(|e| format!("Failed to composite retouching: {e}"))?,
+            ),
+            adjustments,
+            is_raw,
         )
     } else {
         reduced
@@ -3292,6 +3314,54 @@ mod preview_memory_tests {
             }
             let mean = sum / (w * h) as f32;
             assert!(mean < 0.01, "mean difference {mean} for {adjustments}");
+        }
+    }
+
+    /// A film negative's reduced preview converts before reducing (and
+    /// corrects vignetting on the scan once), so it shows what the full
+    /// resolution path shows, grain included; a retouched negative is built
+    /// at full resolution (retouched, then converted, as exports are).
+    #[test]
+    fn reduced_negative_previews_match_full_resolution_previews() {
+        // A negative with pixel-sized grain (±30 % transmittance) over a
+        // density ramp, 3000 × 2000.
+        let source = DynamicImage::ImageRgb32F(image::Rgb32FImage::from_fn(3000, 2000, |x, y| {
+            let grain = if (x + y) % 2 == 0 { 1.3 } else { 0.7 };
+            let t = 0.05 + 0.6 * (x as f32 / 3000.0);
+            image::Rgb([t * grain, 0.6 * t * grain, 0.35 * t * grain])
+        }));
+        let negative = serde_json::json!({"version": 1, "enabled": true, "type": "color",
+            "base": [0.7, 0.42, 0.25], "highlight": [0.05, 0.03, 0.017]});
+        let mut plain = serde_json::json!({ "negative": negative.clone() });
+        let mut lens = serde_json::json!({
+            "lensVignetteEnabled": true,
+            "lensDistortionParams": {"vig_k1": -0.3, "vig_k2": 0.05, "vig_k3": 0.0},
+            "lensVignetteAmount": 100,
+            "crop": {"x": 300.0, "y": 200.0, "width": 2100.0, "height": 1400.0},
+        });
+        lens["negative"] = negative;
+        for adjustments in [&mut plain, &mut lens] {
+            let scale = reduced_preview_scale(3000, 2000, adjustments, 640).expect("reduced");
+            let reduced =
+                reduced_preview_base(&source, 1.0, 3000, 2000, adjustments, 640, scale, true)
+                    .unwrap();
+            let full = full_resolution_preview(&source, adjustments, 640);
+            let (a, b) = (reduced.image.to_rgb32f(), full.image.to_rgb32f());
+            let (w, h) = (a.width().min(b.width()), a.height().min(b.height()));
+            let mut sum = 0.0f64;
+            for y in 0..h {
+                for x in 0..w {
+                    let (p, q) = (a.get_pixel(x, y).0, b.get_pixel(x, y).0);
+                    sum += (0..3).map(|c| (p[c] / q[c]).ln().abs() as f64).sum::<f64>() / 3.0;
+                }
+            }
+            let mean = sum / (w * h) as f64;
+            assert!(mean < 0.02, "mean log difference {mean} for {adjustments}");
+            // With a spot it is not reduced.
+            adjustments["spots"] = serde_json::json!([{"x": 100.0, "y": 100.0, "radius": 20.0,
+                "sourceX": 200.0, "sourceY": 200.0, "mode": "heal"}]);
+            assert!(rawtonic_engine::spot_removal::has_spots(adjustments));
+            assert_eq!(reduced_preview_scale(3000, 2000, adjustments, 640), None);
         }
     }
 

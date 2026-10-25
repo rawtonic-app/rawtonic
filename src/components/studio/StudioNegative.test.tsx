@@ -13,6 +13,7 @@ import StudioNegative, { baseSwatch } from "./StudioNegative";
 import { useEditorStore } from "../../store/useEditorStore";
 import { debouncedSetHistory } from "../../hooks/useEditorActions";
 import { INITIAL_ADJUSTMENTS, NEGATIVE_VERSION, newNegative } from "../../utils/adjustments";
+import { cancelNegativeAnalysis } from "../../utils/negative";
 import type { SelectedImage } from "../ui/AppProperties";
 
 const ANALYSIS = { base: [0.7, 0.42, 0.2], highlight: [0.06, 0.02, 0.008], baseFromBorder: true };
@@ -135,6 +136,17 @@ it("keeps controls moved and a reset made while the analysis runs", async () => 
   act(() => {
     useEditorStore.setState((s) => ({ adjustments: { ...s.adjustments, negative: undefined } }));
   });
+  await act(async () => answer(ANALYSIS));
+  expect(useEditorStore.getState().adjustments.negative).toBeUndefined();
+});
+
+it("drops a first conversion's analysis when the tool is reset meanwhile", async () => {
+  let answer: (value: unknown) => void = () => {};
+  invoke.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+  render(<StudioNegative disabled={false} onInteraction={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Color negative" }));
+  // The tool's reset (StudioDevelop's onReset) while the analysis runs.
+  act(() => cancelNegativeAnalysis());
   await act(async () => answer(ANALYSIS));
   expect(useEditorStore.getState().adjustments.negative).toBeUndefined();
 });

@@ -147,13 +147,6 @@ pub struct GeometryParams {
     /// them (`renderVersion` 2, `bicubic_floor`).
     #[serde(default)]
     pub keep_negative: bool,
-    /// The base is a film negative already turned positive
-    /// (`negative::converted_base_recipe`): the lens vignetting gain `g`
-    /// for transmitted light becomes `g^p` per channel on the positive
-    /// (`negative::vignette_power`), which equals correcting the scan
-    /// before the conversion. None: the gain as it is.
-    #[serde(default)]
-    pub vignette_power: Option<[f32; 3]>,
 }
 
 impl Default for GeometryParams {
@@ -193,7 +186,6 @@ impl Default for GeometryParams {
             auto_ca_version: 0,
             auto_ca_versus_own: false,
             keep_negative: false,
-            vignette_power: None,
         }
     }
 }
@@ -288,8 +280,12 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         auto_ca_version: crate::lateral_ca::version_of(adjustments),
         auto_ca_versus_own: false,
         keep_negative: render_version(adjustments) >= 2,
-        vignette_power: crate::negative::vignette_power(adjustments),
     };
+    // A film negative's base already holds the vignetting correction (made
+    // on the scan by `negative::apply_for_recipe`).
+    if crate::negative::is_converted(adjustments) {
+        params.lens_vignette_enabled = false;
+    }
     let own = has_own_tca(&params);
     params.auto_ca = crate::lateral_ca::applies(adjustments, own);
     params.auto_ca_versus_own = !params.auto_ca
@@ -1032,6 +1028,52 @@ fn lens_strength(params: &GeometryParams) -> (f64, f64) {
     }
 }
 
+/// The geometry warp's lens vignetting correction as a gain by source
+/// pixel, for a stage that corrects the source itself (a film negative's
+/// scan, `negative::apply_for_recipe`): the same gain the warp's `shade`
+/// applies at that source position. None when the warp corrects none.
+#[derive(Debug, Clone, Copy)]
+pub struct VignetteGain {
+    cx: f64,
+    cy: f64,
+    hd: f64,
+    k: [f64; 3],
+    amount: f64,
+}
+
+impl VignetteGain {
+    pub fn of(params: &GeometryParams, width: u32, height: u32) -> Option<Self> {
+        let k = [
+            params.vig_k1 as f64,
+            params.vig_k2 as f64,
+            params.vig_k3 as f64,
+        ];
+        let amount = (params.lens_vignette_amount as f64) * lens_strength(params).1;
+        let active =
+            params.lens_vignette_enabled && k.iter().any(|k| k.abs() > 1e-6) && amount > 0.01;
+        let (cx, cy) = ((width as f32 / 2.0) as f64, (height as f32 / 2.0) as f64);
+        active.then_some(Self {
+            cx,
+            cy,
+            hd: (cx * cx + cy * cy).sqrt(),
+            k,
+            amount,
+        })
+    }
+
+    /// The gain at source pixel (`x`, `y`).
+    pub fn at(&self, x: f32, y: f32) -> f32 {
+        let (dx, dy) = (x as f64 - self.cx, y as f64 - self.cy);
+        let r2 = (dx * dx + dy * dy) / (self.hd * self.hd);
+        let v = 1.0 + self.k[0] * r2 + self.k[1] * r2 * r2 + self.k[2] * r2 * r2 * r2;
+        if v > 1e-6 {
+            (1.0 + (1.0 / v - 1.0) * self.amount) as f32
+        } else {
+            1.0
+        }
+    }
+}
+
 fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32) -> f64 {
     let cx = (width / 2.0) as f64;
     let cy = (height / 2.0) as f64;
@@ -1182,7 +1224,6 @@ struct WarpKernel {
     vk3: f64,
     lens_vig_amt: f64,
     has_vignetting: bool,
-    vignette_power: Option<[f64; 3]>,
     keep_negative: bool,
 }
 
@@ -1297,7 +1338,6 @@ impl WarpKernel {
             vk3,
             lens_vig_amt,
             has_vignetting,
-            vignette_power: params.vignette_power.map(|p| p.map(f64::from)),
             keep_negative: params.keep_negative,
         }
     }
@@ -1433,12 +1473,6 @@ impl WarpKernel {
             let correction_gain = 1.0 / v_factor;
             let final_gain = 1.0 + (correction_gain - 1.0) * self.lens_vig_amt;
 
-            if let Some(power) = self.vignette_power {
-                for (value, power) in pixel.iter_mut().zip(power) {
-                    *value *= final_gain.powf(power) as f32;
-                }
-                return;
-            }
             pixel[0] *= final_gain as f32;
             pixel[1] *= final_gain as f32;
             pixel[2] *= final_gain as f32;

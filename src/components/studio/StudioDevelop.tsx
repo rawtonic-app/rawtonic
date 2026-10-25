@@ -67,6 +67,7 @@ import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
 import StudioLayers, { NewLayerButton } from "./StudioLayers";
 import StudioLut from "./StudioLut";
 import StudioNegative from "./StudioNegative";
+import { cancelNegativeAnalysis } from "../../utils/negative";
 import StudioRelight from "./StudioRelight";
 import { setRelightPanelOpen } from "../../store/useRelightStore";
 import StudioCropControls from "./StudioCropControls";
@@ -1035,6 +1036,7 @@ export default function StudioDevelop() {
               }
               copy={photoOnly([["negative", t("studio.develop.negative.title")]])}
               onReset={() => {
+                cancelNegativeAnalysis();
                 setEditor({ filmBasePicking: false });
                 change({ negative: undefined });
               }}

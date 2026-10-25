@@ -51,3 +51,11 @@ export async function pickFilmBase(
   if (!rgb || !rgb.every((v) => Number.isFinite(v) && v > 0)) return null;
   return rgb;
 }
+
+/** Bumped when the tool is reset: an analysis asked for before then is
+ * dropped when it arrives. */
+let analysisGeneration = 0;
+export const cancelNegativeAnalysis = () => {
+  analysisGeneration += 1;
+};
+export const negativeAnalysisGeneration = () => analysisGeneration;

@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
 import type { NegativeKind, NegativeSettings } from "../../utils/adjustments";
-import { autoNegative } from "../../utils/negative";
+import { autoNegative, negativeAnalysisGeneration } from "../../utils/negative";
 import AdjustmentControl from "./AdjustmentControl";
 
 const CHANNELS = ["red", "green", "blue"] as const;
@@ -55,11 +55,12 @@ export default function StudioNegative({
   const runAuto = async (type?: NegativeKind) => {
     if (!path) return;
     const request = ++autoRequest.current;
+    const generation = negativeAnalysisGeneration();
     const hadTool = !!useEditorStore.getState().adjustments.negative;
     setAnalysing(true);
     try {
       const next = await autoNegative(path, useEditorStore.getState().adjustments, type);
-      if (!next || request !== autoRequest.current) return;
+      if (!next || request !== autoRequest.current || generation !== negativeAnalysisGeneration()) return;
       setAdjustments((prev) => {
         if (prev.negative) {
           return { ...prev, negative: { ...prev.negative, base: next.base, highlight: next.highlight } };
