@@ -690,6 +690,7 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
         include_masks: Some(false),
         include_crop_transform: Some(false),
         preset_type: Some("style".to_string()),
+        tool_keys: None,
     })
 }
 

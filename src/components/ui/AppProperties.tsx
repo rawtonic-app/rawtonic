@@ -181,6 +181,7 @@ export enum Invokes {
   LoadEmbeddedPreview = 'load_embedded_preview',
   LoadMetadata = 'load_metadata',
   LoadPresets = 'load_presets',
+  LoadBuiltinPresets = 'load_builtin_presets',
   CheckUpdates = 'check_updates',
   ContributionAppInfo = 'contribution_app_info',
   ContributionAvailable = 'contribution_available',
@@ -362,6 +363,8 @@ export type CropGrid = 'always' | 'drag' | 'off';
 
 export interface AppSettings {
   checkForUpdates?: boolean;
+  /** Rawtonic's own presets and styles in the Styles panel and the tools' preset menus (missing: shown). */
+  showBuiltinPresets?: boolean;
   /** Offer a crash report after Rawtonic quit unexpectedly (missing: yes). */
   crashReports?: boolean;
   /** Anonymous weekly usage statistics (ADR 0017); off unless true. */
@@ -601,6 +604,13 @@ export interface Preset {
   includeMasks?: boolean;
   includeCropTransform?: boolean;
   presetType?: 'tool' | 'style';
+  /** A preset of one tool's menu: that tool's parameters, which "Update
+   * with current settings" keeps to. */
+  toolKeys?: string[];
+  /** One of Rawtonic's own, read-only presets (`load_builtin_presets`). */
+  builtin?: boolean;
+  /** A built-in's revision; recipes keep the values it had when applied. */
+  version?: number;
 }
 
 export interface Progress {

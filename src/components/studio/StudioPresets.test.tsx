@@ -8,7 +8,11 @@ import { useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
 import { INITIAL_ADJUSTMENTS, initialAdjustmentsFor } from "../../utils/adjustments";
-import type { UserPreset } from "../../hooks/usePresets";
+import { resetPresetLibrary, usePresetStore, type UserPreset } from "../../hooks/usePresets";
+import i18n from "i18next";
+import { resetBuiltinPresets } from "../../utils/builtinPresets";
+import { useSettingsStore } from "../../store/useSettingsStore";
+import type { AppSettings } from "../ui/AppProperties";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const openDialog = vi.fn();
@@ -34,11 +38,29 @@ const stored: UserPreset[] = [
   },
 ];
 
+const builtins = [
+  { id: "grain-fine", version: 1, name: "Fine", presetType: "tool", adjustments: { grainAmount: 18, grainVersion: 2 } },
+  { id: "bw-high-contrast", version: 1, name: "B&W high contrast", presetType: "style", adjustments: { blackAndWhite: true, contrast: 35 } },
+];
+let builtinsFail = false;
+
 beforeEach(() => {
+  resetBuiltinPresets();
+  // A fresh run: the preset list is read once per run.
+  resetPresetLibrary();
+  builtinsFail = false;
+  useSettingsStore.setState({ appSettings: {} as AppSettings });
   apply.mockReset();
   setAdjustments.mockReset();
   mockInvoke.mockReset();
-  mockInvoke.mockImplementation(async (command) => (command === "load_presets" ? stored : undefined));
+  mockInvoke.mockImplementation(async (command) => {
+    if (command === "load_presets") return stored;
+    if (command === "load_builtin_presets") {
+      if (builtinsFail) throw new Error("missing");
+      return builtins;
+    }
+    return undefined;
+  });
   useEditorStore.setState({
     selectedImage: { path: "/job/a.arw", isReady: true } as never,
     adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 0.5 },
@@ -286,4 +308,86 @@ it.each([["New preset", "Preset name"], ["New preset folder", "Folder name"]])("
   fireEvent.keyDown(input, { key: "Escape" });
   expect(screen.queryByRole("textbox", { name: field })).toBeNull();
   expect(document.activeElement).toBe(trigger);
+});
+
+describe("built-in presets", () => {
+  const builtinFolder = () => screen.getByRole("button", { name: /^Built-in/ });
+
+  it("lists Rawtonic's own styles in a Built-in folder, translated; its tool presets are in the tools", async () => {
+    await act(async () => {
+      await i18n.changeLanguage("de");
+    });
+    try {
+      await renderTool();
+      expect(screen.getByRole("button", { name: /^Mitgeliefert/ })).toBeTruthy();
+      expect(screen.getByText("S/W hoher Kontrast")).toBeTruthy();
+      expect(screen.queryByText("Fein")).toBeNull();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage("en");
+      });
+    }
+  });
+
+  it("applies a built-in like any preset; built-ins have no menu to rename or delete them", async () => {
+    await renderTool();
+    expect(builtinFolder()).toBeTruthy();
+    fireEvent.contextMenu(screen.getByText("B&W high contrast"));
+    expect(screen.queryByText("Rename")).toBeNull();
+    fireEvent.click(screen.getByText("B&W high contrast"));
+    expect(apply).toHaveBeenLastCalledWith({ blackAndWhite: true, contrast: 35 }, ["/job/a.arw"]);
+    fireEvent.contextMenu(builtinFolder());
+    expect(screen.queryByText("Rename")).toBeNull();
+  });
+
+  it("keeps the built-ins without a presets file and the user's presets without built-ins", async () => {
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === "load_presets") throw new Error("presets.json: No such file");
+      if (command === "load_builtin_presets") return builtins;
+      return undefined;
+    });
+    await renderTool();
+    expect(mockInvoke).toHaveBeenCalledWith("load_presets");
+    expect(screen.getByText("B&W high contrast")).toBeTruthy();
+    cleanup();
+    resetBuiltinPresets();
+    resetPresetLibrary();
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === "load_presets") return stored;
+      if (command === "load_builtin_presets") throw new Error("missing");
+      return undefined;
+    });
+    await renderTool();
+    expect(screen.getByText("Warm evening")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Built-in/ })).toBeNull();
+  });
+
+  it("hides the Built-in folder when Preferences turn it off", async () => {
+    useSettingsStore.setState({ appSettings: { showBuiltinPresets: false } as AppSettings });
+    await renderTool();
+    expect(screen.queryByRole("button", { name: /^Built-in/ })).toBeNull();
+    expect(screen.getByText("Warm evening")).toBeTruthy();
+  });
+});
+
+describe("presets of a tool's menu", () => {
+  it("keep to their tool's parameters when updated with the current settings", async () => {
+    const file: UserPreset[] = [{
+      folder: {
+        id: "grain",
+        name: "Grain",
+        children: [
+          { id: "g", name: "My grain", presetType: "tool", toolKeys: ["grainAmount", "grainSize"], adjustments: { grainAmount: 10, grainVersion: 2 } },
+        ],
+      },
+    }];
+    mockInvoke.mockImplementation(async (command) => (command === "load_presets" ? file : undefined));
+    useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 0.5, grainAmount: 40, grainVersion: 2 } });
+    await renderTool();
+    fireEvent.contextMenu(screen.getByText("My grain"));
+    fireEvent.click(screen.getByText("Update with current settings"));
+    const updated = usePresetStore.getState().presets[0].folder!.children[0];
+    expect(JSON.parse(JSON.stringify(updated.adjustments))).toEqual({ grainAmount: 40, grainSize: INITIAL_ADJUSTMENTS.grainSize, grainVersion: 2 });
+    expect(updated.toolKeys).toEqual(["grainAmount", "grainSize"]);
+  });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useMemo } from 'react';
+import { useEffect, useCallback } from 'react';
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import debounce from 'lodash.debounce';
@@ -89,6 +89,13 @@ function arrayMove<T>(array: T[], from: number, to: number): T[] {
  * that keep only changed settings (RAWs have their own detail defaults). */
 type PresetsUpdate = Array<UserPreset> | ((current: Array<UserPreset>) => Array<UserPreset>);
 
+/** Whether the shared list changed since presets.json was last read. */
+let changedSinceRead = false;
+let readRequest: Promise<void> | null = null;
+/** presets.json has been read: until then nothing is written, so a failed
+ * read never lets the list replace the file. */
+let fileRead = false;
+
 /** One preset list for every user of `usePresets` (the Develop tool, the
  * Library's context menu, the inherited panel), so a change shows everywhere. */
 export const usePresetStore = create<{
@@ -99,19 +106,69 @@ export const usePresetStore = create<{
 }>((set) => ({
   presets: [],
   isLoading: true,
-  setPresets: (update) =>
-    set((state) => ({ presets: typeof update === 'function' ? update(state.presets) : update })),
+  setPresets: (update) => {
+    changedSinceRead = true;
+    set((state) => ({ presets: typeof update === 'function' ? update(state.presets) : update }));
+  },
   setIsLoading: (isLoading) => set({ isLoading }),
 }));
 
-/** Loads the presets into the shared list (for menus outside the Develop tool). */
-export async function loadPresetLibrary() {
-  try {
-    const loaded: Array<UserPreset> | null = await invoke(Invokes.LoadPresets);
-    usePresetStore.setState({ presets: Array.isArray(loaded) ? loaded : [], isLoading: false });
-  } catch (error) {
-    console.error('Failed to load presets:', error);
+/** One debounced write of the shared list for every user of `usePresets`: a
+ * second user's own timer could write an older list after a newer one. */
+const savePresetsToBackend = debounce(
+  (presetsToSave: Array<UserPreset>): Promise<string[]> =>
+    (fileRead ? invoke(Invokes.SavePresets, { presets: presetsToSave }) : Promise.reject(new Error('presets.json not read'))).then(
+      () => [],
+      (err) => {
+        console.error('Failed to save presets:', err);
+        return ['Presets'];
+      },
+    ),
+  500,
+);
+
+const itemId = (item: UserPreset) => item.preset?.id ?? item.folder?.id;
+
+/** Reads presets.json into the shared list, once per run: every user of the
+ * list (Develop's tools, the Library's menus) waits for the same read, and
+ * the list is the truth afterwards; a failed read is tried again on the next
+ * use. A list changed before the file was read keeps its changes, takes the
+ * read items it lacks and is written again. */
+export function loadPresetLibrary(): Promise<void> {
+  if (!readRequest) {
+    readRequest = invoke<Array<UserPreset> | null>(Invokes.LoadPresets).then(
+      (loaded) => {
+        const read = Array.isArray(loaded) ? loaded : [];
+        fileRead = true;
+        if (!changedSinceRead) {
+          usePresetStore.setState({ presets: read, isLoading: false });
+          return;
+        }
+        const current = usePresetStore.getState().presets;
+        const ids = new Set(current.map(itemId));
+        const merged = [...read.filter((item) => !ids.has(itemId(item))), ...current];
+        changedSinceRead = false;
+        usePresetStore.setState({ presets: merged, isLoading: false });
+        savePresetsToBackend(merged);
+      },
+      (error) => {
+        // Read again on the next use; changes stay in the list until then.
+        console.error('Failed to load presets:', error);
+        readRequest = null;
+        usePresetStore.setState({ isLoading: false });
+      },
+    );
   }
+  return readRequest;
+}
+
+/** For tests: a new run, with nothing read yet. */
+export function resetPresetLibrary() {
+  savePresetsToBackend.cancel();
+  readRequest = null;
+  changedSinceRead = false;
+  fileRead = false;
+  usePresetStore.setState({ presets: [], isLoading: true });
 }
 
 /** `photoWidth` × `photoHeight`: the open photo's own size, recorded with
@@ -139,34 +196,6 @@ export function usePresets(
   const setPresets = usePresetStore((s) => s.setPresets);
   const setIsLoading = usePresetStore((s) => s.setIsLoading);
 
-  const loadPresets = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const loadedPresets: Array<UserPreset> | null = await invoke(Invokes.LoadPresets);
-      setPresets(Array.isArray(loadedPresets) ? loadedPresets : []);
-    } catch (error) {
-      console.error('Failed to load presets:', error);
-      setPresets([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  const savePresetsToBackend = useMemo(
-    () =>
-      debounce(
-        (presetsToSave: Array<UserPreset>): Promise<string[]> =>
-          invoke(Invokes.SavePresets, { presets: presetsToSave }).then(
-            () => [],
-            (err) => {
-              console.error('Failed to save presets:', err);
-              return ['Presets'];
-            },
-          ),
-        500,
-      ),
-    [],
-  );
 
   // A pending save is written when the tool closes and before quitting.
   useEffect(() => {
@@ -175,11 +204,13 @@ export function usePresets(
       unregister();
       savePresetsToBackend.flush();
     };
-  }, [savePresetsToBackend]);
+  }, []);
 
+  // Read from disk once: later users share the list, which may hold changes
+  // not written yet (a reload would put the older file over them).
   useEffect(() => {
-    loadPresets();
-  }, [loadPresets]);
+    void loadPresetLibrary();
+  }, []);
 
   const addPreset = (
     name: string,
@@ -225,6 +256,41 @@ export function usePresets(
     setPresets(updatedPresets);
     savePresetsToBackend(updatedPresets);
     return newPresetData;
+  };
+
+  /** A tool's own preset (the preset menu in its header): `adjustments` as
+   * taken from that tool, kept in the folder named `folderName` (the tool's
+   * name), which is made when there is none; `toolKeys` keeps the tool's
+   * parameters for later updates. */
+  const addToolPreset = (name: string, adjustments: Partial<Adjustments>, folderName: string, toolKeys: string[]) => {
+    const preset: Preset = {
+      adjustments,
+      toolKeys,
+      id: crypto.randomUUID(),
+      name,
+      includeMasks: false,
+      includeCropTransform: false,
+      presetType: 'tool',
+    };
+    const current = usePresetStore.getState().presets;
+    const folderIndex = current.findIndex((item) => item.folder?.name === folderName);
+    let updatedPresets: Array<UserPreset>;
+    if (folderIndex >= 0) {
+      updatedPresets = current.map((item, index) =>
+        index === folderIndex && item.folder
+          ? { folder: { ...item.folder, children: [...item.folder.children, preset] } }
+          : item,
+      );
+    } else {
+      // Folders come before the presets at the top level (as `addFolder`).
+      const folder = { folder: { id: crypto.randomUUID(), name: folderName, children: [preset] } };
+      const firstPreset = current.findIndex((item) => item.preset);
+      updatedPresets = [...current];
+      updatedPresets.splice(firstPreset === -1 ? current.length : firstPreset, 0, folder);
+    }
+    setPresets(updatedPresets);
+    savePresetsToBackend(updatedPresets);
+    return preset;
   };
 
   const addFolder = (name: string) => {
@@ -290,7 +356,9 @@ export function usePresets(
     savePresetsToBackend(updatedPresets);
   };
 
-  const overwritePreset = (id: string | null) => {
+  /** `scoped`: the settings to keep instead, for a preset of one tool's
+   * menu (`toolKeys`), which keeps its tool's parameters only. */
+  const overwritePreset = (id: string | null, scoped?: Partial<Adjustments>) => {
     let existingPreset: Preset | null = null;
 
     for (const item of presets) {
@@ -322,11 +390,13 @@ export function usePresets(
     const presetType = existingPreset.presetType || 'style';
     const current = currentAdjustments();
 
-    const presetAdjustments = collectPresetAdjustments(current, defaults, {
-      includeMasks,
-      includeCropTransform,
-      presetType,
-    });
+    const presetAdjustments =
+      scoped ??
+      collectPresetAdjustments(current, defaults, {
+        includeMasks,
+        includeCropTransform,
+        presetType,
+      });
 
     let updatedPreset: Preset | null = null;
     const updatedPresets = presets.map((item: UserPreset) => {
@@ -399,6 +469,7 @@ export function usePresets(
         includeMasks: presetToDuplicate.includeMasks,
         includeCropTransform: presetToDuplicate.includeCropTransform,
         presetType: presetToDuplicate.presetType || 'style',
+        ...(presetToDuplicate.toolKeys ? { toolKeys: [...presetToDuplicate.toolKeys] } : {}),
       };
 
       let updatedPresets;
@@ -422,7 +493,7 @@ export function usePresets(
       savePresetsToBackend(updatedPresets);
       return newPreset;
     },
-    [presets, savePresetsToBackend],
+    [presets],
   );
 
   const movePreset = useCallback(
@@ -497,7 +568,7 @@ export function usePresets(
       setPresets(updatedPresets);
       savePresetsToBackend(updatedPresets);
     },
-    [presets, savePresetsToBackend],
+    [presets],
   );
 
   const reorderItems = useCallback(
@@ -542,7 +613,7 @@ export function usePresets(
         return currentPresets;
       });
     },
-    [savePresetsToBackend],
+    [],
   );
 
   const sortAllPresetsAlphabetically = useCallback(() => {
@@ -570,7 +641,7 @@ export function usePresets(
       savePresetsToBackend(sortedPresets);
       return sortedPresets;
     });
-  }, [savePresetsToBackend]);
+  }, []);
 
   const importPresetsFromFile = useCallback(
     async (filePath: string) => {
@@ -635,6 +706,7 @@ export function usePresets(
   return {
     addFolder,
     addPreset,
+    addToolPreset,
     deleteItem,
     duplicatePreset,
     exportPresetsToFile,
@@ -645,7 +717,7 @@ export function usePresets(
     movePreset,
     overwritePreset,
     presets,
-    refreshPresets: loadPresets,
+    refreshPresets: loadPresetLibrary,
     renameItem,
     reorderItems,
     sortAllPresetsAlphabetically,

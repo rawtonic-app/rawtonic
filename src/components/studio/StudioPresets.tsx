@@ -5,20 +5,32 @@ import { toast } from "react-toastify";
 import { useTranslation } from "react-i18next";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
+import { useSettingsStore } from "../../store/useSettingsStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
 import { usePresets, type UserPreset } from "../../hooks/usePresets";
 import { useContextMenu } from "../../context/ContextMenuContext";
 import type { Preset } from "../ui/AppProperties";
 import { ToolGroup } from "./StudioDevelop";
 import { blendPreset } from "../../utils/presetAmount";
-import { withAiDenoiseVersion, withPresetClarityVersion, withDiffractionVersion, withGrainStructure, withLegacyGrainVersion, withLumaNoiseVersion, withSharpenVersion } from "../../utils/adjustments";
+import { loadBuiltinPresets, presetName, useBuiltinPresets } from "../../utils/builtinPresets";
+import { withPresetClarityVersion } from "../../utils/adjustments";
+import { presetPreview, presetValues, toolPresetToSave } from "./toolPresets";
 import { noteTool } from "../contribute/usageStats";
 
-type Entry = { folder: { id: string; name: string } | null; presets: Preset[] };
+type Entry = { folder: { id: string; name: string; builtin?: boolean } | null; presets: Preset[] };
+
+const BUILTIN_FOLDER = "builtin";
 
 /** Root presets first (as one unnamed group), then folders in their order. */
-export function groupPresets(items: UserPreset[], query = ""): Entry[] {
-  const match = (preset: Preset) => preset.name.toLowerCase().includes(query.trim().toLowerCase());
+/** Rawtonic's own styles (`builtins`, names as shown) follow in their own
+ * read-only folder; its tool presets are in the tools' preset menus. */
+export function groupPresets(
+  items: UserPreset[],
+  query = "",
+  builtins: { folderName: string; presets: Preset[]; nameOf(preset: Preset): string } | null = null,
+): Entry[] {
+  const needle = query.trim().toLowerCase();
+  const match = (preset: Preset) => (builtins && preset.builtin ? builtins.nameOf(preset) : preset.name).toLowerCase().includes(needle);
   const root: Preset[] = [];
   const folders: Entry[] = [];
   for (const item of items) {
@@ -29,6 +41,11 @@ export function groupPresets(items: UserPreset[], query = ""): Entry[] {
       if (presets.length || !query.trim())
         folders.push({ folder: { id: item.folder.id ?? "", name: item.folder.name ?? "" }, presets });
     }
+  }
+  if (builtins?.presets.length) {
+    const presets = builtins.presets.filter((preset) => preset.presetType === "style" && match(preset));
+    if (presets.length || !needle)
+      folders.push({ folder: { id: BUILTIN_FOLDER, name: builtins.folderName, builtin: true }, presets });
   }
   return root.length ? [{ folder: null, presets: root }, ...folders] : folders;
 }
@@ -161,8 +178,11 @@ export default function StudioPresets() {
     hoverTimer.current = window.setTimeout(() => {
       const { selectedImage: image, adjustments: current, setEditor } = useEditorStore.getState();
       if (!image?.isReady) return;
+      // No preview for a preset that needs the RAW developed again.
+      const previewed = presetPreview(current, preset.adjustments, Boolean(image.isRaw));
+      if (!previewed) return endPreview();
       previewing.current = true;
-      setEditor({ previewOverride: { ...current, ...withPresetClarityVersion(withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(withGrainStructure(structuredClone(preset.adjustments)))))))) } });
+      setEditor({ previewOverride: previewed });
     }, 120);
   };
   useEffect(() => endPreview, []);
@@ -178,8 +198,25 @@ export default function StudioPresets() {
   const [deleting, setDeleting] = useState<Preset | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [applied, setApplied] = useState<string | null>(null);
-  const groups = useMemo(() => groupPresets(presets, query), [presets, query]);
-  const folders = groups.flatMap((group) => (group.folder ? [group.folder] : []));
+  // Rawtonic's own presets, unless hidden in Preferences.
+  const showBuiltins = useSettingsStore((s) => s.appSettings?.showBuiltinPresets !== false);
+  const builtins = useBuiltinPresets((s) => s.presets);
+  const builtinStyles = builtins.filter((preset) => preset.presetType === "style").length;
+  useEffect(() => {
+    void loadBuiltinPresets();
+  }, []);
+  const groups = useMemo(
+    () =>
+      groupPresets(
+        presets,
+        query,
+        showBuiltins
+          ? { folderName: t("studio.presets.builtinFolder"), presets: builtins, nameOf: (preset) => presetName(t, preset) }
+          : null,
+      ),
+    [presets, query, showBuiltins, builtins, t],
+  );
+  const folders = groups.flatMap((group) => (group.folder && !group.folder.builtin ? [group.folder] : []));
   const count = presets.reduce((n, item) => n + (item.preset ? 1 : item.folder?.children.length ?? 0), 0);
   const ready = Boolean(selectedImage?.isReady);
   // Controls keep their look while the next photograph loads.
@@ -204,7 +241,7 @@ export default function StudioPresets() {
     setAmount({ ...amount, value });
     const blended = blendPreset(
       amount.base,
-      withPresetClarityVersion(withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(withGrainStructure(amount.preset.adjustments))))))) as unknown as Record<string, unknown>,
+      presetValues(amount.preset.adjustments) as unknown as Record<string, unknown>,
       value / 100,
     );
     setAdjustments((current) => ({ ...current, ...amount.base, ...blended }) as typeof current);
@@ -226,12 +263,18 @@ export default function StudioPresets() {
   const menu = (e: MouseEvent, preset: Preset) => {
     e.preventDefault();
     endPreview();
+    // Built-ins are read-only.
+    if (preset.builtin) return;
     showContextMenu(e.clientX, e.clientY, [
       { label: t("studio.presets.menu.rename"), onClick: () => setRenaming(preset.id) },
       {
         label: t("studio.presets.menu.update"),
         disabled: !ready,
-        onClick: () => overwritePreset(preset.id),
+        onClick: () =>
+          overwritePreset(
+            preset.id,
+            preset.toolKeys ? toolPresetToSave(currentAdjustments(), preset.toolKeys) : undefined,
+          ),
       },
       { label: t("studio.presets.menu.duplicate"), onClick: () => duplicatePreset(preset.id) },
       {
@@ -478,7 +521,7 @@ export default function StudioPresets() {
           </span>
         </div>
       )}
-      {count > 10 && (
+      {count + (showBuiltins ? builtinStyles : 0) > 10 && (
         <input
           className="studio-metadata-input studio-preset-search"
           aria-label={t("studio.presets.find")}
@@ -498,7 +541,7 @@ export default function StudioPresets() {
       )}
       {amount && amount.path === selectedImage?.path && (
         <label className="studio-preset-amount">
-          <span>{amount.preset.name}</span>
+          <span>{presetName(t, amount.preset)}</span>
           <input
             type="range"
             min={0}
@@ -538,7 +581,9 @@ export default function StudioPresets() {
                 <button
                   className={`studio-preset-folder ${open ? "is-open" : ""}`}
                   aria-expanded={open}
-                  onContextMenu={(e) => group.folder && folderMenu(e, group.folder, group.presets.length)}
+                  onContextMenu={(e) =>
+                    group.folder?.builtin ? e.preventDefault() : group.folder && folderMenu(e, group.folder, group.presets.length)
+                  }
                   onClick={() =>
                     setCollapsed((previous) => {
                       const next = new Set(previous);
@@ -571,9 +616,11 @@ export default function StudioPresets() {
                       className={`studio-preset ${group.folder ? "is-nested" : ""} ${applied === preset.id ? "is-applied" : ""}`}
                       disabled={!panelsReady}
                       title={
-                        preset.presetType === "tool"
-                          ? t("studio.presets.appliesSaved")
-                          : t("studio.presets.appliesAll")
+                        preset.builtin
+                          ? t("studio.presets.appliesBuiltin")
+                          : preset.presetType === "tool"
+                            ? t("studio.presets.appliesSaved")
+                            : t("studio.presets.appliesAll")
                       }
                       onClick={() => apply(preset)}
                       onContextMenu={(e) => menu(e, preset)}
@@ -581,7 +628,7 @@ export default function StudioPresets() {
                       onMouseLeave={endPreview}
                     >
                       {preset.presetType !== "tool" && <Sparkles size={10} aria-label={t("studio.presets.style")} />}
-                      <span>{preset.name}</span>
+                      <span>{presetName(t, preset)}</span>
                     </button>
                   ),
                 )}

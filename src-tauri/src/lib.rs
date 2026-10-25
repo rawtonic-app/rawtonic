@@ -825,6 +825,7 @@ pub fn run() {
             file_management::apply_adjustments_to_paths,
             file_management::load_metadata,
             file_management::load_presets,
+            file_management::load_builtin_presets,
             file_management::save_presets,
             file_management::reset_adjustments_for_paths,
             file_management::apply_auto_lens_correction_to_paths,

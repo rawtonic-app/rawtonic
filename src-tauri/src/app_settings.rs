@@ -586,6 +586,10 @@ pub struct AppSettings {
     /// Send anonymous weekly usage statistics (ADR 0017; missing: off).
     #[serde(default)]
     pub usage_stats: Option<bool>,
+    /// Rawtonic's own presets and styles in the presets panel and the tools'
+    /// preset menus (missing: shown).
+    #[serde(default)]
+    pub show_builtin_presets: Option<bool>,
     pub last_root_path: Option<String>,
     #[serde(default)]
     pub root_folders: Vec<String>,
@@ -797,6 +801,7 @@ impl Default for AppSettings {
             last_update_check: None,
             dismissed_update_version: None,
             crash_reports: None,
+            show_builtin_presets: None,
             usage_stats: None,
             last_root_path: None,
             root_folders: Vec::new(),

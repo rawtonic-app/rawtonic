@@ -9,6 +9,7 @@ use std::fs;
 use std::path::Path;
 use tauri::AppHandle;
 use tauri::Manager;
+use tauri::path::BaseDirectory;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -25,6 +26,9 @@ pub struct Preset {
     pub include_crop_transform: Option<bool>,
     #[serde(rename = "presetType", skip_serializing_if = "Option::is_none")]
     pub preset_type: Option<String>,
+    /// A preset of one tool's menu: that tool's parameters, kept on update.
+    #[serde(rename = "toolKeys", skip_serializing_if = "Option::is_none")]
+    pub tool_keys: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -103,6 +107,69 @@ pub fn load_presets(app_handle: AppHandle) -> Result<Vec<PresetItem>, String> {
     }
     let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
     serde_json::from_str(&content).map_err(|e| e.to_string())
+}
+
+/// One of Rawtonic's own presets or styles, shipped read-only with the app
+/// (`resources/presets/builtin.json`). Applying one copies its values into
+/// the recipe; recipes never refer to it, so a later `version` of a built-in
+/// leaves photos developed with an earlier one as they are.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct BuiltinPreset {
+    pub id: String,
+    pub version: u32,
+    /// English name; the interface shows its translation by `id`.
+    pub name: String,
+    /// "tool": the settings of one tool; "style": a whole look.
+    pub preset_type: String,
+    pub adjustments: Value,
+}
+
+#[derive(Deserialize)]
+struct BuiltinPresetFile {
+    format: u32,
+    presets: Vec<BuiltinPreset>,
+}
+
+/// The built-in presets file's format this build reads.
+const BUILTIN_PRESETS_FORMAT: u32 = 1;
+
+pub(crate) fn parse_builtin_presets(content: &str) -> Result<Vec<BuiltinPreset>, String> {
+    let file: BuiltinPresetFile =
+        serde_json::from_str(content).map_err(|e| format!("Built-in presets unreadable: {e}"))?;
+    if file.format != BUILTIN_PRESETS_FORMAT {
+        return Err(format!("Built-in presets have format {}", file.format));
+    }
+    let mut ids = HashSet::new();
+    for preset in &file.presets {
+        if !ids.insert(preset.id.as_str()) {
+            return Err(format!("Built-in preset {} is listed twice", preset.id));
+        }
+        if preset.preset_type != "tool" && preset.preset_type != "style" {
+            return Err(format!("Built-in preset {} has no known type", preset.id));
+        }
+        if !preset
+            .adjustments
+            .as_object()
+            .is_some_and(|a| !a.is_empty())
+        {
+            return Err(format!("Built-in preset {} sets nothing", preset.id));
+        }
+    }
+    Ok(file.presets)
+}
+
+/// Rawtonic's own presets and styles from the app's resources, apart from
+/// the user's presets (a missing or broken presets.json leaves them).
+#[tauri::command]
+pub fn load_builtin_presets(app_handle: AppHandle) -> Result<Vec<BuiltinPreset>, String> {
+    let path = app_handle
+        .path()
+        .resolve("resources/presets/builtin.json", BaseDirectory::Resource)
+        .map_err(|e| e.to_string())?;
+    let content =
+        fs::read_to_string(&path).map_err(|e| format!("Built-in presets missing: {e}"))?;
+    parse_builtin_presets(&content)
 }
 
 #[tauri::command]
@@ -308,4 +375,60 @@ pub fn handle_export_presets_to_file(
         .map_err(|e| format!("Failed to serialize presets: {}", e))?;
     rawtonic_metadata::atomic_write(Path::new(&file_path), json_string)
         .map_err(|e| format!("Failed to write preset file: {}", e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SHIPPED: &str = include_str!("../../resources/presets/builtin.json");
+
+    #[test]
+    fn the_shipped_built_ins_load() {
+        let presets = parse_builtin_presets(SHIPPED).unwrap();
+        assert!(presets.iter().any(|p| p.preset_type == "style"));
+        assert!(presets.iter().any(|p| p.preset_type == "tool"));
+        assert!(presets.iter().all(|p| p.version >= 1));
+    }
+
+    #[test]
+    fn a_tool_preset_keeps_its_parameters_when_saved() {
+        let json = r#"[{"preset":{"id":"g","name":"Grain","adjustments":{"grainAmount":30},"presetType":"tool","toolKeys":["grainAmount","grainSize"]}}]"#;
+        let items: Vec<PresetItem> = serde_json::from_str(json).unwrap();
+        let saved = serde_json::to_value(&items).unwrap();
+        assert_eq!(
+            saved[0]["preset"]["toolKeys"],
+            serde_json::json!(["grainAmount", "grainSize"])
+        );
+        // Presets without it are written as before.
+        let plain: Vec<PresetItem> =
+            serde_json::from_str(r#"[{"preset":{"id":"p","name":"P","adjustments":{}}}]"#).unwrap();
+        assert!(
+            serde_json::to_value(&plain).unwrap()[0]["preset"]
+                .get("toolKeys")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_broken_built_in_file_is_refused() {
+        let one =
+            r#"{"id":"a","version":1,"name":"A","presetType":"tool","adjustments":{"contrast":1}}"#;
+        assert!(
+            parse_builtin_presets(&format!(r#"{{"format":1,"presets":[{one},{one}]}}"#)).is_err()
+        );
+        assert!(parse_builtin_presets(&format!(r#"{{"format":2,"presets":[{one}]}}"#)).is_err());
+        assert!(
+            parse_builtin_presets(
+                r#"{"format":1,"presets":[{"id":"a","version":1,"name":"A","presetType":"tool","adjustments":{}}]}"#
+            )
+            .is_err()
+        );
+        assert_eq!(
+            parse_builtin_presets(&format!(r#"{{"format":1,"presets":[{one}]}}"#))
+                .unwrap()
+                .len(),
+            1
+        );
+    }
 }
