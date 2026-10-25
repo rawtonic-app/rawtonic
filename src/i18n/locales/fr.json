@@ -4108,9 +4108,12 @@
     "file": "Modification de fichier",
     "flag": "Définir le marqueur",
     "move": "Déplacer",
+    "notice": "{{action}} : {{name}}",
+    "noticeMany": "{{action}} : {{name}} (+{{remaining}})",
     "rating": "Définir la note",
     "redoAction": "Rétablir : {{action}}",
     "rename": "Renommer",
+    "skipFailed": "Ignorer les éléments en échec",
     "trash": "Mettre à la corbeille",
     "undoAction": "Annuler : {{action}}"
   },

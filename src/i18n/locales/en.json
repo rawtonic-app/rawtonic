@@ -4000,9 +4000,12 @@
     "file": "File Change",
     "flag": "Set Flag",
     "move": "Move",
+    "notice": "{{action}}: {{name}}",
+    "noticeMany": "{{action}}: {{name}} (+{{remaining}})",
     "rating": "Set Rating",
     "redoAction": "Redo {{action}}",
     "rename": "Rename",
+    "skipFailed": "Skip failed items",
     "trash": "Move to Trash",
     "undoAction": "Undo {{action}}"
   },

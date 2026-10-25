@@ -4108,9 +4108,12 @@
     "file": "Cambio de archivo",
     "flag": "Establecer indicador",
     "move": "Mover",
+    "notice": "{{action}}: {{name}}",
+    "noticeMany": "{{action}}: {{name}} (+{{remaining}})",
     "rating": "Establecer valoración",
     "redoAction": "Rehacer: {{action}}",
     "rename": "Renombrar",
+    "skipFailed": "Omitir elementos fallidos",
     "trash": "Mover a la papelera",
     "undoAction": "Deshacer: {{action}}"
   },

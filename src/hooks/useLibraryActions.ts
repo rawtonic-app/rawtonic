@@ -69,7 +69,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
       const changes = await invokeInOrder<CullingChange[]>(Invokes.SetRatingForPaths, { paths: pathsWritten, rating: finalRating, ...(directory ? { directory } : {}) });
       if (useLibraryStore.getState().sessionDirectory === directory && changes) showCullingChanges(changes);
       return changes;
-    }).catch((err) => {
+    }, pathsToRate).catch((err) => {
       if (useLibraryStore.getState().sessionDirectory !== directory) return;
       console.error(err);
       // Photos whose rating was not saved show their previous one again
@@ -127,7 +127,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
       await catalogAction("color", ({ resolvePaths }) => {
         pathsWritten = resolvePaths(pathsToUpdate);
         return invokeInOrder<CullingChange[]>(Invokes.SetColorLabelForPaths, { paths: pathsWritten, color: finalColor, ...(directory ? { directory } : {}) });
-      });
+      }, pathsToUpdate);
       if (useLibraryStore.getState().sessionDirectory === directory) applyLabel(pathsWritten);
     } catch (err) {
       if (useLibraryStore.getState().sessionDirectory !== directory) return;

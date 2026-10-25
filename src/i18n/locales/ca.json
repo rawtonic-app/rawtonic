@@ -4108,9 +4108,12 @@
     "file": "Canvi de fitxer",
     "flag": "Estableix la marca",
     "move": "Mou",
+    "notice": "{{action}}: {{name}}",
+    "noticeMany": "{{action}}: {{name}} (+{{remaining}})",
     "rating": "Estableix la puntuació",
     "redoAction": "Refés: {{action}}",
     "rename": "Canvia el nom",
+    "skipFailed": "Omet els elements fallits",
     "trash": "Mou a la paperera",
     "undoAction": "Desfés: {{action}}"
   },

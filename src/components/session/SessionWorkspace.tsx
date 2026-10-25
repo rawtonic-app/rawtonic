@@ -877,7 +877,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           void refresh().catch((e) => toast.error(t("session.toasts.flagsSavedRefreshFailed", { error: String(e) })));
         }
         return changed;
-      }).catch((e) => { toast.error(t("session.toasts.flagsFailed", { error: String(e) })); });
+      }, paths).catch((e) => { toast.error(t("session.toasts.flagsFailed", { error: String(e) })); });
     },
     [session, refresh, t],
   );

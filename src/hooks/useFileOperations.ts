@@ -398,6 +398,10 @@ export function useFileOperations(
     return filePath.substring(0, lastSeparatorIndex);
   };
 
+  // Native photo operations also move registered companion photos. Until the
+  // native plan exposes their exact set, protect each source folder as well.
+  const withSourceParents = (paths: string[]) => [...paths, ...paths.map(getParentDir)];
+
   const executeDelete = useCallback(
     async (pathsToDelete: Array<string>, options = { includeAssociated: false }) => {
       if (!pathsToDelete || pathsToDelete.length === 0) return;
@@ -444,6 +448,7 @@ export function useFileOperations(
         const command = options.includeAssociated ? Invokes.DeleteFilesWithAssociated : Invokes.DeleteFilesFromDisk;
         const summary = await fileAction(() =>
           invoke<FileOperationSummary>(command, { paths: pathsToDelete }),
+          "trash", undefined, undefined, withSourceParents(pathsToDelete),
         );
         if (summary) toast.success(describeFileOperation(summary));
         await refreshImageList();
@@ -626,6 +631,7 @@ export function useFileOperations(
                 destinationFolder: destination,
               }),
             ),
+            "move", undefined, undefined, [...withSourceParents(paths), destination],
           );
           if (summary) toast.success(describeFileOperation(summary));
           warnAboutNote(summary);
@@ -668,6 +674,7 @@ export function useFileOperations(
             withCopyProgress(() =>
               invoke<FileOperationSummary>(Invokes.MoveFolder, { path, destinationFolder: picked }),
             ),
+            "move", undefined, undefined, [path, picked],
           );
           if (summary) toast.success(describeFileOperation(summary));
           warnAboutNote(summary);
@@ -754,6 +761,7 @@ export function useFileOperations(
               if (!(await saveEditsFirst([path]))) return;
               const summary = await fileAction(() =>
                 invoke<FileOperationSummary>(Invokes.DeleteFolder, { path }),
+                "trash", undefined, undefined, [path],
               );
               if (summary) toast.success(describeFileOperation(summary));
               const { currentFolderPath, setLibrary } = useLibraryStore.getState();
@@ -851,6 +859,7 @@ export function useFileOperations(
               path: oldPath,
               newName: trimmedNewName,
             }),
+            "rename", undefined, undefined, [oldPath, getParentDir(oldPath)],
           );
           if (summary) toast.success(describeFileOperation(summary));
 
@@ -894,6 +903,7 @@ export function useFileOperations(
               renameTargetPaths.flatMap((from, index) =>
                 renamed[index] ? [{ from, to: renamed[index] }] : [],
               ),
+            [...renameTargetPaths, ...renameTargetPaths.map(getParentDir)],
           );
           // The selection, the open photograph, picks, ratings and
           // thumbnails stay with the renamed photos (as on undo).
@@ -944,6 +954,7 @@ export function useFileOperations(
                     destinationFolder: target,
                   }),
                 ),
+                "move", undefined, undefined, [...withSourceParents(copiedFilePaths), target],
               );
               if (summary) toast.success(describeFileOperation(summary));
               warnAboutNote(summary);

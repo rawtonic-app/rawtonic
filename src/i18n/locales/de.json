@@ -4000,9 +4000,12 @@
     "file": "Dateiänderung",
     "flag": "Markierung festlegen",
     "move": "Verschieben",
+    "notice": "{{action}}: {{name}}",
+    "noticeMany": "{{action}}: {{name}} (+{{remaining}})",
     "rating": "Bewertung festlegen",
     "redoAction": "{{action}} wiederholen",
     "rename": "Umbenennen",
+    "skipFailed": "Fehlgeschlagene überspringen",
     "trash": "In den Papierkorb verschieben",
     "undoAction": "{{action}} rückgängig"
   },

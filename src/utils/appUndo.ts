@@ -1,4 +1,5 @@
 import i18n from "i18next";
+import { createElement } from "react";
 import { Invokes } from "../components/ui/AppProperties";
 import { create } from "zustand";
 import { toast } from "react-toastify";
@@ -26,7 +27,6 @@ interface Step {
   action: CullingValue["kind"];
   changes: CullingChange[];
   directory: string | null;
-  failed?: boolean;
 }
 interface FileStep {
   order: number;
@@ -62,7 +62,28 @@ export const useCatalogUndoStore = create<CatalogUndoState>(() => ({
   fileRedoBlocked: false,
   fileUndoEmpty: false,
 }));
-let queue: Promise<unknown> = Promise.resolve();
+const currentTargets = new WeakMap<Step, readonly string[]>();
+const failureTokens = new WeakMap<Step, symbol>();
+const failureNoticeId = (direction: "undo" | "redo", step: Step) =>
+  `culling-${direction}-${step.order}`;
+interface PendingWork {
+  lane: "catalog" | "file";
+  paths?: readonly string[];
+  done: Promise<unknown>;
+}
+const pendingWork = new Set<PendingWork>();
+function overlaps(left?: readonly string[], right?: readonly string[]) {
+  if (!left || !right) return true; // Unknown journal targets require serialization.
+  const physical = (path: string) =>
+    path.split("?vc=")[0].replaceAll("\\", "/").replace(/\/$/, "");
+  return left.some((a) =>
+    right.some((b) => {
+      const x = physical(a),
+        y = physical(b);
+      return x === y || x.startsWith(`${y}/`) || y.startsWith(`${x}/`);
+    }),
+  );
+}
 let branch = 0;
 let fileTravelBranch: number | null = null;
 const pendingCatalog = new Set<number>();
@@ -71,14 +92,24 @@ export interface CatalogActionContext {
   resolvePaths(paths: readonly string[]): string[];
 }
 function recordMoves(moves: PathMove[]) {
-  if (!pendingCatalog.size || !moves.length) return;
+  if (!moves.length) return;
   const mapped = new Map<string, string>();
   for (const { from, to } of moves) {
     const source = from.split("?vc=")[0];
     const destination = to.split("?vc=")[0];
     if (source !== destination) mapped.set(source, destination);
   }
-  if (mapped.size)
+  if (!mapped.size) return;
+  // Receipts keep their native identity; dependency targets follow later moves.
+  const remap = (paths: readonly string[]) =>
+    paths.map((path) => movedPath(path, mapped));
+  const { past, future } = useCatalogUndoStore.getState();
+  for (const step of [...past, ...future]) {
+    const paths = currentTargets.get(step);
+    if (paths) currentTargets.set(step, remap(paths));
+  }
+  for (const job of pendingWork) if (job.paths) job.paths = remap(job.paths);
+  if (pendingCatalog.size)
     completedMoves.push({ order: nextUndoOrder(), moves: mapped });
 }
 function pruneMoves() {
@@ -87,9 +118,37 @@ function pruneMoves() {
   completedMoves = completedMoves.filter((move) => move.order > oldest);
 }
 
-function enqueue<T>(work: () => Promise<T>): Promise<T> {
-  const run = queue.then(work);
-  queue = run.catch(() => undefined);
+function enqueue<T>(
+  work: () => Promise<T>,
+  lane: "catalog" | "file" = "file",
+  paths?: readonly string[],
+): Promise<T> {
+  // Writes to the same paths stay in input order. Independent metadata can
+  // pass a long move; file commands remain serialized with prior work.
+  const dependencies = new Set<PendingWork>();
+  let affected = paths;
+  // A→B followed by B→C also conflicts with a write still naming A. Only
+  // earlier jobs participate, so later files waiting for this write cannot cycle.
+  let added: boolean;
+  do {
+    added = false;
+    for (const job of pendingWork) {
+      if (
+        dependencies.has(job) ||
+        (lane !== "file" && !overlaps(affected, job.paths))
+      )
+        continue;
+      dependencies.add(job);
+      if (job.lane === "file")
+        affected =
+          affected && job.paths ? [...affected, ...job.paths] : undefined;
+      added = true;
+    }
+  } while (added);
+  const run = Promise.all([...dependencies].map((job) => job.done)).then(work);
+  const job: PendingWork = { lane, paths, done: run.catch(() => undefined) };
+  pendingWork.add(job);
+  void job.done.then(() => pendingWork.delete(job));
   return run;
 }
 
@@ -98,6 +157,7 @@ function enqueue<T>(work: () => Promise<T>): Promise<T> {
 export function catalogAction(
   action: CullingValue["kind"],
   work: (context: CatalogActionContext) => Promise<CullingChange[]>,
+  paths?: readonly string[],
 ): Promise<void> {
   debouncedSetHistory.flush();
   branch++;
@@ -112,6 +172,7 @@ export function catalogAction(
     changes: [],
     directory: useLibraryStore.getState().sessionDirectory,
   };
+  if (paths) currentTargets.set(step, [...paths]);
   pendingCatalog.add(step.order);
   useCatalogUndoStore.setState((s) => ({
     past: [...s.past, step].slice(-100),
@@ -140,6 +201,10 @@ export function catalogAction(
         ) ?? [];
       throw error;
     } finally {
+      currentTargets.set(
+        step,
+        step.changes.map((change) => change.path),
+      );
       pendingCatalog.delete(step.order);
       pruneMoves();
       useCatalogUndoStore.setState((s) =>
@@ -152,7 +217,7 @@ export function catalogAction(
           : {},
       );
     }
-  });
+  }, "catalog", paths);
 }
 
 /** The file journal stays native; these small markers order its successful
@@ -187,8 +252,6 @@ export function fileOperationTravel(
       found && (!found.id || found.id === summary.id)
         ? { ...found, id: summary.id, kind: summary.kind ?? found.kind }
         : { order: 0, id: summary.id, kind: summary.kind ?? "file" };
-    // A file restored by the journal may make a failed metadata restore valid.
-    for (const item of [...s.past, ...s.future]) item.failed = false;
     return {
       [from]: found ? s[from].slice(0, -1) : [],
       [to]: startedOnBranch === branch ? [...s[to], step] : s[to],
@@ -212,6 +275,7 @@ export function fileAction<T>(
   kind = "file",
   didChange?: (result: T) => boolean,
   movesForResult?: (result: T) => PathMove[],
+  paths?: readonly string[],
 ): Promise<T> {
   debouncedSetHistory.flush();
   branch++;
@@ -262,7 +326,7 @@ export function fileAction<T>(
             },
       );
     }
-  });
+  }, "file", paths);
 }
 function catalogStep(direction: "undo" | "redo") {
   return (
@@ -292,7 +356,6 @@ function candidate(
         : !!file || (!state.fileRedoBlocked && !!fileHandlers);
     if (!step) return fileAvailable ? "file" : null;
     if (!fileAvailable) return "catalog";
-    if (step.failed) return "file";
     if (!file) return "catalog"; // Native operations from before this window are older.
     return direction === "undo"
       ? file.order > step.order
@@ -359,6 +422,92 @@ export function getRedoLabel(): string {
   return action
     ? i18n.t("undoHistory.redoAction", { action })
     : i18n.t("contextMenus.editor.redo");
+}
+
+function noticeText(action: string, changes: CullingChange[], limit = 1) {
+  const name = changes
+    .slice(0, limit)
+    .map(({ path }) => path.split("?vc=")[0].split(/[\\/]/).pop())
+    .join(", ");
+  return changes.length > limit
+    ? i18n.t("undoHistory.noticeMany", {
+        action,
+        name,
+        remaining: changes.length - limit,
+      })
+    : i18n.t("undoHistory.notice", { action, name });
+}
+/** Viewers identify the shown photo; the grid uses its loaded folder list. */
+function notifyOtherPhotos(action: string, changes: CullingChange[]) {
+  const ui = useUIStore.getState();
+  const library = useLibraryStore.getState();
+  const shown = new Set(
+    ui.activeView === "editor"
+      ? [useEditorStore.getState().selectedImage?.path]
+      : ui.libraryLoupe || ui.isFullScreen
+        ? [library.libraryActivePath]
+        : library.imageList.map((image) => image.path),
+  );
+  const offscreen = changes.filter(
+    ({ path, after }) =>
+      !shown.has(path) &&
+      !(
+        after.kind === "flag" &&
+        [...shown].some(
+          (visible) => visible?.split("?vc=")[0] === path.split("?vc=")[0],
+        )
+      ),
+  );
+  if (offscreen.length)
+    toast.info(noticeText(action, offscreen), { autoClose: 3000 });
+}
+function sameCullingTarget(left: CullingChange, right: CullingChange) {
+  if (left.before.kind !== right.before.kind) return false;
+  if (left.assetId && right.assetId)
+    return (
+      left.assetId === right.assetId &&
+      left.directory === right.directory &&
+      left.path.split("?vc=")[1] === right.path.split("?vc=")[1]
+    );
+  return left.path === right.path;
+}
+/** A partial restore travels only its acknowledged targets. Failed targets
+ * remain in place, so retry cannot undo anything older or lose saved redo. */
+function splitRestored(
+  step: Step,
+  restored: CullingChange[],
+  direction: "undo" | "redo",
+  startedOnBranch: number,
+) {
+  const done = step.changes.filter((change) =>
+    restored.some((receipt) => sameCullingTarget(change, receipt)),
+  );
+  if (!done.length) return step;
+  failureTokens.delete(step);
+  const remaining = step.changes.filter((change) => !done.includes(change));
+  const failed = remaining.length ? { ...step, changes: remaining } : null;
+  const saved = { ...step, changes: done };
+  const paths = currentTargets.get(step);
+  if (paths) {
+    if (failed)
+      currentTargets.set(
+        failed,
+        paths.filter((_, index) => !done.includes(step.changes[index])),
+      );
+    currentTargets.set(
+      saved,
+      paths.filter((_, index) => done.includes(step.changes[index])),
+    );
+  }
+  const from = direction === "undo" ? "past" : "future";
+  const to = direction === "undo" ? "future" : "past";
+  useCatalogUndoStore.setState((state) => ({
+    [from]: state[from].flatMap((item) =>
+      item === step ? (failed ? [failed] : []) : [item],
+    ),
+    [to]: branch === startedOnBranch ? [...state[to], saved] : state[to],
+  }));
+  return failed;
 }
 
 /** Updates culling indicators only. In particular, Undo never selects a photo
@@ -445,6 +594,7 @@ async function travel(
   const from = direction === "undo" ? "past" : "future";
   const to = direction === "undo" ? "future" : "past";
   const step = useCatalogUndoStore.getState()[from].at(-1)!;
+  const label = direction === "undo" ? getUndoLabel() : getRedoLabel();
   useCatalogUndoStore.setState({ busy: true });
   try {
     await enqueue(async () => {
@@ -468,33 +618,80 @@ async function travel(
             directory: step.directory,
           },
         );
-        if (useLibraryStore.getState().sessionDirectory === step.directory)
+        if (useLibraryStore.getState().sessionDirectory === step.directory) {
           showCullingChanges(changed);
+          notifyOtherPhotos(label, changed);
+        }
       } catch (error) {
-        if (useLibraryStore.getState().sessionDirectory === step.directory)
-          showCullingChanges(
-            (error as { culling?: CullingChange[] } | null)?.culling ?? [],
-          );
+        if (useLibraryStore.getState().sessionDirectory === step.directory) {
+          const restored =
+            (error as { culling?: CullingChange[] } | null)?.culling ?? [];
+          showCullingChanges(restored);
+          notifyOtherPhotos(label, restored);
+        }
         throw error;
       }
+      failureTokens.delete(step);
+      toast.dismiss(failureNoticeId(direction, step));
       if (useCatalogUndoStore.getState()[from].includes(step))
         useCatalogUndoStore.setState((s) => ({
           [from]: s[from].filter((item) => item !== step),
           [to]: branch === startedOnBranch ? [...s[to], step] : s[to],
         }));
-    });
+    }, "catalog", currentTargets.get(step));
   } catch (error) {
-    // Keep the step for retry if a restore failed. Reapplying already saved
-    // values is harmless; a partial restore must never lose its undo record.
-    step.failed = true;
-    const message = String((error as { message?: string })?.message ?? error);
-    toast.error(
-      direction === "undo"
-        ? i18n.t("studio.library.fileOperations.undoFailed", { error: message })
-        : i18n.t("studio.library.fileOperations.redoFailed", {
-            error: message,
-          }),
+    if (!useCatalogUndoStore.getState()[from].includes(step)) return;
+    const failed = splitRestored(
+      step,
+      (error as { culling?: CullingChange[] } | null)?.culling ?? [],
+      direction,
+      startedOnBranch,
     );
+    const detail = String((error as { message?: string })?.message ?? error);
+    const message =
+      direction === "undo"
+        ? i18n.t("studio.library.fileOperations.undoFailed", { error: detail })
+        : i18n.t("studio.library.fileOperations.redoFailed", { error: detail });
+    if (!failed) {
+      toast.error(message);
+      return;
+    }
+    const failure = Symbol();
+    failureTokens.set(failed, failure);
+    const toastId = failureNoticeId(direction, failed);
+    const content = ({ closeToast }: { closeToast: () => void }) =>
+      createElement(
+        "div",
+        { className: "space-y-2" },
+        createElement("p", null, noticeText(message, failed.changes, 3)),
+        createElement(
+          "button",
+          {
+            type: "button",
+            className: "underline",
+            onClick: () => {
+              const state = useCatalogUndoStore.getState();
+              if (state.busy) return;
+              // Only this explicit click discards the still-failed targets. A
+              // stale notice cannot discard a retried step or another library.
+              if (
+                state[from].includes(failed) &&
+                failureTokens.get(failed) === failure
+              ) {
+                useCatalogUndoStore.setState({
+                  [from]: state[from].filter((item) => item !== failed),
+                });
+                failureTokens.delete(failed);
+              }
+              closeToast();
+            },
+          },
+          i18n.t("undoHistory.skipFailed"),
+        ),
+      );
+    if (toast.isActive(toastId))
+      toast.update(toastId, { render: content, autoClose: false });
+    else toast.error(content, { toastId, autoClose: false });
   } finally {
     useCatalogUndoStore.setState({ busy: false });
   }

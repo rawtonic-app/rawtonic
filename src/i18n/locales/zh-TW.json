@@ -3914,9 +3914,12 @@
     "file": "檔案變更",
     "flag": "設定旗標",
     "move": "移動",
+    "notice": "{{action}}: {{name}}",
+    "noticeMany": "{{action}}: {{name}} (+{{remaining}})",
     "rating": "設定評分",
     "redoAction": "重做{{action}}",
     "rename": "重新命名",
+    "skipFailed": "略過失敗的項目",
     "trash": "移至垃圾桶",
     "undoAction": "復原{{action}}"
   },

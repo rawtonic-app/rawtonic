@@ -4108,9 +4108,12 @@
     "file": "Alteração de ficheiro",
     "flag": "Definir marcação",
     "move": "Mover",
+    "notice": "{{action}}: {{name}}",
+    "noticeMany": "{{action}}: {{name}} (+{{remaining}})",
     "rating": "Definir classificação",
     "redoAction": "Refazer: {{action}}",
     "rename": "Renomear",
+    "skipFailed": "Ignorar itens com falha",
     "trash": "Mover para o lixo",
     "undoAction": "Desfazer: {{action}}"
   },

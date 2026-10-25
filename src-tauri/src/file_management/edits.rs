@@ -889,26 +889,40 @@ pub async fn restore_culling(
     directory: Option<String>,
     app_handle: AppHandle,
 ) -> Result<Vec<CullingChange>, SaveFailure> {
-    let all: Vec<_> = values.iter().map(|write| write.path.clone()).collect();
-    let failures = all.clone();
-    super::blocking(
-        move || match resolve_culling_targets(values, directory.as_deref()) {
-            Ok(values) => write_culling(values, directory, &app_handle),
-            Err(error) => unsaved(&all, &error).map(|()| Vec::new()),
-        },
-    )
+    let failures: Vec<_> = values.iter().map(|write| write.path.clone()).collect();
+    super::blocking(move || {
+        let (values, failures) = resolve_culling_targets(values, directory.as_deref());
+        write_culling(values, directory, &app_handle, failures)
+    })
     .await
     .unwrap_or_else(|error| unsaved(&failures, &error).map(|()| Vec::new()))
+}
+
+/// Keep successful targets and report validation failures per photograph.
+fn partition_culling_targets(
+    values: Vec<CullingWrite>,
+    mut prepare: impl FnMut(&mut CullingWrite) -> Result<(), String>,
+) -> (Vec<CullingWrite>, Vec<(String, String)>) {
+    let mut ready = Vec::new();
+    let mut failures = Vec::new();
+    for mut write in values {
+        let path = write.path.clone();
+        match prepare(&mut write) {
+            Ok(()) => ready.push(write),
+            Err(error) => failures.push((path, error)),
+        }
+    }
+    (ready, failures)
 }
 
 /// Undo follows a managed photo's catalog identity through rename, trash and
 /// relink. An unmanaged file that disappeared is never recreated at an old path.
 fn resolve_culling_targets(
-    mut values: Vec<CullingWrite>,
+    values: Vec<CullingWrite>,
     directory: Option<&str>,
-) -> Result<Vec<CullingWrite>, String> {
+) -> (Vec<CullingWrite>, Vec<(String, String)>) {
     let mut libraries = HashMap::new();
-    for write in &mut values {
+    partition_culling_targets(values, |write| {
         if let Some(id) = &write.asset_id {
             let owner = write
                 .directory
@@ -938,21 +952,22 @@ fn resolve_culling_targets(
         } else if !parse_virtual_path(&write.path).0.is_file() {
             return Err("The photograph is no longer at its original location".into());
         }
-    }
-    Ok(values)
+        Ok(())
+    })
 }
 
 /// Read target ids with one connection per owning library. Connections stay
 /// on this blocking worker; only strings pass to the parallel sidecar jobs.
 fn prepare_culling_targets(
-    mut values: Vec<CullingWrite>,
+    values: Vec<CullingWrite>,
     selected: Option<&str>,
-) -> Result<Vec<CullingWrite>, String> {
+) -> (Vec<CullingWrite>, Vec<(String, String)>) {
     let mut libraries = HashMap::new();
-    for write in &mut values {
+    partition_culling_targets(values, |write| {
         if write.asset_id.is_some() {
-            continue;
-        } // Already validated from an undo receipt.
+            // Already validated from an undo receipt.
+            return Ok(());
+        }
         let source = parse_virtual_path(&write.path).0;
         let owner = crate::session_bridge::culling_library_for(&source, selected.map(Path::new));
         write.directory = owner.as_ref().map(|dir| dir.to_string_lossy().into_owned());
@@ -973,8 +988,8 @@ fn prepare_culling_targets(
                 "The photograph is no longer registered or available at this location".into(),
             );
         }
-    }
-    Ok(values)
+        Ok(())
+    })
 }
 
 fn write_prepared_culling(write: CullingWrite, xmp: Option<bool>) -> Result<CullingChange, String> {
@@ -990,7 +1005,7 @@ async fn culling_worker(
     app_handle: AppHandle,
 ) -> Result<Vec<CullingChange>, SaveFailure> {
     let paths: Vec<_> = values.iter().map(|write| write.path.clone()).collect();
-    super::blocking(move || write_culling(values, directory, &app_handle))
+    super::blocking(move || write_culling(values, directory, &app_handle, Vec::new()))
         .await
         .unwrap_or_else(|error| unsaved(&paths, &error).map(|()| Vec::new()))
 }
@@ -999,16 +1014,21 @@ fn write_culling(
     values: Vec<CullingWrite>,
     directory: Option<String>,
     app_handle: &AppHandle,
+    failures: Vec<(String, String)>,
 ) -> Result<Vec<CullingChange>, SaveFailure> {
-    let paths: Vec<_> = values.iter().map(|write| write.path.clone()).collect();
-    let values =
-        prepare_culling_targets(values, directory.as_deref()).map_err(|error| SaveFailure {
-            message: error,
-            failed: paths.clone(),
-            culling: Vec::new(),
-        })?;
+    write_culling_batch(values, directory, xmp_sync(app_handle), failures)
+}
+
+fn write_culling_batch(
+    values: Vec<CullingWrite>,
+    directory: Option<String>,
+    xmp: Option<bool>,
+    mut failures: Vec<(String, String)>,
+) -> Result<Vec<CullingChange>, SaveFailure> {
+    let total = values.len() + failures.len();
+    let (values, preparation_failures) = prepare_culling_targets(values, directory.as_deref());
+    failures.extend(preparation_failures);
     let mut changed = Vec::new();
-    let mut failures = Vec::new();
     let mut flags: HashMap<String, Vec<(String, i8)>> = HashMap::new();
     for write in &values {
         if let CullingValue::Flag(flag) = write.value {
@@ -1028,7 +1048,6 @@ fn write_culling(
             Err(error) => failures.extend(flags.into_iter().map(|(path, _)| (path, error.clone()))),
         }
     }
-    let xmp = xmp_sync(app_handle);
     let mut seen = std::collections::HashSet::new();
     let sidecars: Vec<_> = values
         .into_iter()
@@ -1051,7 +1070,7 @@ fn write_culling(
             Err(error) => failures.push((path, error)),
         }
     }
-    SaveFailure::check(paths.len(), failures).map_err(|mut error| {
+    SaveFailure::check(total, failures).map_err(|mut error| {
         error.culling = changed.clone();
         error
     })?;
@@ -1162,6 +1181,13 @@ mod tests {
     use super::*;
     use rawtonic_engine::lens_recipe::{LENS_PROFILE_FOR, LENS_UNRESOLVED, lens_profile_stamp};
 
+    fn successful_targets(
+        (values, failures): (Vec<CullingWrite>, Vec<(String, String)>),
+    ) -> Vec<CullingWrite> {
+        assert!(failures.is_empty(), "{failures:?}");
+        values
+    }
+
     #[test]
     fn culling_receipts_restore_exact_values_without_reverting_later_edits() {
         use rawtonic_catalog::{Library, Mode};
@@ -1214,7 +1240,7 @@ mod tests {
         }
         assert_eq!(lib.summary().unwrap().xmp_pending, 0);
         for receipt in receipts.iter().rev() {
-            let values = resolve_culling_targets(
+            let values = successful_targets(resolve_culling_targets(
                 vec![CullingWrite {
                     path: receipt.path.clone(),
                     value: receipt.before.clone(),
@@ -1222,8 +1248,7 @@ mod tests {
                     directory: receipt.directory.clone(),
                 }],
                 temp.path().to_str(),
-            )
-            .unwrap();
+            ));
             write_culling_sidecar(values.into_iter().next().unwrap(), None).unwrap();
         }
         assert_eq!(lib.summary().unwrap().xmp_pending, 3);
@@ -1261,7 +1286,7 @@ mod tests {
         let moved = temp.path().join("Selects/moved.nef");
         fs::rename(&source, &moved).unwrap();
         lib.relocate(&source, &moved).unwrap();
-        let values = resolve_culling_targets(
+        let values = successful_targets(resolve_culling_targets(
             vec![CullingWrite {
                 path: receipt.path.clone(),
                 value: receipt.before.clone(),
@@ -1269,12 +1294,11 @@ mod tests {
                 directory: receipt.directory,
             }],
             temp.path().to_str(),
-        )
-        .unwrap();
+        ));
         assert_eq!(values[0].path, moved.to_string_lossy());
         write_culling_sidecar(values.into_iter().next().unwrap(), None).unwrap();
         assert_eq!(lib.metadata(&asset.id).unwrap().rating, 0);
-        assert!(
+        assert_eq!(
             resolve_culling_targets(
                 vec![CullingWrite {
                     path: receipt.path,
@@ -1284,7 +1308,9 @@ mod tests {
                 }],
                 None
             )
-            .is_err()
+            .1
+            .len(),
+            1
         );
     }
 
@@ -1329,7 +1355,7 @@ mod tests {
             );
         }
         for receipt in receipts.into_iter().rev() {
-            let values = resolve_culling_targets(
+            let values = successful_targets(resolve_culling_targets(
                 vec![CullingWrite {
                     path: receipt.path,
                     value: receipt.before,
@@ -1337,8 +1363,7 @@ mod tests {
                     directory: receipt.directory,
                 }],
                 temp.path().to_str(),
-            )
-            .unwrap();
+            ));
             write_culling_sidecar(values.into_iter().next().unwrap(), None).unwrap();
         }
         assert_eq!(
@@ -1392,7 +1417,7 @@ mod tests {
         assert_eq!(first.metadata(&a.id).unwrap().rating, 4);
         assert_eq!(second.metadata(&b.id).unwrap().rating, 3);
         with_culling_owner(directory, || {
-            let values = resolve_culling_targets(
+            let values = successful_targets(resolve_culling_targets(
                 vec![CullingWrite {
                     path: receipt.path,
                     value: receipt.before,
@@ -1400,12 +1425,111 @@ mod tests {
                     directory: receipt.directory,
                 }],
                 directory,
-            )
-            .unwrap();
+            ));
             write_culling_sidecar(values.into_iter().next().unwrap(), None).unwrap();
         });
         assert_eq!(first.metadata(&a.id).unwrap().rating, 1);
         assert_eq!(second.metadata(&b.id).unwrap().rating, 3);
+    }
+
+    #[test]
+    fn culling_batch_preflight_keeps_available_targets_when_one_is_missing() {
+        let temp = tempfile::tempdir().unwrap();
+        let available = temp.path().join("available.nef");
+        fs::write(&available, b"synthetic original").unwrap();
+        let missing = temp.path().join("missing.nef");
+        let make = |path: &Path| CullingWrite {
+            path: path.to_string_lossy().into_owned(),
+            value: CullingValue::Rating(3),
+            asset_id: None,
+            directory: None,
+        };
+        for (ready, failures) in [
+            prepare_culling_targets(vec![make(&missing), make(&available)], None),
+            resolve_culling_targets(vec![make(&missing), make(&available)], None),
+        ] {
+            assert_eq!(ready.len(), 1);
+            assert_eq!(failures.len(), 1);
+            assert_eq!(failures[0].0, missing.to_string_lossy());
+            let receipt = write_prepared_culling(ready.into_iter().next().unwrap(), None).unwrap();
+            assert_eq!(receipt.path, available.to_string_lossy());
+            let failure = SaveFailure::check(2, failures).unwrap_err();
+            assert_eq!(failure.failed, vec![missing.to_string_lossy()]);
+            assert!(!parse_virtual_path(&missing.to_string_lossy()).1.exists());
+            assert_eq!(fs::read(&available).unwrap(), b"synthetic original");
+        }
+    }
+
+    #[test]
+    fn normal_culling_batch_saves_available_photos_and_returns_only_missing_failures() {
+        let temp = tempfile::tempdir().unwrap();
+        let available = temp.path().join("available.nef");
+        let missing = temp.path().join("missing.nef");
+        fs::write(&available, b"synthetic original").unwrap();
+        for value in [
+            CullingValue::Rating(4),
+            CullingValue::Color(Some("red".into())),
+        ] {
+            let make = |path: &Path| CullingWrite {
+                path: path.to_string_lossy().into_owned(),
+                value: value.clone(),
+                asset_id: None,
+                directory: None,
+            };
+            let failure = write_culling_batch(
+                vec![make(&missing), make(&available)],
+                None,
+                None,
+                Vec::new(),
+            )
+            .unwrap_err();
+            assert_eq!(failure.failed, vec![missing.to_string_lossy()]);
+            assert_eq!(failure.culling.len(), 1);
+            assert_eq!(failure.culling[0].path, available.to_string_lossy());
+            assert_eq!(failure.culling[0].after, value);
+            let metadata = crate::exif_processing::load_sidecar_file(
+                &parse_virtual_path(&available.to_string_lossy()).1,
+            );
+            match value {
+                CullingValue::Rating(rating) => assert_eq!(metadata.rating, rating),
+                CullingValue::Color(_) => {
+                    assert!(metadata.tags.unwrap().contains(&"color:red".into()))
+                }
+                CullingValue::Flag(_) => unreachable!(),
+            }
+            assert!(!parse_virtual_path(&missing.to_string_lossy()).1.exists());
+            assert_eq!(fs::read(&available).unwrap(), b"synthetic original");
+        }
+    }
+
+    #[test]
+    fn culling_restore_reports_an_unavailable_owner_without_losing_other_targets() {
+        let temp = tempfile::tempdir().unwrap();
+        let available = temp.path().join("available.nef");
+        fs::write(&available, b"synthetic original").unwrap();
+        let blocked_owner = temp.path().join("not-a-library");
+        fs::write(&blocked_owner, b"cannot open a library here").unwrap();
+        let (ready, failures) = resolve_culling_targets(
+            vec![
+                CullingWrite {
+                    path: "unavailable.nef".into(),
+                    value: CullingValue::Rating(0),
+                    asset_id: Some("unavailable-asset".into()),
+                    directory: Some(blocked_owner.to_string_lossy().into_owned()),
+                },
+                CullingWrite {
+                    path: available.to_string_lossy().into_owned(),
+                    value: CullingValue::Rating(0),
+                    asset_id: None,
+                    directory: None,
+                },
+            ],
+            None,
+        );
+        assert_eq!(ready.len(), 1);
+        assert_eq!(ready[0].path, available.to_string_lossy());
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].0, "unavailable.nef");
     }
 
     #[test]
@@ -1426,8 +1550,10 @@ mod tests {
             asset_id: None,
             directory: None,
         };
-        let writes =
-            prepare_culling_targets(vec![make(&outside)], session.directory.to_str()).unwrap();
+        let writes = successful_targets(prepare_culling_targets(
+            vec![make(&outside)],
+            session.directory.to_str(),
+        ));
         let receipt = write_prepared_culling(writes.into_iter().next().unwrap(), None).unwrap();
         assert!(receipt.asset_id.is_none());
         assert_eq!(session.summary().unwrap().assets, 0);
@@ -1438,14 +1564,19 @@ mod tests {
             .rating,
             3
         );
-        let writes =
-            prepare_culling_targets(vec![make(&inside)], catalog.directory.to_str()).unwrap();
+        let writes = successful_targets(prepare_culling_targets(
+            vec![make(&inside)],
+            catalog.directory.to_str(),
+        ));
         write_prepared_culling(writes.into_iter().next().unwrap(), None).unwrap();
         assert!(session.asset_at(&inside).unwrap().is_some());
         assert!(catalog.asset_at(&inside).unwrap().is_none());
         let vanished = temp.path().join("vanished.nef");
-        assert!(
-            prepare_culling_targets(vec![make(&vanished)], session.directory.to_str()).is_err()
+        assert_eq!(
+            prepare_culling_targets(vec![make(&vanished)], session.directory.to_str())
+                .1
+                .len(),
+            1
         );
     }
 
@@ -1468,7 +1599,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(receipt.directory.as_deref(), temp.path().to_str());
-        let values = resolve_culling_targets(
+        let values = successful_targets(resolve_culling_targets(
             vec![CullingWrite {
                 path: receipt.path,
                 value: receipt.before,
@@ -1476,8 +1607,7 @@ mod tests {
                 directory: receipt.directory,
             }],
             None,
-        )
-        .unwrap();
+        ));
         write_prepared_culling(values.into_iter().next().unwrap(), None).unwrap();
         assert_eq!(lib.metadata(&asset.id).unwrap().rating, 0);
     }
@@ -1522,7 +1652,7 @@ mod tests {
                     directory: None,
                 })
                 .collect();
-            let values = prepare_culling_targets(values, temp.path().to_str()).unwrap();
+            let values = successful_targets(prepare_culling_targets(values, temp.path().to_str()));
             values.into_par_iter().for_each(|write| {
                 write_prepared_culling(write, None).unwrap();
             });
