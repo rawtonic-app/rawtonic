@@ -754,6 +754,18 @@ export default function StudioWorkspace(props: Props) {
     );
     if (paths.length) void invoke(Invokes.PreparePreviewProxies, { paths }).catch(() => {});
   }, [photoShown, decoded, currentIndex, files]);
+  // At each step, before any decode: the next photographs' camera JPEGs
+  // (the stills shown until a developed frame, when stepping faster than
+  // their proxies are made).
+  useEffect(() => {
+    if (!photoShown || currentIndex < 0) return;
+    const paths = neighboursToPrepare(
+      files.map((file) => file.path),
+      currentIndex,
+      stepping.current.direction,
+    );
+    if (paths.length) void invoke(Invokes.PrepareEmbeddedStills, { paths }).catch(() => {});
+  }, [photoShown, currentIndex, files]);
   const rating = selectedImage ? imageRatings[selectedImage.path] || 0 : 0;
   const browserProps = {
     files,

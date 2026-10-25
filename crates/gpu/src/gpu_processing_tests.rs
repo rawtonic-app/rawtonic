@@ -3712,6 +3712,55 @@ fn a_frame_of_the_photograph_left_never_covers_the_next_ones_still() {
 }
 
 #[test]
+fn a_camera_jpeg_in_adobe_rgb_is_shown_in_the_display_space() {
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+    // Adobe RGB's own primaries: pure green lies outside sRGB and Display P3
+    // (clipped there), white and grey stay neutral, alpha is kept.
+    let pixels = [[255, 255, 255, 255], [128, 128, 128, 255], [0, 255, 0, 90]];
+    let make = || image::RgbaImage::from_fn(3, 1, |x, _| image::Rgba(pixels[x as usize]));
+    let mut same = make();
+    encoded_to_display(
+        OutputColorSpace::AdobeRgb,
+        OutputColorSpace::AdobeRgb,
+        &mut same,
+    );
+    assert_eq!(same, make());
+    let mut srgb = make();
+    encoded_to_display(
+        OutputColorSpace::AdobeRgb,
+        OutputColorSpace::Srgb,
+        &mut srgb,
+    );
+    assert_eq!(srgb.get_pixel(0, 0).0, [255, 255, 255, 255]);
+    let grey = srgb.get_pixel(1, 0).0;
+    // Adobe RGB 128 (gamma 2.2) is linear 0.2195, sRGB-encoded 128.6 → 129.
+    assert!(
+        grey[..3].iter().all(|&v| (128..=130).contains(&v)),
+        "{grey:?}"
+    );
+    assert_eq!(srgb.get_pixel(2, 0).0, [0, 255, 0, 90]);
+    // In sRGB the camera's green is not the sRGB-encoded value 0/255/0 left
+    // unconverted, which a Display P3 screen would show far too saturated.
+    let mut p3 = make();
+    encoded_to_display(
+        OutputColorSpace::AdobeRgb,
+        OutputColorSpace::DisplayP3,
+        &mut p3,
+    );
+    let green = p3.get_pixel(2, 0).0;
+    assert!(
+        green[0] < 8 && green[1] > 240 && green[3] == 90,
+        "{green:?}"
+    );
+    let mut from_srgb = make();
+    srgb_to_display(OutputColorSpace::DisplayP3, &mut from_srgb);
+    assert!(
+        from_srgb.get_pixel(2, 0).0[0] > 50,
+        "sRGB green is inside P3"
+    );
+}
+
+#[test]
 fn a_still_is_encoded_for_the_display_as_its_developed_frame_is() {
     use rawtonic_engine::output_color_space::OutputColorSpace;
     let pixels = [[255, 0, 0, 255], [128, 128, 128, 255], [30, 160, 90, 200]];

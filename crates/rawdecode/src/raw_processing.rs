@@ -833,6 +833,55 @@ pub(crate) fn prepare_raw_image(
     })
 }
 
+/// The size `develop_raw_image` gives the file (oriented), read from its
+/// metadata alone, no samples decoded: the default crop inside the active
+/// area, in-camera aspect ratios and DNG user crops included, as
+/// `prepare_raw_image` and the development frame it. A still shown before
+/// the development (the camera's embedded preview) takes this placement so
+/// the developed frame replaces it in place. `None` for files rawler
+/// cannot read and for SuperCCD layouts (turned by the development).
+pub fn developed_size(file_bytes: &[u8]) -> Option<(u32, u32)> {
+    use rawler::imgop::{Point, Rect};
+    let source = RawSource::new_from_slice(file_bytes);
+    let decoder = rawler::get_decoder(&source).ok()?;
+    let params = RawDecodeParams::default();
+    let mut raw_image = decoder.raw_image(&source, &params, true).ok()?;
+    if superccd_layout(&raw_image, file_bytes).is_some() {
+        return None;
+    }
+    apply_aspect_crop(&mut raw_image, file_bytes, decoder.format_hint());
+    if decoder.format_hint() == rawler::decoders::FormatHint::DNG {
+        apply_dng_user_crop(&mut raw_image, decoder.as_ref());
+    }
+    let full = Rect::new(Point::new(0, 0), raw_image.dim());
+    let active = raw_image
+        .active_area
+        .map(|area| area.intersection(&full))
+        .filter(|area| !area.is_empty())
+        .unwrap_or(full);
+    let frame = raw_image
+        .crop_area
+        .map(|crop| crop.intersection(&active))
+        .filter(|crop| !crop.is_empty())
+        .unwrap_or(active);
+    let orientation = crate::capture_info::phase_one_orientation(file_bytes)
+        .or_else(|| {
+            decoder
+                .raw_metadata(&source, &params)
+                .ok()?
+                .exif
+                .orientation
+        })
+        .or_else(|| crate::capture_info::crw_orientation(file_bytes))
+        .unwrap_or(1);
+    let (w, h) = (frame.d.w as u32, frame.d.h as u32);
+    (w > 0 && h > 0).then_some(if (5..=8).contains(&orientation) {
+        (h, w)
+    } else {
+        (w, h)
+    })
+}
+
 /// The part of a decoded buffer that rawler does not demosaic (linear and
 /// multi-channel files) which the developed image should keep: the active
 /// area, and the default crop where it lies inside it. Both rectangles are
@@ -1917,11 +1966,46 @@ pub fn get_fast_demosaic_scale_factor(
 #[cfg(test)]
 mod frame_tests {
     use super::*;
+    use image::GenericImageView;
     use rawler::imgop::{Dim2, Point, Rect};
     use rawler::pixarray::Color2D;
 
     fn rect(x: usize, y: usize, w: usize, h: usize) -> Rect {
         Rect::new(Point::new(x, y), Dim2::new(w, h))
+    }
+
+    #[test]
+    fn developed_size_is_read_without_decoding_and_turned() {
+        let dng = crate::fingerprint::synthetic::synthetic_dng();
+        let developed = develop_raw_image(&dng, false, 2.5, "auto".into(), None).unwrap();
+        // Orientation 6: the 64 × 48 mosaic develops 48 × 64.
+        assert_eq!(developed_size(&dng), Some((48, 64)));
+        assert_eq!(developed_size(&dng), Some(developed.dimensions()));
+        assert_eq!(developed_size(b"not a raw file"), None);
+    }
+
+    /// Local camera fixtures only; never check photographs into the repo.
+    #[test]
+    #[ignore = "requires RAWTONIC_RAW_FIXTURES pointing to a local sample directory"]
+    fn developed_size_matches_the_development_of_camera_files() {
+        let dir = std::env::var("RAWTONIC_RAW_FIXTURES").expect("local fixture directory");
+        let (mut checked, mut wrong) = (0, Vec::new());
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            let Ok(developed) = develop_raw_image(&bytes, false, 2.5, "auto".into(), None) else {
+                continue;
+            };
+            checked += 1;
+            let read = developed_size(&bytes);
+            if read.is_some_and(|size| size != developed.dimensions()) {
+                wrong.push((path, read, developed.dimensions()));
+            }
+        }
+        println!("{checked} files");
+        assert!(wrong.is_empty(), "{wrong:#?}");
     }
 
     /// Sony α7 IV lossless-compressed Medium: the YCbCr buffer is padded to

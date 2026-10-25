@@ -1296,18 +1296,37 @@ pub fn srgb_to_display(
     space: rawtonic_engine::output_color_space::OutputColorSpace,
     image: &mut image::RgbaImage,
 ) {
-    use rawtonic_engine::output_color_space::OutputColorSpace;
-    if space == OutputColorSpace::Srgb {
+    encoded_to_display(
+        rawtonic_engine::output_color_space::OutputColorSpace::Srgb,
+        space,
+        image,
+    );
+}
+
+/// Re-encodes pixels encoded in `source` (a camera JPEG in sRGB or Adobe
+/// RGB) in place for a display whose frames are encoded in `space`;
+/// colours outside the display's gamut are clipped. Alpha is kept.
+pub fn encoded_to_display(
+    source: rawtonic_engine::output_color_space::OutputColorSpace,
+    space: rawtonic_engine::output_color_space::OutputColorSpace,
+    image: &mut image::RgbaImage,
+) {
+    use rawtonic_engine::output_color_space::{OutputColorSpace, multiply};
+    if source == space {
         return;
     }
-    let srgb = OutputColorSpace::Srgb.transfer();
-    let linear: [f32; 256] = std::array::from_fn(|v| srgb.to_linear(v as f64 / 255.0) as f32);
+    let decode = source.transfer();
+    let linear: [f32; 256] = std::array::from_fn(|v| decode.to_linear(v as f64 / 255.0) as f32);
     const STEPS: usize = 4096;
     let transfer = space.transfer();
     let encode: Vec<u8> = (0..=STEPS)
         .map(|i| (transfer.from_linear(i as f64 / STEPS as f64) * 255.0).round() as u8)
         .collect();
-    let m = space.from_linear_srgb_f32();
+    let m = match source {
+        OutputColorSpace::Srgb => space.from_linear_srgb(),
+        _ => multiply(&space.from_linear_srgb(), &source.to_linear_srgb()),
+    };
+    let m: [[f32; 3]; 3] = std::array::from_fn(|r| std::array::from_fn(|c| m[r][c] as f32));
     for pixel in image.pixels_mut() {
         let rgb = [0, 1, 2].map(|c| linear[pixel[c] as usize]);
         for (r, row) in m.iter().enumerate() {
@@ -1691,6 +1710,12 @@ impl WgpuDisplay {
     /// replace what is shown.
     pub fn shows_frame_of(&self, frame: Option<&str>) -> bool {
         frame_shows(self.still_of.as_deref(), frame)
+    }
+
+    /// Whether the frame shown is a still of `path` (no developed frame of
+    /// it yet), which a better still of it may replace.
+    pub fn shows_still_of(&self, path: &str) -> bool {
+        self.still_of.as_deref() == Some(path) && self.frame_path.as_deref() == Some(path)
     }
 
     /// The photograph whose frame is shown (developed or still).
