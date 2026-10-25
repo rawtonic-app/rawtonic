@@ -1,13 +1,14 @@
 //! Film negatives: the Develop tool that turns a scanned (or camera-scanned)
 //! negative into a positive without writing a new file.
 //!
-//! The pass runs on the source before anything else that changes pixels
-//! (after retouching; before reduction, the geometry warp, the fringe pass,
-//! the blurs, noise reduction, white balance, tone and curves, which all
-//! work on the positive). Every path that builds a base (previews, exports,
-//! thumbnails, masks) calls [`apply_for_recipe`] and warps with
-//! [`converted_base_recipe`], whose lens vignetting acts as it would on the
-//! scan; the GPU display and the CPU-read exports render the same pixels.
+//! The pass runs on the decode before anything else that changes pixels
+//! (`image_loader::prepare_render_base`: before retouching, reduction, the
+//! geometry warp, the fringe pass, the blurs, noise reduction, white
+//! balance, tone and curves, which all work on the positive), with the lens
+//! vignetting corrected on the scan; the warp of the converted base
+//! ([`converted_base_recipe`]) corrects none. Every path that builds a base
+//! (previews, exports, thumbnails, masks, AI and Auto inputs) does this, so
+//! the GPU display and the CPU-read exports render the same pixels.
 //! Recipes without the key are not touched.
 //!
 //! Model (notes: parity-gaps/G64 "Negative"). A negative's density above
@@ -383,6 +384,20 @@ const THINNEST_PERCENTILE: f32 = 0.999;
 /// 0.8, a black-and-white base of about 0.3) below the base, so a border
 /// brighter than this is not film.
 const BASE_BELOW_SHADOWS: f32 = 0.4;
+/// Linear level from which a scan is clipped to white: a non-RAW's code 253
+/// and up in any channel, a RAW decode's green (its white balance keeps
+/// green at the sensor's scale; red and blue may lie above 1 unclipped).
+const SCAN_WHITE: f32 = 0.98;
+
+/// Whether linear sample `p` is clipped to white (never film).
+fn clipped(p: &[f32; 3], is_raw: bool) -> bool {
+    if is_raw {
+        p[1] >= SCAN_WHITE
+    } else {
+        p.iter().any(|&v| v >= SCAN_WHITE)
+    }
+}
+
 /// Linear level at or below which a scan is clipped to black (an 8-bit
 /// sRGB code of 0 or 1).
 const SCAN_BLACK: f32 = 3.1e-4;
@@ -442,8 +457,8 @@ fn otsu_split(values: &[f32]) -> (usize, f32) {
 /// densest area, per channel. The base is the unexposed film beside the
 /// frame (outside the crop, else on the image's border): pixels at least as
 /// thin as the frame's thinnest (its deepest shadows) and at most
-/// `BASE_BELOW_SHADOWS` thinner (so not the light source or a clipped area
-/// beside the film), and of those the darker group
+/// `BASE_BELOW_SHADOWS` thinner (so not the light source beside the film),
+/// not clipped to white, and of those the darker group
 /// when two groups a clear density apart remain. Without such pixels (a scan
 /// cropped to the frame or masked black) the frame's own thinnest part
 /// stands in.
@@ -519,7 +534,10 @@ pub fn analyze(image: &DynamicImage, is_raw: bool, frame: Option<[f32; 4]>) -> O
     let thinner = 10f32.powf(BASE_BELOW_SHADOWS);
     let mut candidates: Vec<[f32; 3]> = border
         .into_iter()
-        .filter(|p| (0..3).all(|c| p[c] >= 0.9 * thinnest[c] && p[c] <= thinner * thinnest[c]))
+        .filter(|p| {
+            !clipped(p, is_raw)
+                && (0..3).all(|c| p[c] >= 0.9 * thinnest[c] && p[c] <= thinner * thinnest[c])
+        })
         .collect();
     // Enough of the border must be film for a reliable base.
     let base_from_border = candidates.len() >= 64;
@@ -874,6 +892,27 @@ mod tests {
             "{found:?}"
         );
         assert!((found.base[2] / base[2] - 1.0).abs() < 0.01, "{found:?}");
+    }
+
+    #[test]
+    fn a_clipped_border_is_not_film() {
+        // A neutral scan whose thinnest frame pixels are 0.5, framed by a
+        // border clipped to white and no rebate (within the density bound).
+        for is_raw in [true, false] {
+            let image = DynamicImage::ImageRgb32F(Rgb32FImage::from_fn(200, 150, |x, y| {
+                let border = !(12..188).contains(&x) || !(12..138).contains(&y);
+                let v = if border {
+                    1.0
+                } else {
+                    0.5 * 0.1f32.powf(x as f32 / 200.0)
+                };
+                let v = if is_raw { v } else { linear_to_srgb(v) };
+                image::Rgb([v; 3])
+            }));
+            let found = analyze(&image, is_raw, None).unwrap();
+            assert!(!found.base_from_border, "{is_raw}: {found:?}");
+            assert!(found.base[1] < 0.6, "{is_raw}: {found:?}");
+        }
     }
 
     #[test]

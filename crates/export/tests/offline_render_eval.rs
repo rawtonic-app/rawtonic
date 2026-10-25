@@ -152,6 +152,7 @@ fn render(
     let source = ExportSource {
         pristine: Arc::clone(image),
         patched: None,
+        converted: false,
         measures: None,
     };
     process_image_for_export_pipeline(

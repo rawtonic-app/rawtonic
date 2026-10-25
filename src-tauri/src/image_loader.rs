@@ -70,7 +70,13 @@ pub fn load_and_composite(
         None,
         adjustments,
     )?;
-    match composite_patches_for_render(&base_image, adjustments)? {
+    // A film negative converted before its retouching
+    // (`prepare_render_base`).
+    match rawtonic_engine::image_loader::prepare_render_base(
+        &base_image,
+        adjustments,
+        crate::formats::is_raw_file(path),
+    )? {
         Cow::Borrowed(_) => Ok(base_image),
         Cow::Owned(composited) => Ok(composited),
     }

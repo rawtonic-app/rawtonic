@@ -18,10 +18,15 @@ pub async fn find_spot_source(
     js_adjustments: Value,
     state: tauri::State<'_, crate::app_state::AppState>,
 ) -> Result<(f64, f64), String> {
-    let (source, _) = crate::editor_preview::original_source(&state).await?;
+    let (source, is_raw) = crate::editor_preview::original_source(&state).await?;
     tokio::task::spawn_blocking(move || {
-        let base = crate::image_loader::composite_patches_on_image(&source, &js_adjustments)
-            .map_err(|e| e.to_string())?;
+        // Spots heal a film negative's positive (`prepare_render_base`).
+        let base = rawtonic_engine::image_loader::composite_patches_on_source(
+            &source,
+            &js_adjustments,
+            is_raw,
+        )
+        .map_err(|e| e.to_string())?;
         match points.filter(|p| p.len() >= 2) {
             Some(points) => find_stroke_source(&base, &js_adjustments, &points, radius),
             None => find_source(&base, &js_adjustments, x, y, radius),

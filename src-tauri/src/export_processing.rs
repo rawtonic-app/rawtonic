@@ -1411,7 +1411,7 @@ fn export_photo(
                 export_masks_for_image(
                     source.base(),
                     &source.pristine,
-                    &js_adjustments,
+                    &source.render_recipe(&js_adjustments),
                     export_settings,
                     output_path,
                     &source_path_str,

@@ -20,7 +20,14 @@ pub async fn detect_red_eye(
 ) -> Result<Option<Pupil>, String> {
     let (source, is_raw) = crate::editor_preview::original_source(&state).await?;
     tokio::task::spawn_blocking(move || {
-        let base = crate::image_loader::composite_ai_patches(&source, &js_adjustments)
+        // A film negative's red eye is red in its positive, where the
+        // correction works too (`prepare_render_base`).
+        let positive = rawtonic_engine::negative::apply_for_recipe(
+            std::borrow::Cow::Borrowed(source.as_ref()),
+            &js_adjustments,
+            is_raw,
+        );
+        let base = crate::image_loader::composite_ai_patches(&positive, &js_adjustments)
             .map_err(|e| e.to_string())?;
         Ok(detect(&base, &js_adjustments, x, y, radius, kind, is_raw))
     })

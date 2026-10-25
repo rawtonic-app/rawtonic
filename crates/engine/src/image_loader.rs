@@ -900,6 +900,38 @@ pub fn load_image_with_orientation(
 
 /// Keep the decoded source available for parametric mask sampling while patches
 /// affect only the render image. Ordinary edits borrow the source pixel buffer.
+/// The base a render develops from `pristine` (the decode): a film negative
+/// converted first (`negative::apply_for_recipe`, so retouching, red-eye
+/// detection and correction work on the positive), then the retouching
+/// composited (`composite_patches_for_render`). Render it with
+/// `negative::converted_base_recipe`.
+pub fn prepare_render_base<'a>(
+    pristine: &'a DynamicImage,
+    adjustments: &Value,
+    is_raw: bool,
+) -> Result<Cow<'a, DynamicImage>> {
+    match crate::negative::apply_for_recipe(Cow::Borrowed(pristine), adjustments, is_raw) {
+        Cow::Borrowed(pristine) => composite_patches_for_render(pristine, adjustments),
+        Cow::Owned(positive) => Ok(Cow::Owned(
+            match composite_patches_for_render(&positive, adjustments)? {
+                Cow::Borrowed(_) => positive,
+                Cow::Owned(composited) => composited,
+            },
+        )),
+    }
+}
+
+/// `composite_patches_on_image` of a decode: a film negative converted
+/// first, as [`prepare_render_base`] does.
+pub fn composite_patches_on_source(
+    pristine: &DynamicImage,
+    adjustments: &Value,
+    is_raw: bool,
+) -> Result<DynamicImage> {
+    let positive = crate::negative::apply_for_recipe(Cow::Borrowed(pristine), adjustments, is_raw);
+    composite_patches_on_image(&positive, adjustments)
+}
+
 pub fn composite_patches_for_render<'a>(
     pristine_source: &'a DynamicImage,
     adjustments: &Value,

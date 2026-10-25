@@ -417,17 +417,16 @@ pub(crate) fn develop_thumbnail(
             } else {
                 rawtonic_engine::lightroom_retouch::without_pending(&adjustments)
             };
-            let composite_image =
-                image_loader::composite_patches_for_render(&pristine_source, &retouch)?;
+            // A film negative is converted before its retouching.
+            let composite_image = rawtonic_engine::image_loader::prepare_render_base(
+                &pristine_source,
+                &retouch,
+                is_raw,
+            )?;
             // A full decode's size places Lightroom masks still in their
             // imported form, as for exports (`lightroom_masks`).
             let decoded_size = (raw_scale_factor == 1.0).then(|| pristine_source.dimensions());
 
-            let composite_image = rawtonic_engine::negative::apply_for_recipe(
-                composite_image,
-                &meta.adjustments,
-                is_raw,
-            );
             let warped_image = apply_geometry_warp(
                 composite_image,
                 &rawtonic_engine::negative::converted_base_recipe(&meta.adjustments),
@@ -633,14 +632,14 @@ pub(crate) fn develop_thumbnail(
     }
 
     let mut final_image = if let Some(img) = preloaded_image {
-        image_loader::composite_patches_on_image(img, &adjustments)?
+        rawtonic_engine::image_loader::composite_patches_on_source(img, &adjustments, is_raw)?
     } else {
         match read_file_mapped(&source_path) {
             Ok(mmap) => image_loader::load_and_composite(
                 &mmap,
                 &source_path_str,
                 &adjustments,
-                true,
+                !negative,
                 &settings,
                 None,
             )?,
@@ -651,7 +650,7 @@ pub(crate) fn develop_thumbnail(
                     &bytes,
                     &source_path_str,
                     &adjustments,
-                    true,
+                    !negative,
                     &settings,
                     None,
                 )?

@@ -1020,9 +1020,10 @@ pub fn prepare_export_source(
             rawtonic_engine::masks::pending_detections_message(&pending)
         ));
     }
-    let patched = match rawtonic_engine::image_loader::composite_patches_for_render(
+    let patched = match rawtonic_engine::image_loader::prepare_render_base(
         &pristine_source,
         js_adjustments,
+        rawtonic_engine::formats::is_raw_file(source_path_str),
     )
     .map_err(|e| format!("Failed to composite AI patches: {}", e))?
     {
@@ -1032,6 +1033,7 @@ pub fn prepare_export_source(
     Ok(ExportSource {
         pristine: pristine_source,
         patched,
+        converted: rawtonic_engine::negative::is_active(js_adjustments),
         measures,
     })
 }
@@ -1194,8 +1196,13 @@ pub fn save_rendered_export(
 #[derive(Clone)]
 pub struct ExportSource {
     pub pristine: Arc<DynamicImage>,
-    /// AI patches composited over `pristine`, when the recipe has any.
+    /// AI patches composited over `pristine` (a film negative converted
+    /// first), when the recipe has any.
     pub patched: Option<Arc<DynamicImage>>,
+    /// `patched` holds a film negative's conversion
+    /// (`image_loader::prepare_render_base`): render with
+    /// [`render_recipe`](Self::render_recipe).
+    pub converted: bool,
     /// The measures of the decode `pristine` is
     /// (`image_loader::DecodeMeasures`).
     pub measures: Option<DecodeMeasures>,
@@ -1204,6 +1211,15 @@ pub struct ExportSource {
 impl ExportSource {
     pub fn base(&self) -> &DynamicImage {
         self.patched.as_deref().unwrap_or(&self.pristine)
+    }
+
+    /// The recipe [`base`](Self::base) renders with.
+    pub fn render_recipe<'a>(&self, js_adjustments: &'a Value) -> Cow<'a, Value> {
+        if self.converted {
+            rawtonic_engine::negative::converted_base_recipe(js_adjustments)
+        } else {
+            Cow::Borrowed(js_adjustments)
+        }
     }
 }
 
@@ -1255,8 +1271,11 @@ pub fn prepare_export_render(
     let context = env.context;
     #[cfg(feature = "performance-profiling")]
     let transform_stage = crate::performance::PerformanceStage::new("export_transform");
-    let (transformed_image, unscaled_crop_offset) =
-        apply_all_transformations(Cow::Borrowed(source.base()), js_adjustments, is_raw);
+    let (transformed_image, unscaled_crop_offset) = apply_all_transformations(
+        Cow::Borrowed(source.base()),
+        &source.render_recipe(js_adjustments),
+        is_raw,
+    );
     let (img_w, img_h) = transformed_image.dimensions();
     #[cfg(feature = "performance-profiling")]
     drop(transform_stage);

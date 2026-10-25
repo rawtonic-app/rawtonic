@@ -1124,6 +1124,18 @@ fn export(args: ExportArgs) -> Result<()> {
             None => Some(editor_recipe(&parse_virtual_path(photo).1)),
         })
         .collect();
+    // The negative first: the faces are found on the positive.
+    let recipes = match &negative {
+        Some(kind) => jobs
+            .iter()
+            .zip(recipes)
+            .map(|((photo, _), recipe)| {
+                let source = parse_virtual_path(photo).0;
+                with_negative(&source.to_string_lossy(), recipe.unwrap_or_default(), kind).map(Some)
+            })
+            .collect::<Result<Vec<_>>>()?,
+        None => recipes,
+    };
     let recipes = match &face_retouch {
         Some(settings) => {
             let settings: serde_json::Value =
@@ -1148,17 +1160,6 @@ fn export(args: ExportArgs) -> Result<()> {
             std::mem::forget(face_models);
             recipes
         }
-        None => recipes,
-    };
-    let recipes = match &negative {
-        Some(kind) => jobs
-            .iter()
-            .zip(recipes)
-            .map(|((photo, _), recipe)| {
-                let source = parse_virtual_path(photo).0;
-                with_negative(&source.to_string_lossy(), recipe.unwrap_or_default(), kind).map(Some)
-            })
-            .collect::<Result<Vec<_>>>()?,
         None => recipes,
     };
     let ai_models: std::collections::BTreeSet<usize> = recipes

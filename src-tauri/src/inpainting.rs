@@ -8,7 +8,6 @@ use crate::ai_connector;
 use crate::ai_processing;
 use crate::app_settings::load_settings;
 use crate::app_state::AppState;
-use crate::image_loader::composite_patches_on_image;
 use crate::image_processing::apply_linear_to_srgb;
 use crate::mask_generation::resolve_warped_image_for_masks;
 use crate::mask_generation::{
@@ -34,8 +33,13 @@ fn prepare_source_image(
     };
 
     let (base_image, _) = crate::editor_preview::get_original_image(state)?;
-    let composited = composite_patches_on_image(&base_image, &source_image_adjustments)
-        .map_err(|e| format!("Failed to prepare source image: {}", e))?;
+    // A film negative's patch is filled from (and into) its positive.
+    let composited = rawtonic_engine::image_loader::composite_patches_on_source(
+        &base_image,
+        &source_image_adjustments,
+        is_raw,
+    )
+    .map_err(|e| format!("Failed to prepare source image: {}", e))?;
 
     let source_image = if is_raw {
         apply_linear_to_srgb(composited)
