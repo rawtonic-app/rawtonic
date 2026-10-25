@@ -13927,6 +13927,73 @@ fn edge_fringe_gpu_tiles_do_not_change_the_result() {
     }
 }
 
+/// A band of tiles wider than the device's largest storage binding (a
+/// photo of about 100 MP on a GPU with 128 MiB bindings) goes up in column
+/// groups and gives the same bits as one tile on a device without that
+/// limit.
+#[test]
+#[ignore = "requires a native GPU"]
+fn edge_fringe_gpu_bands_wider_than_a_binding_go_up_in_column_groups() {
+    use rawtonic_engine::edge_fringe;
+    let context = context();
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .unwrap();
+    let max_binding = 512u64 << 10;
+    let limits = wgpu::Limits {
+        max_storage_buffer_binding_size: max_binding,
+        ..adapter.limits()
+    };
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_limits: limits,
+        ..Default::default()
+    }))
+    .unwrap();
+    let device = Arc::new(device);
+    let (w, h) = (1500usize, 300usize);
+    for (sigma, noise, scale) in [(0.002, 0.004, 1.0), (0.06, 0.05, 1.0)] {
+        let scene = edge_fringe_scene(w as u32, h as u32, sigma);
+        let plan = edge_fringe::plan_of(5, noise, scale);
+        let mut whole = scene.as_raw().clone();
+        edge_fringe::apply_on_device_in_tiles(
+            &context.device,
+            &context.queue,
+            &mut whole,
+            (w, h, 3),
+            plan,
+            w,
+        )
+        .unwrap();
+        assert_ne!(&whole, scene.as_raw());
+        for tile in [40, 64, 97] {
+            // Each band holds at least a tile's rows of every column.
+            assert!((tile * w * 12) as u64 > max_binding);
+            let mut grouped = scene.as_raw().clone();
+            edge_fringe::apply_on_device_in_tiles(
+                &device,
+                &queue,
+                &mut grouped,
+                (w, h, 3),
+                plan,
+                tile,
+            )
+            .unwrap();
+            let same = whole
+                .iter()
+                .zip(&grouped)
+                .all(|(a, b)| a.to_bits() == b.to_bits());
+            assert!(same, "noise {noise}, tiles of {tile} px");
+        }
+        // Tiles that do not fit one binding fail instead of rendering.
+        let mut big = scene.as_raw().clone();
+        let error =
+            edge_fringe::apply_on_device_in_tiles(&device, &queue, &mut big, (w, h, 3), plan, 256)
+                .expect_err("tiles over the binding size");
+        assert!(error.contains("exceed"), "{error}");
+    }
+}
+
 /// Wall time of the edge-fringe pass, version 4 on the CPU and version 5 on
 /// the GPU, on a 6000 × 4000 synthetic photo (`-- --ignored --nocapture`).
 #[test]

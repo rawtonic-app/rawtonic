@@ -239,12 +239,28 @@ pub(super) fn apply_in_tiles(
         return Ok(());
     }
     let (device, queue) = registered()?;
+    apply_on_device(&device, &queue, data, (w, h, stride), plan, tile)
+}
+
+/// [`apply_in_tiles`] on `device` instead of the registered one (tests of
+/// devices with other limits).
+pub(super) fn apply_on_device(
+    device: &Arc<wgpu::Device>,
+    queue: &wgpu::Queue,
+    data: &mut [f32],
+    (w, h, stride): (usize, usize, usize),
+    plan: Plan,
+    tile: usize,
+) -> Result<(), String> {
+    if w == 0 || h == 0 {
+        return Ok(());
+    }
     let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
     let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
-    let pipelines = pipelines_for(&device);
+    let pipelines = pipelines_for(device);
     let result = run(
-        &device,
-        &queue,
+        device,
+        queue,
         &pipelines,
         data,
         (w, h, stride),
@@ -287,9 +303,10 @@ fn run(
     let blocks = blocks_width * (cap_h + 2 * MAX_RADIUS).div_ceil(8);
     let buffer_bytes = ((planes + blocks) * 16) as u64;
     let limits = device.limits();
-    if buffer_bytes > limits.max_storage_buffer_binding_size
-        || buffer_bytes > limits.max_buffer_size
-    {
+    let max_binding = limits
+        .max_storage_buffer_binding_size
+        .min(limits.max_buffer_size);
+    if buffer_bytes > max_binding {
         return Err(format!(
             "Tiles of {tile} px exceed the GPU's buffer size for the edge-fringe pass"
         ));
@@ -361,27 +378,58 @@ fn run(
         ]);
     }
 
-    // Each band of tiles goes up once, packed RGB, all columns, with the
-    // rows its tiles read above and below it. Tiles write their results
-    // into `data` as they finish, so the rows above the band (the band
-    // before's) come from `carry`, the original rows [y0 - halo, y0).
-    let band_bytes = (cap_h * w * 12) as u64;
-    let band_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("Edge fringe band"),
-        size: band_bytes,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
-    let packed_rows = |rows: std::ops::Range<usize>, data: &[f32]| -> Vec<f32> {
-        let mut out = vec![0.0f32; rows.len() * w * 3];
-        out.par_chunks_mut(w * 3)
-            .zip(data[rows.start * w * stride..rows.end * w * stride].par_chunks(w * stride))
+    // Each band of tiles goes up once, packed RGB, with the rows its tiles
+    // read above and below it. Tiles write their results into `data` as
+    // they finish, so the rows above the band (the band before's) come from
+    // `carry`, the original rows [y0 - halo, y0). A band wider than one
+    // storage binding goes up in column groups of whole tiles, each with
+    // the columns its tiles read beside it, all before the band's first
+    // tile so that every group reads original pixels.
+    let tiles_across = w.div_ceil(tile_w);
+    let group_columns = |tiles: usize| (tiles * tile_w + 2 * halo).min(w);
+    let per_group = (1..=tiles_across)
+        .rev()
+        .find(|&tiles| (cap_h * group_columns(tiles) * 12) as u64 <= max_binding)
+        .ok_or_else(|| {
+            format!("Tiles of {tile} px exceed the GPU's buffer size for the edge-fringe pass")
+        })?;
+    // (first tile column, end of its tile columns, uploaded columns c0..c1)
+    let groups: Vec<(usize, usize, usize, usize)> = (0..tiles_across)
+        .step_by(per_group)
+        .map(|t| {
+            let (gx0, gx1) = (t * tile_w, ((t + per_group) * tile_w).min(w));
+            (gx0, gx1, gx0.saturating_sub(halo), (gx1 + halo).min(w))
+        })
+        .collect();
+    let band_buffers: Vec<wgpu::Buffer> = groups
+        .iter()
+        .map(|&(_, _, c0, c1)| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Edge fringe band"),
+                size: (cap_h * (c1 - c0) * 12) as u64,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        })
+        .collect();
+    // Columns c0..c1 of `rows` of `source` (rows of `w` pixels of
+    // `source_stride` floats), packed RGB.
+    let packed = |source: &[f32],
+                  source_stride: usize,
+                  rows: std::ops::Range<usize>,
+                  (c0, c1): (usize, usize)|
+     -> Vec<f32> {
+        let row_len = w * source_stride;
+        let mut out = vec![0.0f32; rows.len() * (c1 - c0) * 3];
+        out.par_chunks_mut((c1 - c0) * 3)
+            .zip(source[rows.start * row_len..rows.end * row_len].par_chunks(row_len))
             .for_each(|(out, row)| {
+                let row = &row[c0 * source_stride..c1 * source_stride];
                 for (o, px) in out
                     .as_chunks_mut::<3>()
                     .0
                     .iter_mut()
-                    .zip(row.chunks_exact(stride))
+                    .zip(row.chunks_exact(source_stride))
                 {
                     o.copy_from_slice(&px[..3]);
                 }
@@ -404,29 +452,43 @@ fn run(
         if stride == 3 {
             next_carry.extend_from_slice(&data[next_top.max(y0) * w * 3..y1 * w * 3]);
         } else {
-            next_carry.extend(packed_rows(next_top.max(y0)..y1, data));
+            next_carry.extend(packed(data, stride, next_top.max(y0)..y1, (0, w)));
         }
-        if !carry.is_empty() {
-            queue.write_buffer(&band_buffer, 0, bytemuck::cast_slice(&carry));
-        }
-        let below = ((y0 - top) * w * 12) as u64;
-        if stride == 3 {
-            let rows = &data[y0 * w * 3..bottom * w * 3];
-            queue.write_buffer(&band_buffer, below, bytemuck::cast_slice(rows));
-        } else {
-            let rows = packed_rows(y0..bottom, data);
-            queue.write_buffer(&band_buffer, below, bytemuck::cast_slice(&rows));
+        for (band_buffer, &(_, _, c0, c1)) in band_buffers.iter().zip(&groups) {
+            let all_columns = c0 == 0 && c1 == w;
+            if !carry.is_empty() {
+                if all_columns {
+                    queue.write_buffer(band_buffer, 0, bytemuck::cast_slice(&carry));
+                } else {
+                    let rows = packed(&carry, 3, 0..y0 - top, (c0, c1));
+                    queue.write_buffer(band_buffer, 0, bytemuck::cast_slice(&rows));
+                }
+            }
+            let below = ((y0 - top) * (c1 - c0) * 12) as u64;
+            if all_columns && stride == 3 {
+                let rows = &data[y0 * w * 3..bottom * w * 3];
+                queue.write_buffer(band_buffer, below, bytemuck::cast_slice(rows));
+            } else {
+                let rows = packed(data, stride, y0..bottom, (c0, c1));
+                queue.write_buffer(band_buffer, below, bytemuck::cast_slice(&rows));
+            }
         }
         carry = next_carry;
-        for x0 in (0..w).step_by(tile_w) {
+        let tiles = groups
+            .iter()
+            .zip(&band_buffers)
+            .flat_map(|(&(gx0, gx1, c0, c1), band)| {
+                (gx0..gx1).step_by(tile_w).map(move |x0| (x0, c0, c1, band))
+            });
+        for (x0, c0, c1, band_buffer) in tiles {
             let x1 = (x0 + tile_w).min(w);
             let (left, right) = (x0.saturating_sub(halo), (x1 + halo).min(w));
             let (in_w, in_h) = (right - left, bottom - top);
             let params = Params {
                 width: in_w as u32,
                 rows: in_h as u32,
-                band_x: left as u32,
-                band_width: w as u32,
+                band_x: (left - c0) as u32,
+                band_width: (c1 - c0) as u32,
                 out_x: (x0 - left) as u32,
                 out_y: (y0 - top) as u32,
                 out_width: (x1 - x0) as u32,

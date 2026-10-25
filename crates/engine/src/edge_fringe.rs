@@ -155,6 +155,19 @@ pub fn apply_on_gpu_in_tiles(
     gpu::apply_in_tiles(data, w, h, stride, plan, tile)
 }
 
+/// [`apply_on_gpu_in_tiles`] on `device` instead of the registered one.
+#[cfg(feature = "test-support")]
+pub fn apply_on_device_in_tiles(
+    device: &std::sync::Arc<wgpu::Device>,
+    queue: &wgpu::Queue,
+    data: &mut [f32],
+    (w, h, stride): (usize, usize, usize),
+    plan: Plan,
+    tile: usize,
+) -> Result<(), String> {
+    gpu::apply_on_device(device, queue, data, (w, h, stride), plan, tile)
+}
+
 /// Runs the pass as `plan` says on `w × h` pixels of `stride` floats (RGB
 /// first): the chromatic-aberration stage, the luminance model, then the
 /// colour lines, each on the result of the one before. A GPU plan fails
