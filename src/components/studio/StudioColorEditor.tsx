@@ -149,7 +149,10 @@ export default function StudioColorEditor({
   // A pick armed for a range (or a new one) hands the wheel's next press to
   // the pick instead of moving the active range.
   const wheelPicking =
-    mode === "skin" ? !skin || pickerTarget === "skin" : pickerTarget === "new";
+    mode === "skin"
+      ? !skin || pickerTarget === "skin" || pickerTarget === skin.id
+      : pickerTarget === "new" ||
+        (!!pickerTarget && listed.some((r) => r.id === pickerTarget));
   const slider = (
     label: string,
     key: SliderKey,

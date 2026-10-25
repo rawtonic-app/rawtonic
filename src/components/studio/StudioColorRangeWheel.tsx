@@ -133,7 +133,12 @@ export default memo(function StudioColorRangeWheel({
 }: Props) {
   const { t } = useTranslation();
   const [local, setLocal] = useState(active);
-  const drag = useRef<Handle | null>(null);
+  const drag = useRef<{
+    handle: Handle;
+    /** Chroma edges: the pointer's and the edge's chroma at the press. */
+    along: number;
+    edge: number;
+  } | null>(null);
   const pending = useRef<Partial<ColorRange>>({});
   const frame = useRef<number | null>(null);
   const callback = useRef(onChange);
@@ -157,6 +162,13 @@ export default memo(function StudioColorRangeWheel({
     if (Object.keys(patch).length) callback.current(patch);
   };
   const update = (patch: Partial<ColorRange>) => {
+    if (
+      local &&
+      Object.entries(patch).every(
+        ([k, v]) => local[k as keyof ColorRange] === v,
+      )
+    )
+      return;
     pending.current = { ...pending.current, ...patch };
     setLocal((r) => r && { ...r, ...patch });
     if (frame.current === null) frame.current = requestAnimationFrame(flush);
@@ -182,20 +194,25 @@ export default memo(function StudioColorRangeWheel({
       y: (((e.clientY - box.top) / box.height) * 2 - 1) * VIEW,
     };
   };
+  /** The pointer's chroma along the slice's centre line, not clipped at
+   * the rim (a saturated range's outer edge can lie beyond it). */
+  const alongChroma = (range: ColorRange, x: number, y: number) => {
+    const t = (range.hue * Math.PI) / 180;
+    const r = Math.max(0, x * Math.cos(t) - y * Math.sin(t));
+    return r * r * RIM_CHROMA;
+  };
   const patchFor = (
     handle: Handle,
     range: ColorRange,
     x: number,
     y: number,
-  ) => {
+  ): Partial<ColorRange> => {
     const { hue, chroma } = wheelColor(x, y);
-    // A chroma edge follows the pointer's distance along the slice's centre
-    // line; a hue edge its angle.
-    const along = Math.max(
-      0,
-      x * Math.cos((range.hue * Math.PI) / 180) -
-        y * Math.sin((range.hue * Math.PI) / 180),
-    );
+    const d = drag.current;
+    // A chroma edge moves by the pointer's way along the slice's centre
+    // line from where it was (its handle may sit on the rim with the edge
+    // beyond it); a hue edge follows the pointer's angle.
+    const edge = d ? d.edge + alongChroma(range, x, y) - d.along : 0;
     switch (handle) {
       case "colour":
         return {
@@ -206,9 +223,9 @@ export default memo(function StudioColorRangeWheel({
       case "hueHi":
         return { hueRange: hueRangeForEdge(range, hue) };
       case "chromaLo":
-        return { chromaRange: chromaRangeForInner(range, chromaOf(along)) };
+        return { chromaRange: chromaRangeForInner(range, edge) };
       case "chromaHi":
-        return { chromaRange: chromaRangeForOuter(range, chromaOf(along)) };
+        return { chromaRange: chromaRangeForOuter(range, edge) };
     }
   };
   const start = (handle: Handle | null) => (e: PointerEvent<SVGElement>) => {
@@ -223,15 +240,20 @@ export default memo(function StudioColorRangeWheel({
       return;
     }
     // A press beside the handles moves the range there (and drags it on).
-    drag.current = handle ?? "colour";
+    const band = rangeBand(local);
+    drag.current = {
+      handle: handle ?? "colour",
+      along: alongChroma(local, p.x, p.y),
+      edge: handle === "chromaLo" ? band.chromaLo : band.chromaHi,
+    };
     onInteraction?.(true);
     if (!handle) update(patchFor("colour", local, p.x, p.y));
   };
   const move = (e: PointerEvent<SVGElement>) => {
-    const handle = drag.current;
-    if (!handle || !local) return;
+    const d = drag.current;
+    if (!d || !local) return;
     const p = pointAt(e);
-    update(patchFor(handle, local, p.x, p.y));
+    update(patchFor(d.handle, local, p.x, p.y));
   };
   const end = () => {
     if (!drag.current) return;

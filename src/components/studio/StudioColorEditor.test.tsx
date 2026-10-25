@@ -155,6 +155,29 @@ describe("range wheel <-> sliders", () => {
     ).toBe("25");
   });
 
+  it("keeps a saturated range's out-of-wheel width until the edge is dragged", () => {
+    // Outer edge 0.2 × 2.4 + 0.01 = 0.49: beyond the rim, so the handle sits
+    // on the rim; pressing and moving it there must not change the range.
+    const range = { ...newColorRange(30, 0.2, 0.6), chromaRange: 70 };
+    render(<Harness initial={[range]} />);
+    openTool();
+    wheelSvg();
+    const edge = screen.getByRole("slider", {
+      name: "Range outer saturation edge",
+    });
+    fireEvent.pointerDown(edge, { button: 0, ...at(30, 0.32) });
+    fireEvent.pointerMove(edge, at(30, 0.32));
+    fireEvent.pointerUp(edge);
+    expect(changes).toHaveLength(0);
+    // Dragged inwards it narrows from where it was, by the pointer's way.
+    fireEvent.pointerDown(edge, { button: 0, ...at(30, 0.32) });
+    fireEvent.pointerMove(edge, at(30, 0.26));
+    fireEvent.pointerUp(edge);
+    const width = lastRanges()[0].chromaRange;
+    // Edge 0.49 − 0.06 = 0.43 → (0.43 − 0.01 − 0.2) / 0.4 = 55.
+    expect(width).toBe(55);
+  });
+
   it("follows the sliders: a new hue range moves the edge handles", () => {
     const range = skinish();
     const { rerender } = render(<Harness initial={[range]} />);
@@ -198,6 +221,21 @@ describe("range wheel <-> sliders", () => {
     // Lightness and shape stay.
     expect(moved.lightness).toBe(0.65);
     expect(moved.hueRange).toBe(25);
+  });
+
+  it("a pick armed for a range ends with a press on the wheel", () => {
+    render(<Harness initial={[skinish()]} />);
+    openTool();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Pick the range colour again" }),
+    );
+    const svg = wheelSvg();
+    fireEvent.pointerDown(svg, { button: 0, ...at(120, 0.1) });
+    fireEvent.pointerUp(svg);
+    expect(lastRanges()).toHaveLength(1);
+    expect(lastRanges()[0].hue).toBeCloseTo(120, 0);
+    expect(lastRanges()[0].lightness).toBe(0.65);
+    expect(useEditorStore.getState().colorPickerTarget).toBeNull();
   });
 
   it("with the picker armed, a press on the wheel adds a range", () => {
