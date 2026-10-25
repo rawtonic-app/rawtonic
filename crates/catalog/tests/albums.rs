@@ -137,6 +137,7 @@ fn version_one_databases_are_migrated_once_and_newer_ones_refused() {
     // volume columns of schema 3, no import batches of schema 4).
     let db = rusqlite::Connection::open(temp.path().join("session.sqlite")).unwrap();
     db.execute_batch(concat!(
+        include_str!("undo_0016.sql"),
         include_str!("undo_0015.sql"),
         include_str!("undo_0014.sql"),
         include_str!("undo_0013.sql"),
@@ -168,8 +169,13 @@ fn version_one_databases_are_migrated_once_and_newer_ones_refused() {
     // Opening again does not migrate twice.
     Library::open(temp.path()).unwrap();
     let db = rusqlite::Connection::open(temp.path().join("session.sqlite")).unwrap();
-    db.execute_batch("PRAGMA user_version=16;").unwrap();
+    let newer = rawtonic_catalog::DB_SCHEMA_VERSION + 1;
+    db.execute_batch(&format!("PRAGMA user_version={newer};"))
+        .unwrap();
     drop(db);
     let error = Library::open(temp.path()).err().unwrap().to_string();
-    assert!(error.contains("Unsupported database schema 16"), "{error}");
+    assert!(
+        error.contains(&format!("Unsupported database schema {newer}")),
+        "{error}"
+    );
 }

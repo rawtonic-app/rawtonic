@@ -623,3 +623,11 @@ it("does not open photo deletion with plain Backspace in Develop", () => {
   press("Backspace");
   expect(props.handleDeleteSelected).not.toHaveBeenCalled();
 });
+
+it.each(["curve", "regionCurve", "hue", "saturation", "luminance", "grayMixer"] as const)("Escape ends %s targeting while staying in Develop", (tatTarget) => {
+  useUIStore.setState({ activeView: "editor" });
+  useEditorStore.setState({ tatTarget, isStraightenActive: false, colorPickerTarget: null, isWbPickerActive: false, lumaPickerLayer: null });
+  press("Escape");
+  expect(useEditorStore.getState().tatTarget).toBeNull();
+  expect(props.handleBackToLibrary).not.toHaveBeenCalled();
+});

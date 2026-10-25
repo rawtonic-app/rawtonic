@@ -22,8 +22,9 @@ import { ToolGroup } from "./StudioDevelop";
 import { TILE_DROP_EVENT, type TileDropDetail } from "./tileDrag";
 import { createDragGhost } from "./dragGhost";
 import { MISSING_VIEW_ID, OFFLINE_CHANGED, OFFLINE_COUNTED, offlinePhotographs, openMissingView } from "../../utils/offline";
-import { IMPORTS_CHANGED, PREVIOUS_IMPORT_VIEW_ID, openPreviousImport, previousImport } from "../../utils/folderSync";
-import { CATALOG_EVENTS, SESSION_ALBUMS_CHANGED, catalogChanged, onCatalogChange } from "../../utils/catalogWrites";
+import { IMPORTS_CHANGED, PREVIOUS_IMPORT_VIEW_ID, previousImport } from "../../utils/folderSync";
+import { FILE_OPERATIONS_CHANGED } from "../../utils/catalogEvents";
+import { CATALOG_CHANGED, CATALOG_EVENTS, SESSION_ALBUMS_CHANGED, catalogChanged, onCatalogChange } from "../../utils/catalogWrites";
 import type { Group, Rule } from "../../utils/librarySearch";
 import { asGroup, useSmartAlbumEditor } from "./SmartAlbumEditor";
 import {
@@ -172,6 +173,7 @@ const libraryStore: AlbumStore = {
 export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectAlbum }) {
   const session = useLibraryStore((s) => s.sessionDirectory);
   const activeAlbumId = useLibraryStore((s) => s.activeAlbumId);
+  const currentFolderPath = useLibraryStore((s) => s.currentFolderPath);
   const selected = useLibraryStore((s) => s.multiSelectedPaths);
   const albumTree = useLibraryStore((s) => s.albumTree);
   const { showContextMenu } = useContextMenu();
@@ -242,10 +244,10 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
     window.addEventListener(SESSION_ALBUMS_CHANGED, onChanged);
     return () => window.removeEventListener(SESSION_ALBUMS_CHANGED, onChanged);
   }, [session, onSelectAlbum]);
-  // A rating, label, flag or keyword written to the catalog, an import or a
-  // relink: smart albums count again, and the one shown shows what its
-  // rules match now (Lightroom's smart collections update live). The
-  // callback is read when it is used: the parent passes a new one on every
+  // Catalog writes, imports, relinks and file operations refresh counts
+  // and the shown album. Membership rows survive trash for undo, while
+  // the catalog hides trashed photos from both ordinary and smart albums.
+  // The callback is read when used: the parent passes a new one on every
   // render, which must not cancel a pending refresh.
   const selectRef = useRef(onSelectAlbum);
   selectRef.current = onSelectAlbum;
@@ -260,7 +262,10 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
     // more after it, so a burst of key presses asks twice, not per press.
     let running = false;
     let again = false;
+    let refreshOrdinary = false;
     const refresh = async () => {
+      const ordinary = refreshOrdinary;
+      refreshOrdinary = false;
       const mine = ++generation;
       const current = () => alive && mine === generation && stillShown(session);
       const list = (await invoke<SessionAlbum[]>(Invokes.SessionAlbums, { directory: session }).catch(() => null)) ?? [];
@@ -270,13 +275,15 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
       const album = active?.startsWith(SESSION_ALBUM_PREFIX)
         ? list.find((a) => a.id === active.slice(SESSION_ALBUM_PREFIX.length))
         : undefined;
-      if (!album || !isSmart(album)) return;
+      if (!album || (!isSmart(album) && !ordinary)) return;
       const select: SelectAlbum = (...args) => {
         if (current() && activeAlbumRef.current === active) selectRef.current(...args);
       };
       await openSessionAlbum(session, album, select, true).catch(() => {});
     };
-    const changed = () => {
+    const changed = (event?: Event) => {
+      // Metadata writes affect smart rules; file/path changes affect every album.
+      refreshOrdinary ||= !!event && event.type !== CATALOG_CHANGED;
       if (running) {
         again = true;
         return;
@@ -342,35 +349,50 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
 
   /** Photographs of the newest import batch (Previous Import, shown when any). */
   const [imported, setImported] = useState(0);
-  const recountImported = useCallback(async () => {
-    if (!session) return setImported(0);
-    const count = await previousImport(session).then((batch) => batch.paths.length).catch(() => 0);
-    if (stillShown(session)) setImported(count);
+  const importedGeneration = useRef(0);
+  // A background recount may replace a pending read, but must keep the
+  // user's open request: the newest answer then opens the newest paths.
+  const importedOpenRequested = useRef(false);
+  useEffect(() => {
+    // A newer navigation cancels a pending manual open, including folder
+    // changes while activeAlbumId is already null.
+    importedOpenRequested.current = false;
+  }, [activeAlbumId, currentFolderPath]);
+  useEffect(() => () => {
+    importedGeneration.current += 1;
+    importedOpenRequested.current = false;
   }, [session]);
+  const loadImported = useCallback(async (preserveEditor?: boolean) => {
+    if (!session) { setImported(0); return 0; }
+    if (preserveEditor === false) importedOpenRequested.current = true;
+    const mine = ++importedGeneration.current;
+    const current = () => stillShown(session) && mine === importedGeneration.current;
+    try {
+      const { paths } = await previousImport(session);
+      if (!current()) return paths.length;
+      setImported(paths.length);
+      const requested = importedOpenRequested.current;
+      importedOpenRequested.current = false;
+      if (requested || (preserveEditor === true && activeAlbumRef.current === PREVIOUS_IMPORT_VIEW_ID)) {
+        selectRef.current(PREVIOUS_IMPORT_VIEW_ID, t("studio.library.albums.previousImport"), paths, !requested);
+      }
+      return paths.length;
+    } catch (error) {
+      if (current()) {
+        if (importedOpenRequested.current) toast.error(<OperationError detail={String(error)} />);
+        setImported(0);
+        importedOpenRequested.current = false;
+      }
+      return 0;
+    }
+  }, [session, t]);
+  useEffect(() => { void loadImported(); }, [loadImported]);
+  const showImported = (preserveEditor = false) => loadImported(preserveEditor);
+  // Imports, trash and undo update the batch count and the shown contents.
   useEffect(() => {
-    void recountImported();
-  }, [recountImported]);
-  const showImported = useCallback(
-    (preserveEditor = false) => {
-      if (!session) return Promise.resolve(0);
-      return openPreviousImport(session, t("studio.library.albums.previousImport"), onSelectAlbum, preserveEditor).then(
-        (count) => {
-          if (stillShown(session)) setImported(count);
-          return count;
-        },
-      );
-    },
-    [session, t, onSelectAlbum],
-  );
-  // An ingest or a synchronization added photographs: a new batch.
-  useEffect(() => {
-    const changed = () => {
-      if (activeAlbumRef.current === PREVIOUS_IMPORT_VIEW_ID) void showImported(true).catch(() => {});
-      else void recountImported();
-    };
-    window.addEventListener(IMPORTS_CHANGED, changed);
-    return () => window.removeEventListener(IMPORTS_CHANGED, changed);
-  }, [showImported, recountImported]);
+    const changed = () => { void loadImported(activeAlbumRef.current === PREVIOUS_IMPORT_VIEW_ID ? true : undefined); };
+    return onCatalogChange(changed, [IMPORTS_CHANGED, FILE_OPERATIONS_CHANGED, OFFLINE_CHANGED]);
+  }, [loadImported]);
 
   /** Shows `album` in the grid (`preserveEditor` refreshes it in place). */
   const show = async (album: SessionAlbum, preserveEditor = false) => {

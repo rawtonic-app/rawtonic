@@ -1,3 +1,4 @@
+import { FILE_OPERATIONS_CHANGED } from './catalogEvents';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { TFunction } from 'i18next';
@@ -62,6 +63,7 @@ export async function offlinePhotographs(directory: string, announce = false): P
 export async function recountAfterFileOperation(): Promise<void> {
   const directory = useLibraryStore.getState().sessionDirectory;
   if (!directory) return;
+  window.dispatchEvent(new Event(FILE_OPERATIONS_CHANGED));
   try {
     await offlinePhotographs(directory, true);
   } catch (err) {

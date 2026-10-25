@@ -837,7 +837,11 @@ impl Ingest<'_> {
             None => self.config.lock().unwrap().clone(),
         };
         let record = Record {
-            sequence: self.lib.summary().map(|s| s.assets as u64 + 1).unwrap_or(1),
+            sequence: self
+                .lib
+                .registered_asset_count()
+                .map(|count| count as u64 + 1)
+                .unwrap_or(1),
             template: config.template,
             settings: hot_folder::resolved(self.lib, &config.settings, self.previous.as_deref()),
         };
@@ -2446,6 +2450,55 @@ mod tests {
         );
         assert_eq!(photos_in_capture(&session), 200);
         assert_eq!(incoming_left(&session), 0, "every transfer copy removed");
+    }
+
+    #[test]
+    fn capture_record_sequence_does_not_reuse_numbers_after_trash() {
+        for system in [false, true] {
+            let tmp = tempfile::tempdir().unwrap();
+            let directory = session(tmp.path());
+            let lib = Library::open(&directory).unwrap();
+            let first = directory.join("Capture/1.ARW");
+            for (path, bytes) in [
+                (&first, "first"),
+                (&directory.join("Capture/2.ARW"), "second"),
+            ] {
+                fs::write(path, bytes).unwrap();
+                lib.add_asset(path).unwrap();
+            }
+            let held = if system {
+                tmp.path().join("held.ARW")
+            } else {
+                directory.join("Trash/1.ARW")
+            };
+            fs::rename(&first, &held).unwrap();
+            if system {
+                lib.set_trashed_at(&first, true).unwrap();
+            } else {
+                lib.relocate(&first, &held).unwrap();
+            }
+            let root = staging::root(&directory);
+            let mut incoming = staging::Partial::create(&root, 1, "new.ARW").unwrap();
+            let bytes = b"third distinct photo";
+            incoming.write(bytes).unwrap();
+            let staged = incoming.publish(bytes.len() as u64).unwrap();
+            let config = Mutex::new(CaptureConfig {
+                template: "{seq}.{ext}".into(),
+                settings: settings(0, "kept"),
+                free_camera_copies: false,
+            });
+            let notify = |_: &str, _: serde_json::Value| {};
+            let release = |_: &Captured| -> Result<bool, String> { Ok(false) };
+            let ingest = Ingest {
+                notify: &notify,
+                release: &release,
+                lib: &lib,
+                root: &root,
+                config: &config,
+                previous: None,
+            };
+            assert_eq!(ingest.record(&staged, None).unwrap().sequence, 3);
+        }
     }
 
     #[test]

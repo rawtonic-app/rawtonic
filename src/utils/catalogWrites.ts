@@ -1,3 +1,4 @@
+import { CATALOG_CHANGED, FILE_OPERATIONS_CHANGED, catalogChanged } from './catalogEvents';
 import { invoke, type InvokeArgs } from '@tauri-apps/api/core';
 import { IMPORTS_CHANGED } from './folderSync';
 import { OFFLINE_CHANGED } from './offline';
@@ -46,14 +47,7 @@ export function invokeInOrder<T>(command: string, args: InvokeArgs): Promise<T> 
   return run;
 }
 
-/** Fired (on `window`) after a write to the library's catalog settled, so
- * searches, value lists and smart albums show what it holds now. */
-export const CATALOG_CHANGED = 'rawtonic:catalog-changed';
-
-export function catalogChanged() {
-  // A write may settle after the page (or a test's document) is gone.
-  if (typeof window !== 'undefined') window.dispatchEvent(new Event(CATALOG_CHANGED));
-}
+export { CATALOG_CHANGED, catalogChanged } from './catalogEvents';
 
 /** Fired after the photographs' context menu changed a session album, so
  * the Albums tool shows the new counts and content (re-exported by
@@ -63,8 +57,9 @@ export const SESSION_ALBUMS_CHANGED = 'rawtonic:session-albums-changed';
 /** What changes what the catalog finds: a write (`CATALOG_CHANGED`), an
  * import, tethered capture or synchronization (`IMPORTS_CHANGED`), a relink
  * or a check that found files gone (`OFFLINE_CHANGED`), album membership
- * (`SESSION_ALBUMS_CHANGED`, album rules). */
-export const CATALOG_EVENTS = [CATALOG_CHANGED, IMPORTS_CHANGED, OFFLINE_CHANGED, SESSION_ALBUMS_CHANGED];
+ * (`SESSION_ALBUMS_CHANGED`, album rules), file operations and undo
+ * (`FILE_OPERATIONS_CHANGED`). */
+export const CATALOG_EVENTS = [CATALOG_CHANGED, IMPORTS_CHANGED, OFFLINE_CHANGED, SESSION_ALBUMS_CHANGED, FILE_OPERATIONS_CHANGED];
 
 /** Calls `handler` after any of `events` (default: everything that changes
  * what the catalog finds). Returns the unsubscribe. */

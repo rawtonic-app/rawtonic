@@ -153,6 +153,7 @@ function FolderRow({
   const children = (node.children ?? []).filter(
     (child) => !isInternalSessionFolder(path, child.name, sessionRoot),
   );
+  const isSessionTrash = !catalog && !!sessionRoot && parent === sessionRoot && node.name === "Trash";
   const open = allOpen || expanded;
   const canExpand = children.length > 0 || !!node.hasSubdirs;
   const menu = (e: React.MouseEvent) => {
@@ -189,7 +190,6 @@ function FolderRow({
       path === sessionRoot ||
       isRoot ||
       (!!sessionRoot && parent === sessionRoot && SESSION_FOLDERS.has(node.name));
-    const isSessionTrash = !catalog && !!sessionRoot && parent === sessionRoot && node.name === "Trash";
     const copied = new Set(copiedFilePaths.map((p) => p.split("?vc=")[0])).size;
     const { setUI } = useUIStore.getState();
     const fileItems: Option[] = actions
@@ -340,7 +340,7 @@ function FolderRow({
           <ChevronRight size={11} />
         </button>
         <button onClick={() => onNavigate(path)} title={missing ? missingTitle(path) : path}>
-          {missing ? <FolderX size={14} /> : current === path ? <FolderOpen size={14} /> : <Folder size={14} />}
+          {isSessionTrash ? <Trash2 size={14} /> : missing ? <FolderX size={14} /> : current === path ? <FolderOpen size={14} /> : <Folder size={14} />}
           <span>{node.label || node.name || path.split(/[\\/]/).pop()}</span>
           {showCounts && (node.imageCount ?? 0) > 0 && <small>{node.imageCount}</small>}
           {missingHere > 0 && (

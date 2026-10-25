@@ -282,6 +282,7 @@ fn an_older_database_is_migrated_with_its_photographs() {
     let conn = rusqlite::Connection::open(&db).unwrap();
     // Back to schema 2 (no volume columns, no import batches).
     conn.execute_batch(concat!(
+        include_str!("undo_0016.sql"),
         include_str!("undo_0015.sql"),
         include_str!("undo_0014.sql"),
         include_str!("undo_0013.sql"),
@@ -468,4 +469,78 @@ fn a_photograph_moved_with_its_xmp_keeps_syncing_it() {
     lib.set_metadata(&a, &meta).unwrap();
     lib.sync_xmp(&a).unwrap();
     assert_eq!(xmp_rating(&back.join("A.xmp")), 5);
+}
+
+#[test]
+fn system_trash_and_restore_keep_offline_originals_and_album_membership() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (lib, ids) = catalog(tmp.path());
+    let a = lib.asset(&ids[0]).unwrap();
+    let b = lib.asset(&ids[1]).unwrap();
+    lib.set_missing_at(&b.path, true).unwrap();
+    lib.set_trashed_at(&a.path, true).unwrap();
+    let album = lib.collections().unwrap().remove(0);
+    assert_eq!(album.count, 2);
+    assert_eq!(lib.collection_paths(&album.id).unwrap().len(), 2);
+    assert_eq!(lib.offline_assets().unwrap().len(), 1);
+    assert_eq!(lib.summary().unwrap().missing, 1);
+    lib.set_trashed_at(&a.path, false).unwrap();
+    assert_eq!(lib.collections().unwrap()[0].count, 3);
+    assert_eq!(lib.collection_paths(&album.id).unwrap().len(), 3);
+}
+
+#[test]
+fn schemas_15_and_9_migrate_in_both_library_modes_without_losing_memberships() {
+    for mode in [Mode::Session, Mode::Catalog] {
+        for version in [15, 9] {
+            let tmp = tempfile::tempdir().unwrap();
+            let dir = tmp.path().join("Library");
+            let lib = Library::create(&dir, "Library", mode).unwrap();
+            let dir = lib.directory.clone();
+            let photo = dir.join("kept.NEF");
+            fs::write(&photo, "synthetic photo").unwrap();
+            let id = lib.add_asset(&photo).unwrap().id;
+            let album = lib.create_collection("Kept", None).unwrap();
+            lib.add_to_collection(&album.id, std::slice::from_ref(&id))
+                .unwrap();
+            drop(lib);
+            let db = dir.join(if mode == Mode::Session {
+                "session.sqlite"
+            } else {
+                "catalog.sqlite"
+            });
+            let conn = rusqlite::Connection::open(&db).unwrap();
+            conn.execute_batch(include_str!("undo_0016.sql")).unwrap();
+            if version == 9 {
+                conn.execute_batch(concat!(
+                    include_str!("undo_0015.sql"),
+                    include_str!("undo_0014.sql"),
+                    include_str!("undo_0013.sql"),
+                    include_str!("undo_0012.sql"),
+                    include_str!("undo_0011.sql")
+                ))
+                .unwrap();
+                conn.execute_batch(
+                    "ALTER TABLE assets DROP COLUMN companion_size;
+                    ALTER TABLE assets DROP COLUMN companion_fingerprint;
+                    ALTER TABLE assets DROP COLUMN companion_sha256;
+                    DROP TABLE ingest_items; DROP INDEX tasks_kind_state; PRAGMA user_version=9;",
+                )
+                .unwrap();
+            }
+            drop(conn);
+            let lib = Library::open(&dir).unwrap();
+            assert_eq!(
+                lib.collection_paths(&album.id).unwrap(),
+                std::slice::from_ref(&photo)
+            );
+            lib.set_trashed_at(&photo, true).unwrap();
+            assert!(lib.collection_paths(&album.id).unwrap().is_empty());
+            lib.set_trashed_at(&photo, false).unwrap();
+            assert_eq!(lib.collection_paths(&album.id).unwrap(), [photo]);
+            drop(lib);
+            let reopened = Library::open(&dir).unwrap();
+            assert_eq!(reopened.collections().unwrap()[0].count, 1);
+        }
+    }
 }

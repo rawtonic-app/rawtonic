@@ -200,9 +200,9 @@ export const searchLibrary = (directory: string, rule: Rule, listed: string | nu
 };
 
 /** Each list's values with counts within `base` and the other lists' choices. */
-export function libraryFacets(directory: string, base: Rule[], selection: MetadataSelection | undefined) {
+export function libraryFacets(directory: string, base: Rule[], selection: MetadataSelection | undefined, listed: string | null = null) {
   const requests = FACET_FIELDS.map((field) => ({ field, rule: all([...base, ...selectionRules(selection, field)]) }));
-  return invoke<Facets>(Invokes.SessionFacets, { directory, requests });
+  return invoke<Facets>(Invokes.SessionFacets, { directory, requests, listed });
 }
 
 /** Number of chosen values. */
