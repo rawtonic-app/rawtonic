@@ -24,7 +24,14 @@ export interface PlannedExport {
 export async function runExportJobs(planned: PlannedExport[], paths: string[]): Promise<number> {
   if (!paths.length) return 0;
   const t = i18n.t.bind(i18n);
+  // Each photograph's recipe and metadata are read once, when the export is
+  // queued, from the library it is queued from: that library, the editor's
+  // recipe and the folders are taken together, now (a slider draft first
+  // commits), and the edits being saved are written before it is queued.
+  const flushing = flushRecipeSaves();
   const session = useLibraryStore.getState().sessionDirectory;
+  const openEdit = currentEditForExport(useEditorStore.getState());
+  const originFolders = useLibraryStore.getState().rootPaths;
   const status = useProcessStore.getState().exportState.status;
   const queued = status === Status.Exporting || status === Status.Cancelling;
   const changeRecipes = (change: (current: ExportPreset[]) => ExportPreset[]) => {
@@ -78,10 +85,7 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
   };
 
   try {
-    // Each photograph's recipe and metadata are read once, when the export
-    // is queued, from the library it is queued from (`session`): its edits
-    // are saved first.
-    await flushRecipeSaves();
+    await flushing;
     // Queued together, the recipes run as one export: each photograph is
     // developed once for all of them.
     const requests: Record<string, unknown>[] = [];
@@ -107,10 +111,10 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
         displayLabel: exportJobLabel(job.recipe?.name ?? t("studio.export.dialogs.customName"), job.draft, job.outputFormat, destination.path, paths),
         outputFolderOrFile: destination.path,
         isExplicitFilePath: destination.isFile,
-        baseOriginFolders: useLibraryStore.getState().rootPaths,
+        baseOriginFolders: originFolders,
         exportSettings: job.settings,
         outputFormat: job.outputFormat,
-        ...currentEditForExport(useEditorStore.getState()),
+        ...openEdit,
         library: session,
       });
     }

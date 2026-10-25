@@ -999,6 +999,39 @@ mod tests {
     }
 
     #[test]
+    fn a_queued_export_embeds_the_exif_and_capture_date_of_the_library_it_was_submitted_from() {
+        let libs = two_catalogs();
+        let path = libs.source.to_string_lossy().into_owned();
+        // The photograph's sidecar is there; each catalog's editor state
+        // holds its own EXIF for it.
+        std::fs::write(libs.source.with_file_name("A.jpg.rrdata"), b"{}").unwrap();
+        let asset = |lib: &rawtonic_catalog::Library| lib.asset_at(&libs.source).unwrap().unwrap();
+        for (lib, comment, date) in [
+            (&libs.a, "from A", "2020:01:02 03:04:05"),
+            (&libs.b, "from B", "2021:06:07 08:09:10"),
+        ] {
+            let mut state = recipe(1.0, 4, &[]);
+            state["exif"] = json!({"UserComment": comment, "DateTimeOriginal": date});
+            lib.save_editor_state(&asset(lib).id, &state).unwrap();
+        }
+        let from_a = queued(request(
+            std::slice::from_ref(&path),
+            Some(libs.a.directory.as_path()),
+        ));
+        let from_b = queued(request(&[path], Some(libs.b.directory.as_path())));
+        let comment = |job: &Queued| job.as_run()[0].exif.as_ref().unwrap()["UserComment"].clone();
+        assert_eq!(
+            (comment(&from_a), comment(&from_b)),
+            ("from A".to_string(), "from B".to_string())
+        );
+        let year = |job: &Queued| {
+            use chrono::Datelike;
+            job.as_run()[0].capture_date(&libs.source).year()
+        };
+        assert_eq!((year(&from_a), year(&from_b)), (2020, 2021));
+    }
+
+    #[test]
     fn a_queued_photo_keeps_its_recipe_until_it_is_exported() {
         let libs = two_catalogs();
         let path = libs.source.to_string_lossy().into_owned();

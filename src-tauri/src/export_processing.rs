@@ -259,6 +259,18 @@ pub struct PinnedPhoto {
     /// The library metadata its files embed (a virtual copy's own rating,
     /// label and keywords); None outside a session or catalog.
     pub metadata: Option<rawtonic_metadata::Metadata>,
+    /// The EXIF its editor state or EXIF cache holds (`read_rrexif_sidecar`):
+    /// what its files embed of it, and its capture date for names and file
+    /// times.
+    #[serde(default)]
+    pub exif: Option<std::collections::HashMap<String, String>>,
+}
+
+impl PinnedPhoto {
+    /// The capture date of `source` as this snapshot has it.
+    pub(crate) fn capture_date(&self, source: &Path) -> chrono::DateTime<chrono::Utc> {
+        exif_processing::capture_date_with(source, &|| self.exif.clone())
+    }
 }
 
 /// The photos of an export run (`paths`).
@@ -310,6 +322,7 @@ pub(crate) fn pin_photos(
                 PinnedPhoto {
                     adjustments,
                     metadata,
+                    exif: exif_processing::read_rrexif_sidecar(&source),
                 }
             })
         })
@@ -328,20 +341,16 @@ pub(crate) fn missing_source(source: &Path) -> Option<String> {
     })
 }
 
-fn set_timestamps_from_exif(src: &Path, dst: &Path) {
-    set_capture_file_times(dst, exif_processing::get_creation_date_from_path(src));
-}
-
 fn save_image_with_metadata(
     image: DynamicImage,
     output_path: &std::path::Path,
     source_path_str: &str,
     export_settings: &ExportSettings,
     generated: bool,
-    catalog: &dyn Fn() -> Option<rawtonic_metadata::Metadata>,
+    pinned: &PinnedPhoto,
 ) -> Result<(), String> {
-    let source_file = Path::new(source_path_str);
-    let exif_sidecar = || exif_processing::read_rrexif_sidecar(source_file);
+    let exif_sidecar = || pinned.exif.clone();
+    let catalog = || pinned.metadata.clone();
     save_export_image(
         image,
         source_path_str,
@@ -351,7 +360,7 @@ fn save_image_with_metadata(
             path: output_path,
             format: "",
             exif_sidecar: &exif_sidecar,
-            catalog,
+            catalog: &catalog,
             write: &write_export_bytes,
         },
     )
@@ -379,7 +388,7 @@ fn export_masks_for_image(
     state: &tauri::State<AppState>,
     is_raw: bool,
     app_handle: &tauri::AppHandle,
-    catalog: &dyn Fn() -> Option<rawtonic_metadata::Metadata>,
+    pinned: &PinnedPhoto,
     cancellation_token: &AtomicBool,
 ) -> Result<(), String> {
     ensure_export_not_cancelled(cancellation_token)?;
@@ -478,12 +487,15 @@ fn export_masks_for_image(
                 source_path_str,
                 export_settings,
                 rawtonic_engine::image_loader::has_generated_areas(js_adjustments),
-                catalog,
+                pinned,
             )?;
             ensure_export_not_cancelled(cancellation_token)?;
 
             if export_settings.preserve_timestamps {
-                set_timestamps_from_exif(Path::new(source_path_str), &mask_image_path);
+                set_capture_file_times(
+                    &mask_image_path,
+                    pinned.capture_date(Path::new(source_path_str)),
+                );
             }
 
             let alpha_bytes = encode_grayscale_to_png(&alpha_resized)?;
@@ -1212,13 +1224,11 @@ fn export_photo(
     let is_current_edit = is_open_edit(image_path_str, photos.open_path.as_deref());
     // Only what the export was submitted with (`pin_photos`): no recipe or
     // metadata is read from a library now.
-    let PinnedPhoto {
-        adjustments: mut js_adjustments,
-        metadata,
-    } = match (photos.read)(item.global_index) {
+    let mut pinned = match (photos.read)(item.global_index) {
         Ok(pinned) => pinned,
         Err(e) => return fail_all(e),
     };
+    let mut js_adjustments = std::mem::take(&mut pinned.adjustments);
 
     hydrate_adjustments(&state, &mut js_adjustments);
     // A never-edited photo exports with the camera's lens data,
@@ -1230,7 +1240,7 @@ fn export_photo(
     }
     let is_raw = is_raw_file(&source_path_str);
     let original_path = std::path::Path::new(&source_path_str);
-    let file_date = exif_processing::get_creation_date_from_path(original_path);
+    let file_date = pinned.capture_date(original_path);
 
     // Each recipe's file is named (and recorded) right before it is
     // written, as when each recipe was its own export.
@@ -1418,9 +1428,8 @@ fn export_photo(
         .any(|&target| with_mask_files(target))
         .then_some(source);
 
-    let source_file = Path::new(&source_path_str);
-    let exif_sidecar = || exif_processing::read_rrexif_sidecar(source_file);
-    let catalog = || metadata.clone();
+    let exif_sidecar = || pinned.exif.clone();
+    let catalog = || pinned.metadata.clone();
     results.extend(export_in_turn(images, plan, |target, output_path| {
         let export_settings = &targets[target].export_settings;
         {
@@ -1478,7 +1487,7 @@ fn export_photo(
             // export it again under a new name or miss its masks).
             let finish_photo = AtomicBool::new(false);
             if export_settings.preserve_timestamps {
-                set_timestamps_from_exif(Path::new(&source_path_str), output_path);
+                set_capture_file_times(output_path, file_date);
             }
 
             if export_settings.export_masks
@@ -1498,7 +1507,7 @@ fn export_photo(
                     &state,
                     is_raw,
                     app_handle,
-                    &catalog,
+                    &pinned,
                     &finish_photo,
                 )?;
             }
