@@ -3914,9 +3914,12 @@
     "file": "文件更改",
     "flag": "设置旗标",
     "move": "移动",
+    "notice": "{{action}}: {{name}}",
+    "noticeMany": "{{action}}: {{name}} (+{{remaining}})",
     "rating": "设置评分",
     "redoAction": "重做{{action}}",
     "rename": "重命名",
+    "skipFailed": "跳过失败的项目",
     "trash": "移至回收站",
     "undoAction": "撤销{{action}}"
   },

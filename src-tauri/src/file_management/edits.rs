@@ -1014,6 +1014,15 @@ fn write_culling(
     values: Vec<CullingWrite>,
     directory: Option<String>,
     app_handle: &AppHandle,
+    failures: Vec<(String, String)>,
+) -> Result<Vec<CullingChange>, SaveFailure> {
+    write_culling_batch(values, directory, xmp_sync(app_handle), failures)
+}
+
+fn write_culling_batch(
+    values: Vec<CullingWrite>,
+    directory: Option<String>,
+    xmp: Option<bool>,
     mut failures: Vec<(String, String)>,
 ) -> Result<Vec<CullingChange>, SaveFailure> {
     let total = values.len() + failures.len();
@@ -1039,7 +1048,6 @@ fn write_culling(
             Err(error) => failures.extend(flags.into_iter().map(|(path, _)| (path, error.clone()))),
         }
     }
-    let xmp = xmp_sync(app_handle);
     let mut seen = std::collections::HashSet::new();
     let sidecars: Vec<_> = values
         .into_iter()
@@ -1290,7 +1298,7 @@ mod tests {
         assert_eq!(values[0].path, moved.to_string_lossy());
         write_culling_sidecar(values.into_iter().next().unwrap(), None).unwrap();
         assert_eq!(lib.metadata(&asset.id).unwrap().rating, 0);
-        assert!(
+        assert_eq!(
             resolve_culling_targets(
                 vec![CullingWrite {
                     path: receipt.path,
@@ -1301,8 +1309,8 @@ mod tests {
                 None
             )
             .1
-            .len()
-                == 1
+            .len(),
+            1
         );
     }
 
@@ -1453,6 +1461,48 @@ mod tests {
     }
 
     #[test]
+    fn normal_culling_batch_saves_available_photos_and_returns_only_missing_failures() {
+        let temp = tempfile::tempdir().unwrap();
+        let available = temp.path().join("available.nef");
+        let missing = temp.path().join("missing.nef");
+        fs::write(&available, b"synthetic original").unwrap();
+        for value in [
+            CullingValue::Rating(4),
+            CullingValue::Color(Some("red".into())),
+        ] {
+            let make = |path: &Path| CullingWrite {
+                path: path.to_string_lossy().into_owned(),
+                value: value.clone(),
+                asset_id: None,
+                directory: None,
+            };
+            let failure = write_culling_batch(
+                vec![make(&missing), make(&available)],
+                None,
+                None,
+                Vec::new(),
+            )
+            .unwrap_err();
+            assert_eq!(failure.failed, vec![missing.to_string_lossy()]);
+            assert_eq!(failure.culling.len(), 1);
+            assert_eq!(failure.culling[0].path, available.to_string_lossy());
+            assert_eq!(failure.culling[0].after, value);
+            let metadata = crate::exif_processing::load_sidecar_file(
+                &parse_virtual_path(&available.to_string_lossy()).1,
+            );
+            match value {
+                CullingValue::Rating(rating) => assert_eq!(metadata.rating, rating),
+                CullingValue::Color(_) => {
+                    assert!(metadata.tags.unwrap().contains(&"color:red".into()))
+                }
+                CullingValue::Flag(_) => unreachable!(),
+            }
+            assert!(!parse_virtual_path(&missing.to_string_lossy()).1.exists());
+            assert_eq!(fs::read(&available).unwrap(), b"synthetic original");
+        }
+    }
+
+    #[test]
     fn culling_restore_reports_an_unavailable_owner_without_losing_other_targets() {
         let temp = tempfile::tempdir().unwrap();
         let available = temp.path().join("available.nef");
@@ -1522,11 +1572,11 @@ mod tests {
         assert!(session.asset_at(&inside).unwrap().is_some());
         assert!(catalog.asset_at(&inside).unwrap().is_none());
         let vanished = temp.path().join("vanished.nef");
-        assert!(
+        assert_eq!(
             prepare_culling_targets(vec![make(&vanished)], session.directory.to_str())
                 .1
-                .len()
-                == 1
+                .len(),
+            1
         );
     }
 

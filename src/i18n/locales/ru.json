@@ -4216,9 +4216,12 @@
     "file": "Изменение файла",
     "flag": "Установить флажок",
     "move": "Переместить",
+    "notice": "{{action}}: {{name}}",
+    "noticeMany": "{{action}}: {{name}} (+{{remaining}})",
     "rating": "Установить оценку",
     "redoAction": "Повторить: {{action}}",
     "rename": "Переименовать",
+    "skipFailed": "Пропустить неудавшиеся элементы",
     "trash": "Переместить в корзину",
     "undoAction": "Отменить: {{action}}"
   },

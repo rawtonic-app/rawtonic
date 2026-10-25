@@ -1,4 +1,5 @@
-import "../i18n";
+import '../i18n';
+import { fireEvent, render } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { toast } from "react-toastify";
 import { invoke } from "@tauri-apps/api/core";
@@ -625,4 +626,177 @@ it("waits for both older moves in a chain before writing its original path", asy
     await rated;
   }
   expect(useCatalogUndoStore.getState().past[0].changes[0].path).toBe("/c.nef");
+});
+
+it("keeps on-screen metadata undo quiet", async () => {
+  await catalogAction("rating", async () => changes);
+  await undo();
+  expect(toast.info).not.toHaveBeenCalled();
+});
+it("names an off-screen batch through the translated notice", async () => {
+  await catalogAction("rating", async () => [
+    changes[0],
+    { ...changes[0], path: "/other.nef" },
+  ]);
+  useEditorStore.setState({
+    selectedImage: { path: "/b.nef", isReady: true } as never,
+  });
+  await undo();
+  expect(toast.info).toHaveBeenLastCalledWith("Undo Set Rating: a.nef (+1)", {
+    autoClose: 3000,
+  });
+});
+
+it("skips a failed restore only on an explicit click, without executing older undo", async () => {
+  const { fileAction, registerFileUndoHandlers } = await import("./appUndo");
+  useUIStore.setState({ activeView: "library" });
+  await fileAction(async () => ({ id: "older", kind: "move" }));
+  await catalogAction("rating", async () => changes);
+  const undoFile = vi.fn();
+  const unregister = registerFileUndoHandlers({
+    undo: undoFile,
+    redo: vi.fn(),
+  });
+  vi.mocked(invoke).mockRejectedValueOnce({
+    message: "missing source",
+    failed: ["/a.nef"],
+    culling: [],
+  });
+  await undo();
+  expect(undoFile).not.toHaveBeenCalled();
+  const notice = vi.mocked(toast.error).mock.calls.at(-1)![0];
+  expect(notice).toBeTypeOf("function");
+  const closeToast = vi.fn();
+  const view = render(
+    (
+      notice as (props: { closeToast: () => void }) => import("react").ReactNode
+    )({ closeToast }),
+  );
+  try {
+    expect(view.getByText(/a.nef/)).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "Skip failed items" }));
+    expect(useCatalogUndoStore.getState().past).toEqual([]);
+    expect(undoFile).not.toHaveBeenCalled();
+    await undo();
+    expect(undoFile).toHaveBeenCalledOnce();
+  } finally {
+    view.unmount();
+    unregister();
+  }
+});
+it("keeps successful partial restores redoable while failed targets wait for retry or Skip", async () => {
+  const missing = { ...changes[0], path: "/missing.nef" };
+  await catalogAction("rating", async () => [changes[0], missing]);
+  vi.mocked(invoke).mockRejectedValueOnce({
+    message: "missing source",
+    failed: [missing.path],
+    culling: [{ ...changes[0], after: changes[0].before }],
+  });
+  await undo();
+  expect(useCatalogUndoStore.getState().past[0].changes).toEqual([missing]);
+  expect(useCatalogUndoStore.getState().future[0].changes).toEqual(changes);
+  expect(canRedo()).toBe(true);
+  const notice = vi.mocked(toast.error).mock.calls.at(-1)![0];
+  await redo();
+  expect(invoke).toHaveBeenLastCalledWith("restore_culling", {
+    directory: "/job",
+    values: [{ path: "/a.nef", value: changes[0].after }],
+  });
+  const view = render(
+    (
+      notice as (props: { closeToast: () => void }) => import("react").ReactNode
+    )({ closeToast: vi.fn() }),
+  );
+  try {
+    fireEvent.click(view.getByRole("button", { name: "Skip failed items" }));
+    expect(useCatalogUndoStore.getState().past).toHaveLength(1);
+    expect(useCatalogUndoStore.getState().past[0].changes).toEqual(changes);
+  } finally {
+    view.unmount();
+  }
+});
+
+it("retries only the failed part of a partial restore", async () => {
+  const missing = { ...changes[0], path: "/missing.nef" };
+  await catalogAction("rating", async () => [changes[0], missing]);
+  vi.mocked(invoke).mockRejectedValueOnce({
+    message: "offline",
+    culling: [{ ...changes[0], after: changes[0].before }],
+  });
+  await undo();
+  await undo();
+  expect(invoke).toHaveBeenLastCalledWith("restore_culling", {
+    directory: "/job",
+    values: [{ path: missing.path, value: missing.before }],
+  });
+  expect(useCatalogUndoStore.getState().past).toEqual([]);
+  expect(
+    useCatalogUndoStore.getState().future.flatMap((step) => step.changes),
+  ).toEqual([changes[0], missing]);
+});
+it("matches partial restore receipts by managed identity after rename, keeping virtual copies separate", async () => {
+  const first = {
+    ...changes[0],
+    path: "/old.nef?vc=one",
+    assetId: "asset",
+    directory: "/job",
+  };
+  const second = { ...first, path: "/old.nef?vc=two" };
+  await catalogAction("rating", async () => [first, second]);
+  vi.mocked(invoke).mockRejectedValueOnce({
+    message: "copy unavailable",
+    culling: [{ ...first, path: "/renamed.nef?vc=one", after: first.before }],
+  });
+  await undo();
+  expect(useCatalogUndoStore.getState().past[0].changes).toEqual([second]);
+  expect(useCatalogUndoStore.getState().future[0].changes).toEqual([first]);
+});
+it("a stale Skip notice cannot discard history after switching libraries", async () => {
+  await catalogAction("rating", async () => changes);
+  vi.mocked(invoke).mockRejectedValueOnce({ message: "offline" });
+  await undo();
+  const notice = vi.mocked(toast.error).mock.calls.at(-1)![0] as (props: {
+    closeToast: () => void;
+  }) => import("react").ReactNode;
+  useLibraryStore.setState({ sessionDirectory: "/another" });
+  await catalogAction("rating", async () => changes);
+  const view = render(notice({ closeToast: vi.fn() }));
+  try {
+    fireEvent.click(view.getByRole("button", { name: "Skip failed items" }));
+    expect(useCatalogUndoStore.getState().past).toHaveLength(1);
+  } finally {
+    view.unmount();
+  }
+});
+
+it("keeps a visible virtual copy's physical flag undo quiet", async () => {
+  await catalogAction("flag", async () => [
+    {
+      path: "/a.nef",
+      before: { kind: "flag", value: 0 },
+      after: { kind: "flag", value: 1 },
+    },
+  ]);
+  useEditorStore.setState({
+    selectedImage: { path: "/a.nef?vc=one", isReady: true } as never,
+  });
+  await undo();
+  expect(toast.info).not.toHaveBeenCalled();
+});
+it("also splits a partially failed redo and retries only its failed targets", async () => {
+  const missing = { ...changes[0], path: "/missing.nef" };
+  await catalogAction("rating", async () => [changes[0], missing]);
+  await undo();
+  vi.mocked(invoke).mockRejectedValueOnce({
+    message: "offline",
+    culling: changes,
+  });
+  await redo();
+  expect(useCatalogUndoStore.getState().past[0].changes).toEqual(changes);
+  expect(useCatalogUndoStore.getState().future[0].changes).toEqual([missing]);
+  await redo();
+  expect(invoke).toHaveBeenLastCalledWith("restore_culling", {
+    directory: "/job",
+    values: [{ path: missing.path, value: missing.after }],
+  });
 });

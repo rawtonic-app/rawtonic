@@ -1,4 +1,5 @@
 import i18n from "i18next";
+import { createElement } from "react";
 import { Invokes } from "../components/ui/AppProperties";
 import { create } from "zustand";
 import { toast } from "react-toastify";
@@ -184,9 +185,7 @@ export function catalogAction(
             let resolved = [...paths];
             for (const move of completedMoves)
               if (move.order > step.order)
-                resolved = resolved.map((path) =>
-                  movedPath(path, move.moves),
-                );
+                resolved = resolved.map((path) => movedPath(path, move.moves));
             return resolved;
           },
         })) ?? []
@@ -422,6 +421,90 @@ export function getRedoLabel(): string {
     : i18n.t("contextMenus.editor.redo");
 }
 
+function noticeText(action: string, changes: CullingChange[], limit = 1) {
+  const name = changes
+    .slice(0, limit)
+    .map(({ path }) => path.split("?vc=")[0].split(/[\\/]/).pop())
+    .join(", ");
+  return changes.length > limit
+    ? i18n.t("undoHistory.noticeMany", {
+        action,
+        name,
+        remaining: changes.length - limit,
+      })
+    : i18n.t("undoHistory.notice", { action, name });
+}
+function notifyOffscreen(action: string, changes: CullingChange[]) {
+  const ui = useUIStore.getState();
+  const library = useLibraryStore.getState();
+  const shown = new Set(
+    ui.activeView === "editor"
+      ? [useEditorStore.getState().selectedImage?.path]
+      : ui.libraryLoupe || ui.isFullScreen
+        ? [library.libraryActivePath]
+        : library.imageList.map((image) => image.path),
+  );
+  const offscreen = changes.filter(
+    ({ path, after }) =>
+      !shown.has(path) &&
+      !(
+        after.kind === "flag" &&
+        [...shown].some(
+          (visible) => visible?.split("?vc=")[0] === path.split("?vc=")[0],
+        )
+      ),
+  );
+  if (offscreen.length)
+    toast.info(noticeText(action, offscreen), { autoClose: 3000 });
+}
+function sameCullingTarget(left: CullingChange, right: CullingChange) {
+  if (left.before.kind !== right.before.kind) return false;
+  if (left.assetId && right.assetId)
+    return (
+      left.assetId === right.assetId &&
+      left.directory === right.directory &&
+      left.path.split("?vc=")[1] === right.path.split("?vc=")[1]
+    );
+  return left.path === right.path;
+}
+/** A partial restore travels only its acknowledged targets. Failed targets
+ * remain in place, so retry cannot undo anything older or lose saved redo. */
+function splitRestored(
+  step: Step,
+  restored: CullingChange[],
+  direction: "undo" | "redo",
+  startedOnBranch: number,
+) {
+  const done = step.changes.filter((change) =>
+    restored.some((receipt) => sameCullingTarget(change, receipt)),
+  );
+  if (!done.length) return step;
+  const remaining = step.changes.filter((change) => !done.includes(change));
+  const failed = remaining.length ? { ...step, changes: remaining } : null;
+  const saved = { ...step, changes: done };
+  const paths = currentTargets.get(step);
+  if (paths) {
+    if (failed)
+      currentTargets.set(
+        failed,
+        paths.filter((_, index) => !done.includes(step.changes[index])),
+      );
+    currentTargets.set(
+      saved,
+      paths.filter((_, index) => done.includes(step.changes[index])),
+    );
+  }
+  const from = direction === "undo" ? "past" : "future";
+  const to = direction === "undo" ? "future" : "past";
+  useCatalogUndoStore.setState((state) => ({
+    [from]: state[from].flatMap((item) =>
+      item === step ? (failed ? [failed] : []) : [item],
+    ),
+    [to]: branch === startedOnBranch ? [...state[to], saved] : state[to],
+  }));
+  return failed;
+}
+
 /** Updates culling indicators only. In particular, Undo never selects a photo
  * or requests auto-advance, and labels preserve unrelated keyword tags. */
 export function showCullingChanges(changes: CullingChange[]) {
@@ -532,16 +615,15 @@ async function travel(
         );
         if (useLibraryStore.getState().sessionDirectory === step.directory) {
           showCullingChanges(changed);
-          const name = changed[0]?.path.split("?vc=")[0].split(/[\\/]/).pop();
-          const more = changed.length > 1 ? ` (+${changed.length - 1})` : "";
-          if (name)
-            toast.info(`${label}: ${name}${more}`, { autoClose: 3000 });
+          notifyOffscreen(label, changed);
         }
       } catch (error) {
-        if (useLibraryStore.getState().sessionDirectory === step.directory)
-          showCullingChanges(
-            (error as { culling?: CullingChange[] } | null)?.culling ?? [],
-          );
+        if (useLibraryStore.getState().sessionDirectory === step.directory) {
+          const restored =
+            (error as { culling?: CullingChange[] } | null)?.culling ?? [];
+          showCullingChanges(restored);
+          notifyOffscreen(label, restored);
+        }
         throw error;
       }
       if (useCatalogUndoStore.getState()[from].includes(step))
@@ -551,15 +633,49 @@ async function travel(
         }));
     }, "catalog", currentTargets.get(step));
   } catch (error) {
-    // Keep the step for retry if a restore failed. Reapplying already saved
-    // values is harmless; a partial restore must never lose its undo record.
-    const message = String((error as { message?: string })?.message ?? error);
-    toast.error(
+    if (!useCatalogUndoStore.getState()[from].includes(step)) return;
+    const failed = splitRestored(
+      step,
+      (error as { culling?: CullingChange[] } | null)?.culling ?? [],
+      direction,
+      startedOnBranch,
+    );
+    const detail = String((error as { message?: string })?.message ?? error);
+    const message =
       direction === "undo"
-        ? i18n.t("studio.library.fileOperations.undoFailed", { error: message })
-        : i18n.t("studio.library.fileOperations.redoFailed", {
-            error: message,
-          }),
+        ? i18n.t("studio.library.fileOperations.undoFailed", { error: detail })
+        : i18n.t("studio.library.fileOperations.redoFailed", { error: detail });
+    if (!failed) {
+      toast.error(message);
+      return;
+    }
+    toast.error(
+      ({ closeToast }) =>
+        createElement(
+          "div",
+          { className: "space-y-2" },
+          createElement("p", null, noticeText(message, failed.changes, 3)),
+          createElement(
+            "button",
+            {
+              type: "button",
+              className: "underline",
+              onClick: () => {
+                const state = useCatalogUndoStore.getState();
+                if (state.busy) return;
+                // Only this explicit click discards the still-failed targets. A
+                // stale notice cannot discard a retried step or another library.
+                if (state[from].includes(failed))
+                  useCatalogUndoStore.setState({
+                    [from]: state[from].filter((item) => item !== failed),
+                  });
+                closeToast();
+              },
+            },
+            i18n.t("undoHistory.skipFailed"),
+          ),
+        ),
+      { autoClose: false },
     );
   } finally {
     useCatalogUndoStore.setState({ busy: false });

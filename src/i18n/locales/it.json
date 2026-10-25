@@ -4108,9 +4108,12 @@
     "file": "Modifica file",
     "flag": "Imposta contrassegno",
     "move": "Sposta",
+    "notice": "{{action}}: {{name}}",
+    "noticeMany": "{{action}}: {{name}} (+{{remaining}})",
     "rating": "Imposta valutazione",
     "redoAction": "Ripeti: {{action}}",
     "rename": "Rinomina",
+    "skipFailed": "Salta elementi non riusciti",
     "trash": "Sposta nel cestino",
     "undoAction": "Annulla: {{action}}"
   },

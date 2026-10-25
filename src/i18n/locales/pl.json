@@ -4216,9 +4216,12 @@
     "file": "Zmiana pliku",
     "flag": "Ustaw flagę",
     "move": "Przenieś",
+    "notice": "{{action}}: {{name}}",
+    "noticeMany": "{{action}}: {{name}} (+{{remaining}})",
     "rating": "Ustaw ocenę",
     "redoAction": "Ponów: {{action}}",
     "rename": "Zmień nazwę",
+    "skipFailed": "Pomiń nieudane elementy",
     "trash": "Przenieś do kosza",
     "undoAction": "Cofnij: {{action}}"
   },
