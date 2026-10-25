@@ -445,7 +445,8 @@ pub struct ProxyInfo {
 /// preview source until `load_image` has decoded it, so Develop shows the
 /// developed photograph at once. None without a stored proxy (`load_image`
 /// then hands over a draft, `DRAFT_EVENT`) or when the full decode is
-/// already in memory (then `load_image` is quick anyway).
+/// already in memory (then `load_image` is quick anyway): decoded before,
+/// or kept by the prefetch for this photograph (`proxy_worker`).
 #[tauri::command]
 pub async fn load_image_proxy(
     path: String,
@@ -464,13 +465,19 @@ pub async fn load_image_proxy(
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = path.clone();
     crate::editor_preview::release_still_for(&state, &path);
-    let decoded_key = decoded_cache_key(&source_path_str, None, stored_decode_variant(&path));
+    let settings = load_settings(app_handle).unwrap_or_default();
+    let variant = stored_decode_variant(&path);
+    let decoded_key = decoded_cache_key(&source_path_str, None, variant);
     if state
         .decoded_image_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .get(&decoded_key)
         .is_some()
+        || crate::proxy_worker::keeps_decode_of(
+            &decoded_key,
+            &crate::preview_proxy::current_key(&source_path, &settings, variant),
+        )
     {
         return Ok(None);
     }
@@ -485,7 +492,6 @@ pub async fn load_image_proxy(
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .get(&path, wanted);
-    let settings = load_settings(app_handle).unwrap_or_default();
     let loaded = if let Some(loaded) = remembered {
         Some(loaded)
     } else {

@@ -423,6 +423,16 @@ pub(crate) fn decode_for_open(
     })
 }
 
+/// Whether a decode is kept for the photograph of decoded-cache key `key`
+/// that its load will take (made as a decode `now` would be).
+pub(crate) fn keeps_decode_of(key: &str, now: &Option<preview_proxy::ProxyKey>) -> bool {
+    AHEAD
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_some_and(|kept| kept.key == key && kept.made.is_some() && kept.made == *now)
+}
+
 /// The decoder's settings changed or the caches were cleared: the decode
 /// kept ahead goes.
 pub(crate) fn forget_ahead() {
