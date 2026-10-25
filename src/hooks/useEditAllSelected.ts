@@ -10,6 +10,7 @@ import { changedCopyableKeys } from '../utils/multiView';
 import { samePhotograph, withoutDetections } from '../utils/settingsClipboard';
 import { frameDrawnMasks } from '../utils/maskGeometry';
 import { globalImageCache } from '../utils/ImageLRUCache';
+import { acceptEdit, type EditPass } from '../utils/editGate';
 import {
   sameAdjustmentValue,
   withClarityVersion,
@@ -59,6 +60,9 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
     if (!enabled) return;
     const run = ++liveRuns;
     let pending: Partial<Adjustments> = {};
+    // Their acceptance: they are written also when the key that shows the
+    // photograph alone turns Edit all off (utils/editGate).
+    let accepted: EditPass | null = null;
     // The photographs selected while the pending edits were made: they get
     // them even when the selection changes before they are written.
     let targets = new Set<string>();
@@ -102,10 +106,12 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
     const flush = debounce(() => {
       const changes = pending;
       const from = source;
+      const carry = accepted;
       const others = [...targets].filter((path) => path !== from?.path);
       pending = {};
+      accepted = null;
       targets = new Set();
-      if (!from || Object.keys(changes).length === 0) return;
+      if (!from || !carry || Object.keys(changes).length === 0) return;
       if (others.length === 0) return;
       const shownBefore = inflight;
       inflight = { ...inflight, ...changes };
@@ -117,11 +123,11 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       // be one of the others, still opening.
       // The others get the primary's layers, with their AI detections made
       // on each of them (never the primary's bitmaps).
-      const done = applyRef.current(withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments), from.adjustments), from.adjustments), others, {
+      const done = carry(() => applyRef.current(withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments), from.adjustments), from.adjustments), others, {
         openingNow: true,
         pasteFrom: from.path,
         replaceLayers: true,
-      });
+      }));
       if (!done) {
         // Nothing was written: the cells show their recipes again.
         if (write === writes) inflight = shownBefore;
@@ -183,6 +189,7 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       if (source && source.path !== image.path) flush.flush();
       source = { path: image.path, adjustments: state.adjustments, width: image.width, height: image.height };
       pending = { ...pending, ...changed };
+      accepted = acceptEdit() ?? accepted;
       selectionRef.current.forEach((path) => {
         if (path === image.path) return;
         targets.add(path);

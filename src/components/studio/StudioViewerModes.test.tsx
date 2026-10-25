@@ -248,6 +248,21 @@ it("puts Develop's crop and layer aside in the full screen and brings them back 
   expect(useEditorStore.getState().activeMaskContainerId).toBe("layer-1");
 });
 
+it("brings the layer's brush or gradient back after the full screen while the layer still has it", () => {
+  useUIStore.setState({ activeView: "editor", activePanel: Panel.Masks });
+  useEditorStore.setState((s) => ({
+    adjustments: { ...s.adjustments, masks: [{ id: "layer-1", subMasks: [{ id: "brush-1" }] }] } as never,
+    activeMaskContainerId: "layer-1",
+    activeMaskId: "brush-1",
+  }));
+  workspace();
+  act(() => useUIStore.getState().toggleFullScreen());
+  expect(useEditorStore.getState()).toMatchObject({ activeMaskContainerId: null, activeMaskId: null });
+  act(() => useUIStore.getState().toggleFullScreen());
+  expect(useEditorStore.getState()).toMatchObject({ activeMaskContainerId: "layer-1", activeMaskId: "brush-1" });
+  useEditorStore.setState((s) => ({ adjustments: { ...s.adjustments, masks: [] }, activeMaskContainerId: null, activeMaskId: null }));
+});
+
 it("does not switch cursor tools while the photograph is shown alone", () => {
   useUIStore.setState({ activeView: "editor" });
   workspace();

@@ -346,6 +346,7 @@ export default function StudioWorkspace(props: Props) {
     path: string | null;
     panel: Panel | null;
     layer: string | null;
+    component: string | null;
     spot: boolean;
     faces: boolean;
     relightHandles: boolean;
@@ -359,6 +360,7 @@ export default function StudioWorkspace(props: Props) {
         path: editor.selectedImage?.path ?? null,
         panel: ui.activePanel,
         layer: editor.activeMaskContainerId,
+        component: editor.activeMaskId,
         spot: editor.isSpotToolActive,
         faces: editor.showFaceBlemishes,
         relightHandles: relight.showHandles,
@@ -392,8 +394,18 @@ export default function StudioWorkspace(props: Props) {
     suspended.current = null;
     if (saved.path !== editor.selectedImage?.path) return;
     if (saved.panel === Panel.Crop || saved.panel === Panel.Masks) ui.setPanel(saved.panel);
+    // The layer's component (its brush or gradient) too, while it is there.
+    const component =
+      saved.layer &&
+      saved.component &&
+      editor.adjustments.masks
+        ?.find((layer) => layer.id === saved.layer)
+        ?.subMasks.some((sub) => sub.id === saved.component)
+        ? saved.component
+        : null;
     editor.setEditor({
       ...(saved.layer ? { activeMaskContainerId: saved.layer } : {}),
+      ...(component ? { activeMaskId: component } : {}),
       isSpotToolActive: saved.spot,
       showFaceBlemishes: saved.faces,
     });

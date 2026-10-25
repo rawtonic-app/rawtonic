@@ -1,11 +1,19 @@
-// One gate for every edit while the photograph is only shown (the Library's
-// loupe and any full screen, utils/viewerMode). Edits are refused where they
-// are applied, not on each way of asking for one (a key, a wheel, a menu,
-// a tool): the open photograph's recipe and history only change in the
-// editor store (`gateEditorUpdate`, applied to every store update), other
-// photographs' recipes only through the commands in `RECIPE_WRITES`
-// (`invokeRecipeWrite`). Saves of edits made before stay allowed, so
-// nothing made in Develop is lost on the way into the full screen.
+// One gate for the user's edits while the photograph is only shown (the
+// Library's loupe and any full screen, utils/viewerMode). Edits are refused
+// where they are applied, not on each way of asking for one (a key, a
+// wheel, a menu, a tool): the open photograph's recipe and history only
+// change in the editor store (`gateEditorUpdate`, applied to every store
+// update), other photographs' recipes only through the commands in
+// `RECIPE_WRITES` (`invokeRecipeWrite`), and the editor's asynchronous edits
+// ask `editsRefused` when they start. What is refused is the user's own
+// edit: one made while a key, pointer, wheel or menu event of the user is
+// handled. Work accepted before, finishing later (an answer from the
+// backend, a write after the saves before it, a recipe written to disk
+// coming back to the editor), and the editor's automatic updates (loading,
+// retouch following the geometry) still apply, so nothing accepted is lost
+// or left half done. An edit accepted earlier but carried out during such
+// an event (Edit all writing its last edits when the key that shows the
+// photograph alone turns it off) carries its acceptance (`acceptEdit`).
 import { invoke, type InvokeArgs } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
 import type { EditorState } from '../store/useEditorStore';
@@ -18,9 +26,43 @@ export function refuseEditsWhen(predicate: () => boolean) {
   refused = predicate;
 }
 
-/** Whether edits are refused now (the photograph is only shown). */
+/** The user's input events: what is done while one is handled is theirs. */
+const USER_INPUT = new Set([
+  'auxclick', 'beforeinput', 'change', 'click', 'compositionend', 'contextmenu', 'cut', 'dblclick', 'drop',
+  'input', 'keydown', 'keyup', 'mousedown', 'mousemove', 'mouseup', 'paste', 'pointerdown', 'pointermove',
+  'pointerup', 'touchend', 'touchmove', 'touchstart', 'wheel',
+]);
+
+function userActing(): boolean {
+  // The event being dispatched (only while its listeners run).
+  const type = typeof window === 'undefined' ? undefined : window.event?.type;
+  return type !== undefined && USER_INPUT.has(type);
+}
+
+// Steps of edits accepted earlier being carried out (`acceptEdit`).
+let carried = 0;
+
+/** Whether an edit asked for now is refused: the user's own while the
+ * photograph is only shown. */
 export function editsRefused(): boolean {
-  return refused();
+  return carried === 0 && refused() && userActing();
+}
+
+/** Runs a step of an edit accepted earlier with the gate open. */
+export type EditPass = <T>(step: () => T) => T;
+
+/** The acceptance of an edit made now, to carry out later; null when it is
+ * refused. */
+export function acceptEdit(): EditPass | null {
+  if (editsRefused()) return null;
+  return (step) => {
+    carried++;
+    try {
+      return step();
+    } finally {
+      carried--;
+    }
+  };
 }
 
 /** The commands that write recipes of photographs by path. */
@@ -49,7 +91,7 @@ export function invokeRecipeWrite<T = unknown>(command: RecipeWrite, args: Invok
 }
 
 /** Editor states that make a click or drag on the photograph edit it (or
- * draw a tool's handles over it): only turning them off passes the gate. */
+ * draw a tool's handles over it): the user can only turn them off. */
 export const EDIT_TOOL_STATES = [
   'activeMaskContainerId',
   'activeMaskId',
@@ -72,7 +114,8 @@ export const EDIT_TOOL_STATES = [
  * refused. A change of the ready open photograph's recipe (an edit, undo,
  * redo, a paste or reset) is refused whole; a new photograph's recipe
  * (loading, which publishes `selectedImage` with it or comes before the
- * photograph is ready) passes. Tools may be turned off, not on.
+ * photograph is ready, also on a key that steps to the next one) passes.
+ * Tools may be turned off, not on.
  */
 export function gateEditorUpdate(state: EditorState, next: Partial<EditorState>): Partial<EditorState> {
   const image = state.selectedImage;

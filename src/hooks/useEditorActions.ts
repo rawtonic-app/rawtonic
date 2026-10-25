@@ -532,7 +532,8 @@ export function useEditorActions() {
 
   const handleAutoAdjustments = useCallback(async () => {
     const selectedImage = useEditorStore.getState().selectedImage;
-    if (!selectedImage?.isReady) return;
+    // Its answer comes later: refused when asked for (utils/editGate).
+    if (!selectedImage?.isReady || editsRefused()) return;
     try {
       // The backend picks the auto method for the edit's base look.
       const current = useEditorStore.getState().adjustments;
@@ -567,6 +568,7 @@ export function useEditorActions() {
   const handleAutoStraighten = useCallback((): Promise<'done' | 'none' | 'stale'> => {
     // One analysis at a time, whichever way it was asked for (button,
     // shortcut, menu): a second request joins the running one.
+    if (editsRefused()) return Promise.resolve('stale');
     autoStraightenRunning ??= runAutoStraightenOnce(setAdjustments).finally(() => {
       autoStraightenRunning = null;
     });
@@ -576,7 +578,7 @@ export function useEditorActions() {
   // Background only: a layer's white balance is a relative local correction.
   const handleAutoWhiteBalance = useCallback(async () => {
     const selectedImage = useEditorStore.getState().selectedImage;
-    if (!selectedImage?.isReady) return;
+    if (!selectedImage?.isReady || editsRefused()) return;
     try {
       const balance = await autoWhiteBalance(selectedImage);
       if (!isCurrentEditorImage(selectedImage.path)) return;
@@ -613,7 +615,7 @@ export function useEditorActions() {
   const handleLutSelect = useCallback(
     async (path: string, isBuiltIn: boolean = false, displayName?: string) => {
       const image = useEditorStore.getState().selectedImage;
-      if (!image?.isReady) return;
+      if (!image?.isReady || editsRefused()) return;
       try {
         const result: { size: number } = await invoke(Invokes.LoadAndParseLut, { path });
         const name = displayName ?? (path.split(/[\\/]/).pop() || 'LUT');
@@ -659,6 +661,8 @@ export function useEditorActions() {
 
   const handleResetAdjustments = useCallback(
     (paths?: string[]) => {
+      // Written after the saves before it: refused when asked for.
+      if (editsRefused()) return;
       const { multiSelectedPaths, libraryActivePath, setLibrary } = useLibraryStore.getState();
       const { selectedImage, pushHistory } = useEditorStore.getState();
       const pathsToReset = paths || multiSelectedPaths;
@@ -698,6 +702,7 @@ export function useEditorActions() {
 
   const handleAutoLensCorrection = useCallback(
     (paths?: string[]) => {
+      if (editsRefused()) return;
       const { multiSelectedPaths, libraryActivePath, setLibrary } = useLibraryStore.getState();
       const { selectedImage, resetHistory } = useEditorStore.getState();
 
@@ -774,6 +779,7 @@ export function useEditorActions() {
       // versions values mean go along, unless the settings were chosen in the
       // picker (`asChosen`): those carry them only when chosen there, else
       // each photograph keeps its own (a never-edited one: a new edit's).
+      if (editsRefused()) return;
       const grain = withGrainStructure(partial);
       const adjustmentsToApply = asChosen
         ? grain

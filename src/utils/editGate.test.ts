@@ -7,7 +7,7 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { useUIStore } from '../store/useUIStore';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from './adjustments';
 import { Invokes } from '../components/ui/AppProperties';
-import { EDIT_TOOL_STATES, RECIPE_WRITES, ViewOnlyRefusal, editsRefused, invokeRecipeWrite } from './editGate';
+import { EDIT_TOOL_STATES, RECIPE_WRITES, ViewOnlyRefusal, acceptEdit, editsRefused, invokeRecipeWrite } from './editGate';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), warn: vi.fn() } }));
@@ -51,6 +51,19 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+/** `step` done as the user, while one of their events is handled. */
+function asUser<T>(type: string, step: () => T): T {
+  let out: T | undefined;
+  const listener = () => {
+    out = step();
+  };
+  window.addEventListener(type, listener, { once: true });
+  window.dispatchEvent(new Event(type));
+  return out as T;
+}
+// The user's ways in: a key, the wheel (the crop zoom), a click (a menu).
+const INPUTS = ['keydown', 'wheel', 'click'] as const;
+
 const recipeWrites = () =>
   vi.mocked(invoke).mock.calls.filter(([command]) => (RECIPE_WRITES as readonly string[]).includes(command));
 
@@ -81,12 +94,14 @@ const EDITS: Array<[string, (actions: Actions) => unknown]> = [
 ];
 
 describe.each(Object.entries(MODES))('in %s', (_mode, ui) => {
-  it.each(EDITS)('refuses %s', async (_name, edit) => {
+  it.each(INPUTS.flatMap((input) => EDITS.map(([name, edit]) => [name, input, edit] as const)))(
+    'refuses %s on a %s',
+    async (_name, input, edit) => {
     const { result } = renderHook(useEditorActions);
     act(() => useUIStore.setState(ui));
-    expect(editsRefused()).toBe(true);
+    expect(asUser(input, editsRefused)).toBe(true);
     await act(async () => {
-      await edit(result.current);
+      await asUser(input, () => edit(result.current));
     });
     debouncedSetHistory.flush();
     const editor = useEditorStore.getState();
@@ -94,32 +109,107 @@ describe.each(Object.entries(MODES))('in %s', (_mode, ui) => {
     expect(editor.historyIndex).toBe(1);
     expect(editor.history).toEqual([earlier, shown, later]);
     expect(recipeWrites()).toEqual([]);
-  });
+    },
+  );
 
-  it.each(EDIT_TOOL_STATES)('keeps %s from turning on', (key) => {
+  it.each(EDIT_TOOL_STATES)('keeps the user from turning %s on', (key) => {
     act(() => useUIStore.setState(ui));
-    useEditorStore.getState().setEditor({ [key]: 'on' } as never);
-    useEditorStore.setState({ [key]: 'on' } as never);
+    asUser('click', () => {
+      useEditorStore.getState().setEditor({ [key]: 'on' } as never);
+      useEditorStore.setState({ [key]: 'on' } as never);
+    });
     expect(useEditorStore.getState()[key]).toBeNull();
   });
 
-  it.each(RECIPE_WRITES)('refuses the recipe write %s without asking the backend', async (command) => {
+  it.each(RECIPE_WRITES)('refuses the recipe write %s of the user without asking the backend', async (command) => {
     act(() => useUIStore.setState(ui));
-    await expect(invokeRecipeWrite(command, { paths: ['/s/a.dng'] })).rejects.toBeInstanceOf(ViewOnlyRefusal);
+    await expect(asUser('click', () => invokeRecipeWrite(command, { paths: ['/s/a.dng'] }))).rejects.toBeInstanceOf(
+      ViewOnlyRefusal,
+    );
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it('lets the next photograph load and a tool be turned off', () => {
+  it('lets the next photograph load on a key and a tool be turned off', () => {
     useEditorStore.setState({ isSpotToolActive: true });
     act(() => useUIStore.setState(ui));
-    useEditorStore.getState().setEditor({ isSpotToolActive: false });
-    expect(useEditorStore.getState().isSpotToolActive).toBe(false);
-    // Published with its source (useImageLoader), or before it is ready.
-    useEditorStore.getState().setEditor({ selectedImage: photo('/s/c.dng', false) });
-    useEditorStore.getState().setEditor({ adjustments: earlier });
-    expect(useEditorStore.getState().adjustments).toBe(earlier);
-    useEditorStore.getState().setEditor({ selectedImage: photo('/s/c.dng'), adjustments: later, history: [later], historyIndex: 0 });
+    asUser('keydown', () => {
+      useEditorStore.getState().setEditor({ isSpotToolActive: false });
+      // Published with its source (useImageLoader), or before it is ready.
+      useEditorStore.getState().setEditor({ selectedImage: photo('/s/c.dng', false) });
+      useEditorStore.getState().setEditor({ adjustments: earlier });
+    });
+    expect(useEditorStore.getState()).toMatchObject({ isSpotToolActive: false, adjustments: earlier });
+    asUser('keydown', () =>
+      useEditorStore.getState().setEditor({ selectedImage: photo('/s/c.dng'), adjustments: later, history: [later], historyIndex: 0 }),
+    );
     expect(useEditorStore.getState()).toMatchObject({ adjustments: later, historyIndex: 0 });
+  });
+
+  it("applies the editor's own updates outside the user's events (answers, retouch following the geometry)", () => {
+    act(() => useUIStore.setState(ui));
+    updateAdjustments({ exposure: 1 });
+    expect(useEditorStore.getState().adjustments.exposure).toBe(1);
+  });
+
+  it('carries out an edit accepted before, also during a key event (Edit all turned off by F)', async () => {
+    const accepted = acceptEdit()!;
+    act(() => useUIStore.setState(ui));
+    expect(asUser('keydown', () => acceptEdit())).toBeNull();
+    await asUser('keydown', () =>
+      accepted(() => {
+        updateAdjustments({ exposure: 1 });
+        return invokeRecipeWrite(Invokes.ApplyAdjustmentsToPaths, { paths: ['/s/a.dng'] });
+      }),
+    );
+    expect(useEditorStore.getState().adjustments.exposure).toBe(1);
+    expect(recipeWrites()).toHaveLength(1);
+  });
+});
+
+// Asked for in Develop, answered or written after F showed the photograph
+// alone: what was accepted is done, and the editor shows what is on disk.
+describe('work accepted before the photograph is only shown', () => {
+  type Held = { command: string; resolve(value: unknown): void };
+  let held: Held[];
+  const answer = async (command: string, value?: unknown) => {
+    await act(async () => {});
+    const request = held.find((r) => r.command === command)!;
+    held = held.filter((r) => r !== request);
+    await act(async () => request.resolve(value));
+    await act(async () => {});
+  };
+  const pressF = () => asUser('keydown', () => act(() => useUIStore.setState(MODES['the full screen from Develop'])));
+  beforeEach(() => {
+    held = [];
+    vi.mocked(invoke).mockImplementation((command) => new Promise((resolve) => held.push({ command, resolve })));
+  });
+
+  it('applies Auto answered after F', async () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => void result.current.handleAutoAdjustments());
+    pressF();
+    await answer(Invokes.CalculateAutoAdjustments, { ...INITIAL_ADJUSTMENTS, exposure: 4 });
+    expect(useEditorStore.getState().adjustments.exposure).toBe(4);
+  });
+
+  it('shows the reset written after F, as one step', async () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => result.current.handleResetAdjustments(['/s/b.dng']));
+    pressF();
+    await answer(Invokes.ResetAdjustmentsForPaths);
+    const editor = useEditorStore.getState();
+    expect(editor.adjustments.exposure).toBe(0);
+    expect(editor.history.at(-1)).toBe(editor.adjustments);
+    expect(editor.historyIndex).toBe(editor.history.length - 1);
+  });
+
+  it('shows the auto lens correction written after F', async () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => result.current.handleAutoLensCorrection(['/s/b.dng']));
+    pressF();
+    await answer(Invokes.ApplyAutoLensCorrectionToPaths);
+    await answer(Invokes.LoadMetadata, { adjustments: { ...INITIAL_ADJUSTMENTS, lensMaker: 'Maker', lensModel: '35mm' } });
+    expect(useEditorStore.getState().adjustments.lensModel).toBe('35mm');
   });
 });
 
