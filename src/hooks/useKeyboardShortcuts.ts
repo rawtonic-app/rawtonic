@@ -111,6 +111,10 @@ export const useKeyboardShortcuts = ({
   // The crop as it was when the crop tool opened: Escape restores it and
   // leaves the tool (Lightroom), Enter keeps the change.
   const cropEntry = useRef<{ path: string; values: Record<string, unknown> } | null>(null);
+  // F pressed during a held stroke: the full screen waiting for its
+  // release, as its cancel.
+  const pendingFullScreen = useRef<(() => void) | null>(null);
+  useEffect(() => () => pendingFullScreen.current?.(), []);
   useEffect(() => {
     const take = (panel: Panel | null) => {
       const { adjustments, selectedImage } = useEditorStore.getState();
@@ -567,11 +571,37 @@ export const useKeyboardShortcuts = ({
           if (!s.ui.isFullScreen && s.ui.activeView !== 'editor' && active && active !== s.editor.selectedImage?.path) {
             handleImageSelect(active, false);
           }
-          // A stroke under way ends before the viewer changes its size.
-          if (s.ui.isFullScreen) useUIStore.getState().toggleFullScreen();
-          else afterPointerRelease(() => {
-            if (!useUIStore.getState().isFullScreen) useUIStore.getState().toggleFullScreen();
+          // A stroke under way ends before the viewer changes its size: the
+          // full screen opens on its release. F again cancels that; so does
+          // any other choice of view or photograph meanwhile.
+          if (pendingFullScreen.current) {
+            pendingFullScreen.current();
+            pendingFullScreen.current = null;
+            return;
+          }
+          if (s.ui.isFullScreen) {
+            useUIStore.getState().toggleFullScreen();
+            return;
+          }
+          const asked = useUIStore.getState();
+          const view = [asked.activeView, asked.libraryLoupe, asked.isFullScreen];
+          let unchanged = true;
+          const stopWatching = useUIStore.subscribe((ui) => {
+            if (ui.activeView !== view[0] || ui.libraryLoupe !== view[1] || ui.isFullScreen !== view[2]) unchanged = false;
           });
+          const asksFor = useEditorStore.getState().selectedImage?.path ?? active;
+          const cancel = afterPointerRelease(() => {
+            pendingFullScreen.current = null;
+            stopWatching();
+            const shown = useEditorStore.getState().selectedImage?.path;
+            if (unchanged && (!asksFor || shown === asksFor)) useUIStore.getState().toggleFullScreen();
+          });
+          pendingFullScreen.current = () => {
+            cancel();
+            stopWatching();
+          };
+          // Opened at once (nothing held): nothing is waiting.
+          if (useUIStore.getState().isFullScreen) pendingFullScreen.current = null;
         },
       },
       toggle_window_fullscreen: {

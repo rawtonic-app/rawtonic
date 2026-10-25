@@ -24,19 +24,29 @@ export function pointerHeld(): boolean {
 }
 
 /** Runs `action` now, or after the held pointer's release once the
- * gesture's own release handlers have run. */
-export function afterPointerRelease(action: () => void): void {
+ * gesture's own release handlers have run (the release is seen in the
+ * capture phase, so a handler that stops it does not keep it from here).
+ * Returns a cancel for an action still waiting. */
+export function afterPointerRelease(action: () => void): () => void {
   if (!held) {
     action();
-    return;
+    return () => {};
   }
-  const released = () => {
-    window.removeEventListener('pointerup', released);
-    window.removeEventListener('pointercancel', released);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const stop = () => {
+    window.removeEventListener('pointerup', released, true);
+    window.removeEventListener('pointercancel', released, true);
     window.removeEventListener('blur', released);
-    setTimeout(action, 0);
   };
-  window.addEventListener('pointerup', released);
-  window.addEventListener('pointercancel', released);
+  const released = () => {
+    stop();
+    timer = setTimeout(action, 0);
+  };
+  window.addEventListener('pointerup', released, true);
+  window.addEventListener('pointercancel', released, true);
   window.addEventListener('blur', released);
+  return () => {
+    stop();
+    clearTimeout(timer);
+  };
 }

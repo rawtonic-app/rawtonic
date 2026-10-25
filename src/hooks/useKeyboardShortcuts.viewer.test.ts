@@ -268,3 +268,61 @@ it("opens the full screen after a brush stroke held as F is pressed, not in the 
     vi.useRealTimers();
   }
 });
+
+it("opens the full screen after a held release that a handle stops, and only once", () => {
+  vi.useFakeTimers();
+  try {
+    useUIStore.setState({ activeView: "editor" });
+    const handle = document.createElement("div");
+    document.body.append(handle);
+    handle.addEventListener("pointerup", (e) => e.stopPropagation());
+    handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    press("KeyF");
+    handle.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    vi.runAllTimers();
+    expect(useUIStore.getState().isFullScreen).toBe(true);
+    press("KeyF");
+    expect(useUIStore.getState().isFullScreen).toBe(false);
+    // Nothing still waits: a later release opens nothing.
+    window.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    vi.runAllTimers();
+    expect(useUIStore.getState().isFullScreen).toBe(false);
+    handle.remove();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("drops a full screen waiting for a held release when F is pressed again or another view is chosen", () => {
+  vi.useFakeTimers();
+  try {
+    const hold = () => window.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    const release = () => {
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+      vi.runAllTimers();
+    };
+    useUIStore.setState({ activeView: "editor" });
+    hold();
+    press("KeyF");
+    press("KeyF");
+    release();
+    expect(useUIStore.getState().isFullScreen).toBe(false);
+    // In the Library: G (the grid) while held supersedes it.
+    useUIStore.setState({ activeView: "library", libraryLoupe: true });
+    hold();
+    press("KeyF");
+    useUIStore.getState().setUI({ libraryLoupe: false });
+    release();
+    expect(useUIStore.getState().isFullScreen).toBe(false);
+    // So does another photograph.
+    useUIStore.setState({ activeView: "editor", libraryLoupe: false });
+    hold();
+    press("KeyF");
+    open("/s/c.dng");
+    release();
+    expect(useUIStore.getState().isFullScreen).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
