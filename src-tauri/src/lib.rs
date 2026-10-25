@@ -31,6 +31,7 @@ mod costyle;
 mod culling;
 mod editor_preview;
 mod embedded_lens;
+mod embedded_still;
 #[cfg(test)]
 mod engine_tools;
 mod exif_processing;
@@ -867,6 +868,7 @@ pub fn run() {
             multi_view::set_multi_view_zoom,
             multi_view::set_multi_view_live,
             proxy_worker::prepare_preview_proxies,
+            embedded_still::prepare_embedded_stills,
             proxy_worker::build_previews,
             proxy_worker::stop_preview_build,
             proxy_worker::preview_build_progress,

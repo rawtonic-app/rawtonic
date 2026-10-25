@@ -2045,7 +2045,15 @@ pub(crate) async fn activate_photo(
                     "[PERF] {}",
                     serde_json::json!({ "stage": "activate_photo_skipped", "reason": "no proxy" })
                 );
-                return Ok(show_still(&app_handle, &path, viewport).await);
+                let never_edited = crate::embedded_still::never_edited(
+                    &adjustments
+                        .clone()
+                        .filter(|a| a.is_object())
+                        .unwrap_or_else(|| {
+                            crate::exif_processing::load_sidecar(&sidecar_path).adjustments
+                        }),
+                );
+                return Ok(show_still(&app_handle, &path, viewport, never_edited).await);
             };
             state
                 .proxy_memory
@@ -2141,14 +2149,23 @@ pub(crate) async fn activate_photo(
     Ok(Activation::Developed)
 }
 
-/// The photograph's cached medium thumbnail (developed with its stored
-/// recipe, or the camera's preview of an unedited RAW: already turned and
-/// cropped as it is shown), presented natively in the fit placement of
-/// `viewport` until its first developed frame: real pixels of that
-/// photograph at once instead of the previous one, then refined in the
-/// same place. Nothing when there is no thumbnail, another photograph was
-/// asked for meanwhile, or a developed frame of it is already shown.
-async fn show_still(app_handle: &tauri::AppHandle, path: &str, viewport: [f32; 4]) -> Activation {
+/// A real image of the photograph presented natively in the fit placement
+/// of `viewport` until its first developed frame: instead of the previous
+/// photograph at once, then refined in the same place. A never-edited RAW
+/// (`never_edited`) shows its camera's embedded JPEG at the size shown
+/// (`embedded_still`): at once when it was prepared ahead, else after its
+/// cached medium thumbnail (the same camera JPEG, smaller), which it then
+/// replaces in the same placement; an edited one, and a RAW without an
+/// embedded JPEG, its cached thumbnail (developed with its stored recipe,
+/// already turned and cropped as it is shown). Nothing when there is
+/// neither, another photograph was asked for meanwhile, or a developed
+/// frame of it is already shown.
+async fn show_still(
+    app_handle: &tauri::AppHandle,
+    path: &str,
+    viewport: [f32; 4],
+    never_edited: bool,
+) -> Activation {
     let state = app_handle.state::<AppState>();
     let Some(context) = state
         .gpu_context
@@ -2158,41 +2175,114 @@ async fn show_still(app_handle: &tauri::AppHandle, path: &str, viewport: [f32; 4
     else {
         return Activation::None;
     };
-    let (app, wanted) = (app_handle.clone(), path.to_string());
-    let still = tokio::task::spawn_blocking(move || {
+    let (source, _) = parse_virtual_path(path);
+    let view = (viewport[2].max(1.0) as u32, viewport[3].max(1.0) as u32);
+    let space = context.display_space;
+    let embedded = never_edited
+        .then(|| crate::embedded_still::kept(&source, view, space))
+        .flatten();
+    if let Some(still) = embedded {
+        return match present_still_of(
+            app_handle, &context, path, viewport, &still, "embedded", false,
+        ) {
+            true => Activation::Still,
+            false => Activation::None,
+        };
+    }
+    let (app, wanted, raw) = (app_handle.clone(), path.to_string(), source.clone());
+    let thumbnail = tokio::task::spawn_blocking(move || {
         let file = crate::file_management::cached_medium_thumbnail(&app, &wanted)?;
         let bytes = std::fs::read(file).ok()?;
-        let mut still = image::load_from_memory_with_format(&bytes, image::ImageFormat::Jpeg)
+        let mut image = image::load_from_memory_with_format(&bytes, image::ImageFormat::Jpeg)
             .ok()?
             .to_rgba8();
-        gpu_processing::srgb_to_display(context.display_space, &mut still);
-        Some((still, context))
+        gpu_processing::srgb_to_display(space, &mut image);
+        // A never-edited RAW's thumbnail is its camera JPEG: framed like the
+        // development, as the embedded JPEG replacing it will be (header
+        // tags of the memory-mapped file only; never a cloud file not
+        // downloaded yet).
+        let developed = (never_edited && crate::preview_proxy::source_available(&raw))
+            .then(|| crate::embedded_still::frame_of(&raw))
+            .flatten()
+            .and_then(|frame| frame.size);
+        Some(crate::embedded_still::framed(image, developed))
     })
     .await
     .ok()
     .flatten();
-    let Some((still, context)) = still else {
-        return Activation::None;
-    };
-    let (width, height) = still.dimensions();
-    let rect = gpu_processing::fit_placement(viewport, width as f32, height as f32);
+    let shown = thumbnail.is_some_and(|still| {
+        present_still_of(
+            app_handle,
+            &context,
+            path,
+            viewport,
+            &still,
+            "thumbnail",
+            false,
+        )
+    });
+    if never_edited {
+        // The camera's JPEG at the size shown replaces the thumbnail (or
+        // stands in for a missing one) while no developed frame is in.
+        let (app, wanted) = (app_handle.clone(), path.to_string());
+        let upgrade = async move {
+            let decoded = tokio::task::spawn_blocking(move || {
+                crate::embedded_still::still_for(&source, view, space)
+            })
+            .await
+            .ok()
+            .flatten()?;
+            Some(present_still_of(
+                &app, &context, &wanted, viewport, &decoded, "embedded", true,
+            ))
+        };
+        if !shown {
+            return match upgrade.await {
+                Some(true) => Activation::Still,
+                _ => Activation::None,
+            };
+        }
+        tokio::spawn(upgrade);
+    }
+    if shown {
+        Activation::Still
+    } else {
+        Activation::None
+    }
+}
+
+/// Presents `still` as the frame of `path` (`present_if_current`; with
+/// `replace_still` also over a still of it already shown). Whether it was.
+fn present_still_of(
+    app_handle: &tauri::AppHandle,
+    context: &image_processing::GpuContext,
+    path: &str,
+    viewport: [f32; 4],
+    still: &crate::embedded_still::Still,
+    _source: &str,
+    replace_still: bool,
+) -> bool {
+    let state = app_handle.state::<AppState>();
+    let rect = gpu_processing::fit_placement(viewport, still.shown.0 as f32, still.shown.1 as f32);
     let shown = present_if_current(
         &context.display,
         &state.current_source,
         path,
         viewport,
-        |display| display.present_still(&context.device, &context.queue, &still, path, rect),
+        replace_still,
+        |display| display.present_still(&context.device, &context.queue, &still.image, path, rect),
     );
-    if !shown {
-        return Activation::None;
-    }
     #[cfg(feature = "performance-profiling")]
-    log::info!(
-        "[PERF] {}",
-        serde_json::json!({ "stage": "still_preview_presented", "width": width, "height": height,
-            "epoch_ms": crate::performance::epoch_ms() })
-    );
-    Activation::Still
+    if shown {
+        let (width, height) = still.image.dimensions();
+        log::info!(
+            "[PERF] {}",
+            serde_json::json!({ "stage": "still_preview_presented", "source": _source,
+                "width": width, "height": height, "rect": rect,
+                "epoch_ms": crate::performance::epoch_ms() })
+        );
+    }
+    shown
 }
 
 /// A photograph is asked for (`current_source` set to `path`): a still of
@@ -2217,12 +2307,16 @@ pub(crate) fn release_still_for(state: &AppState, path: &str) {
 /// What a still is presented on: the display, or a test's.
 trait StillDisplay {
     fn frame_path(&self) -> Option<&str>;
+    fn shows_still_of(&self, path: &str) -> bool;
     fn viewport(&self) -> Option<[f32; 4]>;
 }
 
 impl StillDisplay for gpu_processing::WgpuDisplay {
     fn frame_path(&self) -> Option<&str> {
         gpu_processing::WgpuDisplay::frame_path(self)
+    }
+    fn shows_still_of(&self, path: &str) -> bool {
+        gpu_processing::WgpuDisplay::shows_still_of(self, path)
     }
     fn viewport(&self) -> Option<[f32; 4]> {
         self.viewport
@@ -2240,6 +2334,7 @@ fn present_if_current<D: StillDisplay>(
     current: &std::sync::Mutex<String>,
     path: &str,
     viewport: [f32; 4],
+    replace_still: bool,
     present: impl FnOnce(&mut D) -> bool,
 ) -> bool {
     let mut display = display.lock().unwrap_or_else(|e| e.into_inner());
@@ -2248,7 +2343,7 @@ fn present_if_current<D: StillDisplay>(
     };
     let asked_for = *current.lock().unwrap_or_else(|e| e.into_inner()) == path;
     asked_for
-        && display.frame_path() != Some(path)
+        && (display.frame_path() != Some(path) || (replace_still && display.shows_still_of(path)))
         && display.viewport() == Some(viewport)
         && present(display)
 }
@@ -3599,6 +3694,8 @@ mod still_tests {
 
     struct Shown {
         frame: Option<String>,
+        /// The frame is a still (no developed frame of it yet).
+        still: bool,
         viewport: Option<[f32; 4]>,
     }
 
@@ -3606,13 +3703,17 @@ mod still_tests {
         fn frame_path(&self) -> Option<&str> {
             self.frame.as_deref()
         }
+        fn shows_still_of(&self, path: &str) -> bool {
+            self.still && self.frame.as_deref() == Some(path)
+        }
         fn viewport(&self) -> Option<[f32; 4]> {
             self.viewport
         }
     }
 
     fn present(display: &mut Shown) -> bool {
-        display.frame = Some("B still".into());
+        display.frame = Some("B".into());
+        display.still = true;
         true
     }
 
@@ -3620,28 +3721,70 @@ mod still_tests {
     fn a_still_shows_only_while_its_photograph_is_wanted_and_undeveloped_at_fit() {
         let display = Mutex::new(Some(Shown {
             frame: Some("A".into()),
+            still: false,
             viewport: Some(FIT),
         }));
         let current = Mutex::new("C".to_string());
-        assert!(!present_if_current(&display, &current, "B", FIT, present));
+        assert!(!present_if_current(
+            &display, &current, "B", FIT, false, present
+        ));
         *current.lock().unwrap() = "B".into();
         assert!(!present_if_current(
-            &display, &current, "B", [0.0; 4], present
+            &display, &current, "B", [0.0; 4], false, present
         ));
         display.lock().unwrap().as_mut().unwrap().frame = Some("B".into());
-        assert!(!present_if_current(&display, &current, "B", FIT, present));
+        assert!(!present_if_current(
+            &display, &current, "B", FIT, false, present
+        ));
         display.lock().unwrap().as_mut().unwrap().frame = Some("A".into());
-        assert!(present_if_current(&display, &current, "B", FIT, present));
-        assert_eq!(
-            display.lock().unwrap().as_ref().unwrap().frame.as_deref(),
-            Some("B still")
-        );
+        assert!(present_if_current(
+            &display, &current, "B", FIT, false, present
+        ));
+        let shown = display.lock().unwrap();
+        assert_eq!(shown.as_ref().unwrap().frame.as_deref(), Some("B"));
+        assert!(shown.as_ref().unwrap().still);
+    }
+
+    /// The camera JPEG at the size shown replaces the photograph's
+    /// thumbnail still, never its developed frame nor another's still.
+    #[test]
+    fn a_better_still_replaces_only_a_still_of_its_photograph() {
+        let display = Mutex::new(Some(Shown {
+            frame: Some("B".into()),
+            still: true,
+            viewport: Some(FIT),
+        }));
+        let current = Mutex::new("B".to_string());
+        assert!(!present_if_current(
+            &display, &current, "B", FIT, false, present
+        ));
+        assert!(present_if_current(
+            &display, &current, "B", FIT, true, present
+        ));
+        // B's developed frame is in.
+        display.lock().unwrap().as_mut().unwrap().still = false;
+        assert!(!present_if_current(
+            &display, &current, "B", FIT, true, present
+        ));
+        // A still of A is shown while B is asked for: B's still replaces it
+        // as any frame of another photograph.
+        {
+            let mut shown = display.lock().unwrap();
+            let shown = shown.as_mut().unwrap();
+            shown.frame = Some("A".into());
+            shown.still = true;
+        }
+        *current.lock().unwrap() = "A".into();
+        assert!(!present_if_current(
+            &display, &current, "B", FIT, true, present
+        ));
     }
 
     #[test]
     fn a_still_never_covers_a_frame_of_a_photograph_asked_for_after_it() {
         let display = Arc::new(Mutex::new(Some(Shown {
             frame: Some("A".into()),
+            still: false,
             viewport: Some(FIT),
         })));
         let current = Arc::new(Mutex::new("B".to_string()));
@@ -3650,7 +3793,9 @@ mod still_tests {
         let presenting = display.lock().unwrap();
         let still = {
             let (display, current) = (Arc::clone(&display), Arc::clone(&current));
-            std::thread::spawn(move || present_if_current(&display, &current, "B", FIT, present))
+            std::thread::spawn(move || {
+                present_if_current(&display, &current, "B", FIT, false, present)
+            })
         };
         std::thread::sleep(Duration::from_millis(50));
         *current.lock().unwrap() = "C".into();

@@ -42,6 +42,11 @@ const NIKON_ISO: u16 = 0x0002;
 const SONY_VIGNETTING_SETTING: u16 = 0x2011;
 const SONY_DISTORTION_SETTING: u16 = 0x2013;
 const NIKON_ISO_INFO: u16 = 0x0025;
+const NIKON_COLOR_SPACE: u16 = 0x001e;
+const EXIF_COLOR_SPACE: u16 = 0xa001;
+const EXIF_INTEROP_POINTER: u16 = 0xa005;
+const INTEROP_INDEX: u16 = 0x0001;
+const DNG_PREVIEW_COLOR_SPACE: u16 = 50970;
 const OLYMPUS_SENSOR_CALIBRATION: u16 = 0x0805;
 const OLYMPUS_DISTORTION: u16 = 0x150a;
 const OLYMPUS_CHROMATIC_ABERRATION: u16 = 0x150c;
@@ -343,6 +348,99 @@ pub fn panasonic_ca_info(path: &str) -> Option<([i16; 32], f64)> {
         }
     })?;
     Some((values, half_diagonal))
+}
+
+/// Whether the camera wrote its JPEGs (and the embedded previews of a RAW)
+/// in Adobe RGB rather than sRGB, from a TIFF-based file's bytes: EXIF
+/// ColorSpace 2, or Uncalibrated (0xffff) with the interoperability index
+/// "R03" (DCF's Adobe RGB option), else Nikon's maker-note ColorSpace
+/// (0x001e: 1 sRGB, 2 Adobe RGB; Nikon's embedded previews carry no EXIF
+/// of their own). `None` when the file says neither.
+pub fn camera_adobe_rgb(data: &[u8]) -> Option<bool> {
+    let little = match data.get(..2)? {
+        b"II" => true,
+        b"MM" => false,
+        _ => return None,
+    };
+    let root_at = SliceIfd::new(data, 0, little).u32(4)? as usize;
+    let root = SliceIfd::new(data, root_at, little);
+    let exif_at = root.entry(EXIF_IFD_POINTER).map(|e| e.3)?;
+    let exif = SliceIfd::new(data, root.u32(exif_at)? as usize, little);
+    let short = |ifd: &SliceIfd, tag: u16| ifd.shorts(tag).and_then(|v| v.first().copied());
+    match short(&exif, EXIF_COLOR_SPACE) {
+        Some(1) => return Some(false),
+        Some(2) => return Some(true),
+        Some(0xffff) => {
+            let interop = exif
+                .entry(EXIF_INTEROP_POINTER)
+                .and_then(|e| exif.u32(e.3))
+                .map(|at| SliceIfd::new(data, at as usize, little));
+            if let Some(index) = interop.as_ref().and_then(|ifd| ifd.bytes(INTEROP_INDEX)) {
+                return Some(index.starts_with(b"R03"));
+            }
+        }
+        _ => {}
+    }
+    nikon_adobe_rgb(exif.bytes(MAKER_NOTE)?)
+}
+
+/// A DNG preview's colour space as its IFD declares it (PreviewColorSpace,
+/// tag 50970: 1 grey gamma 2.2, 2 sRGB, 3 Adobe RGB, 4 ProPhoto; 0 or
+/// missing: unknown): the IFD among IFD0's chain and their SubIFDs whose
+/// image data (strip or JPEGInterchangeFormat) starts at `offset`.
+pub fn dng_preview_color_space(data: &[u8], offset: usize) -> Option<u32> {
+    let little = match data.get(..2)? {
+        b"II" => true,
+        b"MM" => false,
+        _ => return None,
+    };
+    let mut queue = vec![SliceIfd::new(data, 0, little).u32(4)? as usize];
+    let mut seen = Vec::new();
+    while let Some(at) = queue.pop() {
+        if at == 0 || seen.contains(&at) || seen.len() > 64 {
+            continue;
+        }
+        seen.push(at);
+        let ifd = SliceIfd::new(data, at, little);
+        let first = |tag| ifd.reals(tag).and_then(|v| v.first().copied());
+        if [0x0111, 0x0201]
+            .iter()
+            .any(|&tag| first(tag) == Some(offset as f64))
+        {
+            return first(DNG_PREVIEW_COLOR_SPACE)
+                .map(|v| v as u32)
+                .filter(|&v| v > 0);
+        }
+        if let Some(subs) = ifd.reals(SUB_IFDS) {
+            queue.extend(subs.into_iter().map(|v| v as usize));
+        }
+        let count = ifd.u16(at).unwrap_or(0) as usize;
+        if let Some(next) = ifd.u32(at + 2 + 12 * count) {
+            queue.push(next as usize);
+        }
+    }
+    None
+}
+
+fn nikon_adobe_rgb(note: &[u8]) -> Option<bool> {
+    if !note.starts_with(b"Nikon\0") {
+        return None;
+    }
+    let tiff = note.get(10..)?;
+    let little = match tiff.get(..2)? {
+        b"II" => true,
+        b"MM" => false,
+        _ => return None,
+    };
+    let ifd_at = SliceIfd::new(tiff, 0, little).u32(4)? as usize;
+    match SliceIfd::new(tiff, ifd_at, little)
+        .shorts(NIKON_COLOR_SPACE)?
+        .first()?
+    {
+        1 => Some(false),
+        2 => Some(true),
+        _ => None,
+    }
 }
 
 /// The EXIF MakerNote bytes of a TIFF-based file (also ORF and RW2 with
@@ -937,6 +1035,100 @@ mod iso_tests {
         data.extend(value);
         data.extend(0u32.to_be_bytes());
         data
+    }
+
+    /// Little-endian TIFF: IFD0 → Exif IFD (ColorSpace `space`) → Interop
+    /// IFD (index `index`), each with inline values.
+    fn exif_colour_tiff(space: u16, index: &[u8; 4]) -> Vec<u8> {
+        let entry = |tag: u16, typ: u16, count: u32, value: [u8; 4]| {
+            [
+                &tag.to_le_bytes()[..],
+                &typ.to_le_bytes(),
+                &count.to_le_bytes(),
+                &value,
+            ]
+            .concat()
+        };
+        let mut data = b"II*\0".to_vec();
+        data.extend(8u32.to_le_bytes());
+        // IFD0 at 8 (one entry, 18 bytes), Exif IFD at 26 (two entries, 30
+        // bytes), Interop IFD at 56.
+        data.extend(1u16.to_le_bytes());
+        data.extend(entry(0x8769, 4, 1, 26u32.to_le_bytes()));
+        data.extend(0u32.to_le_bytes());
+        data.extend(2u16.to_le_bytes());
+        let [a, b] = space.to_le_bytes();
+        data.extend(entry(0xa001, 3, 1, [a, b, 0, 0]));
+        data.extend(entry(0xa005, 4, 1, 56u32.to_le_bytes()));
+        data.extend(0u32.to_le_bytes());
+        data.extend(1u16.to_le_bytes());
+        data.extend(entry(0x0001, 2, 4, *index));
+        data.extend(0u32.to_le_bytes());
+        data
+    }
+
+    #[test]
+    fn a_dng_preview_declares_its_colour_space() {
+        let entry = |tag: u16, typ: u16, value: u32| {
+            [
+                &tag.to_le_bytes()[..],
+                &typ.to_le_bytes(),
+                &1u32.to_le_bytes(),
+                &value.to_le_bytes(),
+            ]
+            .concat()
+        };
+        // IFD0 at 8 (one SubIFD entry, 18 bytes) → SubIFD at 26: preview
+        // JPEG at 100 with PreviewColorSpace 3 (Adobe RGB).
+        let mut data = b"II*\0".to_vec();
+        data.extend(8u32.to_le_bytes());
+        data.extend(1u16.to_le_bytes());
+        data.extend(entry(0x014a, 4, 26));
+        data.extend(0u32.to_le_bytes());
+        data.extend(3u16.to_le_bytes());
+        data.extend(entry(0x0201, 4, 100));
+        data.extend(entry(0x0202, 4, 4));
+        data.extend(entry(50970, 4, 3));
+        data.extend(0u32.to_le_bytes());
+        data.resize(104, 0);
+        assert_eq!(super::dng_preview_color_space(&data, 100), Some(3));
+        assert_eq!(super::dng_preview_color_space(&data, 60), None);
+        assert_eq!(super::dng_preview_color_space(b"no tiff", 0), None);
+    }
+
+    #[test]
+    fn camera_colour_space_comes_from_exif() {
+        use super::camera_adobe_rgb;
+        assert_eq!(
+            camera_adobe_rgb(&exif_colour_tiff(1, b"R98\0")),
+            Some(false)
+        );
+        assert_eq!(camera_adobe_rgb(&exif_colour_tiff(2, b"R98\0")), Some(true));
+        assert_eq!(
+            camera_adobe_rgb(&exif_colour_tiff(0xffff, b"R03\0")),
+            Some(true)
+        );
+        assert_eq!(
+            camera_adobe_rgb(&exif_colour_tiff(0xffff, b"R98\0")),
+            Some(false)
+        );
+        assert_eq!(camera_adobe_rgb(b"not a tiff"), None);
+    }
+
+    #[test]
+    fn nikon_colour_space_comes_from_the_maker_note() {
+        assert_eq!(
+            super::nikon_adobe_rgb(&nikon_note(0x001e, 3, 1, [0, 2, 0, 0])),
+            Some(true)
+        );
+        assert_eq!(
+            super::nikon_adobe_rgb(&nikon_note(0x001e, 3, 1, [0, 1, 0, 0])),
+            Some(false)
+        );
+        assert_eq!(
+            super::nikon_adobe_rgb(&nikon_note(0x0002, 3, 1, [0, 2, 0, 0])),
+            None
+        );
     }
 
     #[test]

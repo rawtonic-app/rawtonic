@@ -95,3 +95,23 @@ it("prepares nothing for the Library's grid", () => {
   workspace();
   expect(prepared()).toEqual([]);
 });
+
+const stills = () =>
+  (invoke.mock.calls as unknown[][]).filter(([command]) => command === "prepare_embedded_stills").map(([, args]) => args);
+
+it("asks for the next photographs' camera JPEGs at each step, before the decode", () => {
+  useEditorStore.setState({
+    selectedImage: { path: "/qa/b.dng", width: 0, height: 0, isRaw: true, isReady: false, isDecoded: false } as unknown as SelectedImage,
+  });
+  useUIStore.setState({ activeView: "editor", libraryLoupe: false, isFullScreen: false, activePanel: Panel.Adjustments });
+  workspace();
+  // Stepping faster than the decode prepares no proxies, but the stills.
+  expect(prepared()).toEqual([]);
+  expect(stills()).toEqual([{ paths: ["/qa/c.dng", "/qa/d.dng", "/qa/a.dng"] }]);
+});
+
+it("asks for no camera JPEGs in the Library's grid", () => {
+  useUIStore.setState({ activeView: "library", libraryLoupe: false, isFullScreen: false, activePanel: Panel.Adjustments });
+  workspace();
+  expect(stills()).toEqual([]);
+});
