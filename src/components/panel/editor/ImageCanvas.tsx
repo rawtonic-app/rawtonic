@@ -106,7 +106,7 @@ import {
   type ObjectPrompt,
   type PromptGesture,
 } from '../../../utils/objectPrompts';
-import { pendingObjectPrompts } from '../../../hooks/useAiMasking';
+import { objectSelectionBusy } from '../../../hooks/useAiMasking';
 
 /** Screen pixels outside the crop frame where a drag rotates the photo. */
 const CROP_ROTATE_BAND = 36;
@@ -2728,22 +2728,18 @@ const ImageCanvas = memo(
 
         if (!activeId || !activeSubMask || !onGenerateAiMask) return;
         // The prompts and their mask are written together when the mask is
-        // in (one history step per prompt); a press meanwhile builds on the
-        // prompts in flight.
+        // in (one history step per prompt); a press while it computes is
+        // ignored, so prompts always build on a mask that is in.
         const { adjustments: shown, selectedImage: photo } = useEditorStore.getState();
-        if (!photo) return;
+        if (!photo || objectSelectionBusy(photo.path, activeSubMask.id)) return;
         const frame = promptFrameKey(shown);
-        const pending = pendingObjectPrompts(activeSubMask.id, photo.path, frame);
         // Adding to or taking out of a selection made in another frame would
         // drop it silently: say so, and leave it as it is.
-        if (
-          objectGestureRef.current !== 'replace' &&
-          (pending.elsewhere || (!pending.prompts && promptsFrameChanged(activeSubMask.parameters, shown)))
-        ) {
+        if (objectGestureRef.current !== 'replace' && promptsFrameChanged(activeSubMask.parameters, shown)) {
           toast.info(t('studio.masks.objectFrameChanged'));
           return;
         }
-        const base = pending.prompts ?? storedPrompts(activeSubMask.parameters, shown);
+        const base = storedPrompts(activeSubMask.parameters, shown);
         const prompts = nextPrompts(
           base,
           promptOf(startPoint, endPoint, objectGestureRef.current === 'exclude'),

@@ -37,21 +37,6 @@ const retouchBasis = (a: Adjustments) => {
  * that runs now, and whether the run is still going. */
 let maskPrecompute: { key: string; taskId: string; running: boolean; cancelled: boolean } | null = null;
 
-/** Object selection requests per component, run one after another so each
- * prompt's mask becomes its own history step in the order pressed. */
-const objectQueues = new Map<string, Promise<unknown>>();
-
-/** Runs `run` after the component's requests before it have settled. */
-export function queueObjectRequest<T>(subMaskId: string, run: () => Promise<T>): Promise<T> {
-  const result = (objectQueues.get(subMaskId) ?? Promise.resolve()).then(run, run);
-  objectQueues.set(subMaskId, result);
-  const settled = () => {
-    if (objectQueues.get(subMaskId) === result) objectQueues.delete(subMaskId);
-  };
-  result.then(settled, settled);
-  return result;
-}
-
 /** What an Object selection request checks it still stands on: whether
  * the component is there, its mask, its prompts and a recipe's one box. */
 interface ObjectSelection {
@@ -77,48 +62,15 @@ function objectSelection(subMaskId: string): ObjectSelection {
 const sameSelection = (a: ObjectSelection, b: ObjectSelection) =>
   a.exists === b.exists && a.mask === b.mask && a.prompts === b.prompts && a.bounds === b.bounds;
 
-/** An Object selection request not yet in: the photo and frame
- * (`promptFrameKey`) its prompts were made in, its prompts, and what it
- * builds on: the request before it in the component's queue (then the
- * selection that one left), or the selection when it was pressed. */
-interface ObjectRequest {
-  path: string;
-  frame: string;
-  prompts: ObjectPrompt[];
-  after: ObjectRequest | null;
-  pressedOn: ObjectSelection | null;
-  /** The selection it left once done (unchanged when it failed); null when
-   * it was dropped (its selection changed meanwhile, or the photo). */
-  left?: ObjectSelection | null;
-}
-const objectRequests = new Map<string, ObjectRequest[]>();
+/** Object selections being computed, by photo and component: a press on
+ * one of them waits for its mask (`objectSelectionBusy`), so prompts never
+ * build on a result not in yet. */
+const objectSelectionsComputing = new Set<string>();
+const computingKey = (path: string, subMaskId: string) => JSON.stringify([path, subMaskId]);
 
-/** The selection a request expects to find: the one it was pressed on, or
- * the one the request before it left (null when that one was dropped). */
-const expectedSelection = (request: ObjectRequest) => (request.after ? request.after.left : request.pressedOn);
-
-/** The component's requests not yet in, when they still go on from its
- * selection now: the first of them (the one running) expects the selection
- * there is; an undo or another change of it meanwhile leaves them behind. */
-function liveObjectRequests(subMaskId: string): ObjectRequest[] {
-  const requests = objectRequests.get(subMaskId) ?? [];
-  const expected = requests[0] && expectedSelection(requests[0]);
-  return expected && sameSelection(expected, objectSelection(subMaskId)) ? requests : [];
-}
-
-/** What a press on an Object selection builds on while requests for it are
- * not in: their newest prompts, when made on this photo in this frame
- * (`prompts`); `elsewhere` when the newest was made on another photo or in
- * another frame (adding to it now would point at other content). */
-export function pendingObjectPrompts(
-  subMaskId: string,
-  path: string,
-  frame: string,
-): { prompts?: ObjectPrompt[]; elsewhere: boolean } {
-  const last = liveObjectRequests(subMaskId).at(-1);
-  if (!last) return { elsewhere: false };
-  return last.path === path && last.frame === frame ? { prompts: last.prompts, elsewhere: false } : { elsewhere: true };
-}
+/** Whether this photo's Object selection is still computing its mask. */
+export const objectSelectionBusy = (path: string, subMaskId: string) =>
+  objectSelectionsComputing.has(computingKey(path, subMaskId));
 
 /** Set once the masking tools were used; read by later launches. */
 const MASKS_USED_KEY = 'rawtonic.masks.used';
@@ -400,76 +352,54 @@ export function useAiMasking() {
   };
 
   /** An Object selection by its prompts (or, without them, one box or
-   * click). Requests for one component run in order, and each writes its
-   * prompts with their mask as one history step when the mask arrives; one
-   * whose selection was changed meanwhile (an undo, another edit of the
-   * component) is dropped. Resolves to whether the result was dropped because
-   * the photo changed (here, or in the backend). */
-  const handleGenerateAiMask = (
+   * click): the prompts are written with their mask as one history step
+   * when the mask arrives, unless the selection changed meanwhile (an undo,
+   * another change of the component). Resolves to whether the result was
+   * dropped because the photo changed (here, or in the backend). */
+  const handleGenerateAiMask = async (
     subMaskId: string,
     startPoint: Coord,
     endPoint: Coord,
     prompts?: ObjectPrompt[],
   ): Promise<boolean> => {
     const { selectedImage, adjustments } = useEditorStore.getState();
-    if (!selectedImage?.path) return Promise.resolve(false);
+    if (!selectedImage?.path) return false;
     const path = selectedImage.path;
-    const before = liveObjectRequests(subMaskId).at(-1) ?? null;
-    const request: ObjectRequest = {
-      path,
-      frame: promptFrameKey(adjustments),
-      prompts: prompts ?? [],
-      after: before,
-      pressedOn: before ? null : objectSelection(subMaskId),
-    };
-    objectRequests.set(subMaskId, [...(objectRequests.get(subMaskId) ?? []), request]);
+    const computing = computingKey(path, subMaskId);
+    const pressedOn = objectSelection(subMaskId);
+    objectSelectionsComputing.add(computing);
     registerAiTask(subMaskId, 'subject');
-    // Still on the selection it was pressed on.
-    const current = () => {
-      const expected = expectedSelection(request);
-      return Boolean(expected) && sameSelection(expected!, objectSelection(subMaskId));
-    };
 
-    const run = async () => {
-      request.left = null;
-      try {
-        if (!current()) return false;
-        const transformAdjustments = getTransformAdjustments(adjustments);
-        const newParameters = await invoke<Record<string, unknown>>(Invokes.GenerateAiSubjectMask, {
-          jsAdjustments: transformAdjustments,
-          endPoint: [endPoint.x, endPoint.y],
-          flipHorizontal: adjustments.flipHorizontal,
-          flipVertical: adjustments.flipVertical,
-          orientationSteps: adjustments.orientationSteps,
-          path,
-          prompts: prompts ?? null,
-          rotation: adjustments.rotation,
-          startPoint: [startPoint.x, startPoint.y],
-          taskId: subMaskId,
-        });
-        if (!current()) return false;
+    try {
+      const transformAdjustments = getTransformAdjustments(adjustments);
+      const newParameters = await invoke<Record<string, unknown>>(Invokes.GenerateAiSubjectMask, {
+        jsAdjustments: transformAdjustments,
+        endPoint: [endPoint.x, endPoint.y],
+        flipHorizontal: adjustments.flipHorizontal,
+        flipVertical: adjustments.flipVertical,
+        orientationSteps: adjustments.orientationSteps,
+        path,
+        prompts: prompts ?? null,
+        rotation: adjustments.rotation,
+        startPoint: [startPoint.x, startPoint.y],
+        taskId: subMaskId,
+      });
+      if (prompts && !sameSelection(pressedOn, objectSelection(subMaskId))) return false;
 
-        // One step per prompt: an edit pending before stays its own, and the
-        // next prompt does not merge into this one.
-        debouncedSetHistory.flush();
-        const applied = applyAiResult(path, subMaskId, prompts ? { ...newParameters, prompts } : newParameters);
-        debouncedSetHistory.flush();
-        if (applied) request.left = objectSelection(subMaskId);
-        return !applied;
-      } catch (error) {
-        if (isPhotoChanged(error)) return true;
-        toastAiError(error, `AI Mask Failed: ${error}`);
-        // The selection stays as it was: the next prompt goes on from it.
-        if (current()) request.left = objectSelection(subMaskId);
-        return false;
-      } finally {
-        const rest = (objectRequests.get(subMaskId) ?? []).filter((r) => r !== request);
-        if (rest.length > 0) objectRequests.set(subMaskId, rest);
-        else objectRequests.delete(subMaskId);
-        unregisterAiTask(subMaskId);
-      }
-    };
-    return queueObjectRequest(subMaskId, run);
+      // One step per prompt: an edit pending before stays its own, and the
+      // next prompt does not merge into this one.
+      debouncedSetHistory.flush();
+      const applied = applyAiResult(path, subMaskId, prompts ? { ...newParameters, prompts } : newParameters);
+      debouncedSetHistory.flush();
+      return !applied;
+    } catch (error) {
+      if (isPhotoChanged(error)) return true;
+      toastAiError(error, `AI Mask Failed: ${error}`);
+      return false;
+    } finally {
+      objectSelectionsComputing.delete(computing);
+      unregisterAiTask(subMaskId);
+    }
   };
 
   // Depth, Foreground and Sky resolve to whether their result was dropped
