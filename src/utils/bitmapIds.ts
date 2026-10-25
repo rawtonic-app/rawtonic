@@ -50,9 +50,9 @@ const MASK_DATA_KEYS = ['maskDataBase64', 'mask_data_base64'] as const;
  * each mask bitmap already `sent` under its component's id instead of
  * sending it again; returns the ids carrying their bitmap for the first time,
  * to be added to `sent` once the request went through. A component without a
- * bitmap (a People selection with its last part unticked) makes the native
- * side drop the one under its id, so it is forgotten in `sent` too: a bitmap
- * computed under that id later goes out whole. */
+ * bitmap (a People selection with its last part unticked) renders none and
+ * is forgotten in `sent`: a bitmap computed under that id later goes out
+ * whole instead of being referred to. */
 export function referToSentMaskBitmaps(subMasks: SubMask[] | undefined, sent: Set<string>): string[] {
   const newlySent: string[] = [];
   if (!Array.isArray(subMasks)) return newlySent;

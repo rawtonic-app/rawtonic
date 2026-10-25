@@ -12,8 +12,8 @@ it('refers to a sent bitmap, sends a new one whole and keeps a component without
   expect(lips[0].parameters.maskDataBase64).toBe(CACHED_BITMAP);
   expect(lips[1].parameters.maskDataBase64).toBe('data:sky');
 
-  // Its last part unticked: no bitmap goes, so the native side renders none
-  // (and drops the cached one); the next bitmap under the id goes whole.
+  // Its last part unticked: no bitmap goes, so the native side renders none;
+  // the next bitmap under the id goes whole.
   const unticked = [sub('lips', null)];
   expect(referToSentMaskBitmaps(unticked, sent)).toEqual([]);
   expect(unticked[0].parameters.maskDataBase64).toBeNull();

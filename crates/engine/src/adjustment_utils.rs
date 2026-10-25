@@ -15,9 +15,10 @@ pub const CACHED_BITMAP: &str = "cached";
 
 /// Fills in the mask bitmaps `sub_masks` refer to as `CACHED_BITMAP` from
 /// `cache` and remembers the ones they carry, by component id. A component
-/// whose bitmap is null drops the one cached under its id, so a bitmap of
-/// earlier inputs never comes back; a reference the cache cannot fill
-/// becomes null.
+/// whose bitmap is null renders none; the cache keeps what it holds under
+/// the id (requests run independently, so an older null must not evict a
+/// newer bitmap; the editor sends the next bitmap under that id whole). A
+/// reference the cache cannot fill becomes null.
 pub fn hydrate_sub_masks(
     sub_masks: &mut Vec<serde_json::Value>,
     cache: &mut HashMap<String, serde_json::Value>,
@@ -53,9 +54,7 @@ pub fn hydrate_sub_masks(
                 };
                 if val.as_str() == Some(CACHED_BITMAP) {
                     *val = cache.get(&id).cloned().unwrap_or(serde_json::Value::Null);
-                } else if val.is_null() {
-                    cache.remove(&id);
-                } else {
+                } else if !val.is_null() {
                     cache.insert(id.clone(), val.clone());
                 }
             }
@@ -245,20 +244,33 @@ mod hydration_tests {
     use serde_json::json;
 
     #[test]
-    fn a_component_without_a_bitmap_renders_none_and_drops_the_cached_one() {
+    fn a_component_without_a_bitmap_renders_none() {
         let mut cache = HashMap::new();
         let mut first = vec![json!({"id": "p", "parameters": {"maskDataBase64": "data:lips"}})];
         hydrate_sub_masks(&mut first, &mut cache);
 
-        // Its last part unticked: no bitmap, and none under its id afterwards.
+        // Its last part unticked: no bitmap, not the cached one.
         let mut cleared =
             vec![json!({"id": "p", "parameters": {"maskDataBase64": null, "parts": []}})];
         hydrate_sub_masks(&mut cleared, &mut cache);
         assert_eq!(cleared[0]["parameters"]["maskDataBase64"], json!(null));
-        assert!(!cache.contains_key("p"));
-        let mut stale = vec![json!({"id": "p", "parameters": {"maskDataBase64": CACHED_BITMAP}})];
-        hydrate_sub_masks(&mut stale, &mut cache);
-        assert_eq!(stale[0]["parameters"]["maskDataBase64"], json!(null));
+    }
+
+    #[test]
+    fn an_older_request_without_the_bitmap_keeps_a_newer_one_cached() {
+        // An overlay asked while the selection was computed, hydrated after
+        // the preview that brought the result.
+        let mut cache = HashMap::new();
+        let mut preview = vec![json!({"id": "p", "parameters": {"maskDataBase64": "data:new"}})];
+        hydrate_sub_masks(&mut preview, &mut cache);
+        let mut overlay = vec![json!({"id": "p", "parameters": {"maskDataBase64": null}})];
+        hydrate_sub_masks(&mut overlay, &mut cache);
+        let mut later = vec![json!({"id": "p", "parameters": {"maskDataBase64": CACHED_BITMAP}})];
+        hydrate_sub_masks(&mut later, &mut cache);
+        assert_eq!(later[0]["parameters"]["maskDataBase64"], "data:new");
+        let mut unknown = vec![json!({"id": "q", "parameters": {"maskDataBase64": CACHED_BITMAP}})];
+        hydrate_sub_masks(&mut unknown, &mut cache);
+        assert_eq!(unknown[0]["parameters"]["maskDataBase64"], json!(null));
     }
 
     #[test]
