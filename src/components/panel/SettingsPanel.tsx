@@ -1025,6 +1025,18 @@ export default function SettingsPanel({
                       </SettingItem>
 
                       <SettingItem
+                        label={t('settings.general.autoAdvance')}
+                        description={t('settings.general.autoAdvanceDesc')}
+                      >
+                        <Switch
+                          checked={appSettings?.autoAdvance === true}
+                          id="auto-advance-toggle"
+                          label={t('settings.general.enableAutoAdvance')}
+                          onChange={(checked) => onSettingsChange({ ...appSettings, autoAdvance: checked })}
+                        />
+                      </SettingItem>
+
+                      <SettingItem
                         label={t('settings.general.builtinPresets')}
                         description={t('settings.general.builtinPresetsDesc')}
                       >

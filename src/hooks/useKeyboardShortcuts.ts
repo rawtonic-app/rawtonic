@@ -19,6 +19,7 @@ import { useLibraryActions } from './useLibraryActions';
 import { libraryTool, ownsPanelShortcut, revealLibraryTool } from '../components/studio/workspaceInteractions';
 import { useMultiViewStore, type CellZoomKey } from '../store/useMultiViewStore';
 import { orderedSelection, stepPrimary } from '../utils/multiView';
+import { AUTO_ADVANCE_EVENT, autoAdvanceTarget, requestAutoAdvance } from '../utils/photoStepping';
 import { isTetherConnected, TETHER_CAPTURE_EVENT } from '../components/session/tether';
 import { libraryViewer, viewerOnly, viewerShown } from '../utils/viewerMode';
 import { pointerHeld } from '../utils/heldPointer';
@@ -177,6 +178,40 @@ export const useKeyboardShortcuts = ({
     sortedListRef.current = sortedImageList;
   }, [sortedImageList]);
 
+  // Auto-advance (Preferences, off by default; Lightroom's Auto Advance): a
+  // rating or flag key on the photograph shown (Develop's single view, the
+  // Library's loupe, the full screen) steps to the next one, one key per
+  // photograph while culling. The rating or flag is bound to the rated
+  // photograph before the step; Undo keeps its meaning (Develop: the open
+  // photograph's edits).
+  // The loupe and the full screen of the Library keep it (the photograph
+  // becomes the Library's selection); Develop opens it.
+  const showInViewer = useCallback(
+    (path: string) => {
+      if (libraryViewer(useUIStore.getState())) {
+        useLibraryStore.getState().setLibrary({ libraryActivePath: path, multiSelectedPaths: [path], selectionAnchorPath: path });
+        handleImageSelect(path, false);
+      } else handleImageSelect(path, true);
+    },
+    [handleImageSelect],
+  );
+  useEffect(() => {
+    const advance = (event: Event) => {
+      const rated = (event as CustomEvent<string>).detail;
+      if (useSettingsStore.getState().appSettings?.autoAdvance !== true) return;
+      const ui = useUIStore.getState();
+      if (!viewerShown(ui) || (ui.activeView === 'editor' && useMultiViewStore.getState().active)) return;
+      const next = autoAdvanceTarget(
+        sortedListRef.current.map((image) => image.path),
+        useEditorStore.getState().selectedImage?.path ?? null,
+        rated,
+      );
+      if (next) showInViewer(next);
+    };
+    window.addEventListener(AUTO_ADVANCE_EVENT, advance);
+    return () => window.removeEventListener(AUTO_ADVANCE_EVENT, advance);
+  }, [showInViewer]);
+
   const handleCopyImagePaths = useCallback(async (paths: Array<string>) => {
     const physicalPaths = [...new Set(paths.map((path) => path.split('?vc=')[0]))];
     if (physicalPaths.length === 0) {
@@ -244,6 +279,10 @@ export const useKeyboardShortcuts = ({
       (s.ui.isFullScreen || libraryViewer(s.ui)) && s.editor.selectedImage ? [s.editor.selectedImage.path] : undefined;
     const ratedPaths = (s: ShortcutState) =>
       shownOnly(s) ?? (multiViewActive(s) && s.editor.selectedImage ? [s.editor.selectedImage.path] : undefined);
+    const rateAndAdvance = (rating: number, s: ShortcutState) => {
+      handleRate(rating, ratedPaths(s));
+      if (viewerShown(s.ui)) requestAutoAdvance(s.editor.selectedImage?.path);
+    };
     // In the multi view the zoom keys zoom the primary in its cell; with the
     // zoom lock every other cell follows (MultiViewStage). Without the lock
     // they zoom the cell under the pointer.
@@ -813,42 +852,42 @@ export const useKeyboardShortcuts = ({
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
-          handleRate(0, ratedPaths(s));
+          rateAndAdvance(0, s);
         },
       },
       rate_1: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
-          handleRate(1, ratedPaths(s));
+          rateAndAdvance(1, s);
         },
       },
       rate_2: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
-          handleRate(2, ratedPaths(s));
+          rateAndAdvance(2, s);
         },
       },
       rate_3: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
-          handleRate(3, ratedPaths(s));
+          rateAndAdvance(3, s);
         },
       },
       rate_4: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
-          handleRate(4, ratedPaths(s));
+          rateAndAdvance(4, s);
         },
       },
       rate_5: {
         shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
-          handleRate(5, ratedPaths(s));
+          rateAndAdvance(5, s);
         },
       },
       color_label_none: {
@@ -1121,6 +1160,7 @@ export const useKeyboardShortcuts = ({
     handleRedoFileOperation,
     handleMoveToSelects,
     handleImageSelect,
+    showInViewer,
     handlePasteFiles,
     handleZoomChange,
     handleRotate,

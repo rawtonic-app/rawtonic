@@ -1247,8 +1247,74 @@ pub struct WgpuDisplay {
     /// frame when another photograph becomes the primary).
     frame_path: Option<String>,
     frame_texture: Option<(wgpu::Texture, u32, u32)>,
+    /// The photograph whose still (thumbnail) is shown, until another one is
+    /// asked for or its developed frame arrives: no developed frame of
+    /// another photograph (one still in flight) replaces it.
+    still_of: Option<String>,
     /// Other photographs shown beside the live one (multi_view.rs).
     multi: MultiView,
+}
+
+/// Whether a developed frame of `frame` replaces what is shown while a
+/// still of `still_of` is: only a frame of that photograph (one of the
+/// photograph left, still in flight, never covers it).
+pub fn frame_shows(still_of: Option<&str>, frame: Option<&str>) -> bool {
+    match (still_of, frame) {
+        (Some(still), Some(frame)) => still == frame,
+        _ => true,
+    }
+}
+
+/// The still that holds back other frames once `asked` is asked for: its
+/// own, else none.
+pub fn still_after_asking(still_of: Option<String>, asked: &str) -> Option<String> {
+    still_of.filter(|still| still == asked)
+}
+
+/// The texture of a still frame: bound like a developed frame, and copied
+/// like one when the multi view keeps the frame shown as a cell's
+/// (`MultiView::adopt_live_frame`).
+pub fn still_texture_descriptor(size: wgpu::Extent3d) -> wgpu::TextureDescriptor<'static> {
+    wgpu::TextureDescriptor {
+        label: Some("Display Still"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_DST
+            | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    }
+}
+
+/// Re-encodes sRGB pixels (a cached thumbnail) in place for a display whose
+/// frames are encoded in `space` (`GpuContext::display_space`), so a still
+/// shows the colours the developed frame will.
+pub fn srgb_to_display(
+    space: rawtonic_engine::output_color_space::OutputColorSpace,
+    image: &mut image::RgbaImage,
+) {
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+    if space == OutputColorSpace::Srgb {
+        return;
+    }
+    let srgb = OutputColorSpace::Srgb.transfer();
+    let linear: [f32; 256] = std::array::from_fn(|v| srgb.to_linear(v as f64 / 255.0) as f32);
+    const STEPS: usize = 4096;
+    let transfer = space.transfer();
+    let encode: Vec<u8> = (0..=STEPS)
+        .map(|i| (transfer.from_linear(i as f64 / STEPS as f64) * 255.0).round() as u8)
+        .collect();
+    let m = space.from_linear_srgb_f32();
+    for pixel in image.pixels_mut() {
+        let rgb = [0, 1, 2].map(|c| linear[pixel[c] as usize]);
+        for (r, row) in m.iter().enumerate() {
+            let v = (row[0] * rgb[0] + row[1] * rgb[1] + row[2] * rgb[2]).clamp(0.0, 1.0);
+            pixel[r] = encode[(v * STEPS as f32).round() as usize];
+        }
+    }
 }
 
 /// Where a photograph of `width` × `height` (as shown: cropped and turned)
@@ -1412,6 +1478,7 @@ impl WgpuDisplay {
             empty_split_bind_group,
             frame_path: None,
             frame_texture: None,
+            still_of: None,
             multi: MultiView::default(),
             sampler,
             current_bind_group: None,
@@ -1521,6 +1588,114 @@ impl WgpuDisplay {
     /// Drop the split's before (the split was turned off).
     pub fn clear_split_before(&mut self) {
         self.split_before = None;
+    }
+
+    /// Shows `image` (display-encoded RGBA, see [`srgb_to_display`]) as the
+    /// frame of the photograph at `path`, placed at `rect` (device pixels),
+    /// while its developed frame is not ready: a real image of that
+    /// photograph (its cached thumbnail), scaled by the display. The next
+    /// developed frame replaces it as any frame does. Whether it is shown
+    /// (not in the multi view).
+    pub fn present_still(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        image: &image::RgbaImage,
+        path: &str,
+        rect: [f32; 4],
+    ) -> bool {
+        let (width, height) = image.dimensions();
+        if width == 0 || height == 0 || self.multi.is_active() {
+            return false;
+        }
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+        let texture = device.create_texture(&still_texture_descriptor(size));
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            image.as_raw(),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * width),
+                rows_per_image: Some(height),
+            },
+            size,
+        );
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // Its own placement, uncropped, no overlay or split before of
+        // another frame; a placement the webview sent for the photograph
+        // meanwhile still waits for its developed frame.
+        self.overlay = None;
+        self.latest_transform.overlay_mode = [0.0; 4];
+        self.latest_transform.image_size = [width as f32, height as f32];
+        self.latest_transform.texture_size = [width as f32, height as f32];
+        self.geometry = DisplayGeometry {
+            rect,
+            crop_rect: rect,
+            crop_rotation: 0.0,
+        };
+        self.frame_uncropped = false;
+        self.frame_split_key = 0;
+        self.apply_geometry();
+        queue.write_buffer(
+            &self.transform_buffer,
+            0,
+            bytemuck::bytes_of(&self.latest_transform),
+        );
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.transform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&self.empty_overlay_view),
+                },
+            ],
+            label: Some("Display Still"),
+        });
+        self.current_bind_group = Some(bind_group);
+        self.frame_path = Some(path.to_string());
+        self.still_of = Some(path.to_string());
+        self.frame_texture = Some((texture, width, height));
+        self.frame_serial += 1;
+        self.render(device, queue);
+        true
+    }
+
+    /// A photograph is asked for (`path`): a still of another one no longer
+    /// holds back developed frames.
+    pub fn release_still_for(&mut self, path: &str) {
+        self.still_of = still_after_asking(self.still_of.take(), path);
+    }
+
+    /// Whether a developed frame of `frame` (its identity's photograph) may
+    /// replace what is shown.
+    pub fn shows_frame_of(&self, frame: Option<&str>) -> bool {
+        frame_shows(self.still_of.as_deref(), frame)
+    }
+
+    /// The photograph whose frame is shown (developed or still).
+    pub fn frame_path(&self) -> Option<&str> {
+        self.frame_path.as_deref()
     }
 
     /// The split is single-view only: the multi view never shows it.
@@ -8464,6 +8639,9 @@ fn render_dynamic_image(
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .as_mut()
+        // A frame of the photograph left, finished after the next one's
+        // still was shown, is not presented over it.
+        && display.shows_frame_of(display_identity.as_ref().map(|identity| identity.path.as_str()))
     {
         display.latest_transform.image_size = [width as f32, height as f32];
         let targets = display_targets.as_ref().unwrap();
@@ -8505,6 +8683,8 @@ fn render_dynamic_image(
         display.frame_path = display_identity
             .as_ref()
             .map(|identity| identity.path.clone());
+        // Its developed frame is in: the still no longer holds.
+        display.still_of = None;
         display.frame_texture = Some((targets.output_texture.clone(), width, height));
         display.frame_serial += 1;
         #[cfg(feature = "performance-profiling")]

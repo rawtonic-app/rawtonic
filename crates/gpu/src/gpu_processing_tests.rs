@@ -3674,6 +3674,61 @@ fn display_samples_come_back_as_srgb_values() {
 }
 
 #[test]
+fn a_frame_of_the_photograph_left_never_covers_the_next_ones_still() {
+    // B's still is shown; A's frame, rendered before the step, finishes now.
+    assert!(!frame_shows(Some("B"), Some("A")));
+    // B's own developed frame replaces its still; without a still any frame
+    // shows, as before.
+    assert!(frame_shows(Some("B"), Some("B")));
+    assert!(frame_shows(None, Some("A")));
+    assert!(frame_shows(Some("B"), None));
+    // Asking for B keeps its still holding; asking for A (back) releases it.
+    assert_eq!(
+        still_after_asking(Some("B".into()), "B").as_deref(),
+        Some("B")
+    );
+    assert_eq!(still_after_asking(Some("B".into()), "A"), None);
+}
+
+#[test]
+fn a_still_is_encoded_for_the_display_as_its_developed_frame_is() {
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+    let pixels = [[255, 0, 0, 255], [128, 128, 128, 255], [30, 160, 90, 200]];
+    let mut still = image::RgbaImage::from_fn(3, 1, |x, _| image::Rgba(pixels[x as usize]));
+    let unchanged = still.clone();
+    srgb_to_display(OutputColorSpace::Srgb, &mut still);
+    assert_eq!(still, unchanged);
+    srgb_to_display(OutputColorSpace::DisplayP3, &mut still);
+    let p3 = OutputColorSpace::DisplayP3;
+    for (x, srgb) in pixels.iter().enumerate() {
+        let shown = still.get_pixel(x as u32, 0).0;
+        // The Display P3 encoding of the sRGB colour (as the display shader
+        // encodes a developed frame), within a code; alpha is kept.
+        let linear = [0, 1, 2].map(|c| {
+            OutputColorSpace::Srgb
+                .transfer()
+                .to_linear(srgb[c] as f64 / 255.0)
+        });
+        let m = p3.from_linear_srgb();
+        for (r, row) in m.iter().enumerate() {
+            let expected = p3.transfer().from_linear(
+                (0..3)
+                    .map(|c| row[c] * linear[c])
+                    .sum::<f64>()
+                    .clamp(0.0, 1.0),
+            ) * 255.0;
+            assert!(
+                (shown[r] as f64 - expected).abs() <= 1.0,
+                "{srgb:?}: {shown:?}, channel {r} {expected}"
+            );
+        }
+        assert_eq!(shown[3], srgb[3]);
+    }
+    assert_eq!(still.get_pixel(1, 0).0, [128, 128, 128, 255]);
+    assert_ne!(still.get_pixel(0, 0).0, [255, 0, 0, 255]);
+}
+
+#[test]
 fn long_curves_use_the_curve_table() {
     let long = twenty_point_curve();
     let a =

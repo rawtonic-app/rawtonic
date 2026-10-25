@@ -59,6 +59,7 @@ import { useContextMenu } from "../../context/ContextMenuContext";
 import { useSessionBar } from "./sessionBar";
 import { SESSION_ALBUMS_CHANGED } from "../studio/StudioAlbums";
 import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from "../../utils/offline";
+import { requestAutoAdvance } from "../../utils/photoStepping";
 import { hotFolderCommand } from "../../utils/hotFolderCommands";
 import { FOLDER_SYNC_APPLIED, IMPORTS_CHANGED, OPEN_FOLDER_SYNC_EVENT, type OpenFolderSyncDetail } from "../../utils/folderSync";
 import IngestPreviewGrid, { fileName, type IngestCandidate } from "./IngestPreviewGrid";
@@ -77,7 +78,7 @@ import i18n from "i18next";
 import { catalogChanged } from "../../utils/catalogWrites";
 import "./session.css";
 import { noteTool } from "../contribute/usageStats";
-import { flagTargets } from "../../utils/viewerMode";
+import { flagTargets, viewerShown } from "../../utils/viewerMode";
 
 export interface SessionSummary {
   directory: string;
@@ -924,6 +925,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         e.preventDefault();
         e.stopImmediatePropagation();
         void mark(flag);
+        if (viewerShown(useUIStore.getState())) requestAutoAdvance(useEditorStore.getState().selectedImage?.path);
       }
     };
     window.addEventListener("keydown", handler, true);

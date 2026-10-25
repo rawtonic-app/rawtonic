@@ -949,6 +949,10 @@
       "stop": "Arrêter",
       "stopped": "Aperçus arrêtés après {{done}}"
     },
+    "still": {
+      "label": "Aperçu",
+      "title": "Sa vignette, affichée pendant le développement de la photo ; l’image développée la remplace dans un instant."
+    },
     "toasts": {
       "discarded": "Fichiers d'aperçu supprimés : {{files}}",
       "failed": "Aperçus : {{err}}"
@@ -1464,6 +1468,8 @@
       "title": "Gestion des données"
     },
     "general": {
+      "autoAdvance": "Avance automatique",
+      "autoAdvanceDesc": "Dans Développement, une touche de note, de sélection, de rejet ou de retrait du marquage passe à la photo suivante : le tri ne demande qu’une touche par photo.",
       "builtinPresets": "Préréglages intégrés",
       "builtinPresetsDesc": "Afficher les styles et préréglages propres à Rawtonic dans Styles et préréglages et dans les menus de préréglages des outils.",
       "createXmp": "Créer les fichiers XMP manquants",
@@ -1473,6 +1479,7 @@
       "developToolsDesc": "Le côté de la photo où se trouvent les outils de Développement. Avec les outils à droite, le panneau de gauche affiche la Navigation, les Dossiers et les Albums pour changer de photo.",
       "developToolsLeft": "Gauche",
       "developToolsRight": "Droite",
+      "enableAutoAdvance": "Passer à la photo suivante après une note ou un marquage",
       "enableOsTitlebar": "Activer la barre de titre de l'OS",
       "enableXmpSync": "Activer la synchronisation XMP",
       "nativeTitlebar": "Barre de titre native",

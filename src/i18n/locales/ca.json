@@ -949,6 +949,10 @@
       "stop": "Atura",
       "stopped": "Previsualitzacions aturades després de {{done}}"
     },
+    "still": {
+      "label": "Previsualització",
+      "title": "La seva miniatura, mostrada mentre es revela la foto; la imatge revelada la substitueix en un moment."
+    },
     "toasts": {
       "discarded": "Fitxers de previsualització descartats: {{files}}",
       "failed": "Previsualitzacions: {{err}}"
@@ -1464,6 +1468,8 @@
       "title": "Gestió de dades"
     },
     "general": {
+      "autoAdvance": "Avanç automàtic",
+      "autoAdvanceDesc": "A Revelatge, una tecla de valoració, selecció, rebuig o treure la marca passa a la foto següent, i la tria demana una tecla per foto.",
       "builtinPresets": "Predefinits integrats",
       "builtinPresetsDesc": "Mostra els estils i predefinits propis de Rawtonic a Estils i predefinits i als menús de predefinits de les eines.",
       "createXmp": "Crear fitxers XMP que falten",
@@ -1473,6 +1479,7 @@
       "developToolsDesc": "El costat de la foto on hi ha les eines de Revelatge. Amb les eines a la dreta, el tauler esquerre mostra el Navegador, les Carpetes i els Àlbums per canviar de foto.",
       "developToolsLeft": "Esquerra",
       "developToolsRight": "Dreta",
+      "enableAutoAdvance": "Passa a la foto següent després de valorar o marcar",
       "enableOsTitlebar": "Activar barra de títol del SO",
       "enableXmpSync": "Activar sincronització XMP",
       "nativeTitlebar": "Barra de títol nativa",

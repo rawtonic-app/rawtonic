@@ -152,6 +152,9 @@ interface EditorState {
   /** While the next photograph opens, its predecessor's native frame stays
    * on screen (no placeholder) until the first new frame or a timeout. */
   holdingNativeFrame: boolean;
+  /** The native display shows this photograph's cached thumbnail (a still
+   * preview, marked as such) until its first developed frame. */
+  stillPreview: string | null;
   /** Stepping from one ready photograph to the next: the tool panels keep
    * their look (not dimmed, histogram kept) until the next photograph's
    * values arrive and replace them in place; they stay inert meanwhile.
@@ -282,6 +285,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   isMaskRangeDragging: false,
   hasRenderedFirstFrame: false,
   holdingNativeFrame: false,
+  stillPreview: null,
   panelsHeld: false,
   nativeCropFrame: false,
   toolClipboard: null,

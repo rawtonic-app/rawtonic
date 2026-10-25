@@ -63,6 +63,7 @@ import PreviewBuildStatus from "./PreviewBuildStatus";
 import PreferencesDialog from "./PreferencesDialog";
 import { ProofMarginButton, ViewerCaptureInfo, ZoomPresetOptions } from "./ViewerControls";
 import OfflineBadge, { OfflineCount } from "./OfflineBadge";
+import StillPreviewBadge from "./StillPreviewBadge";
 import ErrorBoundary from "../ui/ErrorBoundary";
 import StudioDevelop from "./StudioDevelop";
 import StudioNavigation, { type FolderActions } from "./StudioNavigation";
@@ -94,6 +95,7 @@ import {
 import { swallowNextClick } from "../../utils/swallowClick";
 import { DEFAULT_BRUSH_SIZE } from "../../utils/brushSize";
 import type { FlagCounts } from "../../utils/culling";
+import { neighboursToPrepare, stepDirection } from "../../utils/photoStepping";
 import { useSessionBar } from "../session/sessionBar";
 import { openMaskingTools, useAiModelLifecycle } from "../../hooks/useAiMasking";
 import "./studio.css";
@@ -685,17 +687,32 @@ export default function StudioWorkspace(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on what showDevelop reads (selectedImage, files) instead of the per-render function; its onOpen (handleImageSelect) reads all state via getState() and refs at call time, so an earlier capture behaves the same
   }, [selectedImage, files, showGrid, openLoupe]);
   const currentIndex = files.findIndex((f) => f.path === selectedImage?.path);
-  // Once the open photograph is decoded (not before, so its own decode keeps
-  // the cores), prepare its neighbours' preview proxies, so stepping through
-  // the filmstrip shows them developed at once.
-  const decoded = Boolean(selectedImage?.isDecoded);
+  // The direction of the last step, for the neighbours prepared next.
+  const stepping = useRef<{ index: number; direction: 1 | -1 | null }>({ index: -1, direction: 1 });
   useEffect(() => {
-    if (!develop || !decoded || currentIndex < 0) return;
-    const paths = [1, -1, 2]
-      .map((step) => files[currentIndex + step]?.path)
-      .filter((path): path is string => Boolean(path));
+    if (currentIndex < 0 || currentIndex === stepping.current.index) return;
+    stepping.current = {
+      index: currentIndex,
+      direction: stepDirection(stepping.current.index, currentIndex, files.length),
+    };
+  }, [currentIndex, files.length]);
+  // Once the open photograph is decoded (not before, so its own decode keeps
+  // the cores), prepare its neighbours (preview proxies, and the next one's
+  // decode kept), so stepping through the filmstrip shows them developed at
+  // once — in Develop, the Library's loupe and the full screen alike. A new
+  // request replaces the last one and cancels a decode it no longer asks
+  // for (a jump).
+  const decoded = Boolean(selectedImage?.isDecoded);
+  const photoShown = develop || libraryViewer;
+  useEffect(() => {
+    if (!photoShown || !decoded || currentIndex < 0) return;
+    const paths = neighboursToPrepare(
+      files.map((file) => file.path),
+      currentIndex,
+      stepping.current.direction,
+    );
     if (paths.length) void invoke(Invokes.PreparePreviewProxies, { paths }).catch(() => {});
-  }, [develop, decoded, currentIndex, files]);
+  }, [photoShown, decoded, currentIndex, files]);
   const rating = selectedImage ? imageRatings[selectedImage.path] || 0 : 0;
   const browserProps = {
     files,
@@ -1325,6 +1342,7 @@ export default function StudioWorkspace(props: Props) {
                     ) : null}
                   </span>
                   <OfflineBadge offline={selectedImage?.offline} />
+                  <StillPreviewBadge path={selectedImage?.path} />
                 </div>
                 {selectedImage && flagButtons(flag)}
                 <div className="studio-rating">

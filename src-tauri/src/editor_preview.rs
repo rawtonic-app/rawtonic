@@ -1946,25 +1946,39 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
     }
 }
 
+/// What `activate_photo` put on screen.
+#[derive(serde::Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum Activation {
+    /// Nothing (not a RAW, the viewer not at fit, no proxy or thumbnail).
+    None,
+    /// A frame developed from the photograph's preview proxy is on its way.
+    Developed,
+    /// Its cached thumbnail, until its first developed frame (a preview).
+    Still,
+}
+
 /// Shows the photograph at `path` at once, natively (Capture One swaps its
 /// preview files the same way): its preview proxy (in memory or on disk) is
 /// developed with its recipe (`adjustments` from the editor's cache, else
 /// the stored one, else the defaults) and presented in the fit placement,
 /// before the webview has updated its state. The editor then loads the
-/// photograph as usual and renders the same frame again. Returns whether a
-/// frame was started (false: no proxy, or the viewer is not at fit).
+/// photograph as usual and renders the same frame again. Without a proxy
+/// (never opened, previews not built) its cached thumbnail is shown instead
+/// (`show_still`), so a step never keeps the previous photograph on screen
+/// while the RAW decodes. Returns what was put on screen.
 #[tauri::command]
 pub(crate) async fn activate_photo(
     path: String,
     adjustments: Option<serde_json::Value>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
-) -> Result<bool, String> {
+) -> Result<Activation, String> {
     #[cfg(feature = "performance-profiling")]
     let received = crate::performance::epoch_ms();
     let (source_path, sidecar_path) = parse_virtual_path(&path);
     if !formats::is_raw_file(&source_path) {
-        return Ok(false);
+        return Ok(Activation::None);
     }
     let Some(viewport) = state
         .gpu_context
@@ -1986,7 +2000,7 @@ pub(crate) async fn activate_photo(
             "[PERF] {}",
             serde_json::json!({ "stage": "activate_photo_skipped", "reason": "no viewport" })
         );
-        return Ok(false);
+        return Ok(Activation::None);
     };
     // Only previews made for the recipe's decode variant stand in (a virtual
     // copy's may differ from its master's, `preview_proxy::stands_for`).
@@ -2003,12 +2017,13 @@ pub(crate) async fn activate_photo(
             "[PERF] {}",
             serde_json::json!({ "stage": "activate_photo_skipped", "reason": "other decode variant" })
         );
-        return Ok(false);
+        return Ok(Activation::None);
     }
     *state
         .current_source
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = path.clone();
+    release_still_for(&state, &path);
     let remembered = state
         .proxy_memory
         .lock()
@@ -2030,7 +2045,7 @@ pub(crate) async fn activate_photo(
                     "[PERF] {}",
                     serde_json::json!({ "stage": "activate_photo_skipped", "reason": "no proxy" })
                 );
-                return Ok(false);
+                return Ok(show_still(&app_handle, &path, viewport).await);
             };
             state
                 .proxy_memory
@@ -2046,7 +2061,7 @@ pub(crate) async fn activate_photo(
         .unwrap_or_else(|e| e.into_inner())
         != path
     {
-        return Ok(false);
+        return Ok(Activation::None);
     }
     let mut recipe = adjustments
         .filter(|a| a.is_object())
@@ -2123,7 +2138,119 @@ pub(crate) async fn activate_photo(
     tokio::spawn(async move {
         let _ = rx.await;
     });
-    Ok(true)
+    Ok(Activation::Developed)
+}
+
+/// The photograph's cached medium thumbnail (developed with its stored
+/// recipe, or the camera's preview of an unedited RAW: already turned and
+/// cropped as it is shown), presented natively in the fit placement of
+/// `viewport` until its first developed frame: real pixels of that
+/// photograph at once instead of the previous one, then refined in the
+/// same place. Nothing when there is no thumbnail, another photograph was
+/// asked for meanwhile, or a developed frame of it is already shown.
+async fn show_still(app_handle: &tauri::AppHandle, path: &str, viewport: [f32; 4]) -> Activation {
+    let state = app_handle.state::<AppState>();
+    let Some(context) = state
+        .gpu_context
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+    else {
+        return Activation::None;
+    };
+    let (app, wanted) = (app_handle.clone(), path.to_string());
+    let still = tokio::task::spawn_blocking(move || {
+        let file = crate::file_management::cached_medium_thumbnail(&app, &wanted)?;
+        let bytes = std::fs::read(file).ok()?;
+        let mut still = image::load_from_memory_with_format(&bytes, image::ImageFormat::Jpeg)
+            .ok()?
+            .to_rgba8();
+        gpu_processing::srgb_to_display(context.display_space, &mut still);
+        Some((still, context))
+    })
+    .await
+    .ok()
+    .flatten();
+    let Some((still, context)) = still else {
+        return Activation::None;
+    };
+    let (width, height) = still.dimensions();
+    let rect = gpu_processing::fit_placement(viewport, width as f32, height as f32);
+    let shown = present_if_current(
+        &context.display,
+        &state.current_source,
+        path,
+        viewport,
+        |display| display.present_still(&context.device, &context.queue, &still, path, rect),
+    );
+    if !shown {
+        return Activation::None;
+    }
+    #[cfg(feature = "performance-profiling")]
+    log::info!(
+        "[PERF] {}",
+        serde_json::json!({ "stage": "still_preview_presented", "width": width, "height": height,
+            "epoch_ms": crate::performance::epoch_ms() })
+    );
+    Activation::Still
+}
+
+/// A photograph is asked for (`current_source` set to `path`): a still of
+/// another one no longer holds back developed frames
+/// (`WgpuDisplay::release_still_for`).
+pub(crate) fn release_still_for(state: &AppState, path: &str) {
+    if let Some(context) = state
+        .gpu_context
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        && let Some(display) = context
+            .display
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+    {
+        display.release_still_for(path);
+    }
+}
+
+/// What a still is presented on: the display, or a test's.
+trait StillDisplay {
+    fn frame_path(&self) -> Option<&str>;
+    fn viewport(&self) -> Option<[f32; 4]>;
+}
+
+impl StillDisplay for gpu_processing::WgpuDisplay {
+    fn frame_path(&self) -> Option<&str> {
+        gpu_processing::WgpuDisplay::frame_path(self)
+    }
+    fn viewport(&self) -> Option<[f32; 4]> {
+        self.viewport
+    }
+}
+
+/// Presents a still of `path` (`present`) unless another photograph was
+/// asked for meanwhile (`current`), a developed frame of it is shown
+/// already, or the viewer left the fit `viewport`. Checked while the
+/// display is locked, so no developed frame of a photograph asked for later
+/// can be presented between the check and the still (it follows the still
+/// and replaces it). Whether it was presented.
+fn present_if_current<D: StillDisplay>(
+    display: &std::sync::Mutex<Option<D>>,
+    current: &std::sync::Mutex<String>,
+    path: &str,
+    viewport: [f32; 4],
+    present: impl FnOnce(&mut D) -> bool,
+) -> bool {
+    let mut display = display.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(display) = display.as_mut() else {
+        return false;
+    };
+    let asked_for = *current.lock().unwrap_or_else(|e| e.into_inner()) == path;
+    asked_for
+        && display.frame_path() != Some(path)
+        && display.viewport() == Some(viewport)
+        && present(display)
 }
 
 /// Renders the split view's before side (`js_adjustments`: the unedited
@@ -3459,5 +3586,81 @@ mod curve_input_tests {
             "{pixels:?}"
         );
         assert!(pixels[1].iter().all(|v| v.abs() < 1e-9), "{pixels:?}");
+    }
+}
+
+#[cfg(test)]
+mod still_tests {
+    use super::{StillDisplay, present_if_current};
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    const FIT: [f32; 4] = [0.0, 0.0, 100.0, 80.0];
+
+    struct Shown {
+        frame: Option<String>,
+        viewport: Option<[f32; 4]>,
+    }
+
+    impl StillDisplay for Shown {
+        fn frame_path(&self) -> Option<&str> {
+            self.frame.as_deref()
+        }
+        fn viewport(&self) -> Option<[f32; 4]> {
+            self.viewport
+        }
+    }
+
+    fn present(display: &mut Shown) -> bool {
+        display.frame = Some("B still".into());
+        true
+    }
+
+    #[test]
+    fn a_still_shows_only_while_its_photograph_is_wanted_and_undeveloped_at_fit() {
+        let display = Mutex::new(Some(Shown {
+            frame: Some("A".into()),
+            viewport: Some(FIT),
+        }));
+        let current = Mutex::new("C".to_string());
+        assert!(!present_if_current(&display, &current, "B", FIT, present));
+        *current.lock().unwrap() = "B".into();
+        assert!(!present_if_current(
+            &display, &current, "B", [0.0; 4], present
+        ));
+        display.lock().unwrap().as_mut().unwrap().frame = Some("B".into());
+        assert!(!present_if_current(&display, &current, "B", FIT, present));
+        display.lock().unwrap().as_mut().unwrap().frame = Some("A".into());
+        assert!(present_if_current(&display, &current, "B", FIT, present));
+        assert_eq!(
+            display.lock().unwrap().as_ref().unwrap().frame.as_deref(),
+            Some("B still")
+        );
+    }
+
+    #[test]
+    fn a_still_never_covers_a_frame_of_a_photograph_asked_for_after_it() {
+        let display = Arc::new(Mutex::new(Some(Shown {
+            frame: Some("A".into()),
+            viewport: Some(FIT),
+        })));
+        let current = Arc::new(Mutex::new("B".to_string()));
+        // The developed frame of C is being presented while B's still waits
+        // for the display.
+        let presenting = display.lock().unwrap();
+        let still = {
+            let (display, current) = (Arc::clone(&display), Arc::clone(&current));
+            std::thread::spawn(move || present_if_current(&display, &current, "B", FIT, present))
+        };
+        std::thread::sleep(Duration::from_millis(50));
+        *current.lock().unwrap() = "C".into();
+        let mut presenting = presenting;
+        presenting.as_mut().unwrap().frame = Some("C".into());
+        drop(presenting);
+        assert!(!still.join().unwrap());
+        assert_eq!(
+            display.lock().unwrap().as_ref().unwrap().frame.as_deref(),
+            Some("C")
+        );
     }
 }

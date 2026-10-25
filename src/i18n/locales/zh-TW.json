@@ -915,6 +915,10 @@
       "stop": "停止",
       "stopped": "預覽在 {{done}} 張後停止"
     },
+    "still": {
+      "label": "預覽",
+      "title": "照片沖印期間顯示的縮圖；沖印好的畫面稍後會取代它。"
+    },
     "toasts": {
       "discarded": "已捨棄的預覽檔案：{{files}}",
       "failed": "預覽：{{err}}"
@@ -1367,6 +1371,8 @@
       "title": "資料管理"
     },
     "general": {
+      "autoAdvance": "自動前進",
+      "autoAdvanceDesc": "在沖印中，按評等、選取、排除或取消旗標鍵後會移到下一張照片，篩選時每張照片只需按一個鍵。",
       "builtinPresets": "內建預設",
       "builtinPresetsDesc": "在「樣式與預設」和工具的預設選單中顯示 Rawtonic 自有的樣式和預設。",
       "createXmp": "建立缺失的 XMP 檔案",
@@ -1376,6 +1382,7 @@
       "developToolsDesc": "顯影工具位於照片的哪一側。工具在右側時，左側面板顯示用於切換照片的導覽器、資料夾和相簿。",
       "developToolsLeft": "左側",
       "developToolsRight": "右側",
+      "enableAutoAdvance": "評等或加旗標後移到下一張照片",
       "enableOsTitlebar": "啟用系統標題欄",
       "enableXmpSync": "啟用 XMP 同步",
       "nativeTitlebar": "原生標題欄",

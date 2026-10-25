@@ -915,6 +915,10 @@
       "stop": "停止",
       "stopped": "{{done}} 件でプレビュー作成を停止"
     },
+    "still": {
+      "label": "プレビュー",
+      "title": "現像中に表示されるサムネールです。まもなく現像された画像に置き換わります。"
+    },
     "toasts": {
       "discarded": "破棄したプレビューファイル: {{files}}",
       "failed": "プレビュー: {{err}}"
@@ -1367,6 +1371,8 @@
       "title": "データ管理"
     },
     "general": {
+      "autoAdvance": "自動送り",
+      "autoAdvanceDesc": "現像で、レーティング・採用・不採用・フラグ解除のキーを押すと次の写真に進むため、選別は写真ごとに 1 キーで済みます。",
       "builtinPresets": "内蔵プリセット",
       "builtinPresetsDesc": "Rawtonic 独自のスタイルとプリセットを「スタイルとプリセット」とツールのプリセットメニューに表示します。",
       "createXmp": "見つからないXMPファイルを作成",
@@ -1376,6 +1382,7 @@
       "developToolsDesc": "現像ツールを写真のどちら側に表示するか。右側にすると、左パネルに写真を切り替えるためのナビゲーター、フォルダ、アルバムが表示されます。",
       "developToolsLeft": "左",
       "developToolsRight": "右",
+      "enableAutoAdvance": "レーティングやフラグの後に次の写真へ進む",
       "enableOsTitlebar": "OSのタイトルバーを有効にする",
       "enableXmpSync": "XMP同期を有効にする",
       "nativeTitlebar": "OS標準のタイトルバー",

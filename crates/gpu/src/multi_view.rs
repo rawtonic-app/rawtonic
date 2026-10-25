@@ -1012,6 +1012,42 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires a native GPU; a still shown as the live frame is copied like a developed one"]
+    fn a_still_frame_becomes_its_cells_stand_in_too() {
+        let gpu = offscreen();
+        let mut multi = layout(&gpu);
+        let size = wgpu::Extent3d {
+            width: 16,
+            height: 16,
+            depth_or_array_layers: 1,
+        };
+        let still = gpu
+            .device
+            .create_texture(&crate::gpu_processing::still_texture_descriptor(size));
+        gpu.queue.write_texture(
+            still.as_image_copy(),
+            &solid(16, 16, [255, 0, 255]),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(64),
+                rows_per_image: Some(16),
+            },
+            size,
+        );
+        let bindings = DisplayBindings {
+            layout: &gpu.layout,
+            sampler: &gpu.sampler,
+            empty_overlay: &gpu.empty,
+        };
+        let validation = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        multi.adopt_live_frame(&gpu.device, &gpu.queue, &bindings, "a", &still, 16, 16);
+        let error = pollster::block_on(validation.pop());
+        assert!(error.is_none(), "{error:?}");
+        let pixels = present(&gpu, &multi, None);
+        assert!(close(pixel(&pixels, 35, 50), [255, 0, 255]));
+    }
+
+    #[test]
     #[ignore = "requires a native GPU; the old primary's live frame stays as its cell's frame"]
     fn a_live_frame_becomes_its_cells_stand_in() {
         let gpu = offscreen();

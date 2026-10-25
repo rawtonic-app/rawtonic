@@ -530,7 +530,7 @@ export function useTauriListeners({
       }),
       listen<{ path: string }>('wgpu-frame-ready', (event) => {
         if (isEffectActive && event.payload?.path === useEditorStore.getState().selectedImage?.path) {
-          useEditorStore.getState().setEditor({ hasRenderedFirstFrame: true, holdingNativeFrame: false });
+          useEditorStore.getState().setEditor({ hasRenderedFirstFrame: true, holdingNativeFrame: false, stillPreview: null });
         }
       }),
       // Closing the window or Quit: save what is pending first.

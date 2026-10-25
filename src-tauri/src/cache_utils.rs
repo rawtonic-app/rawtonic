@@ -29,4 +29,6 @@ pub fn clear_image_caches(state: tauri::State<AppState>) {
     }
     // The multi view's decodes held for its 1:1 previews.
     crate::multi_view_prefetch::forget_decodes();
+    // The decode kept for the photograph opened next.
+    crate::proxy_worker::forget_ahead();
 }

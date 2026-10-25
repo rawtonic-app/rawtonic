@@ -100,6 +100,9 @@ fn source_of(path: &str) -> String {
 #[derive(Default)]
 struct Queue {
     prefetch: VecDeque<String>,
+    /// The first photograph of the last prefetch request (the likeliest
+    /// next one): its decode is kept for its opening.
+    prefetch_head: Option<String>,
     /// Raised by each prefetch request (it replaces the queue).
     prefetch_generation: usize,
     builds: VecDeque<BuildItem>,
@@ -146,8 +149,14 @@ impl Queue {
 
     /// Replaces what waits to be prefetched.
     fn set_prefetch(&mut self, paths: Vec<String>) {
+        self.prefetch_head = paths.first().cloned();
         self.prefetch = paths.into();
         self.prefetch_generation += 1;
+    }
+
+    /// Whether the prefetch of `path` keeps its decode (the request's head).
+    fn keeps_decode(&self, path: &str) -> bool {
+        self.prefetch_head.as_deref() == Some(path)
     }
 
     /// A prefetch cancelled by an edit is done again first, unless a newer
@@ -252,6 +261,226 @@ impl PrefetchGate {
 
 static WORKER: OnceLock<Arc<Worker>> = OnceLock::new();
 
+/// A decode with what it was made from (`preview_proxy::current_key`: file,
+/// decoder settings, engine): its RAW, decoded-cache key, the decode, its
+/// measures and that identity.
+struct MadeDecode<I> {
+    source: String,
+    key: String,
+    image: Arc<image::DynamicImage>,
+    measures: Option<crate::image_loader::DecodeMeasures>,
+    made: Option<I>,
+}
+
+impl<I: PartialEq> MadeDecode<I> {
+    /// The decode, when it is of `key` and what a decode made `now` would be
+    /// (a preference changed since, or the file, it is not used).
+    fn take_if(
+        slot: &mut Option<Self>,
+        key: &str,
+        now: &Option<I>,
+    ) -> Option<(
+        Arc<image::DynamicImage>,
+        Option<crate::image_loader::DecodeMeasures>,
+    )> {
+        if !slot.as_ref().is_some_and(|held| held.key == key) {
+            return None;
+        }
+        let held = slot.take()?;
+        (held.made.is_some() && held.made == *now).then_some((held.image, held.measures))
+    }
+}
+
+/// The decode kept for the photograph likeliest opened next (the prefetch
+/// request's head), until its load takes it, another one replaces it or a
+/// request no longer asks for it: one decode, within the multi view's hold
+/// budget (none while short of memory).
+static AHEAD: Mutex<Option<MadeDecode<preview_proxy::ProxyKey>>> = Mutex::new(None);
+
+/// The prefetch decode under way, which the open photograph's load may
+/// take over (`decode_for_open`).
+struct UnderWay<I> {
+    /// Its photograph and decoded-cache key.
+    path: Option<String>,
+    key: Option<String>,
+    /// What it is made from (`preview_proxy::current_key`).
+    made: Option<I>,
+    /// The open photograph's load waits for it: it is handed over.
+    wanted: bool,
+    /// A decode handed over and not taken yet: kept until its load takes
+    /// it, also while the next prefetch decode runs.
+    handed: Option<MadeDecode<I>>,
+}
+
+/// What the open photograph's load does about the prefetch decode under way.
+#[derive(Debug, PartialEq)]
+enum OnOpen {
+    /// None under way.
+    Decode,
+    /// It is the open photograph's: wait and take it.
+    Wait,
+    /// Another photograph's: cancel it (it is done again later), so the
+    /// open photograph's decode has the cores.
+    Cancel,
+}
+
+impl<I: PartialEq> UnderWay<I> {
+    const fn idle() -> Self {
+        Self {
+            path: None,
+            key: None,
+            made: None,
+            wanted: false,
+            handed: None,
+        }
+    }
+
+    fn start(&mut self, path: &str, key: &str, made: Option<I>) {
+        self.path = Some(path.to_string());
+        self.key = Some(key.to_string());
+        self.made = made;
+        self.wanted = false;
+    }
+
+    /// The decode ended (`decoded`: None when cancelled or failed); whether
+    /// it was handed over to the load waiting for it.
+    fn end(
+        &mut self,
+        decoded: Option<(
+            Arc<image::DynamicImage>,
+            Option<crate::image_loader::DecodeMeasures>,
+        )>,
+    ) -> bool {
+        let key = self.key.take();
+        let made = self.made.take();
+        let source = self.path.take().unwrap_or_default();
+        match (std::mem::take(&mut self.wanted), key, decoded) {
+            (true, Some(key), Some((image, measures))) => {
+                self.handed = Some(MadeDecode {
+                    source,
+                    key,
+                    image,
+                    measures,
+                    made,
+                });
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn on_open(&mut self, key: &str) -> OnOpen {
+        match self.key.as_deref() {
+            None => OnOpen::Decode,
+            Some(under_way) if under_way == key => {
+                self.wanted = true;
+                OnOpen::Wait
+            }
+            Some(_) => OnOpen::Cancel,
+        }
+    }
+
+    /// Whether a new prefetch request of `paths` leaves the decode under way
+    /// unasked for (a jump elsewhere): it is cancelled then, unless the open
+    /// photograph's load waits for it.
+    fn stale_for(&self, paths: &[String]) -> bool {
+        !self.wanted
+            && self.path.as_deref().is_some_and(|under_way| {
+                !paths.iter().any(|p| source_of(p) == source_of(under_way))
+            })
+    }
+}
+
+static UNDER_WAY: (Mutex<UnderWay<preview_proxy::ProxyKey>>, Condvar) =
+    (Mutex::new(UnderWay::idle()), Condvar::new());
+
+/// Before the open photograph's own decode (`key`, its decoded-cache key;
+/// `now`: what a decode of it made now would be, `preview_proxy::current_key`):
+/// the decode kept ahead for it, or a prefetch decode of it under way
+/// (finished first, waiting up to `wait`), instead of decoding the RAW a
+/// second time; one of another photograph under way is cancelled, so the
+/// open one has the cores. A decode of other settings or of a file changed
+/// since is never used.
+pub(crate) fn decode_for_open(
+    key: &str,
+    now: Option<preview_proxy::ProxyKey>,
+    wait: Duration,
+) -> Option<(
+    Arc<image::DynamicImage>,
+    Option<crate::image_loader::DecodeMeasures>,
+)> {
+    if let Some(kept) = MadeDecode::take_if(
+        &mut AHEAD.lock().unwrap_or_else(|e| e.into_inner()),
+        key,
+        &now,
+    ) {
+        return Some(kept);
+    }
+    take_under_way(&UNDER_WAY, key, &now, wait, || {
+        if let Some(worker) = WORKER.get() {
+            worker.prefetch_gate.interaction();
+        }
+    })
+}
+
+/// Whether a decode is kept for the photograph of decoded-cache key `key`
+/// that its load will take (made as a decode `now` would be).
+pub(crate) fn keeps_decode_of(key: &str, now: &Option<preview_proxy::ProxyKey>) -> bool {
+    AHEAD
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_some_and(|kept| kept.key == key && kept.made.is_some() && kept.made == *now)
+}
+
+/// The decoder's settings changed or the caches were cleared: the decode
+/// kept ahead goes.
+pub(crate) fn forget_ahead() {
+    *AHEAD.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
+fn take_under_way<I: PartialEq>(
+    (under_way, ended): &(Mutex<UnderWay<I>>, Condvar),
+    key: &str,
+    now: &Option<I>,
+    wait: Duration,
+    cancel: impl FnOnce(),
+) -> Option<(
+    Arc<image::DynamicImage>,
+    Option<crate::image_loader::DecodeMeasures>,
+)> {
+    let until = std::time::Instant::now() + wait;
+    let mut state = under_way.lock().unwrap_or_else(|e| e.into_inner());
+    // Handed over already (the next prefetch decode may have started).
+    if state.handed.as_ref().is_some_and(|held| held.key == key) {
+        return MadeDecode::take_if(&mut state.handed, key, now);
+    }
+    match state.on_open(key) {
+        OnOpen::Decode => return None,
+        OnOpen::Cancel => {
+            drop(state);
+            cancel();
+            return None;
+        }
+        OnOpen::Wait => {}
+    }
+    loop {
+        if state.handed.as_ref().is_some_and(|held| held.key == key) {
+            return MadeDecode::take_if(&mut state.handed, key, now);
+        }
+        let left = until.saturating_duration_since(std::time::Instant::now());
+        if state.key.as_deref() != Some(key) || left.is_zero() {
+            // Cancelled, failed, or too slow: decoded by the load itself.
+            state.wanted = false;
+            return None;
+        }
+        state = ended
+            .wait_timeout(state, left)
+            .unwrap_or_else(|e| e.into_inner())
+            .0;
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn lower_priority() {
     // SAFETY: sets the calling thread's own QoS class; no pointers involved.
@@ -322,7 +551,8 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                     crate::multi_view_prefetch::busy,
                 );
                 if let Some(job) = queue.next(start.is_some()) {
-                    break (job, queue.prefetch_generation, start);
+                    let keep = matches!(&job, Job::Prefetch(path) if queue.keeps_decode(path));
+                    break (job, queue.prefetch_generation, start, keep);
                 }
                 queue = if queue.prefetch.is_empty() {
                     worker.wake.wait(queue).unwrap_or_else(|e| e.into_inner())
@@ -338,12 +568,12 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                 };
             }
         };
-        let (job, prefetch_generation, start) = job;
+        let (job, prefetch_generation, start, keep) = job;
         match job {
             Job::Prefetch(path) => {
                 let cancel = start.expect("prefetching only starts when quiet");
                 let token = cancel.1;
-                pool.install(|| prepare(app_handle, &path, cancel));
+                pool.install(|| prepare(app_handle, &path, cancel, keep));
                 if worker.prefetch_gate.cancelled(token) {
                     // When the cancelled decode gave the cores back (compare
                     // with the pointer session's start).
@@ -386,7 +616,15 @@ fn wanted_size(app_handle: &tauri::AppHandle, viewer_dim: u32) -> u32 {
     preview_proxy::standard_size(if dim > 0 { dim } else { viewer_dim }, &settings)
 }
 
-fn prepare(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, usize)) {
+/// Prepares the preview proxy of `path`; with `keep` (the likeliest next
+/// photograph) its decode stays in the decoded-image cache too, so opening
+/// it develops the full frame without decoding the RAW again.
+fn prepare(
+    app_handle: &tauri::AppHandle,
+    path: &str,
+    cancel: (Arc<AtomicUsize>, usize),
+    keep: bool,
+) {
     let state = app_handle.state::<AppState>();
     // The open photograph's own decode writes its proxy.
     if *state
@@ -427,6 +665,16 @@ fn prepare(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>,
                 .unwrap_or_else(|e| e.into_inner())
                 .remember(path, proxy);
         }
+        // Decoded only to be kept: not while nothing may be held (short of
+        // memory).
+        if keep
+            && preview_proxy::source_available(&source)
+            && crate::multi_view_prefetch::hold_budget() > 0
+        {
+            #[cfg(feature = "performance-profiling")]
+            let _stage = crate::performance::PerformanceStage::new("preview_prefetch_decode");
+            let _ = decode(app_handle, &source, &settings, Some(cancel), Some(true));
+        }
         return;
     }
     #[cfg(feature = "performance-profiling")]
@@ -437,6 +685,7 @@ fn prepare(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>,
         &source,
         &settings,
         Some((Arc::clone(&raised), token)),
+        Some(keep),
     ) else {
         return;
     };
@@ -464,12 +713,16 @@ fn prepare(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>,
 /// The full decode of `source` for the decode variant of its stored recipe
 /// (returned with it and the decode's measures): the open photograph's when
 /// it is in memory, else decoded now (cancelled when `cancel` is raised past
-/// its value).
+/// its value). `prefetch`: a prefetch decode, which the open photograph's
+/// load may take over (`decode_for_open`), with whether it is kept for that
+/// load (`AHEAD`, within the multi view's hold budget), both with what it is
+/// made from (`preview_proxy::current_key`).
 fn decode(
     app_handle: &tauri::AppHandle,
     source: &Path,
     settings: &crate::app_settings::AppSettings,
     cancel: Option<(Arc<AtomicUsize>, usize)>,
+    prefetch: Option<bool>,
 ) -> Option<(
     Arc<image::DynamicImage>,
     crate::image_loader::DecodeVariant,
@@ -478,23 +731,37 @@ fn decode(
     let state = app_handle.state::<AppState>();
     let source_str = source.to_string_lossy();
     let variant = crate::image_loader::stored_decode_variant(&source_str);
+    let key = crate::image_loader::decoded_cache_key(&source_str, None, variant);
     let cached = state
         .decoded_image_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get_measured(&crate::image_loader::decoded_cache_key(
-            &source_str,
-            None,
-            variant,
-        ));
+        .get_measured(&key);
     if let Some((image, _, measures)) = cached {
         return Some((image, variant, measures));
     }
     let cancelled = cancel
         .clone()
         .map(|(raised, value)| move || raised.load(Ordering::SeqCst) != value);
+    let made = prefetch.and_then(|_| preview_proxy::current_key(source, settings, variant));
+    if prefetch == Some(true)
+        && let Some(kept) = AHEAD
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .filter(|kept| kept.key == key && kept.made.is_some() && kept.made == made)
+    {
+        return Some((Arc::clone(&kept.image), variant, kept.measures));
+    }
     let bytes = crate::file_management::read_file_mapped(source).ok()?;
-    match crate::image_loader::load_base_image_measured_for(
+    if prefetch.is_some() {
+        UNDER_WAY.0.lock().unwrap_or_else(|e| e.into_inner()).start(
+            &source_str,
+            &key,
+            made.clone(),
+        );
+    }
+    let decoded = crate::image_loader::load_base_image_measured_for(
         &bytes,
         &source_str,
         false,
@@ -503,8 +770,35 @@ fn decode(
         None,
         None,
         Some(variant),
-    ) {
-        Ok((image, measures)) => Some((Arc::new(image), variant, measures)),
+    )
+    .map(|(image, measures)| (Arc::new(image), measures));
+    if let Some(keep) = prefetch {
+        // Kept (before the load waiting for it is told), else handed over
+        // to the open photograph's load, which waits for it.
+        if keep
+            && made.is_some()
+            && let Ok((image, measures)) = &decoded
+            && image.as_bytes().len() <= crate::multi_view_prefetch::hold_budget()
+        {
+            *AHEAD.lock().unwrap_or_else(|e| e.into_inner()) = Some(MadeDecode {
+                source: source_str.to_string(),
+                key: key.clone(),
+                image: Arc::clone(image),
+                measures: *measures,
+                made: made.clone(),
+            });
+        }
+        let (under_way, ended) = &UNDER_WAY;
+        under_way.lock().unwrap_or_else(|e| e.into_inner()).end(
+            decoded
+                .as_ref()
+                .ok()
+                .map(|(image, measures)| (Arc::clone(image), *measures)),
+        );
+        ended.notify_all();
+    }
+    match decoded {
+        Ok((image, measures)) => Some((image, variant, measures)),
         Err(_) if cancelled.is_some_and(|cancelled| cancelled()) => None,
         Err(e) => {
             log::warn!(
@@ -547,7 +841,8 @@ fn build(app_handle: &tauri::AppHandle, worker: &Worker, item: &BuildItem) -> Ou
         return Outcome::Current;
     }
     let cancel = Some((Arc::clone(&worker.cancel), item.generation));
-    let Some((image, variant, measures)) = decode(app_handle, &source, &settings, cancel) else {
+    let Some((image, variant, measures)) = decode(app_handle, &source, &settings, cancel, None)
+    else {
         return if worker.cancel.load(Ordering::SeqCst) != item.generation {
             Outcome::Cancelled
         } else {
@@ -582,6 +877,25 @@ pub fn prepare_preview_proxies(paths: Vec<String>, app_handle: tauri::AppHandle)
         return;
     }
     let worker = worker(&app_handle);
+    // A jump elsewhere: the decode under way is not wanted any more.
+    if UNDER_WAY
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .stale_for(&paths)
+    {
+        worker.prefetch_gate.interaction();
+    }
+    // Nor the decode kept ahead: let go.
+    {
+        let mut ahead = AHEAD.lock().unwrap_or_else(|e| e.into_inner());
+        if ahead
+            .as_ref()
+            .is_some_and(|kept| !paths.iter().any(|p| source_of(p) == kept.source))
+        {
+            *ahead = None;
+        }
+    }
     let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
     queue.set_prefetch(paths);
     worker.wake.notify_one();
@@ -1009,5 +1323,181 @@ mod tests {
         };
         assert_eq!(again.generation, queue.generation);
         assert!(!queue.progress.stopped);
+    }
+
+    #[test]
+    fn only_the_first_photograph_asked_for_keeps_its_decode() {
+        let mut queue = Queue::default();
+        queue.set_prefetch(paths(&["N.RAF", "NN.RAF", "P.RAF"]));
+        assert!(queue.keeps_decode("/s/Capture/N.RAF"));
+        assert!(!queue.keeps_decode("/s/Capture/NN.RAF"));
+        // A step back: the previous photograph comes first now.
+        queue.set_prefetch(paths(&["P.RAF", "PP.RAF", "N.RAF"]));
+        assert!(queue.keeps_decode("/s/Capture/P.RAF"));
+        assert!(!queue.keeps_decode("/s/Capture/N.RAF"));
+    }
+
+    fn decoded() -> (
+        Arc<image::DynamicImage>,
+        Option<crate::image_loader::DecodeMeasures>,
+    ) {
+        (Arc::new(image::DynamicImage::new_rgb8(2, 2)), None)
+    }
+
+    /// What a decode was made from, in tests: a number per settings state.
+    type Shared = (Mutex<UnderWay<u32>>, Condvar);
+
+    fn shared() -> Shared {
+        (Mutex::new(UnderWay::idle()), Condvar::new())
+    }
+
+    #[test]
+    fn a_jump_cancels_the_prefetch_decode_it_no_longer_asks_for() {
+        let mut under_way = UnderWay::<u32>::idle();
+        assert!(!under_way.stale_for(&paths(&["N.RAF"])));
+        under_way.start("/s/Capture/N.RAF", "N-key", Some(0));
+        // Still asked for (a virtual copy of it counts): kept going.
+        assert!(!under_way.stale_for(&paths(&["N.RAF?vc=2", "P.RAF"])));
+        assert!(under_way.stale_for(&paths(&["X.RAF", "Y.RAF"])));
+        // The open photograph's load waits for it: never cancelled.
+        assert_eq!(under_way.on_open("N-key"), OnOpen::Wait);
+        assert!(!under_way.stale_for(&paths(&["X.RAF"])));
+    }
+
+    #[test]
+    fn opening_another_photograph_cancels_the_prefetch_decode_under_way() {
+        let shared = shared();
+        let mut cancelled = false;
+        assert!(
+            take_under_way(&shared, "N-key", &Some(0), Duration::ZERO, || cancelled =
+                true)
+            .is_none()
+        );
+        assert!(!cancelled, "nothing under way: the load decodes");
+        shared
+            .0
+            .lock()
+            .unwrap()
+            .start("/s/Capture/N.RAF", "N-key", Some(0));
+        let taken = take_under_way(&shared, "X-key", &Some(0), Duration::from_secs(1), || {
+            cancelled = true
+        });
+        assert!(taken.is_none() && cancelled);
+        // The cancelled decode ends with nothing to hand over.
+        assert!(!shared.0.lock().unwrap().end(None));
+        assert!(shared.0.lock().unwrap().handed.is_none());
+    }
+
+    #[test]
+    fn the_open_photographs_load_takes_over_its_prefetch_decode() {
+        let shared = Arc::new(shared());
+        shared
+            .0
+            .lock()
+            .unwrap()
+            .start("/s/Capture/N.RAF", "N-key", Some(0));
+        let decoder = {
+            let shared = Arc::clone(&shared);
+            std::thread::spawn(move || {
+                // Ends once the load waits for it.
+                while !shared.0.lock().unwrap().wanted {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                let handed = shared.0.lock().unwrap().end(Some(decoded()));
+                shared.1.notify_all();
+                handed
+            })
+        };
+        let taken = take_under_way(&shared, "N-key", &Some(0), Duration::from_secs(10), || {
+            panic!("its own decode is not cancelled")
+        });
+        assert!(decoder.join().unwrap(), "handed over");
+        assert!(taken.is_some());
+        assert!(shared.0.lock().unwrap().handed.is_none(), "taken, not kept");
+    }
+
+    #[test]
+    fn a_decode_of_settings_changed_since_is_never_taken() {
+        // A preference that changes the decode (Linear RAW, highlight
+        // recovery) changed while it was made, or after it was kept.
+        let shared = shared();
+        {
+            let mut state = shared.0.lock().unwrap();
+            state.start("/s/Capture/N.RAF", "N-key", Some(3));
+            assert_eq!(state.on_open("N-key"), OnOpen::Wait);
+            assert!(state.end(Some(decoded())));
+        }
+        assert!(take_under_way(&shared, "N-key", &Some(4), Duration::ZERO, || {}).is_none());
+        assert!(
+            shared.0.lock().unwrap().handed.is_none(),
+            "dropped, not kept"
+        );
+        let mut kept = Some(MadeDecode {
+            source: "/s/Capture/N.RAF".into(),
+            key: "N-key".into(),
+            image: decoded().0,
+            measures: None,
+            made: Some(3u32),
+        });
+        assert!(MadeDecode::take_if(&mut kept, "N-key", &Some(4)).is_none());
+        assert!(kept.is_none(), "a stale one goes");
+        // Unchanged settings: taken; another photograph's: left.
+        let mut kept = Some(MadeDecode {
+            source: "/s/Capture/N.RAF".into(),
+            key: "N-key".into(),
+            image: decoded().0,
+            measures: None,
+            made: Some(4u32),
+        });
+        assert!(MadeDecode::take_if(&mut kept, "X-key", &Some(4)).is_none());
+        assert!(kept.is_some());
+        assert!(MadeDecode::take_if(&mut kept, "N-key", &Some(4)).is_some());
+        // Nothing known about how it was made: never taken.
+        let mut unknown = Some(MadeDecode::<u32> {
+            source: "/s/Capture/N.RAF".into(),
+            key: "N-key".into(),
+            image: decoded().0,
+            measures: None,
+            made: None,
+        });
+        assert!(MadeDecode::take_if(&mut unknown, "N-key", &None).is_none());
+    }
+
+    #[test]
+    fn a_handed_decode_waits_for_its_load_while_the_next_prefetch_starts() {
+        let shared = shared();
+        {
+            let mut state = shared.0.lock().unwrap();
+            state.start("/s/Capture/N.RAF", "N-key", Some(0));
+            assert_eq!(state.on_open("N-key"), OnOpen::Wait);
+            assert!(state.end(Some(decoded())));
+            // The worker starts the next decode before the load wakes up.
+            state.start("/s/Capture/NN.RAF", "NN-key", Some(0));
+        }
+        let mut cancelled = false;
+        let taken = take_under_way(&shared, "N-key", &Some(0), Duration::ZERO, || {
+            cancelled = true
+        });
+        assert!(taken.is_some() && !cancelled);
+        assert!(shared.0.lock().unwrap().handed.is_none());
+    }
+
+    #[test]
+    fn a_prefetch_decode_nobody_waits_for_is_not_handed_over() {
+        let mut under_way = UnderWay::<u32>::idle();
+        under_way.start("/s/Capture/N.RAF", "N-key", Some(0));
+        assert!(!under_way.end(Some(decoded())));
+        assert!(under_way.handed.is_none() && under_way.key.is_none());
+        // A load that gave up waiting leaves nothing behind either.
+        let shared = shared();
+        shared
+            .0
+            .lock()
+            .unwrap()
+            .start("/s/Capture/N.RAF", "N-key", Some(0));
+        assert!(
+            take_under_way(&shared, "N-key", &Some(0), Duration::from_millis(5), || {}).is_none()
+        );
+        assert!(!shared.0.lock().unwrap().end(Some(decoded())));
     }
 }
