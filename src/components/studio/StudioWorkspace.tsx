@@ -49,6 +49,7 @@ import {
   ListChecks,
   Maximize,
 } from "lucide-react";
+import { canUndo, canRedo, undo, redo, useCatalogUndoStore } from '../../utils/appUndo';
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useUIStore } from "../../store/useUIStore";
@@ -200,7 +201,8 @@ export default function StudioWorkspace(props: Props) {
     transformWrapperRef,
   } = props;
   const { t, i18n } = useTranslation();
-  const { selectedImage, historyIndex, historyPending, history, splitView, previousPhoto } = useEditorStore(
+  useCatalogUndoStore();
+  const { selectedImage, splitView, previousPhoto } = useEditorStore(
     useShallow((s) => ({
       selectedImage: s.selectedImage,
       historyIndex: s.historyIndex,
@@ -1245,20 +1247,20 @@ export default function StudioWorkspace(props: Props) {
                   <button
                     title={withShortcut(t("studio.workspace.viewer.undo"), "⌘Z")}
                     aria-label={t("studio.workspace.viewer.undo")}
-                    disabled={!panelsReady || (!historyPending && historyIndex <= 0)}
-                    onClick={() => readyNow() && useEditorStore.getState().undo()}
+                    disabled={!panelsReady || !canUndo()}
+                    onClick={() => {
+                      if (readyNow()) void undo();
+                    }}
                   >
                     <Undo2 size={15} />
                   </button>
                   <button
                     title={withShortcut(t("studio.workspace.viewer.redo"), "⇧⌘Z")}
                     aria-label={t("studio.workspace.viewer.redo")}
-                    disabled={
-                      !panelsReady ||
-                      historyPending ||
-                      historyIndex >= history.length - 1
-                    }
-                    onClick={() => readyNow() && useEditorStore.getState().redo()}
+                    disabled={!panelsReady || !canRedo()}
+                    onClick={() => {
+                      if (readyNow()) void redo();
+                    }}
                   >
                     <Redo2 size={15} />
                   </button>

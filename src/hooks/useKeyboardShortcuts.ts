@@ -22,6 +22,7 @@ import { orderedSelection, stepPrimary } from '../utils/multiView';
 import { AUTO_ADVANCE_EVENT, autoAdvanceTarget, requestAutoAdvance } from '../utils/photoStepping';
 import { isTetherConnected, TETHER_CAPTURE_EVENT } from '../components/session/tether';
 import { flagTargets, libraryViewer, viewerOnly, viewerShown } from '../utils/viewerMode';
+import { canUndo, canRedo, undo, redo, catalogUndoAvailable } from '../utils/appUndo';
 import { pointerHeld } from '../utils/heldPointer';
 import { COMMAND_DIALOG_SELECTOR, registerAppCommands, runAppCommand, type AppCommand } from '../utils/appCommands';
 
@@ -42,7 +43,7 @@ export function gridStep(index: number, count: number, code: string, columns: nu
 }
 
 /** Shortcuts that change a recipe; the loupe and the full screen ignore
- * them (in the Library, undo and redo are the file operations' and stay). */
+ * them; catalog undo/redo and the Library's file-operation fallback stay). */
 export const RECIPE_ACTIONS = new Set([
   'paste_adjustments',
   'paste_from_previous',
@@ -73,7 +74,7 @@ function recipeHeld(action: string, state: ShortcutState): boolean {
   return (
     viewerOnly(state.ui) &&
     RECIPE_ACTIONS.has(action) &&
-    !(state.ui.activeView !== 'editor' && (action === 'undo' || action === 'redo'))
+    !((action === 'undo' || action === 'redo') && (state.ui.activeView !== 'editor' || catalogUndoAvailable(action)))
   );
 }
 
@@ -575,29 +576,17 @@ export const useKeyboardShortcuts = ({
         },
       },
       undo: {
-        // Develop: edit history. Library: the last rename, move or delete.
-        shouldFire: (s) =>
-          s.ui.activeView === 'editor'
-            ? s.editor.selectedImage?.isReady && (s.editor.historyPending || s.editor.historyIndex > 0)
-            : !!handleUndoFileOperation,
+        shouldFire: (s) => canUndo() || (s.ui.activeView !== 'editor' && !!handleUndoFileOperation),
         execute: (e, s) => {
           e.preventDefault();
-          if (s.ui.activeView === 'editor') s.editor.undo();
-          else handleUndoFileOperation?.();
+          void undo(s.ui.activeView !== 'editor' ? handleUndoFileOperation : undefined);
         },
       },
       redo: {
-        // Develop: edit history. Library: the file operation undone last.
-        shouldFire: (s) =>
-          s.ui.activeView === 'editor'
-            ? s.editor.selectedImage?.isReady &&
-              !s.editor.historyPending &&
-              s.editor.historyIndex < s.editor.history.length - 1
-            : !!handleRedoFileOperation,
+        shouldFire: (s) => canRedo() || (s.ui.activeView !== 'editor' && !!handleRedoFileOperation),
         execute: (e, s) => {
           e.preventDefault();
-          if (s.ui.activeView === 'editor') s.editor.redo();
-          else handleRedoFileOperation?.();
+          void redo(s.ui.activeView !== 'editor' ? handleRedoFileOperation : undefined);
         },
       },
       auto_adjust: {

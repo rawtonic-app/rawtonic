@@ -54,10 +54,48 @@ fn invalid_batch_rolls_back_and_catalog_flags_resolve_external_paths() {
     assert!(lib.flags().unwrap().is_empty());
     assert_eq!(lib.metadata(&asset.id).unwrap().flag, 0);
     assert!(lib.set_flags(std::slice::from_ref(&asset.id), 2).is_err());
-    lib.set_flags(&[asset.id], -1).unwrap();
+    lib.set_flags(&[asset.id.clone(), asset.id], -1).unwrap();
     assert_eq!(
         lib.flags().unwrap().get(&source.canonicalize().unwrap()),
         Some(&-1)
     );
     assert_eq!(std::fs::read(source).unwrap(), b"external original");
+}
+
+#[test]
+fn mixed_flag_batch_undo_restores_every_previous_value_and_marks_xmp_pending() {
+    let temp = tempfile::tempdir().unwrap();
+    let lib = Library::create(temp.path(), "Undo", Mode::Session).unwrap();
+    let mut ids = Vec::new();
+    for (n, flag) in [0, 1, -1].into_iter().enumerate() {
+        let path = temp.path().join(format!("Capture/{n}.nef"));
+        std::fs::write(&path, b"synthetic original").unwrap();
+        let id = lib.add_asset(&path).unwrap().id;
+        lib.set_flags(std::slice::from_ref(&id), flag).unwrap();
+        lib.sync_xmp(&id).unwrap();
+        ids.push(id);
+    }
+    let values: Vec<_> = ids.iter().map(|id| (id.clone(), 1)).collect();
+    let before = lib.set_flag_values(&values).unwrap();
+    assert_eq!(
+        before.iter().map(|(_, flag)| *flag).collect::<Vec<_>>(),
+        [0, 1, -1]
+    );
+    for id in &ids {
+        lib.sync_xmp(id).unwrap();
+    }
+    let redo = lib.set_flag_values(&before).unwrap();
+    assert_eq!(lib.summary().unwrap().xmp_pending, 3);
+    for (id, flag) in &before {
+        assert_eq!(lib.metadata(id).unwrap().flag, *flag);
+        lib.sync_xmp(id).unwrap();
+    }
+    lib.set_flag_values(&redo).unwrap();
+    assert!(ids.iter().all(|id| lib.metadata(id).unwrap().flag == 1));
+    // Invalid restores commit nothing, including when an earlier member was valid.
+    assert!(
+        lib.set_flag_values(&[(ids[0].clone(), -1), ("unknown".into(), 0)])
+            .is_err()
+    );
+    assert_eq!(lib.metadata(&ids[0]).unwrap().flag, 1);
 }

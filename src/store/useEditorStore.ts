@@ -10,6 +10,7 @@ import { maskOverlayAfterEdit, type MaskOverlayAuto, type NativeMaskOverlay } fr
 import type { OutputColorSpace } from '../components/ui/ExportImportProperties';
 import type { LayerSolo } from '../utils/layerSolo';
 import { DEFAULT_SPLIT_POSITION } from '../utils/beforeAfter';
+import { recordEditOrder } from '../utils/undoOrder';
 import { noteEdit } from '../components/contribute/usageStats';
 
 export interface InteractivePatch {
@@ -303,6 +304,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     heldHistory = null;
     // Usage statistics (only while switched on): the tools this step used.
     noteEdit(get().history[get().historyIndex], newAdj);
+    recordEditOrder(newAdj);
     set((state) => {
       const newHistory = state.history.slice(0, state.historyIndex + 1);
       newHistory.push(newAdj);
@@ -357,6 +359,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
       // The clicked snapshot was evicted by the size cap or the new branch.
       // Record returning to it, retaining the just-committed edit for Undo.
+      recordEditOrder(target);
       const history = [...state.history, target].slice(-50);
       return { history, historyIndex: history.length - 1, adjustments: target };
     });

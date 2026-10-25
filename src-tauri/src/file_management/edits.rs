@@ -721,6 +721,7 @@ pub async fn apply_auto_adjustments_to_paths(
     .map_err(|e| SaveFailure {
         message: format!("Auto adjustments failed: {e}"),
         failed: all,
+        culling: Vec::new(),
     })?;
     SaveFailure::check(total, failures)
 }
@@ -732,6 +733,8 @@ pub async fn apply_auto_adjustments_to_paths(
 pub struct SaveFailure {
     pub message: String,
     pub failed: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub culling: Vec<CullingChange>,
 }
 
 impl SaveFailure {
@@ -759,6 +762,7 @@ impl SaveFailure {
         Err(SaveFailure {
             message: format!("Could not save {what}: {}", listed.join("; ")),
             failed: failures.into_iter().map(|(path, _)| path).collect(),
+            culling: Vec::new(),
         })
     }
 }
@@ -796,111 +800,231 @@ fn unsaved(paths: &[String], error: &str) -> Result<(), SaveFailure> {
     )
 }
 
-/// Off the main thread: the save waits while the catalog is locked.
+/// An acknowledged, field-only catalog change. Receipts are used by Undo;
+/// replay reads the latest sidecar again so edits and keywords stay intact.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(tag = "kind", content = "value", rename_all = "camelCase")]
+pub enum CullingValue {
+    Rating(u8),
+    Color(Option<String>),
+    Flag(i8),
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CullingChange {
+    pub path: String,
+    pub asset_id: Option<String>,
+    pub before: CullingValue,
+    pub after: CullingValue,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CullingWrite {
+    pub path: String,
+    pub value: CullingValue,
+    pub asset_id: Option<String>,
+}
+
 #[tauri::command]
 pub async fn set_color_label_for_paths(
     paths: Vec<String>,
     color: Option<String>,
+    directory: Option<String>,
     app_handle: AppHandle,
-) -> Result<(), SaveFailure> {
-    let all = paths.clone();
-    super::blocking(move || set_color_label_for_paths_blocking(paths, color, app_handle))
-        .await
-        .unwrap_or_else(|e| unsaved(&all, &e))
+) -> Result<Vec<CullingChange>, SaveFailure> {
+    culling_worker(
+        paths
+            .into_iter()
+            .map(|path| CullingWrite {
+                path,
+                value: CullingValue::Color(color.clone()),
+                asset_id: None,
+            })
+            .collect(),
+        directory,
+        app_handle,
+    )
+    .await
 }
 
-fn set_color_label_for_paths_blocking(
-    paths: Vec<String>,
-    color: Option<String>,
-    app_handle: AppHandle,
-) -> Result<(), SaveFailure> {
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
-    let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
-    let create_xmp_if_missing = settings.create_xmp_if_missing.unwrap_or(false);
-
-    let failures: Vec<(String, String)> = paths
-        .par_iter()
-        .filter_map(|path| {
-            let _turn = sidecar_field_edit();
-            let (_, sidecar_path) = parse_virtual_path(path);
-
-            let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
-
-            let mut tags = metadata.tags.unwrap_or_default();
-            tags.retain(|tag| !tag.starts_with(COLOR_TAG_PREFIX));
-
-            if let Some(c) = &color
-                && !c.is_empty()
-            {
-                tags.push(format!("{}{}", COLOR_TAG_PREFIX, c));
-            }
-
-            if tags.is_empty() {
-                metadata.tags = None;
-            } else {
-                metadata.tags = Some(tags);
-            }
-
-            if let Err(e) = save_sidecar(path, &metadata) {
-                return Some((path.clone(), e));
-            }
-
-            if enable_xmp_sync {
-                let source_path = parse_virtual_path(path).0;
-                sync_metadata_to_xmp(&source_path, &metadata, create_xmp_if_missing);
-            }
-            None
-        })
-        .collect();
-
-    SaveFailure::check(paths.len(), failures)
-}
-
-/// Off the main thread: the save waits while the catalog is locked.
 #[tauri::command]
 pub async fn set_rating_for_paths(
     paths: Vec<String>,
     rating: u8,
+    directory: Option<String>,
     app_handle: AppHandle,
-) -> Result<(), SaveFailure> {
-    let all = paths.clone();
-    super::blocking(move || set_rating_for_paths_blocking(paths, rating, app_handle))
-        .await
-        .unwrap_or_else(|e| unsaved(&all, &e))
+) -> Result<Vec<CullingChange>, SaveFailure> {
+    culling_worker(
+        paths
+            .into_iter()
+            .map(|path| CullingWrite {
+                path,
+                value: CullingValue::Rating(rating),
+                asset_id: None,
+            })
+            .collect(),
+        directory,
+        app_handle,
+    )
+    .await
 }
 
-fn set_rating_for_paths_blocking(
-    paths: Vec<String>,
-    rating: u8,
+#[tauri::command]
+pub async fn restore_culling(
+    values: Vec<CullingWrite>,
+    directory: Option<String>,
     app_handle: AppHandle,
-) -> Result<(), SaveFailure> {
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
-    let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
-    let create_xmp_if_missing = settings.create_xmp_if_missing.unwrap_or(false);
-
-    let failures: Vec<(String, String)> = paths
-        .par_iter()
-        .filter_map(|path| {
-            let _turn = sidecar_field_edit();
-            let (_, sidecar_path) = parse_virtual_path(path);
-
-            let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
-
-            metadata.rating = rating;
-
-            if let Err(e) = save_sidecar(path, &metadata) {
-                return Some((path.clone(), e));
+) -> Result<Vec<CullingChange>, SaveFailure> {
+    let all: Vec<_> = values.iter().map(|write| write.path.clone()).collect();
+    super::blocking(move || {
+        crate::session_bridge::with_library_target(directory.as_deref(), || {
+            match resolve_culling_targets(values, directory.as_deref()) {
+                Ok(values) => write_culling(values, directory.clone(), &app_handle),
+                Err(error) => unsaved(&all, &error).map(|()| Vec::new()),
             }
+        })
+    })
+    .await
+    .map_err(|error| SaveFailure {
+        message: error,
+        failed: Vec::new(),
+        culling: Vec::new(),
+    })?
+}
 
-            if enable_xmp_sync {
-                let source_path = parse_virtual_path(path).0;
-                sync_metadata_to_xmp(&source_path, &metadata, create_xmp_if_missing);
+/// Undo follows a managed photo's catalog identity through rename, trash and
+/// relink. An unmanaged file that disappeared is never recreated at an old path.
+fn resolve_culling_targets(
+    mut values: Vec<CullingWrite>,
+    directory: Option<&str>,
+) -> Result<Vec<CullingWrite>, String> {
+    let library = directory
+        .map(|dir| rawtonic_catalog::Library::open(Path::new(dir)))
+        .transpose()
+        .map_err(|e| e.to_string())?;
+    for write in &mut values {
+        if let Some(id) = &write.asset_id {
+            let lib = library
+                .as_ref()
+                .ok_or_else(|| "Undo needs its original library".to_string())?;
+            let asset = lib.asset(id).map_err(|e| e.to_string())?;
+            let copy = write.path.rsplit_once("?vc=").map(|(_, copy)| copy);
+            if let Some(copy) = copy {
+                lib.version_for(id, Some(copy))
+                    .map_err(|e| e.to_string())?
+                    .ok_or_else(|| "This virtual copy no longer exists".to_string())?;
             }
-            None
+            write.path = format!(
+                "{}{}",
+                asset.path.to_string_lossy(),
+                copy.map(|id| format!("?vc={id}")).unwrap_or_default()
+            );
+        } else if !parse_virtual_path(&write.path).0.is_file() {
+            return Err("The photograph is no longer at its original location".into());
+        }
+    }
+    Ok(values)
+}
+
+async fn culling_worker(
+    values: Vec<CullingWrite>,
+    directory: Option<String>,
+    app_handle: AppHandle,
+) -> Result<Vec<CullingChange>, SaveFailure> {
+    let paths: Vec<_> = values.iter().map(|write| write.path.clone()).collect();
+    super::blocking(move || {
+        crate::session_bridge::with_library_target(directory.as_deref(), || {
+            write_culling(values, directory.clone(), &app_handle)
+        })
+    })
+    .await
+    .unwrap_or_else(|e| unsaved(&paths, &e).map(|()| Vec::new()))
+}
+
+fn write_culling(
+    values: Vec<CullingWrite>,
+    directory: Option<String>,
+    app_handle: &AppHandle,
+) -> Result<Vec<CullingChange>, SaveFailure> {
+    let total = values.len();
+    let mut changed = Vec::new();
+    let mut failures = Vec::new();
+    let flags: Vec<_> = values
+        .iter()
+        .filter_map(|write| match write.value {
+            CullingValue::Flag(flag) => Some((write.path.clone(), flag)),
+            _ => None,
         })
         .collect();
+    if !flags.is_empty() {
+        let result = directory
+            .ok_or_else(|| "Flag Undo needs its library".to_string())
+            .and_then(|dir| crate::session_bridge::write_flag_values(&dir, flags.clone()));
+        match result {
+            Ok(receipts) => changed.extend(receipts),
+            Err(error) => failures.extend(flags.into_iter().map(|(path, _)| (path, error.clone()))),
+        }
+    }
+    let xmp = xmp_sync(app_handle);
+    let mut seen = std::collections::HashSet::new();
+    for write in values {
+        if matches!(write.value, CullingValue::Flag(_)) || !seen.insert(write.path.clone()) {
+            continue;
+        }
+        match write_culling_sidecar(write.clone(), xmp) {
+            Ok(receipt) => changed.push(receipt),
+            Err(error) => failures.push((write.path, error)),
+        }
+    }
+    SaveFailure::check(total, failures).map_err(|mut error| {
+        error.culling = changed.clone();
+        error
+    })?;
+    Ok(changed)
+}
 
-    SaveFailure::check(paths.len(), failures)
+/// The normal atomic editor/catalog write, changing only the culling field.
+fn write_culling_sidecar(write: CullingWrite, xmp: Option<bool>) -> Result<CullingChange, String> {
+    let _turn = sidecar_field_edit();
+    let (source, sidecar) = parse_virtual_path(&write.path);
+    let mut metadata = crate::exif_processing::load_sidecar(&sidecar);
+    let before = match &write.value {
+        CullingValue::Rating(rating) => {
+            if *rating > 5 {
+                return Err("Rating must be 0–5".into());
+            }
+            CullingValue::Rating(std::mem::replace(&mut metadata.rating, *rating))
+        }
+        CullingValue::Color(color) => {
+            let mut tags = metadata.tags.take().unwrap_or_default();
+            let before = tags
+                .iter()
+                .find_map(|tag| tag.strip_prefix(COLOR_TAG_PREFIX).map(str::to_string));
+            tags.retain(|tag| !tag.starts_with(COLOR_TAG_PREFIX));
+            if let Some(color) = color.as_ref().filter(|color| !color.is_empty()) {
+                tags.push(format!("{COLOR_TAG_PREFIX}{color}"));
+            }
+            metadata.tags = (!tags.is_empty()).then_some(tags);
+            CullingValue::Color(before)
+        }
+        CullingValue::Flag(_) => return Err("Flags must be written as a catalog batch".into()),
+    };
+    save_sidecar(&write.path, &metadata)?;
+    if let Some(create) = xmp {
+        sync_metadata_to_xmp(&source, &metadata, create);
+    }
+    let asset_id = crate::session_bridge::library_dir_for(&source)
+        .and_then(|dir| rawtonic_catalog::Library::open(&dir).ok())
+        .and_then(|lib| lib.asset_at(&source).ok().flatten())
+        .map(|asset| asset.id);
+    Ok(CullingChange {
+        path: write.path,
+        asset_id,
+        before,
+        after: write.value,
+    })
 }
 
 /// Off the main thread (see `save_metadata_and_update_thumbnail`).
@@ -959,6 +1083,243 @@ pub(crate) fn load_metadata_blocking(
 mod tests {
     use super::*;
     use rawtonic_engine::lens_recipe::{LENS_PROFILE_FOR, LENS_UNRESOLVED, lens_profile_stamp};
+
+    #[test]
+    fn culling_receipts_restore_exact_values_without_reverting_later_edits() {
+        use rawtonic_catalog::{Library, Mode};
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Undo", Mode::Session).unwrap();
+        let mut receipts = Vec::new();
+        let mut ids = Vec::new();
+        for (n, (rating, color)) in [(0, None), (2, Some("red")), (5, Some("blue"))]
+            .into_iter()
+            .enumerate()
+        {
+            let source = temp.path().join(format!("Capture/{n}.nef"));
+            fs::write(&source, b"synthetic original").unwrap();
+            let asset = lib.add_asset(&source).unwrap();
+            let tags = color
+                .map(|color| vec![format!("color:{color}")])
+                .unwrap_or_default();
+            lib.save_editor_state(&asset.id, &serde_json::json!({"version": 1, "rating": rating, "tags": tags, "adjustments": {"exposure": 1}})).unwrap();
+            let path = source.to_string_lossy().into_owned();
+            for value in [
+                CullingValue::Rating(4),
+                CullingValue::Color(Some("green".into())),
+            ] {
+                receipts.push(
+                    write_culling_sidecar(
+                        CullingWrite {
+                            path: path.clone(),
+                            value,
+                            asset_id: None,
+                        },
+                        None,
+                    )
+                    .unwrap(),
+                );
+            }
+            // A later unrelated edit must survive both restores.
+            let mut state = lib.editor_state(&asset.id).unwrap().unwrap();
+            state["adjustments"]["exposure"] = serde_json::json!(2);
+            state["tags"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!("user:later"));
+            lib.save_editor_state(&asset.id, &state).unwrap();
+            lib.set_flags(std::slice::from_ref(&asset.id), -1).unwrap();
+            lib.sync_xmp(&asset.id).unwrap();
+            ids.push((asset.id, rating, color));
+            // Offline Undo writes SQLite and leaves XMP pending, like a normal edit.
+            fs::rename(&source, temp.path().join(format!("offline-{n}.nef"))).unwrap();
+        }
+        assert_eq!(lib.summary().unwrap().xmp_pending, 0);
+        for receipt in receipts.iter().rev() {
+            let values = resolve_culling_targets(
+                vec![CullingWrite {
+                    path: receipt.path.clone(),
+                    value: receipt.before.clone(),
+                    asset_id: receipt.asset_id.clone(),
+                }],
+                temp.path().to_str(),
+            )
+            .unwrap();
+            write_culling_sidecar(values.into_iter().next().unwrap(), None).unwrap();
+        }
+        assert_eq!(lib.summary().unwrap().xmp_pending, 3);
+        for (id, rating, color) in ids {
+            let meta = lib.metadata(&id).unwrap();
+            assert_eq!(meta.rating, rating);
+            assert_eq!(meta.label.to_lowercase(), color.unwrap_or_default());
+            assert_eq!(meta.flag, -1);
+            assert!(meta.keywords.contains(&"later".into()));
+            assert_eq!(
+                lib.editor_state(&id).unwrap().unwrap()["adjustments"]["exposure"],
+                2
+            );
+        }
+    }
+
+    #[test]
+    fn culling_undo_follows_asset_identity_after_a_move_and_refuses_missing_unmanaged_files() {
+        use rawtonic_catalog::{Library, Mode};
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Undo move", Mode::Session).unwrap();
+        let source = temp.path().join("Capture/source.nef");
+        fs::write(&source, b"synthetic original").unwrap();
+        let asset = lib.add_asset(&source).unwrap();
+        let receipt = write_culling_sidecar(
+            CullingWrite {
+                path: source.to_string_lossy().into_owned(),
+                value: CullingValue::Rating(4),
+                asset_id: None,
+            },
+            None,
+        )
+        .unwrap();
+        let moved = temp.path().join("Selects/moved.nef");
+        fs::rename(&source, &moved).unwrap();
+        lib.relocate(&source, &moved).unwrap();
+        let values = resolve_culling_targets(
+            vec![CullingWrite {
+                path: receipt.path.clone(),
+                value: receipt.before.clone(),
+                asset_id: receipt.asset_id,
+            }],
+            temp.path().to_str(),
+        )
+        .unwrap();
+        assert_eq!(values[0].path, moved.to_string_lossy());
+        write_culling_sidecar(values.into_iter().next().unwrap(), None).unwrap();
+        assert_eq!(lib.metadata(&asset.id).unwrap().rating, 0);
+        assert!(
+            resolve_culling_targets(
+                vec![CullingWrite {
+                    path: receipt.path,
+                    value: receipt.before,
+                    asset_id: None
+                }],
+                None
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn culling_receipts_keep_virtual_copy_ratings_and_labels_separate() {
+        use rawtonic_catalog::{Library, Mode};
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Copy undo", Mode::Session).unwrap();
+        let source = temp.path().join("Capture/source.nef");
+        fs::write(&source, b"synthetic original").unwrap();
+        let asset = lib.add_asset(&source).unwrap();
+        lib.save_editor_state(
+            &asset.id,
+            &serde_json::json!({"version": 1, "rating": 4, "tags": ["color:red"], "adjustments": {}}),
+        )
+        .unwrap();
+        crate::session_bridge::write_editor_sidecar(
+            source.with_file_name("source.nef.a1b2c3.rrdata"),
+            serde_json::to_vec(
+                &serde_json::json!({"version": 1, "rating": 2, "tags": [], "adjustments": {}}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let path = format!("{}?vc=a1b2c3", source.to_string_lossy());
+        let mut receipts = Vec::new();
+        for value in [
+            CullingValue::Rating(5),
+            CullingValue::Color(Some("blue".into())),
+        ] {
+            receipts.push(
+                write_culling_sidecar(
+                    CullingWrite {
+                        path: path.clone(),
+                        value,
+                        asset_id: None,
+                    },
+                    None,
+                )
+                .unwrap(),
+            );
+        }
+        for receipt in receipts.into_iter().rev() {
+            let values = resolve_culling_targets(
+                vec![CullingWrite {
+                    path: receipt.path,
+                    value: receipt.before,
+                    asset_id: receipt.asset_id,
+                }],
+                temp.path().to_str(),
+            )
+            .unwrap();
+            write_culling_sidecar(values.into_iter().next().unwrap(), None).unwrap();
+        }
+        assert_eq!(
+            lib.copy_state(&asset.id, "a1b2c3").unwrap().unwrap()["rating"],
+            2
+        );
+        assert!(lib.copy_state(&asset.id, "a1b2c3").unwrap().unwrap()["tags"].is_null());
+        assert_eq!(lib.metadata(&asset.id).unwrap().rating, 4);
+        assert_eq!(lib.metadata(&asset.id).unwrap().label, "Red");
+    }
+
+    #[test]
+    fn queued_culling_write_and_undo_keep_their_original_catalog() {
+        use crate::session_bridge::with_library_target;
+        use rawtonic_catalog::{Library, Mode};
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("external.nef");
+        fs::write(&source, b"synthetic original").unwrap();
+        let first = Library::create(&temp.path().join("first"), "First", Mode::Catalog).unwrap();
+        let second = Library::create(&temp.path().join("second"), "Second", Mode::Catalog).unwrap();
+        let a = first.add_asset(&source).unwrap();
+        let b = second.add_asset(&source).unwrap();
+        for (lib, id, rating) in [(&first, &a.id, 1), (&second, &b.id, 3)] {
+            lib.save_editor_state(
+                id,
+                &serde_json::json!({"version": 1, "rating": rating, "tags": [], "adjustments": {}}),
+            )
+            .unwrap();
+        }
+        let directory = first.directory.to_str();
+        let receipt = with_library_target(directory, || {
+            // A nested job choosing another library restores the caller's target.
+            with_library_target(second.directory.to_str(), || {
+                assert_eq!(
+                    crate::session_bridge::library_dir_for(&source),
+                    Some(second.directory.clone())
+                )
+            });
+            write_culling_sidecar(
+                CullingWrite {
+                    path: source.to_string_lossy().into_owned(),
+                    value: CullingValue::Rating(4),
+                    asset_id: None,
+                },
+                None,
+            )
+            .unwrap()
+        });
+        assert_eq!(receipt.before, CullingValue::Rating(1));
+        assert_eq!(first.metadata(&a.id).unwrap().rating, 4);
+        assert_eq!(second.metadata(&b.id).unwrap().rating, 3);
+        with_library_target(directory, || {
+            let values = resolve_culling_targets(
+                vec![CullingWrite {
+                    path: receipt.path,
+                    value: receipt.before,
+                    asset_id: receipt.asset_id,
+                }],
+                directory,
+            )
+            .unwrap();
+            write_culling_sidecar(values.into_iter().next().unwrap(), None).unwrap();
+        });
+        assert_eq!(first.metadata(&a.id).unwrap().rating, 1);
+        assert_eq!(second.metadata(&b.id).unwrap().rating, 3);
+    }
 
     fn sky_layer(id: &str, data: &str) -> Value {
         serde_json::json!({"id": id, "name": "Sky", "visible": true, "invert": false, "opacity": 100,

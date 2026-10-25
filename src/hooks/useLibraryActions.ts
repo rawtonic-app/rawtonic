@@ -10,6 +10,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { computeSortedLibrary } from './useSortedLibrary';
 import { expandGroupedPaths } from '../utils/imageGrouping';
 import { invokeInOrder } from '../utils/catalogWrites';
+import { catalogAction, showCullingChanges, type CullingChange } from '../utils/appUndo';
 import type { FolderTree } from '../utils/folderTree';
 import { noteTool } from '../components/contribute/usageStats';
 
@@ -42,6 +43,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
 
     const currentRating = imageRatings[selectedPaths[0]] || 0;
     const finalRating = newRating === currentRating ? 0 : newRating;
+    const directory = useLibraryStore.getState().sessionDirectory;
     const previousRatings = Object.fromEntries(pathsToRate.map((p) => [p, imageRatings[p]]));
 
     setLibrary((state) => {
@@ -53,7 +55,12 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
     });
 
     noteTool('culling');
-    invokeInOrder(Invokes.SetRatingForPaths, { paths: pathsToRate, rating: finalRating }).catch((err) => {
+    void catalogAction('Set Rating', async () => {
+      const changes = await invokeInOrder<CullingChange[]>(Invokes.SetRatingForPaths, { paths: pathsToRate, rating: finalRating, ...(directory ? { directory } : {}) });
+      if (useLibraryStore.getState().sessionDirectory === directory && changes) showCullingChanges(changes);
+      return changes;
+    }).catch((err) => {
+      if (useLibraryStore.getState().sessionDirectory !== directory) return;
       console.error(err);
       // Photos whose rating was not saved show their previous one again
       // (unless rated anew meanwhile).
@@ -93,6 +100,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
     }
     const finalColor = color !== null && color === currentColor ? null : color;
 
+    const directory = useLibraryStore.getState().sessionDirectory;
     const applyLabel = (paths: string[]) =>
       setLibrary((state) => ({
         imageList: state.imageList.map((image: ImageFile) => {
@@ -105,9 +113,10 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
         }),
       }));
     try {
-      await invokeInOrder(Invokes.SetColorLabelForPaths, { paths: pathsToUpdate, color: finalColor });
-      applyLabel(pathsToUpdate);
+      await catalogAction('Set Color Label', () => invokeInOrder<CullingChange[]>(Invokes.SetColorLabelForPaths, { paths: pathsToUpdate, color: finalColor, ...(directory ? { directory } : {}) }));
+      if (useLibraryStore.getState().sessionDirectory === directory) applyLabel(pathsToUpdate);
     } catch (err) {
+      if (useLibraryStore.getState().sessionDirectory !== directory) return;
       // The photos that were saved show their new label.
       const { message, failed } = saveFailure(err, pathsToUpdate);
       applyLabel(pathsToUpdate.filter((p) => !failed.includes(p)));

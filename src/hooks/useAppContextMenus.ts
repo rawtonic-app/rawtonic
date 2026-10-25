@@ -46,6 +46,7 @@ import { toast } from 'react-toastify';
 import { loadPresetLibrary, usePresetStore, type UserPreset } from './usePresets';
 import { useTranslation } from 'react-i18next';
 import { useContextMenu } from '../context/ContextMenuContext';
+import { canUndo, canRedo, undo, redo } from '../utils/appUndo';
 import { useEditorStore } from '../store/useEditorStore';
 import { isRawInLibrary, useLibraryStore } from '../store/useLibraryStore';
 import { useProcessStore } from '../store/useProcessStore';
@@ -225,15 +226,13 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       event.preventDefault();
       event.stopPropagation();
 
-      const { selectedImage, history, historyIndex, historyPending, undo, redo, resetHistory, copiedAdjustments, setEditor } =
+      const { selectedImage, resetHistory, copiedAdjustments, setEditor } =
         useEditorStore.getState();
       const { appSettings } = useSettingsStore.getState();
       const { setPanel, setUI } = useUIStore.getState();
 
       if (!selectedImage) return;
 
-      const canUndo = historyPending || historyIndex > 0;
-      const canRedo = !historyPending && historyIndex < history.length - 1;
       const commonTags = getCommonTags([selectedImage.path]);
 
       const options: Array<Option> = [
@@ -243,8 +242,8 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           onClick: () => setPanel(Panel.Export),
         },
         { type: OPTION_SEPARATOR },
-        { label: t('contextMenus.editor.undo'), icon: Undo, onClick: undo, disabled: !canUndo },
-        { label: t('contextMenus.editor.redo'), icon: Redo, onClick: redo, disabled: !canRedo },
+        { label: t('contextMenus.editor.undo'), icon: Undo, onClick: () => { void undo(); }, disabled: !canUndo() },
+        { label: t('contextMenus.editor.redo'), icon: Redo, onClick: () => { void redo(); }, disabled: !canRedo() },
         { type: OPTION_SEPARATOR },
         {
           label: t('contextMenus.editor.copyAdjustments'),

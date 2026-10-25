@@ -70,7 +70,7 @@ beforeEach(() => {
       ? summary
       : command === "session_summary"
         ? summary
-        : command === "session_flags" || command === "session_set_flag"
+        : command === "session_set_flag" ? [] : command === "session_flags"
           ? {}
           : { path: "/jobs/Acme", children: [] },
   );
@@ -261,12 +261,12 @@ it("restores persisted flags and serializes rapid P/X/U writes without speculati
   await user.keyboard("{Shift>}X{/Shift}pu");
   expect(pending).toHaveLength(1);
   expect(useLibraryStore.getState().imageFlags[path]).toBe(1);
-  await act(async () => pending[0]({ [path]: -1 }));
+  await act(async () => pending[0]([{ path, before: { kind: 'flag', value: 1 }, after: { kind: 'flag', value: -1 } }]));
   expect(useLibraryStore.getState().imageFlags[path]).toBe(-1);
   await waitFor(() => expect(pending).toHaveLength(2));
-  await act(async () => pending[1]({ [path]: 1 }));
+  await act(async () => pending[1]([{ path, before: { kind: 'flag', value: -1 }, after: { kind: 'flag', value: 1 } }]));
   await waitFor(() => expect(pending).toHaveLength(3));
-  await act(async () => pending[2]({ [path]: 0 }));
+  await act(async () => pending[2]([{ path, before: { kind: 'flag', value: 1 }, after: { kind: 'flag', value: 0 } }]));
   expect(useLibraryStore.getState().imageFlags[path]).toBe(0);
   expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === "session_set_flag").map(([, args]) => (args as { flag: number }).flag)).toEqual([-1, 1, 0]);
 });
@@ -283,7 +283,7 @@ it("preserves visible flags on failure and ignores acknowledgements from a previ
   vi.mocked(invoke).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
   await user.keyboard("{Shift>}X{/Shift}");
   act(() => useLibraryStore.setState({ sessionDirectory: "/jobs/Another", imageFlags: {} }));
-  await act(async () => finish({ [path]: -1 }));
+  await act(async () => finish([{ path, before: { kind: 'flag', value: 1 }, after: { kind: 'flag', value: -1 } }]));
   expect(useLibraryStore.getState().imageFlags).toEqual({});
 });
 
