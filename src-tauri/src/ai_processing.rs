@@ -3586,22 +3586,18 @@ mod tool_tests {
                 pixel[1] = (pixel[1] as f32 * (1.0 - a)) as u8;
                 pixel[2] = (pixel[2] as f32 * (1.0 - a)) as u8;
             }
-            // Never over an existing file (a symlink or the photo itself
-            // included): a new file or a failed test.
+            // Written whole beside it, then published under a new name only
+            // (never over an existing file, the photo itself included).
             let mut png = Vec::new();
             small(&overlay)
                 .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
                 .unwrap();
+            let mut temp = tempfile::NamedTempFile::new_in(&out).unwrap();
+            std::io::Write::write_all(&mut temp, &png).unwrap();
+            temp.as_file().sync_all().unwrap();
             let target = out.join(format!("step{}.png", step + 1));
-            std::io::Write::write_all(
-                &mut std::fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(&target)
-                    .unwrap_or_else(|e| panic!("{}: {e}", target.display())),
-                &png,
-            )
-            .unwrap();
+            rawtonic_metadata::no_clobber::persist(temp, &target)
+                .unwrap_or_else(|e| panic!("{}: {e}", target.display()));
         }
     }
 

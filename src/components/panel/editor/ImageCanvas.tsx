@@ -2737,14 +2737,13 @@ const ImageCanvas = memo(
         // Adding to or taking out of a selection made in another frame would
         // drop it silently: say so, and leave it as it is.
         if (
-          !pending &&
           objectGestureRef.current !== 'replace' &&
-          promptsFrameChanged(activeSubMask.parameters, shown)
+          (pending.elsewhere || (!pending.prompts && promptsFrameChanged(activeSubMask.parameters, shown)))
         ) {
           toast.info(t('studio.masks.objectFrameChanged'));
           return;
         }
-        const base = pending ?? storedPrompts(activeSubMask.parameters, shown);
+        const base = pending.prompts ?? storedPrompts(activeSubMask.parameters, shown);
         const prompts = nextPrompts(
           base,
           promptOf(startPoint, endPoint, objectGestureRef.current === 'exclude'),
