@@ -568,19 +568,14 @@ fn suppress_apply(@builtin(global_invocation_id) id: vec3<u32>) {
     let i = at(x, y);
     let px = src[i];
     dst[i] = px;
-    // The windows of rows y - r ..= y + r: virtual rows y ..= y + 2r.
-    var m0 = vec4<f32>(0.0);
+    // The windows of rows y - r ..= y + r: virtual rows y ..= y + 2r. Their
+    // edge weights first: most pixels lie away from strong edges.
     var m1 = 0.0;
     for (var j = 0; j <= 2 * r; j++) {
-        var r0 = vec4<f32>(0.0);
         var r1 = 0.0;
         for (var k = -r; k <= r; k++) {
-            let w = at(cx(x + k), y + j);
-            let c = g0[w];
-            r0 = vec4<f32>(r0.x + c.x, r0.y + c.y, r0.z + c.z, r0.w + c.w);
-            r1 += g1[w].x;
+            r1 += g1[at(cx(x + k), y + j)].x;
         }
-        m0 = vec4<f32>(m0.x + r0.x, m0.y + r0.y, m0.z + r0.z, m0.w + r0.w);
         m1 += r1;
     }
     let ia = P.inv_area;
@@ -591,6 +586,15 @@ fn suppress_apply(@builtin(global_invocation_id) id: vec3<u32>) {
     let p = px.xyz;
     if !all_finite(p) || p.x < 0.0 || p.y < 0.0 || p.z < 0.0 {
         return;
+    }
+    var m0 = vec4<f32>(0.0);
+    for (var j = 0; j <= 2 * r; j++) {
+        var r0 = vec4<f32>(0.0);
+        for (var k = -r; k <= r; k++) {
+            let c = g0[at(cx(x + k), y + j)];
+            r0 = vec4<f32>(r0.x + c.x, r0.y + c.y, r0.z + c.z, r0.w + c.w);
+        }
+        m0 = vec4<f32>(m0.x + r0.x, m0.y + r0.y, m0.z + r0.z, m0.w + r0.w);
     }
     let g = enc(p.y);
     let l = enc(0.25 * (p.x + 2.0 * p.y + p.z));
@@ -739,10 +743,24 @@ fn line_models(@builtin(global_invocation_id) id: vec3<u32>) {
             rl[7] += l.y * l.z;
             rl[8] += l.z * l.z;
         }
-        for (var k = 0; k < 9; k++) {
-            roots[k] += rr[k];
-            lin[k] += rl[k];
-        }
+        roots[0] += rr[0];
+        roots[1] += rr[1];
+        roots[2] += rr[2];
+        roots[3] += rr[3];
+        roots[4] += rr[4];
+        roots[5] += rr[5];
+        roots[6] += rr[6];
+        roots[7] += rr[7];
+        roots[8] += rr[8];
+        lin[0] += rl[0];
+        lin[1] += rl[1];
+        lin[2] += rl[2];
+        lin[3] += rl[3];
+        lin[4] += rl[4];
+        lin[5] += rl[5];
+        lin[6] += rl[6];
+        lin[7] += rl[7];
+        lin[8] += rl[8];
     }
     let ia = P.inv_area;
     let weight = line_weight(covariance(roots, ia));
@@ -780,34 +798,42 @@ fn line_apply(@builtin(global_invocation_id) id: vec3<u32>) {
     let i = at(x, y);
     let px = src[i];
     dst[i] = px;
-    var m0 = vec4<f32>(0.0);
-    var m1 = vec4<f32>(0.0);
-    var m2 = vec2<f32>(0.0);
+    // The windows' weights first, as in `suppress_apply`.
+    var weights = 0.0;
     for (var j = 0; j <= 2 * r; j++) {
-        var r0 = vec4<f32>(0.0);
-        var r1 = vec4<f32>(0.0);
-        var r2 = vec2<f32>(0.0);
+        var r2 = 0.0;
         for (var k = -r; k <= r; k++) {
-            let w = at(cx(x + k), y + j);
-            let a = g0[w];
-            let b = g1[w];
-            let c = g2[w];
-            r0 = vec4<f32>(r0.x + a.x, r0.y + a.y, r0.z + a.z, r0.w + a.w);
-            r1 = vec4<f32>(r1.x + b.x, r1.y + b.y, r1.z + b.z, r1.w + b.w);
-            r2 = vec2<f32>(r2.x + c.x, r2.y + c.y);
+            r2 += g2[at(cx(x + k), y + j)].y;
         }
-        m0 = vec4<f32>(m0.x + r0.x, m0.y + r0.y, m0.z + r0.z, m0.w + r0.w);
-        m1 = vec4<f32>(m1.x + r1.x, m1.y + r1.y, m1.z + r1.z, m1.w + r1.w);
-        m2 = vec2<f32>(m2.x + r2.x, m2.y + r2.y);
+        weights += r2;
     }
     let ia = P.inv_area;
-    var weight = min(2.0 * m2.y * ia, 1.0);
+    var weight = min(2.0 * weights * ia, 1.0);
     if weight <= 0.0 {
         return;
     }
     let p = px.xyz;
     if !all_finite(p) || p.x < 0.0 || p.y < 0.0 || p.z < 0.0 {
         return;
+    }
+    var m0 = vec4<f32>(0.0);
+    var m1 = vec4<f32>(0.0);
+    var m2 = 0.0;
+    for (var j = 0; j <= 2 * r; j++) {
+        var r0 = vec4<f32>(0.0);
+        var r1 = vec4<f32>(0.0);
+        var r2 = 0.0;
+        for (var k = -r; k <= r; k++) {
+            let w = at(cx(x + k), y + j);
+            let a = g0[w];
+            let b = g1[w];
+            r0 = vec4<f32>(r0.x + a.x, r0.y + a.y, r0.z + a.z, r0.w + a.w);
+            r1 = vec4<f32>(r1.x + b.x, r1.y + b.y, r1.z + b.z, r1.w + b.w);
+            r2 += g2[w].x;
+        }
+        m0 = vec4<f32>(m0.x + r0.x, m0.y + r0.y, m0.z + r0.z, m0.w + r0.w);
+        m1 = vec4<f32>(m1.x + r1.x, m1.y + r1.y, m1.z + r1.z, m1.w + r1.w);
+        m2 += r2;
     }
     // Misregistration keeps every channel between the two colours: how far
     // the pixel may move (`within_the_mixes`, the window centred on it).
@@ -846,7 +872,7 @@ fn line_apply(@builtin(global_invocation_id) id: vec3<u32>) {
     let s02 = m1.y;
     let s11 = m1.z;
     let s12 = m1.w;
-    let s22 = m2.x;
+    let s22 = m2;
     let projected = vec3<f32>(
         (m0.x + s00 * p.x + s01 * p.y + s02 * p.z) * ia,
         (m0.y + s01 * p.x + s11 * p.y + s12 * p.z) * ia,
