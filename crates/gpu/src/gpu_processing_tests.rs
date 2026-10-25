@@ -13767,7 +13767,10 @@ fn edge_fringe_scene(width: u32, height: u32, sigma: f32) -> image::Rgb32FImage 
             }
             // Lamps: bright discs, purple rings outside, green rims inside.
             2 => {
-                let (cx, cy) = ((fx / 70.0).floor() * 70.0 + 35.0, (fy / 70.0).floor() * 70.0 + 35.0);
+                let (cx, cy) = (
+                    (fx / 70.0).floor() * 70.0 + 35.0,
+                    (fy / 70.0).floor() * 70.0 + 35.0,
+                );
                 let r = (fx - cx).hypot(fy - cy);
                 if r < 14.0 {
                     [0.92, 0.9, 0.88]
@@ -13872,12 +13875,22 @@ fn edge_fringe_version_5_on_the_gpu_matches_version_4() {
             source.len(),
             100.0 * apart
         );
-        assert!(changed_cpu > source.len() / 50, "the scene exercises the pass");
+        assert!(
+            changed_cpu > source.len() / 50,
+            "the scene exercises the pass"
+        );
         let relative = (changed_gpu as f64 / changed_cpu as f64 - 1.0).abs();
-        assert!(relative < 0.002, "changed values CPU {changed_cpu} GPU {changed_gpu}");
+        assert!(
+            relative < 0.002,
+            "changed values CPU {changed_cpu} GPU {changed_gpu}"
+        );
         assert!(mean < 2e-6, "mean difference {mean:e}");
         assert!(p999 < 2e-4, "p99.9 difference {p999:e}");
-        assert!(apart < 0.002, "{:.3} % of values more than one code apart", 100.0 * apart);
+        assert!(
+            apart < 0.002,
+            "{:.3} % of values more than one code apart",
+            100.0 * apart
+        );
         if rgba {
             for (s, g) in source.chunks_exact(4).zip(gpu.chunks_exact(4)) {
                 assert_eq!(s[3].to_bits(), g[3].to_bits(), "alpha is kept");

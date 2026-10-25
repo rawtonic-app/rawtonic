@@ -1754,8 +1754,8 @@ mod tests {
         // No device is registered in these tests.
         let recipe = serde_json::json!({ VERSION_KEY: 5 });
         let fringed = DynamicImage::ImageRgb32F(branch(2));
-        let error = apply_for_recipe(Cow::Borrowed(&fringed), &recipe, 1.0)
-            .expect_err("no CPU fallback");
+        let error =
+            apply_for_recipe(Cow::Borrowed(&fringed), &recipe, 1.0).expect_err("no CPU fallback");
         assert!(error.contains("graphics card"), "{error}");
         let plan = plan_for(5, 0.0, 1.0);
         assert!(plan.gpu && plan.colour_lines && plan.axial.is_some());

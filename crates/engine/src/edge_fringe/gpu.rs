@@ -74,18 +74,20 @@ impl Pipelines {
             count: None,
         }];
         // The tile buffers, then the band's upload (read only).
-        entries.extend((1..=BUFFERS as u32 + 1).map(|binding| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::COMPUTE,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Storage {
-                    read_only: binding > BUFFERS as u32,
+        entries.extend(
+            (1..=BUFFERS as u32 + 1).map(|binding| wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage {
+                        read_only: binding > BUFFERS as u32,
+                    },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
                 },
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        }));
+                count: None,
+            }),
+        );
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Edge fringes"),
             entries: &entries,
@@ -160,7 +162,10 @@ struct Params {
 /// Gaussian weights (at most 12) packed for the uniform block.
 fn packed(weights: &[f32]) -> Result<[[f32; 4]; 3], String> {
     if weights.len() > 12 {
-        return Err(format!("{} Gaussian taps exceed the shader's 12", weights.len()));
+        return Err(format!(
+            "{} Gaussian taps exceed the shader's 12",
+            weights.len()
+        ));
     }
     let mut out = [[0.0f32; 4]; 3];
     for (k, &w) in weights.iter().enumerate() {
@@ -265,7 +270,9 @@ fn run(
 ) -> Result<(), String> {
     let r = plan.radius;
     if r > MAX_RADIUS {
-        return Err(format!("Window radius {r} exceeds the GPU pass's {MAX_RADIUS}"));
+        return Err(format!(
+            "Window radius {r} exceeds the GPU pass's {MAX_RADIUS}"
+        ));
     }
     // Version 4 leaves images under 3 × 3 pixels to the other stages.
     let axial = plan.axial.filter(|_| w >= 3 && h >= 3);
@@ -438,10 +445,15 @@ fn run(
                         resource: band_buffer.as_entire_binding(),
                     },
                 ];
-                entries.extend(order.iter().enumerate().map(|(k, &b)| wgpu::BindGroupEntry {
-                    binding: k as u32 + 1,
-                    resource: buffers[b].as_entire_binding(),
-                }));
+                entries.extend(
+                    order
+                        .iter()
+                        .enumerate()
+                        .map(|(k, &b)| wgpu::BindGroupEntry {
+                            binding: k as u32 + 1,
+                            resource: buffers[b].as_entire_binding(),
+                        }),
+                );
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("Edge fringe tile"),
                     layout: &pipelines.layout,
