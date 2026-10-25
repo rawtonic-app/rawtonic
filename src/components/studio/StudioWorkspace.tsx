@@ -188,7 +188,7 @@ export default function StudioWorkspace(props: Props) {
     requestThumbnails,
     transformWrapperRef,
   } = props;
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { selectedImage, historyIndex, historyPending, history, splitView, previousPhoto } = useEditorStore(
     useShallow((s) => ({
       selectedImage: s.selectedImage,
@@ -537,7 +537,12 @@ export default function StudioWorkspace(props: Props) {
   const sessionBar = useSessionBar(
     useShallow((s) => ({ center: s.center, end: s.end, library: s.library, mark: s.mark })),
   );
-  const compactLibraryHeader = useLibraryHeaderFits(uiScale) && panels.bars && !!sessionBar.library;
+  const libraryToolbarRef = useRef<HTMLDivElement>(null);
+  const compactLibraryHeader = useLibraryHeaderFits(
+    uiScale, libraryToolbarRef,
+    JSON.stringify([uiScale, i18n.resolvedLanguage, filterCriteria, searchCriteria, props.flagCounts]),
+    panels.bars && !!sessionBar.library,
+  );
   const imageFlags = useLibraryStore((s) => s.imageFlags);
   const flag = selectedImage ? (imageFlags[selectedImage.path] ?? 0) : 0;
   const exporting = exportState.status === "exporting";
@@ -702,6 +707,7 @@ export default function StudioWorkspace(props: Props) {
   };
   const libraryToolbar = (
     <div
+      ref={libraryToolbarRef}
       className={`studio-library-toolbar${compactLibraryHeader ? " studio-workspace is-in-header" : ""}`}
       onClickCapture={(e) => focusWorkspaceControl(e.target)}
     >

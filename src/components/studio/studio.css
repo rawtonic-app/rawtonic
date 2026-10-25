@@ -4663,7 +4663,7 @@ img.relight-pattern-preview { object-fit: cover; }
   gap: 8px;
 }
 .studio-app .session-bar:has(.is-in-header) .session-bar-start {
-  flex: 0 1 150px;
+  flex: 0 1 120px;
 }
 .studio-app .session-bar:has(.is-in-header) .session-bar-end {
   flex: 0 0 auto;
@@ -4693,6 +4693,7 @@ img.relight-pattern-preview { object-fit: cover; }
   overflow: visible;
 }
 .is-in-header .studio-library-filters {
+  order: 0;
   flex-wrap: nowrap;
   gap: 5px;
 }
@@ -4701,10 +4702,10 @@ img.relight-pattern-preview { object-fit: cover; }
 }
 .is-in-header .studio-library-filters select {
   flex: 0 1 auto;
-  max-width: 100px;
+  max-width: 85px;
 }
 .is-in-header .studio-filter select {
-  max-width: 95px;
+  max-width: 85px;
 }
 .is-in-header .studio-flag-label,
 .is-in-header .studio-metadata-toggle > span:not(.studio-filter-count),
