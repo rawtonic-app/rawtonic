@@ -9,9 +9,11 @@ import { useSettingsStore } from "../../store/useSettingsStore";
 import { Panel, type AppSettings, type ImageFile, type SelectedImage } from "../ui/AppProperties";
 import { IDLE_CURSOR_MS } from "./useIdleCursor";
 import { followPhotoFullScreen } from "../../utils/photoFullScreen";
+import { useQuickAdjust } from "./useQuickAdjust";
 
 vi.mock("../../utils/photoFullScreen", () => ({ followPhotoFullScreen: vi.fn(() => Promise.resolve()) }));
 const editorPointerDown = vi.fn();
+vi.mock("./useQuickAdjust", () => ({ useQuickAdjust: vi.fn(() => null) }));
 vi.mock("../panel/Editor", () => ({
   default: () => <div data-testid="native-viewer" onPointerDownCapture={editorPointerDown} />,
 }));
@@ -304,4 +306,20 @@ it("shows the next photograph when the shown one leaves the filtered list, and t
   expect(useUIStore.getState().libraryLoupe).toBe(true);
   rerender(<StudioWorkspace {...props([])} />);
   expect(useUIStore.getState().libraryLoupe).toBe(false);
+});
+
+it("turns Quick Adjust off while Develop's photograph is shown alone", () => {
+  useUIStore.setState({ activeView: "editor" });
+  workspace();
+  expect(vi.mocked(useQuickAdjust)).toHaveBeenLastCalledWith(true);
+  act(() => useUIStore.getState().toggleFullScreen());
+  expect(vi.mocked(useQuickAdjust)).toHaveBeenLastCalledWith(false);
+});
+
+it("opens the loupe with E on the Library's active photograph, loading it when a modified click only moved the active one", () => {
+  useLibraryStore.setState({ libraryActivePath: "/qa/b.dng", multiSelectedPaths: ["/qa/a.dng", "/qa/b.dng"] });
+  workspace();
+  key("e");
+  expect(onShow).toHaveBeenCalledWith("/qa/b.dng");
+  expect(useUIStore.getState().libraryLoupe).toBe(true);
 });

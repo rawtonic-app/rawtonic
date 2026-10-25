@@ -38,6 +38,22 @@ export function gridStep(index: number, count: number, code: string, columns: nu
   return Math.min(index + columns, count - 1);
 }
 
+/** Shortcuts that change a recipe; the full screen ignores them. */
+export const RECIPE_ACTIONS = new Set([
+  'paste_adjustments',
+  'paste_from_previous',
+  'sync_settings',
+  'auto_adjust',
+  'auto_white_balance',
+  'auto_straighten',
+  'rotate_left',
+  'rotate_right',
+  'undo',
+  'redo',
+  'toggle_crop',
+  'toggle_masks',
+]);
+
 interface KeyboardShortcutsProps {
   sortedImageList: Array<ImageFile>;
   handleBackToLibrary(): void;
@@ -526,7 +542,7 @@ export const useKeyboardShortcuts = ({
         },
       },
       auto_straighten: {
-        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage?.isReady && !s.ui.isFullScreen,
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage?.isReady,
         execute: (e) => {
           e.preventDefault();
           // Held down: one request, not one per key repeat.
@@ -536,11 +552,20 @@ export const useKeyboardShortcuts = ({
       },
       toggle_fullscreen: {
         // The photograph alone (Lightroom's F), from the Library and Develop.
-        shouldFire: (s) => s.ui.isFullScreen || !!s.editor.selectedImage,
+        shouldFire: (s) =>
+          s.ui.isFullScreen ||
+          !!s.editor.selectedImage ||
+          (s.ui.activeView !== 'editor' && !!s.library.libraryActivePath),
         execute: (e, s) => {
           e.preventDefault();
           if (e.repeat) return;
-          s.ui.toggleFullScreen();
+          // In the Library the active photograph, loaded first when a
+          // modified click moved the active one without opening it.
+          const active = s.library.libraryActivePath;
+          if (!s.ui.isFullScreen && s.ui.activeView !== 'editor' && active && active !== s.editor.selectedImage?.path) {
+            handleImageSelect(active, false);
+          }
+          useUIStore.getState().toggleFullScreen();
         },
       },
       toggle_window_fullscreen: {
@@ -652,7 +677,7 @@ export const useKeyboardShortcuts = ({
         },
       },
       toggle_masks: {
-        shouldFire: (s) => !s.ui.isFullScreen,
+        shouldFire: () => true,
         execute: (e, s) => {
           e.preventDefault();
           s.ui.setPanel(Panel.Masks);
@@ -768,7 +793,7 @@ export const useKeyboardShortcuts = ({
         },
       },
       toggle_crop: {
-        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage && !s.ui.isFullScreen,
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
         execute: (e, s) => {
           e.preventDefault();
           if (s.ui.activePanel === Panel.Crop) {
@@ -1061,9 +1086,12 @@ export const useKeyboardShortcuts = ({
       // Read per key press so that edited keybinds apply at once. Cursor tool
       // keys (tool_*) are handled by the studio workspace.
       const comboMap = buildComboMap(state.settings.appSettings?.keybinds);
+      // The photograph shown alone only looks: no key changes its recipe.
+      const editsBlocked = state.ui.isFullScreen;
       const normalized = normalizeCombo(event, state.settings.osPlatform, state.ui.activeView === 'library');
       for (const action of comboMap.get(normalized.join('+')) ?? []) {
         if (rangeFocused && action !== 'undo' && action !== 'redo') continue;
+        if (editsBlocked && RECIPE_ACTIONS.has(action)) continue;
         const handler = actions[action];
         if (handler && (!handler.shouldFire || handler.shouldFire(state))) {
           handler.execute(event, state);

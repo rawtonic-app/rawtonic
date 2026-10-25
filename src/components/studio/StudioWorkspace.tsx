@@ -418,7 +418,17 @@ export default function StudioWorkspace(props: Props) {
   }, [isFullScreen]);
   // The pointer hides over the full screen until it moves.
   const cursorIdle = useIdleCursor(isFullScreen);
-  const openLoupe = useCallback(() => useUIStore.getState().setUI({ libraryLoupe: true }), []);
+  const onShowRef = useRef(props.onShow);
+  onShowRef.current = props.onShow;
+  /** The loupe on `path`, or on the Library's active photograph: loaded
+   * first when it is not the one open (a ⌘-click moves the active one only). */
+  const openLoupe = useCallback((path?: string) => {
+    const target = path ?? useLibraryStore.getState().libraryActivePath;
+    const shown = useEditorStore.getState().selectedImage?.path;
+    if (target && target !== shown) onShowRef.current?.(target);
+    else if (!shown) return;
+    useUIStore.getState().setUI({ libraryLoupe: true, isFullScreen: false });
+  }, []);
   /** G: the Library's grid, from anywhere. */
   const showGrid = useCallback(() => {
     useUIStore.getState().setUI({ libraryLoupe: false, isFullScreen: false });
@@ -540,7 +550,8 @@ export default function StudioWorkspace(props: Props) {
   toolsRef.current = tools;
   const developRef = useRef(develop);
   developRef.current = develop;
-  const quickAdjust = useQuickAdjust(develop);
+  // Not over the photograph shown alone: it only looks.
+  const quickAdjust = useQuickAdjust(develop && !isFullScreen);
   useBrushMemory();
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -588,10 +599,8 @@ export default function StudioWorkspace(props: Props) {
         e.preventDefault();
         e.stopImmediatePropagation();
         if (key === "g") showGrid();
-        else if (key === "e") {
-          if (!useEditorStore.getState().selectedImage) return;
-          useUIStore.getState().setUI({ libraryLoupe: true, isFullScreen: false });
-        } else {
+        else if (key === "e") openLoupe();
+        else {
           useUIStore.getState().setUI({ isFullScreen: false });
           showDevelop();
         }
@@ -621,7 +630,7 @@ export default function StudioWorkspace(props: Props) {
     document.addEventListener("keydown", handler, true);
     return () => document.removeEventListener("keydown", handler, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on what showDevelop reads (selectedImage, files) instead of the per-render function; its onOpen (handleImageSelect) reads all state via getState() and refs at call time, so an earlier capture behaves the same
-  }, [selectedImage, files, showGrid]);
+  }, [selectedImage, files, showGrid, openLoupe]);
   const currentIndex = files.findIndex((f) => f.path === selectedImage?.path);
   // Once the open photograph is decoded (not before, so its own decode keeps
   // the cores), prepare its neighbours' preview proxies, so stepping through

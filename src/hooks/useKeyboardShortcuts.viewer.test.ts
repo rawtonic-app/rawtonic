@@ -216,3 +216,20 @@ it("keeps the crop Escape restores across a full screen in the middle of croppin
   expect(useEditorStore.getState().adjustments.crop).toEqual(before);
   expect(useUIStore.getState().activePanel).toBe(Panel.Adjustments);
 });
+
+it("ignores recipe-changing keys in the full screen and keeps them outside it", () => {
+  useUIStore.setState({ activeView: "editor", isFullScreen: true });
+  useEditorStore.setState((s) => ({ adjustments: { ...s.adjustments, orientationSteps: 0 } as never }));
+  press("BracketRight", { key: "]" });
+  expect(useEditorStore.getState().adjustments.orientationSteps).toBe(0);
+  useUIStore.setState({ isFullScreen: false });
+  press("BracketRight", { key: "]" });
+  expect(useEditorStore.getState().adjustments.orientationSteps).toBe(1);
+});
+
+it("loads the Library's active photograph before F shows it alone", () => {
+  useLibraryStore.setState({ libraryActivePath: "/s/c.dng", multiSelectedPaths: ["/s/b.dng", "/s/c.dng"] });
+  press("KeyF");
+  expect(props.handleImageSelect).toHaveBeenCalledWith("/s/c.dng", false);
+  expect(useUIStore.getState().isFullScreen).toBe(true);
+});
