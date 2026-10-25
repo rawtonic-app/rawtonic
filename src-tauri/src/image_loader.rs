@@ -463,6 +463,7 @@ pub async fn load_image_proxy(
         .current_source
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = path.clone();
+    crate::editor_preview::release_still_for(&state, &path);
     let decoded_key = decoded_cache_key(&source_path_str, None, stored_decode_variant(&path));
     if state
         .decoded_image_cache
@@ -885,6 +886,7 @@ pub async fn load_image(
         .current_source
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = path.clone();
+    crate::editor_preview::release_still_for(&state, &path);
     *state
         .offline_source
         .lock()

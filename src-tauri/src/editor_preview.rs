@@ -2023,6 +2023,7 @@ pub(crate) async fn activate_photo(
         .current_source
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = path.clone();
+    release_still_for(&state, &path);
     let remembered = state
         .proxy_memory
         .lock()
@@ -2192,6 +2193,25 @@ async fn show_still(app_handle: &tauri::AppHandle, path: &str, viewport: [f32; 4
             "epoch_ms": crate::performance::epoch_ms() })
     );
     Activation::Still
+}
+
+/// A photograph is asked for (`current_source` set to `path`): a still of
+/// another one no longer holds back developed frames
+/// (`WgpuDisplay::release_still_for`).
+pub(crate) fn release_still_for(state: &AppState, path: &str) {
+    if let Some(context) = state
+        .gpu_context
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        && let Some(display) = context
+            .display
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+    {
+        display.release_still_for(path);
+    }
 }
 
 /// What a still is presented on: the display, or a test's.

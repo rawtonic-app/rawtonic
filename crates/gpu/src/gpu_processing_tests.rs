@@ -3674,6 +3674,23 @@ fn display_samples_come_back_as_srgb_values() {
 }
 
 #[test]
+fn a_frame_of_the_photograph_left_never_covers_the_next_ones_still() {
+    // B's still is shown; A's frame, rendered before the step, finishes now.
+    assert!(!frame_shows(Some("B"), Some("A")));
+    // B's own developed frame replaces its still; without a still any frame
+    // shows, as before.
+    assert!(frame_shows(Some("B"), Some("B")));
+    assert!(frame_shows(None, Some("A")));
+    assert!(frame_shows(Some("B"), None));
+    // Asking for B keeps its still holding; asking for A (back) releases it.
+    assert_eq!(
+        still_after_asking(Some("B".into()), "B").as_deref(),
+        Some("B")
+    );
+    assert_eq!(still_after_asking(Some("B".into()), "A"), None);
+}
+
+#[test]
 fn a_still_is_encoded_for_the_display_as_its_developed_frame_is() {
     use rawtonic_engine::output_color_space::OutputColorSpace;
     let pixels = [[255, 0, 0, 255], [128, 128, 128, 255], [30, 160, 90, 200]];

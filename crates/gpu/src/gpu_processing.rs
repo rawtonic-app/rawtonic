@@ -1247,8 +1247,28 @@ pub struct WgpuDisplay {
     /// frame when another photograph becomes the primary).
     frame_path: Option<String>,
     frame_texture: Option<(wgpu::Texture, u32, u32)>,
+    /// The photograph whose still (thumbnail) is shown, until another one is
+    /// asked for or its developed frame arrives: no developed frame of
+    /// another photograph (one still in flight) replaces it.
+    still_of: Option<String>,
     /// Other photographs shown beside the live one (multi_view.rs).
     multi: MultiView,
+}
+
+/// Whether a developed frame of `frame` replaces what is shown while a
+/// still of `still_of` is: only a frame of that photograph (one of the
+/// photograph left, still in flight, never covers it).
+pub fn frame_shows(still_of: Option<&str>, frame: Option<&str>) -> bool {
+    match (still_of, frame) {
+        (Some(still), Some(frame)) => still == frame,
+        _ => true,
+    }
+}
+
+/// The still that holds back other frames once `asked` is asked for: its
+/// own, else none.
+pub fn still_after_asking(still_of: Option<String>, asked: &str) -> Option<String> {
+    still_of.filter(|still| still == asked)
 }
 
 /// The texture of a still frame: bound like a developed frame, and copied
@@ -1458,6 +1478,7 @@ impl WgpuDisplay {
             empty_split_bind_group,
             frame_path: None,
             frame_texture: None,
+            still_of: None,
             multi: MultiView::default(),
             sampler,
             current_bind_group: None,
@@ -1653,10 +1674,23 @@ impl WgpuDisplay {
         });
         self.current_bind_group = Some(bind_group);
         self.frame_path = Some(path.to_string());
+        self.still_of = Some(path.to_string());
         self.frame_texture = Some((texture, width, height));
         self.frame_serial += 1;
         self.render(device, queue);
         true
+    }
+
+    /// A photograph is asked for (`path`): a still of another one no longer
+    /// holds back developed frames.
+    pub fn release_still_for(&mut self, path: &str) {
+        self.still_of = still_after_asking(self.still_of.take(), path);
+    }
+
+    /// Whether a developed frame of `frame` (its identity's photograph) may
+    /// replace what is shown.
+    pub fn shows_frame_of(&self, frame: Option<&str>) -> bool {
+        frame_shows(self.still_of.as_deref(), frame)
     }
 
     /// The photograph whose frame is shown (developed or still).
@@ -8605,6 +8639,9 @@ fn render_dynamic_image(
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .as_mut()
+        // A frame of the photograph left, finished after the next one's
+        // still was shown, is not presented over it.
+        && display.shows_frame_of(display_identity.as_ref().map(|identity| identity.path.as_str()))
     {
         display.latest_transform.image_size = [width as f32, height as f32];
         let targets = display_targets.as_ref().unwrap();
@@ -8646,6 +8683,8 @@ fn render_dynamic_image(
         display.frame_path = display_identity
             .as_ref()
             .map(|identity| identity.path.clone());
+        // Its developed frame is in: the still no longer holds.
+        display.still_of = None;
         display.frame_texture = Some((targets.output_texture.clone(), width, height));
         display.frame_serial += 1;
         #[cfg(feature = "performance-profiling")]
