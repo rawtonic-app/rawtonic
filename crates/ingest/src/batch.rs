@@ -485,27 +485,25 @@ fn add_one(
     // Registered with what its sidecars hold (editor sidecar, else XMP
     // rating, label and keywords) in one transaction; they are read, never
     // written. An unreadable sidecar keeps the file out.
-    let asset = if let Some(preset) = metadata {
-        let planned = library
-            .plan_add(source, rawtonic_catalog::Contents::read_sidecars(source)?)?
-            .edit_metadata(|metadata| preset.prepare(source, source, metadata))?;
-        let (id, _) = library
-            .insert_planned(vec![planned])?
-            .into_iter()
-            .next()
-            .context("Nothing was registered")?;
-        library.asset(&id)?
+    let mut report = if let Some(preset) = metadata {
+        library.add_files_with_metadata_edit(&[source.to_path_buf()], |photo, metadata| {
+            preset.prepare(photo, source, metadata)
+        })?
     } else {
-        let mut report = library.add_files(&[source.to_path_buf()])?;
-        if let Some((_, error)) = report.failed.pop() {
-            anyhow::bail!(error);
-        }
-        report
-            .added
-            .pop()
-            .or_else(|| report.known.pop())
-            .context("Nothing was registered")?
+        library.add_files(&[source.to_path_buf()])?
     };
+    if let Some((_, error)) = report.failed.pop() {
+        anyhow::bail!(error);
+    }
+    anyhow::ensure!(
+        report.importing.is_empty(),
+        "This photograph belongs to an unfinished import"
+    );
+    let asset = report
+        .added
+        .pop()
+        .or_else(|| report.known.pop())
+        .context("Nothing was registered")?;
     known.entry(key).or_default().push(asset.path.clone());
     Ok(ImportResult {
         source: source.into(),

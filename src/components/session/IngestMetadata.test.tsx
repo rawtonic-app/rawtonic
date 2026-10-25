@@ -61,3 +61,16 @@ it("reports a settings-write failure and leaves saved presets unchanged", async 
   expect((await screen.findByRole("alert")).textContent).toContain("Disk full");
   expect(useSettingsStore.getState().appSettings?.importMetadataPresets).toBeUndefined();
 });
+
+it("keeps a saved preset in its picker position when edited", async () => {
+  const user = userEvent.setup();
+  const preset = { creator: "", copyright: "", description: "", iptc: {}, keywords: [], overwrite: [], includeCreatorContact: false };
+  useSettingsStore.setState({ appSettings: { ...useSettingsStore.getState().appSettings!, importMetadataPresets: [
+    { ...preset, id: "first", name: "First" }, { ...preset, id: "second", name: "Second" },
+  ] } });
+  render(<Form />);
+  await user.selectOptions(screen.getByLabelText("Metadata preset"), "first");
+  await user.type(screen.getByLabelText("Creator"), "Creator");
+  await user.click(screen.getByRole("button", { name: "Save preset" }));
+  expect(useSettingsStore.getState().appSettings?.importMetadataPresets?.map((p) => p.id)).toEqual(["first", "second"]);
+});

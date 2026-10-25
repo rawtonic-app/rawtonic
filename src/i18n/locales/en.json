@@ -1068,6 +1068,7 @@
         "copyright": "Copyright notice",
         "creator": "Creator",
         "delete": "Delete preset",
+        "embeddedNote": "Using a preset also preserves readable embedded descriptions, keywords and IPTC fields.",
         "fillEmpty": "Fill empty fields only. Tick Overwrite beside a field to replace existing values. Blank preset fields leave existing values unchanged.",
         "keywords": "Keywords (comma separated)",
         "mergeKeywords": "Keywords are merged with existing keywords.",

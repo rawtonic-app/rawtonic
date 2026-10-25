@@ -30,12 +30,17 @@ pub struct MetadataPreset {
 
 impl ImportMetadata {
     pub fn validate(&self) -> Result<()> {
-        for key in self.iptc.keys().chain(&self.overwrite) {
+        let supported_iptc = |key: &str| {
+            matches!(key, "usageTerms" | "credit")
+                || iptc_field(key).is_some_and(|(_, _, kind)| kind == IptcKind::Contact)
+        };
+        for key in self.iptc.keys() {
+            ensure!(supported_iptc(key), "Unsupported import IPTC field {key}");
+        }
+        for key in &self.overwrite {
             ensure!(
-                matches!(
-                    key.as_str(),
-                    "creator" | "copyright" | "description" | "usageTerms" | "credit"
-                ) || iptc_field(key).is_some_and(|(_, _, kind)| kind == IptcKind::Contact),
+                matches!(key.as_str(), "creator" | "copyright" | "description")
+                    || supported_iptc(key),
                 "Unsupported import metadata field {key}"
             );
         }

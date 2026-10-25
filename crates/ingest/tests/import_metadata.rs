@@ -347,3 +347,143 @@ fn capture_year_comes_from_exif_not_the_import_year() {
         "© 2003"
     );
 }
+
+#[test]
+fn damaged_embedded_xmp_does_not_block_copy_or_add_or_the_next_photo() {
+    let d = tempfile::tempdir().unwrap();
+    for (index, packet) in [b"<broken".as_slice(), &[0xff, 0xfe, 0x80]]
+        .into_iter()
+        .enumerate()
+    {
+        let source = d.path().join(format!("broken-{index}.jpg"));
+        let mut payload = b"http://ns.adobe.com/xap/1.0/\0".to_vec();
+        payload.extend(packet);
+        let mut jpeg = vec![0xff, 0xd8, 0xff, 0xe1];
+        jpeg.extend(u16::try_from(payload.len() + 2).unwrap().to_be_bytes());
+        jpeg.extend(payload);
+        jpeg.extend([0xff, 0xd9]);
+        fs::write(&source, jpeg).unwrap();
+        let next = d.path().join(format!("next-{index}.NEF"));
+        fs::write(&next, b"next raw").unwrap();
+        let sources = [source, next];
+        let preset = ImportMetadata {
+            creator: "Creator".into(),
+            ..ImportMetadata::default()
+        };
+        for mode in [Mode::Session, Mode::Catalog] {
+            let lib = Library::create(&d.path().join(format!("{mode:?}-{index}")), "Library", mode)
+                .unwrap();
+            let results = if mode == Mode::Session {
+                let options = BatchOptions {
+                    template: "{orig}",
+                    sequence_start: 1,
+                    backup: None,
+                    folder: None,
+                    roots: &[],
+                    pair_raw: None,
+                    album: None,
+                    metadata: Some(&preset),
+                };
+                import_batch(&lib, &sources, &options, &AtomicBool::new(false), |_| {})
+            } else {
+                rawtonic_ingest::batch::add_batch_with_metadata(
+                    &lib,
+                    &sources,
+                    None,
+                    |_| rawtonic_ingest::batch::Medium::Disk,
+                    &AtomicBool::new(false),
+                    Some(&preset),
+                    |_| {},
+                )
+            }
+            .unwrap();
+            assert_eq!(results.len(), 2);
+            assert!(results.iter().all(|r| r.error.is_none()), "{results:?}");
+            for r in results {
+                assert_eq!(
+                    lib.metadata(r.asset_id.as_ref().unwrap()).unwrap().creator,
+                    "Creator"
+                );
+            }
+            assert!(lib.unfinished_ingest_jobs().unwrap().is_empty());
+        }
+    }
+}
+
+#[test]
+fn add_with_a_preset_leaves_published_unfinished_ingest_copies_to_their_job() {
+    use rawtonic_catalog::ingest_jobs::{ItemState, SourceFile};
+    let d = tempfile::tempdir().unwrap();
+    let source = d.path().join("card.NEF");
+    fs::write(&source, b"original").unwrap();
+    let preset = ImportMetadata {
+        creator: "Creator".into(),
+        ..ImportMetadata::default()
+    };
+    for metadata in [None, Some(&preset)] {
+        let lib = Library::create(
+            &d.path().join(format!("Catalog-{}", metadata.is_some())),
+            "Catalog",
+            Mode::Catalog,
+        )
+        .unwrap();
+        let planned = lib.directory.join("Capture/planned.NEF");
+        fs::create_dir_all(planned.parent().unwrap()).unwrap();
+        fs::write(&planned, b"original").unwrap();
+        let job = lib
+            .create_ingest_job(&serde_json::json!({}), &[(SourceFile::read(&source), None)])
+            .unwrap();
+        lib.set_ingest_item(&job, 0, ItemState::Copying, Some(&planned), None, None)
+            .unwrap();
+        let _ = rawtonic_ingest::batch::add_batch_with_metadata(
+            &lib,
+            &[planned],
+            None,
+            |_| rawtonic_ingest::batch::Medium::Disk,
+            &AtomicBool::new(false),
+            metadata,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(
+            lib.summary().unwrap().assets,
+            0,
+            "the copying job owns this file, preset or not"
+        );
+    }
+}
+
+#[test]
+fn creator_only_preset_keeps_embedded_descriptive_fields_and_keywords() {
+    let d = tempfile::tempdir().unwrap();
+    let source = d.path().join("embedded.jpg");
+    let mut embedded = Metadata {
+        description: "Embedded caption".into(),
+        keywords: vec!["existing".into()],
+        ..Metadata::default()
+    };
+    embedded.set_iptc("city", "Harbour city");
+    embedded.set_iptc("usageTerms", "Existing terms");
+    embedded_jpeg(&source, &embedded);
+    let lib = Library::create(&d.path().join("Library"), "Library", Mode::Session).unwrap();
+    let preset = ImportMetadata {
+        creator: "Creator".into(),
+        ..ImportMetadata::default()
+    };
+    let options = BatchOptions {
+        template: "{orig}",
+        sequence_start: 1,
+        backup: None,
+        folder: None,
+        roots: &[],
+        pair_raw: None,
+        album: None,
+        metadata: Some(&preset),
+    };
+    let result = import_batch(&lib, &[source], &options, &AtomicBool::new(false), |_| {}).unwrap();
+    let metadata = lib.metadata(result[0].asset_id.as_ref().unwrap()).unwrap();
+    assert_eq!(metadata.description, "Embedded caption");
+    assert_eq!(metadata.keywords, ["existing"]);
+    assert_eq!(metadata.iptc["city"], "Harbour city");
+    assert_eq!(metadata.iptc["usageTerms"], "Existing terms");
+}

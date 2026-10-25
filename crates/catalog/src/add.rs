@@ -460,6 +460,28 @@ impl Library {
     /// reported as `known`, the companion as its photograph); files that
     /// cannot be added are reported, not added.
     pub fn add_files(&self, paths: &[PathBuf]) -> Result<AddReport> {
+        self.add_files_prepared(paths, Ok)
+    }
+
+    /// Add with a metadata edit in the registration transaction, retaining
+    /// the same identity, companion and unfinished-ingest checks as add_files.
+    /// Sidecars are read only; edited metadata remains pending XMP sync.
+    pub fn add_files_with_metadata_edit(
+        &self,
+        paths: &[PathBuf],
+        mut edit: impl FnMut(&Path, &mut Metadata) -> Result<()>,
+    ) -> Result<AddReport> {
+        self.add_files_prepared(paths, |plan| {
+            let path = plan.path.clone();
+            plan.edit_metadata(|metadata| edit(&path, metadata))
+        })
+    }
+
+    fn add_files_prepared(
+        &self,
+        paths: &[PathBuf],
+        mut prepare: impl FnMut(PlannedAsset) -> Result<PlannedAsset>,
+    ) -> Result<AddReport> {
         let mut report = AddReport::default();
         let mut planned = Vec::new();
         let mut seen = HashSet::new();
@@ -486,7 +508,7 @@ impl Library {
                     return Ok(None);
                 }
                 let contents = Contents::read_sidecars(&place.path)?;
-                Ok(Some(self.plan_add(&place.path, contents)?))
+                Ok(Some(prepare(self.plan_add(&place.path, contents)?)?))
             })();
             match plan {
                 Ok(Some(plan)) => planned.push(plan),

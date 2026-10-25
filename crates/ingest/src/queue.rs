@@ -471,60 +471,69 @@ mod tests {
     /// backups, without copying anything again.
     #[test]
     fn copies_not_made_durable_are_recorded_by_the_next_run() {
-        let d = tempfile::tempdir().unwrap();
-        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
-        let sources = card(d.path());
-        let backup = d.path().join("backup");
-        let preset = crate::metadata::ImportMetadata {
-            creator: "Photographer".into(),
-            ..Default::default()
-        };
-        let options = BatchOptions {
-            backup: Some(&backup),
-            metadata: Some(&preset),
-            ..options("{orig}")
-        };
-        let id = create_job(&lib, &sources, &options).unwrap();
-        crate::copy::FAIL_FLUSH.with(|fail| fail.set(true));
-        let results = run_job(&lib, &id, &AtomicBool::new(false), |_| {});
-        crate::copy::FAIL_FLUSH.with(|fail| fail.set(false));
-        let results = results.unwrap();
-        assert!(
-            results
-                .iter()
-                .all(|r| r.error.as_deref().is_some_and(|e| e.contains("durable"))),
-            "{results:?}"
-        );
-        assert_eq!(lib.summary().unwrap().assets, 0);
-        assert!(
-            !lib.directory.join("Capture/C0.xmp").exists(),
-            "no preset XMP before the copy barrier"
-        );
-        let capture = lib.directory.join("Capture");
-        let all = ["C0.ARW", "C0.JPG", "C1.ARW", "C2.ARW", "C2.JPG", "C3.ARW"];
-        assert_eq!(names(&capture), all);
-        assert_eq!(names(&backup), all);
-        let lib = reopen_and_index(&lib);
-        assert_eq!(lib.summary().unwrap().assets, 0, "left to the job");
-        let results = run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
-        assert!(results.iter().all(|r| r.error.is_none()), "{results:?}");
-        let mut with_xmp = all.map(String::from).to_vec();
-        with_xmp.extend((0..4).map(|i| format!("C{i}.xmp")));
-        with_xmp.sort();
-        assert_eq!(names(&capture), with_xmp);
-        assert_eq!(names(&backup), all);
-        assert_eq!(lib.summary().unwrap().assets, 4);
-        let c2 = lib.asset_at(&capture.join("C2.ARW")).unwrap().unwrap();
-        assert_eq!(lib.metadata(&c2.id).unwrap().creator, "Photographer");
-        assert_eq!(lib.summary().unwrap().xmp_pending, 0);
-        assert_eq!(lib.companion(&c2).unwrap(), Some(capture.join("C2.JPG")));
-        assert_eq!(lib.ingest_job(&id).unwrap().state, JobState::Done);
-        for name in all {
-            let card = sources.iter().find(|s| s.ends_with(name)).unwrap();
-            assert_eq!(
-                fs::read(capture.join(name)).unwrap(),
-                fs::read(card).unwrap()
+        for use_preset in [false, true] {
+            let d = tempfile::tempdir().unwrap();
+            let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+            let sources = card(d.path());
+            let backup = d.path().join("backup");
+            let preset = crate::metadata::ImportMetadata {
+                creator: "Photographer".into(),
+                ..Default::default()
+            };
+            let options = BatchOptions {
+                backup: Some(&backup),
+                metadata: use_preset.then_some(&preset),
+                ..options("{orig}")
+            };
+            let id = create_job(&lib, &sources, &options).unwrap();
+            crate::copy::FAIL_FLUSH.with(|fail| fail.set(true));
+            let results = run_job(&lib, &id, &AtomicBool::new(false), |_| {});
+            crate::copy::FAIL_FLUSH.with(|fail| fail.set(false));
+            let results = results.unwrap();
+            assert!(
+                results
+                    .iter()
+                    .all(|r| r.error.as_deref().is_some_and(|e| e.contains("durable"))),
+                "{results:?}"
             );
+            assert_eq!(lib.summary().unwrap().assets, 0);
+            assert!(
+                !lib.directory.join("Capture/C0.xmp").exists(),
+                "no preset XMP before the copy barrier"
+            );
+            let capture = lib.directory.join("Capture");
+            let all = ["C0.ARW", "C0.JPG", "C1.ARW", "C2.ARW", "C2.JPG", "C3.ARW"];
+            assert_eq!(names(&capture), all);
+            assert_eq!(names(&backup), all);
+            let lib = reopen_and_index(&lib);
+            assert_eq!(lib.summary().unwrap().assets, 0, "left to the job");
+            let results = run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
+            assert!(results.iter().all(|r| r.error.is_none()), "{results:?}");
+            let mut with_xmp = all.map(String::from).to_vec();
+            if use_preset {
+                with_xmp.extend((0..4).map(|i| format!("C{i}.xmp")));
+            }
+            with_xmp.sort();
+            assert_eq!(names(&capture), with_xmp);
+            assert_eq!(names(&backup), all);
+            assert_eq!(lib.summary().unwrap().assets, 4);
+            let c2 = lib.asset_at(&capture.join("C2.ARW")).unwrap().unwrap();
+            assert_eq!(
+                lib.metadata(&c2.id).unwrap().creator,
+                if use_preset { "Photographer" } else { "" }
+            );
+            if use_preset {
+                assert_eq!(lib.summary().unwrap().xmp_pending, 0);
+            }
+            assert_eq!(lib.companion(&c2).unwrap(), Some(capture.join("C2.JPG")));
+            assert_eq!(lib.ingest_job(&id).unwrap().state, JobState::Done);
+            for name in all {
+                let card = sources.iter().find(|s| s.ends_with(name)).unwrap();
+                assert_eq!(
+                    fs::read(capture.join(name)).unwrap(),
+                    fs::read(card).unwrap()
+                );
+            }
         }
     }
 

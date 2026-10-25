@@ -48,18 +48,23 @@ pub(crate) fn import_metadata(
     path: &Path,
 ) -> anyhow::Result<(rawtonic_metadata::Metadata, Option<i32>)> {
     use chrono::Datelike;
-    let mut file = fs::File::open(path)?;
-    let len = file.metadata()?.len();
-    let mut header = vec![0; len.min(64 * 1024) as usize];
-    file.read_exact(&mut header)?;
-    let mut metadata = match container_xmp(&mut file, len, &header)? {
-        Container::Packet(packet) => {
-            let text =
-                std::str::from_utf8(&packet)?.trim_end_matches(['\0', ' ', '\t', '\r', '\n']);
-            rawtonic_metadata::read_xmp(text)?.0
-        }
-        _ => rawtonic_metadata::Metadata::default(),
+    let read_packet = || -> anyhow::Result<rawtonic_metadata::Metadata> {
+        let mut file = fs::File::open(path)?;
+        let len = file.metadata()?.len();
+        let mut header = vec![0; len.min(64 * 1024) as usize];
+        file.read_exact(&mut header)?;
+        Ok(match container_xmp(&mut file, len, &header)? {
+            Container::Packet(packet) => {
+                let text =
+                    std::str::from_utf8(&packet)?.trim_end_matches(['\0', ' ', '\t', '\r', '\n']);
+                rawtonic_metadata::read_xmp(text)?.0
+            }
+            _ => rawtonic_metadata::Metadata::default(),
+        })
     };
+    // Optional enrichment follows read_header's tolerance: damaged or
+    // unreadable embedded packets must not veto a verified photograph.
+    let mut metadata = read_packet().unwrap_or_default();
     let capture = read_capture_within(path, FACTS_LIMIT);
     let year = capture
         .captured

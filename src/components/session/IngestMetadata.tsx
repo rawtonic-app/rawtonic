@@ -52,7 +52,9 @@ export default function IngestMetadata({ value, onChange, adding = false }: { ad
   const save = async () => {
     if (!value || !name.trim() || !settings) return;
     const id = selected === "new" ? crypto.randomUUID() : selected;
-    if (await persist([...presets.filter((p) => p.id !== id), { ...value, id, name: name.trim() }])) setSelected(id);
+    const saved = { ...value, id, name: name.trim() };
+    const next = selected === "new" ? [...presets, saved] : presets.map((p) => p.id === id ? saved : p);
+    if (await persist(next)) setSelected(id);
   };
   const field = (key: string, label: string) => {
     const id = `${prefix}-${key}`;
@@ -79,6 +81,7 @@ export default function IngestMetadata({ value, onChange, adding = false }: { ad
     {adding && <p className="ingest-metadata-hint">{t("session.ingest.metadata.addNote")}</p>}
     {value && <>
       <p className="ingest-metadata-hint">{t("session.ingest.metadata.fillEmpty")}</p>
+      <p className="ingest-metadata-hint">{t("session.ingest.metadata.embeddedNote")}</p>
       <label className="session-field"><span>{t("session.ingest.metadata.name")}</span><input value={name} onChange={(e) => setName(e.target.value)} /></label>
       <div className="ingest-metadata-fields">
         {field("description", t("studio.metadata.fields.description"))}
