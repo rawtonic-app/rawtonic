@@ -182,7 +182,10 @@ export default memo(function StudioColorRangeWheel({
     if (frame.current !== null) cancelAnimationFrame(frame.current);
     frame.current = null;
     pending.current = {};
+    setLocal(active);
     interaction.current?.(false);
+    // Only a change of `disabled` cancels; `active` is read as it is then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [disabled]);
   useEffect(
     () => () => {

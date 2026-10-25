@@ -12,6 +12,7 @@ import {
 import {
   applyColorPick,
   colorRangesOf,
+  invalidatePendingColorPicks,
   skinRangeOf,
 } from "../../utils/colorRanges";
 import { oklchCss } from "../../utils/oklab";
@@ -132,6 +133,7 @@ export default function StudioColorEditor({
         ?.lightness ?? WHEEL_PICK_LIGHTNESS,
     );
     if (!picked.id) return;
+    invalidatePendingColorPicks();
     setEditor({
       colorPickerTarget: null,
       colorPickerLayer: null,

@@ -45,6 +45,13 @@ export function applyColorPick(
   };
 }
 
+/** Bumped whenever a pick ends without a photo sample (on the range wheel):
+ * samples still on their way then belong to a finished pick. */
+let pickGeneration = 0;
+export const invalidatePendingColorPicks = () => {
+  pickGeneration += 1;
+};
+
 /**
  * Samples the displayed colour (11 × 11 preview pixels) at a normalised
  * position and adds a colour editor range there ('new'), adds or moves the
@@ -58,6 +65,7 @@ export async function pickColorRange(path: string, target: string, x: number, y:
   const armed = asked.colorPickerTarget;
   // A picker started on a layer edits that layer's ranges.
   const layer = asked.colorPickerLayer;
+  const generation = pickGeneration;
   const rgb = await invoke<[number, number, number] | null>(Invokes.SamplePreviewColor, {
     path,
     normalizedX: x,
@@ -65,7 +73,12 @@ export async function pickColorRange(path: string, target: string, x: number, y:
   });
   const state = useEditorStore.getState();
   if (!rgb || state.selectedImage?.path !== path) return false;
-  if (state.colorPickerTarget !== armed || state.colorPickerLayer !== layer) return false;
+  if (
+    generation !== pickGeneration ||
+    state.colorPickerTarget !== armed ||
+    state.colorPickerLayer !== layer
+  )
+    return false;
   const { hue, chroma, lightness } = srgbToOklch(rgb);
   let activeId: string | null = target;
   const next = (ranges: ColorRange[], limit: number) => {

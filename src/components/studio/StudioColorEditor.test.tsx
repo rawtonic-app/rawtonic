@@ -18,7 +18,7 @@ import {
 } from "../../utils/adjustments";
 import { useEditorStore } from "../../store/useEditorStore";
 import StudioColorEditor from "./StudioColorEditor";
-import {
+import StudioColorRangeWheel, {
   chromaOf,
   radiusOf,
   rangeBand,
@@ -278,6 +278,29 @@ describe("range wheel <-> sliders", () => {
     fireEvent.pointerMove(edge, at(50, 0.018));
     fireEvent.pointerUp(edge);
     expect(changes).toHaveLength(0);
+  });
+
+  it("disabled mid-drag shows the recipe's range again", () => {
+    const range = skinish();
+    const ranges = [range];
+    const props = {
+      ranges,
+      active: range,
+      onChange: vi.fn(),
+      onInteraction: vi.fn(),
+    };
+    const { rerender } = render(<StudioColorRangeWheel {...props} />);
+    wheelSvg();
+    const edge = () =>
+      screen.getByRole("slider", { name: "Range hue edge, counter-clockwise" });
+    fireEvent.pointerDown(edge(), { button: 0, ...at(75, 0.06) });
+    fireEvent.pointerMove(edge(), at(90, 0.06));
+    expect(edge().getAttribute("aria-valuenow")).toBe("40");
+    rerender(<StudioColorRangeWheel {...props} disabled />);
+    expect(props.onInteraction).toHaveBeenLastCalledWith(false);
+    rerender(<StudioColorRangeWheel {...props} />);
+    expect(edge().getAttribute("aria-valuenow")).toBe("25");
+    expect(props.onChange).not.toHaveBeenCalled();
   });
 
   it("follows the sliders: a new hue range moves the edge handles", () => {

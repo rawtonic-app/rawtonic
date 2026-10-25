@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { applyColorPick, pickColorRange } from './colorRanges';
+import { applyColorPick, invalidatePendingColorPicks, pickColorRange } from './colorRanges';
 import { INITIAL_ADJUSTMENTS, MAX_LAYER_COLOR_RANGES, type MaskContainer } from './adjustments';
 import { useEditorStore } from '../store/useEditorStore';
 import { Invokes, type SelectedImage } from '../components/ui/AppProperties';
@@ -96,4 +96,18 @@ it('drops a sample whose pick was finished meanwhile (e.g. on the range wheel)',
   const state = useEditorStore.getState();
   expect(state.adjustments.colorRanges ?? []).toHaveLength(0);
   expect(state.adjustments.masks[0].adjustments.colorRanges).toHaveLength(0);
+});
+
+it('drops a sample of a pick finished and re-armed for the same range meanwhile', async () => {
+  let resolve!: (rgb: [number, number, number]) => void;
+  vi.mocked(invoke).mockReturnValue(new Promise((r) => (resolve = r)));
+  useEditorStore.setState({ colorPickerTarget: 'skin' });
+  const pending = pickColorRange('/a.cr3', 'skin', 0.5, 0.5);
+  // Finished on the wheel, then armed again for the same target.
+  invalidatePendingColorPicks();
+  useEditorStore.setState({ colorPickerTarget: 'skin' });
+  resolve([200, 150, 120]);
+  expect(await pending).toBe(false);
+  expect(useEditorStore.getState().adjustments.colorRanges ?? []).toHaveLength(0);
+  expect(useEditorStore.getState().colorPickerTarget).toBe('skin');
 });
