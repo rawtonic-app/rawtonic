@@ -70,6 +70,8 @@ npm run tauri -- build --debug --bundles app
 './target/debug/bundle/macos/Rawtonic.app/Contents/MacOS/rawtonic-app' export /path/Job/Capture/photo.ARW --output /path/Job/Output/photo.jpg --format jpeg --quality 100
 ```
 
+`--recipes recipes.json` exports with several recipes at once, as ticked recipes in the export dialog (each photo is developed once for all of them): a JSON array of `{"format": "jpg", "settings": {…}}`, `settings` in the shape of a queued export's settings (`jpegQuality`, `resize`, `tiffBitDepth`, `colorSpace`, `keepMetadata`, `stripGps`, `filenameTemplate`, `subfolder`, …); `--output` is then the folder the recipes' subfolders go into. Built with `--features performance-profiling`, the run logs `[PERF_STAGE]` records with their thread and end time for batch-export profiles (notes: parity-gaps/G43).
+
 ## Project and catalog files, transfer and recovery
 
 A project contains `session.json`, `session.sqlite`, `Capture/`, `Selects/`, `Output/`, `Trash/`, `masks/` and `.cache/`. A new catalog uses `catalog.json`, `catalog.sqlite` and `Photos/`. Existing manifests keep their capture-folder name. SQLite is authoritative for metadata, primary edit history and registered virtual-copy states; sidecars remain an editor compatibility layer.
