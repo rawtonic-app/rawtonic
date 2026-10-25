@@ -140,6 +140,14 @@ pub fn run_job(
         .map(|item| 1 + usize::from(item.companion.is_some()))
         .sum();
     let mut results = Vec::with_capacity(total);
+    // The files are read ahead while the one before is copied.
+    let read_ahead = crate::copy::ReadAhead::start(
+        items
+            .iter()
+            .flat_map(|item| std::iter::once(&item.source).chain(&item.companion))
+            .map(|source| source.path.clone())
+            .collect(),
+    );
     let mut bytes = 0u64;
     let mut left = false;
     for item in &items {
@@ -197,6 +205,7 @@ pub fn run_job(
             backup: options.backup.as_deref(),
             earlier: item.destination.as_deref(),
             before_copy: Some(&record),
+            read_ahead: Some(&read_ahead),
         };
         // A JPEG gone or changed since (the RAW still there) does not hold
         // its RAW back: the RAW comes in alone.
@@ -438,6 +447,125 @@ mod tests {
         assert_eq!(lib.companion(&c0).unwrap(), Some(capture.join("C0.JPG")));
         assert!(lib.unfinished_ingest_jobs().unwrap().is_empty());
         assert_eq!(lib.ingest_job(&id).unwrap().state, JobState::Done);
+    }
+
+    /// A photograph is recorded only once its copies reached permanent
+    /// storage (`copy::Barrier`): when the drive cache cannot be flushed,
+    /// none is recorded and the copies stay; after a reopen (the session's
+    /// folder index), the job's next run records those copies, with their
+    /// backups, without copying anything again.
+    #[test]
+    fn copies_not_made_durable_are_recorded_by_the_next_run() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+        let sources = card(d.path());
+        let backup = d.path().join("backup");
+        let options = BatchOptions {
+            backup: Some(&backup),
+            ..options("{orig}")
+        };
+        let id = create_job(&lib, &sources, &options).unwrap();
+        crate::copy::FAIL_FLUSH.with(|fail| fail.set(true));
+        let results = run_job(&lib, &id, &AtomicBool::new(false), |_| {});
+        crate::copy::FAIL_FLUSH.with(|fail| fail.set(false));
+        let results = results.unwrap();
+        assert!(
+            results
+                .iter()
+                .all(|r| r.error.as_deref().is_some_and(|e| e.contains("durable"))),
+            "{results:?}"
+        );
+        assert_eq!(lib.summary().unwrap().assets, 0);
+        let capture = lib.directory.join("Capture");
+        let all = ["C0.ARW", "C0.JPG", "C1.ARW", "C2.ARW", "C2.JPG", "C3.ARW"];
+        assert_eq!(names(&capture), all);
+        assert_eq!(names(&backup), all);
+        let lib = reopen_and_index(&lib);
+        assert_eq!(lib.summary().unwrap().assets, 0, "left to the job");
+        let results = run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
+        assert!(results.iter().all(|r| r.error.is_none()), "{results:?}");
+        assert_eq!(names(&capture), all);
+        assert_eq!(names(&backup), all);
+        assert_eq!(lib.summary().unwrap().assets, 4);
+        let c2 = lib.asset_at(&capture.join("C2.ARW")).unwrap().unwrap();
+        assert_eq!(lib.companion(&c2).unwrap(), Some(capture.join("C2.JPG")));
+        assert_eq!(lib.ingest_job(&id).unwrap().state, JobState::Done);
+        for name in all {
+            let card = sources.iter().find(|s| s.ends_with(name)).unwrap();
+            assert_eq!(
+                fs::read(capture.join(name)).unwrap(),
+                fs::read(card).unwrap()
+            );
+        }
+    }
+
+    /// Without a backup too, the next run makes the copies an earlier run
+    /// left unflushed durable before it records them: they are synced and
+    /// the drive cache is flushed again (macOS: counted).
+    #[test]
+    fn copies_reused_by_the_next_run_are_flushed_again() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+        let sources = card(d.path());
+        let id = create_job(&lib, &sources, &options("{orig}")).unwrap();
+        crate::copy::FAIL_FLUSH.with(|fail| fail.set(true));
+        let results = run_job(&lib, &id, &AtomicBool::new(false), |_| {});
+        crate::copy::FAIL_FLUSH.with(|fail| fail.set(false));
+        assert!(results.unwrap().iter().all(|r| r.error.is_some()));
+        crate::copy::FLUSHES.with(|count| count.set(0));
+        let results = run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
+        assert!(results.iter().all(|r| r.error.is_none()), "{results:?}");
+        assert_eq!(lib.summary().unwrap().assets, 4);
+        #[cfg(target_vendor = "apple")]
+        assert_eq!(
+            crate::copy::FLUSHES.with(std::cell::Cell::get),
+            4,
+            "one per photograph"
+        );
+    }
+
+    /// A companion JPEG whose backup copy fails (a full or failing backup
+    /// drive) still reaches the library beside its RAW; the backup failure
+    /// only warns, as it did before both came from one read.
+    #[test]
+    fn a_failed_backup_of_a_jpeg_leaves_its_library_copy() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+        let sources = card(d.path());
+        let backup = d.path().join("backup");
+        let options = BatchOptions {
+            backup: Some(&backup),
+            ..options("{orig}")
+        };
+        let failing = backup.clone();
+        crate::copy::set_after_write(Some(Box::new(move |temp: &Path| {
+            if temp.starts_with(&failing) && fs::read(temp).unwrap().starts_with(b"jpeg") {
+                fs::write(temp, b"jpeg damaged").unwrap();
+            }
+        })));
+        let results = import_batch(&lib, &sources, &options, &AtomicBool::new(false), |_| {});
+        crate::copy::set_after_write(None);
+        let results = results.unwrap();
+        assert!(results.iter().all(|r| r.error.is_none()), "{results:?}");
+        let capture = lib.directory.join("Capture");
+        assert_eq!(
+            names(&capture),
+            ["C0.ARW", "C0.JPG", "C1.ARW", "C2.ARW", "C2.JPG", "C3.ARW"]
+        );
+        assert_eq!(names(&backup), ["C0.ARW", "C1.ARW", "C2.ARW", "C3.ARW"]);
+        let c0 = lib.asset_at(&capture.join("C0.ARW")).unwrap().unwrap();
+        assert_eq!(lib.companion(&c0).unwrap(), Some(capture.join("C0.JPG")));
+        let c0_result = results
+            .iter()
+            .find(|r| r.source.ends_with("C0.ARW"))
+            .unwrap();
+        assert!(
+            c0_result
+                .warning
+                .as_deref()
+                .is_some_and(|w| w.contains("Backup")),
+            "{c0_result:?}"
+        );
     }
 
     /// The library could not record a copy (busy, a full disk): the job

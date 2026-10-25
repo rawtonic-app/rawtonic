@@ -1,21 +1,21 @@
 //! Verified ingest: streaming reads, bounded memory and no-clobber publication.
 pub mod batch;
 pub mod capture;
+mod copy;
 pub mod hot_folder;
 pub mod queue;
 pub mod transfer;
 
 use anyhow::{Context, Result, bail, ensure};
+use copy::Barrier;
 use rawtonic_catalog::{Contents, Library};
 use rawtonic_naming::{Context as NamingContext, render};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
     fs,
-    io::{Read, Write},
     path::{Path, PathBuf},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::AtomicBool,
 };
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -183,25 +183,114 @@ pub fn preview_name(
 
 /// Copies the card sidecar `sidecar` beside `photo` (a verified copy of its
 /// photograph) as `<photo stem>.xmp` (`copy_beside`).
-fn copy_sidecar(sidecar: &Path, photo: &Path, cancel: &AtomicBool) -> Result<PathBuf> {
-    copy_beside(sidecar, &photo.with_extension("xmp"), "sidecar", cancel)
+fn copy_sidecar(sidecar: &Path, photo: &Path, barrier: &mut Barrier) -> Result<PathBuf> {
+    let target = photo.with_extension("xmp");
+    copy_beside_all(
+        sidecar,
+        &[target],
+        "sidecar",
+        &AtomicBool::new(false),
+        barrier,
+        None,
+    )
+    .remove(0)
 }
 
 /// Copies `source` to `target` (beside a verified copy of its photograph:
-/// its sidecar or companion JPEG), verified and never replacing a file: a
-/// file already there with the same bytes is taken as that copy (an
-/// earlier, interrupted import made it), a different one is an error.
+/// its sidecar or companion JPEG), verified, never replacing a file and
+/// durable when it returns (`copy_beside_all`).
 fn copy_beside(source: &Path, target: &Path, what: &str, cancel: &AtomicBool) -> Result<PathBuf> {
-    if fs::symlink_metadata(target).is_ok() {
+    let mut barrier = Barrier::default();
+    let copy = copy_beside_all(
+        source,
+        &[target.to_path_buf()],
+        what,
+        cancel,
+        &mut barrier,
+        None,
+    )
+    .remove(0)?;
+    barrier.flush()?;
+    Ok(copy)
+}
+
+/// Copies `source` to each of `targets` from one read, verified and never
+/// replacing a file: a file already at a target with the same bytes is
+/// taken as that copy (an earlier, interrupted import made it), a
+/// different one is an error. One result per target; durable once
+/// `barrier` is flushed.
+fn copy_beside_all(
+    source: &Path,
+    targets: &[PathBuf],
+    what: &str,
+    cancel: &AtomicBool,
+    barrier: &mut Barrier,
+    ahead: Option<&copy::ReadAhead>,
+) -> Vec<Result<PathBuf>> {
+    let mut source_hash = None;
+    let mut there = |target: &Path| -> Result<PathBuf> {
+        let hash = match &source_hash {
+            Some(hash) => hash,
+            None => source_hash.insert(sha256(source)?),
+        };
         ensure!(
-            fs::symlink_metadata(target)?.is_file() && sha256(target)? == sha256(source)?,
+            fs::symlink_metadata(target)?.is_file() && sha256(target)? == *hash,
             "A different {what} is already at {}; the card's {what} was not copied",
             target.display()
         );
-        return Ok(target.to_path_buf());
+        barrier.sync_existing(target)?;
+        Ok(target.to_path_buf())
+    };
+    let mut results: Vec<Option<Result<PathBuf>>> = targets
+        .iter()
+        .map(|target| fs::symlink_metadata(target).is_ok().then(|| there(target)))
+        .collect();
+    let missing: Vec<usize> = (0..targets.len())
+        .filter(|&i| results[i].is_none())
+        .collect();
+    if !missing.is_empty() {
+        let paths: Vec<&Path> = missing.iter().map(|&i| targets[i].as_path()).collect();
+        match copy::copy_verified(source, &paths, cancel, |_| {}, ahead) {
+            Ok(mut copy) => {
+                for (k, &i) in missing.iter().enumerate() {
+                    results[i] = Some(copy.publish(k, barrier));
+                }
+            }
+            // One read for all failed: each target on its own, so a
+            // problem with one (a full backup drive) leaves the others.
+            Err(_) if missing.len() > 1 => {
+                for &i in &missing {
+                    results[i] = Some(
+                        copy::copy_verified(source, &[targets[i].as_path()], cancel, |_| {}, None)
+                            .and_then(|mut copy| copy.publish(0, barrier)),
+                    );
+                }
+            }
+            Err(error) => results[missing[0]] = Some(Err(error)),
+        }
     }
-    verified_copy(source, target, cancel, |_| {})?;
-    Ok(target.to_path_buf())
+    results
+        .into_iter()
+        .map(|result| result.expect("every target handled"))
+        .collect()
+}
+
+/// Where one copy of a photograph comes from.
+enum Plan {
+    /// A file with its bytes is there already (an earlier, cut-off import
+    /// made it).
+    There(PathBuf),
+    /// To be copied here.
+    Copy(PathBuf),
+}
+
+impl Plan {
+    fn to_copy(&self) -> Option<&Path> {
+        match self {
+            Plan::Copy(path) => Some(path),
+            Plan::There(_) => None,
+        }
+    }
 }
 
 /// `photo`'s companion name: its stem with `companion`'s extension.
@@ -213,92 +302,39 @@ fn companion_target(photo: &Path, companion: &Path) -> Result<PathBuf> {
 }
 
 pub fn sha256(path: &Path) -> Result<String> {
-    sha256_of(&mut fs::File::open(path)?)
+    copy::sha256_of(&mut fs::File::open(path)?)
 }
 
-fn sha256_of(f: &mut impl Read) -> Result<String> {
-    let mut h = Sha256::new();
-    let mut buffer = vec![0; 1024 * 1024];
-    loop {
-        let n = f.read(&mut buffer)?;
-        if n == 0 {
-            break;
-        }
-        h.update(&buffer[..n]);
-    }
-    Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
-}
-
-/// Destination parent must already exist. The no-clobber persist closes the
-/// existence-check race; a concurrent writer can never have its file replaced.
+/// Copies `source` to `destination`, verified (`copy::copy_verified`),
+/// never replacing a file, and durable when it returns. Destination parent
+/// must already exist. The no-clobber persist closes the existence-check
+/// race; a concurrent writer can never have its file replaced.
 pub fn verified_copy(
     source: &Path,
     destination: &Path,
     cancel: &AtomicBool,
-    mut progress: impl FnMut(u64),
+    progress: impl FnMut(u64),
 ) -> Result<CopyReceipt> {
-    ensure!(
-        !destination.exists(),
-        "Destination already exists: {}",
-        destination.display()
-    );
-    let mut input = fs::File::open(source).context("Cannot read source")?;
-    let before = input.metadata()?;
-    ensure!(before.is_file(), "Source is not a file");
-    let parent = destination.parent().context("Destination has no parent")?;
-    let mut temp = tempfile::NamedTempFile::new_in(parent)?;
-    let mut buffer = vec![0; 1024 * 1024];
-    let mut h = Sha256::new();
-    let mut bytes = 0;
-    loop {
-        ensure!(!cancel.load(Ordering::Acquire), "Ingest cancelled");
-        let n = input.read(&mut buffer)?;
-        if n == 0 {
-            break;
-        }
-        temp.write_all(&buffer[..n])?;
-        h.update(&buffer[..n]);
-        bytes += n as u64;
-        progress(bytes);
-    }
-    temp.as_file().sync_all()?;
-    let hash: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
-    ensure!(
-        sha256(temp.path())? == hash,
-        "Destination SHA-256 verification failed"
-    );
-    let after = input.metadata()?;
-    ensure!(
-        after.len() == before.len()
-            && bytes == before.len()
-            && after.modified()? == before.modified()?,
-        "Source changed during ingest"
-    );
-    // A second source pass catches mutation during copying even if timestamps were preserved.
-    ensure!(
-        sha256(source)? == hash,
-        "Source changed during verification"
-    );
-    ensure!(!cancel.load(Ordering::Acquire), "Ingest cancelled");
-    if let rawtonic_metadata::no_clobber::Persisted::Copied(mut copy) =
-        rawtonic_metadata::no_clobber::persist(temp, destination)?
-    {
-        // The volume had no exclusive rename: check the copy through its
-        // handle (the name may already be another file's, so a bad copy
-        // is kept, never removed by name).
-        std::io::Seek::rewind(&mut copy)?;
-        ensure!(
-            sha256_of(&mut copy)? == hash,
-            "Destination SHA-256 verification failed (the bad copy is kept at {})",
-            destination.display()
-        );
-    }
-    #[cfg(unix)]
-    fs::File::open(parent)?.sync_all()?;
+    let mut barrier = Barrier::default();
+    let receipt = verified_copy_with(source, destination, cancel, progress, &mut barrier)?;
+    barrier.flush()?;
+    Ok(receipt)
+}
+
+/// `verified_copy`, durable once `barrier` is flushed.
+fn verified_copy_with(
+    source: &Path,
+    destination: &Path,
+    cancel: &AtomicBool,
+    progress: impl FnMut(u64),
+    barrier: &mut Barrier,
+) -> Result<CopyReceipt> {
+    let mut copy = copy::copy_verified(source, &[destination], cancel, progress, None)?;
+    let destination = copy.publish(0, barrier)?;
     Ok(CopyReceipt {
-        destination: destination.into(),
-        bytes,
-        sha256: hash,
+        destination,
+        bytes: copy.bytes,
+        sha256: copy.sha256,
     })
 }
 
@@ -318,6 +354,11 @@ fn create_dir_all_durable(folder: &Path, base: &Path) -> std::io::Result<()> {
         let _ = dir;
         Ok(())
     })
+}
+
+/// `create_dir_all_durable`, durable once `barrier` is flushed.
+fn create_dir_all_with(folder: &Path, base: &Path, barrier: &mut Barrier) -> std::io::Result<()> {
+    create_dir_all_syncing(folder, base, |dir| barrier.sync_folder(dir))
 }
 
 /// `parent` as a directory to open: a relative path of one component
@@ -681,6 +722,7 @@ fn import_one_into_with(
         backup,
         earlier: None,
         before_copy: None,
+        read_ahead: None,
     };
     Ok(import_pair(library, source, None, &options, contents, cancel)?.photo)
 }
@@ -703,6 +745,8 @@ pub(crate) struct ImportOptions<'a> {
     /// run's copy.
     pub earlier: Option<&'a Path>,
     pub before_copy: Option<BeforeCopy<'a>>,
+    /// The batch's files read ahead.
+    pub read_ahead: Option<&'a copy::ReadAhead>,
 }
 
 /// What importing a photograph with a companion did: the photograph's
@@ -865,6 +909,10 @@ pub(crate) fn import_pair(
         options.sequence_start,
     )?;
     let name = render_name(options.template, &context, source)?;
+    // The folders and copies made for this photograph are synced as they
+    // are made and the drive caches flushed once, before it is recorded
+    // (`copy::Barrier`).
+    let mut barrier = Barrier::default();
     let mut folder = options.destination.path().to_path_buf();
     // Catalogs organize their managed originals by capture date. Explicit
     // folder drops retain the destination the user chose; old manifests keep
@@ -874,7 +922,7 @@ pub(crate) fn import_pair(
         folder = folder
             .join(date.format("%Y").to_string())
             .join(date.format("%Y-%m-%d").to_string());
-        create_dir_all_durable(&folder, options.destination.path())?;
+        create_dir_all_with(&folder, options.destination.path(), &mut barrier)?;
     }
     ensure!(
         folder.is_dir(),
@@ -1020,102 +1068,189 @@ pub(crate) fn import_pair(
         }
         _ => identical_file(&folder, &name, source, companion, &reserved, unrecorded)?,
     };
-    let mut backup_result = None;
-    if let Some(backup_folder) = options.backup {
-        create_dir_all_durable(
-            backup_folder,
-            backup_folder.parent().unwrap_or(backup_folder),
-        )?;
-        ensure!(
-            backup_folder.canonicalize()? != folder.canonicalize()?,
-            "Backup must be a different directory"
-        );
-        // A backup an earlier, cut-off import made (also when it got no
-        // further than the backup) is kept rather than made again.
-        let kept = identical_file(backup_folder, &name, source, companion, &|_| false, |_| {
-            Ok(true)
-        })?;
-        backup_result = Some(match kept {
-            Some(kept) => kept,
-            None => {
-                let backup_path = choose_destination_with(
-                    backup_folder,
-                    &name,
-                    companion,
-                    &|_| false,
-                    CollisionPolicy::Suffix,
-                )?
-                .context("No backup destination")?;
-                verified_copy(source, &backup_path, cancel, |_| {})?;
-                backup_path
-            }
-        });
-    }
-    // The backup gets the card sidecar and the companion too; a failure
-    // there only warns.
-    let mut warnings: Vec<String> = facts.sidecar_error.iter().cloned().collect();
-    if let (Some(card), Some(backup)) = (&facts.sidecar, &backup_result)
-        && let Err(error) = copy_sidecar(card, backup, &AtomicBool::new(false))
-    {
-        warnings.push(format!("Backup: {error:#}"));
-    }
-    if let (Some(companion), Some(backup)) = (companion, &backup_result)
-        && let Err(error) = companion_target(backup, companion)
-            .and_then(|target| copy_beside(companion, &target, "JPEG", cancel))
-    {
-        warnings.push(format!("Backup: {error:#}"));
-    }
-    let photo = match earlier {
-        Some(earlier) => (earlier, None),
-        None => {
-            let destination = choose_destination_with(
+    // The backup: one an earlier, cut-off import made (also when it got no
+    // further than the backup) is kept rather than made again.
+    let backup_plan = match options.backup {
+        None => None,
+        Some(backup_folder) => {
+            create_dir_all_with(
+                backup_folder,
+                backup_folder.parent().unwrap_or(backup_folder),
+                &mut barrier,
+            )?;
+            ensure!(
+                backup_folder.canonicalize()? != folder.canonicalize()?,
+                "Backup must be a different directory"
+            );
+            let kept = identical_file(backup_folder, &name, source, companion, &|_| false, |_| {
+                Ok(true)
+            })?;
+            Some(match kept {
+                Some(kept) => Plan::There(kept),
+                None => Plan::Copy(
+                    choose_destination_with(
+                        backup_folder,
+                        &name,
+                        companion,
+                        &|_| false,
+                        CollisionPolicy::Suffix,
+                    )?
+                    .context("No backup destination")?,
+                ),
+            })
+        }
+    };
+    let photo_plan = match earlier {
+        Some(earlier) => Plan::There(earlier),
+        None => Plan::Copy(
+            choose_destination_with(
                 &folder,
                 &name,
                 companion,
                 &reserved,
                 CollisionPolicy::Suffix,
             )?
-            .context("No destination")?;
-            // Recorded before anything is copied (an ingest job's record).
-            let planned = match (options.before_copy, companion) {
-                (Some(before_copy), companion) => {
-                    let target = companion
-                        .map(|companion| companion_target(&destination, companion))
-                        .transpose()?;
-                    before_copy(&destination, target.as_deref())
-                }
-                (None, _) => Ok(()),
-            };
-            match planned.and_then(|()| verified_copy(source, &destination, cancel, |_| {})) {
-                Ok(receipt) => (receipt.destination, Some(receipt.sha256)),
-                Err(error) => {
-                    return Ok(PairResult {
-                        photo: ImportResult {
-                            source: source.into(),
-                            backup: backup_result,
-                            error: Some(error.to_string()),
-                            ..Default::default()
-                        },
-                        companion: companion_result(
-                            None,
-                            None,
-                            None,
-                            false,
-                            Some(error.to_string()),
-                        )
-                        .or(known_companion),
-                    });
-                }
-            }
-        }
+            .context("No destination")?,
+        ),
     };
-    let (photo, hash) = photo;
-    // The companion is copied before the photograph is recorded, so the
-    // record never names a file that is not there.
-    let copied_companion = companion.map(|companion| {
-        companion_target(&photo, companion)
-            .and_then(|target| copy_beside(companion, &target, "JPEG", cancel))
+    // Recorded before anything is copied (an ingest job's record).
+    let planned = match (&photo_plan, options.before_copy) {
+        (Plan::Copy(destination), Some(before_copy)) => companion
+            .map(|companion| companion_target(destination, companion))
+            .transpose()
+            .and_then(|target| before_copy(destination, target.as_deref())),
+        _ => Ok(()),
+    };
+    // One read of the source for the backup and the library's copy.
+    let targets: Vec<&Path> = backup_plan
+        .iter()
+        .chain([&photo_plan])
+        .filter_map(Plan::to_copy)
+        .collect();
+    let copied = planned.and_then(|()| {
+        (!targets.is_empty())
+            .then(|| copy::copy_verified(source, &targets, cancel, |_| {}, options.read_ahead))
+            .transpose()
     });
+    let kept_backup = match &backup_plan {
+        Some(Plan::There(kept)) => Some(kept.clone()),
+        _ => None,
+    };
+    let failed =
+        |error: &anyhow::Error, backup: Option<PathBuf>, known: Option<ImportResult>| PairResult {
+            photo: ImportResult {
+                source: source.into(),
+                backup,
+                error: Some(error.to_string()),
+                ..Default::default()
+            },
+            companion: companion_result(None, None, None, false, Some(error.to_string())).or(known),
+        };
+    let mut copied = match copied {
+        Ok(copied) => copied,
+        Err(error) => return Ok(failed(&error, kept_backup, known_companion)),
+    };
+    let mut next = 0;
+    let mut publish = |copied: &mut Option<copy::Verified>, barrier: &mut Barrier| {
+        let copy = copied.as_mut().context("Nothing was copied")?;
+        next += 1;
+        copy.publish(next - 1, barrier)
+    };
+    // Copies an earlier run made are synced again: its flush may not have
+    // happened (`copies_not_made_durable_are_recorded_by_the_next_run`).
+    let mut reused = Ok(());
+    let backup_result = match backup_plan {
+        None => None,
+        Some(Plan::There(kept)) => {
+            reused = barrier.sync_existing(&kept);
+            Some(kept)
+        }
+        Some(Plan::Copy(_)) => Some(publish(&mut copied, &mut barrier)?),
+    };
+    // The backup gets the card sidecar and the companion too; a failure
+    // there only warns.
+    let mut warnings: Vec<String> = facts.sidecar_error.iter().cloned().collect();
+    if let (Some(card), Some(backup)) = (&facts.sidecar, &backup_result)
+        && let Err(error) = copy_sidecar(card, backup, &mut barrier)
+    {
+        warnings.push(format!("Backup: {error:#}"));
+    }
+    let backup_companion = match (companion, &backup_result) {
+        (Some(companion), Some(backup)) => match companion_target(backup, companion) {
+            Ok(target) => Some(target),
+            Err(error) => {
+                warnings.push(format!("Backup: {error:#}"));
+                None
+            }
+        },
+        _ => None,
+    };
+    let (photo, hash) = match photo_plan {
+        Plan::There(earlier) => {
+            reused = reused.and(barrier.sync_existing(&earlier));
+            (earlier, None)
+        }
+        Plan::Copy(_) => match publish(&mut copied, &mut barrier) {
+            Ok(destination) => (destination, copied.as_ref().map(|copy| copy.sha256.clone())),
+            Err(error) => {
+                // The backup keeps its pair.
+                if let (Some(companion), Some(target)) = (companion, &backup_companion)
+                    && let Err(error) = copy_beside(companion, target, "JPEG", cancel)
+                {
+                    warnings.push(format!("Backup: {error:#}"));
+                }
+                let _ = barrier.flush();
+                return Ok(failed(&error, backup_result, known_companion));
+            }
+        },
+    };
+    drop(copied);
+    // The companion is copied (to the backup too, from one read) before
+    // the photograph is recorded, so the record never names a file that is
+    // not there.
+    let copied_companion = companion.map(|companion| {
+        let mut targets: Vec<PathBuf> = backup_companion.iter().cloned().collect();
+        let copies = companion_target(&photo, companion).map(|target| {
+            targets.push(target);
+            copy_beside_all(
+                companion,
+                &targets,
+                "JPEG",
+                cancel,
+                &mut barrier,
+                options.read_ahead,
+            )
+        });
+        // (`companion_target` fails for both or neither.)
+        let mut copies = copies?;
+        if let Some(Err(error)) = copies.first().filter(|_| copies.len() == 2) {
+            warnings.push(format!("Backup: {error:#}"));
+        }
+        copies.pop().expect("one result per target")
+    });
+    let copied_sidecar = facts
+        .sidecar
+        .as_ref()
+        .map(|card| copy_sidecar(card, &photo, &mut barrier));
+    // Everything copied for this photograph reaches permanent storage
+    // before it is recorded; a failure leaves the copies for a later run
+    // to record (`earlier`).
+    if let Err(error) = reused.and_then(|()| barrier.flush()) {
+        let error = format!("The copies could not be made durable: {error}");
+        return Ok(PairResult {
+            photo: ImportResult {
+                source: source.into(),
+                destination: Some(photo.clone()),
+                backup: backup_result,
+                error: Some(error.clone()),
+                ..Default::default()
+            },
+            companion: match copied_companion {
+                None => known_companion,
+                Some(copy) => companion_result(copy.ok(), Some(&photo), None, false, Some(error)),
+            },
+        });
+    }
     let companion_name = match &copied_companion {
         Some(Ok(copy)) => copy.file_name().and_then(|n| n.to_str()),
         _ => None,
@@ -1128,7 +1263,7 @@ pub(crate) fn import_pair(
         hash.as_deref(),
         contents,
         companion_name,
-        &facts,
+        copied_sidecar,
         warnings,
     );
     let companion = match copied_companion {
@@ -1166,13 +1301,12 @@ pub(crate) fn import_pair(
     })
 }
 
-/// `register` of `photo` after copying the card sidecar of `facts` beside
-/// it, so the library adopts the sidecar's rating, label, keywords and
-/// IPTC fields in the same transaction (`Contents::read_sidecars`, as
-/// "Add" and `adopt_xmp` read them). The sidecar is small and always
-/// finished once its photograph is in (no cancel). Without one, or when it
-/// cannot be copied or read, the photograph is registered as it is, with a
-/// warning.
+/// `register` of `photo` with the card sidecar copied beside it
+/// (`sidecar`, `copy_sidecar`), so the library adopts the sidecar's rating,
+/// label, keywords and IPTC fields in the same transaction
+/// (`Contents::read_sidecars`, as "Add" and `adopt_xmp` read them).
+/// Without one, or when it could not be copied or read, the photograph is
+/// registered as it is, with a warning.
 #[allow(clippy::too_many_arguments)]
 fn register_with_sidecar(
     library: &Library,
@@ -1182,14 +1316,13 @@ fn register_with_sidecar(
     sha256: Option<&str>,
     contents: Option<&Contents>,
     companion: Option<&str>,
-    facts: &SourceFacts,
+    copied_sidecar: Option<Result<PathBuf>>,
     mut warnings: Vec<String>,
 ) -> ImportResult {
     let mut sidecar = None;
     let mut merged = contents.cloned();
-    if let Some(card) = &facts.sidecar {
-        let adopted = copy_sidecar(card, &photo, &AtomicBool::new(false))
-            .and_then(|copied| Ok((copied, Contents::read_sidecars(&photo)?)));
+    if let Some(copied) = copied_sidecar {
+        let adopted = copied.and_then(|copied| Ok((copied, Contents::read_sidecars(&photo)?)));
         match adopted {
             Ok((copied, read)) => {
                 sidecar = Some(copied);
@@ -1243,6 +1376,11 @@ pub fn record_earlier_copy(
     {
         return Ok(None);
     }
+    // On permanent storage before it is recorded (its own run's flush may
+    // not have happened).
+    let mut barrier = Barrier::default();
+    barrier.sync_existing(copy)?;
+    barrier.flush()?;
     Ok(Some(register(
         library,
         source,
@@ -1315,6 +1453,7 @@ fn register(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::Ordering;
     #[test]
     fn new_date_folders_are_synced_into_their_parents() {
         let d = tempfile::tempdir().unwrap();
