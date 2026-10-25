@@ -23,7 +23,7 @@ import { componentIcon, maskKindMenu } from "./maskKindMenu";
 import MaskThumb from "./MaskThumb";
 import { useMaskThumbnailStore } from "../../hooks/useMaskThumbnails";
 import { useSettingsStore } from "../../store/useSettingsStore";
-import { formatKeyCode } from "../../utils/keyboardUtils";
+import { formatKeyCode, shortcutHint } from "../../utils/keyboardUtils";
 import { soloAfterSelect, toggleLayerSolo } from "../../utils/layerSolo";
 
 /** What to do on the photo after creating a component of this kind. */
@@ -254,6 +254,8 @@ export default function StudioMaskComponents() {
 export function StudioMaskComponentSettings() {
   const { t } = useTranslation();
   const { layer, active, setEditor, updateComponent } = useMaskComponents();
+  const keybinds = useSettingsStore((s) => s.appSettings?.keybinds);
+  const osPlatform = useSettingsStore((s) => s.osPlatform);
   if (!active) return null;
   const activeKind = kindOf(active);
   const setParameters = (patch: Record<string, unknown>) =>
@@ -277,6 +279,15 @@ export function StudioMaskComponentSettings() {
         <p className="studio-hint" role="note">
           {t(`studio.masks.hints.${hint}`)}
         </p>
+      )}
+      {activeKind === "object" && (
+        <small className="studio-hint">
+          {t("studio.masks.hints.objectMore", {
+            shift: formatKeyCode("shift", osPlatform),
+            alt: formatKeyCode("alt", osPlatform),
+            undo: shortcutHint("undo", keybinds, osPlatform) ?? formatKeyCode("ctrl", osPlatform) + "Z",
+          })}
+        </small>
       )}
       {selection && (
         <>

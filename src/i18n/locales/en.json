@@ -3082,7 +3082,8 @@
       "eyeTitle": "Show or hide; {{alt}}-click shows only this mask",
       "hints": {
         "color": "Click the colour to select.",
-        "object": "Drag a box around the object."
+        "object": "Click the object or drag a box around it.",
+        "objectMore": "{{shift}}-click or -drag adds another object, {{alt}}-click or -drag excludes a part, {{undo}} takes the last one back."
       },
       "intersectTitle": "Keep only where this and the mask overlap",
       "invertTitle": "Invert this component",
@@ -3106,6 +3107,7 @@
         "subtractive": "Subtract"
       },
       "modeTitle": "Mode: {{mode}} · click to change",
+      "objectFrameChanged": "The photo was turned, or its lens or transform changed, since this selection was made. Click without Shift or Alt to select again.",
       "refine": "Refine",
       "refineAria": "Colour range refine",
       "subtractTitle": "Subtract from this layer's mask"

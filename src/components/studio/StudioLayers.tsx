@@ -127,30 +127,26 @@ function useNewLayerButtons() {
   });
 }
 
-/** The common kinds of the quick row: the automatic selections, then the
- * drawn shapes (Capture One's one-click layer buttons, without its heal,
- * clone and erase, which work on the photo, not on a layer). */
-const QUICK_LAYER_KINDS: MaskKind[][] = [
-  ["subject", "sky", "background", "people"],
-  ["brush", "linear", "radial"],
-];
-
-/** One click, one new layer: a row of icon buttons above the layer list.
- * The header's "+" keeps every kind. */
+/** One click, one new layer of any kind: a row of icon buttons above the
+ * layer list, in the new-layer grid's groups and order, so every kind stays
+ * one click away once layers exist (Lightroom's Create New Mask needs two
+ * there, Capture One's buttons cover only a few kinds; notes:
+ * parity-gaps/G29-layers.md 2026-10-25). Each button's tooltip names the
+ * layer it makes. */
 function QuickLayerBar() {
   const { t } = useTranslation();
   const buttonProps = useNewLayerButtons();
   return (
     <div className="studio-layer-quick" role="toolbar" aria-label={t("studio.develop.layers.quickAria")}>
-      {QUICK_LAYER_KINDS.map((kinds, index) => (
-        <Fragment key={kinds[0]}>
+      {MASK_KIND_GROUPS.map(({ group, kinds }, index) => (
+        <Fragment key={group}>
           {index > 0 && <span className="studio-layer-quick-separator" aria-hidden="true" />}
           <div
             className="studio-layer-quick-group"
             // Pointing at the selections starts Subject and Sky in the
             // background, as the grid and the "+" do.
-            onPointerEnter={index === 0 ? () => openMaskingTools() : undefined}
-            onFocus={index === 0 ? () => openMaskingTools() : undefined}
+            onPointerEnter={group === "select" ? () => openMaskingTools() : undefined}
+            onFocus={group === "select" ? () => openMaskingTools() : undefined}
           >
             {kinds.map((kind) => {
               const Icon = MASK_KIND_ICONS[kind];

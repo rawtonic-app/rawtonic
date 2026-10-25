@@ -95,6 +95,18 @@ import {
   type ShapeDragState,
 } from '../../../utils/shapeDraw';
 import { requestLiveMaskRender } from '../../../utils/liveMaskRender';
+import {
+  nextPrompts,
+  promptBounds,
+  promptGesture,
+  promptFrameKey,
+  promptOf,
+  promptsFrameChanged,
+  storedPrompts,
+  type ObjectPrompt,
+  type PromptGesture,
+} from '../../../utils/objectPrompts';
+import { objectSelectionBusy } from '../../../hooks/useAiMasking';
 
 /** Screen pixels outside the crop frame where a drag rotates the photo. */
 const CROP_ROTATE_BAND = 36;
@@ -179,7 +191,9 @@ interface ImageCanvasProps {
   isStraightenActive: boolean;
   isRotationActive?: boolean;
   maskOverlayUrl: string | null;
-  onGenerateAiMask(id: string | null, start: Coord, end: Coord): void;
+  /** An Object selection from its prompts (`start`/`end`: the first
+   * included one's box or click); settles when its mask is in. */
+  onGenerateAiMask(id: string | null, start: Coord, end: Coord, prompts?: ObjectPrompt[]): unknown;
   onLiveMaskPreview?: (
     previewMaskDef: LiveMaskDefinition,
     options?: { renderLive?: boolean; stroke?: Omit<LiveStroke, 'maskId'> },
@@ -1422,6 +1436,15 @@ const ImageCanvas = memo(
     const nextStrokeId = useRef(0);
     const previewBoxRef = useRef<{ start: Coord; end: Coord } | null>(null);
     const [previewBox, setPreviewBox] = useState<{ start: Coord; end: Coord } | null>(null);
+    // The Object selection's press: what it does to the prompts (Shift adds,
+    // Alt takes out), and the prompts shown while their mask is computed.
+    const objectGestureRef = useRef<PromptGesture>('replace');
+    const [objectPromptsDraft, setObjectPromptsDraft] = useState<{
+      id: string;
+      path: string;
+      frame: string;
+      prompts: ObjectPrompt[];
+    } | null>(null);
     const activeStrokeIndex = useRef<number | null>(null);
 
     const [cursorPreview, setCursorPreview] = useState<CursorPreview>({ x: 0, y: 0, visible: false });
@@ -2210,6 +2233,10 @@ const ImageCanvas = memo(
           }
 
           if (isAiSubjectActive) {
+            objectGestureRef.current = promptGesture({
+              shiftKey: e.evt.shiftKey,
+              altKey: e.evt.altKey || (window as ModifierKeyWindow).altKeyDown,
+            });
             setDrawing(true);
             drawingStageRef.current = stage;
             const newBox = { start: pos, end: pos };
@@ -2699,21 +2726,32 @@ const ImageCanvas = memo(
           endPoint = { x: startPoint.x, y: startPoint.y };
         }
 
-        if (activeId) {
-          updateSubMask(activeId, {
-            parameters: {
-              ...activeSubMask?.parameters,
-              startX: startPoint.x,
-              startY: startPoint.y,
-              endX: endPoint.x,
-              endY: endPoint.y,
-            },
-          });
+        if (!activeId || !activeSubMask || !onGenerateAiMask) return;
+        // The prompts and their mask are written together when the mask is
+        // in (one history step per prompt); a press while it computes is
+        // ignored, so prompts always build on a mask that is in.
+        const { adjustments: shown, selectedImage: photo } = useEditorStore.getState();
+        if (!photo || objectSelectionBusy(photo.path, activeSubMask.id)) return;
+        const frame = promptFrameKey(shown);
+        // Adding to or taking out of a selection made in another frame would
+        // drop it silently: say so, and leave it as it is.
+        if (objectGestureRef.current !== 'replace' && promptsFrameChanged(activeSubMask.parameters, shown)) {
+          toast.info(t('studio.masks.objectFrameChanged'));
+          return;
         }
-
-        if (activeSubMask?.type === Mask.AiSubject && onGenerateAiMask) {
-          onGenerateAiMask(activeId, startPoint, endPoint);
-        }
+        const base = storedPrompts(activeSubMask.parameters, shown);
+        const prompts = nextPrompts(
+          base,
+          promptOf(startPoint, endPoint, objectGestureRef.current === 'exclude'),
+          objectGestureRef.current,
+        );
+        const bounds = prompts && promptBounds(prompts);
+        if (!prompts || !bounds) return;
+        const draft = { id: activeSubMask.id, path: photo.path, frame, prompts };
+        setObjectPromptsDraft(draft);
+        Promise.resolve(onGenerateAiMask(activeId, bounds.start, bounds.end, prompts)).finally(() =>
+          setObjectPromptsDraft((shown) => (shown === draft ? null : shown)),
+        );
         return;
       }
 
@@ -3467,6 +3505,41 @@ const ImageCanvas = memo(
                           listening={false}
                         />
                       )}
+                      {isAiSubjectActive &&
+                        activeSubMask &&
+                        (objectPromptsDraft?.id === activeSubMask.id &&
+                        objectPromptsDraft.path === selectedImage?.path &&
+                        objectPromptsDraft.frame === promptFrameKey(adjustments)
+                          ? objectPromptsDraft.prompts
+                          : storedPrompts(activeSubMask.parameters, adjustments)
+                        ).map((prompt, index) => {
+                          const color = prompt.exclude ? '#ef4444' : '#22c55e';
+                          const { scale } = imageRenderSize;
+                          return prompt.type === 'point' ? (
+                            <Circle
+                              key={index}
+                              x={(prompt.x - cropX) * scale}
+                              y={(prompt.y - cropY) * scale}
+                              radius={5 / maxSafeScale}
+                              fill={color}
+                              stroke="white"
+                              strokeWidth={1.5 / maxSafeScale}
+                              listening={false}
+                            />
+                          ) : (
+                            <Rect
+                              key={index}
+                              x={(Math.min(prompt.startX, prompt.endX) - cropX) * scale}
+                              y={(Math.min(prompt.startY, prompt.endY) - cropY) * scale}
+                              width={Math.abs(prompt.endX - prompt.startX) * scale}
+                              height={Math.abs(prompt.endY - prompt.startY) * scale}
+                              stroke={color}
+                              strokeWidth={1.5 / maxSafeScale}
+                              dash={[4 / maxSafeScale, 3 / maxSafeScale]}
+                              listening={false}
+                            />
+                          );
+                        })}
                       {previewBox && (
                         <Rect
                           x={Math.min(previewBox.start.x, previewBox.end.x)}

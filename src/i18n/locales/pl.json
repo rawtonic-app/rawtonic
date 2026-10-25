@@ -3268,7 +3268,8 @@
       "eyeTitle": "Pokaż lub ukryj; {{alt}}-kliknięcie pokazuje tylko tę maskę",
       "hints": {
         "color": "Kliknij kolor, który chcesz zaznaczyć.",
-        "object": "Narysuj prostokąt wokół obiektu."
+        "object": "Narysuj prostokąt wokół obiektu.",
+        "objectMore": "{{shift}}+klik lub przeciągnięcie dodaje kolejny obiekt, {{alt}}+klik lub przeciągnięcie wyklucza fragment, {{undo}} cofa ostatni."
       },
       "intersectTitle": "Zachowaj tylko część wspólną tego składnika i maski",
       "invertTitle": "Odwróć ten składnik",
@@ -3292,6 +3293,7 @@
         "subtractive": "Odejmij"
       },
       "modeTitle": "Tryb: {{mode}} · kliknij, aby zmienić",
+      "objectFrameChanged": "Od utworzenia tego zaznaczenia zdjęcie zostało obrócone albo zmieniono korekcję obiektywu lub przekształcenie. Kliknij bez Shift ani Alt, aby zaznaczyć ponownie.",
       "refine": "Dopracuj",
       "refineAria": "Dopracuj zakres koloru",
       "subtractTitle": "Odejmij od maski tej warstwy"

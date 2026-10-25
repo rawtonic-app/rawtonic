@@ -22,6 +22,7 @@ import {
   AI_MASKING_RECENT_MS,
   AI_MASKS_AHEAD_DELAY_MS,
   AI_MODELS_UNLOADED_EVENT,
+  objectSelectionBusy,
   openMaskingTools,
   resetAiMaskSession,
   useAiMasking,
@@ -374,6 +375,115 @@ describe("automatic AI masks from imported presets", () => {
     await act(() => result.current.handleGenerateAiMask("sub-ai-subject", { x: 10, y: 10 }, { x: 50, y: 50 }));
     expect(subOf("sub-ai-subject")?.parameters).toMatchObject({ maskDataBase64: "data:image/png;base64,BBBB" });
     expect(subOf("sub-ai-subject")?.parameters).not.toHaveProperty("detectPending");
+  });
+
+  it("writes each Object prompt with its mask as one history step; busy while it computes, per photo", async () => {
+    const pending = deferredMasks();
+    const object = layer("ai-subject", { maskDataBase64: null, grow: 0, feather: 0 });
+    const initial = { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [object] as never };
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true, width: 3000, height: 2000 } as never,
+      adjustments: initial,
+      history: [initial],
+      historyIndex: 0,
+    });
+    const { result } = renderHook(() => useAiMasking());
+    const a = { type: "point" as const, x: 10, y: 10 };
+    const b = { type: "point" as const, x: 900, y: 500 };
+    let first!: Promise<boolean>;
+    act(() => {
+      first = result.current.handleGenerateAiMask("sub-ai-subject", a, a, [a]);
+    });
+    await waitFor(() => expect(pending).toHaveLength(1));
+    // A press waits while the mask computes; a virtual copy sharing the
+    // component id is another photo and is not held up.
+    expect(objectSelectionBusy("/s/a.NEF", "sub-ai-subject")).toBe(true);
+    expect(objectSelectionBusy("/s/a-copy.NEF", "sub-ai-subject")).toBe(false);
+    await act(async () => {
+      pending[0]({ maskDataBase64: "data:image/png;base64,AAAA" });
+      await first;
+    });
+    expect(objectSelectionBusy("/s/a.NEF", "sub-ai-subject")).toBe(false);
+    let second!: Promise<boolean>;
+    act(() => {
+      second = result.current.handleGenerateAiMask("sub-ai-subject", a, a, [a, b]);
+    });
+    await waitFor(() => expect(pending).toHaveLength(2));
+    await act(async () => {
+      pending[1]({ maskDataBase64: "data:image/png;base64,BBBB" });
+      await second;
+    });
+    const promptsOf = (adjustments: { masks: { subMasks: { parameters: Record<string, unknown> }[] }[] }) =>
+      adjustments.masks[0].subMasks[0].parameters.prompts;
+    expect(useEditorStore.getState().history.map(promptsOf)).toEqual([undefined, [a], [a, b]]);
+    act(() => useEditorStore.getState().undo());
+    expect(promptsOf(useEditorStore.getState().adjustments)).toEqual([a]);
+    expect(subOf("sub-ai-subject")?.parameters.maskDataBase64).toBe("data:image/png;base64,AAAA");
+  });
+
+  it("drops a pending Object prompt when an undo changed the selection it was pressed on", async () => {
+    const pending = deferredMasks();
+    const a = { type: "point" as const, x: 10, y: 10 };
+    const b = { type: "point" as const, x: 900, y: 500 };
+    const empty = { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [layer("ai-subject", { maskDataBase64: null })] as never };
+    const withA = {
+      ...structuredClone(INITIAL_ADJUSTMENTS),
+      masks: [layer("ai-subject", { maskDataBase64: "data:image/png;base64,AAAA", prompts: [a] })] as never,
+    };
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true, width: 3000, height: 2000 } as never,
+      adjustments: withA,
+      history: [empty, withA],
+      historyIndex: 1,
+    });
+    const { result } = renderHook(() => useAiMasking());
+    let added!: Promise<boolean>;
+    act(() => {
+      added = result.current.handleGenerateAiMask("sub-ai-subject", a, a, [a, b]);
+    });
+    await waitFor(() => expect(pending).toHaveLength(1));
+    // A is undone before B is in.
+    act(() => useEditorStore.getState().undo());
+    await act(async () => {
+      pending[0]({ maskDataBase64: "data:image/png;base64,BBBB" });
+      await added;
+    });
+    const state = useEditorStore.getState();
+    expect(state.adjustments).toBe(empty);
+    // The redo step is kept.
+    expect(state.history).toEqual([empty, withA]);
+    expect(state.historyIndex).toBe(0);
+  });
+
+  it("drops a pending prompt on a recipe's one box when an undo brought back another box", async () => {
+    const pending = deferredMasks();
+    const b = { type: "point" as const, x: 900, y: 500 };
+    const box = (startX: number, mask: string) => ({
+      ...structuredClone(INITIAL_ADJUSTMENTS),
+      masks: [layer("ai-subject", { maskDataBase64: mask, startX, startY: 10, endX: 300, endY: 200 })] as never,
+    });
+    const older = box(5, "data:image/png;base64,OLD0");
+    const now = box(50, "data:image/png;base64,NOW0");
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true, width: 3000, height: 2000 } as never,
+      adjustments: now,
+      history: [older, now],
+      historyIndex: 1,
+    });
+    const { result } = renderHook(() => useAiMasking());
+    const legacy = { type: "box" as const, startX: 50, startY: 10, endX: 300, endY: 200 };
+    let added!: Promise<boolean>;
+    act(() => {
+      added = result.current.handleGenerateAiMask("sub-ai-subject", { x: 50, y: 10 }, { x: 300, y: 200 }, [legacy, b]);
+    });
+    await waitFor(() => expect(pending).toHaveLength(1));
+    act(() => useEditorStore.getState().undo());
+    await act(async () => {
+      pending[0]({ maskDataBase64: "data:image/png;base64,BBBB" });
+      await added;
+    });
+    expect(useEditorStore.getState().adjustments).toBe(older);
+    expect(useEditorStore.getState().history).toEqual([older, now]);
   });
 
   it("clears the busy state and says so in a toast when the AI runtime cannot be loaded", async () => {

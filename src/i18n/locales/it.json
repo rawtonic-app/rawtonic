@@ -3175,7 +3175,8 @@
       "eyeTitle": "Mostra o nascondi; {{alt}}-clic mostra solo questa maschera",
       "hints": {
         "color": "Fai clic sul colore da selezionare.",
-        "object": "Trascina un riquadro attorno all'oggetto."
+        "object": "Trascina un riquadro attorno all'oggetto.",
+        "objectMore": "{{shift}}-clic o -trascina aggiunge un altro oggetto, {{alt}}-clic o -trascina ne esclude una parte, {{undo}} annulla l'ultimo."
       },
       "intersectTitle": "Mantieni solo dove questo componente e la maschera si sovrappongono",
       "invertTitle": "Inverti questo componente",
@@ -3199,6 +3200,7 @@
         "subtractive": "Sottrai"
       },
       "modeTitle": "Modalità: {{mode}} · clic per cambiare",
+      "objectFrameChanged": "La foto è stata ruotata, o ne è cambiato l'obiettivo o la trasformazione, da quando è stata fatta questa selezione. Fai clic senza Maiusc né Alt per selezionare di nuovo.",
       "refine": "Rifinisci",
       "refineAria": "Rifinisci gamma colore",
       "subtractTitle": "Sottrai dalla maschera di questo livello"

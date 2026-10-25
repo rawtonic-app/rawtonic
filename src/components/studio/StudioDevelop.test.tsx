@@ -1003,25 +1003,42 @@ describe("layer panel (Capture One's list, Lightroom's components)", () => {
     expect(useEditorStore.getState().activeMaskContainerId).toBe(masks[1].id);
   });
 
-  it("creates the common layers in one click from the quick row, as the + menu does", () => {
+  it("keeps every layer kind one click away in the quick row once layers exist, as the + menu does", () => {
     withMenu();
     fireEvent.click(screen.getByRole("button", { name: "New sky layer" }));
     const quick = screen.getByRole("toolbar", { name: "Quick new layer" });
     const buttons = within(quick).getAllByRole("button");
+    // The new-layer grid's kinds in its groups and order.
     expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
-      "New subject layer",
-      "New sky layer",
-      "New background layer",
-      "New people layer",
       "New brush layer",
       "New linear gradient layer",
       "New radial gradient layer",
+      "New subject layer",
+      "New sky layer",
+      "New background layer",
+      "New object layer",
+      "New people layer",
+      "New color range layer",
+      "New luminance range layer",
+      "New depth range layer",
     ]);
     expect(buttons.every((b) => b.querySelector("svg") && b.title)).toBe(true);
     // Without its id, a component is the same whichever way it was made.
     const shape = (index: number) =>
       useEditorStore.getState().adjustments.masks[index].subMasks.map(({ id: _, ...rest }) => rest);
-    const menuItems = ["Subject", "Sky", "Background", "People", "Brush", "Linear", "Radial"];
+    const menuItems = [
+      "Brush",
+      "Linear",
+      "Radial",
+      "Subject",
+      "Sky",
+      "Background",
+      "Object",
+      "People",
+      "Color range",
+      "Luminance range",
+      "Depth range",
+    ];
     menuItems.forEach((item, i) => {
       const before = useEditorStore.getState().adjustments.masks.length;
       fireEvent.click(within(screen.getByRole("toolbar", { name: "Quick new layer" })).getAllByRole("button")[i]);

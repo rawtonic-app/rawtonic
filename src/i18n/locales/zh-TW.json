@@ -3011,7 +3011,8 @@
       "eyeTitle": "顯示或隱藏；{{alt}}-按一下僅顯示此遮色片",
       "hints": {
         "color": "按一下要選取的顏色。",
-        "object": "在物件周圍拖曳出方框。"
+        "object": "在物件周圍拖曳出方框。",
+        "objectMore": "{{shift}}+按一下或拖曳可加入另一個物件，{{alt}}+按一下或拖曳可排除一部分，{{undo}} 復原最後一個。"
       },
       "intersectTitle": "只保留此元件與遮色片重疊的部分",
       "invertTitle": "反轉此元件",
@@ -3035,6 +3036,7 @@
         "subtractive": "減去"
       },
       "modeTitle": "模式：{{mode}} · 按一下以變更",
+      "objectFrameChanged": "建立此選取範圍後，相片已旋轉，或鏡頭／變形校正已變更。請不按 Shift 或 Alt 按一下以重新選取。",
       "refine": "精細化",
       "refineAria": "精細化顏色範圍",
       "subtractTitle": "從此圖層的遮色片減去"

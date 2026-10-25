@@ -1903,15 +1903,161 @@ pub fn run_sam_decoder(
     original_image: Option<&DynamicImage>,
     linear: bool,
 ) -> Result<GrayImage> {
+    run_sam_decoder_prompts(
+        decoder,
+        embeddings,
+        &[SamPrompt::legacy(start_point, end_point)],
+        original_image,
+        linear,
+    )
+}
+
+/// One prompt of an Object selection in photo pixels: a point, or a box by
+/// its corners; `exclude` takes it out of the selection.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SamPrompt {
+    Point {
+        at: (f64, f64),
+        exclude: bool,
+    },
+    Box {
+        min: (f64, f64),
+        max: (f64, f64),
+        exclude: bool,
+    },
+}
+
+impl SamPrompt {
+    /// The prompt of a recipe's one box or click (`start == end`).
+    pub fn legacy(start: (f64, f64), end: (f64, f64)) -> Self {
+        if (start.0 - end.0).abs() < 1e-6 && (start.1 - end.1).abs() < 1e-6 {
+            SamPrompt::Point {
+                at: start,
+                exclude: false,
+            }
+        } else {
+            SamPrompt::Box {
+                min: (start.0.min(end.0), start.1.min(end.1)),
+                max: (start.0.max(end.0), start.1.max(end.1)),
+                exclude: false,
+            }
+        }
+    }
+}
+
+/// One decoder call of an Object selection, in photo pixels: its points
+/// and SAM's labels for them (1 include, 0 exclude, 2 and 3 a box's
+/// corners), the exclude points the refining pass keeps, and whether its
+/// mask is taken out of the selection.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SamCall {
+    pub points: Vec<(f64, f64)>,
+    pub labels: Vec<f32>,
+    pub excluded: Vec<(f64, f64)>,
+    pub subtract: bool,
+}
+
+/// The decoder calls of an Object selection's prompts. SAM takes one box
+/// per call and segments one object, so each included point or box is a
+/// call of its own (the selection is their union), with every exclude point
+/// as a negative point; an excluded box is segmented on its own and taken
+/// out (SAM has no negative box). Exclude points alone select nothing.
+pub fn sam_calls(prompts: &[SamPrompt]) -> Vec<SamCall> {
+    let excluded: Vec<(f64, f64)> = prompts
+        .iter()
+        .filter_map(|p| match *p {
+            SamPrompt::Point { at, exclude: true } => Some(at),
+            _ => None,
+        })
+        .collect();
+    let with_excluded = |mut points: Vec<(f64, f64)>, mut labels: Vec<f32>| {
+        points.extend(&excluded);
+        labels.extend(excluded.iter().map(|_| 0.0f32));
+        SamCall {
+            points,
+            labels,
+            excluded: excluded.clone(),
+            subtract: false,
+        }
+    };
+    prompts
+        .iter()
+        .filter_map(|p| match *p {
+            SamPrompt::Point { exclude: true, .. } => None,
+            SamPrompt::Point { at, .. } => Some(with_excluded(vec![at], vec![1.0])),
+            SamPrompt::Box {
+                min,
+                max,
+                exclude: false,
+            } => Some(with_excluded(vec![min, max], vec![2.0, 3.0])),
+            SamPrompt::Box { min, max, .. } => Some(SamCall {
+                points: vec![min, max],
+                labels: vec![2.0, 3.0],
+                excluded: Vec::new(),
+                subtract: true,
+            }),
+        })
+        .collect()
+}
+
+/// The mask (0 or 255) of an Object selection's decoder calls: the union of
+/// the included ones without the subtracted ones.
+fn sam_selection_mask(
+    decoder: &rawtonic_onnx::Model,
+    embeddings: &ImageEmbeddings,
+    calls: &[SamCall],
+    out_size: (u32, u32),
+) -> Result<GrayImage> {
+    if let [call] = calls
+        && !call.subtract
+    {
+        return sam_call_mask(decoder, embeddings, call, out_size);
+    }
+    let mut selection = GrayImage::new(out_size.0, out_size.1);
+    let mut taken_out = GrayImage::new(out_size.0, out_size.1);
+    for call in calls {
+        let started = std::time::Instant::now();
+        let mask = sam_call_mask(decoder, embeddings, call, out_size)?;
+        log::info!(
+            "AI object mask: decoder call ({} points{}) {} ms",
+            call.points.len(),
+            if call.subtract { ", subtracted" } else { "" },
+            started.elapsed().as_millis()
+        );
+        let target = if call.subtract {
+            &mut taken_out
+        } else {
+            &mut selection
+        };
+        for (t, m) in target.iter_mut().zip(mask.iter()) {
+            *t = (*t).max(*m);
+        }
+    }
+    for (s, out) in selection.iter_mut().zip(taken_out.iter()) {
+        if *out > 0 {
+            *s = 0;
+        }
+    }
+    Ok(selection)
+}
+
+/// [`run_sam_decoder`] for a list of prompts (see [`sam_calls`]).
+pub fn run_sam_decoder_prompts(
+    decoder: &rawtonic_onnx::Model,
+    embeddings: &ImageEmbeddings,
+    prompts: &[SamPrompt],
+    original_image: Option<&DynamicImage>,
+    linear: bool,
+) -> Result<GrayImage> {
+    let calls = sam_calls(prompts);
     if let Some(img) = original_image {
         let guide = guide_luma8(img, linear);
         let (w, h) = guide.dimensions();
         let step = refine_step(w.max(h), SAM_REFINE_EDGE);
-        let mask = sam_hard_mask(
+        let mask = sam_selection_mask(
             decoder,
             embeddings,
-            start_point,
-            end_point,
+            &calls,
             (w.div_ceil(step), h.div_ceil(step)),
         )?;
         Ok(refine_sam_mask(
@@ -1921,13 +2067,7 @@ pub fn run_sam_decoder(
             step,
         ))
     } else {
-        let gray_mask = sam_hard_mask(
-            decoder,
-            embeddings,
-            start_point,
-            end_point,
-            embeddings.original_size,
-        )?;
+        let gray_mask = sam_selection_mask(decoder, embeddings, &calls, embeddings.original_size)?;
         let feathered_mask = image::imageops::blur(&gray_mask, 2.0);
         let (orig_width, orig_height) = embeddings.original_size;
         Ok(image::imageops::resize(
@@ -1939,14 +2079,40 @@ pub fn run_sam_decoder(
     }
 }
 
-/// The decoder's mask (0 or 255) at the size of the photo: the prompt, then
-/// a second pass with interior/exterior points, the first mask's box and
-/// the mask as input.
+/// The decoder's `point_coords` (1 × N × 2, model input pixels) and
+/// `point_labels` (1 × N) inputs.
+fn sam_prompt_arrays(
+    coords: &[(f32, f32)],
+    labels: &[f32],
+) -> Result<(Array<f32, IxDyn>, Array<f32, IxDyn>)> {
+    let coords_flat: Vec<f32> = coords.iter().flat_map(|&(x, y)| [x, y]).collect();
+    Ok((
+        Array::from_shape_vec((1, coords.len(), 2), coords_flat)?.into_dyn(),
+        Array::from_shape_vec((1, labels.len()), labels.to_vec())?.into_dyn(),
+    ))
+}
+
+/// The decoder's mask (0 or 255) of one box or click at the size of the
+/// photo (see [`sam_call_mask`]).
+#[cfg(test)]
 fn sam_hard_mask(
     decoder: &rawtonic_onnx::Model,
     embeddings: &ImageEmbeddings,
     start_point: (f64, f64),
     end_point: (f64, f64),
+    out_size: (u32, u32),
+) -> Result<GrayImage> {
+    let calls = sam_calls(&[SamPrompt::legacy(start_point, end_point)]);
+    sam_call_mask(decoder, embeddings, &calls[0], out_size)
+}
+
+/// The decoder's mask (0 or 255) of one call at the size of the photo: the
+/// call's prompt, then a second pass with interior/exterior points, the
+/// first mask's box, the call's exclude points and the mask as input.
+fn sam_call_mask(
+    decoder: &rawtonic_onnx::Model,
+    embeddings: &ImageEmbeddings,
+    call: &SamCall,
     out_size: (u32, u32),
 ) -> Result<GrayImage> {
     let (orig_width, orig_height) = embeddings.original_size;
@@ -1955,26 +2121,9 @@ fn sam_hard_mask(
 
     let iters = 2;
 
-    let is_point =
-        (start_point.0 - end_point.0).abs() < 1e-6 && (start_point.1 - end_point.1).abs() < 1e-6;
-    let mut point_coords = Vec::new();
-    let mut point_labels = Vec::new();
-
-    if is_point {
-        point_coords.push(to_input(start_point.0, start_point.1));
-        point_labels.push(1.0f32);
-    } else {
-        point_coords.push(to_input(
-            start_point.0.min(end_point.0),
-            start_point.1.min(end_point.1),
-        ));
-        point_coords.push(to_input(
-            start_point.0.max(end_point.0),
-            start_point.1.max(end_point.1),
-        ));
-        point_labels.push(2.0f32);
-        point_labels.push(3.0f32);
-    }
+    let mut point_coords: Vec<(f32, f32)> =
+        call.points.iter().map(|&(x, y)| to_input(x, y)).collect();
+    let mut point_labels = call.labels.clone();
 
     let mut mask_input = Array::zeros((1, 1, 256, 256)).into_dyn();
     let mut has_mask_input = 0.0f32;
@@ -1995,12 +2144,7 @@ fn sam_hard_mask(
     let mut final_h = 0;
 
     for i in 0..iters {
-        let pc_len = point_coords.len();
-        let pl_len = point_labels.len();
-
-        let coords_flat: Vec<f32> = point_coords.iter().flat_map(|&(x, y)| vec![x, y]).collect();
-        let coords_array = Array::from_shape_vec((1, pc_len, 2), coords_flat)?.into_dyn();
-        let labels_array = Array::from_shape_vec((1, pl_len), point_labels.clone())?.into_dyn();
+        let (coords_array, labels_array) = sam_prompt_arrays(&point_coords, &point_labels)?;
 
         // Only the last pass needs the photo's size; the first pass's mask
         // only yields prompt points, so it comes at most SAM_FIRST_PASS_EDGE
@@ -2124,6 +2268,10 @@ fn sam_hard_mask(
         point_labels.push(2.0);
         point_coords.push(photo(max_x, max_y));
         point_labels.push(3.0);
+        for &(x, y) in &call.excluded {
+            point_coords.push(to_input(x, y));
+            point_labels.push(0.0);
+        }
 
         let mut gaus_dt = vec![0.0f32; area];
         let variance = (mask_area / 4.0_f32).max(1.0_f32);
@@ -3336,6 +3484,123 @@ mod tool_tests {
         super::generate_image_embeddings(&image, &encoder, false, None).unwrap();
     }
 
+    /// An Object selection built prompt by prompt on one photo, timed per
+    /// prompt with the encoder's embedding computed once (as the app keeps
+    /// it): "decoder" is the decoder calls alone, "mask" adds the edge
+    /// refinement the app runs. `AI_PROMPTS`: `;`-separated steps, each
+    /// `p:x,y` (click) or `b:x0,y0,x1,y1` (box) in fractions of the photo,
+    /// `-` in front excludes; `AI_OUT` gets an overlay per step as a new file
+    /// (an existing one stops the test). Models from
+    /// `$AI_MODELS`, runtime from `ORT_DYLIB_PATH`, photo `$AI_FILE`.
+    #[test]
+    #[ignore = "needs AI_MODELS, ORT_DYLIB_PATH, AI_FILE, AI_PROMPTS and AI_OUT"]
+    fn print_object_prompt_sequence() {
+        let var = |k: &str| std::env::var(k).unwrap();
+        let models = std::path::PathBuf::from(var("AI_MODELS"));
+        let out = std::path::PathBuf::from(var("AI_OUT"));
+        let session = |name: &str| rawtonic_onnx::Model::load_file(&models.join(name)).unwrap();
+        let encoder = session(super::ENCODER_FILENAME);
+        let decoder = session(super::DECODER_FILENAME);
+        let path = var("AI_FILE");
+        let bytes = std::fs::read(&path).unwrap();
+        let settings = crate::app_settings::AppSettings::default();
+        let image =
+            crate::image_loader::load_base_image_from_bytes(&bytes, &path, false, &settings, None)
+                .unwrap();
+        let linear = std::env::var("AI_LINEAR").is_ok();
+        let (w, h) = (image.width(), image.height());
+        let started = std::time::Instant::now();
+        let embeddings = super::generate_image_embeddings(&image, &encoder, linear, None).unwrap();
+        println!(
+            "{path} {w}x{h}: encoder {} ms on {}",
+            started.elapsed().as_millis(),
+            encoder.provider()
+        );
+        let at = |fx: f64, fy: f64| (fx * w as f64, fy * h as f64);
+        let mut prompts = Vec::new();
+        for (step, spec) in var("AI_PROMPTS").split(';').enumerate() {
+            let (exclude, spec) = match spec.strip_prefix('-') {
+                Some(rest) => (true, rest),
+                None => (false, spec),
+            };
+            let (kind, numbers) = spec.split_once(':').unwrap();
+            let n: Vec<f64> = numbers.split(',').map(|v| v.parse().unwrap()).collect();
+            prompts.push(match kind {
+                "p" => super::SamPrompt::Point {
+                    at: at(n[0], n[1]),
+                    exclude,
+                },
+                _ => super::SamPrompt::Box {
+                    min: at(n[0], n[1]),
+                    max: at(n[2], n[3]),
+                    exclude,
+                },
+            });
+            // Warm the decoder once, as the app's earlier prompts have.
+            if step == 0 {
+                super::run_sam_decoder_prompts(&decoder, &embeddings, &prompts, None, linear)
+                    .unwrap();
+            }
+            let refine = super::refine_step(w.max(h), super::SAM_REFINE_EDGE);
+            let calls = super::sam_calls(&prompts);
+            let started = std::time::Instant::now();
+            super::sam_selection_mask(
+                &decoder,
+                &embeddings,
+                &calls,
+                (w.div_ceil(refine), h.div_ceil(refine)),
+            )
+            .unwrap();
+            let decoder_ms = started.elapsed().as_secs_f64() * 1000.0;
+            let started = std::time::Instant::now();
+            let mask = super::run_sam_decoder_prompts(
+                &decoder,
+                &embeddings,
+                &prompts,
+                Some(&image),
+                linear,
+            )
+            .unwrap();
+            let mask_ms = started.elapsed().as_secs_f64() * 1000.0;
+            let share = mask.pixels().filter(|p| p[0] > 127).count() as f64 / (w * h) as f64;
+            println!(
+                "step {} ({spec}{}): {} decoder calls, decoder {decoder_ms:.0} ms, mask {mask_ms:.0} ms, selected {:.1} %",
+                step + 1,
+                if exclude { ", excluded" } else { "" },
+                calls.len(),
+                share * 100.0
+            );
+            let small = |img: &image::RgbImage| {
+                let s = 1200.0 / w.max(h) as f32;
+                image::imageops::resize(
+                    img,
+                    (w as f32 * s).round() as u32,
+                    (h as f32 * s).round() as u32,
+                    image::imageops::FilterType::Triangle,
+                )
+            };
+            let mut overlay = image.to_rgb8();
+            for (pixel, m) in overlay.pixels_mut().zip(mask.pixels()) {
+                let a = m[0] as f32 / 255.0 * 0.55;
+                pixel[0] = (pixel[0] as f32 * (1.0 - a) + 255.0 * a) as u8;
+                pixel[1] = (pixel[1] as f32 * (1.0 - a)) as u8;
+                pixel[2] = (pixel[2] as f32 * (1.0 - a)) as u8;
+            }
+            // Written whole beside it, then published under a new name only
+            // (never over an existing file, the photo itself included).
+            let mut png = Vec::new();
+            small(&overlay)
+                .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                .unwrap();
+            let mut temp = tempfile::NamedTempFile::new_in(&out).unwrap();
+            std::io::Write::write_all(&mut temp, &png).unwrap();
+            temp.as_file().sync_all().unwrap();
+            let target = out.join(format!("step{}.png", step + 1));
+            rawtonic_metadata::no_clobber::persist(temp, &target)
+                .unwrap_or_else(|e| panic!("{}: {e}", target.display()));
+        }
+    }
+
     /// The subject mask of a box around a bright patch covers the patch in
     /// every aspect ratio (a decoder that bakes in its export example's crop
     /// misplaces it); models from `$AI_MODELS`, runtime from `ORT_DYLIB_PATH`.
@@ -4038,6 +4303,111 @@ mod tool_tests {
             }
             other => panic!("WARM_MODEL {other}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod sam_prompt_tests {
+    use super::{SamCall, SamPrompt, sam_calls, sam_prompt_arrays};
+
+    fn include(at: (f64, f64)) -> SamPrompt {
+        SamPrompt::Point { at, exclude: false }
+    }
+
+    /// A recipe's one click or box gives the call the decoder always had: a
+    /// point labelled 1, or the box's corners (any drag direction) 2 and 3.
+    #[test]
+    fn one_click_or_box_is_the_single_call_of_before() {
+        assert_eq!(
+            sam_calls(&[SamPrompt::legacy((10.0, 20.0), (10.0, 20.0))]),
+            [SamCall {
+                points: vec![(10.0, 20.0)],
+                labels: vec![1.0],
+                excluded: vec![],
+                subtract: false,
+            }]
+        );
+        assert_eq!(
+            sam_calls(&[SamPrompt::legacy((300.0, 40.0), (100.0, 200.0))]),
+            [SamCall {
+                points: vec![(100.0, 40.0), (300.0, 200.0)],
+                labels: vec![2.0, 3.0],
+                excluded: vec![],
+                subtract: false,
+            }]
+        );
+    }
+
+    /// Each included prompt is a call of its own with every exclude point
+    /// (label 0) after its own; an excluded box is a call to subtract.
+    #[test]
+    fn several_prompts_give_one_call_per_object_with_the_exclude_points() {
+        let calls = sam_calls(&[
+            include((10.0, 10.0)),
+            SamPrompt::Box {
+                min: (50.0, 50.0),
+                max: (90.0, 80.0),
+                exclude: false,
+            },
+            SamPrompt::Point {
+                at: (12.0, 30.0),
+                exclude: true,
+            },
+            SamPrompt::Box {
+                min: (60.0, 60.0),
+                max: (70.0, 70.0),
+                exclude: true,
+            },
+        ]);
+        assert_eq!(
+            calls,
+            [
+                SamCall {
+                    points: vec![(10.0, 10.0), (12.0, 30.0)],
+                    labels: vec![1.0, 0.0],
+                    excluded: vec![(12.0, 30.0)],
+                    subtract: false,
+                },
+                SamCall {
+                    points: vec![(50.0, 50.0), (90.0, 80.0), (12.0, 30.0)],
+                    labels: vec![2.0, 3.0, 0.0],
+                    excluded: vec![(12.0, 30.0)],
+                    subtract: false,
+                },
+                SamCall {
+                    points: vec![(60.0, 60.0), (70.0, 70.0)],
+                    labels: vec![2.0, 3.0],
+                    excluded: vec![],
+                    subtract: true,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn exclude_points_alone_select_nothing() {
+        assert!(
+            sam_calls(&[SamPrompt::Point {
+                at: (1.0, 2.0),
+                exclude: true,
+            }])
+            .is_empty()
+        );
+    }
+
+    /// The decoder's inputs: `point_coords` 1 × N × 2 and `point_labels`
+    /// 1 × N, in the call's order.
+    #[test]
+    fn prompt_arrays_have_the_decoder_shapes() {
+        let (coords, labels) =
+            sam_prompt_arrays(&[(1.0, 2.0), (3.0, 4.0), (5.0, 6.0)], &[1.0, 1.0, 0.0]).unwrap();
+        assert_eq!(coords.shape(), [1, 3, 2]);
+        assert_eq!(
+            coords.iter().copied().collect::<Vec<_>>(),
+            [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        );
+        assert_eq!(labels.shape(), [1, 3]);
+        assert_eq!(labels.iter().copied().collect::<Vec<_>>(), [1.0, 1.0, 0.0]);
     }
 }
 

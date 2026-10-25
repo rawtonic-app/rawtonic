@@ -3175,7 +3175,8 @@
       "eyeTitle": "Mostra o amaga; {{alt}}-clic mostra només aquesta màscara",
       "hints": {
         "color": "Fes clic al color que vols seleccionar.",
-        "object": "Arrossega un requadre al voltant de l'objecte."
+        "object": "Arrossega un requadre al voltant de l'objecte.",
+        "objectMore": "{{shift}}-clic o -arrossegar afegeix un altre objecte, {{alt}}-clic o -arrossegar n'exclou una part, {{undo}} desfà l'últim."
       },
       "intersectTitle": "Conserva només on coincideixen aquest component i la màscara",
       "invertTitle": "Inverteix aquest component",
@@ -3199,6 +3200,7 @@
         "subtractive": "Resta"
       },
       "modeTitle": "Mode: {{mode}} · fes clic per canviar-lo",
+      "objectFrameChanged": "La foto s'ha girat, o se n'ha canviat l'objectiu o la transformació, des que es va fer aquesta selecció. Feu clic sense Maj ni Alt per tornar a seleccionar.",
       "refine": "Refina",
       "refineAria": "Refina el rang de color",
       "subtractTitle": "Resta de la màscara d'aquesta capa"

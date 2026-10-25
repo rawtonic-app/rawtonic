@@ -3175,7 +3175,8 @@
       "eyeTitle": "Mostrar ou ocultar; {{alt}}-clique mostra apenas esta máscara",
       "hints": {
         "color": "Clique na cor que deseja selecionar.",
-        "object": "Arraste um retângulo em volta do objeto."
+        "object": "Arraste um retângulo em volta do objeto.",
+        "objectMore": "{{shift}}-clique ou -arrastar adiciona outro objeto, {{alt}}-clique ou -arrastar exclui uma parte, {{undo}} desfaz o último."
       },
       "intersectTitle": "Manter só onde este componente e a máscara se sobrepõem",
       "invertTitle": "Inverter este componente",
@@ -3199,6 +3200,7 @@
         "subtractive": "Subtrair"
       },
       "modeTitle": "Modo: {{mode}} · clique para alterar",
+      "objectFrameChanged": "A foto foi girada, ou a correção de lente ou transformação mudou, desde que esta seleção foi feita. Clique sem Shift nem Alt para selecionar de novo.",
       "refine": "Refinar",
       "refineAria": "Refinar faixa de cor",
       "subtractTitle": "Subtrair da máscara desta camada"
