@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use tauri::Emitter;
 
@@ -49,25 +48,7 @@ pub struct LaunchPayload {
     pub edit_session: Option<ExternalEditSession>,
 }
 
-/// The folder the command was run in, which relative path arguments refer to.
-/// An AppImage's AppRun changes into the AppImage's own read-only folder
-/// (`$APPDIR/usr`) before it starts the app; the AppImage runtime keeps the
-/// user's folder in `OWD`, and `--appimage-extract-and-run`, which sets no
-/// `OWD`, keeps the shell's `PWD`. A plain binary and a macOS bundle keep the
-/// working directory. `var` reads the environment.
-pub fn invocation_dir(
-    var: impl Fn(&str) -> Option<OsString>,
-    cwd: Option<PathBuf>,
-) -> Option<PathBuf> {
-    if var("APPIMAGE").is_none() {
-        return cwd;
-    }
-    ["OWD", "PWD"]
-        .into_iter()
-        .filter_map(|name| var(name).map(PathBuf::from))
-        .find(|dir| dir.is_absolute())
-        .or(cwd)
-}
+pub use tauri_plugin_single_instance::invocation_dir;
 
 /// Path arguments as given, relative ones joined to `base` (the folder the
 /// command was run in), so they never resolve against the app's own folder.
@@ -281,6 +262,7 @@ pub fn emit_launch_request(app_handle: &tauri::AppHandle, request: LaunchRequest
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
 
     #[test]
     fn headless_exports_require_explicit_contact_retention() {
@@ -356,6 +338,43 @@ mod tests {
         let plain = env(&[("OWD", "/elsewhere"), ("PWD", "/elsewhere")]);
         assert_eq!(invocation_dir(plain, mount.clone()), mount);
         assert_eq!(invocation_dir(env(&[]), None), None);
+    }
+
+    #[test]
+    fn a_second_appimage_forwards_the_launching_shell_directory() {
+        for (owd, pwd, expected) in [
+            (Some("/shell/photos"), Some("/shell/other"), "/shell/photos"),
+            (None, Some("/shell/extracted"), "/shell/extracted"),
+            (Some("relative"), Some("/shell/fallback"), "/shell/fallback"),
+        ] {
+            let var = |name: &str| {
+                match name {
+                    "APPIMAGE" => Some("/apps/Rawtonic.AppImage"),
+                    "OWD" => owd,
+                    "PWD" => pwd,
+                    _ => None,
+                }
+                .map(OsString::from)
+            };
+            // The sender resolves its directory before serializing it for
+            // D-Bus; the primary parses using only that forwarded directory.
+            let cwd = invocation_dir(var, Some(PathBuf::from("/tmp/.mount_second/usr"))).unwrap();
+            let forwarded_cwd = cwd.to_string_lossy().into_owned();
+            let base = Some(Path::new(&forwarded_cwd));
+            let LaunchRequest::OpenFile(path) = parse_launch_args(&strings(&["a.ARW"]), base)
+            else {
+                panic!("open file");
+            };
+            assert_eq!(path, format!("{expected}/a.ARW"));
+            let LaunchRequest::EditSession(edit) = parse_launch_args(
+                &strings(&["--edit", "a.tif", "--output", "out/b.tif"]),
+                base,
+            ) else {
+                panic!("edit session");
+            };
+            assert_eq!(edit.source, format!("{expected}/a.tif"));
+            assert_eq!(edit.output, format!("{expected}/out/b.tif"));
+        }
     }
 
     #[test]
