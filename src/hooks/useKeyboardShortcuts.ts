@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { toast } from 'react-toastify';
 import { BrushSettings, ImageFile, Panel } from '../components/ui/AppProperties';
-import { buildComboMap, normalizeCombo } from '../utils/keyboardUtils';
+import { buildComboMap, fieldOwnsKey, normalizeCombo } from '../utils/keyboardUtils';
 import { toggleWindowFullScreen } from '../utils/photoFullScreen';
 import { runAutoStraighten } from '../utils/autoStraighten';
 import { cropEditCancelled } from '../utils/cropGesture';
@@ -79,8 +79,6 @@ function recipeHeld(action: string, state: ShortcutState): boolean {
 }
 
 /** Held keys, not toggles: no menu item. */
-/** The keys a focused slider moves itself with. */
-const RANGE_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
 const KEY_ONLY_ACTIONS = new Set(['show_original']);
 
 /** Photo menu items that act on photographs: greyed out without one. */
@@ -1169,14 +1167,11 @@ export const useKeyboardShortcuts = ({
       }
       if (shortcutsHeld(state)) return;
 
-      // A select's arrows, Enter and type-to-find belong to it, as a text field's keys do.
-      const isInputFocused = Boolean(document.activeElement?.closest('input, textarea, select, [contenteditable="true"]'));
+      // A select's arrows, Enter and type-to-find belong to it, as a text
+      // field's keys do; a slider keeps only the keys that move it.
       const rangeFocused = document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'range';
-      // A slider keeps the focus after a drag. It only uses the keys that
-      // move it (kept native); every other shortcut (M, F, ratings, Undo)
-      // still works, as it does after a drag in Lightroom and Capture One.
-      const rangeOwnsKey = rangeFocused && RANGE_KEYS.has(event.code);
-      if (isInputFocused && !rangeFocused) return;
+      const rangeOwnsKey = rangeFocused && fieldOwnsKey(document.activeElement, event.code);
+      if (!rangeFocused && fieldOwnsKey(document.activeElement, event.code)) return;
       // Tab moves the focus between fields and controls; it hides panels only
       // from the photograph, the browser tiles or with nothing focused.
       if (event.code === 'Tab' && !ownsPanelShortcut(document.activeElement)) return;

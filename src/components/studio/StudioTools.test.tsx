@@ -357,6 +357,26 @@ describe("[ and ]", () => {
     expect(rotate).toHaveBeenCalledOnce();
     window.removeEventListener("keydown", rotate);
   });
+
+  it("resize the brush while the slider just dragged keeps the focus, never rotating", () => {
+    withLinearLayer();
+    workspace();
+    fireEvent.click(screen.getByRole("button", { name: "Brush" }));
+    const rotate = vi.fn();
+    window.addEventListener("keydown", rotate);
+    const slider = document.body.appendChild(document.createElement("input"));
+    slider.type = "range";
+    slider.focus();
+    const before = editor().brushSettings?.size ?? 50;
+    fireEvent.keyDown(slider, { key: "]", code: "BracketRight" });
+    expect(editor().brushSettings?.size).toBe(stepBrushSize(before, 1));
+    expect(rotate).not.toHaveBeenCalled();
+    // The slider's own keys stay with it.
+    fireEvent.keyDown(slider, { key: "ArrowRight", code: "ArrowRight" });
+    expect(editor().brushSettings?.size).toBe(stepBrushSize(before, 1));
+    window.removeEventListener("keydown", rotate);
+    slider.remove();
+  });
 });
 
 describe("Capture One tool keys", () => {
