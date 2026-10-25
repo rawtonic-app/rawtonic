@@ -7,13 +7,14 @@
 //! resumes single jobs and follows each photo (`export-item-progress`).
 use crate::app_state::AppState;
 use crate::export_processing::{
-    ExportAdjustmentsMode, ExportSettings, ExportTarget, export_images_impl,
+    ExportPhotos, ExportSettings, ExportTarget, PinnedPhoto, denoise_models, export_images_impl,
+    pin_photos,
 };
 use rawtonic_export::queue::{ExportQueue, Item, ItemState, Job, JobState, RunEnd};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    collections::HashSet,
+    collections::{BTreeSet, HashSet},
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
@@ -74,6 +75,113 @@ pub struct ExportRequest {
     pub output_format: String,
     pub current_edit_path: Option<String>,
     pub current_edit_adjustments: Option<Value>,
+    /// The session or catalog the export was submitted from; it owns the
+    /// photos outside any session (`culling_library_for`).
+    #[serde(default)]
+    pub library: Option<String>,
+    /// Set once each photo's recipe and metadata were read (`pin`); they
+    /// are kept with the job's photos in the queue (`item_snapshot`), and
+    /// the job renders only them, whichever library is open when it runs.
+    /// None only before `pin`, and in jobs an older build queued.
+    #[serde(default)]
+    pub pinned: Option<Pinned>,
+}
+
+/// What a request's pinned photos amount to, kept in the request itself.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Pinned {
+    /// Of all the photos' snapshots: jobs with equal ones share a develop.
+    pub digest: String,
+    /// The AI Denoise models the recipes use, loaded before the job runs.
+    pub denoise_models: BTreeSet<usize>,
+}
+
+impl ExportRequest {
+    /// Reads what each photo is exported with, once, through the library
+    /// the export was submitted from (`pin_photos`), and returns it.
+    fn pin(&mut self) -> Result<Vec<PinnedPhoto>, String> {
+        let photos = pin_photos(
+            &self.paths,
+            self.current_edit_path.as_deref(),
+            self.current_edit_adjustments.as_ref(),
+            self.library.as_deref().map(Path::new),
+        );
+        let mut digest = blake3::Hasher::new();
+        for photo in &photos {
+            digest.update(&serde_json::to_vec(photo).map_err(|e| e.to_string())?);
+        }
+        self.pinned = Some(Pinned {
+            digest: digest.finalize().to_hex().to_string(),
+            denoise_models: denoise_models(photos.iter().map(|photo| &photo.adjustments)),
+        });
+        Ok(photos)
+    }
+
+    /// Whether `other` reads its photos as this one does (`pin`).
+    fn pins_like(&self, other: &ExportRequest) -> bool {
+        self.paths == other.paths
+            && self.current_edit_path == other.current_edit_path
+            && self.current_edit_adjustments == other.current_edit_adjustments
+            && self.library == other.library
+    }
+}
+
+/// Pins `requests` (`ExportRequest::pin`) on a blocking worker: each
+/// photo's recipe and metadata are read from its library there, once for
+/// requests that read their photos alike (a photo set's recipes). Returns
+/// each request with its photos' snapshots (JSON).
+async fn pin_all(
+    requests: Vec<ExportRequest>,
+) -> Result<Vec<(ExportRequest, Arc<Vec<String>>)>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut pinned: Vec<(ExportRequest, Arc<Vec<String>>)> = Vec::new();
+        for mut request in requests {
+            if let Some((earlier, snapshots)) = pinned
+                .iter()
+                .find(|(earlier, _)| earlier.pins_like(&request))
+            {
+                request.pinned.clone_from(&earlier.pinned);
+                let snapshots = Arc::clone(snapshots);
+                pinned.push((request, snapshots));
+                continue;
+            }
+            let snapshots = request
+                .pin()?
+                .iter()
+                .map(|photo| serde_json::to_string(photo).map_err(|e| e.to_string()))
+                .collect::<Result<Vec<_>, _>>()?;
+            pinned.push((request, Arc::new(snapshots)));
+        }
+        Ok(pinned)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The photos of a run of `jobs` (a group sharing its develop): each read
+/// from the snapshot it was queued with (`read`: a job's photo's snapshot,
+/// None once exported there), of the first job still to export it.
+fn queued_photos(
+    request: &ExportRequest,
+    jobs: Vec<String>,
+    read: impl Fn(&str, usize) -> Option<String> + Send + Sync + 'static,
+) -> ExportPhotos {
+    ExportPhotos {
+        open_path: request.current_edit_path.clone(),
+        denoise_models: request
+            .pinned
+            .as_ref()
+            .map(|pinned| pinned.denoise_models.clone())
+            .unwrap_or_default(),
+        read: Arc::new(move |index| {
+            let snapshot = jobs
+                .iter()
+                .find_map(|job| read(job, index))
+                .ok_or("This photo's recipe was not kept with the export")?;
+            serde_json::from_str(&snapshot).map_err(|e| e.to_string())
+        }),
+    }
 }
 
 /// Which photos of a queued job to render and where their state goes.
@@ -347,26 +455,48 @@ fn label_for(request: &ExportRequest) -> String {
 }
 
 /// Adds an export to the queue and starts the queue if it is idle.
-pub fn enqueue(app: &AppHandle, request: ExportRequest) -> Result<String, String> {
-    enqueue_all(app, vec![request]).map(|mut ids| ids.remove(0))
+pub async fn enqueue(app: &AppHandle, request: ExportRequest) -> Result<String, String> {
+    enqueue_all(app, vec![request])
+        .await
+        .map(|mut ids| ids.remove(0))
 }
 
 /// Adds exports to the queue together (a photo set's ticked recipes, which
 /// then run as one: each photo is developed once for all of them) and
-/// starts the queue if it is idle.
-pub fn enqueue_all(app: &AppHandle, requests: Vec<ExportRequest>) -> Result<Vec<String>, String> {
+/// starts the queue if it is idle. Each is pinned first: from here on the
+/// export depends on no library being open.
+pub async fn enqueue_all(
+    app: &AppHandle,
+    requests: Vec<ExportRequest>,
+) -> Result<Vec<String>, String> {
+    let requests = pin_all(requests).await?;
     let requests = requests
         .iter()
-        .map(|request| Ok((label_for(request), serde_json::to_value(request)?, request)))
+        .map(|(request, snapshots)| {
+            Ok((
+                label_for(request),
+                serde_json::to_value(request)?,
+                request,
+                snapshots,
+            ))
+        })
         .collect::<Result<Vec<_>, serde_json::Error>>()
         .map_err(|e| e.to_string())?;
     // Under one lock and in one transaction: the runner sees all of them
     // or none, and a failure queues none.
     let jobs: Vec<_> = requests
         .iter()
-        .map(|(label, value, request)| (label.as_str(), value, request.paths.as_slice()))
+        .map(|(label, value, request, snapshots)| {
+            (
+                label.as_str(),
+                value,
+                request.paths.as_slice(),
+                snapshots.as_slice(),
+            )
+        })
         .collect();
-    let ids = with_queue(|q| q.enqueue_all(&jobs)).ok_or("The export queue is not available.")?;
+    let ids =
+        with_queue(|q| q.enqueue_all_with(&jobs)).ok_or("The export queue is not available.")?;
     HOLD.store(false, Ordering::SeqCst);
     notify(app);
     kick(app);
@@ -376,9 +506,15 @@ pub fn enqueue_all(app: &AppHandle, requests: Vec<ExportRequest>) -> Result<Vec<
 /// Whether two queued exports render the same photos with the same recipes
 /// (develop settings) and so can share each photo's develop.
 fn same_photos(a: &Value, b: &Value) -> bool {
-    ["paths", "currentEditPath", "currentEditAdjustments"]
-        .iter()
-        .all(|key| a.get(key) == b.get(key))
+    [
+        "paths",
+        "currentEditPath",
+        "currentEditAdjustments",
+        "library",
+        "pinned",
+    ]
+    .iter()
+    .all(|key| a.get(key) == b.get(key))
 }
 
 /// Requeues what a failed, cancelled or interrupted job did not export; a
@@ -567,6 +703,35 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
     let Some(request) = first else {
         return;
     };
+    let photos = if request.pinned.is_some() {
+        let jobs = trackings.iter().map(|(_, t)| t.job.clone()).collect();
+        queued_photos(&request, jobs, |job, index| {
+            with_queue(|q| q.item_snapshot(job, index)).flatten()
+        })
+    } else {
+        // A job an older build queued was not pinned: it is, once, now,
+        // with the library open now, as that build read it.
+        let mut legacy = request.clone();
+        legacy.library = crate::session_bridge::active_library_directory()
+            .map(|dir| dir.to_string_lossy().into_owned());
+        match pin_all(vec![legacy]).await {
+            Ok(mut pinned) => {
+                let (legacy, snapshots) = pinned.remove(0);
+                queued_photos(&legacy, vec![String::new()], move |_, index| {
+                    snapshots.get(index).cloned()
+                })
+            }
+            Err(e) => {
+                for (_, tracking) in &trackings {
+                    for index in tracking.pending.iter() {
+                        with_queue(|q| q.item_failed(&tracking.job, *index, &e));
+                    }
+                    with_queue(|q| q.finish(&tracking.job, RunEnd::Completed));
+                }
+                return;
+            }
+        }
+    };
     *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = trackings
         .iter()
         .map(|(_, t)| RunningJob {
@@ -590,12 +755,9 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
     let (tx, rx) = tokio::sync::oneshot::channel();
     let state = app.state::<AppState>();
     let started = export_images_impl(
-        request.paths,
+        request.paths.clone(),
         targets,
-        ExportAdjustmentsMode::UseSidecars {
-            active_path: request.current_edit_path,
-            active_adjustments: request.current_edit_adjustments,
-        },
+        photos,
         state,
         app.clone(),
         Some(tx),
@@ -708,6 +870,217 @@ mod tests {
                 })
                 .collect(),
         ))
+    }
+
+    /// Two catalogs that both hold `Photos/A.jpg`, each with its own
+    /// recipe and rating, and an export request for `paths`.
+    struct TwoCatalogs {
+        _tmp: tempfile::TempDir,
+        a: rawtonic_catalog::Library,
+        b: rawtonic_catalog::Library,
+        source: std::path::PathBuf,
+    }
+
+    fn two_catalogs() -> TwoCatalogs {
+        use rawtonic_catalog::{Library, Mode};
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        std::fs::create_dir_all(root.join("Photos")).unwrap();
+        let source = root.join("Photos/A.jpg");
+        std::fs::write(&source, b"jpeg").unwrap();
+        let catalog = |name: &str, exposure: f64, rating: u8| {
+            let lib = Library::create(&root.join(name), name, Mode::Catalog).unwrap();
+            let asset = lib.add_asset(&source).unwrap();
+            lib.save_editor_state(&asset.id, &recipe(exposure, rating, &["color:red"]))
+                .unwrap();
+            lib
+        };
+        TwoCatalogs {
+            a: catalog("A", 1.0, 4),
+            b: catalog("B", 2.0, 1),
+            _tmp: tmp,
+            source,
+        }
+    }
+
+    fn recipe(exposure: f64, rating: u8, tags: &[&str]) -> Value {
+        json!({"version": 1, "rating": rating, "tags": tags, "adjustments": {"exposure": exposure}})
+    }
+
+    fn request(paths: &[String], library: Option<&std::path::Path>) -> ExportRequest {
+        serde_json::from_value(json!({
+            "paths": paths, "outputFolderOrFile": "/out", "isExplicitFilePath": false,
+            "baseOriginFolders": [], "exportSettings": {"jpegQuality": 85, "keepMetadata": true, "stripGps": false},
+            "outputFormat": "jpeg", "currentEditPath": null, "currentEditAdjustments": null,
+            "library": library,
+        }))
+        .unwrap()
+    }
+
+    /// A request pinned (`pin`) and queued as `enqueue_all` queues it.
+    struct Queued {
+        _tmp: tempfile::TempDir,
+        queue: Arc<Mutex<ExportQueue>>,
+        job: String,
+        request: ExportRequest,
+    }
+
+    fn queued(mut request: ExportRequest) -> Queued {
+        let tmp = tempfile::tempdir().unwrap();
+        let queue = ExportQueue::open(&tmp.path().join("export-queue.sqlite")).unwrap();
+        let snapshots: Vec<String> = request
+            .pin()
+            .unwrap()
+            .iter()
+            .map(|photo| serde_json::to_string(photo).unwrap())
+            .collect();
+        let value = serde_json::to_value(&request).unwrap();
+        let job = queue
+            .enqueue_all_with(&[("Job", &value, &request.paths, &snapshots)])
+            .unwrap()
+            .remove(0);
+        let request = serde_json::from_value(queue.job(&job).unwrap().request).unwrap();
+        Queued {
+            _tmp: tmp,
+            queue: Arc::new(Mutex::new(queue)),
+            job,
+            request,
+        }
+    }
+
+    impl Queued {
+        /// What the runner reads for each photo of the job.
+        fn as_run(&self) -> Vec<PinnedPhoto> {
+            let queue = Arc::clone(&self.queue);
+            let photos = queued_photos(&self.request, vec![self.job.clone()], move |job, i| {
+                queue.lock().unwrap().item_snapshot(job, i).unwrap()
+            });
+            (0..self.request.paths.len())
+                .map(|i| (photos.read)(i).unwrap())
+                .collect()
+        }
+    }
+
+    #[test]
+    fn a_queued_export_renders_and_embeds_what_the_library_it_was_submitted_from_held() {
+        let libs = two_catalogs();
+        let path = libs.source.to_string_lossy().into_owned();
+        let from_a = queued(request(
+            std::slice::from_ref(&path),
+            Some(libs.a.directory.as_path()),
+        ));
+        // The user switches to catalog B and edits there, and A changes too,
+        // before the job runs.
+        let asset = |lib: &rawtonic_catalog::Library| lib.asset_at(&libs.source).unwrap().unwrap();
+        libs.b
+            .save_editor_state(&asset(&libs.b).id, &recipe(3.0, 2, &[]))
+            .unwrap();
+        libs.a
+            .save_editor_state(&asset(&libs.a).id, &recipe(5.0, 5, &[]))
+            .unwrap();
+        let run = from_a.as_run();
+        assert_eq!(run.len(), 1);
+        assert_eq!(run[0].adjustments["exposure"], json!(1.0));
+        let metadata = run[0].metadata.as_ref().expect("catalog A's metadata");
+        assert_eq!((metadata.rating, metadata.label.as_str()), (4, "Red"));
+
+        // The same photo submitted from B takes B's.
+        let from_b = queued(request(&[path], Some(libs.b.directory.as_path())));
+        let run = from_b.as_run();
+        assert_eq!(run[0].adjustments["exposure"], json!(3.0));
+        assert_eq!(run[0].metadata.as_ref().map(|m| m.rating), Some(2));
+        assert!(
+            !same_photos(
+                &serde_json::to_value(&from_a.request).unwrap(),
+                &serde_json::to_value(&from_b.request).unwrap()
+            ),
+            "jobs of different libraries never share a develop"
+        );
+    }
+
+    #[test]
+    fn a_queued_photo_keeps_its_recipe_until_it_is_exported() {
+        let libs = two_catalogs();
+        let path = libs.source.to_string_lossy().into_owned();
+        let mut ai = recipe(1.0, 4, &[]);
+        ai["adjustments"]["aiDenoise"] = json!(60);
+        let asset = libs.a.asset_at(&libs.source).unwrap().unwrap();
+        libs.a.save_editor_state(&asset.id, &ai).unwrap();
+        let job = queued(request(&[path], Some(libs.a.directory.as_path())));
+        let pinned = job.request.pinned.clone().expect("pinned when queued");
+        assert_eq!(pinned.denoise_models.len(), 1, "loaded before the job runs");
+        assert_eq!(
+            pinned.denoise_models,
+            crate::export_processing::denoise_models([&ai["adjustments"]])
+        );
+        assert!(
+            !serde_json::to_string(&job.request)
+                .unwrap()
+                .contains("exposure"),
+            "the recipes are kept with the photos, not in the job's request"
+        );
+        job.queue.lock().unwrap().item_done(&job.job, 0).unwrap();
+        let queue = Arc::clone(&job.queue);
+        let photos = queued_photos(&job.request, vec![job.job.clone()], move |job, i| {
+            queue.lock().unwrap().item_snapshot(job, i).unwrap()
+        });
+        assert!((photos.read)(0).is_err(), "an exported photo is not again");
+    }
+
+    #[test]
+    fn a_virtual_copy_exports_its_own_recipe_rating_label_and_keywords() {
+        let libs = two_catalogs();
+        let source = libs.source.to_string_lossy().into_owned();
+        let copy = format!("{source}?vc=9b8208");
+        std::fs::write(
+            libs.source.with_file_name("A.jpg.9b8208.rrdata"),
+            serde_json::to_vec(&recipe(-1.0, 5, &["color:green", "user:print", "boat"])).unwrap(),
+        )
+        .unwrap();
+        let run = queued(request(&[source, copy], Some(libs.a.directory.as_path()))).as_run();
+        let (photo, copy) = (&run[0], &run[1]);
+        assert_eq!(photo.adjustments["exposure"], json!(1.0));
+        assert_eq!(copy.adjustments["exposure"], json!(-1.0));
+        let photo = photo.metadata.as_ref().unwrap();
+        let copy = copy.metadata.as_ref().unwrap();
+        assert_eq!((photo.rating, photo.label.as_str()), (4, "Red"));
+        assert_eq!(
+            (copy.rating, copy.label.as_str(), copy.keywords.clone()),
+            (5, "Green", vec!["print".to_string(), "boat".into()])
+        );
+        // And that is what the copy's file carries.
+        let embedded = rawtonic_export::exif_processing::export_metadata_with(
+            &libs.source.to_string_lossy(),
+            "tiff",
+            true,
+            false,
+            false,
+            8,
+            8,
+            false,
+            &|| None,
+            &|| Some(copy.clone()),
+        );
+        let xmp = embedded.and_then(|m| m.xmp).unwrap_or_default();
+        assert!(xmp.contains("Green") && xmp.contains("print"), "{xmp}");
+    }
+
+    #[test]
+    fn a_photo_gone_before_its_export_runs_fails_alone() {
+        let libs = two_catalogs();
+        let gone = libs.source.with_file_name("Gone.jpg");
+        let paths = [
+            gone.to_string_lossy().into_owned(),
+            libs.source.to_string_lossy().into_owned(),
+        ];
+        let job = queued(request(&paths, Some(libs.a.directory.as_path())));
+        assert_eq!(job.as_run().len(), 2, "the job keeps both photos");
+        let error = crate::export_processing::missing_source(&gone).expect("gone");
+        assert!(
+            error.contains("Gone.jpg") && error.contains("cannot be found"),
+            "{error}"
+        );
+        assert_eq!(crate::export_processing::missing_source(&libs.source), None);
     }
 
     #[test]

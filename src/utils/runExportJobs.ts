@@ -11,6 +11,7 @@ import { currentEditForExport, useEditorStore } from '../store/useEditorStore';
 import { exportSettingsFromDraft, savedRecipes, type RecipeDraft } from './exportRecipes';
 import { exportJobLabel } from './exportFeedback';
 import { noteTool } from '../components/contribute/usageStats';
+import { flushRecipeSaves } from '../hooks/useEditorActions';
 
 export interface PlannedExport {
   recipe: ExportPreset | null;
@@ -77,6 +78,10 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
   };
 
   try {
+    // Each photograph's recipe and metadata are read once, when the export
+    // is queued, from the library it is queued from (`session`): its edits
+    // are saved first.
+    await flushRecipeSaves();
     // Queued together, the recipes run as one export: each photograph is
     // developed once for all of them.
     const requests: Record<string, unknown>[] = [];
@@ -106,6 +111,7 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
         exportSettings: job.settings,
         outputFormat: job.outputFormat,
         ...currentEditForExport(useEditorStore.getState()),
+        library: session,
       });
     }
     const started = requests.length;

@@ -138,7 +138,7 @@ pub struct Job {
     pub failures: Vec<Failure>,
 }
 
-const QUEUE_VERSION: u32 = 2;
+const QUEUE_VERSION: u32 = 3;
 
 pub struct ExportQueue {
     conn: Connection,
@@ -178,6 +178,7 @@ impl ExportQueue {
                attempts INTEGER NOT NULL DEFAULT 0,
                started_ms INTEGER,
                finished_ms INTEGER,
+               snapshot TEXT,
                PRIMARY KEY(job_id, idx));",
         )?;
         if version < 2 {
@@ -195,6 +196,20 @@ impl ExportQueue {
                 )?;
             }
             tx.execute_batch("PRAGMA user_version=2;")?;
+            tx.commit()?;
+        }
+        if version < 3 {
+            // Versions 1 and 2 kept no snapshot of a photo's inputs.
+            let tx = conn.unchecked_transaction()?;
+            let has_snapshot: bool = tx.query_row(
+                "SELECT count(*) FROM pragma_table_info('items') WHERE name='snapshot'",
+                [],
+                |r| r.get(0),
+            )?;
+            if !has_snapshot {
+                tx.execute_batch("ALTER TABLE items ADD COLUMN snapshot TEXT;")?;
+            }
+            tx.execute_batch("PRAGMA user_version=3;")?;
             tx.commit()?;
         }
         Ok(Self { conn })
@@ -216,23 +231,56 @@ impl ExportQueue {
         &self,
         jobs: &[(&str, &serde_json::Value, &[String])],
     ) -> Result<Vec<String>> {
+        let jobs: Vec<_> = jobs
+            .iter()
+            .map(|&(label, request, paths)| (label, request, paths, &[][..]))
+            .collect();
+        self.enqueue_all_with(&jobs)
+    }
+
+    /// `enqueue_all` with a snapshot of each photo's inputs (label, request,
+    /// paths, snapshots: `snapshots[i]` for `paths[i]`, or none at all),
+    /// kept with the photo until it is exported (`item_snapshot`).
+    pub fn enqueue_all_with(
+        &self,
+        jobs: &[(&str, &serde_json::Value, &[String], &[String])],
+    ) -> Result<Vec<String>> {
         let tx = self.conn.unchecked_transaction()?;
         let mut ids = Vec::with_capacity(jobs.len());
-        for (label, request, paths) in jobs {
+        for (label, request, paths, snapshots) in jobs {
             ensure!(!paths.is_empty(), "Nothing to export");
+            ensure!(
+                snapshots.is_empty() || snapshots.len() == paths.len(),
+                "Every photo of an export needs its snapshot"
+            );
             let id = uuid::Uuid::new_v4().to_string();
             tx.execute(
                 "INSERT INTO jobs(id,label,state,request) VALUES(?,?,'queued',?)",
                 params![id, label, serde_json::to_string(request)?],
             )?;
-            let mut insert = tx.prepare("INSERT INTO items(job_id,idx,path) VALUES(?,?,?)")?;
+            let mut insert =
+                tx.prepare("INSERT INTO items(job_id,idx,path,snapshot) VALUES(?,?,?,?)")?;
             for (index, path) in paths.iter().enumerate() {
-                insert.execute(params![id, index as i64, path])?;
+                insert.execute(params![id, index as i64, path, snapshots.get(index)])?;
             }
             ids.push(id);
         }
         tx.commit()?;
         Ok(ids)
+    }
+
+    /// The snapshot a photo was queued with (`enqueue_all_with`); None once
+    /// it is exported (it never renders again) or when none was kept.
+    pub fn item_snapshot(&self, job: &str, index: usize) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT snapshot FROM items WHERE job_id=? AND idx=?",
+                params![job, index as i64],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten())
     }
 
     /// The oldest queued job, marked running.
@@ -293,7 +341,8 @@ impl ExportQueue {
 
     pub fn item_done(&self, job: &str, index: usize) -> Result<()> {
         self.conn.execute(
-            "UPDATE items SET state=?, error=NULL, finished_ms=? WHERE job_id=? AND idx=?",
+            "UPDATE items SET state=?, error=NULL, finished_ms=?, snapshot=NULL
+             WHERE job_id=? AND idx=?",
             params![ItemState::Done.as_str(), now_ms(), job, index as i64],
         )?;
         Ok(())
@@ -847,6 +896,37 @@ mod tests {
     }
 
     #[test]
+    fn each_photo_keeps_its_snapshot_until_it_is_exported() {
+        let (_dir, q) = queue();
+        let photos = paths(2);
+        let snapshots = ["{\"exposure\":1}".to_string(), "{\"exposure\":2}".into()];
+        let request = json!({"format": "jpg"});
+        let ids = q
+            .enqueue_all_with(&[("Web", &request, &photos, &snapshots)])
+            .unwrap();
+        assert!(
+            q.enqueue_all_with(&[("Short", &request, &photos, &snapshots[..1])])
+                .is_err(),
+            "one per photo"
+        );
+        let job = &ids[0];
+        assert_eq!(q.item_snapshot(job, 1).unwrap(), Some(snapshots[1].clone()));
+        q.item_failed(job, 1, "offline").unwrap();
+        q.item_done(job, 0).unwrap();
+        assert_eq!(q.item_snapshot(job, 0).unwrap(), None, "exported: dropped");
+        // A failed photo is retried with what it was queued with.
+        q.finish(job, RunEnd::Completed).unwrap();
+        assert_eq!(q.retry(job).unwrap(), 1);
+        assert_eq!(q.item_snapshot(job, 1).unwrap(), Some(snapshots[1].clone()));
+        assert!(
+            !serde_json::to_string(&q.items(job).unwrap())
+                .unwrap()
+                .contains("exposure"),
+            "not sent to the interface"
+        );
+    }
+
+    #[test]
     fn a_version_1_queue_is_upgraded_in_place() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("export-queue.sqlite");
@@ -869,6 +949,7 @@ mod tests {
         }
         let q = ExportQueue::open(&path).unwrap();
         let item = &q.items("j").unwrap()[0];
+        assert_eq!(q.item_snapshot("j", 0).unwrap(), None, "queued without one");
         assert_eq!(item.error.as_deref(), Some("decode failed"));
         assert_eq!((item.started_ms, item.finished_ms), (None, None));
         assert_eq!(q.retry("j").unwrap(), 1);
