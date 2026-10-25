@@ -130,6 +130,7 @@
       "color_label_purple": "Viola",
       "color_label_red": "Rosso",
       "color_label_yellow": "Giallo",
+      "command_palette": "Tavolozza comandi…",
       "copy_adjustments": "Copia impostazioni",
       "copy_image_path": "Copia percorso",
       "delete_selected": "Sposta nel cestino",
@@ -214,6 +215,13 @@
       "recent": "Apri recenti",
       "recipes": "Esporta con ricetta"
     }
+  },
+  "commandPalette": {
+    "close": "Chiudi la tavolozza comandi",
+    "empty": "Nessun comando corrispondente. Prova un’altra ricerca.",
+    "keys": "↑ ↓ Seleziona · Invio Esegui · Esc Chiudi",
+    "recent": "Prima i comandi recenti · ↑ ↓ Seleziona · Invio Esegui · Esc Chiudi",
+    "search": "Cerca comandi…"
   },
   "contextMenus": {
     "album": {

@@ -147,6 +147,8 @@ export const MENU_LAYOUT: TopMenu[] = [
   {
     menu: 'view',
     items: [
+      c('command_palette'),
+      'separator',
       c('view_grid', { check: true }),
       c('view_loupe', { check: true }),
       c('view_develop', { check: true }),

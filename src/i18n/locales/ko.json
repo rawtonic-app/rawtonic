@@ -130,6 +130,7 @@
       "color_label_purple": "보라색",
       "color_label_red": "빨간색",
       "color_label_yellow": "노란색",
+      "command_palette": "명령 팔레트…",
       "copy_adjustments": "설정 복사",
       "copy_image_path": "경로 복사",
       "delete_selected": "휴지통으로 이동",
@@ -214,6 +215,13 @@
       "recent": "최근 항목 열기",
       "recipes": "레시피로 내보내기"
     }
+  },
+  "commandPalette": {
+    "close": "명령 팔레트 닫기",
+    "empty": "일치하는 명령이 없습니다. 다른 검색어를 입력하세요.",
+    "keys": "↑ ↓ 선택 · Enter 실행 · Esc 닫기",
+    "recent": "최근 명령 우선 · ↑ ↓ 선택 · Enter 실행 · Esc 닫기",
+    "search": "명령 검색…"
   },
   "contextMenus": {
     "album": {

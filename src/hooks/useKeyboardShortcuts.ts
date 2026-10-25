@@ -23,7 +23,7 @@ import { AUTO_ADVANCE_EVENT, autoAdvanceTarget, requestAutoAdvance } from '../ut
 import { isTetherConnected, TETHER_CAPTURE_EVENT } from '../components/session/tether';
 import { flagTargets, libraryViewer, viewerOnly, viewerShown } from '../utils/viewerMode';
 import { pointerHeld } from '../utils/heldPointer';
-import { registerAppCommands, runAppCommand, type AppCommand } from '../utils/appCommands';
+import { COMMAND_DIALOG_SELECTOR, registerAppCommands, runAppCommand, type AppCommand } from '../utils/appCommands';
 
 /** The photograph an arrow key moves to in the Library, from `index` of
  * `count`. Left/Right step one and wrap around; in the grid (`columns` per
@@ -59,10 +59,10 @@ export const RECIPE_ACTIONS = new Set([
 ]);
 
 /** No shortcut reaches the app behind Preferences, a dialog or a modal. */
-function shortcutsHeld(state: ShortcutState): boolean {
+function shortcutsHeld(state: ShortcutState, chooser = false): boolean {
   return (
     state.ui.isSettingsOpen ||
-    !!document.querySelector('dialog[open], [aria-modal="true"]') ||
+    !!document.querySelector(chooser ? COMMAND_DIALOG_SELECTOR : 'dialog[open], [aria-modal="true"]') ||
     isAnyModalOpen(state.ui)
   );
 }
@@ -1144,7 +1144,7 @@ export const useKeyboardShortcuts = ({
         enabled: () => {
           const state = getStoreState();
           return (
-            !shortcutsHeld(state) &&
+            !shortcutsHeld(state, true) &&
             !recipeHeld(action, state) &&
             (!PHOTO_ACTIONS.test(action) || hasPhotoTarget(state)) &&
             (!handler.shouldFire || !!handler.shouldFire(state))

@@ -130,6 +130,7 @@
       "color_label_purple": "Lila",
       "color_label_red": "Rot",
       "color_label_yellow": "Gelb",
+      "command_palette": "Befehlspalette…",
       "copy_adjustments": "Einstellungen kopieren",
       "copy_image_path": "Pfad kopieren",
       "delete_selected": "In den Papierkorb legen",
@@ -214,6 +215,13 @@
       "recent": "Benutzte Dokumente",
       "recipes": "Mit Rezept exportieren"
     }
+  },
+  "commandPalette": {
+    "close": "Befehlspalette schließen",
+    "empty": "Keine passenden Befehle. Versuche einen anderen Suchbegriff.",
+    "keys": "↑ ↓ Auswählen · Eingabe Ausführen · Esc Schließen",
+    "recent": "Zuletzt verwendete Befehle zuerst · ↑ ↓ Auswählen · Eingabe Ausführen · Esc Schließen",
+    "search": "Befehle suchen…"
   },
   "contextMenus": {
     "album": {

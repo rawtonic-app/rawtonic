@@ -82,7 +82,7 @@ import { catalogChanged } from "../../utils/catalogWrites";
 import "./session.css";
 import { noteTool } from "../contribute/usageStats";
 import { flagTargets, viewerShown } from "../../utils/viewerMode";
-import { notifyAppCommandsChanged, registerAppCommands, runAppCommand } from "../../utils/appCommands";
+import { notifyAppCommandsChanged, COMMAND_DIALOG_SELECTOR, registerAppCommands, runAppCommand } from "../../utils/appCommands";
 
 export interface SessionSummary {
   directory: string;
@@ -940,7 +940,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     const flag = (value: number) => ({
       enabled: () =>
         now().flaggable &&
-        !document.querySelector('dialog[open], [aria-modal="true"]') &&
+        !document.querySelector(COMMAND_DIALOG_SELECTOR) &&
         flagTargets(
           useUIStore.getState(),
           useEditorStore.getState().selectedImage?.path,

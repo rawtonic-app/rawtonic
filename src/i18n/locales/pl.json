@@ -130,6 +130,7 @@
       "color_label_purple": "Fioletowa",
       "color_label_red": "Czerwona",
       "color_label_yellow": "Żółta",
+      "command_palette": "Paleta poleceń…",
       "copy_adjustments": "Kopiuj ustawienia",
       "copy_image_path": "Kopiuj ścieżkę",
       "delete_selected": "Przenieś do kosza",
@@ -214,6 +215,13 @@
       "recent": "Otwórz ostatnie",
       "recipes": "Eksportuj z recepturą"
     }
+  },
+  "commandPalette": {
+    "close": "Zamknij paletę poleceń",
+    "empty": "Brak pasujących poleceń. Spróbuj innego wyszukiwania.",
+    "keys": "↑ ↓ Wybierz · Enter Wykonaj · Esc Zamknij",
+    "recent": "Ostatnie polecenia najpierw · ↑ ↓ Wybierz · Enter Wykonaj · Esc Zamknij",
+    "search": "Szukaj poleceń…"
   },
   "contextMenus": {
     "album": {
