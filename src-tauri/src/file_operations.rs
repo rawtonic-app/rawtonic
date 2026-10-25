@@ -473,11 +473,13 @@ pub fn run(
         .filter_map(|s| item_key(&s.from))
         .collect();
     let memberships = album_memberships(app, &trashed);
+    let context = operation_context(&steps, memberships);
     let progress = ProgressEvents::new(app, label);
     let op = with_journal(app, |journal| {
         progress.start();
         let newest = journal.history(1)?.pop().map(|op| op.id);
-        let result = journal.execute_with(kind, label, steps, &PlatformTrash, &progress);
+        let result =
+            journal.execute_in_context(kind, label, steps, context, &PlatformTrash, &progress);
         // A failed run is the newest operation, if it was journaled.
         let id = match &result {
             Ok(op) => Some(op.id.clone()),
@@ -492,9 +494,6 @@ pub fn run(
             notify_kept(app, journal, &id, &[]);
         }
         let op = result?;
-        if !memberships.is_empty() {
-            journal.set_context(&op.id, serde_json::json!({ "albums": memberships }))?;
-        }
         journal.operation(&op.id)
     })?;
     sync_pending(app, Some(&op.id));
@@ -663,6 +662,60 @@ fn notify_caught_up(app: &AppHandle, labels: Vec<String>) {
     }
     log::info!("Catalog caught up on {labels:?}");
     let _ = app.emit(FILE_OPERATIONS_CAUGHT_UP, labels);
+}
+
+/// What an operation's records need to follow it, journaled with it: the
+/// album memberships of what goes to the system Trash (for undo) and the
+/// library that holds its photographs, which only it may know outside
+/// every library folder (a session's photographs moved to another drive)
+/// once another library is open or none is (start-up recovery).
+fn operation_context(
+    steps: &[Step],
+    memberships: HashMap<String, Vec<String>>,
+) -> Option<serde_json::Value> {
+    let library = steps.iter().find_map(|step| {
+        let folder = fs::symlink_metadata(&step.from).is_ok_and(|m| m.is_dir());
+        if folder {
+            crate::session_bridge::library_dir_for_folder(&step.from)
+        } else if is_supported_image_file(&step.from) {
+            crate::session_bridge::library_dir_for(&step.from)
+        } else {
+            None
+        }
+    });
+    let mut context = serde_json::Map::new();
+    if !memberships.is_empty() {
+        context.insert("albums".into(), serde_json::json!(memberships));
+    }
+    if let Some(library) = library {
+        context.insert("library".into(), serde_json::json!(library));
+    }
+    (!context.is_empty()).then_some(serde_json::Value::Object(context))
+}
+
+/// The library an operation recorded as holding its photographs.
+fn recorded_library(op: &Operation) -> Option<PathBuf> {
+    op.context
+        .as_ref()?
+        .get("library")?
+        .as_str()
+        .map(PathBuf::from)
+}
+
+fn is_library(dir: &Path) -> bool {
+    dir.join("session.json").is_file() || dir.join("catalog.json").is_file()
+}
+
+/// Why an operation's catalog sync waits for the library it recorded.
+const LIBRARY_AWAY: &str = "the library holding these photographs is not available:";
+
+/// Why an operation's catalog sync waits for a library to open.
+const NO_LIBRARY_OPEN: &str = "no library is open yet to follow these files";
+
+/// Brings the records in line with operations whose sync waited (for a
+/// library to open, among others): called when a library opens.
+pub(crate) fn after_library_opened(app: &AppHandle) {
+    sync_pending(app, None);
 }
 
 /// Why an operation's catalog sync waits (`sync_in_order`).
@@ -906,6 +959,53 @@ fn moved(op: &Operation, forward: bool) -> Vec<(PathBuf, PathBuf, bool)> {
         .collect()
 }
 
+/// The library whose records hold what `op` took from `a` (to `b`): the
+/// library the operation recorded as holding its photographs when it ran
+/// (also outside every library folder, whatever library is open now;
+/// waiting while that library's drive is away), since the library whose
+/// folder an end lies in need not be the one holding them (a catalog's
+/// photograph moved into a session folder, and back on undo); for
+/// operations journaled without one, the library folder above `a`, else
+/// above `b`, else what the open library manages (a folder by what was
+/// below it, also when it is gone from there).
+fn records_library(
+    op: &Operation,
+    a: &Path,
+    b: Option<&Path>,
+    folder: bool,
+) -> Result<Option<PathBuf>, String> {
+    let above = |path: &Path| {
+        session_for(&if folder {
+            path.join("_")
+        } else {
+            path.to_path_buf()
+        })
+    };
+    let open = |path: &Path| {
+        if folder {
+            crate::session_bridge::library_dir_for_folder(path)
+        } else {
+            crate::session_bridge::library_dir_for(path)
+        }
+    };
+    match recorded_library(op) {
+        Some(dir) if is_library(&dir) => return Ok(Some(dir)),
+        // Its drive is away: the records follow when it is back.
+        Some(dir) => return Err(format!("{LIBRARY_AWAY} {}", dir.display())),
+        None => {}
+    }
+    if let Some(dir) = above(a).or_else(|| b.and_then(above)) {
+        return Ok(Some(dir));
+    }
+    match open(a).or_else(|| b.and_then(open)) {
+        Some(dir) => Ok(Some(dir)),
+        // Start-up recovery runs before a library opens: the records follow
+        // when one does (`after_library_opened`).
+        None if !crate::session_bridge::library_open() => Err(NO_LIBRARY_OPEN.to_string()),
+        None => Ok(None),
+    }
+}
+
 /// Session/catalog records follow renamed and moved photos and folders, and
 /// mark photos sent to the system Trash as missing (present again on undo).
 /// Every change is tried; the failures are returned together. Running it
@@ -920,19 +1020,22 @@ pub fn sync_catalog(op: &Operation, forward: bool) -> Result<(), String> {
         if !(folder || is_supported_image_file(&b)) {
             continue;
         }
-        let library = crate::session_bridge::library_dir_for(&a)
-            .or_else(|| crate::session_bridge::library_dir_for(&b));
-        if let Some(dir) = library {
-            changes.push((dir, Change::Relocate(a, b)));
+        if let Some(library) = records_library(op, &a, Some(&b), folder)? {
+            changes.push((library, Change::Relocate(a, b)));
         }
     }
     for path in op.trashed() {
-        // Photos and folders; sidecars have no record of their own.
+        // Photos and folders; sidecars have no record of their own. A
+        // folder is gone from its place once trashed.
         let sidecar = path
             .extension()
             .is_some_and(|e| ["rrdata", "rrexif", "xmp"].contains(&e.to_string_lossy().as_ref()));
-        if let (false, Some(dir)) = (sidecar, crate::session_bridge::library_dir_for(&path)) {
-            changes.push((dir, Change::Missing(path, forward)));
+        if sidecar {
+            continue;
+        }
+        let folder = path.is_dir() || !is_supported_image_file(&path);
+        if let Some(library) = records_library(op, &path, None, folder)? {
+            changes.push((library, Change::Missing(path, forward)));
         }
     }
     let mut libraries: HashMap<PathBuf, Result<Library, String>> = HashMap::new();
@@ -957,6 +1060,9 @@ pub fn sync_catalog(op: &Operation, forward: bool) -> Result<(), String> {
         }
     }
     drop(libraries);
+    // Photographs a session now keeps outside its folder (or no longer)
+    // are its own there from here on, for what follows too.
+    crate::session_bridge::refresh_outside_photos();
     carry_previews(op, forward);
     // Virtual copies the library keeps follow their sidecars: a deleted
     // copy is forgotten, one put back is kept again.
@@ -1920,6 +2026,364 @@ mod tests {
         assert_eq!(lib.collection_paths(&album.id).unwrap(), [photo]);
         assert_eq!(lib.collections().unwrap()[0].count, 1);
         assert!(!lib.asset(&asset.id).unwrap().missing);
+    }
+
+    /// UT2 S7 (notes: reference/ut2-pro-switcher-2026-10-24.md): RAW+JPEG
+    /// pairs of a session moved to a folder on another drive (a copy move,
+    /// here forced on one volume) stay the same photographs there — online,
+    /// managed by the session, paired, with their rating and edits — and
+    /// undo and redo bring them back and there again without leaving files
+    /// on the drive beside the copies the operation trashed.
+    #[test]
+    fn session_photographs_moved_to_another_drive_stay_online_and_come_back() {
+        let _active = crate::session_bridge::library_test_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = session(tmp.path());
+        let photo = dir.join("Capture/DSC_0001.NEF");
+        let jpeg = dir.join("Capture/DSC_0001.JPG");
+        fs::write(&photo, "raw").unwrap();
+        fs::write(&jpeg, "jpeg").unwrap();
+        let lib = Library::open(&dir).unwrap();
+        let asset = lib.add_asset(&photo).unwrap();
+        lib.set_companion(&asset.id, Some("DSC_0001.JPG")).unwrap();
+        let mut metadata = lib.metadata(&asset.id).unwrap();
+        metadata.rating = 4;
+        lib.set_metadata(&asset.id, &metadata).unwrap();
+        lib.sync_xmp(&asset.id).unwrap();
+        lib.save_editor_state(
+            &asset.id,
+            &serde_json::json!({"rating":4,"adjustments":{"exposure":1.5}}),
+        )
+        .unwrap();
+        assert!(dir.join("Capture/DSC_0001.xmp").is_file());
+        crate::session_bridge::write_editor_sidecar(
+            dir.join("Capture/DSC_0001.NEF.c0ffee.rrdata"),
+            br#"{"version":1,"rating":2,"adjustments":{"exposure":-1}}"#,
+        )
+        .unwrap();
+        crate::session_bridge::set_active_for_test(Some(dir.clone()));
+
+        let drive = tmp.path().canonicalize().unwrap().join("Drive/Shoots");
+        fs::create_dir_all(&drive).unwrap();
+        let steps: Vec<Step> = associated_files(std::slice::from_ref(&photo))
+            .unwrap()
+            .into_iter()
+            .map(|file| Step::other_volume(&file, drive.join(file.file_name().unwrap())))
+            .collect();
+        let names: Vec<_> = steps.iter().map(|s| s.from.file_name().unwrap()).collect();
+        assert_eq!(
+            names,
+            [
+                "DSC_0001.JPG",
+                "DSC_0001.NEF",
+                "DSC_0001.NEF.c0ffee.rrdata",
+                "DSC_0001.xmp"
+            ]
+        );
+        let trash = BesideTrash(tmp.path().join(".trash"));
+        let journal = Journal::open(&tmp.path().join("journal.sqlite")).unwrap();
+        let context = operation_context(&steps, HashMap::new());
+        assert_eq!(recorded_library_of(&context), Some(dir.clone()));
+        let op = journal
+            .execute_in_context(
+                "move",
+                "Move 1 photo to Shoots",
+                steps,
+                context,
+                &trash,
+                &rawtonic_fileops::Unobserved,
+            )
+            .unwrap();
+        sync_catalog(&op, true).unwrap();
+
+        let moved = drive.join("DSC_0001.NEF");
+        let sidecar = drive.join("DSC_0001.NEF.rrdata");
+        let found = lib.asset_at(&moved).unwrap().expect("the same photograph");
+        assert_eq!(found.id, asset.id);
+        assert!(!found.missing, "online at its new place");
+        assert_eq!(found.rating, 4);
+        assert!(lib.offline_assets().unwrap().is_empty());
+        assert!(crate::session_bridge::is_managed_source(&moved));
+        assert_eq!(
+            crate::session_bridge::companions_in_folder(&drive),
+            HashSet::from([drive.join("DSC_0001.JPG")]),
+            "still paired"
+        );
+        let state = crate::session_bridge::read_editor_sidecar(&sidecar).unwrap();
+        assert_eq!(state["adjustments"]["exposure"], 1.5);
+        // Its recipe's session resources resolve through the session there,
+        // so edits and exports stay the same (a session profile, a LUT).
+        assert_eq!(
+            rawtonic_engine::camera_profile::resolve("profiles/Mine.dcp", &moved),
+            Some(dir.join("profiles/Mine.dcp"))
+        );
+        assert_eq!(
+            rawtonic_engine::session_layout::library_root(&sidecar),
+            Some(dir.clone())
+        );
+        assert_eq!(lib.copies(&asset.id).unwrap(), ["c0ffee"]);
+        let copy = lib.copy_state(&asset.id, "c0ffee").unwrap().unwrap();
+        assert_eq!(copy["adjustments"]["exposure"], -1);
+        assert!(drive.join("DSC_0001.NEF.c0ffee.rrdata").is_file());
+        // Edits saved there go to the library (the photograph and its
+        // virtual copy), as inside the session.
+        crate::session_bridge::write_editor_sidecar(
+            &sidecar,
+            br#"{"rating":4,"adjustments":{"exposure":2.5}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            lib.editor_state(&asset.id).unwrap().unwrap()["adjustments"]["exposure"],
+            2.5
+        );
+        crate::session_bridge::write_editor_sidecar(
+            drive.join("DSC_0001.NEF.c0ffee.rrdata"),
+            br#"{"version":1,"rating":2,"adjustments":{"exposure":-2}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            lib.copy_state(&asset.id, "c0ffee").unwrap().unwrap()["adjustments"]["exposure"],
+            -2
+        );
+        // Another file in that folder is no photograph of the session.
+        let other = drive.join("B.NEF");
+        fs::write(&other, "other raw").unwrap();
+        assert!(!crate::session_bridge::is_managed_source(&other));
+        // Listed together, in either order, only the session's photograph
+        // takes its state from the library.
+        for sources in [
+            [moved.clone(), other.clone()],
+            [other.clone(), moved.clone()],
+        ] {
+            let mut visited = Vec::new();
+            crate::session_bridge::visit_editor_sidecars(&sources, |source, _, _| {
+                visited.push(source.to_path_buf())
+            });
+            assert_eq!(visited, std::slice::from_ref(&moved));
+        }
+        fs::rename(&other, tmp.path().join("B.NEF")).unwrap();
+        // Listing the folder takes nothing from the XMP into a new sidecar
+        // there (UT2 found one per photograph on the drive after an undo).
+        let mut listed = crate::exif_processing::load_sidecar(&sidecar);
+        assert!(!crate::file_management::sync_metadata_from_xmp(
+            &moved,
+            &mut listed
+        ));
+
+        // Undo while another session is open: the records of this one
+        // follow, by the library the operation recorded.
+        let other = session(&tmp.path().join("Other"));
+        crate::session_bridge::set_active_for_test(Some(other));
+        let undone = journal.undo(&op.id, &trash).unwrap();
+        sync_catalog(&undone, false).unwrap();
+        crate::session_bridge::set_active_for_test(Some(dir.clone()));
+        let back = lib.asset_at(&photo).unwrap().unwrap();
+        assert_eq!(back.id, asset.id);
+        assert!(!back.missing);
+        assert!(lib.folders().unwrap().is_empty());
+        assert!(!crate::session_bridge::is_managed_source(&moved));
+        let left: Vec<_> = fs::read_dir(&drive)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .collect();
+        // Only the sidecar the edit made there after the move stays (no
+        // step of the move; the edit itself is in the library).
+        assert_eq!(left, std::slice::from_ref(&sidecar), "left on the drive");
+        assert_eq!(
+            lib.editor_state(&asset.id).unwrap().unwrap()["adjustments"]["exposure"],
+            2.5
+        );
+        fs::rename(&sidecar, tmp.path().join("edited-there.rrdata")).unwrap();
+
+        // Redo: there again, the same photograph.
+        let redone = journal.redo(&op.id, &trash).unwrap();
+        sync_catalog(&redone, true).unwrap();
+        let again = lib.asset_at(&moved).unwrap().unwrap();
+        assert_eq!(again.id, asset.id);
+        assert!(!again.missing);
+        assert!(crate::session_bridge::is_managed_source(&moved));
+
+        // The outside folder moves on (Move Folder on that drive): the
+        // records follow, although the old folder is gone when they do.
+        let archive = drive.parent().unwrap().join("Archive");
+        fs::create_dir(&archive).unwrap();
+        let op = journal
+            .execute(
+                "moveFolder",
+                "Move folder Shoots to Archive",
+                vec![Step::rename(&drive, archive.join("Shoots"))],
+                &trash,
+            )
+            .unwrap();
+        // No library open yet (start-up recovery): the records wait.
+        crate::session_bridge::set_active_for_test(None);
+        assert_eq!(sync_catalog(&op, true).unwrap_err(), NO_LIBRARY_OPEN);
+        assert!(lib.asset(&asset.id).unwrap().path.starts_with(&drive));
+        crate::session_bridge::set_active_for_test(Some(dir.clone()));
+        sync_catalog(&op, true).unwrap();
+        let there = archive.join("Shoots/DSC_0001.NEF");
+        assert_eq!(lib.asset_at(&there).unwrap().unwrap().id, asset.id);
+        assert!(!lib.asset(&asset.id).unwrap().missing);
+        assert!(crate::session_bridge::is_managed_source(&there));
+
+        // On again, its records followed while another session is open: by
+        // the library the operation recorded.
+        let later = drive.parent().unwrap().join("Later");
+        fs::create_dir(&later).unwrap();
+        let steps = vec![Step::rename(archive.join("Shoots"), later.join("Shoots"))];
+        let context = operation_context(&steps, HashMap::new());
+        let op = journal
+            .execute_in_context(
+                "moveFolder",
+                "Move folder Shoots to Later",
+                steps,
+                context,
+                &trash,
+                &rawtonic_fileops::Unobserved,
+            )
+            .unwrap();
+        // An open catalog would claim any path outside libraries.
+        let catalog = tmp.path().canonicalize().unwrap().join("Catalog");
+        Library::create(&catalog, "Catalog", rawtonic_catalog::Mode::Catalog).unwrap();
+        crate::session_bridge::set_active_for_test(Some(catalog.clone()));
+        // While the session's drive is away, the records wait for it.
+        let away = tmp.path().join("Job away");
+        fs::rename(&dir, &away).unwrap();
+        assert!(
+            sync_catalog(&op, true)
+                .unwrap_err()
+                .starts_with(LIBRARY_AWAY)
+        );
+        fs::rename(&away, &dir).unwrap();
+        sync_catalog(&op, true).unwrap();
+        assert!(
+            Library::open(&catalog)
+                .unwrap()
+                .assets(None)
+                .unwrap()
+                .is_empty()
+        );
+        let later_photo = later.join("Shoots/DSC_0001.NEF");
+        assert_eq!(lib.asset_at(&later_photo).unwrap().unwrap().id, asset.id);
+        assert!(!lib.asset(&asset.id).unwrap().missing);
+        crate::session_bridge::set_active_for_test(None);
+    }
+
+    /// A catalog's photograph outside every library folder moved into a
+    /// session's folder: the catalog holding its record follows it (the
+    /// library at the destination does not take precedence over the one
+    /// holding the photograph; review of MV3, round 6), and undo brings the
+    /// record back.
+    #[test]
+    fn a_catalog_photo_moved_into_a_session_folder_is_followed_by_its_catalog() {
+        let _active = crate::session_bridge::library_test_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let catalog = root.join("Catalog");
+        let lib = Library::create(&catalog, "Catalog", rawtonic_catalog::Mode::Catalog).unwrap();
+        let photo = root.join("Drive/A.RAF");
+        fs::create_dir_all(photo.parent().unwrap()).unwrap();
+        fs::write(&photo, "raw").unwrap();
+        let asset = lib.add_asset(&photo).unwrap();
+        let job = session(&root);
+        crate::session_bridge::set_active_for_test(Some(catalog.clone()));
+        let target = job.join("Capture/A.RAF");
+        let steps = vec![Step::rename(&photo, &target)];
+        let context = operation_context(&steps, HashMap::new());
+        assert_eq!(recorded_library_of(&context), Some(catalog.clone()));
+        let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
+        let trash = BesideTrash(root.join(".trash"));
+        let op = journal
+            .execute_in_context(
+                "move",
+                "Move 1 photo to Capture",
+                steps,
+                context,
+                &trash,
+                &rawtonic_fileops::Unobserved,
+            )
+            .unwrap();
+        // Another library open meanwhile: the recorded one still follows.
+        crate::session_bridge::set_active_for_test(Some(job.clone()));
+        sync_catalog(&op, true).unwrap();
+        assert_eq!(lib.asset_at(&target).unwrap().unwrap().id, asset.id);
+        assert!(lib.asset_at(&photo).unwrap().is_none(), "no stale record");
+        let undone = journal.undo(&op.id, &trash).unwrap();
+        sync_catalog(&undone, false).unwrap();
+        assert_eq!(lib.asset_at(&photo).unwrap().unwrap().id, asset.id);
+        assert!(!lib.asset(&asset.id).unwrap().missing);
+        crate::session_bridge::set_active_for_test(None);
+    }
+
+    /// A session's photographs outside its folder sent to the system Trash
+    /// — one photo while another library is open, and their whole folder
+    /// (gone from its place when the records follow) — are marked missing
+    /// in the session that recorded them, and present again on undo
+    /// (review of MV3, round 6).
+    #[test]
+    fn outside_session_photos_trashed_are_marked_missing_in_their_session() {
+        let _active = crate::session_bridge::library_test_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let dir = session(&root);
+        let drive = root.join("Drive/Shoots");
+        fs::create_dir_all(&drive).unwrap();
+        let lib = Library::open(&dir).unwrap();
+        let mut assets = Vec::new();
+        for name in ["A.NEF", "B.NEF"] {
+            let photo = dir.join("Capture").join(name);
+            fs::write(&photo, name).unwrap();
+            assets.push(lib.add_asset(&photo).unwrap().id);
+            fs::rename(&photo, drive.join(name)).unwrap();
+            lib.relocate(&photo, &drive.join(name)).unwrap();
+        }
+        crate::session_bridge::set_active_for_test(Some(dir.clone()));
+        assert!(crate::session_bridge::is_managed_source(
+            &drive.join("A.NEF")
+        ));
+        let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
+        let trash = BesideTrash(root.join(".trash"));
+        let run = |steps: Vec<Step>| {
+            let context = operation_context(&steps, HashMap::new());
+            assert_eq!(recorded_library_of(&context), Some(dir.clone()));
+            journal
+                .execute_in_context(
+                    "trash",
+                    "Delete",
+                    steps,
+                    context,
+                    &trash,
+                    &rawtonic_fileops::Unobserved,
+                )
+                .unwrap()
+        };
+        let op = run(vec![Step::system_trash(drive.join("A.NEF"))]);
+        let other = session(&root.join("Other"));
+        crate::session_bridge::set_active_for_test(Some(other.clone()));
+        sync_catalog(&op, true).unwrap();
+        assert!(lib.asset(&assets[0]).unwrap().missing);
+        assert!(!lib.asset(&assets[1]).unwrap().missing);
+        let undone = journal.undo(&op.id, &trash).unwrap();
+        sync_catalog(&undone, false).unwrap();
+        assert!(!lib.asset(&assets[0]).unwrap().missing);
+
+        crate::session_bridge::set_active_for_test(Some(dir.clone()));
+        let op = run(vec![Step::system_trash(&drive)]);
+        sync_catalog(&op, true).unwrap();
+        for id in &assets {
+            assert!(lib.asset(id).unwrap().missing, "{id}");
+        }
+        let undone = journal.undo(&op.id, &trash).unwrap();
+        sync_catalog(&undone, false).unwrap();
+        for id in &assets {
+            assert!(!lib.asset(id).unwrap().missing, "{id}");
+        }
+        crate::session_bridge::set_active_for_test(None);
+    }
+
+    fn recorded_library_of(context: &Option<serde_json::Value>) -> Option<PathBuf> {
+        Some(PathBuf::from(context.as_ref()?.get("library")?.as_str()?))
     }
 
     /// The records follow a folder moved to another drive also when that

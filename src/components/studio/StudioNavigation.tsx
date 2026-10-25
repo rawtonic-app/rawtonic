@@ -64,7 +64,9 @@ import {
   catalogTreePaths,
   formatSpace,
   isBelow,
+  listsByDrive,
   missingFolders,
+  outsideFolders,
   volumeSections,
   withMissingFolders,
   type CatalogFoldersView,
@@ -122,6 +124,8 @@ interface RowContext {
   missingTitle(path: string): string;
   /** The open library is a catalog (its folder list reaches outside it). */
   catalog: boolean;
+  /** The open session's folders outside its own folder. */
+  outside: string[];
 }
 
 function FolderRow({
@@ -135,7 +139,7 @@ function FolderRow({
   parent?: string;
   context: RowContext;
 }) {
-  const { current, onNavigate, sessionRoot, actions, allOpen, showCounts, offline, missingTitle, catalog } =
+  const { current, onNavigate, sessionRoot, actions, allOpen, showCounts, offline, missingTitle, catalog, outside } =
     context;
   // Photographs can be imported into it (dropped from Finder, or its menu's
   // "Import into this folder…", as Lightroom's).
@@ -159,9 +163,12 @@ function FolderRow({
   const menu = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    // A folder of the open library (a catalog reaches any folder) can be
+    // A folder of the open library (a catalog reaches any folder; a session
+    // its own and those it keeps photographs in outside it) can be
     // synchronized with what happened to it on disk.
-    const syncable = !!sessionRoot && (catalog || path === sessionRoot || isBelow(path, sessionRoot));
+    const syncable =
+      !!sessionRoot &&
+      (catalog || [sessionRoot, ...outside].some((folder) => path === folder || isBelow(path, folder)));
     if (missing) {
       // Nothing on disk to move, rename or show; it can be located. Its
       // synchronization lists the photographs of a disconnected drive as
@@ -519,6 +526,9 @@ export function StudioFolders({
   }, [catalogKey]);
 
   const catalog = !!catalogView?.catalog;
+  // A catalog, or a session with photographs on other drives, by drive.
+  const byDrive = listsByDrive(catalogView);
+  const outside = useMemo(() => outsideFolders(catalogView), [catalogView]);
   const missing = useMemo(() => missingFolders(catalogView, offline), [catalogView, offline]);
   const sections = useMemo(
     () => volumeSections(catalogView, [...trees, ...catalogTrees], offline),
@@ -534,11 +544,11 @@ export function StudioFolders({
         paths.add(node.path);
         walk(node.children ?? []);
       });
-    if (catalog) sections.forEach((section) => walk(section.trees));
+    if (byDrive) sections.forEach((section) => walk(section.trees));
     else walk(libraryTrees);
     walk(pinnedTrees);
     return paths;
-  }, [catalog, sections, libraryTrees, pinnedTrees]);
+  }, [byDrive, sections, libraryTrees, pinnedTrees]);
   // Offline photographs' folders outside every listed folder.
   const unlisted = offline.filter(
     (folder) => !listed.has(folder.path) && ![...listed].some((path) => isBelow(folder.path, path)),
@@ -582,6 +592,7 @@ export function StudioFolders({
     offline,
     missingTitle,
     catalog,
+    outside,
   };
   const rows = (list: FolderTree[], section: string) =>
     list.map((tree) => <FolderRow key={`${section}-${tree.path}`} node={tree} context={context} />);
@@ -616,8 +627,8 @@ export function StudioFolders({
         onClick: () => setSort({ ...sort, order: SortDirection.Descending }),
       },
     ]);
-  const nothing = !trees.length && !pinnedTrees.length && !(catalog && sections.length);
-  const nothingShown = catalog ? !shownSections.length : !shownTrees.length;
+  const nothing = !trees.length && !pinnedTrees.length && !(byDrive && sections.length);
+  const nothingShown = byDrive ? !shownSections.length : !shownTrees.length;
 
   return (
     <ToolGroup
@@ -671,10 +682,10 @@ export function StudioFolders({
           <>
             <div className="studio-folder-section">{t("studio.library.folders.favorites")}</div>
             {rows(shownPinned, "pinned")}
-            {!catalog && <div className="studio-folder-section">{sessionRoot ? t("studio.library.folders.session") : t("studio.library.folders.library")}</div>}
+            {!byDrive && <div className="studio-folder-section">{sessionRoot ? t("studio.library.folders.session") : t("studio.library.folders.library")}</div>}
           </>
         )}
-        {catalog
+        {byDrive
           ? shownSections.map(({ volume, trees: volumeTrees }) => {
               const collapsed = !filtering && collapsedVolumes.has(volume.key);
               return (

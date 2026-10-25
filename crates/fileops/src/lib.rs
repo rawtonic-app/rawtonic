@@ -442,7 +442,22 @@ impl Journal {
         &self,
         kind: &str,
         label: &str,
+        steps: Vec<Step>,
+        trash: &dyn SystemTrash,
+        observer: &dyn CopyObserver,
+    ) -> Result<Operation> {
+        self.execute_in_context(kind, label, steps, None, trash, observer)
+    }
+
+    /// [`Journal::execute_with`] with the caller's `context` journaled with
+    /// the operation from its first entry on (what its records need to
+    /// follow it, also after a crash).
+    pub fn execute_in_context(
+        &self,
+        kind: &str,
+        label: &str,
         mut steps: Vec<Step>,
+        context: Option<serde_json::Value>,
         trash: &dyn SystemTrash,
         observer: &dyn CopyObserver,
     ) -> Result<Operation> {
@@ -469,6 +484,7 @@ impl Journal {
             steps,
             created_dirs,
             staging_dirs,
+            context,
             ..Payload::default()
         };
         let id = uuid::Uuid::new_v4().to_string();

@@ -32,6 +32,16 @@ pub fn set_outside_photos(library: &Path, photos: HashSet<PathBuf>) {
     }
 }
 
+/// Whether `test` holds for the photographs registered for `library`
+/// (false when none are).
+pub fn outside_photos_match(library: &Path, test: impl FnOnce(&HashSet<PathBuf>) -> bool) -> bool {
+    let outside = OUTSIDE.read().unwrap_or_else(|e| e.into_inner());
+    outside
+        .iter()
+        .find(|(dir, _)| dir == library)
+        .is_some_and(|(_, photos)| test(photos))
+}
+
 /// The library (session or catalog folder) whose resources — `profiles/`,
 /// `resources/` — a recipe of the photograph at `path` names: the library
 /// folder holding it, else the library that registered it as one of its

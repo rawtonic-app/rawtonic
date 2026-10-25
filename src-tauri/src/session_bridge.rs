@@ -62,7 +62,9 @@ fn registered_form(source: &Path) -> PathBuf {
         _ => source.to_path_buf(),
     }
 }
-fn library_for(source: &Path) -> Option<PathBuf> {
+/// The library that manages everything in `source`'s folder: the session
+/// or catalog above it, or the open catalog.
+fn library_above(source: &Path) -> Option<PathBuf> {
     session_for(source).or_else(|| {
         active()
             .lock()
@@ -70,6 +72,103 @@ fn library_for(source: &Path) -> Option<PathBuf> {
             .clone()
             .filter(|dir| dir.join("catalog.json").is_file())
     })
+}
+
+fn library_for(source: &Path) -> Option<PathBuf> {
+    session_for(source).or_else(|| {
+        let dir = active().lock().ok()?.clone()?;
+        (dir.join("catalog.json").is_file()
+            || outside_of_active_session(&dir, source, false)
+            || outside_of_active_session(&dir, source, true) && source.is_dir())
+        .then_some(dir)
+    })
+}
+
+/// Whether `path` is a photograph the session `dir` keeps outside its own
+/// folder, or (`folder`) a folder holding some. The photographs (with their
+/// companion JPEGs; the app moved them there, e.g. to another drive, ADR
+/// 0016) are registered with the engine, which resolves their recipes'
+/// session resources by them, when the session opens, after each file
+/// operation's records followed and after each library write
+/// (`refresh_outside_photos`). Only these are the session's there: other
+/// files in their folders stay files of no project.
+fn outside_of_active_session(dir: &Path, path: &Path, folder: bool) -> bool {
+    let registered = registered_form(path);
+    rawtonic_engine::session_layout::outside_photos_match(dir, |photos| {
+        let holds = |path: &Path| {
+            if folder {
+                photos.iter().any(|photo| photo.starts_with(path))
+            } else {
+                photos.contains(path)
+            }
+        };
+        holds(path) || holds(&registered)
+    })
+}
+
+/// The session or open catalog that manages the photographs in `folder`
+/// (also when the folder is gone: by the photographs recorded below it).
+pub(crate) fn library_dir_for_folder(folder: &Path) -> Option<PathBuf> {
+    library_for_folder(folder)
+}
+
+fn library_for_folder(folder: &Path) -> Option<PathBuf> {
+    session_for(&folder.join("_")).or_else(|| {
+        let dir = active().lock().ok()?.clone()?;
+        (dir.join("catalog.json").is_file() || outside_of_active_session(&dir, folder, true))
+            .then_some(dir)
+    })
+}
+
+/// Whether a library is open.
+pub(crate) fn library_open() -> bool {
+    active().lock().is_ok_and(|dir| dir.is_some())
+}
+
+/// Held by tests that change the active library, one at a time.
+#[cfg(test)]
+pub(crate) fn library_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Makes `dir` the active library, as opening it does (tests).
+#[cfg(test)]
+pub(crate) fn set_active_for_test(dir: Option<PathBuf>) {
+    *active().lock().unwrap() = dir;
+    refresh_outside_photos();
+}
+
+/// Reads again which photographs the active session keeps outside its
+/// folder (none for a catalog: it manages every path) and registers them
+/// with the engine in place of the library registered before; a session
+/// that cannot be read keeps what was registered.
+pub(crate) fn refresh_outside_photos() {
+    static REGISTERED: Mutex<Option<PathBuf>> = Mutex::new(None);
+    let dir = active().lock().ok().and_then(|dir| dir.clone());
+    let photos = match &dir {
+        Some(dir) if dir.join("session.json").is_file() => {
+            match Library::open(dir).and_then(|lib| lib.outside_photos()) {
+                Ok(photos) => photos.into_iter().collect(),
+                Err(e) => {
+                    log::warn!("Photographs outside {} not read: {e:#}", dir.display());
+                    return;
+                }
+            }
+        }
+        _ => HashSet::new(),
+    };
+    let mut registered = REGISTERED.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(previous) = registered
+        .take()
+        .filter(|previous| Some(previous) != dir.as_ref())
+    {
+        rawtonic_engine::session_layout::set_outside_photos(&previous, HashSet::new());
+    }
+    if let Some(dir) = dir {
+        rawtonic_engine::session_layout::set_outside_photos(&dir, photos);
+        *registered = Some(dir);
+    }
 }
 
 /// The session or open catalog that manages `path`, if any.
@@ -137,9 +236,13 @@ pub(crate) fn visit_editor_sidecars(
         let Some(parent) = source.parent() else {
             continue;
         };
+        // The library above a folder holds for all of it; outside the
+        // session folder the active session owns single photographs.
         let library = directories
             .entry(parent.to_owned())
-            .or_insert_with(|| library_for(source));
+            .or_insert_with(|| library_above(source))
+            .clone()
+            .or_else(|| library_for(source));
         let Some(library) = library else { continue };
         // Offline photographs keep their edits from the library.
         let canonical = registered_form(source);
@@ -431,6 +534,8 @@ fn follow_verified_moves(lib: &Library, new: &[PathBuf]) -> anyhow::Result<HashS
 
 fn remember(app: &tauri::AppHandle, dir: &Path) -> Result<(), String> {
     *active().lock().map_err(|e| e.to_string())? = Some(dir.into());
+    refresh_outside_photos();
+    crate::file_operations::after_library_opened(app);
     let cache = app.path().app_config_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
     rawtonic_metadata::atomic_write(
@@ -1143,7 +1248,13 @@ pub(crate) fn with_library<T: Send + 'static>(
             None
         };
         let lib = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
-        work(&lib)
+        let result = work(&lib);
+        if write {
+            // A relink, folder sync or check may have moved records out of
+            // the session folder or back.
+            refresh_outside_photos();
+        }
+        result
     })
 }
 
@@ -1397,7 +1508,7 @@ pub(crate) fn adopt_virtual_copies(found: &[(PathBuf, String, PathBuf)]) {
 /// `recursive`) whose file is not there, so the folder keeps listing them
 /// (Lightroom's missing-photo badge; Capture One's offline images).
 pub(crate) fn offline_in_folder(folder: &Path, recursive: bool) -> Vec<OfflineEntry> {
-    let Some(dir) = library_for(&folder.join("_")) else {
+    let Some(dir) = library_for_folder(folder) else {
         return Vec::new();
     };
     let Ok(lib) = Library::open(&dir) else {
@@ -1425,7 +1536,7 @@ pub(crate) fn companions_in_folder(folder: &Path) -> HashSet<PathBuf> {
     type Checked = HashMap<(PathBuf, String), (u64, std::time::SystemTime, bool)>;
     static CHECKED: std::sync::LazyLock<Mutex<Checked>> =
         std::sync::LazyLock::new(Default::default);
-    let Some(dir) = library_for(&folder.join("_")) else {
+    let Some(dir) = library_for_folder(folder) else {
         return HashSet::new();
     };
     let (Ok(lib), Ok(canonical)) = (Library::open(&dir), folder.canonicalize()) else {
@@ -1557,7 +1668,9 @@ pub fn start_mount_watch(app: tauri::AppHandle) {
 /// The catalog's folders grouped by drive (`catalog`), with the library's
 /// top-level folders `roots` placed on theirs, for the Folders panel. Folders
 /// on a disconnected drive stay listed; nothing is removed. For a session
-/// (`catalog` false) the list is empty: a session's folders are its own.
+/// (`catalog` false) the list is empty while all its photographs are in its
+/// folder; once it keeps some outside (moved to another drive, ADR 0016),
+/// those folders by drive, as for a catalog.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CatalogFoldersView {
     pub catalog: bool,
@@ -1570,16 +1683,19 @@ pub async fn catalog_folders(
     roots: Vec<String>,
 ) -> Result<CatalogFoldersView, String> {
     with_library(directory, false, move |lib| {
-        if lib.manifest.mode != Mode::Catalog {
+        let catalog = lib.manifest.mode == Mode::Catalog;
+        // A session lists its folders by drive only once it keeps
+        // photographs outside its folder (moved to another drive, ADR 0016).
+        if !catalog && lib.folders().map_err(|e| e.to_string())?.is_empty() {
             return Ok(CatalogFoldersView {
-                catalog: false,
+                catalog,
                 volumes: Vec::new(),
             });
         }
         // As the Folders panel has them: it finds its trees by them.
         let roots: Vec<PathBuf> = roots.iter().map(PathBuf::from).collect();
         Ok(CatalogFoldersView {
-            catalog: true,
+            catalog,
             volumes: lib
                 .folder_groups(&roots, &AppProbe)
                 .map_err(|e| e.to_string())?,
@@ -1663,6 +1779,9 @@ pub(crate) fn rederive(lib: &Library, id: &str) {
 /// photographs that came back up to date.
 fn check_files(lib: &Library) -> anyhow::Result<usize> {
     let check = lib.check_files()?;
+    if !check.followed.is_empty() {
+        refresh_outside_photos();
+    }
     // A drive followed to another mount point keeps its previews.
     for (from, to) in &check.followed {
         crate::preview_proxy::carry_over(from, to);

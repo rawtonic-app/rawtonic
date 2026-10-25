@@ -415,27 +415,30 @@ impl Anchors {
 
 impl Library {
     /// The folders a synchronization of `folder` (or of the whole library
-    /// with `None`) lists: for a session its folder, for a catalog its own
-    /// folder and every catalog folder outside it (the topmost ones).
+    /// with `None`) lists: its own folder and every folder outside it it
+    /// keeps photographs in (the topmost ones) — for a catalog its catalog
+    /// folders, for a session those the app moved its photographs to (ADR
+    /// 0016), where only its own photographs are followed (`classify`).
     pub fn sync_scope(&self, folder: Option<&Path>) -> Result<Vec<PathBuf>> {
+        let roots: Vec<PathBuf> = self
+            .conn
+            .prepare("SELECT path FROM roots WHERE external=1 ORDER BY path")?
+            .query_map([], |r| r.get::<_, String>(0))?
+            .map(|path| path.map(PathBuf::from))
+            .collect::<rusqlite::Result<_>>()?;
         if let Some(folder) = folder {
             let folder = resolve_moved(folder);
             ensure!(
-                self.manifest.mode == Mode::Catalog || below(&folder, &self.directory),
+                self.manifest.mode == Mode::Catalog
+                    || below(&folder, &self.directory)
+                    || roots.iter().any(|root| below(&folder, root)),
                 "{} is not a folder of this session",
                 folder.display()
             );
             return Ok(vec![folder]);
         }
         let mut folders = vec![self.directory.clone()];
-        if self.manifest.mode == Mode::Catalog {
-            let roots: Vec<String> = self
-                .conn
-                .prepare("SELECT path FROM roots WHERE external=1 ORDER BY path")?
-                .query_map([], |r| r.get(0))?
-                .collect::<rusqlite::Result<_>>()?;
-            folders.extend(roots.into_iter().map(PathBuf::from));
-        }
+        folders.extend(roots);
         folders.sort();
         let mut topmost: Vec<PathBuf> = Vec::new();
         for folder in folders {
@@ -877,6 +880,19 @@ impl Library {
         for contested in &mut plan.contested {
             contested.moves.retain(still_missing);
         }
+        // A session takes photographs in only by copying them into its
+        // folder (Ingest): files found in a folder outside it are not its
+        // own, and only its photographs moved there are followed.
+        if self.manifest.mode == Mode::Session {
+            let inside = |path: &Path| below(path, &self.directory);
+            plan.new_files.retain(|file| inside(&file.path));
+            plan.copies.retain(|file| inside(&file.path));
+            for contested in &mut plan.contested {
+                if !inside(&contested.path) {
+                    contested.copy_of.clear();
+                }
+            }
+        }
         plan.verified_moves.sort_by(|a, b| a.to.cmp(&b.to));
         plan.probable_moves.sort_by(|a, b| a.to.cmp(&b.to));
         plan.new_files.sort_by(|a, b| a.path.cmp(&b.path));
@@ -1043,8 +1059,8 @@ impl Library {
             Ok(_) => {}
             Err(e) => return Err(e.to_string()),
         }
-        match self.place_for(to) {
-            Ok(Some(_)) => Ok(()),
+        match self.placeable(id, to) {
+            Ok(true) => Ok(()),
             _ => Err("Session photographs must be inside the session folder".into()),
         }
     }

@@ -61,25 +61,121 @@ fn renamed_and_moved_session_files_keep_identity_metadata_and_edits() {
     );
 }
 
+/// A session photograph the app moves out of the session folder (to
+/// another drive, ADR 0016) stays the same photograph there, online, with
+/// its rating, edits and albums; moving it back records it in the session
+/// again and drops the outside folder. One moved into another session is
+/// kept as missing: that session's records would not see it.
 #[test]
-fn session_assets_moved_out_of_the_session_are_kept_as_missing() {
+fn session_assets_moved_out_of_the_session_stay_the_same_photographs() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("Job");
     let lib = Library::create(&dir, "Job", Mode::Session).unwrap();
     let photo = dir.join("Capture/A.ARW");
     fs::write(&photo, b"a").unwrap();
     let asset = lib.add_asset(&photo).unwrap();
-    let outside = tmp.path().join("Elsewhere/A.ARW");
+    let mut metadata = lib.metadata(&asset.id).unwrap();
+    metadata.rating = 4;
+    lib.set_metadata(&asset.id, &metadata).unwrap();
+    lib.save_editor_state(
+        &asset.id,
+        &serde_json::json!({"adjustments":{"exposure":1}}),
+    )
+    .unwrap();
+    let album = lib.create_collection("Picks", None).unwrap();
+    lib.add_to_collection(&album.id, std::slice::from_ref(&asset.id))
+        .unwrap();
+
+    let outside = tmp
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("Drive/Shoots/A.ARW");
     fs::create_dir_all(outside.parent().unwrap()).unwrap();
     fs::rename(&photo, &outside).unwrap();
-    lib.relocate(&photo, &outside).unwrap();
-    assert!(lib.asset(&asset.id).unwrap().missing);
-    // Moving back finds the same asset again.
+    assert_eq!(lib.relocate(&photo, &outside).unwrap(), 1);
+    let moved = lib.asset_at(&outside).unwrap().unwrap();
+    assert_eq!(moved.id, asset.id);
+    assert!(!moved.missing);
+    assert_eq!(moved.path, outside);
+    assert_eq!(moved.rating, 4);
+    assert!(lib.editor_state(&asset.id).unwrap().is_some());
+    assert_eq!(lib.collection_assets(&album.id).unwrap()[0].id, asset.id);
+    assert!(lib.asset_at(&photo).unwrap().is_none());
+    // Still there after a check of the files, and listed as a folder.
+    assert_eq!(lib.verify_paths().unwrap(), 0);
+    let folders: Vec<_> = lib.folders().unwrap().into_iter().map(|f| f.path).collect();
+    assert_eq!(folders, [outside.parent().unwrap()]);
+    // Found again where it lives when its drive was away and came back.
+    fs::rename(&outside, tmp.path().join("away")).unwrap();
+    assert_eq!(lib.verify_paths().unwrap(), 1);
+    fs::rename(tmp.path().join("away"), &outside).unwrap();
+    assert_eq!(lib.verify_paths().unwrap(), 0);
+
+    // Moving back finds the same asset again, in the session.
     fs::rename(&outside, &photo).unwrap();
     lib.relocate(&outside, &photo).unwrap();
     let back = lib.asset_at(&photo).unwrap().unwrap();
     assert_eq!(back.id, asset.id);
     assert!(!back.missing);
+    assert!(lib.folders().unwrap().is_empty(), "no outside folder left");
+
+    // Into another session: kept as missing.
+    let other = tmp.path().join("Other");
+    Library::create(&other, "Other", Mode::Session).unwrap();
+    let there = other.join("Capture/A.ARW");
+    fs::rename(&photo, &there).unwrap();
+    lib.relocate(&photo, &there).unwrap();
+    assert!(lib.asset(&asset.id).unwrap().missing);
+    fs::rename(&there, &photo).unwrap();
+    lib.relocate(&there, &photo).unwrap();
+    assert!(!lib.asset_at(&photo).unwrap().unwrap().missing);
+}
+
+/// A folder holding a session's photographs outside the session moves on
+/// (Move Folder): the records follow it like a catalog folder.
+#[test]
+fn an_outside_folder_of_session_photographs_moves_with_its_records() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Job");
+    let lib = Library::create(&dir, "Job", Mode::Session).unwrap();
+    let photo = dir.join("Capture/A.ARW");
+    fs::write(&photo, b"a").unwrap();
+    let asset = lib.add_asset(&photo).unwrap();
+    let drive = tmp.path().canonicalize().unwrap().join("Drive");
+    let outside = drive.join("Shoots/A.ARW");
+    fs::create_dir_all(outside.parent().unwrap()).unwrap();
+    fs::rename(&photo, &outside).unwrap();
+    lib.relocate(&photo, &outside).unwrap();
+    fs::create_dir(drive.join("Archive")).unwrap();
+    fs::rename(drive.join("Shoots"), drive.join("Archive/Shoots")).unwrap();
+    assert_eq!(
+        lib.relocate(&drive.join("Shoots"), &drive.join("Archive/Shoots"))
+            .unwrap(),
+        1
+    );
+    let moved = lib
+        .asset_at(&drive.join("Archive/Shoots/A.ARW"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(moved.id, asset.id);
+    assert!(!moved.missing);
+
+    // Offline and moved meanwhile: it may be relinked outside again, as it
+    // lives outside the session; a photograph inside may not.
+    fs::create_dir(drive.join("New")).unwrap();
+    fs::rename(drive.join("Archive/Shoots/A.ARW"), drive.join("New/A.ARW")).unwrap();
+    lib.relink(&asset.id, &drive.join("New/A.ARW"), false)
+        .unwrap();
+    assert_eq!(
+        lib.asset_at(&drive.join("New/A.ARW")).unwrap().unwrap().id,
+        asset.id
+    );
+    let inside = dir.join("Capture/B.ARW");
+    fs::write(&inside, b"b").unwrap();
+    let b = lib.add_asset(&inside).unwrap();
+    fs::rename(&inside, drive.join("New/B.ARW")).unwrap();
+    assert!(lib.relink(&b.id, &drive.join("New/B.ARW"), false).is_err());
 }
 
 #[test]

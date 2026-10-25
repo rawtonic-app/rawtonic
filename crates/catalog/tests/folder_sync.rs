@@ -806,3 +806,54 @@ fn a_failed_addition_still_reports_the_moves_and_removals_applied() {
     assert!(lib.asset(&b).is_err());
     assert!(lib.asset_at(&capture.join("N.ARW")).unwrap().is_none());
 }
+
+/// A folder outside a session that keeps photographs there (the app moved
+/// them to another drive, ADR 0016) is synchronized as the session's own:
+/// Synchronize Folder and the whole-library scan follow a photograph renamed
+/// there and report one deleted there, but never offer the other files in
+/// that folder: a session takes photographs in only by Ingest.
+#[test]
+fn a_sessions_outside_folder_is_synchronized_without_taking_in_other_files() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path().canonicalize().unwrap();
+    let lib = session(&root);
+    let capture = lib.directory.join("Capture");
+    let drive = root.join("Drive/Shoots");
+    let mut ids = Vec::new();
+    for (name, seed) in [("A.ARW", 1), ("B.ARW", 2)] {
+        photo(&capture.join(name), seed);
+        ids.push(lib.add_asset(&capture.join(name)).unwrap().id);
+    }
+    fill(&lib);
+    fs::create_dir_all(&drive).unwrap();
+    for name in ["A.ARW", "B.ARW"] {
+        fs::rename(capture.join(name), drive.join(name)).unwrap();
+        lib.relocate(&capture.join(name), &drive.join(name))
+            .unwrap();
+    }
+    assert_eq!(lib.outside_photos().unwrap().len(), 2);
+    // Outside Rawtonic: A renamed there, B deleted, other files added.
+    fs::rename(drive.join("A.ARW"), drive.join("A pick.ARW")).unwrap();
+    fs::remove_file(drive.join("B.ARW")).unwrap();
+    photo(&drive.join("Other.ARW"), 9);
+
+    assert!(lib.sync_scope(Some(&root.join("Drive"))).is_err());
+    for folder in [Some(drive.as_path()), None] {
+        let plan = scan(&lib, folder);
+        assert!(plan.folders.contains(&drive), "{plan:#?}");
+        assert_eq!(plan.verified_moves.len(), 1, "{plan:#?}");
+        assert_eq!(plan.verified_moves[0].asset_id, ids[0]);
+        assert_eq!(plan.verified_moves[0].to, drive.join("A pick.ARW"));
+        assert!(
+            plan.new_files.is_empty() && plan.copies.is_empty(),
+            "{plan:#?}"
+        );
+        assert!(plan.contested.is_empty(), "{plan:#?}");
+        assert_eq!(plan.removed.len(), 1, "{plan:#?}");
+        assert_eq!(plan.removed[0].asset_id, ids[1]);
+    }
+    let plan = scan(&lib, Some(&drive));
+    lib.apply_folder_sync(&defaults(&plan)).unwrap();
+    assert_eq!(lib.asset(&ids[0]).unwrap().path, drive.join("A pick.ARW"));
+    assert!(lib.asset_at(&drive.join("Other.ARW")).unwrap().is_none());
+}

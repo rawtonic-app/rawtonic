@@ -509,7 +509,18 @@ impl Library {
     /// files; catalogs register an external root. `add_files` also brings
     /// each file's sidecar edits and XMP metadata, in the same transaction.
     pub fn add_asset(&self, path: &Path) -> Result<Asset> {
-        let planned = self.plan_add(path, Contents::default())?;
+        let planned = match self.plan_add(path, Contents::default()) {
+            Ok(planned) => planned,
+            // Registered already where a new file could not be added (a
+            // session photograph moved out of the session): that photograph.
+            Err(error) => match self.asset_at(path)? {
+                Some(asset) if path.is_file() => {
+                    Self::mark_present(&self.conn, &asset.id)?;
+                    return self.asset(&asset.id);
+                }
+                _ => return Err(error),
+            },
+        };
         if let Some(id) = self.registered_id(&planned.root, &planned.rel)? {
             Self::mark_present(&self.conn, &id)?;
             return self.asset(&id);
@@ -1282,7 +1293,7 @@ impl Library {
     pub fn check_files(&self) -> Result<FileCheck> {
         let mut found = Vec::new();
         let mut followed = Vec::new();
-        if self.manifest.mode == Mode::Catalog && self.has_lost_roots()? {
+        if self.has_lost_roots()? {
             for (id, from, to) in self.follow_volume_ids(&volume::mounted_volumes())? {
                 found.push(id);
                 followed.push((from, to));
@@ -1451,12 +1462,85 @@ impl Library {
         })
     }
 
+    /// The photographs a session keeps outside its folder (the app moved
+    /// them there, ADR 0016) and their recorded companion files (a RAW's
+    /// JPEG), as recorded: nothing is read from disk. None for a catalog,
+    /// whose photographs are anywhere.
+    pub fn outside_photos(&self) -> Result<Vec<PathBuf>> {
+        if self.manifest.mode == Mode::Catalog {
+            return Ok(Vec::new());
+        }
+        let mut query = self.conn.prepare(
+            "SELECT a.id,a.rel_path,r.path FROM assets a JOIN roots r ON r.id=a.root_id WHERE r.external=1",
+        )?;
+        let mut ids = HashSet::new();
+        let mut paths = Vec::new();
+        for row in query.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })? {
+            let (id, relative, root) = row?;
+            ids.insert(id);
+            paths.push(PathBuf::from(root).join(relative));
+        }
+        drop(query);
+        if !ids.is_empty() {
+            paths.extend(
+                self.companion_records()?
+                    .into_iter()
+                    .filter(|record| ids.contains(&record.owner))
+                    .map(|record| record.path),
+            );
+        }
+        Ok(paths)
+    }
+
+    /// Where an asset moved to `path` is recorded: as `place_for`, and for a
+    /// session photograph that left the session folder (moved by the app to
+    /// another drive or folder, ADR 0016) an external root for its folder,
+    /// as in a catalog, so it stays the same photograph there. None inside
+    /// another session or catalog: that library's records would not see it.
+    fn moved_place_for(&self, path: &Path) -> Result<Option<(String, PathBuf, String)>> {
+        if let Some(place) = self.place_for(path)? {
+            return Ok(Some(place));
+        }
+        if session_for(path).is_some() {
+            return Ok(None);
+        }
+        let parent = path.parent().context("No parent")?;
+        Ok(Some((
+            external_root_key(parent),
+            PathBuf::from(path.file_name().context("No filename")?),
+            parent.to_string_lossy().into_owned(),
+        )))
+    }
+
+    /// Whether the asset `id` may be recorded at `path` when it is found
+    /// there (relink, folder sync): inside the library folder, anywhere for
+    /// a catalog, and for a session photograph that already lives outside
+    /// the session (moved there by the app) anywhere outside other libraries.
+    fn placeable(&self, id: &str, path: &Path) -> Result<bool> {
+        if self.place_for(path)?.is_some() {
+            return Ok(true);
+        }
+        let root: Option<String> = self
+            .conn
+            .query_row("SELECT root_id FROM assets WHERE id=?", [id], |r| r.get(0))
+            .optional()?;
+        Ok(root.is_some_and(|root| root != "session") && session_for(path).is_none())
+    }
+
     /// Records each asset at its new path (id, edits, metadata and albums
-    /// kept). A session asset whose new place is outside the session is kept
-    /// as missing. External roots nothing is in any more are dropped.
+    /// kept), outside a session's folder too (`moved_place_for`); callers
+    /// check first where a found file may be recorded (`placeable`). An
+    /// asset moved into another library is kept as missing. External roots
+    /// nothing is in any more are dropped.
     fn apply_places(&self, tx: &Connection, moved: &[(String, PathBuf)]) -> Result<()> {
         for (id, path) in moved {
-            let Some((root, relative, root_path)) = self.place_for(path)? else {
+            let Some((root, relative, root_path)) = self.moved_place_for(path)? else {
                 tx.execute("UPDATE assets SET missing=1 WHERE id=?", [id])?;
                 continue;
             };
@@ -1485,9 +1569,10 @@ impl Library {
 
     /// Follows a rename or move done on disk (a file or a whole folder, from
     /// `from` to `to`): registered assets at or below `from` keep their id,
-    /// edits and metadata at the new place. A session asset that left the
-    /// session is kept as missing (an undo brings it back). Returns how many
-    /// assets moved.
+    /// edits and metadata at the new place, also when a session asset left
+    /// the session folder (it is recorded there like a catalog's; one moved
+    /// into another library is kept as missing). Returns how many assets
+    /// moved.
     pub fn relocate(&self, from: &Path, to: &Path) -> Result<usize> {
         let (from, to) = (resolve_moved(from), resolve_moved(to));
         let mut query = self.conn.prepare(
@@ -1697,7 +1782,7 @@ impl Library {
             to.display()
         );
         ensure!(
-            self.place_for(&to)?.is_some(),
+            self.placeable(id, &to)?,
             "Session photographs must be inside the session folder; copy the file in with Ingest"
         );
         if let Some(other) = self.asset_at(&to)? {
@@ -1731,11 +1816,14 @@ impl Library {
             .canonicalize()
             .context("The located folder cannot be read")?;
         ensure!(to.is_dir(), "Locate a folder");
+        let from = resolve_moved(from);
+        // A session's photographs that lived outside it (moved there by the
+        // app) may be found outside again; `relink_plan` checks each.
         ensure!(
-            self.place_for(&to.join("_"))?.is_some(),
+            self.place_for(&to.join("_"))?.is_some() || !from.starts_with(&self.directory),
             "Session photographs must be inside the session folder; copy them in with Ingest"
         );
-        let (report, moved) = self.relink_plan(&resolve_moved(from), &to, None)?;
+        let (report, moved) = self.relink_plan(&from, &to, None)?;
         let tx = self.conn.unchecked_transaction()?;
         self.apply_places(&tx, &moved)?;
         tx.commit()?;
@@ -1777,7 +1865,7 @@ impl Library {
             if self
                 .asset_at(&candidate)?
                 .is_some_and(|other| other.id != asset.id)
-                || self.place_for(&candidate)?.is_none()
+                || !self.placeable(&asset.id, &candidate)?
             {
                 report.taken.push(candidate);
                 continue;

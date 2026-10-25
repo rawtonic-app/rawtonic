@@ -39,7 +39,9 @@ export interface VolumeFolders {
   roots: string[];
 }
 
-/** What `catalog_folders` answers: drives for a catalog, none for a session. */
+/** What `catalog_folders` answers: drives for a catalog, and for a session
+ * that keeps photographs outside its folder (moved to another drive by the
+ * app) its drives with those folders; none for other sessions. */
 export interface CatalogFoldersView {
   catalog: boolean;
   volumes: VolumeFolders[];
@@ -87,10 +89,24 @@ export function volumeTops(volume: VolumeFolders): string[] {
   return outermost([...volume.roots, ...volume.folders.map((folder) => folder.path)]);
 }
 
+/** The Folders panel lists the library by drive: a catalog, or a session
+ * with folders outside its own. */
+export function listsByDrive(view: CatalogFoldersView | null): boolean {
+  return !!view && (view.catalog || view.volumes.length > 0);
+}
+
+/** A session's folders outside its own folder (photographs the app moved
+ * there, ADR 0016): Synchronize Folder reaches them, as the session's own;
+ * nothing is imported into them. None for a catalog (it reaches any folder). */
+export function outsideFolders(view: CatalogFoldersView | null): string[] {
+  if (!view || view.catalog) return [];
+  return view.volumes.flatMap((volume) => volume.folders.map((folder) => folder.path));
+}
+
 /** Top-level catalog folders on disk that are not library roots: their disk
  * trees are loaded like the roots' (the `catalogTrees` of the library store). */
 export function catalogTreePaths(view: CatalogFoldersView | null, rootPaths: string[]): string[] {
-  if (!view?.catalog) return [];
+  if (!listsByDrive(view) || !view) return [];
   return view.volumes.flatMap((volume) =>
     volumeTops(volume).filter(
       (top) => !rootPaths.includes(top) && volume.folders.some((folder) => folder.path === top && folder.exists),
@@ -173,7 +189,7 @@ export function volumeSections(
   trees: FolderTree[],
   offline: OfflineFolder[],
 ): VolumeSection[] {
-  if (!view?.catalog) return [];
+  if (!listsByDrive(view) || !view) return [];
   const missing = missingFolders(view, offline);
   const rank = (volume: VolumeFolders) => volume.kind === 'startup' ? 0 : volume.kind === 'network' ? 2 : 1;
   return [...view.volumes].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name) || a.key.localeCompare(b.key)).map((volume) => {

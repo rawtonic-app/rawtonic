@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Moving a session's photos to another drive keeps them in the session**, as Lightroom Classic keeps photos moved to another drive in its catalog: they stay online with their ratings, edits, virtual copies, RAW+JPEG pairs and albums, their recipes keep the session's camera profiles, LUTs and masks (edits and exports render exactly as before the move), and undo and redo bring them back and there again. The Folders panel then lists the session by drive with those folders, and Synchronize Folder works on them (it follows the session's photos there and never takes in other files). Moving them into another session's or a catalog's folder is refused before anything moves. alpha.4 refused moving a session's photos out of their session.
+
 ## 0.1.0-alpha.5 — 2026-10-24
 
 A fix release for alpha.4: its downloads were built without the address of Rawtonic's report relay, so **Report a problem**, crash reports, camera test results and usage statistics could not be sent from the app (only **Copy report** and **Open on GitHub** worked). alpha.5 sends them as alpha.4's notes describe. Nothing else changes; edits render exactly as in alpha.4.

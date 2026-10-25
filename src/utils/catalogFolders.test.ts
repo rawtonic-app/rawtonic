@@ -5,8 +5,10 @@ import {
   graftMissing,
   isBelow,
   labelOnVolume,
+  listsByDrive,
   missingFolders,
   outermost,
+  outsideFolders,
   volumeSections,
   withMissingFolders,
   type CatalogFoldersView,
@@ -176,4 +178,34 @@ it('always shows one-root drive headings, startup first, then local drives and n
   expect(sections[3].volume.online).toBe(false);
   expect(sections[3].trees[0]).toMatchObject({ path: '/mnt/share/Jobs', missing: true });
   expect(volumes.map((volume) => volume.key)).toEqual(['share', 'z', 'sys', 'a']);
+});
+
+it('lists a session with photographs on another drive by drive, its outside folders syncable', () => {
+  const view: CatalogFoldersView = {
+    catalog: false,
+    volumes: [
+      volume({ key: 'id:M', name: 'Macintosh HD', mount_point: '/', roots: ['/Users/me/Job'] }),
+      volume({
+        key: 'id:S',
+        name: 'SHOOTS',
+        mount_point: '/Volumes/SHOOTS',
+        folders: [{ path: '/Volumes/SHOOTS/Shoots', photos: 26, offline: 0, exists: true }],
+      }),
+    ],
+  };
+  expect(listsByDrive(view)).toBe(true);
+  expect(outsideFolders(view)).toEqual(['/Volumes/SHOOTS/Shoots']);
+  expect(catalogTreePaths(view, ['/Users/me/Job'])).toEqual(['/Volumes/SHOOTS/Shoots']);
+  const sections = volumeSections(view, [node('/Users/me/Job'), node('/Volumes/SHOOTS/Shoots')], []);
+  expect(sections.map((section) => section.trees.map((tree) => tree.path))).toEqual([
+    ['/Users/me/Job'],
+    ['/Volumes/SHOOTS/Shoots'],
+  ]);
+  // A session keeping all its photographs inside: its own folder list.
+  const plain: CatalogFoldersView = { catalog: false, volumes: [] };
+  expect(listsByDrive(plain)).toBe(false);
+  expect(outsideFolders(plain)).toEqual([]);
+  expect(volumeSections(plain, [node('/Users/me/Job')], [])).toEqual([]);
+  // A catalog reaches any folder: none are singled out.
+  expect(outsideFolders({ ...view, catalog: true })).toEqual([]);
 });
