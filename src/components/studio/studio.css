@@ -4774,3 +4774,9 @@ img.relight-pattern-preview { object-fit: cover; }
     flex-wrap: wrap;
   }
 }
+.studio-app .session-bar:has(.is-in-header) .session-bar-start:has(.session-count-status-icon) {
+  flex-basis: 160px;
+}
+.studio-app .session-bar:has(.is-in-header) .session-identity {
+  flex-shrink: 1;
+}
