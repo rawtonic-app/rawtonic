@@ -11,7 +11,10 @@ import { IDLE_CURSOR_MS } from "./useIdleCursor";
 import { followPhotoFullScreen } from "../../utils/photoFullScreen";
 
 vi.mock("../../utils/photoFullScreen", () => ({ followPhotoFullScreen: vi.fn(() => Promise.resolve()) }));
-vi.mock("../panel/Editor", () => ({ default: () => <div data-testid="native-viewer" /> }));
+const editorPointerDown = vi.fn();
+vi.mock("../panel/Editor", () => ({
+  default: () => <div data-testid="native-viewer" onPointerDownCapture={editorPointerDown} />,
+}));
 vi.mock("./StudioDevelop", () => ({
   default: () => <div data-testid="develop-tools" />,
   ToolGroup: () => null,
@@ -39,6 +42,7 @@ const files = ["/qa/a.dng", "/qa/b.dng"].map(
 );
 const onBack = vi.fn();
 const onSelect = vi.fn();
+const onShow = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -83,10 +87,11 @@ afterEach(() => {
 });
 
 const noop = () => {};
-const workspace = () =>
+const workspace = (list = files) =>
   render(
     <StudioWorkspace
-      files={files}
+      files={list}
+      onShow={onShow}
       flagCounts={{ all: 2, picked: 0, rejected: 0, unflagged: 2 }}
       transformWrapperRef={{ current: null }}
       onSelect={onSelect}
@@ -237,4 +242,66 @@ it("shows a virtual copy with its source's flag in the info overlay", () => {
   workspace();
   const info = screen.getByRole("complementary", { name: "Photograph info" });
   expect(info.querySelector('[aria-label="Picked"]')).not.toBeNull();
+});
+
+it("puts the spot tool aside in the full screen and brings it back after it", () => {
+  useUIStore.setState({ activeView: "editor" });
+  useEditorStore.setState({ isSpotToolActive: true, showFaceBlemishes: true });
+  workspace();
+  act(() => useUIStore.getState().toggleFullScreen());
+  expect(useEditorStore.getState()).toMatchObject({ isSpotToolActive: false, showFaceBlemishes: false });
+  act(() => useUIStore.getState().toggleFullScreen());
+  expect(useEditorStore.getState()).toMatchObject({ isSpotToolActive: true, showFaceBlemishes: true });
+  useEditorStore.setState({ isSpotToolActive: false, showFaceBlemishes: false });
+});
+
+it("keeps Shift-drag and Cmd/Ctrl clicks (straighten, crop reset) from the viewer while it only shows", () => {
+  useUIStore.setState({ libraryLoupe: true });
+  workspace();
+  const viewer = screen.getByTestId("native-viewer");
+  fireEvent.pointerDown(viewer, { shiftKey: true });
+  fireEvent.pointerDown(viewer, { metaKey: true });
+  fireEvent.pointerDown(viewer, { ctrlKey: true });
+  expect(editorPointerDown).not.toHaveBeenCalled();
+  // A plain press still pans and zooms.
+  fireEvent.pointerDown(viewer);
+  expect(editorPointerDown).toHaveBeenCalledOnce();
+  // Develop keeps its gestures.
+  cleanup();
+  editorPointerDown.mockClear();
+  useUIStore.setState({ activeView: "editor", libraryLoupe: false });
+  workspace();
+  fireEvent.pointerDown(screen.getByTestId("native-viewer"), { shiftKey: true });
+  expect(editorPointerDown).toHaveBeenCalledOnce();
+});
+
+it("shows the next photograph when the shown one leaves the filtered list, and the grid when none is left", () => {
+  useUIStore.setState({ libraryLoupe: true });
+  const { rerender } = workspace();
+  const props = (list: ImageFile[]) => ({
+    files: list,
+    onShow,
+    flagCounts: { all: 0, picked: 0, rejected: 0, unflagged: 0 },
+    transformWrapperRef: { current: null },
+    onSelect,
+    onFilmSelect: noop,
+    onOpen: noop,
+    onNavigate: noop,
+    onBack,
+    onRate: noop,
+    onContextMenu: noop,
+    onEditorContextMenu: noop,
+    onCopy: noop,
+    onPaste: noop,
+    onReset: noop,
+    onZoom: noop,
+    requestThumbnails: noop,
+    settings: null,
+    onSettings: noop,
+  });
+  rerender(<StudioWorkspace {...props([files[1]])} />);
+  expect(onShow).toHaveBeenCalledWith("/qa/b.dng");
+  expect(useUIStore.getState().libraryLoupe).toBe(true);
+  rerender(<StudioWorkspace {...props([])} />);
+  expect(useUIStore.getState().libraryLoupe).toBe(false);
 });

@@ -20,7 +20,7 @@ import { libraryTool, ownsPanelShortcut, revealLibraryTool } from '../components
 import { useMultiViewStore, type CellZoomKey } from '../store/useMultiViewStore';
 import { orderedSelection, stepPrimary } from '../utils/multiView';
 import { isTetherConnected, TETHER_CAPTURE_EVENT } from '../components/session/tether';
-import { libraryViewer, viewerShown } from '../utils/viewerMode';
+import { libraryViewer, viewerOnly, viewerShown } from '../utils/viewerMode';
 
 /** The photograph an arrow key moves to in the Library, from `index` of
  * `count`. Left/Right step one and wrap around; in the grid (`columns` per
@@ -110,8 +110,21 @@ export const useKeyboardShortcuts = ({
           : null;
     };
     take(useUIStore.getState().activePanel);
+    // The loupe and the full screen put the crop tool aside and bring it
+    // back (StudioWorkspace): its entry crop stays the one Escape restores.
+    let parked = false;
     return useUIStore.subscribe((state, previous) => {
-      if (state.activePanel !== previous.activePanel) take(state.activePanel);
+      if (state.activePanel === previous.activePanel) return;
+      if (previous.activePanel === Panel.Crop && viewerOnly(state)) {
+        parked = true;
+        return;
+      }
+      const resumed =
+        parked &&
+        state.activePanel === Panel.Crop &&
+        cropEntry.current?.path === useEditorStore.getState().selectedImage?.path;
+      parked = false;
+      if (!resumed) take(state.activePanel);
     });
   }, []);
 
@@ -207,8 +220,12 @@ export const useKeyboardShortcuts = ({
       s.library.setLibrary({ libraryActivePath: next, multiSelectedPaths: [next], selectionAnchorPath: next });
       handleImageSelect(next, false);
     };
+    // The loupe and the full screen rate, flag and label what they show,
+    // not the rest of the selection.
+    const shownOnly = (s: ShortcutState) =>
+      (s.ui.isFullScreen || libraryViewer(s.ui)) && s.editor.selectedImage ? [s.editor.selectedImage.path] : undefined;
     const ratedPaths = (s: ShortcutState) =>
-      multiViewActive(s) && s.editor.selectedImage ? [s.editor.selectedImage.path] : undefined;
+      shownOnly(s) ?? (multiViewActive(s) && s.editor.selectedImage ? [s.editor.selectedImage.path] : undefined);
     // In the multi view the zoom keys zoom the primary in its cell; with the
     // zoom lock every other cell follows (MultiViewStage). Without the lock
     // they zoom the cell under the pointer.
@@ -806,44 +823,44 @@ export const useKeyboardShortcuts = ({
       },
       color_label_none: {
         shouldFire: () => true,
-        execute: (e) => {
+        execute: (e, s) => {
           e.preventDefault();
-          handleSetColorLabel(null);
+          handleSetColorLabel(null, shownOnly(s));
         },
       },
       color_label_red: {
         shouldFire: () => true,
-        execute: (e) => {
+        execute: (e, s) => {
           e.preventDefault();
-          handleSetColorLabel('red');
+          handleSetColorLabel('red', shownOnly(s));
         },
       },
       color_label_yellow: {
         shouldFire: () => true,
-        execute: (e) => {
+        execute: (e, s) => {
           e.preventDefault();
-          handleSetColorLabel('yellow');
+          handleSetColorLabel('yellow', shownOnly(s));
         },
       },
       color_label_green: {
         shouldFire: () => true,
-        execute: (e) => {
+        execute: (e, s) => {
           e.preventDefault();
-          handleSetColorLabel('green');
+          handleSetColorLabel('green', shownOnly(s));
         },
       },
       color_label_blue: {
         shouldFire: () => true,
-        execute: (e) => {
+        execute: (e, s) => {
           e.preventDefault();
-          handleSetColorLabel('blue');
+          handleSetColorLabel('blue', shownOnly(s));
         },
       },
       color_label_purple: {
         shouldFire: () => true,
-        execute: (e) => {
+        execute: (e, s) => {
           e.preventDefault();
-          handleSetColorLabel('purple');
+          handleSetColorLabel('purple', shownOnly(s));
         },
       },
       brush_size_up: {

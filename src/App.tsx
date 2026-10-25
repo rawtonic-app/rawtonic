@@ -517,6 +517,7 @@ function App() {
           onSelect={handleLibraryImageSingleClick}
           onFilmSelect={handleImageClick}
           onOpen={handleImageSelect}
+          onShow={(path) => handleImageSelect(path, false)}
           onNavigate={handleSelectSubfolder}
           onSelectAlbum={(id, name, paths, preserveEditor) => handleSelectAlbum(id, name, paths, preserveEditor)}
           onBack={handleBackToLibrary}

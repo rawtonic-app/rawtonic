@@ -20,3 +20,15 @@ export function viewerShown(ui: ViewerModeState): boolean {
 export function libraryViewer(ui: ViewerModeState): boolean {
   return ui.activeView !== 'editor' && (ui.libraryLoupe || ui.isFullScreen);
 }
+
+/** The photograph only shown, not edited: the Library's loupe or any full
+ * screen (Develop's tools are put aside meanwhile). */
+export function viewerOnly(ui: ViewerModeState): boolean {
+  return ui.isFullScreen || libraryViewer(ui);
+}
+
+/** What P, U and ⇧X flag: the photograph shown in Develop, the loupe or the
+ * full screen, else the Library's selection. */
+export function flagTargets(ui: ViewerModeState, shownPath: string | null | undefined, selection: string[]): string[] {
+  return viewerShown(ui) && shownPath ? [shownPath] : [...selection];
+}

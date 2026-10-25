@@ -189,3 +189,30 @@ it("keeps the crop key from opening the crop tool in the full screen", () => {
   press("KeyS");
   expect(useUIStore.getState().activePanel).toBe(Panel.Adjustments);
 });
+
+it("rates and labels only the photograph shown in the full screen and the loupe, not the rest of the selection", () => {
+  useLibraryStore.setState({ multiSelectedPaths: ["/s/a.dng", "/s/b.dng", "/s/c.dng"], imageRatings: {} });
+  useUIStore.setState({ activeView: "editor", isFullScreen: true });
+  press("Digit2", { key: "2" });
+  expect(useLibraryStore.getState().imageRatings).toEqual({ "/s/b.dng": 2 });
+  useUIStore.setState({ activeView: "library", isFullScreen: false, libraryLoupe: true });
+  press("Digit5", { key: "5" });
+  expect(useLibraryStore.getState().imageRatings).toEqual({ "/s/b.dng": 5 });
+});
+
+it("keeps the crop Escape restores across a full screen in the middle of cropping", () => {
+  const before = { x: 0, y: 0, width: 100, height: 100, unit: "%" };
+  const edited = { x: 10, y: 10, width: 50, height: 50, unit: "%" };
+  useUIStore.setState({ activeView: "editor", activePanel: Panel.Adjustments });
+  useEditorStore.setState((s) => ({ adjustments: { ...s.adjustments, crop: before } as never }));
+  useUIStore.getState().setPanel(Panel.Crop);
+  useEditorStore.setState((s) => ({ adjustments: { ...s.adjustments, crop: edited } as never }));
+  // F: the crop tool is put aside and comes back after (StudioWorkspace).
+  useUIStore.setState({ isFullScreen: true });
+  useUIStore.getState().setPanel(Panel.Adjustments);
+  useUIStore.setState({ isFullScreen: false });
+  useUIStore.getState().setPanel(Panel.Crop);
+  press("Escape");
+  expect(useEditorStore.getState().adjustments.crop).toEqual(before);
+  expect(useUIStore.getState().activePanel).toBe(Panel.Adjustments);
+});

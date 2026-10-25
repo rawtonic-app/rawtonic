@@ -76,6 +76,7 @@ import i18n from "i18next";
 import { catalogChanged } from "../../utils/catalogWrites";
 import "./session.css";
 import { noteTool } from "../contribute/usageStats";
+import { flagTargets } from "../../utils/viewerMode";
 
 export interface SessionSummary {
   directory: string;
@@ -837,11 +838,10 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const mark = useCallback(
     (flag: number, only?: string[]) => {
       const selectedImage = useEditorStore.getState().selectedImage;
+      // Develop, the loupe and the full screen flag the photograph shown.
       const paths = only
         ? [...only]
-        : useUIStore.getState().activeView === "editor" && selectedImage
-          ? [selectedImage.path]
-          : [...useLibraryStore.getState().multiSelectedPaths];
+        : flagTargets(useUIStore.getState(), selectedImage?.path, useLibraryStore.getState().multiSelectedPaths);
       if (!session || paths.length === 0) return;
       // Rapid P/X/U commands must reach SQLite in keyboard order. Apply only
       // acknowledged changes, and never paint a previous session's response.

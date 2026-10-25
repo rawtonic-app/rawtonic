@@ -79,6 +79,7 @@ import { useEdgePeek } from "./useEdgePeek";
 import { useQuickAdjust } from "./useQuickAdjust";
 import { storedStudioLayout } from "../../store/useUIStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
+import { useRelightStore } from "../../store/useRelightStore";
 import { splitViewAvailable } from "../../utils/beforeAfter";
 import {
   moduleOf,
@@ -113,6 +114,8 @@ interface Props {
   onSelect(path: string, event: MouseEvent): void;
   onFilmSelect(path: string, event: MouseEvent): void;
   onOpen(path: string): void;
+  /** Shows a photograph in the Library's loupe or full screen (no Develop). */
+  onShow?(path: string): void;
   onNavigate(path: string): void;
   /** Shows a list of photographs as an album in the grid. */
   onSelectAlbum?(id: string, name: string, paths: string[], preserveEditor?: boolean): void;
@@ -337,17 +340,29 @@ export default function StudioWorkspace(props: Props) {
   // mask and picker states must not draw over it or take its clicks. They
   // are put aside and come back with Develop (same photograph).
   const viewOnly = libraryViewer || isFullScreen;
-  const suspended = useRef<{ path: string | null; panel: Panel | null; layer: string | null } | null>(null);
+  const suspended = useRef<{
+    path: string | null;
+    panel: Panel | null;
+    layer: string | null;
+    spot: boolean;
+    faces: boolean;
+    relightHandles: boolean;
+  } | null>(null);
   useEffect(() => {
     const ui = useUIStore.getState();
     const editor = useEditorStore.getState();
+    const relight = useRelightStore.getState();
     if (viewOnly) {
       suspended.current ??= {
         path: editor.selectedImage?.path ?? null,
         panel: ui.activePanel,
         layer: editor.activeMaskContainerId,
+        spot: editor.isSpotToolActive,
+        faces: editor.showFaceBlemishes,
+        relightHandles: relight.showHandles,
       };
       if (ui.activePanel === Panel.Crop || ui.activePanel === Panel.Masks) ui.setPanel(Panel.Adjustments);
+      // Every tool that edits on a click or drag, or draws its handles.
       editor.setEditor({
         activeMaskContainerId: null,
         activeMaskId: null,
@@ -356,16 +371,44 @@ export default function StudioWorkspace(props: Props) {
         lumaPickerLayer: null,
         tatTarget: null,
         isStraightenActive: false,
+        isRotationActive: false,
+        isGuidedPerspectiveActive: false,
+        isSpotToolActive: false,
+        showFaceBlemishes: false,
       });
+      useRelightStore.setState({ showHandles: false });
       return;
     }
     const saved = suspended.current;
-    if (!saved || !develop) return;
+    if (!saved) return;
+    // Handles of the panels are shown again wherever the view goes.
+    useRelightStore.setState({ showHandles: saved.relightHandles });
+    if (!develop) return;
     suspended.current = null;
     if (saved.path !== editor.selectedImage?.path) return;
     if (saved.panel === Panel.Crop || saved.panel === Panel.Masks) ui.setPanel(saved.panel);
-    if (saved.layer) editor.setEditor({ activeMaskContainerId: saved.layer });
+    editor.setEditor({
+      ...(saved.layer ? { activeMaskContainerId: saved.layer } : {}),
+      isSpotToolActive: saved.spot,
+      showFaceBlemishes: saved.faces,
+    });
   }, [viewOnly, develop]);
+  // In the Library a photograph that stops matching the filter (rated
+  // while culling) gives way to the one now in its place; with none left
+  // the grid comes back.
+  const shownIndex = useRef(-1);
+  const shownPath = selectedImage?.path;
+  useEffect(() => {
+    if (!libraryViewer || !shownPath) return;
+    const index = files.findIndex((file) => file.path === shownPath);
+    if (index >= 0) {
+      shownIndex.current = index;
+      return;
+    }
+    const next = files[Math.min(Math.max(shownIndex.current, 0), files.length - 1)];
+    if (next && props.onShow) props.onShow(next.path);
+    else useUIStore.getState().setUI({ libraryLoupe: false, isFullScreen: false });
+  }, [libraryViewer, shownPath, files, props.onShow]);
   // The photograph alone covers the whole screen (photoFullScreen).
   const fullScreenSeen = useRef(isFullScreen);
   useEffect(() => {
@@ -894,6 +937,13 @@ export default function StudioWorkspace(props: Props) {
         setToolPopover({ x: rect.left, y: rect.bottom });
       }}
       onPointerDownCapture={(e) => {
+        // Shown only (loupe, full screen): Shift-drag (straighten) and a
+        // ⌘/Ctrl double-click (crop reset) would edit; they do nothing.
+        if (viewOnly && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
         if (!(
           e.target instanceof Element &&
           e.target.closest("button,input,select,textarea")
