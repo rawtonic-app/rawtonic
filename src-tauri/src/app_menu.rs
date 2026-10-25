@@ -99,6 +99,8 @@ pub struct ItemState {
     pub enabled: Option<bool>,
     #[serde(default)]
     pub checked: Option<bool>,
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 /// The webview command a menu item id names, if it is a command item.
@@ -469,8 +471,8 @@ pub fn set_app_menu(app: tauri::AppHandle, spec: MenuSpec) -> Result<(), String>
     Ok(())
 }
 
-/// Sets enabled/checked of the shown menu's command items; unknown ids
-/// (a tree being replaced) are skipped.
+/// Sets command labels and enabled/checked state; unknown ids in a tree
+/// being replaced are skipped.
 #[tauri::command]
 pub fn set_app_menu_state(app: tauri::AppHandle, items: Vec<ItemState>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -484,6 +486,9 @@ pub fn set_app_menu_state(app: tauri::AppHandle, items: Vec<ItemState>) -> Resul
         for update in &items {
             match shown.get(&update.id) {
                 Some(MenuItemKind::MenuItem(item)) => {
+                    if let Some(label) = &update.label {
+                        item.set_text(label).map_err(|e| e.to_string())?;
+                    }
                     if let Some(enabled) = update.enabled {
                         item.set_enabled(enabled).map_err(|e| e.to_string())?;
                     }
@@ -766,7 +771,7 @@ mod tests {
     #[test]
     fn state_updates_and_trees_parse_from_the_webview_shape() {
         let states: Vec<ItemState> = serde_json::from_str(
-            r#"[{"id":"cmd:undo","enabled":false},{"id":"cmd:view_develop","checked":true}]"#,
+            r#"[{"id":"cmd:undo","enabled":false,"label":"Undo Set Rating"},{"id":"cmd:view_develop","checked":true}]"#,
         )
         .unwrap();
         assert_eq!(
@@ -774,10 +779,12 @@ mod tests {
             ItemState {
                 id: "cmd:undo".into(),
                 enabled: Some(false),
-                checked: None
+                checked: None,
+                label: Some("Undo Set Rating".into()),
             }
         );
         assert_eq!(states[1].checked, Some(true));
+        assert_eq!(states[1].label, None);
         let node: MenuNode =
             serde_json::from_str(r#"{"kind":"item","id":"cmd:x","label":"X"}"#).unwrap();
         assert!(matches!(

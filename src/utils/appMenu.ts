@@ -91,8 +91,7 @@ export const MENU_LAYOUT: TopMenu[] = [
   {
     menu: 'edit',
     items: [
-      // The app's history (Develop: the photograph's edits, Library: the
-      // file operations); in a text field its own (useAppMenu).
+      // Shared metadata/edit/file history; a focused text field keeps its own.
       c('undo'),
       c('redo', { preferCombo: ['ctrl', 'shift', 'KeyZ'] }),
       'separator',
@@ -263,6 +262,7 @@ export function buildMenuSpec(
   keybinds?: Record<string, string[]> | null,
   enabled: (command: string) => boolean = appCommandEnabled,
   app = 'Rawtonic',
+  historyLabels: Partial<Record<'undo' | 'redo', string>> = {},
 ): BuiltMenu {
   const definitions = new Map(KEYBIND_DEFINITIONS.map((def) => [def.action, def]));
   const combos = new Map<string, string>();
@@ -275,7 +275,7 @@ export function buildMenuSpec(
     const node: Extract<MenuNode, { kind: 'item' }> = {
       kind: 'item',
       id: `${MENU_ID_PREFIX}${entry.command}`,
-      label,
+      label: (entry.command === 'undo' || entry.command === 'redo') ? (historyLabels[entry.command] ?? label) : label,
       enabled: enabled(entry.command),
     };
     if (def) {
@@ -347,14 +347,23 @@ export function menuCommands(): string[] {
 
 export interface MenuItemState {
   id: string;
+  label?: string;
   enabled: boolean;
   checked?: boolean;
 }
 
-/** The enabled and checked state of every command item now. */
-export function menuItemStates(menu: BuiltMenu, enabled: (command: string) => boolean = appCommandEnabled): MenuItemState[] {
+/** Live history labels and enabled/checked state of every command item. */
+export function menuItemStates(
+  menu: BuiltMenu,
+  enabled: (command: string) => boolean = appCommandEnabled,
+  historyLabels: Partial<Record<'undo' | 'redo', string>> = {},
+): MenuItemState[] {
   return menu.commands.map((command) => {
     const state: MenuItemState = { id: `${MENU_ID_PREFIX}${command}`, enabled: enabled(command) };
+    if (command === 'undo' || command === 'redo') {
+      const label = historyLabels[command];
+      if (label !== undefined) state.label = label;
+    }
     if (menu.checks.has(command)) state.checked = !!appCommand(command)?.checked?.();
     return state;
   });

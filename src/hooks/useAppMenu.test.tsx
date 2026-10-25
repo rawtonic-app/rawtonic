@@ -1,3 +1,6 @@
+import i18n from 'i18next';
+import { catalogAction, undo, getUndoLabel, getRedoLabel, useCatalogUndoStore } from '../utils/appUndo';
+import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
@@ -44,6 +47,9 @@ const choose = (command: string) => act(() => listeners.get(APP_MENU_COMMAND_EVE
 let clock = 1_000;
 beforeEach(async () => {
   vi.clearAllMocks();
+  debouncedSetHistory.cancel();
+  useCatalogUndoStore.setState(useCatalogUndoStore.getInitialState());
+  useEditorStore.setState(useEditorStore.getInitialState());
   clock = 1_000;
   vi.spyOn(performance, 'now').mockImplementation(() => clock);
   useSettingsStore.setState({ appSettings: { keybinds: {} } as unknown as AppSettings, osPlatform: 'macos' });
@@ -63,6 +69,31 @@ afterEach(() => {
 });
 
 describe('the macOS menu bar', () => {
+  it('updates Undo/Redo action labels and availability as metadata history changes', async () => {
+    act(() => useUIStore.setState({ activeView: 'editor' }));
+    const latest = (id: string) => vi.mocked(invoke).mock.calls
+      .filter(([name]) => name === Invokes.SetAppMenuState)
+      .flatMap(([, args]) => (args as { items: { id: string; enabled: boolean; label?: string }[] }).items)
+      .filter((item) => item.id === id).at(-1);
+    await act(() => new Promise((resolve) => setTimeout(resolve, 150)));
+    expect(latest('cmd:undo')).toMatchObject({ enabled: false });
+    await act(async () => catalogAction('rating', async () => [{
+      path: '/a.nef', before: { kind: 'rating', value: 0 }, after: { kind: 'rating', value: 4 },
+    }]));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 150)));
+    expect(latest('cmd:undo')).toMatchObject({ enabled: true, label: getUndoLabel() });
+    vi.mocked(invoke).mockResolvedValueOnce([]);
+    await act(async () => undo());
+    await act(() => new Promise((resolve) => setTimeout(resolve, 150)));
+    expect(latest('cmd:undo')).toMatchObject({ enabled: false });
+    expect(latest('cmd:redo')).toMatchObject({ enabled: true, label: getRedoLabel() });
+    const field = document.createElement('input');
+    document.body.append(field);
+    act(() => field.focus());
+    await act(() => new Promise((resolve) => setTimeout(resolve, 150)));
+    expect(latest('cmd:redo')).toMatchObject({ enabled: true, label: i18n.t('appMenu.items.redo') });
+  });
+
   it('sends the tree built from the shortcut table', () => {
     const call = vi.mocked(invoke).mock.calls.find(([name]) => name === Invokes.SetAppMenu);
     expect(call).toBeTruthy();
@@ -186,12 +217,12 @@ describe('the macOS menu bar', () => {
     // The commands registered after the tree was built.
     await wait();
     expect(updates()).toHaveLength(1);
-    expect(updates()[0][1]).toMatchObject({ items: expect.arrayContaining([{ id: 'cmd:undo', enabled: true }]) });
+    expect(updates()[0][1]).toMatchObject({ items: expect.arrayContaining([expect.objectContaining({ id: 'cmd:undo', enabled: true })]) });
     useUIStore.setState({ isSettingsOpen: true });
     await wait();
     expect(updates()).toHaveLength(2);
     const items = (updates()[1][1] as { items: { id: string; enabled: boolean }[] }).items;
-    expect(items).toContainEqual({ id: 'cmd:undo', enabled: false });
+    expect(items).toContainEqual(expect.objectContaining({ id: 'cmd:undo', enabled: false }));
     expect(items.every((item) => item.enabled === false)).toBe(true);
     // Nothing changed since: nothing more is sent.
     useUIStore.setState({ gridColumns: 7 });
@@ -218,8 +249,8 @@ describe('the macOS menu bar', () => {
     renderHook(() => useAppMenu());
     const call = vi.mocked(invoke).mock.calls.find(([name]) => name === Invokes.SetAppMenu)!;
     const items = JSON.stringify(call[1]);
-    expect(items).toContain('"id":"cmd:view_grid","label":"appMenu.items.view_grid","enabled":false');
-    expect(items).toContain('"id":"cmd:about","label":"appMenu.items.about","enabled":true');
+    expect(items).toContain(JSON.stringify({ kind: 'item', id: 'cmd:view_grid', label: i18n.t('appMenu.items.view_grid'), enabled: false, checked: false }));
+    expect(items).toContain(JSON.stringify({ kind: 'item', id: 'cmd:about', label: i18n.t('appMenu.items.about', { app: 'Rawtonic' }), enabled: true }));
     stop();
   });
 

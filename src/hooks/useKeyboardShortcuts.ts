@@ -22,7 +22,7 @@ import { orderedSelection, stepPrimary } from '../utils/multiView';
 import { AUTO_ADVANCE_EVENT, autoAdvanceTarget, requestAutoAdvance } from '../utils/photoStepping';
 import { isTetherConnected, TETHER_CAPTURE_EVENT } from '../components/session/tether';
 import { flagTargets, libraryViewer, viewerOnly, viewerShown } from '../utils/viewerMode';
-import { canUndo, canRedo, undo, redo, catalogUndoAvailable } from '../utils/appUndo';
+import { canUndo, canRedo, undo, redo, catalogUndoAvailable, useCatalogUndoStore } from '../utils/appUndo';
 import { pointerHeld } from '../utils/heldPointer';
 import { COMMAND_DIALOG_SELECTOR, registerAppCommands, runAppCommand, type AppCommand } from '../utils/appCommands';
 
@@ -576,14 +576,14 @@ export const useKeyboardShortcuts = ({
         },
       },
       undo: {
-        shouldFire: (s) => canUndo() || (s.ui.activeView !== 'editor' && !!handleUndoFileOperation),
+        shouldFire: (s) => canUndo() || (s.ui.activeView !== 'editor' && !!handleUndoFileOperation && !useCatalogUndoStore.getState().busy && !useCatalogUndoStore.getState().fileUndoEmpty),
         execute: (e, s) => {
           e.preventDefault();
           void undo(s.ui.activeView !== 'editor' ? handleUndoFileOperation : undefined);
         },
       },
       redo: {
-        shouldFire: (s) => canRedo() || (s.ui.activeView !== 'editor' && !!handleRedoFileOperation),
+        shouldFire: (s) => canRedo() || (s.ui.activeView !== 'editor' && !!handleRedoFileOperation && !useCatalogUndoStore.getState().busy && !useCatalogUndoStore.getState().fileRedoBlocked),
         execute: (e, s) => {
           e.preventDefault();
           void redo(s.ui.activeView !== 'editor' ? handleRedoFileOperation : undefined);
