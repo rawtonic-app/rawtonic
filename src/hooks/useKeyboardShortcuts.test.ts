@@ -779,11 +779,26 @@ describe("auto-advance after a rating", () => {
     useUIStore.setState({ isFullScreen: false });
   });
 
+  it("steps back while the next photograph loads, whatever the rated one's history", () => {
+    open("/s/a.NEF", true);
+    // The rated photograph was edited: its history is still shown while
+    // the next one loads (no decode in memory yet).
+    useEditorStore.setState({ history: [{}, {}, {}, {}] as never, historyIndex: 3, historyPending: false });
+    press("Digit4", "4");
+    stepTo("/s/b.NEF");
+    vi.clearAllMocks();
+    undo();
+    expect(props.handleImageSelect).toHaveBeenCalledExactlyOnceWith("/s/a.NEF", true);
+    expect(useLibraryStore.getState().imageRatings["/s/a.NEF"] ?? 0).toBe(0);
+  });
+
   it("keeps Undo for the next photograph's edits once it was edited or left", () => {
     open("/s/a.NEF", true);
     press("Digit4", "4");
     stepTo("/s/b.NEF");
-    useEditorStore.setState({ historyIndex: 1, historyPending: false });
+    // Its recipe in (its own history), then an edit.
+    useEditorStore.setState({ history: [{}] as never, historyIndex: 0, historyPending: false });
+    useEditorStore.setState({ history: [{}, {}] as never, historyIndex: 1 });
     vi.clearAllMocks();
     undo();
     expect(useLibraryStore.getState().imageRatings["/s/a.NEF"]).toBe(4);

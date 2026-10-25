@@ -186,7 +186,9 @@ export const useKeyboardShortcuts = ({
   // Undo right after such a step, before anything is edited on the next
   // photograph, goes back and gives the rated one its previous rating or
   // flag (Lightroom's Undo of the rating).
-  const lastAdvance = useRef<{ from: string; to: string; restore: () => void } | null>(null);
+  // `ownHistory`: the edit history shown is the next photograph's (it
+  // replaces the rated one's once that photograph's recipe is in).
+  const lastAdvance = useRef<{ from: string; to: string; restore: () => void; ownHistory: boolean } | null>(null);
   // The loupe and the full screen of the Library keep it (the photograph
   // becomes the Library's selection); Develop opens it.
   const showInViewer = useCallback(
@@ -214,14 +216,15 @@ export const useKeyboardShortcuts = ({
       );
       if (!next) return;
       showInViewer(next);
-      lastAdvance.current = { from: rated, to: next, restore };
+      lastAdvance.current = { from: rated, to: next, restore, ownHistory: false };
     };
     window.addEventListener(AUTO_ADVANCE_EVENT, advance);
     // Any other photograph opened, or the next one rated, flagged or
     // labelled otherwise (a click on its stars), ends what Undo takes back.
-    const unsubscribeEditor = useEditorStore.subscribe((state) => {
+    const unsubscribeEditor = useEditorStore.subscribe((state, previous) => {
       const last = lastAdvance.current;
       if (last && state.selectedImage?.path !== last.to) lastAdvance.current = null;
+      else if (last && state.history !== previous.history) last.ownHistory = true;
     });
     const unsubscribeLibrary = useLibraryStore.subscribe((state, previous) => {
       const last = lastAdvance.current;
@@ -307,11 +310,13 @@ export const useKeyboardShortcuts = ({
       (s.ui.isFullScreen || libraryViewer(s.ui)) && s.editor.selectedImage ? [s.editor.selectedImage.path] : undefined;
     const ratedPaths = (s: ShortcutState) =>
       shownOnly(s) ?? (multiViewActive(s) && s.editor.selectedImage ? [s.editor.selectedImage.path] : undefined);
+    // Nothing edited on the next photograph yet: its history not in yet (the
+    // rated one's is still shown while it loads), or at its start.
     const undoesAdvance = (s: ShortcutState) =>
       !!lastAdvance.current &&
       s.editor.selectedImage?.path === lastAdvance.current.to &&
       !s.editor.historyPending &&
-      s.editor.historyIndex === 0;
+      (!lastAdvance.current.ownHistory || s.editor.historyIndex === 0);
     const rateAndAdvance = (rating: number, s: ShortcutState) => {
       const rated = s.editor.selectedImage?.path;
       // Every photograph rated (its grouped files too) gets its own back.

@@ -1251,6 +1251,24 @@ pub struct WgpuDisplay {
     multi: MultiView,
 }
 
+/// The texture of a still frame: bound like a developed frame, and copied
+/// like one when the multi view keeps the frame shown as a cell's
+/// (`MultiView::adopt_live_frame`).
+pub fn still_texture_descriptor(size: wgpu::Extent3d) -> wgpu::TextureDescriptor<'static> {
+    wgpu::TextureDescriptor {
+        label: Some("Display Still"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_DST
+            | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    }
+}
+
 /// Re-encodes sRGB pixels (a cached thumbnail) in place for a display whose
 /// frames are encoded in `space` (`GpuContext::display_space`), so a still
 /// shows the colours the developed frame will.
@@ -1574,16 +1592,7 @@ impl WgpuDisplay {
             height,
             depth_or_array_layers: 1,
         };
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Display Still"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
+        let texture = device.create_texture(&still_texture_descriptor(size));
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &texture,
