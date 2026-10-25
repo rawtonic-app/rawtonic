@@ -1,0 +1,188 @@
+import "../../i18n";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { invoke } from "@tauri-apps/api/core";
+import { ToolGroup } from "./StudioDevelop";
+import { useEditorStore } from "../../store/useEditorStore";
+import { useLibraryStore } from "../../store/useLibraryStore";
+import { useSettingsStore } from "../../store/useSettingsStore";
+import { usePresetStore, type UserPreset } from "../../hooks/usePresets";
+import { debouncedSave, debouncedSetHistory } from "../../hooks/useEditorActions";
+import { resetBuiltinPresets } from "../../utils/builtinPresets";
+import { INITIAL_ADJUSTMENTS, type Adjustments } from "../../utils/adjustments";
+import type { AppSettings, Preset } from "../ui/AppProperties";
+import type { ToolParams } from "./StudioToolCopy";
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+const mockInvoke = vi.mocked(invoke);
+
+const GRAIN: ToolParams = [
+  ["grainAmount", "Amount"],
+  ["grainSize", "Size"],
+  ["grainRoughness", "Roughness"],
+  ["grainStructure", "Structure"],
+];
+const builtins: Omit<Preset, "builtin">[] = [
+  {
+    id: "grain-fine",
+    version: 1,
+    name: "Fine",
+    presetType: "tool",
+    adjustments: { grainAmount: 18, grainSize: 12, grainRoughness: 30, grainStructure: "even", grainVersion: 2 },
+  },
+  { id: "vignette-subtle", version: 1, name: "Subtle", presetType: "tool", adjustments: { vignetteAmount: -15 } },
+  { id: "bw-soft", version: 1, name: "B&W soft", presetType: "style", adjustments: { blackAndWhite: true, contrast: -18 } },
+  { id: "grain-style", version: 1, name: "Grain look", presetType: "style", adjustments: { grainAmount: 30, grainVersion: 2 } },
+];
+let stored: UserPreset[] | null;
+
+beforeEach(() => {
+  stored = [
+    { preset: { id: "mine", name: "My grain", presetType: "tool", adjustments: { grainAmount: 50, grainVersion: 2 } } },
+    { preset: { id: "look", name: "Mixed look", presetType: "tool", adjustments: { grainAmount: 10, contrast: 20 } } },
+  ];
+  resetBuiltinPresets();
+  usePresetStore.setState({ presets: [], isLoading: true });
+  mockInvoke.mockReset();
+  mockInvoke.mockImplementation(async (command) => {
+    // No presets.json yet: load_presets fails or returns nothing.
+    if (command === "load_presets") {
+      if (stored === null) throw new Error("presets.json: No such file");
+      return stored;
+    }
+    if (command === "load_builtin_presets") return builtins;
+    if (command === "load_metadata") return {};
+    return undefined;
+  });
+  const adjustments = { ...INITIAL_ADJUSTMENTS, grainAmount: 40, grainSize: 33, grainVersion: 2 } as Adjustments;
+  useEditorStore.setState({
+    selectedImage: { path: "/job/a.arw", isReady: true, isRaw: true } as never,
+    adjustments,
+    history: [adjustments],
+    historyIndex: 0,
+    previewOverride: null,
+  });
+  useLibraryStore.setState({ multiSelectedPaths: ["/job/a.arw"] });
+  useSettingsStore.setState({ appSettings: {} as AppSettings });
+});
+afterEach(() => {
+  cleanup();
+  debouncedSave.cancel();
+  debouncedSetHistory.cancel();
+});
+
+const renderTool = async (title = "Grain", copy: ToolParams | null = GRAIN) => {
+  render(
+    <div className="studio-workspace">
+      <ToolGroup title={title} label={title} copy={copy ?? undefined}>
+        <span />
+      </ToolGroup>
+    </div>,
+  );
+  await act(async () => {});
+};
+const openMenu = async (tool = "Grain") => {
+  fireEvent.click(screen.getByRole("button", { name: `${tool} presets` }));
+  await act(async () => {});
+  return screen.getByRole("dialog", { name: `${tool} presets` });
+};
+
+describe("Tool preset menu", () => {
+  it("shows only on tools that opted in by their id, and only with parameters", async () => {
+    await renderTool("Grain");
+    expect(screen.getByRole("button", { name: "Grain presets" })).toBeTruthy();
+    cleanup();
+    await renderTool("Exposure", [["exposure", "Exposure"]]);
+    expect(screen.queryByRole("button", { name: "Exposure presets" })).toBeNull();
+    cleanup();
+    // On a layer the tool has no copy parameters, hence no menu.
+    await renderTool("Grain", null);
+    expect(screen.queryByRole("button", { name: "Grain presets" })).toBeNull();
+  });
+
+  it("lists the tool's built-ins and the user's presets of this tool only", async () => {
+    await renderTool();
+    const menu = await openMenu();
+    const builtin = within(menu).getByRole("group", { name: "Built-in" });
+    expect(within(builtin).getAllByRole("button").map((b) => b.textContent)).toEqual(["Fine"]);
+    const mine = within(menu).getByRole("group", { name: "My presets" });
+    expect(within(mine).getByRole("button", { name: "My grain" })).toBeTruthy();
+    // A preset that also sets another tool's settings is not this tool's.
+    expect(within(menu).queryByRole("button", { name: "Mixed look" })).toBeNull();
+  });
+
+  it("keeps the built-ins when there is no presets file", async () => {
+    stored = null;
+    await renderTool();
+    const menu = await openMenu();
+    expect(within(menu).getByRole("button", { name: "Fine" })).toBeTruthy();
+    expect(within(menu).getByText("None saved yet")).toBeTruthy();
+  });
+
+  it("hides the built-ins when Preferences turn them off", async () => {
+    useSettingsStore.setState({ appSettings: { showBuiltinPresets: false } as AppSettings });
+    await renderTool();
+    const menu = await openMenu();
+    expect(within(menu).queryByRole("group", { name: "Built-in" })).toBeNull();
+  });
+
+  it("previews on hover through the renderer and applies a click as one history step", async () => {
+    await renderTool();
+    const menu = await openMenu();
+    const fine = within(menu).getByRole("button", { name: "Fine" });
+    fireEvent.mouseEnter(fine);
+    expect(useEditorStore.getState().previewOverride).toMatchObject({ grainAmount: 18, grainStructure: "even" });
+    expect(useEditorStore.getState().adjustments.grainAmount).toBe(40);
+    fireEvent.mouseLeave(fine);
+    expect(useEditorStore.getState().previewOverride).toBeNull();
+
+    fireEvent.mouseEnter(fine);
+    fireEvent.click(fine);
+    await act(async () => debouncedSetHistory.flush());
+    const { adjustments, history, historyIndex, previewOverride } = useEditorStore.getState();
+    expect(previewOverride).toBeNull();
+    expect(adjustments).toMatchObject({ grainAmount: 18, grainSize: 12, grainRoughness: 30, grainStructure: "even", grainVersion: 2 });
+    expect(history).toHaveLength(2);
+    expect(historyIndex).toBe(1);
+    // The menu closes after applying.
+    expect(screen.queryByRole("dialog", { name: "Grain presets" })).toBeNull();
+  });
+
+  it("saves the tool's current settings as a preset in the tool's folder", async () => {
+    await renderTool();
+    const menu = await openMenu();
+    fireEvent.click(within(menu).getByRole("button", { name: "Save current as preset…" }));
+    fireEvent.change(within(menu).getByRole("textbox"), { target: { value: "Thirty-three" } });
+    fireEvent.submit(within(menu).getByRole("form", { name: "Save current as preset…" }));
+    const folder = usePresetStore.getState().presets.find((item) => item.folder?.name === "Grain")?.folder;
+    expect(folder?.children).toHaveLength(1);
+    const saved = folder!.children[0];
+    expect(saved).toMatchObject({ name: "Thirty-three", presetType: "tool" });
+    // Only this tool's settings, with the version they render by.
+    expect(saved.adjustments).toEqual({
+      grainAmount: 40,
+      grainSize: 33,
+      grainRoughness: INITIAL_ADJUSTMENTS.grainRoughness,
+      grainStructure: undefined,
+      grainVersion: 2,
+    });
+    expect(within(menu).getByRole("button", { name: "Thirty-three" })).toBeTruthy();
+    // Written to the presets file when the menu closes.
+    fireEvent.keyDown(window, { key: "Escape" });
+    await act(async () => {});
+    const save = mockInvoke.mock.calls.find(([command]) => command === "save_presets");
+    expect(JSON.stringify(save?.[1])).toContain("Thirty-three");
+  });
+
+  it("deletes one of the user's presets after asking", async () => {
+    await renderTool();
+    const menu = await openMenu();
+    fireEvent.click(within(menu).getByRole("button", { name: "Delete preset “My grain”" }));
+    const confirm = within(menu).getByRole("alertdialog");
+    fireEvent.click(within(confirm).getByRole("button", { name: "Delete" }));
+    expect(within(menu).queryByRole("button", { name: "My grain" })).toBeNull();
+    expect(usePresetStore.getState().presets.some((item) => item.preset?.id === "mine")).toBe(false);
+    // Built-ins have no delete.
+    expect(within(menu).queryByRole("button", { name: /Delete preset “Fine”/ })).toBeNull();
+  });
+});

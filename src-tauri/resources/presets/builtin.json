@@ -1,0 +1,909 @@
+{
+  "format": 1,
+  "presets": [
+    {
+      "id": "bw-neutral",
+      "version": 1,
+      "name": "B&W neutral",
+      "presetType": "style",
+      "adjustments": {
+        "blackAndWhite": true,
+        "grayMixer": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "green": 0,
+          "aqua": 0,
+          "blue": 0,
+          "purple": 0,
+          "magenta": 0
+        }
+      }
+    },
+    {
+      "id": "bw-high-contrast",
+      "version": 1,
+      "name": "B&W high contrast",
+      "presetType": "style",
+      "adjustments": {
+        "blackAndWhite": true,
+        "grayMixer": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "green": 0,
+          "aqua": 0,
+          "blue": 0,
+          "purple": 0,
+          "magenta": 0
+        },
+        "contrast": 25,
+        "whites": 15,
+        "blacks": -8,
+        "clarity": 12,
+        "clarityVersion": 2
+      }
+    },
+    {
+      "id": "bw-soft",
+      "version": 1,
+      "name": "B&W soft",
+      "presetType": "style",
+      "adjustments": {
+        "blackAndWhite": true,
+        "grayMixer": {
+          "red": 10,
+          "orange": 25,
+          "yellow": 15,
+          "green": 0,
+          "aqua": 0,
+          "blue": -15,
+          "purple": 0,
+          "magenta": 0
+        },
+        "contrast": -18,
+        "highlights": -25,
+        "shadows": 20,
+        "toneVersion": 2
+      }
+    },
+    {
+      "id": "bw-soft-matte",
+      "version": 1,
+      "name": "B&W soft matte",
+      "presetType": "style",
+      "adjustments": {
+        "blackAndWhite": true,
+        "grayMixer": {
+          "red": 10,
+          "orange": 25,
+          "yellow": 15,
+          "green": 0,
+          "aqua": 0,
+          "blue": -15,
+          "purple": 0,
+          "magenta": 0
+        },
+        "contrast": -12,
+        "highlights": -15,
+        "levels": {
+          "rgb": {
+            "inBlack": 0,
+            "inWhite": 255,
+            "gamma": 1,
+            "outBlack": 22,
+            "outWhite": 246
+          },
+          "red": {
+            "inBlack": 0,
+            "inWhite": 255,
+            "gamma": 1,
+            "outBlack": 0,
+            "outWhite": 255
+          },
+          "green": {
+            "inBlack": 0,
+            "inWhite": 255,
+            "gamma": 1,
+            "outBlack": 0,
+            "outWhite": 255
+          },
+          "blue": {
+            "inBlack": 0,
+            "inWhite": 255,
+            "gamma": 1,
+            "outBlack": 0,
+            "outWhite": 255
+          }
+        },
+        "grainAmount": 15,
+        "grainSize": 20,
+        "grainRoughness": 40,
+        "grainStructure": "soft",
+        "grainVersion": 2
+      }
+    },
+    {
+      "id": "bw-darker-skies",
+      "version": 1,
+      "name": "B&W darker skies",
+      "presetType": "style",
+      "adjustments": {
+        "blackAndWhite": true,
+        "grayMixer": {
+          "red": 20,
+          "orange": 15,
+          "yellow": 8,
+          "green": 0,
+          "aqua": -25,
+          "blue": -35,
+          "purple": -10,
+          "magenta": 0
+        },
+        "contrast": 10
+      }
+    },
+    {
+      "id": "bw-lighter-skin",
+      "version": 1,
+      "name": "B&W lighter skin tones",
+      "presetType": "style",
+      "adjustments": {
+        "blackAndWhite": true,
+        "grayMixer": {
+          "red": 10,
+          "orange": 25,
+          "yellow": 15,
+          "green": 0,
+          "aqua": 0,
+          "blue": -15,
+          "purple": 0,
+          "magenta": 0
+        },
+        "contrast": 5
+      }
+    },
+    {
+      "id": "bw-warm-tone",
+      "version": 1,
+      "name": "B&W warm tone",
+      "presetType": "style",
+      "adjustments": {
+        "blackAndWhite": true,
+        "grayMixer": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "green": 0,
+          "aqua": 0,
+          "blue": 0,
+          "purple": 0,
+          "magenta": 0
+        },
+        "colorGrading": {
+          "balance": 0,
+          "blending": 50,
+          "global": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          },
+          "highlights": {
+            "hue": 50,
+            "saturation": 12,
+            "luminance": 0
+          },
+          "midtones": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          },
+          "shadows": {
+            "hue": 35,
+            "saturation": 22,
+            "luminance": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "warm-fade",
+      "version": 1,
+      "name": "Warm fade",
+      "presetType": "style",
+      "adjustments": {
+        "contrast": -12,
+        "saturation": -15,
+        "levels": {
+          "rgb": {
+            "inBlack": 0,
+            "inWhite": 255,
+            "gamma": 1,
+            "outBlack": 20,
+            "outWhite": 248
+          },
+          "red": {
+            "inBlack": 0,
+            "inWhite": 255,
+            "gamma": 1,
+            "outBlack": 0,
+            "outWhite": 255
+          },
+          "green": {
+            "inBlack": 0,
+            "inWhite": 255,
+            "gamma": 1,
+            "outBlack": 0,
+            "outWhite": 255
+          },
+          "blue": {
+            "inBlack": 0,
+            "inWhite": 255,
+            "gamma": 1,
+            "outBlack": 0,
+            "outWhite": 255
+          }
+        },
+        "colorGrading": {
+          "balance": 0,
+          "blending": 50,
+          "global": {
+            "hue": 45,
+            "saturation": 6,
+            "luminance": 0
+          },
+          "highlights": {
+            "hue": 50,
+            "saturation": 10,
+            "luminance": 0
+          },
+          "midtones": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          },
+          "shadows": {
+            "hue": 40,
+            "saturation": 14,
+            "luminance": 10
+          }
+        }
+      }
+    },
+    {
+      "id": "cool-fade",
+      "version": 1,
+      "name": "Cool fade",
+      "presetType": "style",
+      "adjustments": {
+        "contrast": -10,
+        "saturation": -20,
+        "levels": {
+          "rgb": {
+            "inBlack": 0,
+            "inWhite": 255,
+            "gamma": 1,
+            "outBlack": 18,
+            "outWhite": 248
+          },
+          "red": {
+            "inBlack": 0,
+            "inWhite": 255,
+            "gamma": 1,
+            "outBlack": 0,
+            "outWhite": 255
+          },
+          "green": {
+            "inBlack": 0,
+            "inWhite": 255,
+            "gamma": 1,
+            "outBlack": 0,
+            "outWhite": 255
+          },
+          "blue": {
+            "inBlack": 0,
+            "inWhite": 255,
+            "gamma": 1,
+            "outBlack": 0,
+            "outWhite": 255
+          }
+        },
+        "colorGrading": {
+          "balance": 0,
+          "blending": 50,
+          "global": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          },
+          "highlights": {
+            "hue": 200,
+            "saturation": 6,
+            "luminance": 0
+          },
+          "midtones": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          },
+          "shadows": {
+            "hue": 215,
+            "saturation": 14,
+            "luminance": 8
+          }
+        }
+      }
+    },
+    {
+      "id": "muted-colour",
+      "version": 1,
+      "name": "Muted colour",
+      "presetType": "style",
+      "adjustments": {
+        "saturation": -25,
+        "vibrance": -10,
+        "contrast": -5
+      }
+    },
+    {
+      "id": "crisp-colour",
+      "version": 1,
+      "name": "Crisp colour",
+      "presetType": "style",
+      "adjustments": {
+        "contrast": 15,
+        "vibrance": 20,
+        "clarity": 10,
+        "clarityVersion": 2
+      }
+    },
+    {
+      "id": "grain-fine",
+      "version": 1,
+      "name": "Fine",
+      "presetType": "tool",
+      "adjustments": {
+        "grainAmount": 18,
+        "grainSize": 12,
+        "grainRoughness": 30,
+        "grainStructure": "even",
+        "grainVersion": 2
+      }
+    },
+    {
+      "id": "grain-medium",
+      "version": 1,
+      "name": "Medium",
+      "presetType": "tool",
+      "adjustments": {
+        "grainAmount": 32,
+        "grainSize": 28,
+        "grainRoughness": 50,
+        "grainStructure": "clumped",
+        "grainVersion": 2
+      }
+    },
+    {
+      "id": "grain-coarse",
+      "version": 1,
+      "name": "Coarse",
+      "presetType": "tool",
+      "adjustments": {
+        "grainAmount": 42,
+        "grainSize": 55,
+        "grainRoughness": 60,
+        "grainStructure": "soft",
+        "grainVersion": 2
+      }
+    },
+    {
+      "id": "grain-heavy",
+      "version": 1,
+      "name": "Heavy",
+      "presetType": "tool",
+      "adjustments": {
+        "grainAmount": 65,
+        "grainSize": 60,
+        "grainRoughness": 75,
+        "grainStructure": "gritty",
+        "grainVersion": 2
+      }
+    },
+    {
+      "id": "grain-speckled",
+      "version": 1,
+      "name": "Speckled",
+      "presetType": "tool",
+      "adjustments": {
+        "grainAmount": 35,
+        "grainSize": 30,
+        "grainRoughness": 50,
+        "grainStructure": "speckled",
+        "grainVersion": 2
+      }
+    },
+    {
+      "id": "grading-warm-up",
+      "version": 1,
+      "name": "Warm up",
+      "presetType": "tool",
+      "adjustments": {
+        "colorGrading": {
+          "balance": 0,
+          "blending": 50,
+          "global": {
+            "hue": 45,
+            "saturation": 10,
+            "luminance": 0
+          },
+          "highlights": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          },
+          "midtones": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          },
+          "shadows": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "grading-cool-down",
+      "version": 1,
+      "name": "Cool down",
+      "presetType": "tool",
+      "adjustments": {
+        "colorGrading": {
+          "balance": 0,
+          "blending": 50,
+          "global": {
+            "hue": 215,
+            "saturation": 10,
+            "luminance": 0
+          },
+          "highlights": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          },
+          "midtones": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          },
+          "shadows": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "grading-warm-shadows-cool-highlights",
+      "version": 1,
+      "name": "Warm shadows, cool highlights",
+      "presetType": "tool",
+      "adjustments": {
+        "colorGrading": {
+          "balance": 0,
+          "blending": 50,
+          "global": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          },
+          "highlights": {
+            "hue": 210,
+            "saturation": 16,
+            "luminance": 0
+          },
+          "midtones": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          },
+          "shadows": {
+            "hue": 35,
+            "saturation": 22,
+            "luminance": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "grading-cool-shadows-warm-highlights",
+      "version": 1,
+      "name": "Cool shadows, warm highlights",
+      "presetType": "tool",
+      "adjustments": {
+        "colorGrading": {
+          "balance": 0,
+          "blending": 50,
+          "global": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          },
+          "highlights": {
+            "hue": 45,
+            "saturation": 18,
+            "luminance": 0
+          },
+          "midtones": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          },
+          "shadows": {
+            "hue": 220,
+            "saturation": 22,
+            "luminance": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "grading-faded",
+      "version": 1,
+      "name": "Faded",
+      "presetType": "tool",
+      "adjustments": {
+        "colorGrading": {
+          "balance": 0,
+          "blending": 50,
+          "global": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          },
+          "highlights": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": -12
+          },
+          "midtones": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          },
+          "shadows": {
+            "hue": 45,
+            "saturation": 8,
+            "luminance": 40
+          }
+        }
+      }
+    },
+    {
+      "id": "grading-warm-tone",
+      "version": 1,
+      "name": "Warm tone",
+      "presetType": "tool",
+      "adjustments": {
+        "colorGrading": {
+          "balance": 0,
+          "blending": 50,
+          "global": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          },
+          "highlights": {
+            "hue": 50,
+            "saturation": 12,
+            "luminance": 0
+          },
+          "midtones": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          },
+          "shadows": {
+            "hue": 35,
+            "saturation": 22,
+            "luminance": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "grading-cool-tone",
+      "version": 1,
+      "name": "Cool tone",
+      "presetType": "tool",
+      "adjustments": {
+        "colorGrading": {
+          "balance": 0,
+          "blending": 50,
+          "global": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          },
+          "highlights": {
+            "hue": 200,
+            "saturation": 8,
+            "luminance": 0
+          },
+          "midtones": {
+            "hue": 0,
+            "saturation": 0,
+            "luminance": 0
+          },
+          "shadows": {
+            "hue": 220,
+            "saturation": 18,
+            "luminance": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "vignette-subtle",
+      "version": 1,
+      "name": "Subtle",
+      "presetType": "tool",
+      "adjustments": {
+        "vignetteAmount": -15,
+        "vignetteMidpoint": 50,
+        "vignetteRoundness": 0,
+        "vignetteFeather": 75,
+        "vignetteStyle": "highlightPriority",
+        "vignetteHighlights": 0
+      }
+    },
+    {
+      "id": "vignette-medium",
+      "version": 1,
+      "name": "Medium",
+      "presetType": "tool",
+      "adjustments": {
+        "vignetteAmount": -30,
+        "vignetteMidpoint": 45,
+        "vignetteRoundness": 0,
+        "vignetteFeather": 60,
+        "vignetteStyle": "highlightPriority",
+        "vignetteHighlights": 0
+      }
+    },
+    {
+      "id": "vignette-strong",
+      "version": 1,
+      "name": "Strong",
+      "presetType": "tool",
+      "adjustments": {
+        "vignetteAmount": -55,
+        "vignetteMidpoint": 35,
+        "vignetteRoundness": 0,
+        "vignetteFeather": 50,
+        "vignetteStyle": "highlightPriority",
+        "vignetteHighlights": 0
+      }
+    },
+    {
+      "id": "vignette-light",
+      "version": 1,
+      "name": "Light edges",
+      "presetType": "tool",
+      "adjustments": {
+        "vignetteAmount": 12,
+        "vignetteMidpoint": 45,
+        "vignetteRoundness": 0,
+        "vignetteFeather": 75,
+        "vignetteStyle": "highlightPriority",
+        "vignetteHighlights": 0
+      }
+    },
+    {
+      "id": "bw-mix-neutral",
+      "version": 1,
+      "name": "Neutral",
+      "presetType": "tool",
+      "adjustments": {
+        "blackAndWhite": true,
+        "grayMixer": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "green": 0,
+          "aqua": 0,
+          "blue": 0,
+          "purple": 0,
+          "magenta": 0
+        }
+      }
+    },
+    {
+      "id": "bw-mix-darker-skies",
+      "version": 1,
+      "name": "Darker skies",
+      "presetType": "tool",
+      "adjustments": {
+        "blackAndWhite": true,
+        "grayMixer": {
+          "red": 15,
+          "orange": 10,
+          "yellow": 5,
+          "green": 0,
+          "aqua": -25,
+          "blue": -40,
+          "purple": -10,
+          "magenta": 0
+        }
+      }
+    },
+    {
+      "id": "bw-mix-much-darker-skies",
+      "version": 1,
+      "name": "Much darker skies",
+      "presetType": "tool",
+      "adjustments": {
+        "blackAndWhite": true,
+        "grayMixer": {
+          "red": 30,
+          "orange": 20,
+          "yellow": 10,
+          "green": 0,
+          "aqua": -45,
+          "blue": -70,
+          "purple": -25,
+          "magenta": 0
+        }
+      }
+    },
+    {
+      "id": "bw-mix-lighter-skin",
+      "version": 1,
+      "name": "Lighter skin tones",
+      "presetType": "tool",
+      "adjustments": {
+        "blackAndWhite": true,
+        "grayMixer": {
+          "red": 10,
+          "orange": 25,
+          "yellow": 15,
+          "green": 0,
+          "aqua": 0,
+          "blue": -15,
+          "purple": 0,
+          "magenta": 0
+        }
+      }
+    },
+    {
+      "id": "bw-mix-lighter-foliage",
+      "version": 1,
+      "name": "Lighter foliage",
+      "presetType": "tool",
+      "adjustments": {
+        "blackAndWhite": true,
+        "grayMixer": {
+          "red": -10,
+          "orange": -5,
+          "yellow": 20,
+          "green": 30,
+          "aqua": 10,
+          "blue": 0,
+          "purple": 0,
+          "magenta": 0
+        }
+      }
+    },
+    {
+      "id": "sharpen-gentle",
+      "version": 1,
+      "name": "Gentle",
+      "presetType": "tool",
+      "adjustments": {
+        "sharpness": 25,
+        "sharpenRadius": 1.0,
+        "sharpenDetail": 15,
+        "sharpenMasking": 30,
+        "sharpnessThreshold": 15,
+        "sharpnessFalloff": 0,
+        "sharpenVersion": 6
+      }
+    },
+    {
+      "id": "sharpen-standard",
+      "version": 1,
+      "name": "Standard",
+      "presetType": "tool",
+      "adjustments": {
+        "sharpness": 45,
+        "sharpenRadius": 1.0,
+        "sharpenDetail": 25,
+        "sharpenMasking": 15,
+        "sharpnessThreshold": 15,
+        "sharpnessFalloff": 0,
+        "sharpenVersion": 6
+      }
+    },
+    {
+      "id": "sharpen-fine-detail",
+      "version": 1,
+      "name": "Fine detail",
+      "presetType": "tool",
+      "adjustments": {
+        "sharpness": 60,
+        "sharpenRadius": 0.7,
+        "sharpenDetail": 45,
+        "sharpenMasking": 10,
+        "sharpnessThreshold": 15,
+        "sharpnessFalloff": 0,
+        "sharpenVersion": 6
+      }
+    },
+    {
+      "id": "sharpen-portrait",
+      "version": 1,
+      "name": "Portrait",
+      "presetType": "tool",
+      "adjustments": {
+        "sharpness": 35,
+        "sharpenRadius": 1.2,
+        "sharpenDetail": 10,
+        "sharpenMasking": 60,
+        "sharpnessThreshold": 15,
+        "sharpnessFalloff": 0,
+        "sharpenVersion": 6
+      }
+    },
+    {
+      "id": "noise-light",
+      "version": 1,
+      "name": "Light",
+      "presetType": "tool",
+      "adjustments": {
+        "lumaNoiseReduction": 10,
+        "lumaNoiseDetail": 50,
+        "lumaNoiseContrast": 0,
+        "lumaNoiseVersion": 2,
+        "colorNoiseReduction": 20,
+        "colorNoiseDetail": 50,
+        "colorNoiseSmoothness": 50,
+        "colorNoiseVersion": 10
+      }
+    },
+    {
+      "id": "noise-medium",
+      "version": 1,
+      "name": "Medium",
+      "presetType": "tool",
+      "adjustments": {
+        "lumaNoiseReduction": 25,
+        "lumaNoiseDetail": 50,
+        "lumaNoiseContrast": 0,
+        "lumaNoiseVersion": 2,
+        "colorNoiseReduction": 30,
+        "colorNoiseDetail": 50,
+        "colorNoiseSmoothness": 50,
+        "colorNoiseVersion": 10
+      }
+    },
+    {
+      "id": "noise-strong",
+      "version": 1,
+      "name": "High ISO",
+      "presetType": "tool",
+      "adjustments": {
+        "lumaNoiseReduction": 45,
+        "lumaNoiseDetail": 40,
+        "lumaNoiseContrast": 10,
+        "lumaNoiseVersion": 2,
+        "colorNoiseReduction": 45,
+        "colorNoiseDetail": 40,
+        "colorNoiseSmoothness": 60,
+        "colorNoiseVersion": 10
+      }
+    }
+  ]
+}

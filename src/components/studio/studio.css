@@ -496,7 +496,7 @@
 .studio-tool-group > summary {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   list-style: none;
   min-height: 31px;
   padding: 0 10px;
@@ -517,11 +517,17 @@
 }
 .studio-tool-group > summary > span {
   flex: 1;
+  /* One line also when a header holds many actions (B&W: presets, copy,
+     targeted, Auto, reset); the name ellipsizes before it wraps. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .studio-tool-group > summary > button {
   color: #9ca0a5;
   min-height: 24px;
-  padding: 4px;
+  padding: 4px 3px;
 }
 /* Header actions recede until the header is pointed at (Capture One shows
    them always, which reads as noise in a long column), but stay legible as
@@ -2933,6 +2939,24 @@
   background: #2d2e30;
   color: inherit;
   cursor: pointer;
+}
+
+/* A tool's preset menu (StudioToolPresets): own presets with a delete. */
+.studio-tool-preset-row {
+  display: flex;
+  align-items: center;
+}
+.studio-tool-preset-row > .studio-preset {
+  flex: 1;
+  min-width: 0;
+}
+.studio-workspace .studio-tool-preset-delete {
+  flex-shrink: 0;
+  padding: 3px 6px;
+  color: #9ca0a5;
+}
+.studio-tool-presets .studio-help {
+  padding: 2px 6px;
 }
 
 /* Styles & presets */

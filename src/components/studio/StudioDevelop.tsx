@@ -74,6 +74,8 @@ import StudioLensCorrection from "./StudioLensCorrection";
 import StudioUpright from "./StudioUpright";
 import StudioFaceRetouch from "./StudioFaceRetouch";
 import StudioToolCopy, { type ToolParams } from "./StudioToolCopy";
+import StudioToolPresets from "./StudioToolPresets";
+import { PRESET_TOOLS } from "./toolPresets";
 import { ToolColumn, useToolMenu, useToolOpen } from "./toolLayout";
 import StudioHistory from "./StudioHistory";
 import StudioSnapshots from "./StudioSnapshots";
@@ -116,7 +118,8 @@ export function ToolGroup({
   actions?: ReactNode;
   open?: boolean;
   onReset?: () => void;
-  /** Parameters for Capture One's per-tool copy/apply (photo only). */
+  /** Parameters for Capture One's per-tool copy/apply (photo only); tools
+   * in `PRESET_TOOLS` also get a preset menu for them. */
   copy?: ToolParams;
   /** Lightroom's eye: the tool's effect on or off without losing values. */
   toggle?: { enabled: boolean; onToggle(): void };
@@ -165,6 +168,7 @@ export function ToolGroup({
         )}
         <ChevronDown size={12} />
         <span>{name}</span>
+        {copy && PRESET_TOOLS.has(title) && <StudioToolPresets tool={title} label={name} params={copy} />}
         {copy && <StudioToolCopy tool={title} label={name} params={copy} />}
         {actions}
         {onReset && (

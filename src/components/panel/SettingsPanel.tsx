@@ -1024,6 +1024,18 @@ export default function SettingsPanel({
                         />
                       </SettingItem>
 
+                      <SettingItem
+                        label={t('settings.general.builtinPresets')}
+                        description={t('settings.general.builtinPresetsDesc')}
+                      >
+                        <Switch
+                          checked={appSettings?.showBuiltinPresets !== false}
+                          id="builtin-presets-toggle"
+                          label={t('settings.general.showBuiltinPresets')}
+                          onChange={(checked) => onSettingsChange({ ...appSettings, showBuiltinPresets: checked })}
+                        />
+                      </SettingItem>
+
                       {osPlatform === 'linux' && (
                         <SettingItem
                           label={t('settings.general.nativeTitlebar')}

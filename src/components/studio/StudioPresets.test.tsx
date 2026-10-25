@@ -9,6 +9,10 @@ import { useLibraryStore } from "../../store/useLibraryStore";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
 import { INITIAL_ADJUSTMENTS, initialAdjustmentsFor } from "../../utils/adjustments";
 import type { UserPreset } from "../../hooks/usePresets";
+import i18n from "i18next";
+import { resetBuiltinPresets } from "../../utils/builtinPresets";
+import { useSettingsStore } from "../../store/useSettingsStore";
+import type { AppSettings } from "../ui/AppProperties";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const openDialog = vi.fn();
@@ -34,11 +38,27 @@ const stored: UserPreset[] = [
   },
 ];
 
+const builtins = [
+  { id: "grain-fine", version: 1, name: "Fine", presetType: "tool", adjustments: { grainAmount: 18, grainVersion: 2 } },
+  { id: "bw-high-contrast", version: 1, name: "B&W high contrast", presetType: "style", adjustments: { blackAndWhite: true, contrast: 35 } },
+];
+let builtinsFail = false;
+
 beforeEach(() => {
+  resetBuiltinPresets();
+  builtinsFail = false;
+  useSettingsStore.setState({ appSettings: {} as AppSettings });
   apply.mockReset();
   setAdjustments.mockReset();
   mockInvoke.mockReset();
-  mockInvoke.mockImplementation(async (command) => (command === "load_presets" ? stored : undefined));
+  mockInvoke.mockImplementation(async (command) => {
+    if (command === "load_presets") return stored;
+    if (command === "load_builtin_presets") {
+      if (builtinsFail) throw new Error("missing");
+      return builtins;
+    }
+    return undefined;
+  });
   useEditorStore.setState({
     selectedImage: { path: "/job/a.arw", isReady: true } as never,
     adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 0.5 },
@@ -286,4 +306,62 @@ it.each([["New preset", "Preset name"], ["New preset folder", "Folder name"]])("
   fireEvent.keyDown(input, { key: "Escape" });
   expect(screen.queryByRole("textbox", { name: field })).toBeNull();
   expect(document.activeElement).toBe(trigger);
+});
+
+describe("built-in presets", () => {
+  const builtinFolder = () => screen.getByRole("button", { name: /^Built-in/ });
+
+  it("lists Rawtonic's own styles in a Built-in folder, translated; its tool presets are in the tools", async () => {
+    await act(async () => {
+      await i18n.changeLanguage("de");
+    });
+    try {
+      await renderTool();
+      expect(screen.getByRole("button", { name: /^Mitgeliefert/ })).toBeTruthy();
+      expect(screen.getByText("S/W hoher Kontrast")).toBeTruthy();
+      expect(screen.queryByText("Fein")).toBeNull();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage("en");
+      });
+    }
+  });
+
+  it("applies a built-in like any preset; built-ins have no menu to rename or delete them", async () => {
+    await renderTool();
+    expect(builtinFolder()).toBeTruthy();
+    fireEvent.contextMenu(screen.getByText("B&W high contrast"));
+    expect(screen.queryByText("Rename")).toBeNull();
+    fireEvent.click(screen.getByText("B&W high contrast"));
+    expect(apply).toHaveBeenLastCalledWith({ blackAndWhite: true, contrast: 35 }, ["/job/a.arw"]);
+    fireEvent.contextMenu(builtinFolder());
+    expect(screen.queryByText("Rename")).toBeNull();
+  });
+
+  it("keeps the built-ins without a presets file and the user's presets without built-ins", async () => {
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === "load_presets") throw new Error("presets.json: No such file");
+      if (command === "load_builtin_presets") return builtins;
+      return undefined;
+    });
+    await renderTool();
+    expect(screen.getByText("B&W high contrast")).toBeTruthy();
+    cleanup();
+    resetBuiltinPresets();
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === "load_presets") return stored;
+      if (command === "load_builtin_presets") throw new Error("missing");
+      return undefined;
+    });
+    await renderTool();
+    expect(screen.getByText("Warm evening")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Built-in/ })).toBeNull();
+  });
+
+  it("hides the Built-in folder when Preferences turn it off", async () => {
+    useSettingsStore.setState({ appSettings: { showBuiltinPresets: false } as AppSettings });
+    await renderTool();
+    expect(screen.queryByRole("button", { name: /^Built-in/ })).toBeNull();
+    expect(screen.getByText("Warm evening")).toBeTruthy();
+  });
 });

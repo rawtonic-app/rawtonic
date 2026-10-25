@@ -227,6 +227,39 @@ export function usePresets(
     return newPresetData;
   };
 
+  /** A tool's own preset (the preset menu in its header): `adjustments` as
+   * taken from that tool, kept in the folder named `folderName` (the tool's
+   * name), which is made when there is none. */
+  const addToolPreset = (name: string, adjustments: Partial<Adjustments>, folderName: string) => {
+    const preset: Preset = {
+      adjustments,
+      id: crypto.randomUUID(),
+      name,
+      includeMasks: false,
+      includeCropTransform: false,
+      presetType: 'tool',
+    };
+    const current = usePresetStore.getState().presets;
+    const folderIndex = current.findIndex((item) => item.folder?.name === folderName);
+    let updatedPresets: Array<UserPreset>;
+    if (folderIndex >= 0) {
+      updatedPresets = current.map((item, index) =>
+        index === folderIndex && item.folder
+          ? { folder: { ...item.folder, children: [...item.folder.children, preset] } }
+          : item,
+      );
+    } else {
+      // Folders come before the presets at the top level (as `addFolder`).
+      const folder = { folder: { id: crypto.randomUUID(), name: folderName, children: [preset] } };
+      const firstPreset = current.findIndex((item) => item.preset);
+      updatedPresets = [...current];
+      updatedPresets.splice(firstPreset === -1 ? current.length : firstPreset, 0, folder);
+    }
+    setPresets(updatedPresets);
+    savePresetsToBackend(updatedPresets);
+    return preset;
+  };
+
   const addFolder = (name: string) => {
     const newFolder = {
       folder: {
@@ -635,6 +668,7 @@ export function usePresets(
   return {
     addFolder,
     addPreset,
+    addToolPreset,
     deleteItem,
     duplicatePreset,
     exportPresetsToFile,
