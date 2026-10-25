@@ -51,7 +51,14 @@ impl Barrier {
     /// Syncs `file`, a copy already there (an earlier, cut-off run made
     /// it), and its folder to the drive, so the next flush covers it too.
     pub fn sync_existing(&mut self, file: &Path) -> std::io::Result<()> {
-        push(&File::open(file)?)?;
+        // Windows flushes only a handle with write access; opened without
+        // creating or truncating, nothing is written (and it is a copy,
+        // never a card's original).
+        #[cfg(windows)]
+        let opened = fs::OpenOptions::new().write(true).open(file)?;
+        #[cfg(not(windows))]
+        let opened = File::open(file)?;
+        push(&opened)?;
         let folder = file.parent().filter(|p| !p.as_os_str().is_empty());
         self.sync_folder(folder.unwrap_or(Path::new(".")))
     }
