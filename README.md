@@ -167,7 +167,8 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 | ← / →                        | previous / next photograph     |
 | **1**–**5** / **0**          | star rating / clear it         |
 | **P** / **⇧X** / **U**       | pick / reject / clear the flag |
-| **Y**                        | before / after split           |
+| **Y**                        | toggle before / after split    |
+| **⇧Y**                       | cycle Off / left-right / top-bottom |
 | hold **\\**                  | whole photograph before        |
 | **N**                        | multi view of the selection    |
 | **F**                        | photograph alone, full screen  |
@@ -180,6 +181,8 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 | **X**                        | proof margin                   |
 | **Tab** (on the photograph)  | hide or show the panels        |
 | ⌘Z / ⇧⌘Z                     | undo / redo                    |
+
+The before / after button’s menu (chevron or right-click) chooses Off, Split left-right or Split top-bottom. The divider follows a drag or the arrow keys along its axis (Shift for a larger step), Home/End moves to an edge, and double-click centres it. The choice and divider position are remembered per project or catalog, while zoom and pan stay in place when switching modes.
 
 The before / after split shows in the single view only: turning on the multi view turns the split off, and turning on the split leaves the multi view.
 

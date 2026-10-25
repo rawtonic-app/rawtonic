@@ -1,7 +1,9 @@
 import { useEffect } from 'react';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
-import { clampSplitPosition, DEFAULT_SPLIT_POSITION } from '../utils/beforeAfter';
+import { useSettingsStore } from '../store/useSettingsStore';
+import { useMultiViewStore } from '../store/useMultiViewStore';
+import { clampSplitPosition, DEFAULT_SPLIT_POSITION, splitViewAvailable } from '../utils/beforeAfter';
 
 /** View preferences belong to the opened session, never its photographs or recipes. */
 export function useCompareSession() {
@@ -14,8 +16,14 @@ export function useCompareSession() {
       const value: unknown = JSON.parse(localStorage.getItem(key) ?? '{}');
       if (value && typeof value === 'object') saved = value as Record<string, unknown>;
     } catch { /* Storage unavailable or invalid: use the defaults. */ }
+    // Restore before a photo is selected, without overriding an active multi
+    // view or enabling a split the display cannot present.
+    const { appSettings, osPlatform } = useSettingsStore.getState();
+    const enabled = saved.enabled === true &&
+      splitViewAvailable(appSettings?.useWgpuRenderer, osPlatform) &&
+      !useMultiViewStore.getState().active;
     useEditorStore.getState().setEditor({
-      splitView: saved.enabled === true,
+      splitView: enabled,
       splitOrientation: saved.orientation === 'top-bottom' ? 'top-bottom' : 'left-right',
       splitPosition: typeof saved.position === 'number' ? clampSplitPosition(saved.position) : DEFAULT_SPLIT_POSITION,
     });
