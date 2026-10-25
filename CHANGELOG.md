@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **Moving a session's photos to another drive keeps them in the session**, as Lightroom Classic keeps photos moved to another drive in its catalog: they stay online with their ratings, edits, virtual copies, RAW+JPEG pairs and albums, their recipes keep the session's camera profiles, LUTs and masks (edits and exports render exactly as before the move), and undo and redo bring them back and there again. The Folders panel then lists the session by drive with those folders, and Synchronize Folder works on them (it follows the session's photos there and never takes in other files). Moving them into another session's or a catalog's folder is refused before anything moves. alpha.4 refused moving a session's photos out of their session.
+- **Moving a session's photos to another drive keeps them in the session**, as Lightroom Classic keeps photos moved to another drive in its catalog: they stay online with their ratings, edits, virtual copies, RAW+JPEG pairs and albums, their recipes keep finding the session's camera profiles, LUTs and masks through the session (for a session camera profile measured: the export outside the session is byte-identical to the one inside; LUTs and masks resolve the same way, not measured by a render), and undo and redo bring them back and there again. The Folders panel then lists the session by drive with those folders, and Synchronize Folder works on them (it follows the session's photos there and never takes in other files). Moving them into another session's or a catalog's folder is refused before anything moves. alpha.4 refused moving a session's photos out of their session.
 
 ## 0.1.0-alpha.5 — 2026-10-24
 

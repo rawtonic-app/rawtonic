@@ -10,7 +10,8 @@
 //! a session that cannot be read keeps what was recorded. A session is
 //! known by its identity (the id in `session.json`), not its folder: found
 //! again in another folder (renamed or moved while closed), its records
-//! there replace those of the folder it left.
+//! there replace those of the folder it left; another session found in a
+//! recorded folder never takes over what the session recorded there kept.
 use rawtonic_catalog::Library;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -22,18 +23,27 @@ use std::{
 /// Where the copy of the records is kept (unset: not kept, as in tests).
 static RECORD_FILE: Mutex<Option<PathBuf>> = Mutex::new(None);
 
-/// The identity of every session read, by folder, and where a session
-/// found in another folder went (old folder → new).
+/// The identity of every session read, by the folder it was last read in;
+/// and, for a session whose folder another session took before it was found
+/// again, the place its records are kept under meanwhile (`left_key`) →
+/// the folder it left.
 #[derive(Default, Serialize, Deserialize)]
 struct Identities {
     ids: BTreeMap<PathBuf, String>,
-    moved: BTreeMap<PathBuf, PathBuf>,
+    left: BTreeMap<PathBuf, PathBuf>,
 }
 
 static IDENTITIES: Mutex<Identities> = Mutex::new(Identities {
     ids: BTreeMap::new(),
-    moved: BTreeMap::new(),
+    left: BTreeMap::new(),
 });
+
+/// Where the records of the session `id` that left `dir` are kept while
+/// another session is in `dir`: a folder that holds no session, so the
+/// session stays their owner, not available, until it is found again.
+fn left_key(dir: &Path, id: &str) -> PathBuf {
+    dir.join(format!(".session-{id}-left"))
+}
 
 /// What `outside-photos.json` holds.
 #[derive(Default, Serialize, Deserialize)]
@@ -72,8 +82,14 @@ pub(crate) fn load_records(file: PathBuf) {
 /// cannot be read (its drive is away, its database cannot be opened). A
 /// catalog has none (it manages every path). The same session recorded in
 /// another folder that no longer holds it (renamed or moved while closed)
-/// is this one: its records are dropped and that folder leads here.
+/// is this one: its records there are dropped.
 pub(crate) fn record(dir: &Path) -> Result<(), String> {
+    if let Some(folder) = identities().left.get(dir) {
+        return Err(format!(
+            "The session that was in {} is no longer there; open it where it is now",
+            folder.display()
+        ));
+    }
     if dir.join("catalog.json").is_file() {
         return Ok(());
     }
@@ -89,8 +105,26 @@ pub(crate) fn record(dir: &Path) -> Result<(), String> {
         .collect();
     let id = lib.manifest.id.clone();
     drop(lib);
+    let mut left_here = None;
     {
         let mut known = identities();
+        // Another session in this folder now: the one recorded here left it
+        // (renamed or moved while closed) and keeps its photographs.
+        if let Some(old) = known.ids.get(dir).filter(|old| **old != id).cloned() {
+            let photos: HashSet<PathBuf> =
+                rawtonic_engine::session_layout::outside_photos_snapshot()
+                    .into_iter()
+                    .find(|(library, _)| library == dir)
+                    .map(|(_, photos)| photos.into_iter().collect())
+                    .unwrap_or_default();
+            if !photos.is_empty() {
+                let key = left_key(dir, &old);
+                rawtonic_engine::session_layout::set_outside_photos(&key, photos);
+                known.ids.insert(key.clone(), old);
+                known.left.insert(key, dir.to_path_buf());
+                left_here = Some(dir.to_path_buf());
+            }
+        }
         let left: Vec<PathBuf> = known
             .ids
             .iter()
@@ -99,24 +133,22 @@ pub(crate) fn record(dir: &Path) -> Result<(), String> {
             })
             .map(|(other, _)| other.clone())
             .collect();
-        // Folders that led to one of those lead here now.
-        for to in known.moved.values_mut() {
-            if left.contains(to) {
-                *to = dir.to_path_buf();
-            }
-        }
         for other in left {
             rawtonic_engine::session_layout::set_outside_photos(&other, HashSet::new());
             known.ids.remove(&other);
-            known.moved.insert(other, dir.to_path_buf());
+            known.left.remove(&other);
         }
-        // A session's own folder again (renamed back).
-        known.moved.remove(dir);
         known.ids.insert(dir.to_path_buf(), id);
     }
     rawtonic_engine::session_layout::set_outside_photos(dir, photos);
     persist();
-    Ok(())
+    match left_here {
+        Some(folder) => Err(format!(
+            "The session that was in {} is no longer there; open it where it is now",
+            folder.display()
+        )),
+        None => Ok(()),
+    }
 }
 
 /// The identity in the session manifest at `dir`, when one is there.
@@ -126,14 +158,31 @@ fn session_id(dir: &Path) -> Option<String> {
     Some(manifest.id)
 }
 
-/// Where the session recorded at `dir` is now: the folder it was found in
-/// again when it left `dir` (renamed or moved while closed), else `dir`.
-pub(crate) fn now_at(dir: &Path) -> PathBuf {
-    identities()
-        .moved
-        .get(dir)
-        .cloned()
-        .unwrap_or_else(|| dir.to_path_buf())
+/// The identity of the session at `dir`: read there, else as recorded
+/// (its drive away, or it left that folder).
+pub(crate) fn identity_of(dir: &Path) -> Option<String> {
+    session_id(dir).or_else(|| identities().ids.get(dir).cloned())
+}
+
+/// Where the session `id`, recorded in `dir`, is now: `dir` while it holds
+/// that session (and for a library recorded without one, a catalog), else
+/// the folder it was last read in (renamed or moved while closed, found
+/// again), else a place that holds no library: it is away, and what waits
+/// for it waits until it is found again.
+pub(crate) fn located(dir: &Path, id: Option<&str>) -> PathBuf {
+    let Some(id) = id else {
+        return dir.to_path_buf();
+    };
+    if session_id(dir).as_deref() == Some(id) {
+        return dir.to_path_buf();
+    }
+    let known = identities();
+    known
+        .ids
+        .iter()
+        .find(|&(other, other_id)| other_id == id && !known.left.contains_key(other))
+        .map(|(other, _)| other.clone())
+        .unwrap_or_else(|| left_key(dir, id))
 }
 
 /// Writes the records (atomically; one writer at a time).
@@ -149,7 +198,7 @@ fn persist() {
             .collect(),
         identities: Identities {
             ids: known.ids.clone(),
-            moved: known.moved.clone(),
+            left: known.left.clone(),
         },
     };
     drop(known);

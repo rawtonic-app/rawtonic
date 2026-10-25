@@ -474,6 +474,7 @@ pub fn run(
         .collect();
     let memberships = album_memberships(app, &trashed);
     let context = operation_context(&steps, memberships);
+    refuse_moves_while_away(&steps, context.as_ref())?;
     let progress = ProgressEvents::new(app, label);
     let op = with_journal(app, |journal| {
         progress.start();
@@ -505,6 +506,7 @@ pub fn undo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
     let Some(last) = with_journal(app, |journal| journal.last_undoable())? else {
         return Ok(None);
     };
+    refuse_moves_while_away(&last.steps, last.context.as_ref())?;
     let progress = ProgressEvents::new(app, &last.label);
     let op = with_journal(app, |journal| {
         progress.start();
@@ -524,6 +526,7 @@ pub fn redo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
     let Some(next) = with_journal(app, |journal| journal.last_redoable())? else {
         return Ok(None);
     };
+    refuse_moves_while_away(&next.steps, next.context.as_ref())?;
     let progress = ProgressEvents::new(app, &next.label);
     let op = with_journal(app, |journal| {
         progress.start();
@@ -698,6 +701,18 @@ fn operation_context(
             })
         })
         .collect();
+    // Each session by its identity too: it may be found in another folder
+    // by the time the records follow (renamed or moved while closed).
+    let sessions: serde_json::Map<String, serde_json::Value> = libraries
+        .values()
+        .filter_map(|owners| owners.as_array())
+        .flatten()
+        .filter_map(|dir| dir.as_str())
+        .filter_map(|dir| {
+            let id = crate::outside_photos::identity_of(Path::new(dir))?;
+            Some((dir.to_string(), serde_json::json!(id)))
+        })
+        .collect();
     let mut context = serde_json::Map::new();
     if !memberships.is_empty() {
         context.insert("albums".into(), serde_json::json!(memberships));
@@ -705,25 +720,65 @@ fn operation_context(
     if !libraries.is_empty() {
         context.insert("libraries".into(), serde_json::Value::Object(libraries));
     }
+    if !sessions.is_empty() {
+        context.insert("sessions".into(), serde_json::Value::Object(sessions));
+    }
     (!context.is_empty()).then_some(serde_json::Value::Object(context))
 }
 
 /// The libraries an operation recorded as holding what its step from
 /// `source` moved or trashed (several for a folder holding photographs of
 /// several sessions), each where it is now (a session renamed or moved
-/// since, `outside_photos::now_at`).
+/// since, found by its identity: `outside_photos::located`).
 fn recorded_libraries(op: &Operation, source: &Path) -> Vec<PathBuf> {
-    op.context
-        .as_ref()
+    recorded_in(op.context.as_ref(), source)
+}
+
+fn recorded_in(context: Option<&serde_json::Value>, source: &Path) -> Vec<PathBuf> {
+    let id = |dir: &str| {
+        context?
+            .get("sessions")?
+            .get(dir)?
+            .as_str()
+            .map(str::to_string)
+    };
+    context
         .and_then(|c| c.get("libraries")?.get(source.to_string_lossy().as_ref()))
         .and_then(|v| v.as_array())
         .map(|all| {
             all.iter()
                 .filter_map(|v| v.as_str())
-                .map(|dir| crate::outside_photos::now_at(Path::new(dir)))
+                .map(|dir| crate::outside_photos::located(Path::new(dir), id(dir).as_deref()))
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// A move or rename (also its undo and redo) of photographs or folders
+/// whose recorded library is away (its drive disconnected) is refused
+/// before anything moves: that library's records, and with them who owns
+/// the photographs at their new place, could not follow until it is back,
+/// so meanwhile they would be nobody's there. A Trash waits instead: its
+/// records follow when the library is back.
+fn refuse_moves_while_away(
+    steps: &[Step],
+    context: Option<&serde_json::Value>,
+) -> Result<(), String> {
+    for step in steps {
+        if matches!(step.to, Target::SystemTrash { .. }) {
+            continue;
+        }
+        if let Some(away) = recorded_in(context, &step.from)
+            .into_iter()
+            .find(|dir| !is_library(dir))
+        {
+            return Err(format!(
+                "The library {} that keeps these photographs is not available; connect its drive and try again. Nothing was moved.",
+                away.display()
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn is_library(dir: &Path) -> bool {
@@ -2760,7 +2815,15 @@ mod tests {
         // Every export, also a headless one (`export_images_impl`), refuses.
         let error = crate::session_bridge::outside_owners_available(&paths).unwrap_err();
         assert!(error.contains("connect its drive"), "{error}");
+        // A move or rename (its undo, its redo) is refused before anything
+        // moves; a Trash waits for the records instead (below).
+        let renaming = vec![Step::moving(&moved, drive.join("B.NEF")).unwrap()];
+        let context = operation_context(&renaming, HashMap::new());
+        let error = refuse_moves_while_away(&renaming, context.as_ref()).unwrap_err();
+        assert!(error.contains("Nothing was moved"), "{error}");
         let steps = vec![Step::system_trash(&moved)];
+        let context = operation_context(&steps, HashMap::new());
+        assert!(refuse_moves_while_away(&steps, context.as_ref()).is_ok());
         let context = operation_context(&steps, HashMap::new());
         assert_eq!(recorded_library_of(&context), Some(dir.clone()));
         let error =
@@ -2839,11 +2902,22 @@ mod tests {
             )
             .unwrap();
         sync_catalog(&op, true).unwrap();
-        // Renamed while closed, then opened there.
+        // Renamed while closed; another session made in its old folder
+        // never takes over its photographs: an export of them waits for it.
         let renamed = root.join("Disk/Job renamed");
         fs::rename(&dir, &renamed).unwrap();
-        crate::session_bridge::set_active_for_test(Some(renamed.clone()));
+        Library::create(&dir, "Another", rawtonic_catalog::Mode::Session).unwrap();
         let paths = [moved.to_string_lossy().into_owned()];
+        let error = crate::session_bridge::outside_owners_available(&paths).unwrap_err();
+        assert!(error.contains("no longer there"), "{error}");
+        assert!(crate::session_bridge::outside_owners_available(&paths).is_err());
+        assert_ne!(crate::session_bridge::owner_of(&moved), Some(dir.clone()));
+        assert_ne!(
+            rawtonic_engine::session_layout::library_root(&moved),
+            Some(dir.clone())
+        );
+        // Then opened in its new folder.
+        crate::session_bridge::set_active_for_test(Some(renamed.clone()));
         let owners_are_the_renamed_session = || {
             assert_eq!(
                 crate::session_bridge::owner_of(&moved),
@@ -2881,12 +2955,12 @@ mod tests {
         let lib = Library::open(&renamed).unwrap();
         assert!(!lib.asset_at(&moved).unwrap().unwrap().missing);
         drop(lib);
-        // Renamed back: its old folder is its own again.
+        // Renamed back (the other session gone): its old folder is its own
+        // again.
+        fs::remove_dir_all(&dir).unwrap();
         fs::rename(&renamed, &dir).unwrap();
         crate::session_bridge::register_outside_photos(&dir);
         assert_eq!(crate::session_bridge::owner_of(&moved), Some(dir.clone()));
-        assert_eq!(crate::outside_photos::now_at(&renamed), dir);
-        assert_eq!(crate::outside_photos::now_at(&dir), dir);
         rawtonic_engine::session_layout::set_outside_photos(&dir, HashSet::new());
         crate::outside_photos::set_record_file_for_test(None);
         crate::session_bridge::set_active_for_test(None);
