@@ -31,8 +31,8 @@ fn profile() -> Vec<u8> {
     b.extend_from_slice(&9u32.to_le_bytes());
     b.extend_from_slice(&(matrix_at as u32).to_le_bytes());
     b.extend_from_slice(&0u32.to_le_bytes());
-    for v in [12, 3, -1, -2, 9, 1, 1, -3, 11] {
-        b.extend_from_slice(&(v as i32).to_le_bytes());
+    for v in [12i32, 3, -1, -2, 9, 1, 1, -3, 11] {
+        b.extend_from_slice(&v.to_le_bytes());
         b.extend_from_slice(&10i32.to_le_bytes());
     }
     b
