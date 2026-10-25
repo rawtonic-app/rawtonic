@@ -213,7 +213,7 @@ fn sony_sensor_frame(source: &RawSource) -> Option<SonyFrame> {
     let ([sensor_w, sensor_h], [w, h]) = crate::raw_processing::sensor_and_frame(source)?;
     let (w, h) = (w as f64, h as f64);
     let reach = w.hypot(h) / (sensor_w as f64).hypot(sensor_h as f64);
-    (w > 0.0 && h > 0.0 && (0.5..=1.0).contains(&reach)).then(|| SonyFrame {
+    (w > 0.0 && h > 0.0 && (0.5..=1.0).contains(&reach)).then_some(SonyFrame {
         reach,
         ..SonyFrame::FULL
     })
