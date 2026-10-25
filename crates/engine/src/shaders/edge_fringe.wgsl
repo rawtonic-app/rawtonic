@@ -16,12 +16,12 @@
 // repeated rows centred beyond the image, and repeats the models only along
 // rows (so does the tile).
 //
-// Whole 16 × 16 workgroups skip work no pixel of theirs can need, decided
-// from records of their own and the neighbouring blocks (`block`, in the
-// tail of `g4`): the side search where the luminance a block's pixels read
-// varies less than the edge test's start, and the window models of the
-// luminance and colour-line stages away from windows of some weight. The
-// skipped work would not change a pixel (as version 4's skips on the CPU).
+// Whole workgroups skip work no pixel of theirs can need, decided from the
+// records of the 8 × 8 blocks around them (`record`, in the tail of `g4`):
+// the side search where the luminance its pixels read varies less than the
+// edge test's start, and the window models and their sums in the luminance
+// and colour-line stages away from windows of some weight. The skipped
+// work would not change a pixel (as version 4's skips on the CPU).
 
 struct Params {
     width: u32,
