@@ -73,7 +73,13 @@ pub fn init<R: Runtime>(
                     let argv = std::env::args_os()
                         .map(|arg| arg.to_string_lossy().into_owned())
                         .collect::<Vec<String>>();
-                    let cwd = std::env::current_dir().unwrap_or_default();
+                    // AppRun changes cwd for WebKit; forward the launching shell's
+                    // directory instead, using the same rule as the CLI parser.
+                    let cwd = crate::invocation_dir(
+                        |name| std::env::var_os(name),
+                        std::env::current_dir().ok(),
+                    )
+                    .unwrap_or_default();
                     zbus::block_on(async {
                         let connection = Connection::session().await?;
                         connection

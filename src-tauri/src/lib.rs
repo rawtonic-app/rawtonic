@@ -182,8 +182,8 @@ pub fn run() {
                 }
 
                 let forwarded_args = argv.get(1..).unwrap_or(&[]);
-                // The second launch's working directory; from an AppImage
-                // that is its own mount, so pass absolute paths there.
+                // The sender forwards its invocation directory; for an
+                // AppImage this is the launching shell's folder.
                 emit_launch_request(
                     app,
                     parse_launch_args(forwarded_args, Some(std::path::Path::new(&cwd))),
