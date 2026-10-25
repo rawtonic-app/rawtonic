@@ -59,12 +59,17 @@ pub trait Backend: Send + Sync {
     }
 }
 
+/// The cache owner returns a lease that pins one result until it is dropped.
+pub type CacheAccess = fn(&Path) -> Box<dyn Send>;
+
 /// The MatchFilter mosaic denoiser.
 pub struct MatchFilter {
     backend: Box<dyn Backend>,
     cache_dir: Option<PathBuf>,
     /// Oldest cached results go once the cache is larger.
     cache_limit: Option<u64>,
+    cache_used: Option<fn(&Path)>,
+    cache_access: Option<CacheAccess>,
 }
 
 impl MatchFilter {
@@ -73,12 +78,27 @@ impl MatchFilter {
             backend,
             cache_dir,
             cache_limit: None,
+            cache_used: None,
+            cache_access: None,
         }
     }
 
     /// Keeps the cache below `bytes`, dropping the least recently written.
     pub fn with_cache_limit(mut self, bytes: u64) -> Self {
         self.cache_limit = Some(bytes);
+        self
+    }
+
+    /// Notifies the cache owner of a hit for its least-recently-used policy.
+    pub fn with_cache_use_observer(mut self, used: fn(&Path)) -> Self {
+        self.cache_used = Some(used);
+        self
+    }
+
+    /// Pins this result while it is read or computed/published. The owner
+    /// releases its pin when the returned lease is dropped.
+    pub fn with_cache_access(mut self, access: CacheAccess) -> Self {
+        self.cache_access = Some(access);
         self
     }
 
@@ -160,9 +180,15 @@ impl MosaicDenoiser for MatchFilter {
             tag.push_str(&format!("|noise×{noise_scale}"));
         }
         let key = cache_key(&tag, mosaic, width, height, pattern);
+        let _cache_lease = self
+            .cache_path(key)
+            .and_then(|path| self.cache_access.map(|access| access(&path)));
         if let Some(path) = self.cache_path(key)
             && let Some(cached) = read_cache(&path, mosaic.len())
         {
+            if let Some(used) = self.cache_used {
+                used(&path);
+            }
             return Ok(cached);
         }
         let started = std::time::Instant::now();
@@ -303,6 +329,45 @@ mod tests {
                 0.1 + 0.3 * ((i % width) as f32 / width as f32) + noise
             })
             .collect()
+    }
+
+    #[test]
+    fn cache_owner_lease_covers_inference_hits_and_is_released() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static ACTIVE: AtomicUsize = AtomicUsize::new(0);
+        static HITS: AtomicUsize = AtomicUsize::new(0);
+        struct Lease;
+        impl Drop for Lease {
+            fn drop(&mut self) {
+                ACTIVE.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+        fn access(_: &Path) -> Box<dyn Send> {
+            ACTIVE.fetch_add(1, Ordering::SeqCst);
+            Box::new(Lease)
+        }
+        fn used(_: &Path) {
+            assert_eq!(ACTIVE.load(Ordering::SeqCst), 1);
+            HITS.fetch_add(1, Ordering::SeqCst);
+        }
+        struct CheckedIdentity;
+        impl Backend for CheckedIdentity {
+            fn run(&self, input: &[f32]) -> Result<Vec<f32>> {
+                assert_eq!(ACTIVE.load(Ordering::SeqCst), 1);
+                Ok(input[..4 * TILE * TILE].to_vec())
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let filter = MatchFilter::new(Box::new(CheckedIdentity), Some(dir.path().to_path_buf()))
+            .with_cache_access(access)
+            .with_cache_use_observer(used);
+        let input = noisy_mosaic(300, 200);
+        let first = filter.denoise(&input, 300, 200, [0, 1, 1, 2]).unwrap();
+        assert_eq!(ACTIVE.load(Ordering::SeqCst), 0);
+        let cached = filter.denoise(&input, 300, 200, [0, 1, 1, 2]).unwrap();
+        assert_eq!(first, cached);
+        assert_eq!(ACTIVE.load(Ordering::SeqCst), 0);
+        assert_eq!(HITS.load(Ordering::SeqCst), 1);
     }
 
     /// Returns NaN, as a faulting GPU can without an error.

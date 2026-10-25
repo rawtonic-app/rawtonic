@@ -949,8 +949,12 @@ pub(crate) fn generate_single_thumbnail_and_cache(
 
     let small_path = thumb_cache_dir.join(format!("{}_small.jpg", cache_hash));
     let medium_path = thumb_cache_dir.join(format!("{}_medium.jpg", cache_hash));
+    let _small_use = crate::storage_fs::pin_file(&small_path);
+    let _medium_use = crate::storage_fs::pin_file(&medium_path);
 
     if !force_regenerate && small_path.exists() && medium_path.exists() {
+        crate::storage_fs::mark_used(&small_path);
+        crate::storage_fs::mark_used(&medium_path);
         return Some((
             small_path.to_string_lossy().into_owned(),
             medium_path.to_string_lossy().into_owned(),
@@ -1216,29 +1220,6 @@ pub(crate) fn emit_thumbnail_generated(
     );
 }
 
-#[tauri::command]
-pub async fn clear_thumbnail_cache(app_handle: AppHandle) -> Result<(), String> {
-    super::blocking(move || clear_thumbnail_cache_blocking(app_handle)).await?
-}
-
-fn clear_thumbnail_cache_blocking(app_handle: AppHandle) -> Result<(), String> {
-    let cache_dir = app_handle
-        .path()
-        .app_cache_dir()
-        .map_err(|e| e.to_string())?;
-    let thumb_cache_dir = cache_dir.join("thumbnails");
-
-    if thumb_cache_dir.exists() {
-        fs::remove_dir_all(&thumb_cache_dir)
-            .map_err(|e| format!("Failed to remove thumbnail cache: {}", e))?;
-    }
-
-    fs::create_dir_all(&thumb_cache_dir)
-        .map_err(|e| format!("Failed to recreate thumbnail cache directory: {}", e))?;
-
-    Ok(())
-}
-
 pub fn get_thumb_cache_dir(app_handle: &AppHandle) -> Result<PathBuf, String> {
     let cache_dir = app_handle
         .path()
@@ -1268,7 +1249,13 @@ pub(crate) fn cached_medium_thumbnail(app_handle: &AppHandle, path_str: &str) ->
     let path = get_thumb_cache_dir(app_handle)
         .ok()?
         .join(format!("{hash}_medium.jpg"));
-    path.is_file().then_some(path)
+    if path.is_file() {
+        let _file_use = crate::storage_fs::pin_file(&path);
+        crate::storage_fs::mark_used(&path);
+        Some(path)
+    } else {
+        None
+    }
 }
 
 pub fn get_cached_or_generate_thumbnail_image(
@@ -1283,9 +1270,13 @@ pub fn get_cached_or_generate_thumbnail_image(
 
     if let Some(cache_hash) = get_cache_key_hash(path_str) {
         let cache_path = thumb_cache_dir.join(format!("{}_medium.jpg", cache_hash));
+        let _medium_use = crate::storage_fs::pin_file(&cache_path);
+        let _small_use =
+            crate::storage_fs::pin_file(&thumb_cache_dir.join(format!("{}_small.jpg", cache_hash)));
 
         if cache_path.exists() {
             if let Ok(image) = image::open(&cache_path) {
+                crate::storage_fs::mark_used(&cache_path);
                 return Ok(image);
             }
             eprintln!(
@@ -1299,12 +1290,12 @@ pub fn get_cached_or_generate_thumbnail_image(
             encode_thumbnail(&thumb_image, target_width_small),
             encode_thumbnail(&thumb_image, target_width_medium),
         ) {
-            let _ = fs::write(
-                thumb_cache_dir.join(format!("{}_small.jpg", cache_hash)),
+            let _ = cache_thumbnail(
+                &thumb_cache_dir.join(format!("{}_small.jpg", cache_hash)),
                 &small_data,
             );
-            let _ = fs::write(
-                thumb_cache_dir.join(format!("{}_medium.jpg", cache_hash)),
+            let _ = cache_thumbnail(
+                &thumb_cache_dir.join(format!("{}_medium.jpg", cache_hash)),
                 &medium_data,
             );
         }

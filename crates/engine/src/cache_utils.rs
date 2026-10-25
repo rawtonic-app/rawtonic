@@ -336,6 +336,14 @@ impl DecodedImageCache {
         Some((image, exif, self.measures.get(path).copied()))
     }
 
+    /// Pixel storage referenced by this cache (other viewer buffers excluded).
+    pub fn retained_bytes(&self) -> usize {
+        self.items
+            .iter()
+            .map(|(_, image, _)| image.as_bytes().len())
+            .sum()
+    }
+
     pub fn clear(&mut self) {
         self.items.clear();
         self.measures.clear();

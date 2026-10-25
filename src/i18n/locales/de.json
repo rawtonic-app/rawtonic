@@ -1854,6 +1854,73 @@
     "sizeAria": "Bereichsgröße",
     "visualize": "Bereiche visualisieren"
   },
+  "storage": {
+    "aiLimit": "Limit für KI-Ergebnisse",
+    "atLeast": "Mindestens {{size}} (Zeitlimit erreicht)",
+    "cancel": "Berechnung abbrechen",
+    "categories": {
+      "aiResults": {
+        "description": "Neu erzeugbare entrauschte Sensordaten auf der Festplatte. Motivmasken, Tiefenkarten und Gesichtsanalysen werden im RAM gehalten. Mit Fotos gespeicherte Masken und Bearbeitungen werden hier nie gelöscht.",
+        "title": "KI-Ergebnisse"
+      },
+      "compiledModels": {
+        "description": "Kleine Abschlussmarkierungen der Modellvorbereitung. Nach dem Leeren wird die Vorbereitung wiederholt. Kompilierte Gewichte im Modellordner zählen zu dessen Größe.",
+        "title": "Markierungen der Modellvorbereitung"
+      },
+      "decoded": {
+        "description": "Dekodierte Bilddaten im RAM, nicht auf der Festplatte. Leeren gibt Cache-Verweise frei; von Ansicht oder Export verwendete Bilddaten bleiben im Speicher.",
+        "title": "Dekodierte Bilder (Arbeitsspeicher)"
+      },
+      "exif": {
+        "description": "Verwerfbare Kopien gelesener Fotometadaten. Originale und Begleitdateien bleiben erhalten.",
+        "title": "Metadaten-Lesecache"
+      },
+      "logs": {
+        "description": "Diagnoseprotokolle. Leeren entfernt nur ältere Protokolle; die geöffnete aktuelle app.log bleibt erhalten.",
+        "title": "Protokolle"
+      },
+      "models": {
+        "description": "Modellgewichte für lokale KI-Werkzeuge. Nach dem Entfernen werden sie bei der nächsten Nutzung erneut heruntergeladen.",
+        "title": "Heruntergeladene KI-Modelle"
+      },
+      "previews": {
+        "description": "Standard- und 1:1-Vorschauen für Fotos außerhalb verwalteter Bibliotheken. Nach dem Leeren ist die Offline-Ansicht erst wieder mit verfügbaren Originalen möglich.",
+        "title": "Vorschauen außerhalb von Bibliotheken"
+      },
+      "scratch": {
+        "description": "Temporäre Daten im eigenen Cache-Unterordner von Rawtonic. Temporäre Systemordner und Daten anderer Apps sind ausgenommen.",
+        "title": "Temporäre App-Dateien"
+      },
+      "session": {
+        "description": "Nur der Ordner .cache der geöffneten Bibliothek. Vorschauen werden mit verfügbaren Originalen neu erzeugt; Leeren entfernt die Offline-Ansicht. Kataloge, Fotos, Masken, Bearbeitungen, Output und Trash bleiben erhalten.",
+        "title": "Cache der geöffneten Bibliothek"
+      },
+      "systemModels": {
+        "description": "Vom Betriebssystem verwaltete kompilierte Modelldaten. Nur lesbar; Rawtonic entfernt sie nicht.",
+        "title": "Systemcache kompilierter Modelle"
+      },
+      "thumbnails": {
+        "description": "Kleine und mittlere Bibliotheksbilder. Sie werden aus Fotos oder verfügbaren Vorschauen neu erzeugt.",
+        "title": "Miniaturen"
+      }
+    },
+    "clear": "Leeren",
+    "cleared": "Cache geleert. Verwendete oder in der letzten Minute genutzte Dateien bleiben erhalten.",
+    "confirmRemove": "Beim nächsten Start entfernen",
+    "description": "Neu erzeugbare App-Daten und der Cache der geöffneten Bibliothek. Fotos, Kataloge, Bearbeitungen, Begleitdateien sowie Output und Trash bleiben beim Leeren erhalten.",
+    "failed": "Der Speicher konnte nicht aktualisiert werden. Prüfe, ob das Laufwerk verfügbar ist, und versuche es erneut.",
+    "images_one": "{{count}} Bild",
+    "images_other": "{{count}} Bilder",
+    "limitsDescription": "Am längsten ungenutzte Dateien werden innerhalb einer Minute automatisch entfernt. Verwendete Dateien, temporäre Schreibdateien und in der letzten Minute genutzte Einträge bleiben erhalten; deshalb kann ein Cache sein Limit vorübergehend überschreiten. Standardvorschauen bleiben auch für nicht verfügbare Fotos erhalten. Die Aufbewahrungsdauer der 1:1-Vorschauen steht unter Vorschauen.",
+    "modelsConfirm": "Heruntergeladene KI-Modelle werden beim nächsten Start von Rawtonic entfernt, bevor ein Modell geladen wird. KI-Werkzeuge laden sie bei Bedarf erneut herunter (Internet erforderlich). Bearbeitungen und mit Fotos gespeicherte KI-Masken bleiben erhalten.",
+    "modelsPending": "Die Modelle werden beim nächsten Start entfernt. KI-Werkzeuge laden sie bei Bedarf erneut herunter.",
+    "refresh": "Größen aktualisieren",
+    "removeModels": "Heruntergeladene Modelle entfernen…",
+    "scanning": "Größen werden berechnet…",
+    "thumbnailLimit": "Limit für Miniaturen",
+    "title": "Speicher",
+    "unavailable": "Größe nicht verfügbar"
+  },
   "studio": {
     "adjustment": {
       "scrubHint": "Ziehen zum Anpassen · Doppelklick zum Zurücksetzen",

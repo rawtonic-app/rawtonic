@@ -60,9 +60,6 @@ const CORE_ML_MIXED_FILES: [(&str, &str, &str); 3] = [
 #[cfg(not(target_os = "macos"))]
 const ONNX_SHA256: &str = "ba788a97f247058ea03d14bbf2f289adc8f4666039f27d0d530e6f67d23dd73c";
 
-/// Denoised mosaics kept at most (about 100 photos of 24 MP).
-const CACHE_LIMIT_BYTES: u64 = 5 << 30;
-
 pub fn cache_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app_handle
         .path()
@@ -146,7 +143,11 @@ async fn load_mixed(
     assemble_package(app_handle, models, &package, &CORE_ML_MIXED_FILES).await?;
     tokio::task::spawn_blocking(move || {
         rawtonic_denoise::MatchFilter::core_ml_mixed(&package, Some(cache))
-            .map(|f| f.with_cache_limit(CACHE_LIMIT_BYTES))
+            .map(|filter| {
+                filter
+                    .with_cache_use_observer(crate::storage_fs::mark_used)
+                    .with_cache_access(|path| Box::new(crate::storage_fs::pin_file(path)))
+            })
             .map_err(|e| e.to_string())
     })
     .await
@@ -163,7 +164,11 @@ async fn load(
     assemble_package(app_handle, models, &package, &CORE_ML_FILES).await?;
     tokio::task::spawn_blocking(move || {
         rawtonic_denoise::MatchFilter::core_ml(&package, Some(cache))
-            .map(|f| f.with_cache_limit(CACHE_LIMIT_BYTES))
+            .map(|filter| {
+                filter
+                    .with_cache_use_observer(crate::storage_fs::mark_used)
+                    .with_cache_access(|path| Box::new(crate::storage_fs::pin_file(path)))
+            })
             .map_err(|e| e.to_string())
     })
     .await
@@ -190,7 +195,11 @@ async fn load(
     let model = models.join(file);
     tokio::task::spawn_blocking(move || {
         rawtonic_denoise::MatchFilter::onnx(&model, Some(cache))
-            .map(|f| f.with_cache_limit(CACHE_LIMIT_BYTES))
+            .map(|filter| {
+                filter
+                    .with_cache_use_observer(crate::storage_fs::mark_used)
+                    .with_cache_access(|path| Box::new(crate::storage_fs::pin_file(path)))
+            })
             .map_err(|e| e.to_string())
     })
     .await
