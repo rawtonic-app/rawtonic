@@ -123,6 +123,7 @@
       "auto_adjust": "자동 조정",
       "auto_white_balance": "자동 화이트 밸런스",
       "check_updates": "업데이트 확인…",
+      "clear_recent": "메뉴 지우기",
       "color_label_blue": "파란색",
       "color_label_green": "초록색",
       "color_label_none": "없음",
@@ -209,7 +210,9 @@
       "colorLabel": "색상 레이블",
       "flag": "플래그",
       "panels": "패널",
-      "rating": "등급"
+      "rating": "등급",
+      "recent": "최근 항목 열기",
+      "recipes": "레시피로 내보내기"
     }
   },
   "contextMenus": {

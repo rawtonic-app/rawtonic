@@ -123,6 +123,7 @@
       "auto_adjust": "自動調整",
       "auto_white_balance": "自動白平衡",
       "check_updates": "檢查更新項目…",
+      "clear_recent": "清除選單",
       "color_label_blue": "藍色",
       "color_label_green": "綠色",
       "color_label_none": "無",
@@ -209,7 +210,9 @@
       "colorLabel": "色彩標籤",
       "flag": "旗標",
       "panels": "面板",
-      "rating": "星等"
+      "rating": "星等",
+      "recent": "打開最近使用",
+      "recipes": "使用配方匯出"
     }
   },
   "contextMenus": {

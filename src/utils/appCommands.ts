@@ -6,6 +6,8 @@
  */
 export interface AppCommand {
   run(): void;
+  /** A live item placed in a File submenu. */
+  menu?: { group: 'recent' | 'recipes'; label: string };
   /** Whether running it does something now (the menu greys it out else). */
   enabled?(): boolean;
   /** A state the menu shows with a check mark. */
@@ -57,4 +59,9 @@ export function onAppCommandsChanged(listener: () => void): () => void {
  * (component state): the menu bar refreshes its state. */
 export function notifyAppCommandsChanged(): void {
   notify();
+}
+
+/** Live submenu items retain their registered command id and handler. */
+export function appMenuCommands(group: 'recent' | 'recipes'): [string, AppCommand][] {
+  return [...commands].filter(([, command]) => command.menu?.group === group);
 }

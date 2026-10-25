@@ -123,6 +123,7 @@
       "auto_adjust": "Ajust automàtic",
       "auto_white_balance": "Balanç de blancs automàtic",
       "check_updates": "Cerca actualitzacions…",
+      "clear_recent": "Buida el menú",
       "color_label_blue": "Blau",
       "color_label_green": "Verd",
       "color_label_none": "Cap",
@@ -209,7 +210,9 @@
       "colorLabel": "Etiqueta de color",
       "flag": "Marca",
       "panels": "Taulers",
-      "rating": "Valoració"
+      "rating": "Valoració",
+      "recent": "Obre recents",
+      "recipes": "Exporta amb recepta"
     }
   },
   "contextMenus": {

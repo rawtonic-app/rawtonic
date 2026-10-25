@@ -223,12 +223,38 @@ describe('the macOS menu bar', () => {
     stop();
   });
 
+  it('rebuilds live submenus when registered entries change', async () => {
+    const stop = registerAppCommands({ 'recipe:web': { run: () => {}, menu: { group: 'recipes', label: 'Web JPEG' } } });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 150)));
+    const trees = () => vi.mocked(invoke).mock.calls.filter(([name]) => name === Invokes.SetAppMenu);
+    expect(JSON.stringify(trees().at(-1))).toContain('Web JPEG');
+    stop();
+    await act(() => new Promise((resolve) => setTimeout(resolve, 150)));
+    expect(JSON.stringify(trees().at(-1))).not.toContain('Web JPEG');
+  });
+
   it('has a handler for every shortcut-table command it places', () => {
     // The rest register in their owners (appMenu.test.ts checks them).
     const owners = new Set(['about', 'check_updates', 'keyboard_shortcuts', 'website', 'report_problem', 'select_none',
-      'show_in_finder', 'new_session', 'open_session', 'import_photos', 'flag_pick', 'flag_unflag', 'flag_reject',
+      'clear_recent', 'show_in_finder', 'new_session', 'open_session', 'import_photos', 'flag_pick', 'flag_unflag', 'flag_reject',
       'view_grid', 'view_loupe', 'view_develop']);
     const missing = menuCommands().filter((command) => !owners.has(command) && !appCommand(command));
     expect(missing).toEqual([]);
+  });
+});
+
+describe('table-driven view and flag keys', () => {
+  it.each([
+    ['view_grid', 'g'], ['view_loupe', 'e'], ['view_develop', 'd'],
+    ['flag_pick', 'p'], ['flag_unflag', 'u'], ['flag_reject', 'x'],
+  ])('uses the rebound command handler for %s', (action, original) => {
+    const run = vi.fn();
+    const stop = registerAppCommands({ [action]: { run } });
+    useSettingsStore.setState({ appSettings: { keybinds: { [action]: ['ctrl', 'alt', 'KeyK'] } } as AppSettings });
+    press(original, action === 'flag_reject' ? { shiftKey: true } : {});
+    expect(run).not.toHaveBeenCalled();
+    press('k', { metaKey: true, altKey: true });
+    expect(run).toHaveBeenCalledOnce();
+    stop();
   });
 });

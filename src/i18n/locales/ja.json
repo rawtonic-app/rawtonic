@@ -123,6 +123,7 @@
       "auto_adjust": "自動補正",
       "auto_white_balance": "自動ホワイトバランス",
       "check_updates": "アップデートを確認…",
+      "clear_recent": "メニューを消去",
       "color_label_blue": "ブルー",
       "color_label_green": "グリーン",
       "color_label_none": "なし",
@@ -209,7 +210,9 @@
       "colorLabel": "カラーラベル",
       "flag": "フラグ",
       "panels": "パネル",
-      "rating": "レーティング"
+      "rating": "レーティング",
+      "recent": "最近使ったライブラリ",
+      "recipes": "レシピで書き出し"
     }
   },
   "contextMenus": {

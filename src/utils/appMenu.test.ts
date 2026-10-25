@@ -52,6 +52,17 @@ describe('the menu bar tree', () => {
     expect(json).toBe(fixture);
   });
 
+  it('places live recent libraries and recipes, with their handlers and state', () => {
+    unregister = registerAppCommands({
+      'recent:one': { run: () => {}, menu: { group: 'recent', label: 'One' } },
+      'recipe:one': { run: () => {}, enabled: () => false, menu: { group: 'recipes', label: 'JPEG' } },
+    });
+    const menu = buildMenuSpec(tr('en'), {});
+    expect(find(menu.spec.menus, 'recent:one')).toMatchObject({ label: 'One', enabled: true });
+    expect(find(menu.spec.menus, 'recipe:one')).toMatchObject({ label: 'JPEG', enabled: false });
+    expect(menuItemStates(menu)).toContainEqual({ id: 'cmd:recipe:one', enabled: false });
+  });
+
   it('places each command once, with a unique id', () => {
     const ids = items(buildMenuSpec(tr('en'), {}).spec.menus).map((node) => node.id);
     expect(new Set(ids).size).toBe(ids.length);

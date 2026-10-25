@@ -123,6 +123,7 @@
       "auto_adjust": "Автонастройка",
       "auto_white_balance": "Автоматический баланс белого",
       "check_updates": "Проверить обновления…",
+      "clear_recent": "Очистить меню",
       "color_label_blue": "Синяя",
       "color_label_green": "Зелёная",
       "color_label_none": "Нет",
@@ -209,7 +210,9 @@
       "colorLabel": "Цветная метка",
       "flag": "Флажок",
       "panels": "Панели",
-      "rating": "Оценка"
+      "rating": "Оценка",
+      "recent": "Открыть недавние",
+      "recipes": "Экспортировать по рецепту"
     }
   },
   "contextMenus": {

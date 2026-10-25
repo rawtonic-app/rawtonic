@@ -123,6 +123,7 @@
       "auto_adjust": "Automatyczna korekta",
       "auto_white_balance": "Automatyczny balans bieli",
       "check_updates": "Sprawdź uaktualnienia…",
+      "clear_recent": "Wyczyść menu",
       "color_label_blue": "Niebieska",
       "color_label_green": "Zielona",
       "color_label_none": "Brak",
@@ -209,7 +210,9 @@
       "colorLabel": "Etykieta koloru",
       "flag": "Flaga",
       "panels": "Panele",
-      "rating": "Ocena"
+      "rating": "Ocena",
+      "recent": "Otwórz ostatnie",
+      "recipes": "Eksportuj z recepturą"
     }
   },
   "contextMenus": {

@@ -123,6 +123,7 @@
       "auto_adjust": "Auto Adjust",
       "auto_white_balance": "Auto White Balance",
       "check_updates": "Check for Updates…",
+      "clear_recent": "Clear Menu",
       "color_label_blue": "Blue",
       "color_label_green": "Green",
       "color_label_none": "None",
@@ -209,7 +210,9 @@
       "colorLabel": "Color Label",
       "flag": "Flag",
       "panels": "Panels",
-      "rating": "Rating"
+      "rating": "Rating",
+      "recent": "Open Recent",
+      "recipes": "Export with Recipe"
     }
   },
   "contextMenus": {

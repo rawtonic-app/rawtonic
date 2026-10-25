@@ -597,6 +597,8 @@ pub struct AppSettings {
     pub last_root_path: Option<String>,
     #[serde(default)]
     pub root_folders: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recent_libraries: Option<Vec<String>>,
     #[serde(default)]
     pub pinned_folders: Vec<String>,
     pub editor_preview_resolution: Option<u32>,
@@ -812,6 +814,7 @@ impl Default for AppSettings {
             usage_stats: None,
             last_root_path: None,
             root_folders: Vec::new(),
+            recent_libraries: None,
             pinned_folders: Vec::new(),
             small_thumbnail_resolution: Some(480),
             medium_thumbnail_resolution: Some(1280),
@@ -1150,6 +1153,25 @@ fn reserve_update_check_at(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recent_libraries_round_trip_and_distinguish_clear_from_legacy_settings() {
+        let settings = AppSettings::default();
+        let legacy = serde_json::to_value(&settings).unwrap();
+        assert!(legacy.get("recentLibraries").is_none());
+        let restored: AppSettings = serde_json::from_value(legacy).unwrap();
+        assert!(restored.recent_libraries.is_none());
+        let mut settings = restored;
+        settings.recent_libraries =
+            Some(vec!["/scratch/Session".into(), "/scratch/Catalog".into()]);
+        let saved = serde_json::to_vec(&settings).unwrap();
+        let loaded: AppSettings = serde_json::from_slice(&saved).unwrap();
+        assert_eq!(loaded.recent_libraries, settings.recent_libraries);
+        settings.recent_libraries = Some(Vec::new());
+        let cleared: AppSettings =
+            serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(cleared.recent_libraries, Some(Vec::new()));
+    }
 
     #[test]
     fn an_unreadable_settings_file_is_kept_before_defaults_replace_it() {

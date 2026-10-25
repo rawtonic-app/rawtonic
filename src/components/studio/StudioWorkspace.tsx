@@ -1,3 +1,4 @@
+import { useRecipeMenuCommands } from "../../hooks/useRecipeMenuCommands";
 import {
   useCallback,
   useEffect,
@@ -104,7 +105,7 @@ import { SmartAlbumEditorHost } from "./SmartAlbumEditor";
 import { CopySettingsDialogHost } from "./CopySettingsDialog";
 import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
 import { clearLibrarySelection, focusWorkspaceControl, reselectForDevelop } from "./workspaceInteractions";
-import { registerAppCommands } from "../../utils/appCommands";
+import { registerAppCommands, runAppCommand } from "../../utils/appCommands";
 import ViewerInfoOverlay from "./ViewerInfoOverlay";
 import { useIdleCursor } from "./useIdleCursor";
 import { followPhotoFullScreen } from "../../utils/photoFullScreen";
@@ -535,6 +536,7 @@ export default function StudioWorkspace(props: Props) {
     .every((group) => !panels[group]);
   const { togglePanels, showPanels } = useUIStore.getState();
   const [size, setSize] = useState(205);
+  useRecipeMenuCommands();
   const [drawer, setDrawer] = useState<Panel | null>(null);
   // The export queue stays beside the work (not modal): edit on while it runs.
   const [queueOpen, setQueueOpen] = useState(false);
@@ -660,6 +662,15 @@ export default function StudioWorkspace(props: Props) {
           e.target.closest('input,textarea,select,[contenteditable="true"]'))
       )
         return;
+      const settings = useSettingsStore.getState();
+      const commands = buildComboMap(settings.appSettings?.keybinds).get(normalizeCombo(e, settings.osPlatform).join('+')) ?? [];
+      for (const command of commands) {
+        if (command.startsWith('view_') && runAppCommand(command)) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          return;
+        }
+      }
       if (e.metaKey || e.ctrlKey) return;
       // [ and ] resize the brush while it is active, with Shift they change
       // its hardness (Capture One); otherwise they keep rotating the
@@ -689,16 +700,6 @@ export default function StudioWorkspace(props: Props) {
         return;
       }
       if (e.altKey) return;
-      const key = e.key.toLowerCase();
-      // Lightroom's module keys: G the Library's grid, E its loupe (one
-      // large photograph), D Develop; each also leaves the full screen. In
-      // Develop, E is the eraser.
-      if (key === "g" || key === "d" || (!developRef.current && key === "e")) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        moduleKeysRef.current[key]();
-        return;
-      }
       // Cursor tools take Capture One's keys (tool_* keybinds), not while
       // the photograph is shown alone.
       if (!developRef.current || useUIStore.getState().isFullScreen) return;

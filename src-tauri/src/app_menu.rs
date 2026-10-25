@@ -636,6 +636,32 @@ mod tests {
     }
 
     #[test]
+    fn live_submenu_commands_keep_unique_ids_and_dispatch_their_registered_name() {
+        let recent = "recent:/scratch/Project";
+        let recipe = "recipe:web-jpeg";
+        let tree = spec(vec![
+            MenuNode::Submenu {
+                label: "Open Recent".into(),
+                role: None,
+                items: vec![item(&format!("cmd:{recent}"), None)],
+            },
+            MenuNode::Submenu {
+                label: "Export with Recipe".into(),
+                role: None,
+                items: vec![item(&format!("cmd:{recipe}"), None)],
+            },
+        ]);
+        validate(&tree).unwrap();
+        assert_eq!(command_of(&format!("cmd:{recent}")), Some(recent));
+        assert_eq!(command_of(&format!("cmd:{recipe}")), Some(recipe));
+        let mut duplicate = tree;
+        if let MenuNode::Submenu { items, .. } = &mut duplicate.menus[0] {
+            items.push(item(&format!("cmd:{recipe}"), None));
+        }
+        assert!(validate(&duplicate).unwrap_err().contains("twice"));
+    }
+
+    #[test]
     fn single_key_shortcuts_never_become_key_equivalents() {
         let spec: MenuSpec = serde_json::from_str(WEBVIEW_TREE).unwrap();
         let mut nodes = Vec::new();

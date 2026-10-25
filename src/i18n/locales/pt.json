@@ -123,6 +123,7 @@
       "auto_adjust": "Ajuste automático",
       "auto_white_balance": "Equilíbrio de brancos automático",
       "check_updates": "Procurar atualizações…",
+      "clear_recent": "Limpar menu",
       "color_label_blue": "Azul",
       "color_label_green": "Verde",
       "color_label_none": "Nenhuma",
@@ -209,7 +210,9 @@
       "colorLabel": "Etiqueta de cor",
       "flag": "Marca",
       "panels": "Painéis",
-      "rating": "Classificação"
+      "rating": "Classificação",
+      "recent": "Abrir recentes",
+      "recipes": "Exportar com receita"
     }
   },
   "contextMenus": {

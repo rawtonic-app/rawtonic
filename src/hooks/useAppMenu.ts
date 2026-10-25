@@ -1,9 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
 import { Invokes } from '../components/ui/AppProperties';
-import { appCommandEnabled, onAppCommandsChanged, runAppCommand } from '../utils/appCommands';
+import { appCommandEnabled, appMenuCommands, onAppCommandsChanged, runAppCommand } from '../utils/appCommands';
 import { buildMenuSpec, MENU_ID_PREFIX, type BuiltMenu, type MenuItemState, menuItemStates, type Translate } from '../utils/appMenu';
 import { normalizeCombo } from '../utils/keyboardUtils';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -97,6 +97,9 @@ export function dispatchMenuCommand(
  * what changed). Other platforms keep their behaviour (no menu bar). */
 export function useAppMenu(): void {
   const { t, i18n } = useTranslation();
+  const signature = () => JSON.stringify(['recent', 'recipes'].flatMap((group) => appMenuCommands(group as 'recent' | 'recipes').map(([id, command]) => [id, command.menu!.label])));
+  const [commandsRevision, setCommandsRevision] = useState(signature);
+  useEffect(() => onAppCommandsChanged(() => setCommandsRevision(signature())), []);
   const osPlatform = useSettingsStore((s) => s.osPlatform);
   const keybinds = useSettingsStore((s) => s.appSettings?.keybinds);
   const enabled = osPlatform === 'macos';
@@ -182,5 +185,5 @@ export function useAppMenu(): void {
       dialogs.disconnect();
       void unlisten.then((stop) => stop());
     };
-  }, [enabled, t, i18n.language, keybinds]);
+  }, [enabled, t, i18n.language, keybinds, commandsRevision]);
 }

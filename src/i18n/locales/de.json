@@ -123,6 +123,7 @@
       "auto_adjust": "Automatisch anpassen",
       "auto_white_balance": "Automatischer Weißabgleich",
       "check_updates": "Nach Updates suchen …",
+      "clear_recent": "Menü löschen",
       "color_label_blue": "Blau",
       "color_label_green": "Grün",
       "color_label_none": "Keine",
@@ -209,7 +210,9 @@
       "colorLabel": "Farbmarkierung",
       "flag": "Markierung",
       "panels": "Leisten",
-      "rating": "Bewertung"
+      "rating": "Bewertung",
+      "recent": "Benutzte Dokumente",
+      "recipes": "Mit Rezept exportieren"
     }
   },
   "contextMenus": {

@@ -23,6 +23,13 @@ export const KEYBIND_SECTIONS: KeybindSection[] = [
 ];
 
 export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
+  { action: 'view_grid', description: 'appMenu.items.view_grid', defaultCombo: ['KeyG'], section: 'view' },
+  { action: 'view_loupe', description: 'appMenu.items.view_loupe', defaultCombo: ['KeyE'], section: 'library' },
+  { action: 'view_develop', description: 'appMenu.items.view_develop', defaultCombo: ['KeyD'], section: 'view' },
+  { action: 'flag_pick', description: 'appMenu.items.flag_pick', defaultCombo: ['KeyP'], section: 'rating' },
+  { action: 'flag_unflag', description: 'appMenu.items.flag_unflag', defaultCombo: ['KeyU'], section: 'rating' },
+  { action: 'flag_reject', description: 'appMenu.items.flag_reject', defaultCombo: ['shift', 'KeyX'], section: 'rating' },
+
   {
     action: 'open_image',
     description: 'settings.keybinds.actions.open_image',
@@ -270,7 +277,8 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
   {
     action: 'toggle_adjustments',
     description: 'settings.keybinds.actions.toggle_adjustments',
-    defaultCombo: ['KeyD'],
+    // D has always been taken by Develop before panel shortcuts run.
+    defaultCombo: [],
     section: 'panels',
   },
   {
@@ -592,7 +600,9 @@ export function buildComboMap(keybinds?: Record<string, string[]> | null): Map<s
 export function conflictingActions(keybinds?: Record<string, string[]> | null): Set<string> {
   const actions = new Set<string>();
   for (const bound of buildComboMap(keybinds).values()) {
-    if (bound.length > 1) bound.forEach((action) => actions.add(action));
+    if (bound.length > 1 && !(bound.length === 2 && bound.includes('view_loupe') && bound.includes('tool_erase'))) {
+      bound.forEach((action) => actions.add(action));
+    }
   }
   return actions;
 }
