@@ -17,7 +17,15 @@ import {
 } from "./appUndo";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => []) }));
-vi.mock("react-toastify", () => ({ toast: { error: vi.fn(), info: vi.fn() } }));
+vi.mock("react-toastify", () => ({
+  toast: {
+    error: vi.fn(),
+    info: vi.fn(),
+    dismiss: vi.fn(),
+    update: vi.fn(),
+    isActive: vi.fn(() => false),
+  },
+}));
 const changes = [
   {
     path: "/a.nef",
@@ -799,4 +807,67 @@ it("also splits a partially failed redo and retries only its failed targets", as
     directory: "/job",
     values: [{ path: missing.path, value: missing.after }],
   });
+});
+
+it("a stale Skip cannot discard a healthy step after retry success and redo", async () => {
+  await catalogAction("rating", async () => changes);
+  vi.mocked(invoke).mockRejectedValueOnce({ message: "offline" });
+  await undo();
+  const notice = vi.mocked(toast.error).mock.calls.at(-1)![0] as (props: {
+    closeToast: () => void;
+  }) => import("react").ReactNode;
+  await undo();
+  await redo();
+  expect(useCatalogUndoStore.getState().past).toHaveLength(1);
+  const view = render(notice({ closeToast: vi.fn() }));
+  try {
+    fireEvent.click(view.getByRole("button", { name: "Skip failed items" }));
+    expect(useCatalogUndoStore.getState().past).toHaveLength(1);
+  } finally {
+    view.unmount();
+  }
+});
+it("updates one persistent notice on repeated failures and dismisses it on success", async () => {
+  await catalogAction("rating", async () => changes);
+  vi.mocked(invoke).mockRejectedValueOnce({ message: "offline" });
+  await undo();
+  const options = vi.mocked(toast.error).mock.calls.at(-1)![1];
+  expect(options?.toastId).toBeTruthy();
+  vi.mocked(toast.isActive).mockReturnValueOnce(true);
+  vi.mocked(invoke).mockRejectedValueOnce({ message: "still offline" });
+  await undo();
+  expect(toast.error).toHaveBeenCalledTimes(1);
+  expect(toast.update).toHaveBeenCalledWith(
+    options!.toastId,
+    expect.objectContaining({ autoClose: false, render: expect.any(Function) }),
+  );
+  await undo();
+  expect(toast.dismiss).toHaveBeenCalledWith(options!.toastId);
+});
+
+it("an obsolete failure callback cannot invalidate the current Skip action", async () => {
+  await catalogAction("rating", async () => changes);
+  vi.mocked(invoke).mockRejectedValueOnce({ message: "offline" });
+  await undo();
+  const oldNotice = vi.mocked(toast.error).mock.calls.at(-1)![0] as (props: {
+    closeToast: () => void;
+  }) => import("react").ReactNode;
+  vi.mocked(invoke).mockRejectedValueOnce({ message: "still offline" });
+  await undo();
+  const currentNotice = vi
+    .mocked(toast.error)
+    .mock.calls.at(-1)![0] as typeof oldNotice;
+  const oldView = render(oldNotice({ closeToast: vi.fn() }));
+  fireEvent.click(oldView.getByRole("button", { name: "Skip failed items" }));
+  oldView.unmount();
+  expect(useCatalogUndoStore.getState().past).toHaveLength(1);
+  const currentView = render(currentNotice({ closeToast: vi.fn() }));
+  try {
+    fireEvent.click(
+      currentView.getByRole("button", { name: "Skip failed items" }),
+    );
+    expect(useCatalogUndoStore.getState().past).toEqual([]);
+  } finally {
+    currentView.unmount();
+  }
 });

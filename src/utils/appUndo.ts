@@ -63,6 +63,9 @@ export const useCatalogUndoStore = create<CatalogUndoState>(() => ({
   fileUndoEmpty: false,
 }));
 const currentTargets = new WeakMap<Step, readonly string[]>();
+const failureTokens = new WeakMap<Step, symbol>();
+const failureNoticeId = (direction: "undo" | "redo", step: Step) =>
+  `culling-${direction}-${step.order}`;
 interface PendingWork {
   lane: "catalog" | "file";
   paths?: readonly string[];
@@ -434,7 +437,8 @@ function noticeText(action: string, changes: CullingChange[], limit = 1) {
       })
     : i18n.t("undoHistory.notice", { action, name });
 }
-function notifyOffscreen(action: string, changes: CullingChange[]) {
+/** Viewers identify the shown photo; the grid uses its loaded folder list. */
+function notifyOtherPhotos(action: string, changes: CullingChange[]) {
   const ui = useUIStore.getState();
   const library = useLibraryStore.getState();
   const shown = new Set(
@@ -479,6 +483,7 @@ function splitRestored(
     restored.some((receipt) => sameCullingTarget(change, receipt)),
   );
   if (!done.length) return step;
+  failureTokens.delete(step);
   const remaining = step.changes.filter((change) => !done.includes(change));
   const failed = remaining.length ? { ...step, changes: remaining } : null;
   const saved = { ...step, changes: done };
@@ -615,17 +620,19 @@ async function travel(
         );
         if (useLibraryStore.getState().sessionDirectory === step.directory) {
           showCullingChanges(changed);
-          notifyOffscreen(label, changed);
+          notifyOtherPhotos(label, changed);
         }
       } catch (error) {
         if (useLibraryStore.getState().sessionDirectory === step.directory) {
           const restored =
             (error as { culling?: CullingChange[] } | null)?.culling ?? [];
           showCullingChanges(restored);
-          notifyOffscreen(label, restored);
+          notifyOtherPhotos(label, restored);
         }
         throw error;
       }
+      failureTokens.delete(step);
+      toast.dismiss(failureNoticeId(direction, step));
       if (useCatalogUndoStore.getState()[from].includes(step))
         useCatalogUndoStore.setState((s) => ({
           [from]: s[from].filter((item) => item !== step),
@@ -649,34 +656,42 @@ async function travel(
       toast.error(message);
       return;
     }
-    toast.error(
-      ({ closeToast }) =>
+    const failure = Symbol();
+    failureTokens.set(failed, failure);
+    const toastId = failureNoticeId(direction, failed);
+    const content = ({ closeToast }: { closeToast: () => void }) =>
+      createElement(
+        "div",
+        { className: "space-y-2" },
+        createElement("p", null, noticeText(message, failed.changes, 3)),
         createElement(
-          "div",
-          { className: "space-y-2" },
-          createElement("p", null, noticeText(message, failed.changes, 3)),
-          createElement(
-            "button",
-            {
-              type: "button",
-              className: "underline",
-              onClick: () => {
-                const state = useCatalogUndoStore.getState();
-                if (state.busy) return;
-                // Only this explicit click discards the still-failed targets. A
-                // stale notice cannot discard a retried step or another library.
-                if (state[from].includes(failed))
-                  useCatalogUndoStore.setState({
-                    [from]: state[from].filter((item) => item !== failed),
-                  });
-                closeToast();
-              },
+          "button",
+          {
+            type: "button",
+            className: "underline",
+            onClick: () => {
+              const state = useCatalogUndoStore.getState();
+              if (state.busy) return;
+              // Only this explicit click discards the still-failed targets. A
+              // stale notice cannot discard a retried step or another library.
+              if (
+                state[from].includes(failed) &&
+                failureTokens.get(failed) === failure
+              ) {
+                useCatalogUndoStore.setState({
+                  [from]: state[from].filter((item) => item !== failed),
+                });
+                failureTokens.delete(failed);
+              }
+              closeToast();
             },
-            i18n.t("undoHistory.skipFailed"),
-          ),
+          },
+          i18n.t("undoHistory.skipFailed"),
         ),
-      { autoClose: false },
-    );
+      );
+    if (toast.isActive(toastId))
+      toast.update(toastId, { render: content, autoClose: false });
+    else toast.error(content, { toastId, autoClose: false });
   } finally {
     useCatalogUndoStore.setState({ busy: false });
   }

@@ -41,7 +41,7 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) 
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(() => Promise.resolve(null)) }));
 vi.mock('react-toastify', () => ({
-  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warn: vi.fn(), update: vi.fn(), dismiss: vi.fn() },
+  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warn: vi.fn(), update: vi.fn(), dismiss: vi.fn(), isActive: vi.fn(() => false) },
 }));
 
 const summary = (part: Partial<FileOperationSummary>): FileOperationSummary => ({
@@ -730,4 +730,39 @@ it("Library Undo after rating then moving calls the file journal before metadata
     expect.anything(),
   );
   cleanup();
+});
+
+it.each(['move', 'paste', 'trash', 'trash-associated'] as const)('metadata waits for a companion affected by %s', async (operation) => {
+  useCatalogUndoStore.setState(useCatalogUndoStore.getInitialState());
+  useUIStore.setState({ activeView: 'library' });
+  useEditorStore.setState({ selectedImage: null });
+  useLibraryStore.setState({ sessionDirectory: null, currentFolderPath: '/dest', imageList: [], libraryActivePath: null });
+  useProcessStore.setState({ copiedFilePaths: ['/capture/a.nef'] });
+  let finish!: (value: FileOperationSummary) => void;
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if (command === Invokes.PlanMoveFiles) return { crossVolume: false };
+    if ([Invokes.MoveFiles, Invokes.DeleteFilesFromDisk, Invokes.DeleteFilesWithAssociated].includes(command as Invokes))
+      return new Promise<FileOperationSummary>((resolve) => { finish = resolve; });
+    return [];
+  });
+  const hook = renderHook(() => useFileOperations(vi.fn(async () => {}), vi.fn(async () => {}), vi.fn(), vi.fn(), []));
+  const running = operation === 'move' ? hook.result.current.handleMoveToFolder(['/capture/a.nef'], '/dest')
+    : operation === 'paste' ? hook.result.current.handlePasteFiles('move', '/dest')
+      : hook.result.current.executeDelete(['/capture/a.nef'], { includeAssociated: operation === 'trash-associated' });
+  await waitFor(() => expect(finish).toBeTypeOf('function'));
+  let target: string | null = null;
+  const rated = catalogAction('rating', async ({ resolvePaths }) => {
+    target = resolvePaths(['/capture/a.jpg'])[0];
+    return [{ path: target, before: { kind: 'rating', value: 0 }, after: { kind: 'rating', value: 4 } }];
+  }, ['/capture/a.jpg']);
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(target).toBeNull();
+  } finally {
+    finish(summary({ kind: 'move', moves: [{ from: '/capture/a.nef', to: '/dest/a.nef' }, { from: '/capture/a.jpg', to: '/dest/a.jpg' }] }));
+    await running;
+    await rated;
+    hook.unmount();
+  }
+  expect(target).toBe('/dest/a.jpg');
 });

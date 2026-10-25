@@ -398,6 +398,10 @@ export function useFileOperations(
     return filePath.substring(0, lastSeparatorIndex);
   };
 
+  // Native photo operations also move registered companion photos. Until the
+  // native plan exposes their exact set, protect each source folder as well.
+  const withSourceParents = (paths: string[]) => [...paths, ...paths.map(getParentDir)];
+
   const executeDelete = useCallback(
     async (pathsToDelete: Array<string>, options = { includeAssociated: false }) => {
       if (!pathsToDelete || pathsToDelete.length === 0) return;
@@ -444,7 +448,7 @@ export function useFileOperations(
         const command = options.includeAssociated ? Invokes.DeleteFilesWithAssociated : Invokes.DeleteFilesFromDisk;
         const summary = await fileAction(() =>
           invoke<FileOperationSummary>(command, { paths: pathsToDelete }),
-          "trash", undefined, undefined, pathsToDelete,
+          "trash", undefined, undefined, withSourceParents(pathsToDelete),
         );
         if (summary) toast.success(describeFileOperation(summary));
         await refreshImageList();
@@ -627,7 +631,7 @@ export function useFileOperations(
                 destinationFolder: destination,
               }),
             ),
-            "move", undefined, undefined, [...paths, destination],
+            "move", undefined, undefined, [...withSourceParents(paths), destination],
           );
           if (summary) toast.success(describeFileOperation(summary));
           warnAboutNote(summary);
@@ -950,7 +954,7 @@ export function useFileOperations(
                     destinationFolder: target,
                   }),
                 ),
-                "move", undefined, undefined, [...copiedFilePaths, target],
+                "move", undefined, undefined, [...withSourceParents(copiedFilePaths), target],
               );
               if (summary) toast.success(describeFileOperation(summary));
               warnAboutNote(summary);
