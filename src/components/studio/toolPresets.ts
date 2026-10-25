@@ -24,14 +24,17 @@ export const PRESET_TOOLS: ReadonlySet<string> = new Set([
   "Noise reduction",
 ]);
 
-/** Keys that only say how a recipe reads its values (they go along with
- * the values, never make a preset one tool's). */
-const ALONG = new Set([...Object.values(COPIED_ALONG).flat(), "grainVersion", "diffractionVersion"]);
+/** Keys that say how a recipe reads a parameter's value, which go along
+ * with it (tool copy's, and the grain version). */
+const alongOf = (key: string) => [...(COPIED_ALONG[key] ?? []), ...(key.startsWith("grain") ? ["grainVersion"] : [])];
 
-/** Whether a preset sets this tool's parameters and nothing else. */
+/** Whether a preset sets this tool's parameters and nothing else: besides
+ * them only the keys that go along with them (a grain preset that also
+ * names a colour noise filter is not the grain tool's). */
 export function presetFitsTool(preset: Preset, toolKeys: readonly string[]) {
-  const keys = Object.keys(preset.adjustments ?? {}).filter((key) => !ALONG.has(key));
-  return keys.length > 0 && keys.every((key) => toolKeys.includes(key));
+  const allowed = new Set(toolKeys.flatMap((key) => [key, ...alongOf(key)]));
+  const keys = Object.keys(preset.adjustments ?? {});
+  return keys.some((key) => toolKeys.includes(key)) && keys.every((key) => allowed.has(key));
 }
 
 /** The photo with a preset for the hover preview, or null when the preset

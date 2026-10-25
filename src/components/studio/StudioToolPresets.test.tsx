@@ -12,7 +12,7 @@ import { resetBuiltinPresets } from "../../utils/builtinPresets";
 import { INITIAL_ADJUSTMENTS, type Adjustments } from "../../utils/adjustments";
 import type { AppSettings, Preset } from "../ui/AppProperties";
 import type { ToolParams } from "./StudioToolCopy";
-import { toolPresetToSave } from "./toolPresets";
+import { presetFitsTool, toolPresetToSave } from "./toolPresets";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const mockInvoke = vi.mocked(invoke);
@@ -281,6 +281,20 @@ describe("a failed read of presets.json", () => {
     const written = JSON.stringify(mockInvoke.mock.calls.filter(([command]) => command === "save_presets").at(-1)?.[1]);
     expect(written).toContain("My grain");
     expect(written).toContain("Saved early");
+  });
+});
+
+describe("which presets are a tool's", () => {
+  const grain = GRAIN.map(([key]) => key as string);
+  const preset = (adjustments: Partial<Adjustments>): Preset => ({ id: "p", name: "P", presetType: "tool", adjustments });
+  it("takes the versions that go with the tool's parameters, no others", () => {
+    expect(presetFitsTool(preset({ grainAmount: 25, grainVersion: 2 }), grain)).toBe(true);
+    // A grain edit made with the earlier colour noise filter: applying it
+    // would switch the photo's colour noise reduction too.
+    expect(presetFitsTool(preset({ grainAmount: 25, grainVersion: 2, colorNoiseVersion: 1 }), grain)).toBe(false);
+    expect(presetFitsTool(preset({ grainVersion: 2 }), grain)).toBe(false);
+    const noise = ["colorNoiseReduction", "lumaNoiseReduction"];
+    expect(presetFitsTool(preset({ colorNoiseReduction: 20, colorNoiseVersion: 10, lumaNoiseVersion: 2 }), noise)).toBe(true);
   });
 });
 

@@ -131,15 +131,23 @@ function ToolPresetsPopover({
     setNaming(false);
   };
 
+  // Inside the window, also when it grows (presets read, the name form).
   const [position, setPosition] = useState({ left: anchor.x, top: anchor.y });
   useLayoutEffect(() => {
-    const box = ref.current?.getBoundingClientRect();
-    if (!box) return;
-    const margin = 8;
-    setPosition({
-      left: Math.max(margin, Math.min(anchor.x, window.innerWidth - box.width - margin)),
-      top: Math.max(margin, Math.min(anchor.y, window.innerHeight - box.height - margin)),
-    });
+    const panel = ref.current;
+    if (!panel) return;
+    const place = () => {
+      const box = panel.getBoundingClientRect();
+      const margin = 8;
+      const left = Math.max(margin, Math.min(anchor.x, window.innerWidth - box.width - margin));
+      const top = Math.max(margin, Math.min(anchor.y, window.innerHeight - box.height - margin));
+      setPosition((p) => (p.left === left && p.top === top ? p : { left, top }));
+    };
+    place();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(place);
+    observer.observe(panel);
+    return () => observer.disconnect();
   }, [anchor]);
   useEffect(() => {
     const onPointerDown = (e: PointerEvent) => {
