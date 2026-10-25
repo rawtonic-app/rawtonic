@@ -541,7 +541,7 @@ export default function StudioWorkspace(props: Props) {
   const compactLibraryHeader = useLibraryHeaderFits(
     uiScale, libraryToolbarRef,
     JSON.stringify([uiScale, i18n.resolvedLanguage, filterCriteria, searchCriteria, props.flagCounts]),
-    panels.bars && !!sessionBar.library,
+    !develop && panels.bars && !!sessionBar.library,
   );
   const imageFlags = useLibraryStore((s) => s.imageFlags);
   const flag = selectedImage ? (imageFlags[selectedImage.path] ?? 0) : 0;
