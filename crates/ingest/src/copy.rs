@@ -260,14 +260,24 @@ impl ReadAhead {
     }
 
     /// `source` as read ahead, when it was (files before it that were not
-    /// taken are dropped).
-    pub fn take(&self, source: &Path) -> Option<ReadFile> {
+    /// taken are dropped); none once `cancel` is set while it waits.
+    pub fn take(&self, source: &Path, cancel: &AtomicBool) -> Option<ReadFile> {
         let wanted = *self.order.get(source)?;
         let mut head = self.head.borrow_mut();
         loop {
             let next = match head.take() {
                 Some(next) => next,
-                None => self.queue.as_ref()?.recv().ok()?,
+                None => loop {
+                    if cancel.load(Ordering::Acquire) {
+                        return None;
+                    }
+                    let wait = std::time::Duration::from_millis(50);
+                    match self.queue.as_ref()?.recv_timeout(wait) {
+                        Ok(next) => break next,
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return None,
+                    }
+                },
             };
             let at = self.order[&next.path];
             if at > wanted {
@@ -279,6 +289,13 @@ impl ReadAhead {
                 return Some(next);
             }
         }
+    }
+}
+
+#[cfg(test)]
+impl ReadAhead {
+    fn take_now(&self, source: &Path) -> Option<ReadFile> {
+        self.take(source, &AtomicBool::new(false))
     }
 }
 
@@ -366,7 +383,7 @@ pub(crate) fn copy_verified(
     progress: impl FnMut(u64),
     ahead: Option<&ReadAhead>,
 ) -> Result<Verified> {
-    let read = ahead.and_then(|ahead| ahead.take(source));
+    let read = ahead.and_then(|ahead| ahead.take(source, cancel));
     copy_verified_from(
         source,
         destinations,
@@ -757,7 +774,7 @@ mod tests {
         let source = d.path().join("DSC.ARW");
         fs::write(&source, vec![1u8; 1_000_000]).unwrap();
         let ahead = ReadAhead::start(vec![source.clone()]);
-        let read = ahead.take(&source).expect("read ahead");
+        let read = ahead.take_now(&source).expect("read ahead");
         corrupt(&source);
         let target = d.path().join("copy.ARW");
         let error = copy_verified_from(
@@ -788,21 +805,21 @@ mod tests {
             })
             .collect();
         let ahead = ReadAhead::start(paths.clone());
-        let first = ahead.take(&paths[0]).unwrap();
+        let first = ahead.take_now(&paths[0]).unwrap();
         assert_eq!(first.buffer, vec![0u8; 10_000]);
         assert_eq!(first.sha256, hex(Sha256::digest(&first.buffer)));
         // 1 is passed over; 0 again or a file it never read: none.
-        let third = ahead.take(&paths[2]).unwrap();
+        let third = ahead.take_now(&paths[2]).unwrap();
         assert_eq!(third.buffer, vec![2u8; 10_002]);
-        assert!(ahead.take(&paths[1]).is_none());
-        assert!(ahead.take(&paths[0]).is_none());
-        assert!(ahead.take(&d.path().join("other.ARW")).is_none());
+        assert!(ahead.take_now(&paths[1]).is_none());
+        assert!(ahead.take_now(&paths[0]).is_none());
+        assert!(ahead.take_now(&d.path().join("other.ARW")).is_none());
         drop(ahead);
         // A file gone before it was read is skipped, not waited for.
         fs::remove_file(&paths[3]).unwrap();
         let ahead = ReadAhead::start(paths.clone());
-        assert!(ahead.take(&paths[3]).is_none());
-        assert_eq!(ahead.take(&paths[4]).unwrap().buffer.len(), 10_004);
+        assert!(ahead.take_now(&paths[3]).is_none());
+        assert_eq!(ahead.take_now(&paths[4]).unwrap().buffer.len(), 10_004);
     }
 
     /// However small the files, at most `READ_AHEAD_FILES` (each with an
@@ -827,9 +844,40 @@ mod tests {
         assert_eq!(held().1, READ_AHEAD_FILES);
         // Taking files lets the reader go on; every file arrives.
         for (i, path) in paths.iter().enumerate() {
-            assert_eq!(ahead.take(path).unwrap().buffer, [i as u8; 16]);
+            assert_eq!(ahead.take_now(path).unwrap().buffer, [i as u8; 16]);
             assert!(held().1 <= READ_AHEAD_FILES);
         }
+    }
+
+    /// A cancel ends the wait for a file still being read.
+    #[test]
+    #[cfg(unix)]
+    fn a_cancel_ends_the_wait_for_a_file_read_ahead() {
+        let d = tempfile::tempdir().unwrap();
+        let source = d.path().join("DSC.ARW");
+        fs::write(&source, [1u8; 16]).unwrap();
+        // The reader blocks opening a fifo until something opens it for
+        // writing, so the source behind it is not read yet.
+        let fifo = d.path().join("stuck");
+        let name = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+        // SAFETY: a valid NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        let ahead = ReadAhead::start(vec![fifo.clone(), source.clone()]);
+        let cancel = AtomicBool::new(false);
+        let cancelling = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                cancel.store(true, Ordering::Release);
+            });
+            let started = std::time::Instant::now();
+            let taken = ahead.take(&source, &cancel);
+            (taken.is_none(), started.elapsed())
+        });
+        assert!(cancelling.0);
+        assert!(cancelling.1 < std::time::Duration::from_secs(5));
+        // Released, the reader skips the fifo (not a file) and reads on.
+        drop(fs::OpenOptions::new().write(true).open(&fifo).unwrap());
+        assert!(ahead.take_now(&source).is_some());
     }
 
     /// The drive cache is flushed once per volume for everything synced to
