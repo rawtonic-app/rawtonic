@@ -132,7 +132,11 @@ pub fn run() {
         .build_global();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let launch_req = parse_launch_args(&args);
+    let invocation_dir =
+        launch_request::invocation_dir(|name| std::env::var_os(name), std::env::current_dir().ok());
+    // The working directory itself stays: an AppImage's WebKit finds its
+    // helper processes by paths relative to `$APPDIR/usr`.
+    let launch_req = parse_launch_args(&args, invocation_dir.as_deref());
     if let LaunchRequest::InvalidHeadless(error) = &launch_req {
         eprintln!("Headless export failed: {}", error);
         std::process::exit(2);
@@ -163,7 +167,7 @@ pub fn run() {
 
     {
         if !is_headless {
-            builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
                 log::info!(
                     "New instance launched with args: {:?}. Focusing main window.",
                     argv
@@ -178,7 +182,12 @@ pub fn run() {
                 }
 
                 let forwarded_args = argv.get(1..).unwrap_or(&[]);
-                emit_launch_request(app, parse_launch_args(forwarded_args));
+                // The second launch's working directory; from an AppImage
+                // that is its own mount, so pass absolute paths there.
+                emit_launch_request(
+                    app,
+                    parse_launch_args(forwarded_args, Some(std::path::Path::new(&cwd))),
+                );
             }));
         }
     }
