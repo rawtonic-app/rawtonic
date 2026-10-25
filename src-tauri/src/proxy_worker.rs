@@ -280,7 +280,10 @@ struct UnderWay {
     generation: usize,
     /// The open photograph's load waits for it: it is handed over.
     wanted: bool,
-    handed: Option<HandedDecode>,
+    /// A decode handed over and not taken yet, with its settings'
+    /// generation: kept until its load takes it, also while the next
+    /// prefetch decode runs.
+    handed: Option<(HandedDecode, usize)>,
 }
 
 /// What the open photograph's load does about the prefetch decode under way.
@@ -311,7 +314,23 @@ impl UnderWay {
         self.key = Some(key.to_string());
         self.generation = generation;
         self.wanted = false;
-        self.handed = None;
+    }
+
+    /// The decode handed over for `key`, taken (none when it is of decoder
+    /// settings older than `generation`).
+    fn take_handed(
+        &mut self,
+        key: &str,
+        generation: usize,
+    ) -> Option<(
+        Arc<image::DynamicImage>,
+        Option<crate::image_loader::DecodeMeasures>,
+    )> {
+        if !self.handed.as_ref().is_some_and(|((k, _, _), _)| k == key) {
+            return None;
+        }
+        let ((_, image, measures), made) = self.handed.take()?;
+        (made == generation).then_some((image, measures))
     }
 
     /// The decode ended (`decoded`: None when cancelled or failed), the
@@ -330,7 +349,7 @@ impl UnderWay {
         let current = self.generation == generation;
         match (std::mem::take(&mut self.wanted), key, decoded) {
             (true, Some(key), Some((image, measures))) if current => {
-                self.handed = Some((key, image, measures));
+                self.handed = Some(((key, image, measures), generation));
                 true
             }
             _ => false,
@@ -372,17 +391,24 @@ pub(crate) fn decode_for_open(
     Arc<image::DynamicImage>,
     Option<crate::image_loader::DecodeMeasures>,
 )> {
-    take_under_way(&UNDER_WAY, key, wait, || {
-        if let Some(worker) = WORKER.get() {
-            worker.prefetch_gate.interaction();
-        }
-    })
+    take_under_way(
+        &UNDER_WAY,
+        key,
+        wait,
+        crate::multi_view_prefetch::decodes_generation,
+        || {
+            if let Some(worker) = WORKER.get() {
+                worker.prefetch_gate.interaction();
+            }
+        },
+    )
 }
 
 fn take_under_way(
     (under_way, ended): &(Mutex<UnderWay>, Condvar),
     key: &str,
     wait: Duration,
+    generation: impl Fn() -> usize,
     cancel: impl FnOnce(),
 ) -> Option<(
     Arc<image::DynamicImage>,
@@ -390,6 +416,10 @@ fn take_under_way(
 )> {
     let until = std::time::Instant::now() + wait;
     let mut state = under_way.lock().unwrap_or_else(|e| e.into_inner());
+    // Handed over already (the next prefetch decode may have started).
+    if let Some(taken) = state.take_handed(key, generation()) {
+        return Some(taken);
+    }
     match state.on_open(key) {
         OnOpen::Decode => return None,
         OnOpen::Cancel => {
@@ -400,11 +430,8 @@ fn take_under_way(
         OnOpen::Wait => {}
     }
     loop {
-        if state.handed.as_ref().is_some_and(|(k, _, _)| k == key) {
-            return state
-                .handed
-                .take()
-                .map(|(_, image, measures)| (image, measures));
+        if state.handed.as_ref().is_some_and(|((k, _, _), _)| k == key) {
+            return state.take_handed(key, generation());
         }
         let left = until.saturating_duration_since(std::time::Instant::now());
         if state.key.as_deref() != Some(key) || left.is_zero() {
@@ -1310,7 +1337,9 @@ mod tests {
     fn opening_another_photograph_cancels_the_prefetch_decode_under_way() {
         let shared = (Mutex::new(UnderWay::idle()), Condvar::new());
         let mut cancelled = false;
-        assert!(take_under_way(&shared, "N-key", Duration::ZERO, || cancelled = true).is_none());
+        assert!(
+            take_under_way(&shared, "N-key", Duration::ZERO, || 0, || cancelled = true).is_none()
+        );
         assert!(!cancelled, "nothing under way: the load decodes");
         shared
             .0
@@ -1318,8 +1347,13 @@ mod tests {
             .unwrap()
             .start("/s/Capture/N.RAF", "N-key", 0);
         assert!(
-            take_under_way(&shared, "X-key", Duration::from_secs(1), || cancelled =
-                true)
+            take_under_way(
+                &shared,
+                "X-key",
+                Duration::from_secs(1),
+                || 0,
+                || { cancelled = true }
+            )
             .is_none()
         );
         assert!(cancelled);
@@ -1348,9 +1382,13 @@ mod tests {
                 handed
             })
         };
-        let taken = take_under_way(&shared, "N-key", Duration::from_secs(10), || {
-            panic!("its own decode is not cancelled")
-        });
+        let taken = take_under_way(
+            &shared,
+            "N-key",
+            Duration::from_secs(10),
+            || 0,
+            || panic!("its own decode is not cancelled"),
+        );
         assert!(decoder.join().unwrap(), "handed over");
         assert!(taken.is_some());
         assert!(shared.0.lock().unwrap().handed.is_none(), "taken, not kept");
@@ -1383,6 +1421,32 @@ mod tests {
     }
 
     #[test]
+    fn a_handed_decode_waits_for_its_load_while_the_next_prefetch_starts() {
+        let shared = (Mutex::new(UnderWay::idle()), Condvar::new());
+        {
+            let mut state = shared.0.lock().unwrap();
+            state.start("/s/Capture/N.RAF", "N-key", 0);
+            assert_eq!(state.on_open("N-key"), OnOpen::Wait);
+            assert!(state.end(Some(decoded()), 0));
+            // The worker starts the next decode before the load wakes up.
+            state.start("/s/Capture/NN.RAF", "NN-key", 0);
+        }
+        let mut cancelled = false;
+        let taken = take_under_way(&shared, "N-key", Duration::ZERO, || 0, || cancelled = true);
+        assert!(taken.is_some() && !cancelled);
+        assert!(shared.0.lock().unwrap().handed.is_none());
+        // One of settings changed since is dropped, not used.
+        {
+            let mut state = shared.0.lock().unwrap();
+            state.start("/s/Capture/N.RAF", "N-key", 0);
+            state.on_open("N-key");
+            assert!(state.end(Some(decoded()), 0));
+        }
+        assert!(take_under_way(&shared, "N-key", Duration::ZERO, || 1, || {}).is_none());
+        assert!(shared.0.lock().unwrap().handed.is_none());
+    }
+
+    #[test]
     fn a_prefetch_decode_nobody_waits_for_is_not_handed_over() {
         let mut under_way = UnderWay::idle();
         under_way.start("/s/Capture/N.RAF", "N-key", 0);
@@ -1395,7 +1459,7 @@ mod tests {
             .lock()
             .unwrap()
             .start("/s/Capture/N.RAF", "N-key", 0);
-        assert!(take_under_way(&shared, "N-key", Duration::from_millis(5), || {}).is_none());
+        assert!(take_under_way(&shared, "N-key", Duration::from_millis(5), || 0, || {}).is_none());
         assert!(!shared.0.lock().unwrap().end(Some(decoded()), 0));
     }
 }

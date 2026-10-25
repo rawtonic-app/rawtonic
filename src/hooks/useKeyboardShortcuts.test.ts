@@ -751,6 +751,31 @@ describe("auto-advance after a rating", () => {
     expect(useLibraryStore.getState().imageRatings).toMatchObject({ "/s/b.NEF": 3, "/s/c.NEF": 1 });
   });
 
+  it("keeps Undo when the flag write's answer reaches a virtual copy of the same RAW stepped to", async () => {
+    const { requestAutoAdvance } = await import("../utils/photoStepping");
+    const copies = ["/s/a.NEF", "/s/a.NEF?vc=2", "/s/b.NEF"].map((path) => ({ path }));
+    cleanup();
+    useSettingsStore.setState({
+      appSettings: { keybinds: {}, autoAdvance: true } as unknown as AppSettings,
+      osPlatform: "macos",
+    });
+    useUIStore.setState({ activeView: "editor" });
+    useLibraryStore.setState({ imageList: copies as never, multiSelectedPaths: ["/s/a.NEF"], imageFlags: {} });
+    useEditorStore.getState().setEditor({ selectedImage: { path: "/s/a.NEF", isReady: true } as never });
+    renderHook(() => useKeyboardShortcuts({ ...props, sortedImageList: copies as never }));
+    const restore = vi.fn();
+    // ⇧X on the master: the step happens before the catalog answers.
+    requestAutoAdvance("/s/a.NEF", restore, -1);
+    expect(props.handleImageSelect).toHaveBeenCalledExactlyOnceWith("/s/a.NEF?vc=2", true);
+    stepTo("/s/a.NEF?vc=2");
+    // The answer: the shared source flag, which the copy shows too.
+    useLibraryStore.getState().setLibrary({ imageFlags: { "/s/a.NEF": -1 } });
+    vi.clearAllMocks();
+    undo();
+    expect(restore).toHaveBeenCalledOnce();
+    expect(props.handleImageSelect).toHaveBeenCalledExactlyOnceWith("/s/a.NEF", true);
+  });
+
   it("ends what Undo takes back once the next photograph is rated another way", () => {
     open("/s/a.NEF", true);
     press("Digit3", "3");

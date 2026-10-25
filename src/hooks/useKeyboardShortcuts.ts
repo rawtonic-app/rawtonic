@@ -19,7 +19,13 @@ import { useLibraryActions } from './useLibraryActions';
 import { libraryTool, ownsPanelShortcut, revealLibraryTool } from '../components/studio/workspaceInteractions';
 import { useMultiViewStore, type CellZoomKey } from '../store/useMultiViewStore';
 import { orderedSelection, stepPrimary } from '../utils/multiView';
-import { AUTO_ADVANCE_EVENT, autoAdvanceTarget, requestAutoAdvance, type AutoAdvanceRequest } from '../utils/photoStepping';
+import {
+  AUTO_ADVANCE_EVENT,
+  autoAdvanceTarget,
+  requestAutoAdvance,
+  sharedFlagWrite,
+  type AutoAdvanceRequest,
+} from '../utils/photoStepping';
 import { imageFlag } from '../utils/culling';
 import { isTetherConnected, TETHER_CAPTURE_EVENT } from '../components/session/tether';
 import { libraryViewer, viewerOnly, viewerShown } from '../utils/viewerMode';
@@ -188,7 +194,13 @@ export const useKeyboardShortcuts = ({
   // flag (Lightroom's Undo of the rating).
   // `ownHistory`: the edit history shown is the next photograph's (it
   // replaces the rated one's once that photograph's recipe is in).
-  const lastAdvance = useRef<{ from: string; to: string; restore: () => void; ownHistory: boolean } | null>(null);
+  const lastAdvance = useRef<{
+    from: string;
+    to: string;
+    restore: () => void;
+    ownHistory: boolean;
+    flag?: number;
+  } | null>(null);
   // The loupe and the full screen of the Library keep it (the photograph
   // becomes the Library's selection); Develop opens it.
   const showInViewer = useCallback(
@@ -202,7 +214,7 @@ export const useKeyboardShortcuts = ({
   );
   useEffect(() => {
     const advance = (event: Event) => {
-      const { rated, restore } = (event as CustomEvent<AutoAdvanceRequest>).detail;
+      const { rated, restore, flag } = (event as CustomEvent<AutoAdvanceRequest>).detail;
       // A newer rating or flag: Undo no longer takes back an earlier step,
       // also when this one does not step (the last photograph).
       lastAdvance.current = null;
@@ -216,7 +228,7 @@ export const useKeyboardShortcuts = ({
       );
       if (!next) return;
       showInViewer(next);
-      lastAdvance.current = { from: rated, to: next, restore, ownHistory: false };
+      lastAdvance.current = { from: rated, to: next, restore, ownHistory: false, flag };
     };
     window.addEventListener(AUTO_ADVANCE_EVENT, advance);
     // Any other photograph opened, or the next one rated, flagged or
@@ -228,11 +240,11 @@ export const useKeyboardShortcuts = ({
     });
     const unsubscribeLibrary = useLibraryStore.subscribe((state, previous) => {
       const last = lastAdvance.current;
-      if (
-        last &&
-        (state.imageRatings[last.to] !== previous.imageRatings[last.to] ||
-          imageFlag(state.imageFlags, last.to) !== imageFlag(previous.imageFlags, last.to))
-      ) {
+      if (!last) return;
+      const flag = imageFlag(state.imageFlags, last.to);
+      const flagChanged =
+        flag !== imageFlag(previous.imageFlags, last.to) && !sharedFlagWrite(last.from, last.to, last.flag, flag);
+      if (state.imageRatings[last.to] !== previous.imageRatings[last.to] || flagChanged) {
         lastAdvance.current = null;
       }
     });

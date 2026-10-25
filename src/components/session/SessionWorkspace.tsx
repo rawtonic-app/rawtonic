@@ -929,7 +929,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         const previous = rated ? imageFlag(useLibraryStore.getState().imageFlags, rated) : 0;
         void mark(flag);
         if (viewerShown(useUIStore.getState()) && rated) {
-          requestAutoAdvance(rated, () => void mark(previous, [rated]));
+          requestAutoAdvance(rated, () => void mark(previous, [rated]), flag);
         }
       }
     };

@@ -6,11 +6,13 @@
 /** Asked for by a rating or flag key in Develop (`AutoAdvanceRequest`). */
 export const AUTO_ADVANCE_EVENT = "rawtonic:auto-advance";
 
-/** The photograph rated or flagged, and how to give it back its previous
- * rating or flag (Undo right after the step). */
+/** The photograph rated or flagged, how to give it back its previous
+ * rating or flag (Undo right after the step), and the flag set (a virtual
+ * copy of the same RAW shares it, as it is acknowledged). */
 export interface AutoAdvanceRequest {
   rated: string;
   restore: () => void;
+  flag?: number;
 }
 
 /**
@@ -56,8 +58,15 @@ export function autoAdvanceTarget(paths: string[], open: string | null, rated: s
  * rating or flag is bound to `rated` before the step; `restore` gives it
  * back its previous one.
  */
-export function requestAutoAdvance(rated: string | undefined, restore: () => void) {
+export function requestAutoAdvance(rated: string | undefined, restore: () => void, flag?: number) {
   if (rated) {
-    window.dispatchEvent(new CustomEvent<AutoAdvanceRequest>(AUTO_ADVANCE_EVENT, { detail: { rated, restore } }));
+    window.dispatchEvent(new CustomEvent<AutoAdvanceRequest>(AUTO_ADVANCE_EVENT, { detail: { rated, restore, flag } }));
   }
+}
+
+/** Whether a flag change of `next` (the photograph stepped to) to `value` is
+ * the acknowledged write of the flag `set` on `rated` itself: virtual copies
+ * of one RAW share its flag. */
+export function sharedFlagWrite(rated: string, next: string, set: number | undefined, value: number): boolean {
+  return set !== undefined && set === value && rated.split("?vc=")[0] === next.split("?vc=")[0];
 }
