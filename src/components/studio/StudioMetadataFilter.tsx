@@ -173,7 +173,7 @@ export default function StudioMetadataFilter() {
       clearTimeout(timer);
       timer = setTimeout(() => {
         const mine = ++generation;
-        libraryFacets(directory, base, selection)
+        libraryFacets(directory, base, selection, albumId ? null : folder)
           .then((result) => {
             if (!cancelled && mine === generation) setFacets(result ?? {});
           })
@@ -191,7 +191,7 @@ export default function StudioMetadataFilter() {
       clearTimeout(timer);
       stop();
     };
-  }, [directory, base, selection, imageList]);
+  }, [directory, base, selection, imageList, albumId, folder]);
 
   if (!directory) return null;
   /** A click chooses a value or takes it back; with Shift, every value from

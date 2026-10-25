@@ -34,8 +34,8 @@ pub use volume::Volume;
 
 /// Version of the session/catalog manifest (`session.json`).
 pub const SCHEMA_VERSION: u32 = 1;
-/// Photos visible in library views. Session Trash is listed directly from
-/// disk, so its contents remain available for restoration.
+/// Photos visible in normal library views. Explicit session Trash listings
+/// use `visible_assets_for_listing` so their metadata remains filterable.
 const VISIBLE_ASSETS: &str = "a.trashed=0 AND NOT (a.root_id='session' AND (a.rel_path='Trash' OR substr(replace(a.rel_path,char(92),'/'),1,6)='Trash/'))";
 
 /// Version of the SQLite schema; older databases are migrated when opened.
@@ -107,6 +107,8 @@ pub struct AssetIndexEntry {
     pub needs_metadata_adoption: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Counts of visible library photographs; registry reads (`assets`) also
+/// retain hidden Trash records for backup, metadata and undo.
 pub struct Summary {
     pub directory: PathBuf,
     pub manifest: Manifest,
@@ -221,6 +223,28 @@ impl Library {
         } else {
             "a.trashed=0"
         }
+    }
+
+    /// An explicit folder listing in session Trash may inspect its metadata,
+    /// while albums/searches elsewhere continue to exclude trashed photos.
+    fn visible_assets_for_listing(&self, listed: Option<&Path>) -> &'static str {
+        if self.manifest.mode == Mode::Session
+            && listed
+                .and_then(|p| p.canonicalize().ok())
+                .is_some_and(|p| p.starts_with(self.directory.join("Trash")))
+        {
+            "a.trashed=0"
+        } else {
+            self.visible_assets()
+        }
+    }
+
+    fn mark_present(conn: &Connection, id: &str) -> Result<()> {
+        conn.execute(
+            "UPDATE assets SET missing=0,trashed=0 WHERE id=? AND (missing!=0 OR trashed!=0)",
+            [id],
+        )?;
+        Ok(())
     }
 
     pub fn create(directory: &Path, name: &str, mode: Mode) -> Result<Self> {
@@ -442,14 +466,23 @@ impl Library {
     }
 
     pub fn summary(&self) -> Result<Summary> {
-        let (assets,picked,rated,pending) = self.conn.query_row("SELECT count(*),coalesce(sum(flag=1),0),coalesce(sum(rating>0),0),coalesce(sum(xmp_status!='synced'),0) FROM metadata", [], |r| Ok((r.get::<_,i64>(0)? as usize,r.get::<_,i64>(1)? as usize,r.get::<_,i64>(2)? as usize,r.get::<_,i64>(3)? as usize)))?;
-        let missing: i64 = self.conn.query_row(
+        let (assets, picked, rated, pending, missing) = self.conn.query_row(
             &format!(
-                "SELECT count(*) FROM assets a WHERE a.missing=1 AND {}",
+                "SELECT count(*),coalesce(sum(m.flag=1),0),coalesce(sum(m.rating>0),0),
+                coalesce(sum(m.xmp_status!='synced'),0),coalesce(sum(a.missing),0)
+                FROM metadata m JOIN assets a ON a.id=m.asset_id WHERE {}",
                 self.visible_assets()
             ),
             [],
-            |r| r.get(0),
+            |r| {
+                Ok((
+                    r.get::<_, i64>(0)? as usize,
+                    r.get::<_, i64>(1)? as usize,
+                    r.get::<_, i64>(2)? as usize,
+                    r.get::<_, i64>(3)? as usize,
+                    r.get::<_, i64>(4)? as usize,
+                ))
+            },
         )?;
         Ok(Summary {
             directory: self.directory.clone(),
@@ -458,7 +491,7 @@ impl Library {
             picked,
             rated,
             xmp_pending: pending,
-            missing: missing as usize,
+            missing,
         })
     }
 
@@ -469,6 +502,7 @@ impl Library {
     pub fn add_asset(&self, path: &Path) -> Result<Asset> {
         let planned = self.plan_add(path, Contents::default())?;
         if let Some(id) = self.registered_id(&planned.root, &planned.rel)? {
+            Self::mark_present(&self.conn, &id)?;
             return self.asset(&id);
         }
         let (id, _) = self
@@ -503,11 +537,12 @@ impl Library {
         id.map(|id| self.asset(&id)).transpose()
     }
 
-    /// Every asset, or those whose searchable text holds every word of
-    /// `query` (the Library's search box, `Rule::text`).
+    /// Every registered asset, including hidden Trash records needed by
+    /// backup and metadata synchronization, optionally filtered by text.
+    /// User-facing views use `search` / `collection_paths` instead.
     pub fn assets(&self, query: Option<&str>) -> Result<Vec<Asset>> {
         let ids: Vec<String> = if let Some(q) = query.filter(|s| !s.trim().is_empty()) {
-            self.search_ids(&Rule::text(q))?
+            self.registered_search_ids(&Rule::text(q))?
         } else {
             self.conn
                 .prepare("SELECT id FROM assets ORDER BY rel_path")?
@@ -1247,20 +1282,25 @@ impl Library {
         // Verify only registered paths. A single joined read replaces the
         // former full Asset materialization and one SELECT per photo.
         let mut query = self.conn.prepare(
-            "SELECT a.id,a.rel_path,r.path,r.external,a.missing
+            "SELECT a.id,a.rel_path,r.path,r.external,a.missing,a.trashed
              FROM assets a JOIN roots r ON r.id=a.root_id",
         )?;
         let rows = query.query_map([], |row| {
             let path = self.join_root(row.get(2)?, row.get(3)?, row.get::<_, String>(1)?);
-            Ok((row.get::<_, String>(0)?, path, row.get::<_, bool>(4)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                path,
+                row.get::<_, bool>(4)?,
+                row.get::<_, bool>(5)?,
+            ))
         })?;
         let mut missing = 0;
         let mut changes = Vec::new();
         for row in rows {
-            let (id, path, was_missing) = row?;
+            let (id, path, was_missing, was_trashed) = row?;
             let is_missing = !path.is_file();
             missing += usize::from(is_missing);
-            if was_missing != is_missing {
+            if was_missing != is_missing || (was_trashed && !is_missing) {
                 if !is_missing {
                     found.push(id.clone());
                 }
@@ -1273,7 +1313,7 @@ impl Library {
         if !changes.is_empty() {
             let tx = self.conn.unchecked_transaction()?;
             {
-                let mut update = tx.prepare("UPDATE assets SET missing=? WHERE id=?")?;
+                let mut update = tx.prepare("UPDATE assets SET missing=?1,trashed=CASE WHEN ?1 THEN trashed ELSE 0 END WHERE id=?2")?;
                 for (id, is_missing) in changes {
                     update.execute(params![is_missing, id])?;
                 }
@@ -1422,7 +1462,7 @@ impl Library {
                 params![root, rel, id],
             )?;
             tx.execute(
-                "UPDATE assets SET root_id=?, rel_path=?, missing=0 WHERE id=?",
+                "UPDATE assets SET root_id=?, rel_path=?, missing=0,trashed=0 WHERE id=?",
                 params![root, rel, id],
             )?;
             forget_xmp_left_behind(tx, id, path)?;
@@ -1742,7 +1782,7 @@ impl Library {
     }
 
     /// Marks the asset registered at `path`, or every asset below that folder,
-    /// as missing or present without changing its deliberate trash state.
+    /// as missing or present; finding an original present clears its trash state.
     /// Returns how many matched.
     pub fn set_missing_at(&self, path: &Path, missing: bool) -> Result<usize> {
         self.set_path_status(path, missing, false)
@@ -1758,11 +1798,11 @@ impl Library {
         let status = if trash_operation {
             "missing=?1,trashed=?1"
         } else {
-            "missing=?1"
+            "missing=?1,trashed=CASE WHEN ?1 THEN trashed ELSE 0 END"
         };
         let path = resolve_moved(path);
         let like = |prefix: &str| {
-            let prefix = format!("{prefix}{}", std::path::MAIN_SEPARATOR);
+            let prefix = format!("{}/", prefix.replace('\\', "/"));
             format!(
                 "{}%",
                 prefix
@@ -1772,30 +1812,34 @@ impl Library {
             )
         };
         let changed = if let Ok(relative) = path.strip_prefix(&self.directory) {
-            let rel = relative.to_string_lossy();
+            let rel = relative.to_string_lossy().replace('\\', "/");
             self.conn.execute(
                 &format!(
                     "UPDATE assets SET {status} WHERE root_id='session'
-                   AND (rel_path=? OR rel_path LIKE ? ESCAPE '\\')"
+                   AND (replace(rel_path,char(92),'/')=? OR replace(rel_path,char(92),'/') LIKE ? ESCAPE '\\')"
                 ),
-                params![missing, rel.as_ref(), like(&rel)],
+                params![missing, rel, like(&rel)],
             )?
         } else {
-            let folder = path.to_string_lossy();
-            let parent = path.parent().context("No parent")?.to_string_lossy();
+            let folder = path.to_string_lossy().replace('\\', "/");
+            let parent = path
+                .parent()
+                .context("No parent")?
+                .to_string_lossy()
+                .replace('\\', "/");
             let name = path.file_name().context("No filename")?.to_string_lossy();
             self.conn.execute(
                 &format!(
                     "UPDATE assets SET {status} WHERE
-                   (rel_path=? AND root_id IN (SELECT id FROM roots WHERE external=1 AND path=?))
+                   (replace(rel_path,char(92),'/')=? AND root_id IN (SELECT id FROM roots WHERE external=1 AND replace(path,char(92),'/')=?))
                    OR root_id IN (SELECT id FROM roots WHERE external=1
-                                  AND (path=? OR path LIKE ? ESCAPE '\\'))"
+                                  AND (replace(path,char(92),'/')=? OR replace(path,char(92),'/') LIKE ? ESCAPE '\\'))"
                 ),
                 params![
                     missing,
                     name.as_ref(),
-                    parent.as_ref(),
-                    folder.as_ref(),
+                    parent,
+                    folder,
                     like(&folder)
                 ],
             )?

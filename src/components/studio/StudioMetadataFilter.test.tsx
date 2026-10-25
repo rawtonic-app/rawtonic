@@ -51,6 +51,7 @@ it("lists each field's values with counts within the shown folder, search and cu
   const [command, args] = mockInvoke.mock.calls[0] as [string, { directory: string; requests: { field: string; rule: unknown }[] }];
   expect(command).toBe("session_facets");
   expect(args.directory).toBe("/job");
+  expect((args as { listed?: string }).listed).toBe("/job/Capture");
   const camera = args.requests.find((r) => r.field === "camera");
   expect(camera?.rule).toEqual({
     combine: "all",
@@ -221,4 +222,15 @@ it("keeps a chosen year no photograph has any more among the years, a range acro
   expect(dates.getAllByText(/^\d{4}$/).map((label) => label.textContent)).toEqual(["2024", "2023", "2022"]);
   fireEvent.click(dates.getByText("2022"), { shiftKey: true });
   expect(useLibraryStore.getState().filterCriteria.metadata?.captureDate).toEqual(["2023", "2022"]);
+});
+
+it("passes Trash folder context for counts, but never for an album", async () => {
+  useLibraryStore.setState({ currentFolderPath: "/job/Trash" });
+  const { rerender } = render(<StudioMetadataFilter />);
+  await counted();
+  expect(mockInvoke).toHaveBeenLastCalledWith("session_facets", expect.objectContaining({ listed: "/job/Trash" }));
+  act(() => useLibraryStore.setState({ activeAlbumId: "session-album:p" }));
+  rerender(<StudioMetadataFilter />);
+  await counted();
+  expect(mockInvoke).toHaveBeenLastCalledWith("session_facets", expect.objectContaining({ listed: null }));
 });

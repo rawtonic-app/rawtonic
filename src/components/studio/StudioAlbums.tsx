@@ -22,7 +22,8 @@ import { ToolGroup } from "./StudioDevelop";
 import { TILE_DROP_EVENT, type TileDropDetail } from "./tileDrag";
 import { createDragGhost } from "./dragGhost";
 import { MISSING_VIEW_ID, OFFLINE_CHANGED, OFFLINE_COUNTED, offlinePhotographs, openMissingView } from "../../utils/offline";
-import { PREVIOUS_IMPORT_VIEW_ID, openPreviousImport, previousImport } from "../../utils/folderSync";
+import { IMPORTS_CHANGED, PREVIOUS_IMPORT_VIEW_ID, openPreviousImport, previousImport } from "../../utils/folderSync";
+import { FILE_OPERATIONS_CHANGED } from "../../utils/catalogEvents";
 import { CATALOG_CHANGED, CATALOG_EVENTS, SESSION_ALBUMS_CHANGED, catalogChanged, onCatalogChange } from "../../utils/catalogWrites";
 import type { Group, Rule } from "../../utils/librarySearch";
 import { asGroup, useSmartAlbumEditor } from "./SmartAlbumEditor";
@@ -381,7 +382,7 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
       if (activeAlbumRef.current === PREVIOUS_IMPORT_VIEW_ID) void showImported(true).catch(() => {});
       else void recountImported();
     };
-    return onCatalogChange(changed, CATALOG_EVENTS.filter((event) => event !== CATALOG_CHANGED));
+    return onCatalogChange(changed, [IMPORTS_CHANGED, FILE_OPERATIONS_CHANGED, OFFLINE_CHANGED]);
   }, [showImported, recountImported]);
 
   /** Shows `album` in the grid (`preserveEditor` refreshes it in place). */

@@ -28,7 +28,9 @@ pub async fn session_search(
 ) -> Result<Vec<PathBuf>, String> {
     with_library(directory, false, move |lib| {
         start_facts_pass_if_needed(lib);
-        let paths = lib.search(&rule).map_err(|e| e.to_string())?;
+        let paths = lib
+            .search_for_listing(&rule, listed.as_deref().map(Path::new))
+            .map_err(|e| e.to_string())?;
         Ok(match listed {
             Some(listed) => as_listed(paths, Path::new(&listed)),
             None => paths,
@@ -81,6 +83,7 @@ pub struct FacetRequest {
 pub async fn session_facets(
     directory: String,
     requests: Vec<FacetRequest>,
+    listed: Option<String>,
 ) -> Result<BTreeMap<Field, Vec<FacetValue>>, String> {
     with_library(directory, false, move |lib| {
         start_facts_pass_if_needed(lib);
@@ -95,7 +98,10 @@ pub async fn session_facets(
         }
         let mut result = BTreeMap::new();
         for (rule, fields) in by_rule {
-            result.extend(lib.facets(&rule, &fields).map_err(|e| e.to_string())?);
+            result.extend(
+                lib.facets_for_listing(&rule, &fields, listed.as_deref().map(Path::new))
+                    .map_err(|e| e.to_string())?,
+            );
         }
         Ok(result)
     })
@@ -279,6 +285,60 @@ mod tests {
     static PASS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
+    fn filters_in_the_session_trash_keep_catalog_metadata() {
+        let _one = PASS.lock().unwrap_or_else(|e| e.into_inner());
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Trash", Mode::Session).unwrap();
+        let folder = lib.directory.join("Trash");
+        let photo = folder.join("A.ARW");
+        std::fs::write(&photo, b"synthetic photo").unwrap();
+        let asset = lib.add_asset(&photo).unwrap();
+        let mut metadata = lib.metadata(&asset.id).unwrap();
+        metadata.rating = 4;
+        metadata.label = "Red".into();
+        metadata.keywords = vec!["kept".into()];
+        lib.set_metadata(&asset.id, &metadata).unwrap();
+        let rule: Rule = serde_json::from_value(json!({"combine":"all","rules":[
+            {"field":"rating","op":"is","value":4},
+            {"field":"label","op":"is","value":"red"},
+            {"field":"keyword","op":"is","value":"kept"}
+        ]}))
+        .unwrap();
+        let directory = lib.directory.to_string_lossy().into_owned();
+        assert!(
+            block_on(session_search(directory.clone(), rule.clone(), None))
+                .unwrap()
+                .is_empty()
+        );
+        let listed = Some(folder.to_string_lossy().into_owned());
+        assert_eq!(
+            block_on(session_search(
+                directory.clone(),
+                rule.clone(),
+                listed.clone()
+            ))
+            .unwrap(),
+            [photo]
+        );
+        let facets = block_on(session_facets(
+            directory,
+            vec![FacetRequest {
+                field: Field::Rating,
+                rule,
+            }],
+            listed,
+        ))
+        .unwrap();
+        assert_eq!(
+            facets[&Field::Rating]
+                .iter()
+                .map(|v| v.count)
+                .sum::<usize>(),
+            1
+        );
+    }
+
+    #[test]
     fn search_facets_and_smart_albums_reach_the_catalog() {
         let _one = PASS.lock().unwrap_or_else(|e| e.into_inner());
         let temp = tempfile::tempdir().unwrap();
@@ -312,6 +372,7 @@ mod tests {
                     rule: rule.clone(),
                 },
             ],
+            None,
         ))
         .unwrap();
         let types: Vec<_> = facets[&Field::FileType]
@@ -404,6 +465,7 @@ mod tests {
                 field: Field::Camera,
                 rule: Rule::everything(),
             }],
+            None,
         ))
         .unwrap();
         let running = FACTS_PASS

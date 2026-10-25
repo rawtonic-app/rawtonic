@@ -348,6 +348,7 @@ impl Library {
         for asset in planned {
             insert_root(&tx, &asset.root, &asset.root_path)?;
             if let Some(id) = registered_id(&tx, &asset.root, &asset.rel)? {
+                Self::mark_present(&tx, &id)?;
                 result.push((id, false));
                 continue;
             }
@@ -459,6 +460,7 @@ impl Library {
                     return Ok(None);
                 }
                 if let Some(id) = self.registered_id(&place.root, &place.rel)? {
+                    Self::mark_present(&self.conn, &id)?;
                     report.known.push(self.asset(&id)?);
                     return Ok(None);
                 }
@@ -672,6 +674,96 @@ mod tests {
     }
 
     #[test]
+    fn put_back_and_reimport_restore_visibility_without_losing_memberships() {
+        for how in ["check", "add", "add_files", "insert", "relocate", "present"] {
+            let d = tempfile::tempdir().unwrap();
+            let lib = session(d.path());
+            let paths = photos(&lib);
+            {
+                let _batch = lib.import_batch(ImportKind::Add);
+                lib.add_files(&paths).unwrap();
+            }
+            let original = lib.asset_at(&paths[0]).unwrap().unwrap();
+            let album = lib.create_collection("Kept", None).unwrap();
+            lib.add_to_collection(&album.id, std::slice::from_ref(&original.id))
+                .unwrap();
+            let held = lib.directory.join("held.ARW");
+            fs::rename(&paths[0], &held).unwrap();
+            lib.set_trashed_at(&paths[0], true).unwrap();
+            assert!(lib.collection_paths(&album.id).unwrap().is_empty());
+            fs::rename(&held, &paths[0]).unwrap();
+            match how {
+                "check" => {
+                    lib.check_files().unwrap();
+                }
+                "present" => {
+                    lib.set_missing_at(&paths[0], false).unwrap();
+                }
+                "add" => {
+                    lib.add_asset(&paths[0]).unwrap();
+                }
+                "add_files" => {
+                    lib.add_files(&paths[..1]).unwrap();
+                }
+                "insert" => {
+                    lib.insert_planned(vec![lib.plan_add(&paths[0], Contents::default()).unwrap()])
+                        .unwrap();
+                }
+                "relocate" => {
+                    lib.relocate(&paths[0], &paths[0]).unwrap();
+                }
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                lib.collection_paths(&album.id).unwrap(),
+                paths[..1],
+                "{how}"
+            );
+            assert_eq!(lib.previous_import_assets().unwrap().len(), 3, "{how}");
+            let restored = lib.asset_at(&paths[0]).unwrap().unwrap();
+            assert_eq!(
+                (restored.id, restored.rating),
+                (original.id, original.rating)
+            );
+        }
+    }
+
+    #[test]
+    fn trash_status_matches_descendants_with_both_stored_separators() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = session(d.path());
+        let paths = photos(&lib);
+        lib.add_files(&paths).unwrap();
+        lib.conn.execute("UPDATE assets SET rel_path=replace(rel_path,'/',char(92)) WHERE rel_path='Capture/A.ARW'", []).unwrap();
+        let folder = lib.directory.join("Capture");
+        assert_eq!(lib.set_trashed_at(&folder, true).unwrap(), 3);
+        assert_eq!(
+            lib.conn
+                .query_row("SELECT count(*) FROM assets WHERE trashed=1", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            3
+        );
+        assert_eq!(lib.set_trashed_at(&folder, false).unwrap(), 3);
+    }
+
+    #[test]
+    fn registry_reads_include_hidden_records_but_view_summaries_do_not() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = session(d.path());
+        let paths = photos(&lib);
+        lib.add_files(&paths).unwrap();
+        lib.set_trashed_at(&paths[0], true).unwrap();
+        let trash = lib.directory.join("Trash/B.ARW");
+        fs::rename(&paths[1], &trash).unwrap();
+        lib.relocate(&paths[1], &trash).unwrap();
+        assert_eq!(lib.assets(None).unwrap().len(), 3);
+        assert_eq!(lib.assets(Some("ARW")).unwrap().len(), 3);
+        assert_eq!(lib.summary().unwrap().assets, 1);
+        assert_eq!(lib.summary().unwrap().rated, 0);
+    }
+
+    #[test]
     fn trashed_photographs_leave_imports_and_albums_until_restored() {
         let d = tempfile::tempdir().unwrap();
         let lib = session(d.path());
@@ -724,8 +816,7 @@ mod tests {
         assert_eq!(lib.collection_paths(&album.id).unwrap().len(), 3);
         assert!(lib.collections().unwrap().iter().all(|a| a.count == 3));
         lib.set_trashed_at(&paths[0], true).unwrap();
-        // A file check changing missing state must not untrash a record.
-        lib.set_missing_at(&paths[0], false).unwrap();
+        // An absent file remains hidden until it is restored.
         assert_eq!(lib.previous_import_assets().unwrap().len(), 2);
         assert_eq!(lib.previous_import().unwrap().unwrap().count, 2);
         assert_eq!(lib.collection_paths(&album.id).unwrap().len(), 2);

@@ -1255,9 +1255,13 @@ impl Tally {
 
 impl Library {
     fn compile(&self, rule: &Rule) -> Result<Compiled> {
+        self.compile_visible(rule, self.visible_assets())
+    }
+
+    fn compile_visible(&self, rule: &Rule, visible: &str) -> Result<Compiled> {
         rule.validate()?;
         let mut compiler = Compiler::new(&self.directory, Some(self));
-        let condition = format!("({}) AND ({})", self.visible_assets(), compiler.rule(rule)?);
+        let condition = format!("({visible}) AND ({})", compiler.rule(rule)?);
         Ok(Compiled {
             condition,
             params: compiler.params,
@@ -1269,7 +1273,13 @@ impl Library {
     /// Paths of the photographs `rule` matches, by place (root, then path
     /// in it). One query; no file is read.
     pub fn search(&self, rule: &Rule) -> Result<Vec<PathBuf>> {
-        let compiled = self.compile(rule)?;
+        self.search_for_listing(rule, None)
+    }
+
+    /// Search with an explicit folder-grid context. A listing inside the
+    /// session Trash keeps its catalog metadata available for filters.
+    pub fn search_for_listing(&self, rule: &Rule, listed: Option<&Path>) -> Result<Vec<PathBuf>> {
+        let compiled = self.compile_visible(rule, self.visible_assets_for_listing(listed))?;
         let mut query = self.conn.prepare(&format!(
             "SELECT a.rel_path,r.path,r.external FROM {} WHERE {} ORDER BY a.root_id, a.rel_path",
             compiled.from(false, true),
@@ -1291,7 +1301,14 @@ impl Library {
 
     /// Ids of the photographs `rule` matches, in the order of `search`.
     pub fn search_ids(&self, rule: &Rule) -> Result<Vec<String>> {
-        let compiled = self.compile(rule)?;
+        self.ids_from_compiled(self.compile(rule)?)
+    }
+
+    pub(crate) fn registered_search_ids(&self, rule: &Rule) -> Result<Vec<String>> {
+        self.ids_from_compiled(self.compile_visible(rule, "1")?)
+    }
+
+    fn ids_from_compiled(&self, compiled: Compiled) -> Result<Vec<String>> {
         let mut query = self.conn.prepare(&format!(
             "SELECT a.id FROM {} WHERE {} ORDER BY a.root_id, a.rel_path",
             compiled.from(false, false),
@@ -1326,7 +1343,18 @@ impl Library {
         rule: &Rule,
         fields: &[Field],
     ) -> Result<BTreeMap<Field, Vec<FacetValue>>> {
-        let compiled = self.compile(rule)?;
+        self.facets_for_listing(rule, fields, None)
+    }
+
+    /// The same value lists as `facets`, with the folder-grid visibility
+    /// used by `search_for_listing` (including session Trash when shown).
+    pub fn facets_for_listing(
+        &self,
+        rule: &Rule,
+        fields: &[Field],
+        listed: Option<&Path>,
+    ) -> Result<BTreeMap<Field, Vec<FacetValue>>> {
+        let compiled = self.compile_visible(rule, self.visible_assets_for_listing(listed))?;
         for field in fields {
             ensure!(FACETS.contains(field), "No value list for {field:?}");
         }
