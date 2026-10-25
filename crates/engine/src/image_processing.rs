@@ -1124,9 +1124,31 @@ fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32
                 || ((INSIDE..=last_x - INSIDE).contains(&x)
                     && (INSIDE..=last_y - INSIDE).contains(&y))
         };
+        // The scan costs a few thousand mappings: kept for the parameters
+        // last asked about (a spot-removal stroke maps each of its points
+        // through `inverse_transform_point` with the same recipe).
+        type Key = [u32; 10];
+        static LAST: std::sync::Mutex<Option<(Key, f64)>> = std::sync::Mutex::new(None);
+        let key: Key = [
+            width.to_bits(),
+            height.to_bits(),
+            params.lens_dist_k1.to_bits(),
+            params.lens_dist_k2.to_bits(),
+            params.lens_dist_k3.to_bits(),
+            params.lens_model,
+            params.lens_distortion_amount.to_bits(),
+            u32::from(params.lens_profile_exact),
+            params.distortion.to_bits(),
+            params.lens_zoom.to_bits(),
+        ];
+        if let Some((last, scale)) = *LAST.lock().unwrap_or_else(|e| e.into_inner())
+            && last == key
+        {
+            return scale;
+        }
         let columns = (0..(width as u32).max(1)).map(f64::from);
         let rows = (0..(height as u32).max(1)).map(f64::from);
-        return columns
+        let scale = columns
             .flat_map(|x| [(x, 0.0), (x, last_y)])
             .chain(rows.flat_map(|y| [(0.0, y), (last_x, y)]))
             .fold(zoom, |scale, (px, py)| {
@@ -1145,6 +1167,8 @@ fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32
                 }
                 hi
             });
+        *LAST.lock().unwrap_or_else(|e| e.into_inner()) = Some((key, scale));
+        return scale;
     }
 
     let mut max_scale: f64 = 1.0;
