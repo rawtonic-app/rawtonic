@@ -891,6 +891,91 @@ fn interpolate_pixel_with_tca(
     pixel_out[2] = sample_channel(bx, by, 2);
 }
 
+/// [`interpolate_pixel_with_tca`] of four pixels side by side, `false`
+/// (nothing written) unless all twelve samples lie inside the bicubic area:
+/// each sample runs the same operations in the same order as there, so the
+/// results are identical, but the four pixels' chains of dependent adds
+/// overlap. The warp spent most of its time waiting on those chains, one
+/// channel after the other (notes: parity-gaps/G43, task BX3).
+#[inline(always)]
+fn interpolate_4_with_tca(
+    tca: &TcaContext,
+    points: [(f32, f32); 4],
+    vr: f32,
+    vb: f32,
+    out: &mut [[f32; 3]; 4],
+) -> bool {
+    let (cx, cy) = (tca.cx, tca.cy);
+    // Per channel and pixel, as `interpolate_pixel_with_tca` places them.
+    let mut xs = [[0.0f32; 4]; 3];
+    let mut ys = [[0.0f32; 4]; 3];
+    for (l, &(base_x, base_y)) in points.iter().enumerate() {
+        let (vr, vb) = if tca.vr2 != 0.0 || tca.vb2 != 0.0 {
+            let r2 = ((base_x - cx) * (base_x - cx) + (base_y - cy) * (base_y - cy)) * tca.inv_hd2;
+            (vr + tca.vr2 * r2, vb + tca.vb2 * r2)
+        } else {
+            (vr, vb)
+        };
+        xs[0][l] = cx + (base_x - cx) * vr;
+        ys[0][l] = cy + (base_y - cy) * vr;
+        xs[1][l] = base_x;
+        ys[1][l] = base_y;
+        xs[2][l] = cx + (base_x - cx) * vb;
+        ys[2][l] = cy + (base_y - cy) * vb;
+    }
+    let (width, height) = (tca.src_width as f32, tca.src_height as f32);
+    for (xs, ys) in xs.iter_mut().zip(ys.iter_mut()) {
+        for (x, y) in xs.iter_mut().zip(ys.iter_mut()) {
+            (*x, *y) = (*x - tca.col0, *y - tca.row0);
+            // `bicubic_channel`'s area (NaN outside it too).
+            if !(*x >= 1.0 && *y >= 1.0 && *x < width - 2.0 && *y < height - 2.0) {
+                return false;
+            }
+        }
+    }
+    let src = tca.src_raw;
+    let stride = tca.src_width * 3;
+    for channel in 0..3 {
+        let mut first = [0usize; 4];
+        let mut wx = [[0.0f32; 4]; 4];
+        let mut wy = [[0.0f32; 4]; 4];
+        for l in 0..4 {
+            let (x, y) = (xs[channel][l], ys[channel][l]);
+            let x0 = x.floor() as usize;
+            let y0 = y.floor() as usize;
+            wx[l] = catmull_rom_weights(x - x0 as f32);
+            wy[l] = catmull_rom_weights(y - y0 as f32);
+            first[l] = (y0 - 1) * stride + (x0 - 1) * 3 + channel;
+        }
+        // The vertical weights by tap row.
+        let wy: [[f32; 4]; 4] = std::array::from_fn(|j| std::array::from_fn(|l| wy[l][j]));
+        let mut value = [0.0f32; 4];
+        for (j, wy) in wy.iter().enumerate() {
+            for l in 0..4 {
+                let row = first[l] + j * stride;
+                // SAFETY: every sample is inside the bicubic area (checked
+                // above), so its 4 x 4 taps lie inside the image.
+                let line = unsafe {
+                    *src.get_unchecked(row) * wx[l][0]
+                        + *src.get_unchecked(row + 3) * wx[l][1]
+                        + *src.get_unchecked(row + 6) * wx[l][2]
+                        + *src.get_unchecked(row + 9) * wx[l][3]
+                };
+                value[l] += line * wy[l];
+            }
+        }
+        for l in 0..4 {
+            let v = value[l];
+            out[l][channel] = if v < 0.0 && tca.keep_negative {
+                v.max(bicubic_floor(src, stride, first[l]))
+            } else {
+                v.max(0.0)
+            };
+        }
+    }
+    true
+}
+
 /// Lightroom's manual Distortion (Lens Corrections > Manual, −100…100) as
 /// Camera Raw maps it, measured on a Z 7II frame (notes:
 /// reference/manual-distortion.md): an output point at `r2` (squared radius
@@ -1372,8 +1457,8 @@ impl WarpKernel {
             col0,
             keep_negative: self.keep_negative,
         };
-        for pixel in row.as_chunks_mut::<3>().0.iter_mut() {
-            if let Some((src_x, src_y)) = self.source_point(&current_vec) {
+        let pixel_at = |point: Option<(f32, f32)>, pixel: &mut [f32; 3]| {
+            if let Some((src_x, src_y)) = point {
                 if self.has_tca {
                     interpolate_pixel_with_tca(&tca_ctx, src_x, src_y, self.vr, self.vb, pixel);
                 } else {
@@ -1383,6 +1468,71 @@ impl WarpKernel {
                         height - row0,
                         src_x - col0,
                         src_y - row0 as f32,
+                        self.keep_negative,
+                        pixel,
+                    );
+                }
+                self.shade(src_x, src_y, pixel);
+            }
+        };
+        let (quads, rest) = row.as_chunks_mut::<3>().0.as_chunks_mut::<4>();
+        for quad in quads {
+            let points: [Option<(f32, f32)>; 4] = std::array::from_fn(|_| {
+                let point = self.source_point(&current_vec);
+                current_vec += self.step_vec_x;
+                point
+            });
+            // With lateral CA, four pixels sampled side by side where every
+            // sample is inside the frame (the same arithmetic per pixel).
+            if self.has_tca
+                && let [Some(a), Some(b), Some(c), Some(d)] = points
+                && interpolate_4_with_tca(&tca_ctx, [a, b, c, d], self.vr, self.vb, quad)
+            {
+                for (pixel, (src_x, src_y)) in quad.iter_mut().zip([a, b, c, d]) {
+                    self.shade(src_x, src_y, pixel);
+                }
+                continue;
+            }
+            for (pixel, point) in quad.iter_mut().zip(points) {
+                pixel_at(point, pixel);
+            }
+        }
+        for pixel in rest {
+            pixel_at(self.source_point(&current_vec), pixel);
+            current_vec += self.step_vec_x;
+        }
+    }
+
+    /// [`WarpKernel::warp_row`] one pixel at a time: the reference of its
+    /// four-pixel sampling.
+    #[cfg(test)]
+    fn warp_row_per_pixel(&self, source: &SourceRows, y: u32, row: &mut [f32]) {
+        let (stride, height) = (source.cols as usize, source.height as usize);
+        let tca_ctx = TcaContext {
+            src_raw: source.pixels,
+            src_width: stride,
+            src_height: height - source.row0 as usize,
+            cx: self.cx,
+            cy: self.cy,
+            inv_hd2: 1.0 / (self.cx * self.cx + self.cy * self.cy).max(1.0),
+            vr2: self.vr2,
+            vb2: self.vb2,
+            row0: source.row0 as f32,
+            col0: source.col0 as f32,
+            keep_negative: self.keep_negative,
+        };
+        let mut current_vec = self.row_start(y);
+        for pixel in row.as_chunks_mut::<3>().0.iter_mut() {
+            if let Some((src_x, src_y)) = self.source_point(&current_vec) {
+                if self.has_tca {
+                    interpolate_pixel_with_tca(&tca_ctx, src_x, src_y, self.vr, self.vb, pixel);
+                } else {
+                    interpolate_pixel(
+                        source.pixels,
+                        stride,
+                        height - source.row0 as usize,
+                        src_x - source.col0 as f32,
+                        src_y - source.row0 as f32,
                         self.keep_negative,
                         pixel,
                     );
@@ -6527,6 +6677,99 @@ pub fn auto_adjustments_json(
         ))
     } else {
         auto_results_to_json(&perform_auto_analysis(image))
+    }
+}
+
+#[cfg(test)]
+mod warp_quad_tests {
+    use super::*;
+
+    /// Rows warped four pixels at a time are the per-pixel rows, bit for
+    /// bit: lateral CA (constant and growing with the radius), distortion,
+    /// vignetting, rotation into the border, negative channels kept or
+    /// not, odd widths, and a region's source rows.
+    #[test]
+    fn four_pixel_rows_are_the_per_pixel_rows() {
+        let (w, h) = (203u32, 141u32);
+        let mut state = 0x2545_F491_4F6C_DD1Du64;
+        let source: Vec<f32> = (0..w as usize * h as usize * 3)
+            .map(|i| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                let noise = (state >> 40) as f32 / (1u64 << 24) as f32;
+                // Some negative (wide-gamut) channels and smooth areas.
+                if i % 13 == 0 {
+                    noise - 0.3
+                } else if i % 3 == 0 {
+                    (i % 97) as f32 / 97.0
+                } else {
+                    noise
+                }
+            })
+            .collect();
+        let base = GeometryParams {
+            lens_dist_k1: -0.04,
+            lens_dist_k2: 0.01,
+            lens_distortion_amount: 1.0,
+            tca_vr: 1.0015,
+            tca_vb: 0.9988,
+            vig_k1: -0.3,
+            vig_k2: 0.05,
+            lens_vignette_amount: 1.0,
+            ..GeometryParams::default()
+        };
+        let cases = [
+            base.clone(),
+            GeometryParams {
+                tca_vr2: 0.002,
+                tca_vb2: -0.0015,
+                keep_negative: true,
+                ..base.clone()
+            },
+            GeometryParams {
+                rotate: 7.0,
+                keep_negative: true,
+                ..base.clone()
+            },
+            GeometryParams {
+                tca_vr: 1.03,
+                tca_vb: 0.97,
+                scale: 120.0,
+                ..base.clone()
+            },
+        ];
+        for (case, params) in cases.iter().enumerate() {
+            let kernel = WarpKernel::new(params, w, h, None);
+            assert!(kernel.has_tca, "case {case}");
+            let whole = SourceRows::whole(&source, w, h);
+            // A region's source: rows 30.. and columns 20.. of the frame.
+            let (row0, col0, cols) = (30u32, 20u32, 150u32);
+            let region_pixels: Vec<f32> = (row0..h)
+                .flat_map(|y| {
+                    let start = (y * w + col0) as usize * 3;
+                    source[start..start + cols as usize * 3].to_vec()
+                })
+                .collect();
+            let region = SourceRows {
+                pixels: &region_pixels,
+                width: w,
+                height: h,
+                row0,
+                col0,
+                cols,
+            };
+            for (source, rows, width) in [(&whole, 0..h, w), (&region, 60..h, 133)] {
+                for y in rows {
+                    let mut quad = vec![0.0f32; width as usize * 3];
+                    let mut single = vec![0.0f32; width as usize * 3];
+                    kernel.warp_row(source, y, 0, &mut quad);
+                    kernel.warp_row_per_pixel(source, y, &mut single);
+                    let bits = |row: &[f32]| row.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+                    assert_eq!(bits(&quad), bits(&single), "case {case} row {y}");
+                }
+            }
+        }
     }
 }
 
