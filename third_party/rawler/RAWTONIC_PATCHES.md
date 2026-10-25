@@ -49,6 +49,13 @@ this list current.
   Bebop DNGs' SubIFDs (raw image) were lost ("Unsupported DNG compression").
   229 Fujifilm/Olympus/OM files that also carry type-13 entries export
   byte-identical. Unit test `rawtonic_tests` in the same file.
+- `src/decoders/cr3.rs` (`covering_crop`): the active area is grown to hold
+  the recorded crop (IAD1). In APS-C crop mode the EOS R5 Mark II records an
+  active area ending at column 5243 while its crop (and SensorRightBorder)
+  runs to 5359, so the frame came out 4970 px wide and 54 px off-centre;
+  now 5088 x 3392 like the camera JPEG and Camera Raw. Files whose crop lies
+  inside the active area decode as before. Unit test `rawtonic_tests` in the
+  same file.
 - `src/decoders/mod.rs`: a single uncompressed strip whose StripByteCounts is
   smaller than ImageWidth x ImageLength needs is read at full size when the
   file holds it. DJI/Hasselblad L2D-20c (Mavic 3) DNGs state 5280-sample rows

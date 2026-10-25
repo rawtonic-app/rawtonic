@@ -363,6 +363,11 @@ impl<'a> Decoder for Cr3Decoder<'a> {
                 Point::new(right, bottom),
               )
             };
+            // Rawtonic patch: in APS-C crop mode the EOS R5 Mark II records
+            // an active area that ends 118 px short of the crop it records
+            // (and of SensorRightBorder), so the frame came out 4970 px wide
+            // instead of 5088 and off-centre.
+            let rect = covering_crop(rect, img.crop_area.unwrap_or(rect), cmp1.f_width as usize, cmp1.f_height as usize);
             log::debug!("IAD1 active area: {:?}", rect);
             img.active_area = Some(rect);
             //img.active_area = img.crop_area;
@@ -685,6 +690,18 @@ impl Ctmd {
   }
 }
 
+/// Rawtonic patch: the active area grown to hold the recommended crop
+/// (within the `width` x `height` buffer). The crop is what the camera's own
+/// JPEG shows; an active area that cuts it is the one that is wrong.
+fn covering_crop(active: Rect, crop: Rect, width: usize, height: usize) -> Rect {
+  let [l, t, r, b] = active.as_ltrb();
+  let [cl, ct, cr, cb] = crop.as_ltrb();
+  if cl >= l && ct >= t && cr <= r && cb <= b {
+    return active;
+  }
+  Rect::new_with_points(Point::new(l.min(cl), t.min(ct)), Point::new(r.max(cr).min(width), b.max(cb).min(height)))
+}
+
 fn normalize_wb(raw_wb: [f32; 4]) -> [f32; 4] {
   debug!("CR3 raw wb: {:?}", raw_wb);
   // We never have more then RGB colors so far (no RGBE etc.)
@@ -793,4 +810,34 @@ pub enum Cr3MakernoteTag {
   HDRInfo = 0x4025,
   AFConfig = 0x4028,
   RawBurstModeRoll = 0x403f,
+}
+
+/// Rawtonic patch tests.
+#[cfg(test)]
+mod rawtonic_tests {
+  use super::covering_crop;
+  use crate::imgop::{Point, Rect};
+
+  fn ltrb(l: usize, t: usize, r: usize, b: usize) -> Rect {
+    Rect::new_with_points(Point::new(l, t), Point::new(r, b))
+  }
+
+  #[test]
+  fn the_active_area_holds_the_recorded_crop() {
+    // EOS R5 Mark II, APS-C crop: IAD1 crop 272..5359 x 172..3563, active
+    // area 132..5243 (exclusive end 5242 as read) x 160..3567, buffer 5376 x 3574.
+    let active = ltrb(132, 160, 5242, 3566);
+    let crop = ltrb(272, 172, 5360, 3564);
+    let grown = covering_crop(active, crop, 5376, 3574);
+    assert_eq!(grown.as_ltrb(), [132, 160, 5360, 3566]);
+    assert_eq!(crop.intersection(&grown), crop);
+    // Full frame (crop inside the active area): unchanged.
+    let active = ltrb(260, 164, 8474, 5642);
+    assert_eq!(covering_crop(active, ltrb(272, 176, 8464, 5640), 8480, 5650), active);
+    // Never beyond the buffer.
+    assert_eq!(
+      covering_crop(ltrb(10, 10, 90, 90), ltrb(20, 20, 120, 95), 100, 100).as_ltrb(),
+      [10, 10, 100, 95]
+    );
+  }
 }
