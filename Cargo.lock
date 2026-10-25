@@ -5556,6 +5556,7 @@ dependencies = [
  "chrono",
  "image",
  "kamadak-exif",
+ "libc",
  "memchr",
  "rawler",
  "rawtonic-catalog",

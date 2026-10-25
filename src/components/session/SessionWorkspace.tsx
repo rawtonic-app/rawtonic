@@ -12,7 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import { openDialog } from "../../utils/fileDialog";
 import { join } from "@tauri-apps/api/path";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -815,7 +815,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     try {
       // An album view's "folder" is its name ("Album: …"), not a place.
       const shown = useLibraryStore.getState().currentFolderPath;
-      const picked = await open({
+      const picked = await openDialog({
         title: t("session.sync.chooseFolder"),
         directory: true,
         multiple: false,
@@ -932,14 +932,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
 
   const chooseFolder = async (setter: (value: string) => void) => {
     try {
-      const value = await open({ directory: true, multiple: false });
+      const value = await openDialog({ directory: true, multiple: false });
       if (typeof value === "string") setter(value);
     } catch (e) {
       setError(String(e));
     }
   };
   const openSession = async () => {
-    const directory = await open({
+    const directory = await openDialog({
       directory: true,
       multiple: false,
       title: t("session.dialogs.openTitle"),
@@ -1047,7 +1047,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   };
   const chooseSources = async (folders: boolean) => {
     try {
-      const value = await open(
+      const value = await openDialog(
         folders
           ? { multiple: true, directory: true, title: t("session.ingest.chooseFolderTitle") }
           : {
@@ -1552,7 +1552,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                   className="session-icon-button"
                   aria-label={t("session.import.chooseSource")}
                   onClick={() =>
-                    void open({
+                    void openDialog({
                       multiple: false,
                       directory: false,
                       filters: [
