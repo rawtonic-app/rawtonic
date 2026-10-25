@@ -33,6 +33,8 @@ pub struct EmbeddedLensData {
     /// Minimum zoom that reproduces the camera's framing (1 = corners of the
     /// corrected frame sample the sensor corners).
     pub zoom: f64,
+    /// The zoom is the camera's framing itself (`LensDistortionParams::exact_zoom`).
+    pub exact_zoom: bool,
     /// Lateral chromatic aberration: (normalized radius, red scale − 1, blue
     /// scale − 1) relative to green, radius ascending.
     pub chromatic: Option<Vec<(f64, f64, f64)>>,
@@ -103,6 +105,7 @@ pub fn fuji_curves_with_ca(
         distortion: distortion_curve,
         vignetting: vignetting_curve.filter(|c| c.iter().all(|&(_, b)| b > 0.05 && b <= 1.5)),
         zoom: 1.0,
+        exact_zoom: false,
         chromatic: chromatic
             .filter(|v| v.len() > 3 * n && v[1..=n] == *knots)
             .map(|v| {
@@ -171,42 +174,110 @@ pub fn sony_curves_with_ca(
         distortion: curve,
         vignetting: vignetting.filter(|c| c.iter().all(|&(_, b)| b > 0.05 && b <= 1.5)),
         zoom: 1.0,
+        exact_zoom: false,
         chromatic: chromatic.and_then(sony_chromatic),
     })
 }
 
-/// Sony's curves for a frame whose corner lies at `reach` of the radius the
-/// data refer to (aspect crops of the 3:2 sensor), as camera geometry
-/// version `geometry` reads them. Version 0: the distortion knots at
-/// (i + ½) / n, the corners kept on the corners. Version 1: Camera Raw's
-/// (and the camera JPEG's) mapping, measured on 13 ARW files of 9 bodies
-/// (notes: parity-gaps/G71): the knots lie at i / (n − 1), first on the
-/// centre and last on the 3:2 corner, and an output radius u samples the
-/// sensor at u k(u) without normalization — strong barrel data (last knot
-/// below 0, RX100 / RX100 III / RX100 IV / ZV-1) crops inside the sensor
-/// corners as the camera does. The vignetting and CA knots stay at
-/// (i + ½) / n.
+/// The frame a Sony RAW's data are applied to.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SonyFrame {
+    /// Where its corner lies on the radius of the distortion data (geometry
+    /// version 1: the active area's half-diagonal, `sony_sensor_frame`).
+    pub reach: f64,
+    /// Where it lies on the radius version 0 refers all data to (the
+    /// developed 3:2 frame's; below 1 for aspect crops), which the
+    /// vignetting and CA data keep.
+    pub frame_reach: f64,
+    /// Its width over its height.
+    pub aspect: f64,
+    /// An interchangeable-lens body (`SonyLensSettings::interchangeable_lens`).
+    pub interchangeable_lens: bool,
+}
+
+impl SonyFrame {
+    /// The full 3:2 frame.
+    pub const FULL: SonyFrame = SonyFrame {
+        reach: 1.0,
+        frame_reach: 1.0,
+        aspect: 1.5,
+        interchangeable_lens: false,
+    };
+}
+
+/// The frame of the Sony RAW in `source` as camera geometry version 1 reads
+/// its data: radius 1 of the knots is the half-diagonal of the sensor's
+/// active area, the default crop's margins included (RX100 to RX100 V,
+/// ZV-1, RX10, RX10 IV and the HX95's 16:9 frame of its 4:3 sensor against
+/// Camera Raw: 0.3–0.9 px median instead of 0.65–1.7 with the developed
+/// frame's own half-diagonal; notes: parity-gaps/G71), the developed frame
+/// (aspect crops included) is the output.
+fn sony_sensor_frame(source: &RawSource) -> Option<SonyFrame> {
+    let ([sensor_w, sensor_h], [w, h]) = crate::raw_processing::sensor_and_frame(source)?;
+    let (w, h) = (w as f64, h as f64);
+    let reach = w.hypot(h) / (sensor_w as f64).hypot(sensor_h as f64);
+    (w > 0.0 && h > 0.0 && (0.5..=1.0).contains(&reach)).then(|| SonyFrame {
+        reach,
+        aspect: w / h,
+        ..SonyFrame::FULL
+    })
+}
+
+/// Sony's curves for `frame`, as camera geometry version `geometry` reads
+/// them. Version 0: the distortion knots at (i + ½) / n, the corners kept on
+/// the corners. Version 1: the mapping Camera Raw and the cameras' JPEGs
+/// show (notes: parity-gaps/G71, 57 ARW files of 49 bodies): the knots lie
+/// at i / (n − 1), first on the centre and last on the corner of the
+/// sensor's active area (`sony_sensor_frame`), and an output radius u
+/// samples the sensor at A u k(u). Fixed-lens bodies frame
+/// with A = 1, so strong barrel data (RX100, ZV-1) crop inside the sensor
+/// corners; interchangeable-lens bodies with the largest frame that samples
+/// no point beyond the sensor's edges, A = 1 / max k on the frame's border
+/// (corners on the corners for pincushion data). The vignetting and CA
+/// data keep version 0's reading (not re-measured).
 pub fn sony_lens(
     distortion: &[f64],
     vignetting: Option<&[f64]>,
     chromatic: Option<&[f64]>,
-    reach: f64,
+    frame: SonyFrame,
     geometry: u64,
 ) -> Option<EmbeddedLensData> {
-    let mut data = sony_curves_with_ca(distortion, vignetting, chromatic)?;
+    let data = reframed(
+        sony_curves_with_ca(distortion, vignetting, chromatic)?,
+        frame.frame_reach,
+    );
     if geometry == 0 {
-        return Some(reframed(data, reach));
+        return Some(data);
     }
     let last = (data.distortion.len() - 1) as f64;
-    for (i, point) in data.distortion.iter_mut().enumerate() {
-        point.0 = i as f64 / last;
-    }
-    let mut data = reframed(data, reach);
-    let curve = std::mem::take(&mut data.distortion);
-    let (framed, zoom) = framed_curve(|u| interpolate(&curve, u))?;
-    data.distortion = framed;
-    data.zoom = zoom;
-    Some(data)
+    let curve: Vec<(f64, f64)> = data
+        .distortion
+        .iter()
+        .enumerate()
+        .map(|(i, &(_, k))| (i as f64 / last / frame.reach, k))
+        .collect();
+    let scale = if frame.interchangeable_lens {
+        // The border's radii run from the shorter side's midpoint to the
+        // corner; the curve is linear between its knots.
+        let short = 1.0 / frame.aspect.max(1.0 / frame.aspect).hypot(1.0);
+        let peak = curve
+            .iter()
+            .map(|&(r, _)| r)
+            .filter(|r| (short..1.0).contains(r))
+            .chain([short, 1.0])
+            .map(|r| interpolate(&curve, r))
+            .fold(f64::MIN, f64::max);
+        1.0 / peak
+    } else {
+        1.0
+    };
+    let (distortion, zoom) = framed_curve(|u| scale * interpolate(&curve, u))?;
+    Some(EmbeddedLensData {
+        distortion,
+        zoom,
+        exact_zoom: true,
+        ..data
+    })
 }
 
 fn sony_chromatic(values: &[f64]) -> Option<Vec<(f64, f64, f64)>> {
@@ -333,6 +404,7 @@ pub fn panasonic_curve(v: &[i16; 16], half_diagonal: Option<f64>) -> Option<Embe
         distortion: curve,
         vignetting: None,
         zoom,
+        exact_zoom: false,
         chromatic: None,
     })
 }
@@ -416,6 +488,7 @@ pub fn olympus_curve(d: &[f64], reach: f64) -> Option<EmbeddedLensData> {
         distortion: curve,
         vignetting: None,
         zoom,
+        exact_zoom: false,
         chromatic: None,
     })
 }
@@ -603,6 +676,7 @@ pub fn nikon_compact_curve(values: &[f64]) -> Option<EmbeddedLensData> {
         distortion,
         vignetting: None,
         zoom: 1.0,
+        exact_zoom: false,
         chromatic: None,
     })
 }
@@ -652,6 +726,7 @@ pub fn nikon_curve(info: &NikonLensInfo) -> Option<EmbeddedLensData> {
         distortion,
         vignetting: vignetting.filter(|c| c.iter().all(|&(_, b)| b > 0.05 && b <= 1.5)),
         zoom: 1.0,
+        exact_zoom: false,
         chromatic: None,
     })
 }
@@ -773,13 +848,22 @@ pub fn read_version(
                 .take(1 << 20)
                 .read_to_end(&mut head)
                 .ok()?;
-            let reach = match crate::capture_info::aspect_crop(&head) {
+            let frame_reach = match crate::capture_info::aspect_crop(&head) {
                 Some(crate::capture_info::AspectCrop::Centered(w, h)) => {
                     let (w, h) = (w as f64, h as f64);
                     let full_w = w.max(h * 1.5);
                     w.hypot(h) / full_w.hypot(full_w / 1.5)
                 }
                 _ => 1.0,
+            };
+            let frame = SonyFrame {
+                frame_reach,
+                interchangeable_lens: settings.is_some_and(|s| s.interchangeable_lens),
+                ..if geometry_version == 0 {
+                    SonyFrame::FULL
+                } else {
+                    sony_sensor_frame(&source).unwrap_or(SonyFrame::FULL)
+                }
             };
             // The lateral CA is only in the encrypted SR2 directory.
             let sr2 = rawler::decoders::arw::ArwDecoder::sr2_subifd(&source).ok();
@@ -790,7 +874,7 @@ pub fn read_version(
                     &distortion,
                     vignetting.as_deref(),
                     chromatic.as_deref(),
-                    reach,
+                    frame,
                     geometry_version,
                 );
             }
@@ -803,7 +887,7 @@ pub fn read_version(
                 &values(&sr2, SR2_DISTORTION)?,
                 vignetting.as_deref(),
                 chromatic.as_deref(),
-                reach,
+                frame,
                 geometry_version,
             )
         }
@@ -824,6 +908,7 @@ pub fn read_version(
                     distortion: vec![(0.5, 1.0), (1.0, 1.0)],
                     vignetting: None,
                     zoom: 1.0,
+                    exact_zoom: false,
                     chromatic: Some(chromatic),
                 }),
             }
@@ -975,15 +1060,66 @@ pub fn fit_chromatic(curve: &[(f64, f64)]) -> Option<(f64, f64)> {
     (det.abs() > 1e-12).then(|| ((t0 * s11 - t1 * s01) / det, (s00 * t1 - s01 * t0) / det))
 }
 
+/// PTLens coefficients and zoom for a curve whose zoom is the framing
+/// itself (`exact_zoom`, `framed_curve`: output radius p samples p k(p) with
+/// k(x) = c(x / zoom) / zoom). Only the output frame (p ≤ 1) needs to match,
+/// so the zoom S is fitted with the coefficients: P(q) = S k(S q) on
+/// q ≤ 1 / S, minimizing the largest radial error. The frame's corner
+/// q = 1 then lies outside the output, where P(1) = 1 need not follow the
+/// data's extrapolation (RX100 III data at 8.8 mm: 2.5 → 1.2 px largest
+/// error on 20 MP).
+fn fit_framed_distortion(curve: &[(f64, f64)], zoom: f64) -> Option<([f64; 3], f64)> {
+    const STEPS: usize = 200;
+    let k = |x: f64| interpolate(curve, x / zoom) / zoom;
+    let fit = |s: f64| {
+        let rows: Vec<[f64; 4]> = (1..=FIT_SAMPLES)
+            .map(|i| {
+                let q = i as f64 / FIT_SAMPLES as f64 / s;
+                let target = s * k(s * q) - 1.0;
+                [
+                    q * (q * q * q - 1.0),
+                    q * (q * q - 1.0),
+                    q * (q - 1.0),
+                    q * target,
+                ]
+            })
+            .collect();
+        let coefficients = solve3(&rows)?;
+        let error = (1..=STEPS)
+            .map(|i| {
+                let p = i as f64 / STEPS as f64;
+                let q = p / s;
+                (q * ptlens_factor(q, coefficients) - p * k(p)).abs()
+            })
+            .fold(0.0, f64::max);
+        Some((error, coefficients, s))
+    };
+    (0..=STEPS)
+        .filter_map(|i| fit((zoom * (0.9 + 0.2 * i as f64 / STEPS as f64)).max(1.0)))
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, coefficients, s)| (coefficients, s))
+}
+
+/// The PTLens factor a r³ + b r² + c r + 1 − a − b − c.
+fn ptlens_factor(r: f64, [a, b, c]: [f64; 3]) -> f64 {
+    a * r * r * r + b * r * r + c * r + 1.0 - a - b - c
+}
+
 /// The data as parameters of the geometry warp's PTLens model.
 pub fn to_params(data: &EmbeddedLensData) -> Option<LensDistortionParams> {
-    let [a, b, c] = fit_distortion(&data.distortion)?;
+    let ([a, b, c], zoom) = if data.exact_zoom && data.zoom > 1.0 {
+        fit_framed_distortion(&data.distortion, data.zoom)?
+    } else {
+        (fit_distortion(&data.distortion)?, data.zoom)
+    };
     let vignetting = data
         .vignetting
         .as_deref()
         .and_then(fit_vignetting)
         .unwrap_or([0.0; 3]);
-    let mut params = LensDistortionParams::ptlens(a, b, c, vignetting).with_zoom(data.zoom);
+    let mut params = LensDistortionParams::ptlens(a, b, c, vignetting)
+        .with_zoom(zoom)
+        .with_exact_zoom(data.exact_zoom);
     if let Some(chromatic) = data.chromatic.as_deref().filter(|c| !c.is_empty()) {
         let channel = |pick: fn(&(f64, f64, f64)) -> f64| {
             let curve: Vec<(f64, f64)> = chromatic.iter().map(|p| (p.0, pick(p))).collect();
@@ -1356,6 +1492,7 @@ fn canon_ctmd_lens(path: &Path) -> Option<EmbeddedLensData> {
         distortion: vec![(0.0, 1.0), (1.0, 1.0)],
         vignetting: Some(vignetting),
         zoom: 1.0,
+        exact_zoom: false,
         chromatic: None,
     })
 }
@@ -1421,8 +1558,16 @@ fn sony_dng_lens(source: &RawSource, geometry: u64) -> Option<EmbeddedLensData> 
         }
     };
     // The lateral CA is the DNG's WarpRectilinear, applied when decoding.
-    let reach = user_crop_diagonal(decoder.as_ref()).unwrap_or(1.0);
-    sony_lens(&distortion, vignetting.as_deref(), None, reach, geometry)
+    let frame = SonyFrame {
+        frame_reach: user_crop_diagonal(decoder.as_ref()).unwrap_or(1.0),
+        interchangeable_lens: settings.interchangeable_lens,
+        ..if geometry == 0 {
+            SonyFrame::FULL
+        } else {
+            sony_sensor_frame(source).unwrap_or(SonyFrame::FULL)
+        }
+    };
+    sony_lens(&distortion, vignetting.as_deref(), None, frame, geometry)
 }
 
 /// Curves for a frame cropped from the one the data refer to, whose corner
@@ -1546,6 +1691,7 @@ fn adobe_profile(source: &RawSource) -> Option<EmbeddedLensData> {
         distortion,
         vignetting,
         zoom,
+        exact_zoom: false,
         chromatic: None,
     })
 }
@@ -1914,6 +2060,7 @@ mod tests {
             distortion: vec![(0.5, 1.0), (1.0, 1.0)],
             vignetting: None,
             zoom: 1.0,
+            exact_zoom: false,
             chromatic: Some(curve),
         })
         .unwrap();
@@ -2218,8 +2365,10 @@ mod tests {
     /// (lens zoom, then the PTLens curve), radii relative to the half
     /// diagonal.
     fn warp_source_radius(data: &EmbeddedLensData, u: f64) -> f64 {
-        let coefficients = fit_distortion(&data.distortion).unwrap();
-        let q = u / data.zoom.max(1.0);
+        let params = serde_json::to_value(to_params(data).unwrap()).unwrap();
+        let get = |key: &str| params.get(key).and_then(|v| v.as_f64());
+        let coefficients = [get("k1").unwrap(), get("k2").unwrap(), get("k3").unwrap()];
+        let q = u / get("zoom").unwrap_or(1.0);
         q * ptlens(q, coefficients)
     }
 
@@ -2244,8 +2393,12 @@ mod tests {
                     .collect();
                 interpolate(&curve, u)
             };
-            for (reach, tolerance) in [(1.0, 2e-4), (0.784, 2e-4)] {
-                let data = sony_lens(values, None, None, reach, 1).unwrap();
+            for (reach, tolerance) in [(1.0, 4e-4), (0.784, 2e-4)] {
+                let frame = SonyFrame {
+                    reach,
+                    ..SonyFrame::FULL
+                };
+                let data = sony_lens(values, None, None, frame, 1).unwrap();
                 let corner = data.zoom.min(1.0);
                 assert_eq!(corner < 1.0, k(reach) > 1.0);
                 for i in 1..=20 {
@@ -2260,10 +2413,90 @@ mod tests {
             }
         }
         // Version 0 keeps the half-step knots, corners on the corners.
-        let old = sony_lens(&RX100M3_DISTORTION_VALUES, None, None, 1.0, 0).unwrap();
+        let old = sony_lens(&RX100M3_DISTORTION_VALUES, None, None, SonyFrame::FULL, 0).unwrap();
         assert_eq!(old, sony_curve(&RX100M3_DISTORTION_VALUES, None).unwrap());
         assert_eq!(old.distortion[0].0, 0.5 / 11.0);
         assert_eq!(old.zoom, 1.0);
+    }
+
+    #[test]
+    fn sony_interchangeable_lens_bodies_frame_without_a_blank_edge() {
+        // As on the ILCE-6100's camera JPEG: A = 1 / max k on the frame's
+        // border, the largest frame that samples nothing beyond the sensor.
+        let n = 11;
+        let k = |u: f64| {
+            let curve: Vec<(f64, f64)> = (0..n)
+                .map(|i| {
+                    let v = RX100M3_DISTORTION_VALUES[1 + i];
+                    (i as f64 / (n - 1) as f64, 1.0 + v / 16384.0)
+                })
+                .collect();
+            interpolate(&curve, u)
+        };
+        let frame = SonyFrame {
+            interchangeable_lens: true,
+            ..SonyFrame::FULL
+        };
+        let data = sony_lens(&RX100M3_DISTORTION_VALUES, None, None, frame, 1).unwrap();
+        let short = 1.0 / 1.5f64.hypot(1.0);
+        let scale = 1.0 / k(short).max(k(1.0));
+        assert!(
+            (scale - 1.0 / k(short)).abs() < 1e-12,
+            "barrel: the short side binds"
+        );
+        for i in 1..=20 {
+            let u = i as f64 / 20.0;
+            let expected = scale * u * k(u);
+            let got = warp_source_radius(&data, u);
+            assert!((got - expected).abs() < 4e-4, "u {u}: {got} vs {expected}");
+        }
+        // The short side's middle samples the sensor's edge.
+        assert!((warp_source_radius(&data, short) - short).abs() < 4e-4);
+    }
+
+    #[test]
+    fn recipes_keep_the_camera_geometry_version_they_were_made_with() {
+        use crate::source_facts::{SourceFacts, VERSION, forget, register};
+        let source = Path::new("/offline/volume/Job/Capture/DSC00001.ARW");
+        let path = source.to_string_lossy();
+        let v1 = LensDistortionParams::ptlens(0.01, -0.02, 0.0, [0.0; 3]).with_zoom(1.05);
+        let v0 = LensDistortionParams::ptlens(0.02, -0.03, 0.01, [0.0; 3]);
+        register(
+            &path,
+            SourceFacts {
+                version: VERSION,
+                camera_lens: Some(v1.clone()),
+                camera_lens_geometry: [(0, Some(v0.clone()))].into_iter().collect(),
+                ..Default::default()
+            },
+        );
+        let new = serde_json::json!({GEOMETRY_VERSION_KEY: GEOMETRY_VERSION});
+        let old = serde_json::json!({});
+        assert_eq!(params_for_recipe(source, &new), Some(v1.clone()));
+        assert_eq!(params_for_recipe(source, &old), Some(v0));
+        assert!(recipe_params_known(source, &new) && recipe_params_known(source, &old));
+        let mut never = serde_json::Value::Null;
+        apply_default(&mut never, source);
+        assert_eq!(never[GEOMETRY_VERSION_KEY], GEOMETRY_VERSION);
+        assert_eq!(geometry_version_of(&never), GEOMETRY_VERSION);
+        // Facts from before the geometry version carry version 0's data: a
+        // never-edited photo gets no key, and a newer recipe keeps its
+        // parameters instead of taking them.
+        register(
+            &path,
+            SourceFacts {
+                version: 6,
+                camera_lens: Some(v1),
+                ..Default::default()
+            },
+        );
+        assert_eq!(current_geometry_version(source), 0);
+        assert!(!recipe_params_known(source, &new) && recipe_params_known(source, &old));
+        let mut never = serde_json::Value::Null;
+        apply_default(&mut never, source);
+        assert_eq!(never["lensCorrectionMode"], CAMERA_MODE);
+        assert!(never.get(GEOMETRY_VERSION_KEY).is_none());
+        forget(&path);
     }
 
     // Fujifilm GFX 50R with GF63mmF2.8 R WR: eight knots (values as stored).

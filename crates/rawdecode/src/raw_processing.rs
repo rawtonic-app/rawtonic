@@ -851,7 +851,6 @@ pub struct DevelopedFrame {
 /// takes this placement so the developed frame replaces it in place.
 /// `None` for files rawler cannot read.
 pub fn developed_frame(source: &RawSource) -> Option<DevelopedFrame> {
-    use rawler::imgop::{Point, Rect};
     let file_bytes = source.buf();
     let decoder = rawler::get_decoder(source).ok()?;
     let params = RawDecodeParams::default();
@@ -867,21 +866,7 @@ pub fn developed_frame(source: &RawSource) -> Option<DevelopedFrame> {
             orientation,
         });
     }
-    apply_aspect_crop(&mut raw_image, file_bytes, decoder.format_hint());
-    if decoder.format_hint() == rawler::decoders::FormatHint::DNG {
-        apply_dng_user_crop(&mut raw_image, decoder.as_ref());
-    }
-    let full = Rect::new(Point::new(0, 0), raw_image.dim());
-    let active = raw_image
-        .active_area
-        .map(|area| area.intersection(&full))
-        .filter(|area| !area.is_empty())
-        .unwrap_or(full);
-    let frame = raw_image
-        .crop_area
-        .map(|crop| crop.intersection(&active))
-        .filter(|crop| !crop.is_empty())
-        .unwrap_or(active);
+    let (_, frame) = developed_areas(&mut raw_image, file_bytes, decoder.as_ref());
     let (w, h) = (frame.d.w as u32, frame.d.h as u32);
     Some(DevelopedFrame {
         size: (w > 0 && h > 0).then_some(if (5..=8).contains(&orientation) {
@@ -897,6 +882,48 @@ pub fn developed_frame(source: &RawSource) -> Option<DevelopedFrame> {
 /// `RawSource::new_from_slice` copies the whole file).
 pub fn developed_frame_at(path: &std::path::Path) -> Option<DevelopedFrame> {
     developed_frame(&RawSource::new(path).ok()?)
+}
+
+/// The active area (the sensor's pixels in the buffer) and the developed
+/// frame within it (default, aspect and DNG user crops) of an undecoded
+/// `raw_image`, in buffer coordinates.
+fn developed_areas(
+    raw_image: &mut rawler::RawImage,
+    file_bytes: &[u8],
+    decoder: &dyn rawler::decoders::Decoder,
+) -> (rawler::imgop::Rect, rawler::imgop::Rect) {
+    use rawler::imgop::{Point, Rect};
+    apply_aspect_crop(raw_image, file_bytes, decoder.format_hint());
+    if decoder.format_hint() == rawler::decoders::FormatHint::DNG {
+        apply_dng_user_crop(raw_image, decoder);
+    }
+    let full = Rect::new(Point::new(0, 0), raw_image.dim());
+    let active = raw_image
+        .active_area
+        .map(|area| area.intersection(&full))
+        .filter(|area| !area.is_empty())
+        .unwrap_or(full);
+    let frame = raw_image
+        .crop_area
+        .map(|crop| crop.intersection(&active))
+        .filter(|crop| !crop.is_empty())
+        .unwrap_or(active);
+    (active, frame)
+}
+
+/// The sizes (width, height; unrotated) of the active area and of the
+/// developed frame of the RAW in `source`. `None` for files rawler cannot
+/// read and Super CCD layouts.
+pub fn sensor_and_frame(source: &RawSource) -> Option<([usize; 2], [usize; 2])> {
+    let decoder = rawler::get_decoder(source).ok()?;
+    let mut raw_image = decoder
+        .raw_image(source, &RawDecodeParams::default(), true)
+        .ok()?;
+    if superccd_layout(&raw_image, source.buf()).is_some() {
+        return None;
+    }
+    let (active, frame) = developed_areas(&mut raw_image, source.buf(), decoder.as_ref());
+    Some(([active.d.w, active.d.h], [frame.d.w, frame.d.h]))
 }
 
 /// The part of a decoded buffer that rawler does not demosaic (linear and

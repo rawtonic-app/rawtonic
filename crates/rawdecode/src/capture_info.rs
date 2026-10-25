@@ -41,6 +41,7 @@ const OLYMPUS_IMAGE_PROCESSING: u16 = 0x2040;
 const NIKON_ISO: u16 = 0x0002;
 const SONY_VIGNETTING_SETTING: u16 = 0x2011;
 const SONY_DISTORTION_SETTING: u16 = 0x2013;
+const SONY_LENS_TYPE: u16 = 0xb027;
 const NIKON_ISO_INFO: u16 = 0x0025;
 const NIKON_COLOR_SPACE: u16 = 0x001e;
 const EXIF_COLOR_SPACE: u16 = 0xa001;
@@ -141,10 +142,14 @@ fn nikon_iso_from_maker_note(data: &[u8]) -> Option<u32> {
 /// Camera Raw applies none of the file's correction data when distortion
 /// compensation was off, and the vignetting data only when shading
 /// compensation was Auto (60 raw.pixls.us ARW files, 2026-10-05).
+/// `interchangeable_lens`: the maker note names a lens type (0xb027), as on
+/// every interchangeable-lens body (ILCE, NEX, ILCA, SLT, DSLR, ZV-E) and on
+/// no fixed-lens one (DSC, ZV-1) of the 205 raw.pixls.us ARWs (2026-10-26).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct SonyLensSettings {
     pub distortion_off: bool,
     pub vignetting_auto: bool,
+    pub interchangeable_lens: bool,
 }
 
 pub fn sony_lens_settings(path: &str) -> Option<SonyLensSettings> {
@@ -162,6 +167,7 @@ pub fn sony_lens_settings_from(data: &[u8]) -> Option<SonyLensSettings> {
     Some(SonyLensSettings {
         distortion_off: setting(SONY_DISTORTION_SETTING) == Some(0),
         vignetting_auto: setting(SONY_VIGNETTING_SETTING) == Some(2),
+        interchangeable_lens: ifd.entry(SONY_LENS_TYPE).is_some(),
     })
 }
 
@@ -986,6 +992,43 @@ pub fn read_camera(path: &str) -> Option<(String, String, String, Option<u32>)> 
                 .and_then(|bytes| crw_iso(&bytes))
         });
     Some((metadata.make, metadata.model, metadata.canonical_model, iso))
+}
+
+#[cfg(test)]
+mod sony_settings_tests {
+    use super::*;
+
+    /// A Sony maker note: a little-endian IFD at offset 0 of LONG tags.
+    fn maker_note(tags: &[(u16, u32)]) -> Vec<u8> {
+        let mut data = (tags.len() as u16).to_le_bytes().to_vec();
+        for &(tag, value) in tags {
+            data.extend(tag.to_le_bytes());
+            data.extend(4u16.to_le_bytes());
+            data.extend(1u32.to_le_bytes());
+            data.extend(value.to_le_bytes());
+        }
+        data.extend(0u32.to_le_bytes());
+        data
+    }
+
+    #[test]
+    fn a_lens_type_marks_an_interchangeable_lens_body() {
+        // ILCE-6100: compensation Auto, LensType 65535 (E-mount lens).
+        let ilc = sony_lens_settings_from(&maker_note(&[
+            (SONY_VIGNETTING_SETTING, 2),
+            (SONY_DISTORTION_SETTING, 2),
+            (SONY_LENS_TYPE, 65535),
+        ]))
+        .unwrap();
+        assert!(ilc.interchangeable_lens && ilc.vignetting_auto && !ilc.distortion_off);
+        // DSC-RX100: no lens type, settings 0xffffffff.
+        let compact = sony_lens_settings_from(&maker_note(&[
+            (SONY_VIGNETTING_SETTING, u32::MAX),
+            (SONY_DISTORTION_SETTING, u32::MAX),
+        ]))
+        .unwrap();
+        assert!(!compact.interchangeable_lens && !compact.vignetting_auto);
+    }
 }
 
 #[cfg(test)]

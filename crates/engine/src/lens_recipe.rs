@@ -382,6 +382,16 @@ pub fn resolve_unresolved(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_camera_geometry_version_joins_the_stamp_only_where_set() {
+        let old = serde_json::json!({"lensCorrectionMode": "camera", "cameraCaVersion": 1});
+        // Stamps saved before the key still match their recipes.
+        assert_eq!(lens_profile_stamp(&old), r#"["camera",1,null]"#);
+        let mut new = old.clone();
+        new[crate::embedded_lens::GEOMETRY_VERSION_KEY] = serde_json::json!(1);
+        assert_eq!(lens_profile_stamp(&new), r#"["camera",1,null,1]"#);
+    }
     use crate::lens_correction::{lenses_for_maker, load_lensfun_dir, resolve_lens_params};
 
     fn zoom_db(dir: &Path) -> (crate::lens_correction::LensDatabase, String) {
