@@ -244,110 +244,36 @@ it("ignores recipe keys in the Library's loupe, but keeps undoing file operation
   expect(props.handleUndoFileOperation).toHaveBeenCalledOnce();
 });
 
-it("opens the full screen after a brush stroke held as F is pressed, not in the middle of it", () => {
-  vi.useFakeTimers();
+it("ignores F in the middle of a stroke or drag, also with a second pointer released meanwhile", () => {
+  useUIStore.setState({ activeView: "editor", activePanel: Panel.Masks });
+  useEditorStore.setState({ activeMaskContainerId: "layer-1", activeMaskId: "brush-1" });
+  const pointer = (type: string, pointerId: number) =>
+    window.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId }));
   try {
-    useUIStore.setState({ activeView: "editor", activePanel: Panel.Masks });
-    useEditorStore.setState({ activeMaskContainerId: "layer-1", activeMaskId: "brush-1" });
     // The stroke keeps its points in screen coordinates until its release:
     // the viewer must not change its size before that.
-    window.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    pointer("pointerdown", 1);
     press("KeyF");
     expect(useUIStore.getState().isFullScreen).toBe(false);
     expect(useEditorStore.getState()).toMatchObject({ activeMaskContainerId: "layer-1", activeMaskId: "brush-1" });
-    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
-    expect(useUIStore.getState().isFullScreen).toBe(false);
-    vi.runAllTimers();
-    expect(useUIStore.getState().isFullScreen).toBe(true);
-    // Without a pointer held, F opens it at once.
+    // A second touch comes and goes: the first stroke is still held.
+    pointer("pointerdown", 2);
+    pointer("pointerup", 2);
     press("KeyF");
+    expect(useUIStore.getState().isFullScreen).toBe(false);
+    // Released: nothing was waiting; the next F opens it.
+    pointer("pointerup", 1);
+    expect(useUIStore.getState().isFullScreen).toBe(false);
+    press("KeyF");
+    expect(useUIStore.getState().isFullScreen).toBe(true);
+    press("KeyF");
+    // A release missed (focus lost mid-stroke) keeps F ignored only until then.
+    pointer("pointerdown", 3);
+    window.dispatchEvent(new Event("blur"));
     press("KeyF");
     expect(useUIStore.getState().isFullScreen).toBe(true);
   } finally {
     useEditorStore.setState({ activeMaskContainerId: null, activeMaskId: null });
-    vi.useRealTimers();
-  }
-});
-
-it("opens the full screen after a held release that a handle stops, and only once", () => {
-  vi.useFakeTimers();
-  try {
-    useUIStore.setState({ activeView: "editor" });
-    const handle = document.createElement("div");
-    document.body.append(handle);
-    handle.addEventListener("pointerup", (e) => e.stopPropagation());
-    handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    press("KeyF");
-    handle.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
-    vi.runAllTimers();
-    expect(useUIStore.getState().isFullScreen).toBe(true);
-    press("KeyF");
-    expect(useUIStore.getState().isFullScreen).toBe(false);
-    // Nothing still waits: a later release opens nothing.
-    window.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
-    vi.runAllTimers();
-    expect(useUIStore.getState().isFullScreen).toBe(false);
-    handle.remove();
-  } finally {
-    vi.useRealTimers();
-  }
-});
-
-it("drops a full screen waiting for a held release when F is pressed again or another view is chosen", () => {
-  vi.useFakeTimers();
-  try {
-    const hold = () => window.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    const release = () => {
-      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
-      vi.runAllTimers();
-    };
-    useUIStore.setState({ activeView: "editor" });
-    hold();
-    press("KeyF");
-    press("KeyF");
-    release();
-    expect(useUIStore.getState().isFullScreen).toBe(false);
-    // In the Library: G (the grid) while held supersedes it.
-    useUIStore.setState({ activeView: "library", libraryLoupe: true });
-    hold();
-    press("KeyF");
-    useUIStore.getState().setUI({ libraryLoupe: false });
-    release();
-    expect(useUIStore.getState().isFullScreen).toBe(false);
-    // So does another photograph.
-    useUIStore.setState({ activeView: "editor", libraryLoupe: false });
-    hold();
-    press("KeyF");
-    open("/s/c.dng");
-    release();
-    expect(useUIStore.getState().isFullScreen).toBe(false);
-  } finally {
-    vi.useRealTimers();
-  }
-});
-
-it("drops a full screen waiting for a held release when the window loses focus or G is pressed", () => {
-  vi.useFakeTimers();
-  try {
-    useUIStore.setState({ activeView: "editor" });
-    window.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    press("KeyF");
-    // Focus lost: the stroke has not ended; nothing opens, now or later.
-    window.dispatchEvent(new Event("blur"));
-    vi.runAllTimers();
-    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
-    vi.runAllTimers();
-    expect(useUIStore.getState().isFullScreen).toBe(false);
-    // G in the grid names the view already shown: it still drops the entry.
-    useUIStore.setState({ activeView: "library", libraryLoupe: false });
-    window.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    press("KeyF");
-    press("KeyG");
-    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
-    vi.runAllTimers();
-    expect(useUIStore.getState().isFullScreen).toBe(false);
-  } finally {
-    vi.useRealTimers();
+    useUIStore.setState({ isFullScreen: false });
   }
 });
