@@ -26,8 +26,42 @@ export function saveFailure(err: unknown, paths: string[]): { message: string; f
 }
 
 export function useLibraryActions(handleImageSelect?: (path: string, openInEditor?: boolean) => void) {
-  const handleRate = useCallback((newRating: number, paths?: string[]) => {
-    const { multiSelectedPaths, imageList, imageRatings, setLibrary } = useLibraryStore.getState();
+  /** Gives each photograph its rating (`ratings`: path → rating), shown at
+   * once; a photograph whose rating was not saved shows its previous one
+   * again (unless rated anew meanwhile). */
+  const setRatings = useCallback((ratings: Record<string, number>) => {
+    const { imageRatings, setLibrary } = useLibraryStore.getState();
+    const paths = Object.keys(ratings);
+    if (paths.length === 0) return;
+    const previousRatings = Object.fromEntries(paths.map((p) => [p, imageRatings[p]]));
+    setLibrary((state) => ({ imageRatings: { ...state.imageRatings, ...ratings } }));
+    noteTool('culling');
+    const byRating = new Map<number, string[]>();
+    paths.forEach((p) => byRating.set(ratings[p], [...(byRating.get(ratings[p]) ?? []), p]));
+    byRating.forEach((ratedPaths, rating) => {
+      invokeInOrder(Invokes.SetRatingForPaths, { paths: ratedPaths, rating }).catch((err) => {
+        console.error(err);
+        const { message, failed } = saveFailure(err, ratedPaths);
+        setLibrary((state) => {
+          const current = { ...state.imageRatings };
+          failed.forEach((p) => {
+            if (current[p] !== rating) return;
+            if (previousRatings[p] === undefined) delete current[p];
+            else current[p] = previousRatings[p];
+          });
+          return { imageRatings: current };
+        });
+        toast.error(`Failed to apply rating: ${message}`);
+      });
+    });
+  }, []);
+
+  /** Rates the photographs (`paths`, else the selection, else the one open
+   * in Develop) and their grouped files; the rating they have already
+   * clears it. Returns each rated photograph's previous rating (Undo of an
+   * auto-advance sets them back with `setRatings`). */
+  const handleRate = useCallback((newRating: number, paths?: string[]): Record<string, number> => {
+    const { multiSelectedPaths, imageList, imageRatings } = useLibraryStore.getState();
     const { selectedImage } = useEditorStore.getState();
 
     // The open photograph is the target only in Develop: in the Library an
@@ -35,41 +69,17 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
     const openInDevelop = useUIStore.getState().activeView === 'editor' ? selectedImage : null;
     const selectedPaths =
       paths || (multiSelectedPaths.length > 0 ? multiSelectedPaths : openInDevelop ? [openInDevelop.path] : []);
-    if (selectedPaths.length === 0) return;
+    if (selectedPaths.length === 0) return {};
 
     const groupingMode = useSettingsStore.getState().appSettings?.grouping ?? 'off';
     const pathsToRate = expandGroupedPaths(imageList, selectedPaths, groupingMode);
 
     const currentRating = imageRatings[selectedPaths[0]] || 0;
     const finalRating = newRating === currentRating ? 0 : newRating;
-    const previousRatings = Object.fromEntries(pathsToRate.map((p) => [p, imageRatings[p]]));
-
-    setLibrary((state) => {
-      const newRatings = { ...state.imageRatings };
-      pathsToRate.forEach((p) => {
-        newRatings[p] = finalRating;
-      });
-      return { imageRatings: newRatings };
-    });
-
-    noteTool('culling');
-    invokeInOrder(Invokes.SetRatingForPaths, { paths: pathsToRate, rating: finalRating }).catch((err) => {
-      console.error(err);
-      // Photos whose rating was not saved show their previous one again
-      // (unless rated anew meanwhile).
-      const { message, failed } = saveFailure(err, pathsToRate);
-      setLibrary((state) => {
-        const ratings = { ...state.imageRatings };
-        failed.forEach((p) => {
-          if (ratings[p] !== finalRating) return;
-          if (previousRatings[p] === undefined) delete ratings[p];
-          else ratings[p] = previousRatings[p];
-        });
-        return { imageRatings: ratings };
-      });
-      toast.error(`Failed to apply rating: ${message}`);
-    });
-  }, []);
+    const previous = Object.fromEntries(pathsToRate.map((p) => [p, imageRatings[p] || 0]));
+    setRatings(Object.fromEntries(pathsToRate.map((p) => [p, finalRating])));
+    return previous;
+  }, [setRatings]);
 
   const handleSetColorLabel = useCallback(async (color: string | null, paths?: string[]) => {
     const { multiSelectedPaths, libraryActivePath, imageList, setLibrary } = useLibraryStore.getState();
@@ -426,6 +436,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
 
   return {
     handleRate,
+    setRatings,
     handleSetColorLabel,
     handleTagsChanged,
     handleUpdateExif,

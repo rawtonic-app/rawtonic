@@ -163,6 +163,23 @@ describe('stepping to a photograph without a preview proxy', () => {
     expect(useEditorStore.getState().holdingNativeFrame).toBe(false);
   });
 
+  it('keeps swapping natively when stepping on before the still was developed', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    await stepFromReady('still');
+    expect(useEditorStore.getState().stillPreview).toBe('/s/b.NEF');
+    useEditorStore.getState().setEditor({ selectedImage: { path: '/s/b.NEF', isReady: false } as never });
+    invoke.mockClear();
+    const { result } = renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
+    await act(async () => {
+      await result.current.handleImageSelect('/s/c.NEF', true);
+    });
+    expect(invoke).toHaveBeenCalledWith('activate_photo', expect.objectContaining({ path: '/s/c.NEF' }));
+    expect(useEditorStore.getState().stillPreview).toBe('/s/c.NEF');
+    expect(useEditorStore.getState().holdingNativeFrame).toBe(true);
+    act(() => vi.advanceTimersByTime(5000));
+    expect(useEditorStore.getState().holdingNativeFrame).toBe(true);
+  });
+
   it('never marks a still that arrives after the developed frame', async () => {
     let answer!: (value: string) => void;
     const { useUIStore } = await import('../store/useUIStore');

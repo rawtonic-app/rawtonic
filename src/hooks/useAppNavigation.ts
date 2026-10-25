@@ -138,14 +138,18 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
 
       // Capture One-style switch: the native side shows the next photograph's
       // developed preview at once, before any of the webview's own work below.
+      // A still (thumbnail) of the photograph left counts as shown: stepping
+      // on before its developed frame keeps swapping natively.
+      const frameShown =
+        useEditorStore.getState().hasRenderedFirstFrame || useEditorStore.getState().stillPreview !== null;
       if (performanceDiagnosticsEnabled) {
         reportPerformance('activate_decision', {
           wasInEditor: wasInEditor ? 1 : 0,
-          shown: useEditorStore.getState().hasRenderedFirstFrame ? 1 : 0,
+          shown: frameShown ? 1 : 0,
         });
       }
       useEditorStore.getState().setEditor({ stillPreview: null });
-      if (wasInEditor && useEditorStore.getState().hasRenderedFirstFrame) {
+      if (wasInEditor && frameShown) {
         void invoke<Activation>(Invokes.ActivatePhoto, {
           path,
           adjustments: globalImageCache.get(path)?.adjustments ?? null,
@@ -179,11 +183,8 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       // frame stays on screen (as Lightroom and Capture One swap previews)
       // when Develop was already showing one, for at most HOLD_FRAME_MS;
       // the new photograph never renders into the old frame's placement.
-      const editorState = useEditorStore.getState();
       const holdingNativeFrame =
-        wasInEditor &&
-        editorState.hasRenderedFirstFrame &&
-        useSettingsStore.getState().appSettings?.useWgpuRenderer !== false;
+        wasInEditor && frameShown && useSettingsStore.getState().appSettings?.useWgpuRenderer !== false;
       // Stepping from a ready photograph (arrows, filmstrip, multi view):
       // the panels keep showing its values until the next one's arrive.
       const panelsHeld = wasInEditor && Boolean(selectedImage?.isReady);

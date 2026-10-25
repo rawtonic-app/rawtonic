@@ -20,6 +20,7 @@ import { libraryTool, ownsPanelShortcut, revealLibraryTool } from '../components
 import { useMultiViewStore, type CellZoomKey } from '../store/useMultiViewStore';
 import { orderedSelection, stepPrimary } from '../utils/multiView';
 import { AUTO_ADVANCE_EVENT, autoAdvanceTarget, requestAutoAdvance, type AutoAdvanceRequest } from '../utils/photoStepping';
+import { imageFlag } from '../utils/culling';
 import { isTetherConnected, TETHER_CAPTURE_EVENT } from '../components/session/tether';
 import { libraryViewer, viewerOnly, viewerShown } from '../utils/viewerMode';
 import { pointerHeld } from '../utils/heldPointer';
@@ -107,7 +108,7 @@ export const useKeyboardShortcuts = ({
     handleAutoWhiteBalance,
     handleAutoStraighten,
   } = useEditorActions();
-  const { handleRate, handleSetColorLabel } = useLibraryActions();
+  const { handleRate, setRatings, handleSetColorLabel } = useLibraryActions();
 
   // The crop as it was when the crop tool opened: Escape restores it and
   // leaves the tool (Lightroom), Enter keeps the change.
@@ -200,6 +201,9 @@ export const useKeyboardShortcuts = ({
   useEffect(() => {
     const advance = (event: Event) => {
       const { rated, restore } = (event as CustomEvent<AutoAdvanceRequest>).detail;
+      // A newer rating or flag: Undo no longer takes back an earlier step,
+      // also when this one does not step (the last photograph).
+      lastAdvance.current = null;
       if (useSettingsStore.getState().appSettings?.autoAdvance !== true) return;
       const ui = useUIStore.getState();
       if (!viewerShown(ui) || (ui.activeView === 'editor' && useMultiViewStore.getState().active)) return;
@@ -213,14 +217,26 @@ export const useKeyboardShortcuts = ({
       lastAdvance.current = { from: rated, to: next, restore };
     };
     window.addEventListener(AUTO_ADVANCE_EVENT, advance);
-    // Any other photograph opened ends what Undo would take back.
-    const unsubscribe = useEditorStore.subscribe((state) => {
+    // Any other photograph opened, or the next one rated, flagged or
+    // labelled otherwise (a click on its stars), ends what Undo takes back.
+    const unsubscribeEditor = useEditorStore.subscribe((state) => {
       const last = lastAdvance.current;
       if (last && state.selectedImage?.path !== last.to) lastAdvance.current = null;
     });
+    const unsubscribeLibrary = useLibraryStore.subscribe((state, previous) => {
+      const last = lastAdvance.current;
+      if (
+        last &&
+        (state.imageRatings[last.to] !== previous.imageRatings[last.to] ||
+          imageFlag(state.imageFlags, last.to) !== imageFlag(previous.imageFlags, last.to))
+      ) {
+        lastAdvance.current = null;
+      }
+    });
     return () => {
       window.removeEventListener(AUTO_ADVANCE_EVENT, advance);
-      unsubscribe();
+      unsubscribeEditor();
+      unsubscribeLibrary();
     };
   }, [showInViewer]);
 
@@ -298,12 +314,9 @@ export const useKeyboardShortcuts = ({
       s.editor.historyIndex === 0;
     const rateAndAdvance = (rating: number, s: ShortcutState) => {
       const rated = s.editor.selectedImage?.path;
-      const previous = rated ? (s.library.imageRatings[rated] ?? 0) : 0;
-      handleRate(rating, ratedPaths(s));
-      if (viewerShown(s.ui) && rated) {
-        // Rating the previous value again sets it back (a repeated value clears).
-        requestAutoAdvance(rated, () => handleRate(previous, [rated]));
-      }
+      // Every photograph rated (its grouped files too) gets its own back.
+      const previous = handleRate(rating, ratedPaths(s));
+      if (viewerShown(s.ui) && rated) requestAutoAdvance(rated, () => setRatings(previous));
     };
     // In the multi view the zoom keys zoom the primary in its cell; with the
     // zoom lock every other cell follows (MultiViewStage). Without the lock
@@ -1191,6 +1204,7 @@ export const useKeyboardShortcuts = ({
     handleMoveToSelects,
     handleImageSelect,
     showInViewer,
+    setRatings,
     handlePasteFiles,
     handleZoomChange,
     handleRotate,

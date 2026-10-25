@@ -400,11 +400,10 @@ impl DecodedImageCache {
 
     /// A decode made ahead for a photograph not open yet (the next one while
     /// stepping through photographs): kept only when it fits beside the
-    /// decode used last (the open photograph's) within `budget` (at least
-    /// the cache's own), so it never pushes that one out; older ones make
-    /// room. Whether it is kept. Two 45 MP decodes take 1.1 GB, more than
-    /// the cache keeps otherwise: the caller's budget follows the machine's
-    /// memory.
+    /// decode used last (the open photograph's) within `budget` bytes, so it
+    /// never pushes that one out; older ones make room. Whether it is kept.
+    /// Two 45 MP decodes take 1.1 GB, more than the cache keeps otherwise:
+    /// the caller's budget follows the machine's memory (0: none kept).
     pub fn offer_ahead(
         &mut self,
         path: String,
@@ -413,7 +412,6 @@ impl DecodedImageCache {
         measures: Option<crate::image_loader::DecodeMeasures>,
         budget: usize,
     ) -> bool {
-        let budget = budget.max(self.byte_budget);
         if let Some(pos) = self.items.iter().position(|(p, _, _)| *p == path) {
             self.items.remove(pos);
         }
@@ -571,7 +569,13 @@ mod decoded_cache_tests {
         cache.insert("previous".into(), megapixels(24), HashMap::new(), None);
         cache.insert("open".into(), megapixels(24), HashMap::new(), None);
         // The next 24 MP photo fits beside the open one; the older one goes.
-        assert!(cache.offer_ahead("next".into(), megapixels(24), HashMap::new(), None, 0));
+        assert!(cache.offer_ahead(
+            "next".into(),
+            megapixels(24),
+            HashMap::new(),
+            None,
+            DECODED_CACHE_BYTES
+        ));
         assert!(cache.get("previous").is_none());
         assert!(cache.get("open").is_some());
         assert!(cache.get("next").is_some());
@@ -579,7 +583,13 @@ mod decoded_cache_tests {
         // own budget: not kept; within a larger budget it is.
         let mut large = DecodedImageCache::new(5);
         large.insert("open".into(), megapixels(45), HashMap::new(), None);
-        assert!(!large.offer_ahead("next".into(), megapixels(45), HashMap::new(), None, 0));
+        assert!(!large.offer_ahead(
+            "next".into(),
+            megapixels(45),
+            HashMap::new(),
+            None,
+            DECODED_CACHE_BYTES
+        ));
         assert!(large.get("open").is_some());
         assert!(large.get("next").is_none());
         assert!(large.offer_ahead("next".into(), megapixels(45), HashMap::new(), None, 3 << 30));
@@ -596,7 +606,11 @@ mod decoded_cache_tests {
         ));
         assert!(large.get("open").is_some() && large.get("after").is_some());
         assert!(large.get("next").is_none());
-        // Nothing is kept ahead in a cache of one decode or none.
+        // Nothing is kept ahead without a budget (short of memory), nor in a
+        // cache of one decode or none.
+        let mut short = DecodedImageCache::new(5);
+        assert!(!short.offer_ahead("next".into(), megapixels(1), HashMap::new(), None, 0));
+        assert!(short.items.is_empty());
         let mut one = DecodedImageCache::new(1);
         assert!(!one.offer_ahead("next".into(), megapixels(12), HashMap::new(), None, 3 << 30));
     }

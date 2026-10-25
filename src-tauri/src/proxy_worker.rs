@@ -595,7 +595,12 @@ fn prepare(
                 .unwrap_or_else(|e| e.into_inner())
                 .remember(path, proxy);
         }
-        if keep && preview_proxy::source_available(&source) {
+        // Decoded only to be kept: not while nothing may be held (short of
+        // memory).
+        if keep
+            && preview_proxy::source_available(&source)
+            && crate::multi_view_prefetch::hold_budget() > 0
+        {
             #[cfg(feature = "performance-profiling")]
             let _stage = crate::performance::PerformanceStage::new("preview_prefetch_decode");
             let _ = decode(app_handle, &source, &settings, Some(cancel), Some(true));
