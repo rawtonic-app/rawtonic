@@ -106,13 +106,9 @@ impl ExportRequest {
             self.current_edit_path.as_deref(),
             self.current_edit_adjustments.as_ref(),
             self.library.as_deref().map(Path::new),
-        );
-        let mut digest = blake3::Hasher::new();
-        for photo in &photos {
-            digest.update(&serde_json::to_vec(photo).map_err(|e| e.to_string())?);
-        }
+        )?;
         self.pinned = Some(Pinned {
-            digest: digest.finalize().to_hex().to_string(),
+            digest: digest(&photos)?,
             denoise_models: denoise_models(photos.iter().map(|photo| &photo.adjustments)),
         });
         Ok(photos)
@@ -125,6 +121,16 @@ impl ExportRequest {
             && self.current_edit_adjustments == other.current_edit_adjustments
             && self.library == other.library
     }
+}
+
+/// One digest of `photos` (their JSON has a fixed order: equal snapshots
+/// read independently digest alike).
+fn digest(photos: &[PinnedPhoto]) -> Result<String, String> {
+    let mut digest = blake3::Hasher::new();
+    for photo in photos {
+        digest.update(&serde_json::to_vec(photo).map_err(|e| e.to_string())?);
+    }
+    Ok(digest.finalize().to_hex().to_string())
 }
 
 /// Pins `requests` (`ExportRequest::pin`) on a blocking worker: each
@@ -1029,6 +1035,79 @@ mod tests {
             job.as_run()[0].capture_date(&libs.source).year()
         };
         assert_eq!((year(&from_a), year(&from_b)), (2020, 2021));
+    }
+
+    #[test]
+    fn a_photo_without_cached_exif_embeds_what_its_export_reads_from_the_file() {
+        let libs = two_catalogs();
+        let mut jpeg = Vec::new();
+        image::DynamicImage::new_rgb8(16, 8)
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        let mut exif = little_exif::metadata::Metadata::new();
+        exif.set_tag(little_exif::exif_tag::ExifTag::Make("Maker".into()));
+        exif.write_to_vec(&mut jpeg, little_exif::filetype::FileExtension::JPEG)
+            .unwrap();
+        std::fs::write(&libs.source, &jpeg).unwrap();
+        let path = libs.source.to_string_lossy().into_owned();
+        let job = queued(request(
+            std::slice::from_ref(&path),
+            Some(libs.a.directory.as_path()),
+        ));
+        let pinned = &job.as_run()[0];
+        assert_eq!(pinned.exif, None, "never decoded: nothing cached yet");
+        assert_eq!(
+            pinned.owner.as_deref(),
+            libs.a.directory.to_str(),
+            "the export runs under A"
+        );
+        // Its export's decode stores the file's EXIF (under A), and the
+        // files then embed it, as before.
+        crate::session_bridge::with_culling_owner(pinned.owner.as_deref(), || {
+            crate::exif_processing::persist_exif_if_missing(&libs.source, &path, &jpeg);
+            let exif = pinned.exif(&libs.source).expect("read after the decode");
+            assert!(exif.values().any(|v| v.contains("Maker")), "{exif:?}");
+        });
+    }
+
+    #[test]
+    fn a_library_that_cannot_be_read_fails_the_export_when_submitted() {
+        let libs = two_catalogs();
+        std::fs::remove_file(libs.a.directory.join("catalog.sqlite")).unwrap();
+        let path = libs.source.to_string_lossy().into_owned();
+        let mut job = request(&[path], Some(libs.a.directory.as_path()));
+        let error = job
+            .pin()
+            .expect_err("not queued with a sidecar's or no metadata");
+        assert!(error.contains("cannot be read"), "{error}");
+        assert!(job.pinned.is_none());
+    }
+
+    #[test]
+    fn equal_photos_read_independently_digest_alike() {
+        let libs = two_catalogs();
+        let asset = libs.a.asset_at(&libs.source).unwrap().unwrap();
+        let mut state = recipe(1.0, 4, &[]);
+        state["exif"] = (0..40)
+            .map(|i| (format!("Tag{i}"), json!(format!("value {i}"))))
+            .collect::<serde_json::Map<_, _>>()
+            .into();
+        libs.a.save_editor_state(&asset.id, &state).unwrap();
+        std::fs::write(libs.source.with_file_name("A.jpg.rrdata"), b"{}").unwrap();
+        let path = libs.source.to_string_lossy().into_owned();
+        let digest = || {
+            let mut job = request(
+                std::slice::from_ref(&path),
+                Some(libs.a.directory.as_path()),
+            );
+            job.pin().unwrap();
+            job.pinned.unwrap().digest
+        };
+        let first = digest();
+        assert!((0..8).all(|_| digest() == first));
     }
 
     #[test]

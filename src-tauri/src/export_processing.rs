@@ -261,15 +261,29 @@ pub struct PinnedPhoto {
     pub metadata: Option<rawtonic_metadata::Metadata>,
     /// The EXIF its editor state or EXIF cache holds (`read_rrexif_sidecar`):
     /// what its files embed of it, and its capture date for names and file
-    /// times.
+    /// times. None when none was read yet: the export's decode reads it
+    /// from the file, under `owner`, as for any first decode.
     #[serde(default)]
-    pub exif: Option<std::collections::HashMap<String, String>>,
+    pub exif: Option<std::collections::BTreeMap<String, String>>,
+    /// The session or catalog that owns it (None: no library), under which
+    /// its export runs (`with_culling_owner`), never the library open then.
+    #[serde(default)]
+    pub owner: Option<String>,
 }
 
 impl PinnedPhoto {
-    /// The capture date of `source` as this snapshot has it.
+    /// The EXIF of `source` as this snapshot has it, else as its decode
+    /// stored it (under the photo's owner).
+    pub(crate) fn exif(&self, source: &Path) -> Option<std::collections::HashMap<String, String>> {
+        match &self.exif {
+            Some(exif) => Some(exif.clone().into_iter().collect()),
+            None => exif_processing::read_rrexif_sidecar(source),
+        }
+    }
+
+    /// The capture date of `source` as this snapshot has it (`exif`).
     pub(crate) fn capture_date(&self, source: &Path) -> chrono::DateTime<chrono::Utc> {
-        exif_processing::capture_date_with(source, &|| self.exif.clone())
+        exif_processing::capture_date_with(source, &|| self.exif(source))
     }
 }
 
@@ -291,19 +305,24 @@ pub(crate) struct ExportPhotos {
 /// metadata its files embed, both through the library that owns the photo:
 /// its own session, else `submitted_from`, the catalog the export was
 /// submitted from (`culling_library_for`). Never the library open later.
+/// Fails when an owning library cannot be read, rather than taking a
+/// sidecar file or no metadata for what it holds.
 pub(crate) fn pin_photos(
     paths: &[String],
     open_path: Option<&str>,
     open_adjustments: Option<&Value>,
     submitted_from: Option<&Path>,
-) -> Vec<PinnedPhoto> {
+) -> Result<Vec<PinnedPhoto>, String> {
     use rayon::prelude::*;
     paths
         .par_iter()
         .map(|path| {
             let (source, sidecar) = parse_virtual_path(path);
-            let owner = crate::session_bridge::culling_library_for(&source, submitted_from)
-                .map(|dir| dir.to_string_lossy().into_owned());
+            let owner = crate::session_bridge::culling_library_for(&source, submitted_from);
+            if let Some(owner) = &owner {
+                library_readable(owner, &source)?;
+            }
+            let owner = owner.map(|dir| dir.to_string_lossy().into_owned());
             crate::session_bridge::with_culling_owner(owner.as_deref(), || {
                 let saved = exif_processing::load_sidecar(&sidecar);
                 let metadata = crate::session_bridge::catalog_metadata(&source);
@@ -319,14 +338,34 @@ pub(crate) fn pin_photos(
                     Some(adjustments) if is_open_edit(path, open_path) => adjustments.clone(),
                     _ => saved.adjustments,
                 };
-                PinnedPhoto {
+                Ok(PinnedPhoto {
                     adjustments,
                     metadata,
-                    exif: exif_processing::read_rrexif_sidecar(&source),
-                }
+                    exif: exif_processing::read_rrexif_sidecar(&source)
+                        .map(|exif| exif.into_iter().collect()),
+                    owner: owner.clone(),
+                })
             })
         })
         .collect()
+}
+
+/// Whether the library `owner` reads what it holds of `source` (its
+/// recipe and metadata) without an error.
+fn library_readable(owner: &Path, source: &Path) -> Result<(), String> {
+    let failed = |e: anyhow::Error| {
+        format!(
+            "The library {} cannot be read for {}: {e:#}",
+            owner.display(),
+            source.display()
+        )
+    };
+    let lib = rawtonic_catalog::Library::open(owner).map_err(failed)?;
+    if let Some(asset) = lib.asset_at(source).map_err(failed)? {
+        lib.metadata(&asset.id).map_err(failed)?;
+        lib.editor_state(&asset.id).map_err(failed)?;
+    }
+    Ok(())
 }
 
 /// Why a photo gone since its export was submitted cannot be exported; it
@@ -349,7 +388,7 @@ fn save_image_with_metadata(
     generated: bool,
     pinned: &PinnedPhoto,
 ) -> Result<(), String> {
-    let exif_sidecar = || pinned.exif.clone();
+    let exif_sidecar = || pinned.exif(Path::new(source_path_str));
     let catalog = || pinned.metadata.clone();
     save_export_image(
         image,
@@ -907,23 +946,31 @@ pub(crate) async fn export_images_impl(
 
             let handle = tokio::task::spawn_blocking(move || {
                 let results = lane.install(|| {
-                    export_photo(
-                        &app_handle_clone,
-                        &context_clone,
-                        &settings,
-                        &targets,
-                        &wanted,
-                        &photos,
-                        &used_paths_clone,
-                        &cancellation_token_clone,
-                        PhotoItem {
-                            global_index,
-                            image_path_str: &image_path_str,
-                            appearance_count,
-                            explicit_vc,
-                            total_paths,
-                        },
-                    )
+                    // Under the library the photo was submitted with: what
+                    // its export still reads or stores (the EXIF its decode
+                    // caches) goes there, never to the library open now.
+                    let pinned = (photos.read)(global_index);
+                    let owner = pinned.as_ref().ok().and_then(|p| p.owner.clone());
+                    crate::session_bridge::with_culling_owner(owner.as_deref(), || {
+                        export_photo(
+                            &app_handle_clone,
+                            &context_clone,
+                            &settings,
+                            &targets,
+                            &wanted,
+                            photos.open_path.as_deref(),
+                            pinned,
+                            &used_paths_clone,
+                            &cancellation_token_clone,
+                            PhotoItem {
+                                global_index,
+                                image_path_str: &image_path_str,
+                                appearance_count,
+                                explicit_vc,
+                                total_paths,
+                            },
+                        )
+                    })
                 });
                 drop(lane);
 
@@ -1191,7 +1238,8 @@ fn export_photo(
     settings: &crate::app_settings::AppSettings,
     targets: &[ExportTarget],
     wanted: &[usize],
-    photos: &ExportPhotos,
+    open_path: Option<&str>,
+    pinned: Result<PinnedPhoto, String>,
     used_paths: &Mutex<std::collections::HashSet<std::path::PathBuf>>,
     cancellation_token: &AtomicBool,
     item: PhotoItem,
@@ -1221,10 +1269,10 @@ fn export_photo(
         return fail_all(error);
     }
 
-    let is_current_edit = is_open_edit(image_path_str, photos.open_path.as_deref());
+    let is_current_edit = is_open_edit(image_path_str, open_path);
     // Only what the export was submitted with (`pin_photos`): no recipe or
     // metadata is read from a library now.
-    let mut pinned = match (photos.read)(item.global_index) {
+    let mut pinned = match pinned {
         Ok(pinned) => pinned,
         Err(e) => return fail_all(e),
     };
@@ -1428,7 +1476,7 @@ fn export_photo(
         .any(|&target| with_mask_files(target))
         .then_some(source);
 
-    let exif_sidecar = || pinned.exif.clone();
+    let exif_sidecar = || pinned.exif(original_path);
     let catalog = || pinned.metadata.clone();
     results.extend(export_in_turn(images, plan, |target, output_path| {
         let export_settings = &targets[target].export_settings;
@@ -1487,7 +1535,7 @@ fn export_photo(
             // export it again under a new name or miss its masks).
             let finish_photo = AtomicBool::new(false);
             if export_settings.preserve_timestamps {
-                set_capture_file_times(output_path, file_date);
+                set_capture_file_times(output_path, pinned.capture_date(original_path));
             }
 
             if export_settings.export_masks
@@ -1711,7 +1759,7 @@ pub async fn run_headless_export(
         let paths = paths.clone();
         Arc::new(move |index: usize| {
             let mut photo =
-                pin_photos(&paths[index..=index], None, None, library.as_deref()).remove(0);
+                pin_photos(&paths[index..=index], None, None, library.as_deref())?.remove(0);
             if let Some(adjustments) = &custom_adjustments {
                 photo.adjustments = adjustments.clone();
             }
