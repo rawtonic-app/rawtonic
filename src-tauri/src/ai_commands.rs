@@ -725,6 +725,7 @@ fn store_mask(state: &AppState, kind: AutoMask, key: String, data: Arc<String>) 
     });
 }
 
+#[derive(Clone)]
 enum Network {
     Subject(Arc<crate::ai_processing::SubjectModel>),
     Sky(Arc<crate::ai_processing::SkyModel>),
@@ -735,6 +736,14 @@ impl Network {
         match self {
             Self::Subject(model) => model.on_onnx(),
             Self::Sky(model) => model.on_onnx(),
+        }
+    }
+
+    /// One run on a constant input (Core ML only); `false` when not run.
+    fn warm_up(&self) -> anyhow::Result<bool> {
+        match self {
+            Self::Subject(model) => model.warm_up(),
+            Self::Sky(model) => model.warm_up(),
         }
     }
 }
@@ -1073,6 +1082,88 @@ pub async fn preload_ai_mask_models(
         "AI masks: models loaded ahead after {} ms",
         start.elapsed().as_millis()
     );
+    Ok(())
+}
+
+/// Builds Core ML's GPU kernels for Subject, then Sky, once per app and
+/// macOS build, so the first click on Subject no longer waits for them: on
+/// a fresh install Metal compiles them on the model's first run (Subject
+/// 11-14 s, Sky 7 s on an M5 Pro; Lightroom's first Subject took 7.9 s).
+/// Asked for when a photo is ready in Develop for someone who has not
+/// masked yet (for others the photo's masks computed ahead do the same).
+/// Installed models only, not under memory pressure, and only for a model
+/// that has not run here yet (`core_ml_first_run_pending`): two file checks
+/// afterwards. The run is on a constant input on a utility-QoS thread
+/// (`at_utility_qos`); the model is dropped afterwards unless the masking
+/// tools were used meanwhile. Cancelling `task_id` (the Library, memory
+/// pressure) stops it before the next model; Core ML's run itself cannot
+/// be stopped, and a click meanwhile waits for it (it would build the same
+/// kernels). Nothing to do on other systems.
+#[tauri::command]
+pub async fn warm_up_ai_mask_models(
+    task_id: String,
+    state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let guard = AiTaskGuard::new(&state.active_ai_tasks, task_id);
+        for kind in [AutoMask::Subject, AutoMask::Sky] {
+            let sky = kind == AutoMask::Sky;
+            if !crate::ai_processing::core_ml_first_run_pending(&app_handle, sky) {
+                continue;
+            }
+            if guard.token.is_cancelled() || crate::memory_pressure::under_pressure() {
+                return Ok(());
+            }
+            let uses = LIFECYCLE.uses();
+            let _running = LIFECYCLE.run();
+            let start = std::time::Instant::now();
+            let Some(network) = network(&state, &app_handle, kind, false).await? else {
+                continue;
+            };
+            let load_ms = start.elapsed().as_millis();
+            let run = network.clone();
+            let warmed = tauri::async_runtime::spawn_blocking(move || {
+                crate::ai_processing::at_utility_qos(|| run.warm_up())
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+            match warmed {
+                Ok(true) => log::info!(
+                    "AI {} mask: GPU kernels built ahead (load {load_ms} ms, run {} ms)",
+                    kind.name(),
+                    start.elapsed().as_millis() - load_ms
+                ),
+                Ok(false) => continue,
+                Err(e) => {
+                    log::warn!("AI {} mask: building ahead failed: {e}", kind.name());
+                    continue;
+                }
+            }
+            let mut ai = state.ai_state.lock().unwrap();
+            crate::ai_lifecycle::release_after_warm_up(&LIFECYCLE, &mut ai, uses, |ai| {
+                match &network {
+                    Network::Subject(model) => {
+                        if ai
+                            .subject_model
+                            .as_ref()
+                            .is_some_and(|m| Arc::ptr_eq(m, model))
+                        {
+                            ai.subject_model = None;
+                        }
+                    }
+                    Network::Sky(model) => {
+                        if ai.sky_model.as_ref().is_some_and(|m| Arc::ptr_eq(m, model)) {
+                            ai.sky_model = None;
+                        }
+                    }
+                }
+            });
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (task_id, state, app_handle);
     Ok(())
 }
 

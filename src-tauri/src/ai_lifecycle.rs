@@ -58,6 +58,8 @@ struct Usage {
     /// Counts memory-pressure unloads, the only ones that drop the tagging
     /// models (`take_unloaded`).
     pressure_unloads: u64,
+    /// Counts masking uses (`touch`).
+    uses: u64,
 }
 
 /// Use, running computations and unloads of the masking models.
@@ -86,6 +88,7 @@ impl Lifecycle {
                 busy: 0,
                 generation: 0,
                 pressure_unloads: 0,
+                uses: 0,
             }),
         }
     }
@@ -100,7 +103,15 @@ impl Lifecycle {
     }
 
     fn touch_at(&self, now: Instant) {
-        self.usage().last_use = Some(now);
+        let mut usage = self.usage();
+        usage.last_use = Some(now);
+        usage.uses += 1;
+    }
+
+    /// Counts masking uses: equal before and after a background job when the
+    /// user did not use the masking tools meanwhile.
+    pub fn uses(&self) -> u64 {
+        self.usage().uses
     }
 
     /// Read before loading a model; pass to `keep` afterwards.
@@ -265,9 +276,14 @@ fn cancel_background_runs(state: &AppState) {
 }
 
 fn is_background_task(id: &str) -> bool {
-    ["subject-precompute-", "sky-precompute-", "sam-precompute-"]
-        .iter()
-        .any(|prefix| id.starts_with(prefix))
+    [
+        "subject-precompute-",
+        "sky-precompute-",
+        "sam-precompute-",
+        "mask-warm-up-",
+    ]
+    .iter()
+    .any(|prefix| id.starts_with(prefix))
 }
 
 /// Unloads for `reason`, logs and tells the webview.
@@ -352,6 +368,25 @@ pub fn unload_ai_models(reason: UnloadReason, app_handle: tauri::AppHandle) -> V
         .into_iter()
         .map(String::from)
         .collect()
+}
+
+/// After a background warm-up (`warm_up_ai_mask_models`): drops the
+/// model it loaded, with `take`, unless the masking tools were used since
+/// `uses_before` (`Lifecycle::uses`). Someone who has not masked keeps no
+/// model in memory (user decision 2026-10-11); `true` when dropped.
+pub fn release_after_warm_up(
+    lifecycle: &Lifecycle,
+    ai: &mut Option<AiState>,
+    uses_before: u64,
+    take: impl FnOnce(&mut AiState),
+) -> bool {
+    if lifecycle.uses() != uses_before {
+        return false;
+    }
+    if let Some(ai) = ai.as_mut() {
+        take(ai);
+    }
+    true
 }
 
 /// The webview reports masking use (the masking tools opened, a selection
@@ -510,7 +545,26 @@ mod tests {
         assert!(is_background_task("subject-precompute-1234"));
         assert!(is_background_task("sky-precompute-1234"));
         assert!(is_background_task("sam-precompute-1234"));
+        assert!(is_background_task("mask-warm-up-1234"));
         assert!(!is_background_task("4f1c2a7e-sub-mask"));
+    }
+
+    #[test]
+    fn a_warm_up_keeps_its_model_only_after_masking_use() {
+        let lifecycle = Lifecycle::new();
+        let uses = lifecycle.uses();
+        let mut ai = Some(filled_state());
+        assert!(release_after_warm_up(&lifecycle, &mut ai, uses, |ai| {
+            ai.subject_masks.clear()
+        }));
+        assert!(ai.as_ref().unwrap().subject_masks.is_empty());
+        let uses = lifecycle.uses();
+        lifecycle.touch();
+        let mut ai = Some(filled_state());
+        assert!(!release_after_warm_up(&lifecycle, &mut ai, uses, |ai| {
+            ai.subject_masks.clear()
+        }));
+        assert_eq!(ai.as_ref().unwrap().subject_masks.len(), 1);
     }
 
     #[test]

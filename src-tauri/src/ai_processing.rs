@@ -228,6 +228,19 @@ impl SkyModel {
     pub fn on_onnx(&self) -> bool {
         matches!(self.backend, SkyBackend::Onnx(_))
     }
+
+    /// As `SubjectModel::warm_up`.
+    pub fn warm_up(&self) -> Result<bool> {
+        match &self.backend {
+            SkyBackend::Onnx(_) => Ok(false),
+            #[cfg(target_os = "macos")]
+            SkyBackend::CoreMl(model) => {
+                let size = SKYSEG_INPUT_SIZE as usize;
+                model.warm_up("pixel_values", &[1, 3, size, size], "sky")?;
+                Ok(true)
+            }
+        }
+    }
     /// The sky probability (`SKYSEG_INPUT_SIZE`² values) for a normalised
     /// [1, 3, size, size] input. `run_options` lets another thread stop an
     /// ONNX run.
@@ -1259,6 +1272,7 @@ async fn load_core_ml(
         }
     }
     let files_ms = start.elapsed().as_millis();
+    let marker = first_run_marker(app_handle, label, files);
     let loaded = tokio::task::spawn_blocking(move || {
         let compiled = rawtonic_denoise::coreml::compiled_path(&package)
             .join("coremldata.bin")
@@ -1268,7 +1282,8 @@ async fn load_core_ml(
         // page-by-page reads (0.53-0.67 s instead of 0.26 s for Subject).
         let prefetch = rawtonic_denoise::coreml::prefetch_device_cache(&package);
         let load = std::time::Instant::now();
-        let model = rawtonic_denoise::coreml::CoreMlModel::load(&package, CORE_ML_UNITS);
+        let model = rawtonic_denoise::coreml::CoreMlModel::load(&package, CORE_ML_UNITS)
+            .map(|model| model.with_first_run_marker(marker));
         let load_ms = load.elapsed().as_millis();
         let prefetched = match prefetch {
             Some(reader) if reader.is_finished() => match reader.join() {
@@ -1308,6 +1323,58 @@ async fn load_core_ml(
             None
         }
     }
+}
+
+/// Whether the Subject (`sky` false) or Sky model on Core ML has never run
+/// in this app on this macOS build (`FirstRunMarker`), so its first use
+/// would wait for Metal to build its GPU kernels.
+#[cfg(target_os = "macos")]
+pub fn core_ml_first_run_pending(app_handle: &tauri::AppHandle, sky: bool) -> bool {
+    let (label, files) = if sky {
+        ("sky", &SKY_CORE_ML_FILES)
+    } else {
+        ("subject", &SUBJECT_CORE_ML_FILES)
+    };
+    first_run_marker(app_handle, label, files).is_some_and(|marker| !marker.is_set())
+}
+
+/// The first-run marker of a Core ML program of the model pack, named after
+/// `label` and its files' hashes, in the app's cache folder.
+#[cfg(target_os = "macos")]
+fn first_run_marker(
+    app_handle: &tauri::AppHandle,
+    label: &str,
+    files: &[(&str, &str, &str)],
+) -> Option<rawtonic_denoise::coreml::FirstRunMarker> {
+    let dir = app_handle
+        .path()
+        .app_cache_dir()
+        .ok()?
+        .join("ai-first-runs");
+    let hashes: String = files.iter().map(|&(_, _, sha)| &sha[..8]).collect();
+    rawtonic_denoise::coreml::FirstRunMarker::new(&dir, &format!("{label}-{hashes}"))
+}
+
+/// Runs `f` on a thread of its own at utility QoS (macOS): below the
+/// photo's decoding and rendering. Core ML's first run of BiRefNet took as
+/// long as at the default class (11.3 vs 14.3 s, a busy machine), at
+/// background QoS 34 s.
+pub(crate) fn at_utility_qos<T: Send>(f: impl FnOnce() -> T + Send) -> T {
+    std::thread::scope(|scope| {
+        let worker = std::thread::Builder::new()
+            .name("ai-warm-up".into())
+            .spawn_scoped(scope, || {
+                #[cfg(target_os = "macos")]
+                unsafe {
+                    libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_UTILITY, 0);
+                }
+                f()
+            })
+            .expect("a thread for the warm-up");
+        worker
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    })
 }
 
 /// The calling thread's quality-of-service class (logged with model loads:
@@ -2691,6 +2758,21 @@ impl SubjectModel {
     /// Runs on ONNX Runtime (Core ML needs none).
     pub fn on_onnx(&self) -> bool {
         matches!(self.backend, SubjectBackend::Onnx(_))
+    }
+
+    /// One run on a constant input, which builds Core ML's GPU kernels
+    /// (`core_ml_first_run_pending`); `false` on ONNX Runtime, which is not
+    /// run.
+    pub fn warm_up(&self) -> Result<bool> {
+        match &self.backend {
+            SubjectBackend::Onnx(_) => Ok(false),
+            #[cfg(target_os = "macos")]
+            SubjectBackend::CoreMl(model) => {
+                let size = SUBJECT_INPUT_SIZE as usize;
+                model.warm_up("pixel_values", &[1, 3, size, size], "subject")?;
+                Ok(true)
+            }
+        }
     }
     /// BiRefNet's subject probability (`SUBJECT_INPUT_SIZE`² values) for
     /// a normalised [1, 3, size, size] input. `run_options` lets another

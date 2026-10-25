@@ -22,6 +22,8 @@ import {
   AI_MASKING_RECENT_MS,
   AI_MASKS_AHEAD_DELAY_MS,
   AI_MODELS_UNLOADED_EVENT,
+  AI_WARM_UP_DELAY_MS,
+  leaveDevelop,
   objectSelectionBusy,
   openMaskingTools,
   resetAiMaskSession,
@@ -1080,6 +1082,61 @@ describe("masking models loaded with Develop and dropped again", () => {
     expect(calls("precompute_ai_foreground_mask")).toHaveLength(0);
     // Nor SAM's encoder for object masks.
     expect(calls("precompute_ai_subject_mask")).toHaveLength(0);
+  });
+
+  const decodedPhoto = (path: string) =>
+    useEditorStore.setState({
+      selectedImage: { path, isReady: true, isDecoded: true, isRaw: true } as never,
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [] },
+    });
+
+  it("builds the models' GPU kernels once in the background for someone who never masked", async () => {
+    invoke.mockResolvedValue(null);
+    useUIStore.setState({ activePanel: Panel.Adjustments });
+    // Not before the photo is decoded: its frames come first.
+    photo("/s/a.NEF");
+    renderHook(() => useAiMasking());
+    await wait(AI_WARM_UP_DELAY_MS + 200);
+    expect(calls("warm_up_ai_mask_models")).toHaveLength(0);
+    act(() => decodedPhoto("/s/a.NEF"));
+    await waitFor(() => expect(calls("warm_up_ai_mask_models")).toHaveLength(1), {
+      timeout: AI_WARM_UP_DELAY_MS + 1000,
+    });
+    expect((calls("warm_up_ai_mask_models")[0][1] as { taskId: string }).taskId).toMatch(/^mask-warm-up-/);
+    // Once per Develop visit; no masks are computed.
+    act(() => decodedPhoto("/s/b.NEF"));
+    await wait(AI_WARM_UP_DELAY_MS + 200);
+    expect(calls("warm_up_ai_mask_models")).toHaveLength(1);
+    expect(calls("precompute_ai_foreground_mask")).toHaveLength(0);
+    // The next visit asks again (the backend skips models that ran before).
+    act(() => leaveDevelop());
+    act(() => decodedPhoto("/s/c.NEF"));
+    await waitFor(() => expect(calls("warm_up_ai_mask_models")).toHaveLength(2), {
+      timeout: AI_WARM_UP_DELAY_MS + 1000,
+    });
+  });
+
+  it("waits for a photo that stays open before building them", async () => {
+    invoke.mockResolvedValue(null);
+    decodedPhoto("/s/a.NEF");
+    renderHook(() => useAiMasking());
+    await wait(AI_WARM_UP_DELAY_MS / 2);
+    act(() => decodedPhoto("/s/b.NEF"));
+    await wait(AI_WARM_UP_DELAY_MS / 2 + 100);
+    expect(calls("warm_up_ai_mask_models")).toHaveLength(0);
+    await waitFor(() => expect(calls("warm_up_ai_mask_models")).toHaveLength(1), {
+      timeout: AI_WARM_UP_DELAY_MS + 1000,
+    });
+  });
+
+  it("builds nothing separately for someone who masked before (the photo's masks do it)", async () => {
+    usedBefore();
+    invoke.mockResolvedValue(null);
+    decodedPhoto("/s/a.NEF");
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(pathsOf("precompute_ai_foreground_mask")).toEqual(["/s/a.NEF"]));
+    await wait(AI_WARM_UP_DELAY_MS + 200);
+    expect(calls("warm_up_ai_mask_models")).toHaveLength(0);
   });
 
   it("encodes for object masks in the background after Subject and Sky, only where those go ahead", async () => {
