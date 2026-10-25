@@ -140,7 +140,6 @@ const READ_AHEAD_FILES: usize = 16;
 /// A file `ReadAhead` read: open, as it was when opened, its bytes and
 /// their SHA-256.
 pub(crate) struct ReadFile {
-    path: PathBuf,
     file: File,
     before: fs::Metadata,
     buffer: Vec<u8>,
@@ -188,12 +187,16 @@ impl Budget {
 /// usual (`copy_verified`).
 pub(crate) struct ReadAhead {
     order: std::collections::HashMap<PathBuf, usize>,
-    head: std::cell::RefCell<Option<ReadFile>>,
-    queue: Option<std::sync::mpsc::Receiver<ReadFile>>,
+    head: std::cell::RefCell<Option<Ahead>>,
+    queue: Option<std::sync::mpsc::Receiver<Ahead>>,
     budget: std::sync::Arc<Budget>,
     stop: std::sync::Arc<AtomicBool>,
     threads: Vec<std::thread::JoinHandle<()>>,
 }
+
+/// A file as `ReadAhead` hands it over: read, or skipped (too large, not a
+/// file, unreadable), so its copy reads it at once.
+type Ahead = (PathBuf, Option<ReadFile>);
 
 impl ReadAhead {
     /// Starts reading `paths`, in the order their copies are made.
@@ -204,47 +207,47 @@ impl ReadAhead {
         }
         let stop = std::sync::Arc::new(AtomicBool::new(false));
         let budget = std::sync::Arc::new(Budget::default());
-        let (read_tx, read_rx) = std::sync::mpsc::channel::<ReadFile>();
-        let (hash_tx, hash_rx) = std::sync::mpsc::channel::<ReadFile>();
+        let (read_tx, read_rx) = std::sync::mpsc::channel::<Ahead>();
+        let (hash_tx, hash_rx) = std::sync::mpsc::channel::<Ahead>();
         let (reading, reader_budget) = (stop.clone(), budget.clone());
         let reader = std::thread::spawn(move || {
             for path in paths {
                 if reading.load(Ordering::Acquire) {
                     break;
                 }
-                let Ok(mut file) = open_without_waiting(&path) else {
-                    continue;
-                };
-                let Ok(before) = file.metadata() else {
-                    continue;
-                };
-                if !before.is_file() || before.len() > READ_AHEAD_LIMIT {
-                    continue;
-                }
-                if !reader_budget.take(before.len(), &reading) {
-                    break;
-                }
-                let read = read_all(&mut file, before.len(), &reading, &mut |_| {});
-                let Ok(buffer) = read else {
-                    reader_budget.give(before.len());
-                    continue;
-                };
-                let read = ReadFile {
-                    path,
-                    file,
-                    before,
-                    buffer,
-                    sha256: String::new(),
-                };
-                if read_tx.send(read).is_err() {
+                let read = (|| {
+                    let mut file = open_without_waiting(&path).ok()?;
+                    let before = file.metadata().ok()?;
+                    if !before.is_file() || before.len() > READ_AHEAD_LIMIT {
+                        return None;
+                    }
+                    if !reader_budget.take(before.len(), &reading) {
+                        return None;
+                    }
+                    match read_all(&mut file, before.len(), &reading, &mut |_| {}) {
+                        Ok(buffer) => Some(ReadFile {
+                            file,
+                            before,
+                            buffer,
+                            sha256: String::new(),
+                        }),
+                        Err(_) => {
+                            reader_budget.give(before.len());
+                            None
+                        }
+                    }
+                })();
+                if read_tx.send((path, read)).is_err() {
                     break;
                 }
             }
         });
         let hasher = std::thread::spawn(move || {
-            for mut read in read_rx {
-                read.sha256 = hex(Sha256::digest(&read.buffer));
-                if hash_tx.send(read).is_err() {
+            for (path, mut read) in read_rx {
+                if let Some(read) = &mut read {
+                    read.sha256 = hex(Sha256::digest(&read.buffer));
+                }
+                if hash_tx.send((path, read)).is_err() {
                     break;
                 }
             }
@@ -279,14 +282,16 @@ impl ReadAhead {
                     }
                 },
             };
-            let at = self.order[&next.path];
+            let at = self.order[&next.0];
             if at > wanted {
                 *head = Some(next);
                 return None;
             }
-            self.budget.give(next.before.len());
+            if let Some(read) = &next.1 {
+                self.budget.give(read.before.len());
+            }
             if at == wanted {
-                return Some(next);
+                return next.1;
             }
         }
     }
@@ -398,6 +403,8 @@ pub(crate) fn copy_verified(
     ahead: Option<&ReadAhead>,
 ) -> Result<Verified> {
     let read = ahead.and_then(|ahead| ahead.take(source, cancel));
+    // Cancelled while it waited: nothing more is opened.
+    ensure!(!cancel.load(Ordering::Acquire), "Ingest cancelled");
     copy_verified_from(
         source,
         destinations,
@@ -889,6 +896,65 @@ mod tests {
         assert!(taken);
         assert!(waited >= std::time::Duration::from_millis(150));
         assert!(waited < std::time::Duration::from_secs(5));
+    }
+
+    /// A cancel while a copy waits for its file read ahead ends the copy
+    /// before anything is opened or created.
+    #[test]
+    fn a_copy_cancelled_while_waiting_for_its_read_ahead_creates_nothing() {
+        let d = tempfile::tempdir().unwrap();
+        let source = d.path().join("DSC.ARW");
+        fs::write(&source, [1u8; 16]).unwrap();
+        let (_reader, queue) = std::sync::mpsc::channel();
+        let ahead = ReadAhead {
+            order: [(source.clone(), 0)].into(),
+            head: Default::default(),
+            queue: Some(queue),
+            budget: Default::default(),
+            stop: Default::default(),
+            threads: Vec::new(),
+        };
+        let target = d.path().join("out/DSC.ARW");
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        let cancel = AtomicBool::new(false);
+        let error = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                cancel.store(true, Ordering::Release);
+            });
+            copy_verified(&source, &[&target], &cancel, |_| {}, Some(&ahead))
+                .err()
+                .expect("cancelled")
+        });
+        assert!(error.to_string().contains("cancelled"), "{error}");
+        assert!(names(target.parent().unwrap()).is_empty());
+    }
+
+    /// A file it skips is handed over as skipped at once: a copy waits
+    /// for no later file.
+    #[test]
+    fn a_skipped_file_is_reported_without_waiting_for_the_next() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path().join("folder.ARW");
+        fs::create_dir_all(&dir).unwrap();
+        let (sender, queue) = std::sync::mpsc::channel();
+        let ahead = ReadAhead {
+            order: [(dir.clone(), 0), (d.path().join("next.ARW"), 1)].into(),
+            head: Default::default(),
+            queue: Some(queue),
+            budget: Default::default(),
+            stop: Default::default(),
+            threads: Vec::new(),
+        };
+        // What the reader sends for a skipped file; the next never comes.
+        sender.send((dir.clone(), None)).unwrap();
+        let started = std::time::Instant::now();
+        assert!(ahead.take_now(&dir).is_none());
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        drop(ahead);
+        // And the reader does send it.
+        let ahead = ReadAhead::start(vec![dir.clone()]);
+        assert!(ahead.queue.as_ref().unwrap().recv().unwrap().1.is_none());
     }
 
     /// A fifo where a photograph was is not waited for: skipped, the next
