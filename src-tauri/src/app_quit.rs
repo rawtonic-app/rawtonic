@@ -356,13 +356,7 @@ pub fn menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<tauri::menu::Menu<R
                 if quit.text().is_ok_and(|text| text.starts_with("Quit")))
         }) {
             app_menu.remove_at(index)?;
-            let quit = MenuItem::with_id(
-                app,
-                QUIT_MENU_ID,
-                format!("Quit {}", app.package_info().name),
-                true,
-                Some("CmdOrCtrl+Q"),
-            )?;
+            let quit = quit_item(app, &format!("Quit {}", app.package_info().name))?;
             app_menu.insert(&quit, index)?;
         }
     }
@@ -372,6 +366,15 @@ pub fn menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<tauri::menu::Menu<R
         help.append(&report)?;
     }
     Ok(menu)
+}
+
+/// The Quit item that asks the editor to save first (also in `app_menu`).
+#[cfg(target_os = "macos")]
+pub fn quit_item<R: Runtime>(
+    app: &AppHandle<R>,
+    label: &str,
+) -> tauri::Result<tauri::menu::MenuItem<R>> {
+    tauri::menu::MenuItem::with_id(app, QUIT_MENU_ID, label, true, Some("CmdOrCtrl+Q"))
 }
 
 #[cfg(target_os = "macos")]

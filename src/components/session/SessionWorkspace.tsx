@@ -80,6 +80,7 @@ import { catalogChanged } from "../../utils/catalogWrites";
 import "./session.css";
 import { noteTool } from "../contribute/usageStats";
 import { flagTargets, viewerShown } from "../../utils/viewerMode";
+import { notifyAppCommandsChanged, registerAppCommands } from "../../utils/appCommands";
 
 export interface SessionSummary {
   directory: string;
@@ -896,6 +897,58 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     return () => useSessionBar.getState().set({ mark: null });
   }, [mark, session]);
 
+  // The File and Photo menus' commands (useAppMenu) run what the identity
+  // menu, the Import button and P/U/⇧X run; the latest closures, by ref.
+  const menuCommands = useRef({
+    flag: (_flag: number) => {},
+    newSession: () => {},
+    openSession: () => {},
+    importPhotos: () => {},
+    idle: false,
+    flaggable: false,
+    open: false,
+  });
+  menuCommands.current = {
+    flag: (flag: number) => {
+      void mark(flag);
+      if (viewerShown(useUIStore.getState())) requestAutoAdvance(useEditorStore.getState().selectedImage?.path);
+    },
+    newSession: () => {
+      setImportAfterCreate(false);
+      setForm("create");
+    },
+    openSession: () => void openSession(),
+    importPhotos: () => openIngest(),
+    idle: !busy && !importing && !form,
+    // As the keys: with a library open, no dialog over it.
+    flaggable: !!session && !form,
+    open: !!session,
+  };
+  // Busy, importing and the open form live here, not in a store.
+  useEffect(notifyAppCommandsChanged, [busy, importing, form, session]);
+  useEffect(() => {
+    const now = () => menuCommands.current;
+    const flag = (value: number) => ({
+      enabled: () =>
+        now().flaggable &&
+        !document.querySelector('dialog[open], [aria-modal="true"]') &&
+        flagTargets(
+          useUIStore.getState(),
+          useEditorStore.getState().selectedImage?.path,
+          useLibraryStore.getState().multiSelectedPaths,
+        ).length > 0,
+      run: () => now().flag(value),
+    });
+    return registerAppCommands({
+      new_session: { enabled: () => now().idle, run: () => now().newSession() },
+      open_session: { enabled: () => now().idle, run: () => now().openSession() },
+      import_photos: { enabled: () => now().idle && now().open, run: () => now().importPhotos() },
+      flag_pick: flag(1),
+      flag_unflag: flag(0),
+      flag_reject: flag(-1),
+    });
+  }, []);
+
   useLayoutEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -926,8 +979,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       if (session && flag !== null) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        void mark(flag);
-        if (viewerShown(useUIStore.getState())) requestAutoAdvance(useEditorStore.getState().selectedImage?.path);
+        menuCommands.current.flag(flag);
       }
     };
     window.addEventListener("keydown", handler, true);

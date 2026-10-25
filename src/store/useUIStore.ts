@@ -224,6 +224,9 @@ export interface UIState {
   isLayoutReady: boolean;
   uiVisibility: UiVisibility;
   isSettingsOpen: boolean;
+  /** The Preferences page to show next (the menu bar's About, Keyboard
+   * Shortcuts, Check for Updates); SettingsPanel takes it and clears it. */
+  settingsCategory: string | null;
   /** "Report a problem" (src/components/contribute/ContributionHost.tsx). */
   isProblemReportOpen: boolean;
   setProblemReportOpen(open: boolean): void;
@@ -319,6 +322,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   isLayoutReady: false,
   uiVisibility: { filmstrip: true, leftPanel: true, rightPanel: true, quickFilter: false },
   isSettingsOpen: false,
+  settingsCategory: null,
   isProblemReportOpen: false,
   setProblemReportOpen: (open) => set({ isProblemReportOpen: open }),
   cameraHelp: null,
