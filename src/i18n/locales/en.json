@@ -1579,6 +1579,7 @@
         "copy_adjustments": "Copy selected adjustments",
         "copy_files": "Copy selected file(s)",
         "copy_image_path": "Copy path of selected image(s)",
+        "cycle_compare_mode": "Cycle before/after mode",
         "cycle_zoom": "Cycle zoom (Fit, 2x Fit, 100%)",
         "delete_selected": "Delete selected file(s)",
         "focus_search": "Focus search field",
@@ -3946,6 +3947,12 @@
         "beforeAfter": "Before/After",
         "beforeAfterTitle": "Before/After ({{split}}) · hold {{peek}} for the whole photo before",
         "beforeAfterUnavailable": "Before/After needs the GPU display · hold {{peek}} for the whole photo before",
+        "compareMode": {
+          "left-right": "Split left/right",
+          "off": "Off",
+          "top-bottom": "Split top/bottom"
+        },
+        "compareModes": "Compare mode",
         "empty": "Choose a photograph from the browser.",
         "fit": "Fit",
         "fitTitle": "Fit in window",

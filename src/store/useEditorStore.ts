@@ -9,7 +9,7 @@ import type { OverlayMode } from '../components/panel/editor/overlays/Compositio
 import { maskOverlayAfterEdit, type MaskOverlayAuto, type NativeMaskOverlay } from '../utils/maskDisplay';
 import type { OutputColorSpace } from '../components/ui/ExportImportProperties';
 import type { LayerSolo } from '../utils/layerSolo';
-import { DEFAULT_SPLIT_POSITION } from '../utils/beforeAfter';
+import { DEFAULT_SPLIT_POSITION, type SplitOrientation } from '../utils/beforeAfter';
 import { historyOrders,
   setHistoryOrders,
   inheritHistoryOrders,
@@ -49,7 +49,8 @@ interface EditorState {
   showOriginal: boolean;
   /** Before/after split view; it stays on from photograph to photograph. */
   splitView: boolean;
-  /** The split's divider as a share (0–1) of the viewer's width; kept for the session. */
+  splitOrientation: SplitOrientation;
+  /** The split's divider as a share (0–1) of the viewer's width or height; kept for the session. */
   splitPosition: number;
   /** The snapshot Before/After compares with (`utils/beforeSnapshot`); null: the unedited photograph. */
   beforeSnapshot: { path: string; id: string } | null;
@@ -230,6 +231,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   uncroppedAdjustedPreviewUrl: null,
   showOriginal: false,
   splitView: false,
+  splitOrientation: 'left-right',
   splitPosition: DEFAULT_SPLIT_POSITION,
   beforeSnapshot: null,
   splitBeforeShows: null,

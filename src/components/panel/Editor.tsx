@@ -1613,10 +1613,10 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       // The split's divider: a place in the viewer, not on the photograph,
       // so it stays where it was put while panning and zooming.
       // A held before peek (showOriginal) covers both sides with the before.
-      const { splitView, splitPosition, showOriginal: peeking } = useEditorStore.getState();
-      const split = splitView && !state.isCropping && !peeking ? splitScreenX(currentRect, splitPosition, dpr) : null;
+      const { splitView, splitPosition, splitOrientation, showOriginal: peeking } = useEditorStore.getState();
+      const split = splitView && !state.isCropping && !peeking ? splitScreenX(splitOrientation === 'top-bottom' ? { left: currentRect.top, width: currentRect.height } : currentRect, splitPosition, dpr) : null;
 
-      const currentTransform = `${windowWidth},${windowHeight},${screenX},${screenY},${screenW},${screenH},${clipX},${clipY},${clipW},${clipH},${state.bgPrimary?.join(',')},${state.bgSecondary?.join(',')},${cropRect?.join(',')},${state.cropRotation},${holding},${state.isCropping},${split}`;
+      const currentTransform = `${windowWidth},${windowHeight},${screenX},${screenY},${screenW},${screenH},${clipX},${clipY},${clipW},${clipH},${state.bgPrimary?.join(',')},${state.bgSecondary?.join(',')},${cropRect?.join(',')},${state.cropRotation},${holding},${state.isCropping},${split},${splitOrientation}`;
 
       if (lastWgpuTransformRef.current !== currentTransform && !isInvoking) {
         lastWgpuTransformRef.current = currentTransform;
@@ -1643,6 +1643,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
             cropRotation: state.cropRotation,
             hold: holding,
             split,
+            splitVertical: splitOrientation === 'top-bottom',
             // At fit the display may place the next photograph itself
             // (native activation, contained and centred like irs).
             viewport:
@@ -1677,6 +1678,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       if (
         editor.splitView !== previous.splitView ||
         editor.splitPosition !== previous.splitPosition ||
+        editor.splitOrientation !== previous.splitOrientation ||
         editor.showOriginal !== previous.showOriginal
       ) {
         scheduleSync();

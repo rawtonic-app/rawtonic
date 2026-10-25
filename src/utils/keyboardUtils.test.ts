@@ -20,7 +20,7 @@ describe('keybinds', () => {
     // One before/after tool: Y toggles the split, a held \ peeks at the before.
     expect(map.get('KeyY')).toEqual(['toggle_split_view']);
     expect(map.get('Backslash')).toEqual(['show_original']);
-    expect(map.has('shift+KeyY')).toBe(false);
+    expect(map.get('shift+KeyY')).toEqual(['cycle_compare_mode']);
     expect(map.get('ctrl+shift+KeyC')).toEqual(['copy_adjustments']);
     expect(map.get('ctrl+shift+KeyE')).toEqual(['toggle_export']);
     expect(map.get('ctrl+KeyL')).toEqual(['auto_adjust']);

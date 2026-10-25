@@ -1541,6 +1541,7 @@
         "copy_adjustments": "复制选中的调整",
         "copy_files": "复制选中的文件",
         "copy_image_path": "复制所选图片的路径",
+        "cycle_compare_mode": "切换修改前后对比模式",
         "cycle_zoom": "循环缩放（适应、2倍适应、100%）",
         "delete_selected": "删除选中的文件",
         "focus_search": "聚焦搜索框",
@@ -3860,6 +3861,12 @@
         "beforeAfter": "前/后对比",
         "beforeAfterTitle": "前/后对比 ({{split}}) · 按住 {{peek}} 查看整张照片的编辑前效果",
         "beforeAfterUnavailable": "前/后对比需要 GPU 显示 · 按住 {{peek}} 查看整张照片的编辑前效果",
+        "compareMode": {
+          "left-right": "左右分割",
+          "off": "关闭",
+          "top-bottom": "上下分割"
+        },
+        "compareModes": "对比模式",
         "empty": "从浏览器中选择一张照片。",
         "fit": "适合",
         "fitTitle": "适合窗口",

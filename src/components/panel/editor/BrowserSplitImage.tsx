@@ -29,6 +29,7 @@ export default function BrowserSplitImage({
 }) {
   const linux = useSettingsStore((s) => s.osPlatform === "linux");
   const split = useEditorStore((s) => s.splitView && !s.showOriginal);
+  const vertical = useEditorStore((s) => s.splitOrientation === 'top-bottom');
   const position = useEditorStore((s) => s.splitPosition);
   const view = useEditorStore(
     useShallow((s) => ({
@@ -66,12 +67,14 @@ export default function BrowserSplitImage({
     String(decoded),
   );
   if (!active) return null;
-  const width = browserSplitWidth(position, size, transform);
+  const extent = vertical
+    ? browserSplitWidth(position, { containerWidth: size.containerHeight, offsetX: size.offsetY, width: size.height }, { scale: transform.scale, positionX: transform.positionY })
+    : browserSplitWidth(position, size, transform);
   return (
     <g aria-busy={!frame && !error} data-testid="browser-split-image">
       <defs>
         <clipPath id={id}>
-          <rect x={0} y={0} width={width} height={size.height} />
+          <rect x={0} y={0} width={vertical ? size.width : extent} height={vertical ? extent : size.height} />
         </clipPath>
       </defs>
       {frame ? (

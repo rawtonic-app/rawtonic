@@ -1541,6 +1541,7 @@
         "copy_adjustments": "선택한 조정값 복사",
         "copy_files": "선택한 파일 복사",
         "copy_image_path": "선택한 이미지의 경로 복사",
+        "cycle_compare_mode": "보정 전후 비교 모드 전환",
         "cycle_zoom": "확대/축소 순환 (맞춤, 2배 맞춤, 100%)",
         "delete_selected": "선택한 파일 삭제",
         "focus_search": "검색창에 포커스",
@@ -3860,6 +3861,12 @@
         "beforeAfter": "보정 전/후",
         "beforeAfterTitle": "보정 전/후 ({{split}}) · {{peek}} 키를 누르고 있으면 사진 전체를 보정 전으로 표시",
         "beforeAfterUnavailable": "보정 전/후에는 GPU 표시가 필요합니다 · {{peek}} 키를 누르고 있으면 사진 전체를 보정 전으로 표시",
+        "compareMode": {
+          "left-right": "좌우 분할",
+          "off": "끄기",
+          "top-bottom": "상하 분할"
+        },
+        "compareModes": "비교 모드",
         "empty": "브라우저에서 사진을 선택하세요.",
         "fit": "맞춤",
         "fitTitle": "창에 맞춤",

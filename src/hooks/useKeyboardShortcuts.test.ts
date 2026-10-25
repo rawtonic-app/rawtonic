@@ -463,18 +463,27 @@ describe("Before/After keys", () => {
     useEditorStore.setState({
       selectedImage: { path: "/a.raf", isReady: true, width: 100, height: 100 } as never,
       splitView: false,
+      splitOrientation: 'left-right',
       showOriginal: false,
       previewOverride: null,
     });
   });
 
-  it("toggles the split with Y, and Shift+Y does nothing", () => {
+  it("toggles with Y and cycles orientations with Shift+Y without resetting zoom or divider", () => {
+    useEditorStore.setState({ zoom: 3, splitPosition: 0.3 });
     key("keydown", "KeyY", { key: "y" });
+    expect(useEditorStore.getState()).toMatchObject({ splitView: true, splitOrientation: 'left-right' });
+    key("keydown", "KeyY", { key: "Y", shiftKey: true });
+    expect(useEditorStore.getState()).toMatchObject({ splitView: true, splitOrientation: 'top-bottom' });
+    key("keydown", "KeyY", { key: "Y", shiftKey: true, repeat: true });
     expect(useEditorStore.getState().splitView).toBe(true);
     key("keydown", "KeyY", { key: "Y", shiftKey: true });
-    expect(useEditorStore.getState().splitView).toBe(true);
-    key("keydown", "KeyY", { key: "y" });
     expect(useEditorStore.getState().splitView).toBe(false);
+    key("keydown", "KeyY", { key: "y" });
+    expect(useEditorStore.getState()).toMatchObject({ splitView: true, splitOrientation: 'top-bottom', zoom: 3, splitPosition: 0.3 });
+    key("keydown", "KeyY", { key: "Y", shiftKey: true });
+    key("keydown", "KeyY", { key: "Y", shiftKey: true });
+    expect(useEditorStore.getState()).toMatchObject({ splitView: true, splitOrientation: 'left-right' });
   });
 
   it("shows the whole photograph before while \\ is held, through auto-repeat", () => {

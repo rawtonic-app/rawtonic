@@ -1579,6 +1579,7 @@
         "copy_adjustments": "Ausgewählte Anpassungen kopieren",
         "copy_files": "Ausgewählte Datei(en) kopieren",
         "copy_image_path": "Pfad des/der ausgewählten Bilder kopieren",
+        "cycle_compare_mode": "Vorher/Nachher-Ansicht wechseln",
         "cycle_zoom": "Zoom durchwechseln (Einpassen, 2x Einpassen, 100%)",
         "delete_selected": "Ausgewählte Datei(en) löschen",
         "focus_search": "Suchfeld fokussieren",
@@ -3946,6 +3947,12 @@
         "beforeAfter": "Vorher/Nachher",
         "beforeAfterTitle": "Vorher/Nachher ({{split}}) · {{peek}} halten für das ganze Foto vorher",
         "beforeAfterUnavailable": "Vorher/Nachher braucht die GPU-Anzeige · {{peek}} halten für das ganze Foto vorher",
+        "compareMode": {
+          "left-right": "Links/rechts teilen",
+          "off": "Aus",
+          "top-bottom": "Oben/unten teilen"
+        },
+        "compareModes": "Vergleichsansicht",
         "empty": "Wählen Sie ein Foto in der Übersicht.",
         "fit": "Einpassen",
         "fitTitle": "In Fenster einpassen",

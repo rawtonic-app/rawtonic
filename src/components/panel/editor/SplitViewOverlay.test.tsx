@@ -10,7 +10,7 @@ beforeAll(() => {
   Element.prototype.hasPointerCapture = () => true;
   Element.prototype.releasePointerCapture = () => {};
 });
-beforeEach(() => useEditorStore.setState({ splitView: true, splitPosition: 0.5, showOriginal: false }));
+beforeEach(() => useEditorStore.setState({ splitView: true, splitOrientation: 'left-right', splitPosition: 0.5, showOriginal: false }));
 afterEach(cleanup);
 
 /** The viewer spans x 100…900 on screen. */
@@ -116,4 +116,23 @@ it('names the snapshot whose before is shown on the before side', async () => {
   expect(screen.getByText('studio.workspace.viewer.splitBefore')).toBeTruthy();
   useSettingsStore.setState({ osPlatform: null as never });
   useEditorStore.setState({ beforeSnapshot: null, selectedImage: null });
+});
+
+it('moves the top/bottom divider vertically with pointer and keyboard', () => {
+  useEditorStore.setState({ splitOrientation: 'top-bottom', splitPosition: 0.3 });
+  render(<SplitViewOverlay />);
+  placeViewer();
+  const divider = screen.getByRole('slider');
+  expect(divider.getAttribute('aria-orientation')).toBe('vertical');
+  expect(divider.style.top).toBe('30%');
+  fireEvent.pointerDown(divider, { button: 0, clientY: 150, pointerId: 1 });
+  expect(useEditorStore.getState().splitPosition).toBe(0.25);
+  fireEvent.keyDown(divider, { key: 'ArrowDown', shiftKey: true });
+  expect(useEditorStore.getState().splitPosition).toBeCloseTo(0.35);
+  fireEvent.keyDown(divider, { key: 'ArrowUp' });
+  expect(useEditorStore.getState().splitPosition).toBeCloseTo(0.34);
+  fireEvent.keyDown(divider, { key: 'ArrowRight' });
+  expect(useEditorStore.getState().splitPosition).toBeCloseTo(0.34);
+  fireEvent.keyDown(divider, { key: 'End' });
+  expect(useEditorStore.getState().splitPosition).toBe(1);
 });

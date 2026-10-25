@@ -184,11 +184,16 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     section: 'view',
   },
   {
-    // Before/After: the split with a movable divider (Capture One's split,
-    // on Lightroom's before/after key Y). One before/after tool, no modes.
+    // Toggle the last compare orientation (Y).
     action: 'toggle_split_view',
     description: 'settings.keybinds.actions.toggle_split_view',
     defaultCombo: ['KeyY'],
+    section: 'view',
+  },
+  {
+    action: 'cycle_compare_mode',
+    description: 'settings.keybinds.actions.cycle_compare_mode',
+    defaultCombo: ['shift', 'KeyY'],
     section: 'view',
   },
   {

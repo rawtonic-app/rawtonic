@@ -1638,6 +1638,7 @@
         "copy_adjustments": "Copia regolazioni selezionate",
         "copy_files": "Copia file selezionati",
         "copy_image_path": "Copia il percorso delle immagini selezionate",
+        "cycle_compare_mode": "Scorri le modalità prima/dopo",
         "cycle_zoom": "Ruota zoom (Adatta, Adatta 2x, 100%)",
         "delete_selected": "Elimina file selezionati",
         "focus_search": "Attiva il campo di ricerca",
@@ -4054,6 +4055,12 @@
         "beforeAfter": "Prima/Dopo",
         "beforeAfterTitle": "Prima/Dopo ({{split}}) · tieni premuto {{peek}} per tutta la foto prima",
         "beforeAfterUnavailable": "Prima/Dopo richiede la visualizzazione GPU · tieni premuto {{peek}} per tutta la foto prima",
+        "compareMode": {
+          "left-right": "Divisione sinistra/destra",
+          "off": "Disattivato",
+          "top-bottom": "Divisione alto/basso"
+        },
+        "compareModes": "Modalità di confronto",
         "empty": "Scegli una foto dalla griglia.",
         "fit": "Adatta",
         "fitTitle": "Adatta alla finestra",
