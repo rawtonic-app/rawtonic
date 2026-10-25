@@ -3,9 +3,13 @@ import { afterEach, beforeEach, expect, it } from 'vitest';
 import { useCompareSession } from './useCompareSession';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
+import { useSettingsStore } from '../store/useSettingsStore';
+import { useMultiViewStore } from '../store/useMultiViewStore';
 
 beforeEach(() => {
   localStorage.clear();
+  useSettingsStore.setState({ osPlatform: 'macos', appSettings: { useWgpuRenderer: true } as never });
+  useMultiViewStore.setState({ active: false });
   useLibraryStore.setState({ sessionDirectory: '/one' });
 });
 afterEach(cleanup);
@@ -33,4 +37,14 @@ it('opens a session with corrupt storage using safe defaults', () => {
   localStorage.setItem('rawtonic.compare:/one', 'null');
   renderHook(useCompareSession);
   expect(useEditorStore.getState()).toMatchObject({ splitView: false, splitOrientation: 'left-right', splitPosition: 0.5 });
+});
+
+it.each(['renderer-off', 'multi-view'] as const)('restores the choice without enabling an unavailable split (%s)', (reason) => {
+  localStorage.setItem('rawtonic.compare:/one', JSON.stringify({ enabled: true, orientation: 'top-bottom', position: 0.3 }));
+  if (reason === 'renderer-off') useSettingsStore.setState({ appSettings: { useWgpuRenderer: false } as never });
+  else useMultiViewStore.setState({ active: true });
+  renderHook(useCompareSession);
+  expect(useEditorStore.getState()).toMatchObject({ splitView: false, splitOrientation: 'top-bottom', splitPosition: 0.3 });
+  expect(useMultiViewStore.getState().active).toBe(reason === 'multi-view');
+  expect(JSON.parse(localStorage.getItem('rawtonic.compare:/one')!).enabled).toBe(true);
 });
