@@ -39,6 +39,9 @@ pub(crate) struct ExportPresetFile<'a> {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PresetFolder {
+    /// Tool menus create these folders; hide them while empty, unlike user folders.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub automatic: Option<bool>,
     pub id: String,
     pub name: String,
     pub children: Vec<Preset>,
@@ -380,6 +383,16 @@ pub fn handle_export_presets_to_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn automatic_tool_folder_origin_survives_storage() {
+        let items: Vec<PresetItem> = serde_json::from_str(
+            r#"[{"folder":{"id":"g","name":"Grain","children":[],"automatic":true}},{"folder":{"id":"u","name":"User","children":[]}}]"#,
+        ).unwrap();
+        let saved = serde_json::to_value(items).unwrap();
+        assert_eq!(saved[0]["folder"]["automatic"], true);
+        assert!(saved[1]["folder"].get("automatic").is_none());
+    }
 
     const SHIPPED: &str = include_str!("../../resources/presets/builtin.json");
 

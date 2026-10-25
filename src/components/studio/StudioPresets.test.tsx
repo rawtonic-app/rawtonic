@@ -79,6 +79,12 @@ const renderTool = async () => {
 };
 
 describe("groupPresets", () => {
+  it("hides empty automatic tool folders and retains explicit user folders", () => {
+    const automatic = { id: "auto", name: "Grain", automatic: true, children: [] };
+    const explicit = { id: "user", name: "My folder", children: [] };
+    expect(groupPresets([{ folder: automatic }, { folder: explicit }]).map((g) => g.folder?.id)).toEqual(["user"]);
+  });
+
   it("puts root presets first and filters by name", () => {
     expect(groupPresets(stored).map((g) => [g.folder?.name ?? null, g.presets.map((p) => p.id)])).toEqual([
       [null, ["warm"]],

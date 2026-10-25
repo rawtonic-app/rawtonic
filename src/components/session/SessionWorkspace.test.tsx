@@ -1,6 +1,6 @@
 import "../../i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, cleanup, act } from "@testing-library/react";
+import { render, screen, waitFor, cleanup, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import SessionWorkspace, { countHotFolderCapture, leavesTetheredLibrary, restoreLastSession, SLOW_RESTORE_MS, type SessionSummary } from "./SessionWorkspace";
 import { flattenPresets, parseKeywords } from "./nextCapture";
@@ -73,6 +73,16 @@ beforeEach(() => {
 });
 
 describe("Session workspace keyboard flows", () => {
+  it("keeps the chosen tools side visible after opening and cancelling a form", async () => {
+    const user = userEvent.setup();
+    render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
+    await user.click(screen.getByRole("radio", { name: "Tools on the right" }));
+    await user.click(screen.getByRole("button", { name: "Create a project" }));
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect((screen.getByRole("radio", { name: "Tools on the right" }) as HTMLInputElement).checked).toBe(true);
+    expect(localStorage.getItem("rawtonic.studio.layout")).toBe("split-tools");
+  });
+
   it.each(["session", "catalog"] as const)("creates a %s from its welcome choice using the typed name and chosen folder", async (mode) => {
     const user = userEvent.setup();
     const navigate = vi.fn(async () => {});
@@ -85,7 +95,7 @@ describe("Session workspace keyboard flows", () => {
     );
     render(<SessionWorkspace onNavigate={navigate} />);
     await user.click(screen.getByRole("button", { name: `Create a ${label}` }));
-    expect(screen.getAllByRole("radio")).toHaveLength(2);
+    expect(within(screen.getByRole("dialog")).getAllByRole("radio")).toHaveLength(2);
     const nameField = screen.getByLabelText(mode === "catalog" ? "Catalog name" : "Project name");
     expect(document.activeElement).toBe(nameField);
     await user.type(nameField, "Acme");
@@ -500,7 +510,7 @@ it("starts from Lightroom or Capture One on the welcome screen: a catalog first,
   );
   await user.click(screen.getByRole("button", { name: "Import from Lightroom or Capture One…" }));
   // The import needs a catalog: no session/catalog choice to get wrong.
-  expect(screen.queryByRole("radio")).toBeNull();
+  expect(within(screen.getByRole("dialog")).queryByRole("radio")).toBeNull();
   await user.type(screen.getByLabelText("Catalog name"), "Acme");
   await user.click(screen.getByRole("button", { name: "Location" }));
   await user.click(screen.getByRole("button", { name: "Create catalog" }));

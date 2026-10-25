@@ -36,6 +36,7 @@ it("offers the current default only on first start and saves a keyboard choice t
   ).toBe(true);
   view.unmount();
   render(<FirstStartToolsSide />);
+  await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
   expect(screen.queryByRole("group")).toBeNull();
 });
 it.each(["rawtonic.studio.layout", "retouch.studio.layout"])(

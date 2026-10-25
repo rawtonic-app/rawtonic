@@ -28,7 +28,7 @@ import {
   useAiMasking,
   useAiModelLifecycle,
 } from "./useAiMasking";
-import { useEditorStore } from "../store/useEditorStore";
+import { debouncedSetHistory, useEditorStore } from "../store/useEditorStore";
 import { useProcessStore } from "../store/useProcessStore";
 import { useUIStore } from "../store/useUIStore";
 import { Panel } from "../components/ui/AppProperties";
@@ -419,6 +419,74 @@ describe("automatic AI masks from imported presets", () => {
     act(() => useEditorStore.getState().undo());
     expect(promptsOf(useEditorStore.getState().adjustments)).toEqual([a]);
     expect(subOf("sub-ai-subject")?.parameters.maskDataBase64).toBe("data:image/png;base64,AAAA");
+  });
+
+  it("applies an Object answer after a slider draft commits, as its own undo step", async () => {
+    const pending = deferredMasks();
+    const initial = { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [layer("ai-subject", { maskDataBase64: null })] as never };
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true, width: 3000, height: 2000 } as never,
+      adjustments: initial, history: [initial], historyIndex: 0, isSliderDragging: false,
+    });
+    const { result } = renderHook(() => useAiMasking());
+    const point = { type: "point" as const, x: 10, y: 10 };
+    let answer!: Promise<boolean>;
+    act(() => { answer = result.current.handleGenerateAiMask("sub-ai-subject", point, point, [point]); });
+    await waitFor(() => expect(pending).toHaveLength(1));
+    const unregister = registerSliderDraftRenderer(() => true);
+    try {
+      act(() => {
+        useEditorStore.setState({ isSliderDragging: true });
+        updateAdjustments({ exposure: 1 });
+      });
+      await act(async () => { pending[0]({ maskDataBase64: "data:image/png;base64,AAAA" }); });
+      expect(objectSelectionBusy("/s/a.NEF", "sub-ai-subject")).toBe(true);
+      act(() => {
+        updateAdjustments({ exposure: 2 });
+        useEditorStore.setState({ isSliderDragging: false });
+      });
+      await act(async () => { await answer; });
+      debouncedSetHistory.flush();
+      expect(useEditorStore.getState().history.map((a) => [a.exposure, a.masks[0].subMasks[0].parameters.maskDataBase64])).toEqual([
+        [0, null], [2, null], [2, "data:image/png;base64,AAAA"],
+      ]);
+      act(() => useEditorStore.getState().undo());
+      expect(useEditorStore.getState().adjustments.exposure).toBe(2);
+      expect(subOf("sub-ai-subject")?.parameters.maskDataBase64).toBeNull();
+      act(() => useEditorStore.getState().undo());
+      expect(useEditorStore.getState().adjustments.exposure).toBe(0);
+    } finally {
+      act(() => useEditorStore.setState({ isSliderDragging: false }));
+      unregister();
+      debouncedSetHistory.cancel();
+    }
+  });
+
+  it.each(["photo switch", "undo"])("drops an Object answer invalidated by %s while waiting for a drag", async (change) => {
+    const pending = deferredMasks();
+    const empty = { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [] };
+    const initial = { ...empty, masks: [layer("ai-subject", { maskDataBase64: null })] as never };
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true, width: 3000, height: 2000 } as never,
+      adjustments: initial, history: [empty, initial], historyIndex: 1, isSliderDragging: false,
+    });
+    const { result } = renderHook(() => useAiMasking());
+    const point = { type: "point" as const, x: 10, y: 10 };
+    let answer!: Promise<boolean>;
+    act(() => { answer = result.current.handleGenerateAiMask("sub-ai-subject", point, point, [point]); });
+    await waitFor(() => expect(pending).toHaveLength(1));
+    act(() => useEditorStore.setState({ isSliderDragging: true }));
+    await act(async () => { pending[0]({ maskDataBase64: "data:image/png;base64,AAAA" }); });
+    expect(objectSelectionBusy("/s/a.NEF", "sub-ai-subject")).toBe(true);
+    await act(async () => {
+      if (change === "undo") useEditorStore.getState().undo();
+      else useEditorStore.setState({ selectedImage: { path: "/s/b.NEF", isReady: true } as never, adjustments: empty });
+      useEditorStore.setState({ isSliderDragging: false });
+      await answer;
+    });
+    expect(useEditorStore.getState().adjustments).toBe(empty);
+    expect(objectSelectionBusy("/s/a.NEF", "sub-ai-subject")).toBe(false);
+    debouncedSetHistory.cancel();
   });
 
   it("drops a pending Object prompt when an undo changed the selection it was pressed on", async () => {

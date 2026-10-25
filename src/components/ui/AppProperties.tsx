@@ -522,6 +522,8 @@ export interface FilterCriteria {
 }
 
 export interface Folder {
+  /** Created by a tool preset menu; hide while empty. Explicit user folders stay. */
+  automatic?: boolean;
   children: Preset[];
   id?: string | undefined;
   name?: string | undefined;
