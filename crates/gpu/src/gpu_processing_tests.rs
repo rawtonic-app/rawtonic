@@ -13787,7 +13787,7 @@ fn edge_fringe_scene(width: u32, height: u32, sigma: f32) -> image::Rgb32FImage 
             // along a grey edge.
             _ => {
                 if x % 96 < 64 {
-                    let side = |x: u32| ((x / 16) + (y / 16)) % 2 == 0;
+                    let side = |x: u32| ((x / 16) + (y / 16)).is_multiple_of(2);
                     let (a, b) = ([0.1, 0.5, 0.6], [0.6, 0.12, 0.5]);
                     let base = if side(x) { a } else { b };
                     let red = if side(x + 1) { a[0] } else { b[0] };
@@ -13892,7 +13892,7 @@ fn edge_fringe_version_5_on_the_gpu_matches_version_4() {
             100.0 * apart
         );
         if rgba {
-            for (s, g) in source.chunks_exact(4).zip(gpu.chunks_exact(4)) {
+            for (s, g) in source.as_chunks::<4>().0.iter().zip(gpu.as_chunks::<4>().0) {
                 assert_eq!(s[3].to_bits(), g[3].to_bits(), "alpha is kept");
             }
         }

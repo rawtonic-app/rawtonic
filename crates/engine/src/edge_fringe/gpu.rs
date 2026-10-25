@@ -287,7 +287,7 @@ fn run(
     let blocks = blocks_width * (cap_h + 2 * MAX_RADIUS).div_ceil(8);
     let buffer_bytes = ((planes + blocks) * 16) as u64;
     let limits = device.limits();
-    if buffer_bytes > u64::from(limits.max_storage_buffer_binding_size)
+    if buffer_bytes > limits.max_storage_buffer_binding_size
         || buffer_bytes > limits.max_buffer_size
     {
         return Err(format!(
@@ -377,7 +377,12 @@ fn run(
         out.par_chunks_mut(w * 3)
             .zip(data[rows.start * w * stride..rows.end * w * stride].par_chunks(w * stride))
             .for_each(|(out, row)| {
-                for (o, px) in out.chunks_exact_mut(3).zip(row.chunks_exact(stride)) {
+                for (o, px) in out
+                    .as_chunks_mut::<3>()
+                    .0
+                    .iter_mut()
+                    .zip(row.chunks_exact(stride))
+                {
                     o.copy_from_slice(&px[..3]);
                 }
             });
@@ -538,7 +543,10 @@ fn read_back(
                 if stride == 3 {
                     row.copy_from_slice(tile_row);
                 } else {
-                    for (px, t) in row.chunks_exact_mut(stride).zip(tile_row.chunks_exact(3)) {
+                    for (px, t) in row
+                        .chunks_exact_mut(stride)
+                        .zip(tile_row.as_chunks::<3>().0)
+                    {
                         px[..3].copy_from_slice(t);
                     }
                 }
