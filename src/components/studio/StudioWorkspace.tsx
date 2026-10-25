@@ -406,9 +406,9 @@ export default function StudioWorkspace(props: Props) {
       return;
     }
     const next = files[Math.min(Math.max(shownIndex.current, 0), files.length - 1)];
-    if (next && props.onShow) props.onShow(next.path);
+    if (next && onShowRef.current) onShowRef.current(next.path);
     else useUIStore.getState().setUI({ libraryLoupe: false, isFullScreen: false });
-  }, [libraryViewer, shownPath, files, props.onShow]);
+  }, [libraryViewer, shownPath, files]);
   // The photograph alone covers the whole screen (photoFullScreen).
   const fullScreenSeen = useRef(isFullScreen);
   useEffect(() => {
@@ -416,6 +416,36 @@ export default function StudioWorkspace(props: Props) {
     fullScreenSeen.current = isFullScreen;
     void followPhotoFullScreen(isFullScreen);
   }, [isFullScreen]);
+  // Shown only, a held ⌘/Ctrl turns the wheel into the editor's crop zoom
+  // (Editor tracks the key itself); that wheel does nothing here. A
+  // trackpad pinch (ctrlKey without the key held) still zooms the view.
+  const viewerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = viewerRef.current;
+    if (!viewOnly || !element) return;
+    let held = false;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Control" || e.key === "Meta") held = e.type === "keydown";
+    };
+    const release = () => {
+      held = false;
+    };
+    const onWheel = (e: WheelEvent) => {
+      if (!held) return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("keyup", onKey, true);
+    window.addEventListener("blur", release);
+    element.addEventListener("wheel", onWheel, { capture: true, passive: false });
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("keyup", onKey, true);
+      window.removeEventListener("blur", release);
+      element.removeEventListener("wheel", onWheel, { capture: true });
+    };
+  }, [viewOnly, selectedImage?.path]);
   // The pointer hides over the full screen until it moves.
   const cursorIdle = useIdleCursor(isFullScreen);
   const onShowRef = useRef(props.onShow);
@@ -932,6 +962,7 @@ export default function StudioWorkspace(props: Props) {
   // Develop's viewer; the Library's loupe and full screen show the same.
   const viewer = (
     <div
+      ref={viewerRef}
       className="studio-viewer"
       tabIndex={0}
       data-panel-shortcut="true"
@@ -944,6 +975,13 @@ export default function StudioWorkspace(props: Props) {
         e.stopPropagation();
         const rect = e.currentTarget.getBoundingClientRect();
         setToolPopover({ x: rect.left, y: rect.bottom });
+      }}
+      onContextMenuCapture={(e) => {
+        // Shown only: no menu of edit commands (undo, paste, auto, reset,
+        // or ratings for the whole selection) over the photograph.
+        if (!viewOnly) return;
+        e.preventDefault();
+        e.stopPropagation();
       }}
       onPointerDownCapture={(e) => {
         // Shown only (loupe, full screen): Shift-drag (straighten) and a
@@ -973,11 +1011,7 @@ export default function StudioWorkspace(props: Props) {
                 studioMode
                 transformWrapperRef={transformWrapperRef}
                 onBackToLibrary={onBack}
-                onContextMenu={
-                  develop
-                    ? onViewerContextMenu
-                    : (event) => selectedImage && onContextMenu(event, selectedImage.path)
-                }
+                onContextMenu={onViewerContextMenu}
                 onImageSelect={onOpen}
               />
             </PerfProfiler>

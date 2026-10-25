@@ -38,7 +38,8 @@ export function gridStep(index: number, count: number, code: string, columns: nu
   return Math.min(index + columns, count - 1);
 }
 
-/** Shortcuts that change a recipe; the full screen ignores them. */
+/** Shortcuts that change a recipe; the loupe and the full screen ignore
+ * them (in the Library, undo and redo are the file operations' and stay). */
 export const RECIPE_ACTIONS = new Set([
   'paste_adjustments',
   'paste_from_previous',
@@ -1086,12 +1087,17 @@ export const useKeyboardShortcuts = ({
       // Read per key press so that edited keybinds apply at once. Cursor tool
       // keys (tool_*) are handled by the studio workspace.
       const comboMap = buildComboMap(state.settings.appSettings?.keybinds);
-      // The photograph shown alone only looks: no key changes its recipe.
-      const editsBlocked = state.ui.isFullScreen;
+      // The loupe and the full screen only show: no key changes a recipe.
+      const editsBlocked = viewerOnly(state.ui);
       const normalized = normalizeCombo(event, state.settings.osPlatform, state.ui.activeView === 'library');
       for (const action of comboMap.get(normalized.join('+')) ?? []) {
         if (rangeFocused && action !== 'undo' && action !== 'redo') continue;
-        if (editsBlocked && RECIPE_ACTIONS.has(action)) continue;
+        if (
+          editsBlocked &&
+          RECIPE_ACTIONS.has(action) &&
+          !(state.ui.activeView !== 'editor' && (action === 'undo' || action === 'redo'))
+        )
+          continue;
         const handler = actions[action];
         if (handler && (!handler.shouldFire || handler.shouldFire(state))) {
           handler.execute(event, state);

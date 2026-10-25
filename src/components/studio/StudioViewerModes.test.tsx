@@ -13,9 +13,19 @@ import { useQuickAdjust } from "./useQuickAdjust";
 
 vi.mock("../../utils/photoFullScreen", () => ({ followPhotoFullScreen: vi.fn(() => Promise.resolve()) }));
 const editorPointerDown = vi.fn();
+const editorWheel = vi.fn();
+const editorMenu = vi.fn();
 vi.mock("./useQuickAdjust", () => ({ useQuickAdjust: vi.fn(() => null) }));
 vi.mock("../panel/Editor", () => ({
-  default: () => <div data-testid="native-viewer" onPointerDownCapture={editorPointerDown} />,
+  // As the real Editor: a native wheel listener on its container.
+  default: () => (
+    <div
+      data-testid="native-viewer"
+      ref={(el) => el?.addEventListener("wheel", editorWheel)}
+      onPointerDownCapture={editorPointerDown}
+      onContextMenu={editorMenu}
+    />
+  ),
 }));
 vi.mock("./StudioDevelop", () => ({
   default: () => <div data-testid="develop-tools" />,
@@ -322,4 +332,28 @@ it("opens the loupe with E on the Library's active photograph, loading it when a
   key("e");
   expect(onShow).toHaveBeenCalledWith("/qa/b.dng");
   expect(useUIStore.getState().libraryLoupe).toBe(true);
+});
+
+it("keeps a wheel with Cmd/Ctrl held (the editor's crop zoom) from the photograph while it only shows; a pinch still zooms", () => {
+  useUIStore.setState({ libraryLoupe: true });
+  workspace();
+  const viewer = screen.getByTestId("native-viewer");
+  fireEvent.keyDown(window, { key: "Meta" });
+  fireEvent.wheel(viewer, { deltaY: -10, metaKey: true });
+  expect(editorWheel).not.toHaveBeenCalled();
+  fireEvent.keyUp(window, { key: "Meta" });
+  // A trackpad pinch: ctrlKey set by the system, no key held.
+  fireEvent.wheel(viewer, { deltaY: -10, ctrlKey: true });
+  expect(editorWheel).toHaveBeenCalledOnce();
+});
+
+it("opens no context menu of edit commands over the photograph shown alone or in the loupe", () => {
+  useUIStore.setState({ activeView: "editor" });
+  workspace();
+  act(() => useUIStore.getState().toggleFullScreen());
+  fireEvent.contextMenu(screen.getByTestId("native-viewer"));
+  expect(editorMenu).not.toHaveBeenCalled();
+  act(() => useUIStore.getState().toggleFullScreen());
+  fireEvent.contextMenu(screen.getByTestId("native-viewer"));
+  expect(editorMenu).toHaveBeenCalledOnce();
 });

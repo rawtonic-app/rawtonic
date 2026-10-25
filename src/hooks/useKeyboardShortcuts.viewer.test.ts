@@ -22,6 +22,7 @@ vi.mock("../utils/photoFullScreen", () => ({
 const files = ["/s/a.dng", "/s/b.dng", "/s/c.dng"].map((path) => ({ path }) as ImageFile);
 const props = {
   sortedImageList: files,
+  handleUndoFileOperation: vi.fn(),
   handleBackToLibrary: vi.fn(),
   handleDeleteSelected: vi.fn(),
   handleImageSelect: vi.fn(),
@@ -232,4 +233,13 @@ it("loads the Library's active photograph before F shows it alone", () => {
   press("KeyF");
   expect(props.handleImageSelect).toHaveBeenCalledWith("/s/c.dng", false);
   expect(useUIStore.getState().isFullScreen).toBe(true);
+});
+
+it("ignores recipe keys in the Library's loupe, but keeps undoing file operations there", () => {
+  useUIStore.setState({ activeView: "library", libraryLoupe: true });
+  useEditorStore.setState((s) => ({ adjustments: { ...s.adjustments, orientationSteps: 0 } as never }));
+  press("BracketRight", { key: "]" });
+  expect(useEditorStore.getState().adjustments.orientationSteps).toBe(0);
+  press("KeyZ", { metaKey: true });
+  expect(props.handleUndoFileOperation).toHaveBeenCalledOnce();
 });
