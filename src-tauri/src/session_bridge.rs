@@ -62,18 +62,6 @@ fn registered_form(source: &Path) -> PathBuf {
         _ => source.to_path_buf(),
     }
 }
-/// The library that manages everything in `source`'s folder: the session
-/// or catalog above it, or the open catalog.
-fn library_above(source: &Path) -> Option<PathBuf> {
-    session_for(source).or_else(|| {
-        active()
-            .lock()
-            .ok()?
-            .clone()
-            .filter(|dir| dir.join("catalog.json").is_file())
-    })
-}
-
 /// The library that manages `source`: the session or catalog folder above
 /// it; else the session that keeps it outside its folder (moved there by
 /// the app, ADR 0016; every session opened since start-up, whichever
@@ -162,15 +150,25 @@ pub(crate) fn refresh_outside_photos() {
 /// them keep their resources; a session that cannot be read keeps what was
 /// registered.
 pub(crate) fn register_outside_photos(dir: &Path) {
+    if let Err(e) = try_register_outside_photos(dir) {
+        log::warn!("{e}");
+    }
+}
+
+/// `register_outside_photos`, failing when the session cannot be read (its
+/// drive is away, its database cannot be opened).
+pub(crate) fn try_register_outside_photos(dir: &Path) -> Result<(), String> {
+    if dir.join("catalog.json").is_file() {
+        return Ok(());
+    }
     if !dir.join("session.json").is_file() {
-        return;
+        return Err(format!("The session {} is not available", dir.display()));
     }
-    match Library::open(dir).and_then(|lib| lib.outside_photos()) {
-        Ok(photos) => {
-            rawtonic_engine::session_layout::set_outside_photos(dir, photos.into_iter().collect())
-        }
-        Err(e) => log::warn!("Photographs outside {} not read: {e:#}", dir.display()),
-    }
+    let photos = Library::open(dir)
+        .and_then(|lib| lib.outside_photos())
+        .map_err(|e| format!("The session {} cannot be read: {e:#}", dir.display()))?;
+    rawtonic_engine::session_layout::set_outside_photos(dir, photos.into_iter().collect());
+    Ok(())
 }
 
 /// The sessions that keep any of `paths` (photographs, possibly virtual
@@ -258,12 +256,12 @@ pub(crate) fn visit_editor_sidecars(
         let Some(parent) = source.parent() else {
             continue;
         };
-        // The library above a folder holds for all of it; outside every
-        // library folder single photographs belong to the session that
-        // keeps them there.
+        // The library folder above a folder holds for all of it; outside
+        // every library folder each photograph belongs to the session that
+        // keeps it there, else to the open catalog (`library_for`).
         let library = directories
             .entry(parent.to_owned())
-            .or_insert_with(|| library_above(source))
+            .or_insert_with(|| session_for(source))
             .clone()
             .or_else(|| library_for(source));
         let Some(library) = library else { continue };
@@ -1531,20 +1529,24 @@ pub(crate) fn adopt_virtual_copies(found: &[(PathBuf, String, PathBuf)]) {
 /// `recursive`) whose file is not there, so the folder keeps listing them
 /// (Lightroom's missing-photo badge; Capture One's offline images).
 pub(crate) fn offline_in_folder(folder: &Path, recursive: bool) -> Vec<OfflineEntry> {
-    let Some(dir) = library_for_folder(folder) else {
-        return Vec::new();
-    };
-    let Ok(lib) = Library::open(&dir) else {
-        return Vec::new();
-    };
-    lib.offline_in(folder, recursive)
-        .map(|assets| {
-            assets
-                .into_iter()
-                .map(|asset| offline_entry(&lib, asset))
-                .collect()
+    // Every library with photographs there (several sessions may keep
+    // photographs in one folder outside them), each listed once.
+    let mut seen = HashSet::new();
+    libraries_for_folder(folder)
+        .into_iter()
+        .filter_map(|dir| Library::open(&dir).ok())
+        .flat_map(|lib| {
+            lib.offline_in(folder, recursive)
+                .map(|assets| {
+                    assets
+                        .into_iter()
+                        .map(|asset| offline_entry(&lib, asset))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
         })
-        .unwrap_or_default()
+        .filter(|entry| seen.insert(entry.path.clone()))
+        .collect()
 }
 
 /// The companion files (a RAW's JPEG, `Library::companion`) a library
@@ -1559,15 +1561,15 @@ pub(crate) fn companions_in_folder(folder: &Path) -> HashSet<PathBuf> {
     type Checked = HashMap<(PathBuf, String), (u64, std::time::SystemTime, bool)>;
     static CHECKED: std::sync::LazyLock<Mutex<Checked>> =
         std::sync::LazyLock::new(Default::default);
-    let Some(dir) = library_for_folder(folder) else {
+    let Ok(canonical) = folder.canonicalize() else {
         return HashSet::new();
     };
-    let (Ok(lib), Ok(canonical)) = (Library::open(&dir), folder.canonicalize()) else {
-        return HashSet::new();
-    };
-    let Ok(records) = lib.companion_records_in(&canonical) else {
-        return HashSet::new();
-    };
+    // Of every library with photographs there.
+    let records: Vec<_> = libraries_for_folder(folder)
+        .into_iter()
+        .filter_map(|dir| Library::open(&dir).ok())
+        .flat_map(|lib| lib.companion_records_in(&canonical).unwrap_or_default())
+        .collect();
     let mut checked = CHECKED.lock().unwrap_or_else(|e| e.into_inner());
     records
         .into_iter()

@@ -2616,6 +2616,81 @@ mod tests {
         crate::session_bridge::set_active_for_test(None);
     }
 
+    /// Listings of a folder on a drive where two sessions keep photographs
+    /// (RAW+JPEG pairs), with a catalog open: each photograph's state comes
+    /// from its own session, both sessions' offline photographs are listed
+    /// and both pairs' JPEGs are companions, not photographs of their own
+    /// (review of #304, round 3); a session that is not there cannot be
+    /// registered (a resumed export of its photographs fails instead).
+    #[test]
+    fn listings_of_a_folder_two_sessions_share_ask_both_with_a_catalog_open() {
+        let _active = crate::session_bridge::library_test_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let shoots = root.join("Drive/Shoots");
+        fs::create_dir_all(&shoots).unwrap();
+        let mut sessions = Vec::new();
+        for (name, rating) in [("A", 2u8), ("B", 4u8)] {
+            let dir = session(&root.join(name));
+            let lib = Library::open(&dir).unwrap();
+            let (raw, jpeg) = (format!("{name}.NEF"), format!("{name}.JPG"));
+            for file in [&raw, &jpeg] {
+                fs::write(dir.join("Capture").join(file), file.as_bytes()).unwrap();
+            }
+            let id = lib.add_asset(&dir.join("Capture").join(&raw)).unwrap().id;
+            lib.set_companion(&id, Some(&jpeg)).unwrap();
+            lib.save_editor_state(
+                &id,
+                &serde_json::json!({"version":1,"rating":rating,"adjustments":{}}),
+            )
+            .unwrap();
+            for file in [&raw, &jpeg] {
+                fs::rename(dir.join("Capture").join(file), shoots.join(file)).unwrap();
+            }
+            lib.relocate(&dir.join("Capture").join(&raw), &shoots.join(&raw))
+                .unwrap();
+            crate::session_bridge::register_outside_photos(&dir);
+            sessions.push(dir);
+        }
+        let catalog = root.join("Catalog");
+        Library::create(&catalog, "Catalog", rawtonic_catalog::Mode::Catalog).unwrap();
+        crate::session_bridge::set_active_for_test(Some(catalog));
+        let mut ratings = HashMap::new();
+        crate::session_bridge::visit_editor_sidecars(
+            &[shoots.join("A.NEF"), shoots.join("B.NEF")],
+            |source, _, state| {
+                ratings.insert(
+                    source.file_name().unwrap().to_string_lossy().into_owned(),
+                    state.and_then(|s| s["rating"].as_u64()),
+                );
+            },
+        );
+        assert_eq!(ratings["A.NEF"], Some(2));
+        assert_eq!(ratings["B.NEF"], Some(4));
+        assert_eq!(
+            crate::session_bridge::companions_in_folder(&shoots),
+            HashSet::from([shoots.join("A.JPG"), shoots.join("B.JPG")])
+        );
+        // Both RAWs away (renamed aside): both listed offline there.
+        for name in ["A.NEF", "B.NEF"] {
+            fs::rename(shoots.join(name), root.join(name)).unwrap();
+        }
+        let mut offline: Vec<_> = crate::session_bridge::offline_in_folder(&shoots, false)
+            .into_iter()
+            .map(|entry| entry.path)
+            .collect();
+        offline.sort();
+        assert_eq!(offline, [shoots.join("A.NEF"), shoots.join("B.NEF")]);
+        // A session gone from its place cannot be registered.
+        fs::rename(&sessions[0], root.join("A moved")).unwrap();
+        assert!(crate::session_bridge::try_register_outside_photos(&sessions[0]).is_err());
+        assert!(crate::session_bridge::try_register_outside_photos(&sessions[1]).is_ok());
+        for dir in &sessions {
+            rawtonic_engine::session_layout::set_outside_photos(dir, HashSet::new());
+        }
+        crate::session_bridge::set_active_for_test(None);
+    }
+
     /// The one library a test operation recorded for all its steps.
     fn recorded_library_of(context: &Option<serde_json::Value>) -> Option<PathBuf> {
         let libraries = context.as_ref()?.get("libraries")?.as_object()?;

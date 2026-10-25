@@ -573,8 +573,28 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
     let Some(request) = first else {
         return;
     };
-    for dir in &request.libraries {
-        crate::session_bridge::register_outside_photos(Path::new(dir));
+    // The sessions keeping its photographs outside their folders must be
+    // there: without them their recipes would render without the session's
+    // profiles, LUTs and masks. Their jobs fail, saying why.
+    let unavailable: Vec<String> = request
+        .libraries
+        .iter()
+        .filter_map(|dir| crate::session_bridge::try_register_outside_photos(Path::new(dir)).err())
+        .collect();
+    if !unavailable.is_empty() {
+        let reason = format!(
+            "{}; connect its drive and export again",
+            unavailable.join("; ")
+        );
+        log::error!("Export not started: {reason}");
+        for job in jobs {
+            for index in 0..job.total {
+                with_queue(|q| q.item_failed(&job.id, index, &reason));
+            }
+            with_queue(|q| q.finish(&job.id, RunEnd::Completed));
+        }
+        notify(app);
+        return;
     }
     *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = trackings
         .iter()
