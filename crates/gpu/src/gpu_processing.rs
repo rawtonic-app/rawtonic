@@ -3693,8 +3693,7 @@ fn required_blurs(adjustments: &AllAdjustments) -> [bool; 5] {
             || m.color_noise_reduction != 0.0;
         required[2] |=
             m.structure != 0.0 || m.halation_amount > 0.0 || (clarity_v2 && m.clarity != 0.0);
-        required[3] |=
-            (clarity_blur && m.clarity != 0.0) || m.dehaze != 0.0 || m.glow_amount > 0.0;
+        required[3] |= (clarity_blur && m.clarity != 0.0) || m.dehaze != 0.0 || m.glow_amount > 0.0;
         if m.luma_noise_reduction != 0.0 {
             required[1] = true;
             required[4] = true;
@@ -4301,13 +4300,13 @@ impl GpuProcessor {
                 device,
                 &wgpu::ComputePipelineDescriptor {
                     label: Some("Clarity Guide Pipeline"),
-                    layout: Some(&device.create_pipeline_layout(
-                        &wgpu::PipelineLayoutDescriptor {
+                    layout: Some(
+                        &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                             label: Some("Clarity Guide Pipeline Layout"),
                             bind_group_layouts: &[Some(&guide_bgls[layout])],
                             immediate_size: 0,
-                        },
-                    )),
+                        }),
+                    ),
                     module: &guide_shader,
                     entry_point: Some(entry),
                     compilation_options: Default::default(),
@@ -5896,11 +5895,7 @@ impl GpuProcessor {
             deviations,
             wgpu::TextureFormat::Rg32Float,
         );
-        let sums_texture = texture(
-            "Clarity base sums",
-            sums,
-            wgpu::TextureFormat::Rgba32Float,
-        );
+        let sums_texture = texture("Clarity base sums", sums, wgpu::TextureFormat::Rgba32Float);
         let output = texture(
             "Clarity base",
             [0, 0, region.width, region.height],
@@ -5919,9 +5914,30 @@ impl GpuProcessor {
         // (area written, input, the area it holds, aux, output binding, output)
         let passes = [
             (means, input, window_area, input, 3, &mean_texture),
-            (deviations, &mean_texture, means, input, 4, &deviation_texture),
-            (sums, &deviation_texture, deviations, input, 5, &sums_texture),
-            (tile_area, &sums_texture, sums, &deviation_texture, 3, &output),
+            (
+                deviations,
+                &mean_texture,
+                means,
+                input,
+                4,
+                &deviation_texture,
+            ),
+            (
+                sums,
+                &deviation_texture,
+                deviations,
+                input,
+                5,
+                &sums_texture,
+            ),
+            (
+                tile_area,
+                &sums_texture,
+                sums,
+                &deviation_texture,
+                3,
+                &output,
+            ),
         ];
         let mut encoder = device.create_command_encoder(&Default::default());
         for (index, (area, from, source, aux, binding, to)) in passes.into_iter().enumerate() {
