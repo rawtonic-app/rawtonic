@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.6.1 — 2026-10-25
+
+A fix release for alpha.6 with only the fixes from the first alpha.6 tests; edits and libraries are unchanged.
+
+- **A double click on a photo in the Library opens Develop** (as D or Return); E and Space stay the loupe for looking through. The loupe's bar has a Develop button, and the Library button in Develop returns to the loupe when Develop was opened from it (G still goes to the grid).
+- **F full screen on macOS:** after F into full screen and F back, the next F did nothing until a click. F, F11 and ⌃⌘F now toggle every time and keep the keyboard focus, also when pressed quickly again during macOS's full-screen animation.
+- **Shortcuts after a slider drag:** while the slider just dragged kept the focus, only Undo and Redo reached the app, so M did not show the mask overlay again. A focused slider now keeps only the keys that move it (arrows, Home/End, Page Up/Down); M, F, ratings, the tool keys and [ ] for the brush size work right after a drag.
+- **No grid flicker** when the Library comes back from Develop (the grid drew three large columns for a frame before its real width was known).
+
 ## 0.1.0-alpha.6 — 2026-10-25
 
 The sixth alpha: the changes since alpha.5, many of them from the first use tests of alpha.5. A native menu bar on the Mac and a command palette, faster imports and culling, undo for ratings and flags, built-in styles and presets per tool, a range wheel and skin tones in the Colour Editor, a photograph-only full screen, Highlights that go further in night scenes, and a Storage page in Preferences.
