@@ -79,6 +79,8 @@ function recipeHeld(action: string, state: ShortcutState): boolean {
 }
 
 /** Held keys, not toggles: no menu item. */
+/** The keys a focused slider moves itself with. */
+const RANGE_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
 const KEY_ONLY_ACTIONS = new Set(['show_original']);
 
 /** Photo menu items that act on photographs: greyed out without one. */
@@ -1170,15 +1172,17 @@ export const useKeyboardShortcuts = ({
       // A select's arrows, Enter and type-to-find belong to it, as a text field's keys do.
       const isInputFocused = Boolean(document.activeElement?.closest('input, textarea, select, [contenteditable="true"]'));
       const rangeFocused = document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'range';
-      // Range controls have no text undo stack. Keep their arrow keys native,
-      // but let Undo/Redo reach edit history immediately after a slider drag.
+      // A slider keeps the focus after a drag. It only uses the keys that
+      // move it (kept native); every other shortcut (M, F, ratings, Undo)
+      // still works, as it does after a drag in Lightroom and Capture One.
+      const rangeOwnsKey = rangeFocused && RANGE_KEYS.has(event.code);
       if (isInputFocused && !rangeFocused) return;
       // Tab moves the focus between fields and controls; it hides panels only
       // from the photograph, the browser tiles or with nothing focused.
       if (event.code === 'Tab' && !ownsPanelShortcut(document.activeElement)) return;
 
       for (const builtin of builtinShortcuts) {
-        if (!rangeFocused && builtin.match(event, state)) {
+        if (!rangeOwnsKey && builtin.match(event, state)) {
           builtin.execute(event, state);
           return;
         }
@@ -1189,7 +1193,7 @@ export const useKeyboardShortcuts = ({
       const comboMap = buildComboMap(state.settings.appSettings?.keybinds);
       const normalized = normalizeCombo(event, state.settings.osPlatform, state.ui.activeView === 'library');
       for (const action of comboMap.get(normalized.join('+')) ?? []) {
-        if (rangeFocused && action !== 'undo' && action !== 'redo') continue;
+        if (rangeOwnsKey) continue;
         if (recipeHeld(action, state)) continue;
         const handler = actions[action];
         if (handler) {
@@ -1197,7 +1201,7 @@ export const useKeyboardShortcuts = ({
             handler.execute(event, state);
             return;
           }
-        } else if (!rangeFocused && runAppCommand(action)) {
+        } else if (!rangeOwnsKey && runAppCommand(action)) {
           // A table key whose command another part of the app owns (New
           // library, Import, Show in Finder…), as its menu item runs it.
           event.preventDefault();
