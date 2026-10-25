@@ -105,7 +105,7 @@ describe('recipes', () => {
 describe('waiting for the renders', () => {
   it('resolves with the jobs that were done once all have settled', async () => {
     let result: Set<string> | undefined;
-    void waitForJobs(['a', 'b', 'c']).then((done) => (result = done));
+    void waitForJobs(['a', 'b', 'c']).then(({ done }) => (result = done));
     useProcessStore.setState({ exportQueue: [job('a', 'running'), job('b', 'queued'), job('c', 'queued')] });
     useProcessStore.setState({ exportQueue: [job('a', 'done'), job('b', 'paused'), job('c', 'running')] });
     await Promise.resolve();
@@ -118,11 +118,40 @@ describe('waiting for the renders', () => {
   it('remembers jobs that were done before the queue dropped them', async () => {
     // The queue keeps only its latest finished jobs.
     let result: Set<string> | undefined;
-    void waitForJobs(['a', 'b', 'c']).then((done) => (result = done));
+    void waitForJobs(['a', 'b', 'c']).then(({ done }) => (result = done));
     useProcessStore.setState({ exportQueue: [job('a', 'done'), job('b', 'running'), job('c', 'queued')] });
     useProcessStore.setState({ exportQueue: [job('b', 'done'), job('c', 'running')] });
     useProcessStore.setState({ exportQueue: [job('c', 'done')] });
     await vi.waitFor(() => expect(result).toEqual(new Set(['a', 'b', 'c'])));
+  });
+});
+
+describe('another library opened meanwhile', () => {
+  it('cancels the renders not yet made and links only those made before', async () => {
+    useLibraryStore.setState({ sessionDirectory: '/A.session' });
+    vi.mocked(invoke).mockImplementation(async (command: string) => {
+      if (command === 'edit_with_targets')
+        return [
+          { source: '/A.session/Capture/a.NEF', target: '/A.session/Capture/a_edit.tiff', library: '/A.session' },
+          { source: '/A.session/Capture/b.NEF', target: '/A.session/Capture/b_edit.tiff', library: '/A.session' },
+        ];
+      if (command === 'export_images_batch') {
+        setTimeout(() => {
+          useProcessStore.setState({ exportQueue: [job('j1', 'done'), job('j2', 'queued')] });
+          // The user opens catalog B while b still waits.
+          useLibraryStore.setState({ sessionDirectory: '/B.catalog' });
+        });
+        return ['j1', 'j2'];
+      }
+      if (command === 'edit_with_finish') return { linked: 1, problems: [] };
+    });
+    const result = await runEditWith(['/A.session/Capture/a.NEF', '/A.session/Capture/b.NEF'], BUILT_IN_EDIT_RECIPES[0], '/P.app');
+    expect(result).toMatchObject({ rendered: 1, failed: 1, libraryChanged: true });
+    const calls = vi.mocked(invoke).mock.calls;
+    expect(calls).toContainEqual(['export_queue_cancel', { job: 'j2' }]);
+    expect(calls).not.toContainEqual(['export_queue_cancel', { job: 'j1' }]);
+    const finish = calls.find((c) => c[0] === 'edit_with_finish')![1] as { items: { target: string }[] };
+    expect(finish.items.map((i) => i.target)).toEqual(['/A.session/Capture/a_edit.tiff']);
   });
 });
 
@@ -145,7 +174,7 @@ describe('runEditWith', () => {
     });
     const paths = targets.map((t) => t.source);
     const result = await runEditWith(paths, BUILT_IN_EDIT_RECIPES[0], '/Applications/Preview.app');
-    expect(result).toEqual({ rendered: 2, failed: 1, linked: 2, problems: [] });
+    expect(result).toEqual({ rendered: 2, failed: 1, libraryChanged: false, linked: 2, problems: [] });
     const calls = vi.mocked(invoke).mock.calls;
     expect(calls[0]).toEqual(['edit_with_targets', { paths, extension: 'tiff' }]);
     expect((calls[1][1] as { requests: unknown[] }).requests).toHaveLength(3);

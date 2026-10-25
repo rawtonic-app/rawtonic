@@ -283,6 +283,7 @@
     "editWith": {
       "failed": "Error en Editar con: {{error}}",
       "label": "Editar con",
+      "libraryChanged": "Se abrió otra biblioteca antes de que terminara Editar con: se cancelaron los renderizados pendientes.",
       "notLinked": "Renderizado, pero no añadido a la biblioteca: {{error}}",
       "openIn": "Abrir en",
       "recipe": "Receta",

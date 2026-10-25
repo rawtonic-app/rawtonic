@@ -55,7 +55,8 @@ async function editPhotosWith(
     const result = await runEditWith(paths, recipe, program);
     toast.dismiss(progress);
     await onRendered?.();
-    if (result.failed > 0)
+    if (result.libraryChanged) toast.error(t('contextMenus.editWith.libraryChanged'));
+    else if (result.failed > 0)
       toast.error(t('contextMenus.editWith.someFailed', { failed: result.failed, total: paths.length }));
     if (result.problems.length) toast.warn(t('contextMenus.editWith.notLinked', { error: result.problems.join('\n') }));
   } catch (e) {

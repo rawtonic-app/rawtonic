@@ -6,6 +6,7 @@
 use crate::{Asset, Library};
 use anyhow::{Context, Result, ensure};
 use rusqlite::{OptionalExtension, params};
+use std::path::Path;
 
 impl Library {
     /// Records that `derived` was rendered from `original`. A derived file's
@@ -75,5 +76,41 @@ impl Library {
             params![i64::try_from(size)?, mtime, fingerprint, id],
         )?;
         Ok(())
+    }
+
+    /// Whether a photograph is registered at `path` or at a name that
+    /// differs from it only in letter case, also while its file is missing:
+    /// a new file there would be taken for it on a volume that does not
+    /// tell case apart.
+    pub fn registered_ignoring_case(&self, path: &Path) -> Result<bool> {
+        let path = crate::resolve_moved(path);
+        let fold = crate::FOLD;
+        let found = if let Ok(relative) = path.strip_prefix(&self.directory) {
+            self.conn
+                .query_row(
+                    &format!("SELECT 1 FROM assets WHERE root_id='session' AND {fold}(rel_path)={fold}(?)"),
+                    [relative.to_string_lossy().as_ref()],
+                    |_| Ok(()),
+                )
+                .optional()?
+        } else {
+            let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+                return Ok(false);
+            };
+            self.conn
+                .query_row(
+                    &format!(
+                        "SELECT 1 FROM assets a JOIN roots r ON a.root_id=r.id WHERE r.external=1 \
+                         AND r.path=? AND {fold}(a.rel_path)={fold}(?)"
+                    ),
+                    params![
+                        parent.to_string_lossy().as_ref(),
+                        name.to_string_lossy().as_ref()
+                    ],
+                    |_| Ok(()),
+                )
+                .optional()?
+        };
+        Ok(found.is_some())
     }
 }

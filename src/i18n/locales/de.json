@@ -282,6 +282,7 @@
     "editWith": {
       "failed": "Bearbeiten mit fehlgeschlagen: {{error}}",
       "label": "Bearbeiten mit",
+      "libraryChanged": "Eine andere Bibliothek wurde geöffnet, bevor „Bearbeiten mit“ fertig war: Die noch nicht gerenderten Dateien wurden abgebrochen.",
       "notLinked": "Gerendert, aber nicht zur Bibliothek hinzugefügt: {{error}}",
       "openIn": "Öffnen in",
       "recipe": "Rezept",

@@ -116,13 +116,29 @@ const settled = (state: ExportJob['state']) => state !== 'queued' && state !== '
 /** Waits until the queue has finished `jobs`: the ids that were done. Each
  * job's last seen state counts, so one the queue dropped after it finished
  * (it keeps only the latest finished jobs) is still known as done; one
- * removed while still waiting counts as not done. */
-export function waitForJobs(jobs: string[]): Promise<Set<string>> {
+ * removed while still waiting counts as not done. When `abandon()` turns
+ * true first, the jobs not finished are cancelled and `abandoned` is set. */
+export function waitForJobs(
+  jobs: string[],
+  abandon: () => boolean = () => false,
+): Promise<{ done: Set<string>; abandoned: boolean }> {
   return new Promise((resolve) => {
     const seen = new Map<string, ExportJob['state']>();
-    const check = (queue: ExportJob[]) => {
+    let ended = false;
+    let stops: Array<() => void> = [];
+    const finish = (abandoned: boolean) => {
+      ended = true;
+      stops.forEach((stop) => stop());
+      const done = new Set(jobs.filter((id) => seen.get(id) === 'done'));
+      if (abandoned)
+        for (const id of jobs)
+          if (!done.has(id)) invoke(Invokes.ExportQueueCancel, { job: id }).catch(() => {});
+      resolve({ done, abandoned });
+    };
+    const check = () => {
+      if (ended) return;
       const present = new Set<string>();
-      for (const job of queue) {
+      for (const job of useProcessStore.getState().exportQueue) {
         if (!jobs.includes(job.id)) continue;
         present.add(job.id);
         seen.set(job.id, job.state);
@@ -131,29 +147,39 @@ export function waitForJobs(jobs: string[]): Promise<Set<string>> {
         const state = seen.get(id);
         return state !== undefined && (!present.has(id) || settled(state));
       });
-      if (!finished) return false;
-      resolve(new Set(jobs.filter((id) => seen.get(id) === 'done')));
-      return true;
+      if (finished) finish(false);
+      else if (abandon()) finish(true);
     };
-    if (check(useProcessStore.getState().exportQueue)) return;
-    const stop = useProcessStore.subscribe((state) => {
-      if (check(state.exportQueue)) stop();
-    });
+    stops = [useProcessStore.subscribe(check), useLibraryStore.subscribe(check)];
+    check();
   });
+}
+
+export interface EditWithRun extends EditWithResult {
+  rendered: number;
+  failed: number;
+  /** Another session or catalog was opened before the renders were done:
+   * the rest were cancelled (they would have rendered with its recipes). */
+  libraryChanged: boolean;
 }
 
 /** Renders `paths` with `recipe` beside their originals, adds the renders to
  * the library stacked with their originals and opens them in `program`. */
-export async function runEditWith(paths: string[], recipe: EditRecipe, program: string) {
+export async function runEditWith(paths: string[], recipe: EditRecipe, program: string): Promise<EditWithRun> {
   debouncedSave.flush();
+  const library = useLibraryStore.getState().sessionDirectory;
   const targets = await invoke<EditTarget[]>(Invokes.EditWithTargets, {
     paths,
     extension: recipe.outputFormat,
   });
   const jobs = await invoke<string[]>(Invokes.ExportImagesBatch, { requests: editRequests(targets, recipe) });
-  const done = await waitForJobs(jobs);
+  const { done, abandoned } = await waitForJobs(
+    jobs,
+    () => useLibraryStore.getState().sessionDirectory !== library,
+  );
   const rendered = targets.filter((_, i) => done.has(jobs[i]));
-  if (!rendered.length) return { rendered: 0, failed: targets.length, linked: 0, problems: [] as string[] };
+  const counts = { rendered: rendered.length, failed: targets.length - rendered.length, libraryChanged: abandoned };
+  if (!rendered.length) return { ...counts, linked: 0, problems: [] };
   const result = await invoke<EditWithResult>(Invokes.EditWithFinish, { items: rendered, program });
-  return { rendered: rendered.length, failed: targets.length - rendered.length, ...result };
+  return { ...counts, ...result };
 }

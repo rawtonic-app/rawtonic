@@ -282,6 +282,7 @@
     "editWith": {
       "failed": "编辑失败：{{error}}",
       "label": "编辑方式",
+      "libraryChanged": "编辑完成前打开了另一个图库：尚未渲染的文件已取消。",
       "notLinked": "已渲染，但未添加到图库：{{error}}",
       "openIn": "打开于",
       "recipe": "配方",

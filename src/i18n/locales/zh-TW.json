@@ -282,6 +282,7 @@
     "editWith": {
       "failed": "編輯失敗：{{error}}",
       "label": "編輯方式",
+      "libraryChanged": "編輯完成前開啟了另一個圖庫：尚未算圖的檔案已取消。",
       "notLinked": "已算圖，但未加入圖庫：{{error}}",
       "openIn": "打開於",
       "recipe": "配方",

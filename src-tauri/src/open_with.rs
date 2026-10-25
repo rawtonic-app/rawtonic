@@ -542,8 +542,11 @@ fn plan_targets(
                     .or_insert_with(|| Library::open(dir).ok())
                     .as_ref()
             });
-            let registered =
-                |path: &Path| lib.is_some_and(|lib| matches!(lib.asset_at(path), Ok(Some(_))));
+            // A library that cannot answer frees no name here: linking the
+            // render refuses a registered one later.
+            let registered = |path: &Path| {
+                lib.is_some_and(|lib| lib.registered_ignoring_case(path).unwrap_or(false))
+            };
             let target = edit_target(&original, extension, &taken, &registered);
             taken.insert(target.clone());
             Ok(EditTarget {
@@ -595,7 +598,7 @@ pub fn link_render(lib: &Library, source: &str, render: &Path) -> anyhow::Result
         None => lib.add_asset(&file)?,
     };
     anyhow::ensure!(
-        lib.asset_at(render)?.is_none(),
+        !lib.registered_ignoring_case(render)?,
         "{} is already a photograph of the library",
         render.display()
     );
@@ -998,7 +1001,8 @@ mod tests {
         let source = capture.join("A.NEF");
         fs::write(&source, b"raw").unwrap();
         // An earlier render, registered, then deleted outside the app.
-        let earlier = capture.join("A_edit.tiff");
+        // Its name in another case: the same file on a case-blind volume.
+        let earlier = capture.join("A_EDIT.TIFF");
         fs::write(&earlier, b"old render").unwrap();
         lib.add_asset(&earlier).unwrap();
         fs::remove_file(&earlier).unwrap();

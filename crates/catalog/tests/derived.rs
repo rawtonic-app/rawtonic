@@ -108,3 +108,30 @@ fn a_render_saved_by_another_program_is_known_by_its_new_identity() {
     lib.fill_all_checksums(&cancel).unwrap();
     assert!(lib.checksum(&render.id).unwrap().is_some());
 }
+
+#[test]
+fn a_name_registered_in_another_case_counts_as_taken() {
+    for mode in [Mode::Session, Mode::Catalog] {
+        let tmp = tempfile::tempdir().unwrap();
+        let lib = Library::create(&tmp.path().join("Lib"), "Lib", mode).unwrap();
+        let folder = match mode {
+            Mode::Session => tmp.path().join("Lib/Capture"),
+            Mode::Catalog => tmp.path().join("Shoot"),
+        };
+        fs::create_dir_all(&folder).unwrap();
+        let earlier = folder.join("A_EDIT.TIFF");
+        fs::write(&earlier, b"old").unwrap();
+        lib.add_asset(&earlier).unwrap();
+        // Its file and sidecars are gone; the photograph stays registered.
+        fs::remove_file(&earlier).unwrap();
+        assert!(
+            lib.registered_ignoring_case(&folder.join("A_edit.tiff"))
+                .unwrap()
+        );
+        assert!(lib.registered_ignoring_case(&earlier).unwrap());
+        assert!(
+            !lib.registered_ignoring_case(&folder.join("A_edit-2.tiff"))
+                .unwrap()
+        );
+    }
+}

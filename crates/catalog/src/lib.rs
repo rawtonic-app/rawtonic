@@ -2413,7 +2413,7 @@ fn external_root_key(folder: &Path) -> String {
 
 /// The canonical form of a path that may no longer (or not yet) exist: its
 /// nearest existing ancestor canonicalized, the rest appended unchanged.
-fn resolve_moved(path: &Path) -> PathBuf {
+pub(crate) fn resolve_moved(path: &Path) -> PathBuf {
     if let Ok(canonical) = path.canonicalize() {
         return canonical;
     }

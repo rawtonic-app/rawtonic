@@ -25,13 +25,42 @@ pub const IPTC_EXT: &str = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/";
 pub const DIGITAL_SOURCE_COMPOSITE_AI: &str =
     "http://cv.iptc.org/newscodes/digitalsourcetype/compositeWithTrainedAlgorithmicMedia";
 
-/// Whether the image file at `path` carries [`DIGITAL_SOURCE_COMPOSITE_AI`]
-/// in its embedded XMP: an export with generated areas, brought back in (an
-/// Edit With render, an imported export). An export of such a file keeps the
-/// marking though its own recipe has no generated areas. Files of formats
-/// Rawtonic does not export to are not read.
+/// Whether XMP `text` states the generated-content Digital Source Type
+/// (`Iptc4xmpExt:DigitalSourceType` = [`DIGITAL_SOURCE_COMPOSITE_AI`], as
+/// an attribute, element text or `rdf:resource`). The URI elsewhere (a
+/// description quoting it) does not count.
+pub fn xmp_marks_generated(text: &str) -> bool {
+    const RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+    let Ok(doc) = roxmltree::Document::parse(text) else {
+        return false;
+    };
+    let is_marking = |value: &str| value.trim() == DIGITAL_SOURCE_COMPOSITE_AI;
+    doc.descendants().filter(|n| n.is_element()).any(|node| {
+        let attribute = node.attributes().any(|a| {
+            a.namespace() == Some(IPTC_EXT)
+                && a.name() == "DigitalSourceType"
+                && is_marking(a.value())
+        });
+        let element = node.tag_name().namespace() == Some(IPTC_EXT)
+            && node.tag_name().name() == "DigitalSourceType"
+            && (node.text().is_some_and(is_marking)
+                || node.attribute((RDF, "resource")).is_some_and(is_marking));
+        attribute || element
+    })
+}
+
+/// Whether the image file at `path` is marked as having generated areas in
+/// an embedded XMP packet ([`xmp_marks_generated`]): an export with
+/// generated areas brought back in (an Edit With render, an imported
+/// export). An export of such a file keeps the marking though its own
+/// recipe has none. Only formats Rawtonic exports to are read; packets are
+/// taken as stored (Rawtonic writes them uncompressed), compressed ones are
+/// not looked into.
 pub fn file_marked_generated(path: &Path) -> bool {
     use std::io::Read;
+    const START: &[u8] = b"<x:xmpmeta";
+    const END: &[u8] = b"</x:xmpmeta>";
+    const MAX_PACKET: usize = 16 * 1024 * 1024;
     let exported = path
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
@@ -47,21 +76,50 @@ pub fn file_marked_generated(path: &Path) -> bool {
     let Ok(mut file) = fs::File::open(path) else {
         return false;
     };
-    let needle = DIGITAL_SOURCE_COMPOSITE_AI.as_bytes();
-    let mut window = Vec::with_capacity(1 << 20);
+    let find =
+        |haystack: &[u8], needle: &[u8]| haystack.windows(needle.len()).position(|w| w == needle);
+    let mut buffer = Vec::new();
     let mut chunk = vec![0; 1 << 20];
+    let mut in_packet = false;
     loop {
         let read = match file.read(&mut chunk) {
             Ok(0) | Err(_) => return false,
             Ok(read) => read,
         };
-        window.extend_from_slice(&chunk[..read]);
-        if window.windows(needle.len()).any(|w| w == needle) {
-            return true;
+        buffer.extend_from_slice(&chunk[..read]);
+        loop {
+            if !in_packet {
+                match find(&buffer, START) {
+                    Some(start) => {
+                        buffer.drain(..start);
+                        in_packet = true;
+                    }
+                    None => {
+                        // Keep the tail a packet could start in.
+                        let keep = buffer.len().min(START.len() - 1);
+                        buffer.drain(..buffer.len() - keep);
+                        break;
+                    }
+                }
+            }
+            match find(&buffer, END) {
+                Some(end) => {
+                    let packet = &buffer[..end + END.len()];
+                    if std::str::from_utf8(packet).is_ok_and(xmp_marks_generated) {
+                        return true;
+                    }
+                    buffer.drain(..end + END.len());
+                    in_packet = false;
+                }
+                None => {
+                    if buffer.len() > MAX_PACKET {
+                        buffer.clear();
+                        in_packet = false;
+                    }
+                    break;
+                }
+            }
         }
-        // Keep the tail a marking could start in.
-        let keep = window.len().min(needle.len() - 1);
-        window.drain(..window.len() - keep);
     }
 }
 
@@ -647,6 +705,69 @@ pub fn write_xmp(
 
 #[cfg(test)]
 mod tests {
+    const X: &str = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">"#;
+    const X_END: &str = "</rdf:RDF></x:xmpmeta>";
+
+    #[test]
+    fn only_the_digital_source_type_property_marks_generated_areas() {
+        let ext = r#"xmlns:Iptc4xmpExt="http://iptc.org/std/Iptc4xmpExt/2008-02-29/""#;
+        let dc = r#"xmlns:dc="http://purl.org/dc/elements/1.1/""#;
+        let attribute = format!(
+            r#"{X}<rdf:Description {ext} Iptc4xmpExt:DigitalSourceType="{DIGITAL_SOURCE_COMPOSITE_AI}"/>{X_END}"#
+        );
+        // Characters given as references are the same value.
+        let encoded = attribute.replacen("http://", "&#x68;ttp://", 1);
+        assert!(encoded.contains("&#x68;"));
+        let element = format!(
+            r#"{X}<rdf:Description {ext}><Iptc4xmpExt:DigitalSourceType>{DIGITAL_SOURCE_COMPOSITE_AI}</Iptc4xmpExt:DigitalSourceType></rdf:Description>{X_END}"#
+        );
+        let resource = format!(
+            r#"{X}<rdf:Description {ext}><Iptc4xmpExt:DigitalSourceType rdf:resource="{DIGITAL_SOURCE_COMPOSITE_AI}"/></rdf:Description>{X_END}"#
+        );
+        for marked in [&attribute, &encoded, &element, &resource] {
+            assert!(xmp_marks_generated(marked), "{marked}");
+        }
+        // The URI quoted in a description, another source type, broken XML.
+        let quoted = format!(
+            r#"{X}<rdf:Description {dc}><dc:description><rdf:Alt><rdf:li xml:lang="x-default">See {DIGITAL_SOURCE_COMPOSITE_AI}</rdf:li></rdf:Alt></dc:description></rdf:Description>{X_END}"#
+        );
+        let other = attribute.replace("compositeWithTrainedAlgorithmicMedia", "digitalCapture");
+        for unmarked in [quoted.as_str(), other.as_str(), "<x:xmpmeta"] {
+            assert!(!xmp_marks_generated(unmarked), "{unmarked}");
+        }
+    }
+
+    #[test]
+    fn a_file_is_read_for_its_embedded_packets() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ext = r#"xmlns:Iptc4xmpExt="http://iptc.org/std/Iptc4xmpExt/2008-02-29/""#;
+        let packet = format!(
+            r#"{X}<rdf:Description {ext} Iptc4xmpExt:DigitalSourceType="{DIGITAL_SOURCE_COMPOSITE_AI}"/>{X_END}"#
+        );
+        let quoted = format!(
+            r#"{X}<rdf:Description>{DIGITAL_SOURCE_COMPOSITE_AI}</rdf:Description>{X_END}"#
+        );
+        // A packet across the read chunks, after an unrelated one.
+        let mut bytes = vec![0u8; (1 << 20) - 20];
+        bytes.extend_from_slice(quoted.as_bytes());
+        bytes.extend(std::iter::repeat_n(7u8, 1 << 20));
+        bytes.extend_from_slice(packet.as_bytes());
+        bytes.extend_from_slice(&[0; 100]);
+        let marked = tmp.path().join("render.tiff");
+        fs::write(&marked, &bytes).unwrap();
+        assert!(file_marked_generated(&marked));
+
+        let mut unmarked = vec![0u8; 5000];
+        unmarked.extend_from_slice(quoted.as_bytes());
+        let path = tmp.path().join("photo.jpg");
+        fs::write(&path, &unmarked).unwrap();
+        assert!(!file_marked_generated(&path));
+        // Not a format Rawtonic exports to: not read.
+        let raw = tmp.path().join("render.nef");
+        fs::write(&raw, &bytes).unwrap();
+        assert!(!file_marked_generated(&raw));
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_replaced_file_keeps_its_permissions() {

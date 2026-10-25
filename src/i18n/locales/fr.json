@@ -283,6 +283,7 @@
     "editWith": {
       "failed": "Échec de Modifier avec : {{error}}",
       "label": "Modifier avec",
+      "libraryChanged": "Une autre bibliothèque a été ouverte avant la fin de Modifier avec : les rendus non encore effectués ont été annulés.",
       "notLinked": "Rendu, mais non ajouté à la bibliothèque : {{error}}",
       "openIn": "Ouvrir dans",
       "recipe": "Recette",
