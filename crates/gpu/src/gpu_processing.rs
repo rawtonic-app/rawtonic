@@ -8084,6 +8084,12 @@ fn place_region(
     }
 }
 
+/// Whether the Develop view renders, or rendered within `window`: the user
+/// is editing (`foreground_render`).
+pub fn foreground_rendered_within(window: std::time::Duration) -> bool {
+    processor_turns::TURNS.foreground_within(window)
+}
+
 /// Renders the user watches as they happen: the Develop view's frames, its
 /// JPEG fallback (e.g. on Linux) and tone targets' samples of them.
 fn foreground_render(caller_id: &str, output_to_display: bool) -> bool {

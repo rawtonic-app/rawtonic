@@ -230,6 +230,16 @@ impl ProcessorTurns {
     }
 }
 
+impl ProcessorTurns {
+    /// Whether a foreground render runs or waits, or ended within `window`.
+    pub(super) fn foreground_within(&self, window: Duration) -> bool {
+        let state = self.state();
+        state.foreground_runs
+            || state.waiting > 0
+            || state.ended.is_some_and(|ended| ended.elapsed() < window)
+    }
+}
+
 impl<T> Deref for TurnGuard<'_, T> {
     type Target = T;
 
@@ -387,6 +397,24 @@ mod tests {
         let start = Instant::now();
         drop(turns.lock(&slot, false).unwrap());
         assert!(start.elapsed() < FOREGROUND_PAUSE);
+    }
+
+    /// The export's CPU share follows the Develop view's frames: while one
+    /// runs and for the window after it ends, not before or later.
+    #[test]
+    fn foreground_within_covers_a_running_frame_and_the_window_after_it() {
+        let turns = turns();
+        let slot: &'static ProcessorSlot<()> = Box::leak(Box::new(ProcessorSlot::new(())));
+        let window = Duration::from_millis(100);
+        assert!(!turns.foreground_within(window));
+        drop(turns.lock(slot, false).unwrap());
+        assert!(!turns.foreground_within(window), "a background render");
+        let frame = turns.lock(slot, true).unwrap();
+        assert!(turns.foreground_within(window));
+        drop(frame);
+        assert!(turns.foreground_within(window));
+        std::thread::sleep(window);
+        assert!(!turns.foreground_within(window));
     }
 
     /// An export render on its own processor holds up no Develop frame:
