@@ -2762,7 +2762,10 @@ mod tests {
         let error =
             crate::file_management::operations::plan_move(&paths, &catalog.to_string_lossy())
                 .unwrap_err();
-        assert!(error.contains("of the session Job into the library Catalog"), "{error}");
+        assert!(
+            error.contains("of the session Job into the library Catalog"),
+            "{error}"
+        );
         assert!(crate::file_management::operations::plan_folder_move(&drive, &catalog).is_err());
         let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
         let trash = BesideTrash(root.join(".trash"));
