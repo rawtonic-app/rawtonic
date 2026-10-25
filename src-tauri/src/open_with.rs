@@ -76,6 +76,11 @@ pub struct EditTarget {
     /// planned: the render joins that one even if another opens meanwhile.
     #[serde(default)]
     pub library: Option<String>,
+    /// What the render is registered with, read with its pinned export
+    /// (`plan_edits`): the photograph's library metadata, with a virtual
+    /// copy's own rating, label and keywords.
+    #[serde(default)]
+    pub metadata: Option<rawtonic_metadata::Metadata>,
 }
 
 #[derive(Debug, Serialize)]
@@ -565,9 +570,9 @@ fn plan_edits(
     library_for: &dyn Fn(&Path) -> Option<PathBuf>,
     generated: &dyn Fn(&serde_json::Value) -> bool,
 ) -> Result<(Vec<EditTarget>, Vec<ExportRequest>), String> {
-    let targets = plan_targets(paths, &recipe.output_format, library_for)?;
+    let mut targets = plan_targets(paths, &recipe.output_format, library_for)?;
     let requests = targets
-        .iter()
+        .iter_mut()
         .map(|target| {
             let mut request = ExportRequest {
                 paths: vec![target.source.clone()],
@@ -579,6 +584,19 @@ fn plan_edits(
             // Pinned under the library the name was planned with, never
             // the one open now (another may have been opened meanwhile).
             crate::session_bridge::with_culling_owner(target.library.as_deref(), || request.pin())?;
+            // Registered with the metadata the render embeds, not with what
+            // the library holds once it has rendered.
+            let pinned = request.pinned.iter().flatten().next();
+            if let (Some(dir), Some(metadata)) =
+                (&target.library, pinned.and_then(|p| p.metadata.clone()))
+            {
+                let lib = Library::open(Path::new(dir))
+                    .map_err(|e| format!("{dir} cannot be read: {e:#}"))?;
+                target.metadata = Some(match copy_state(&lib, &target.source) {
+                    Some(state) => copy_metadata(metadata, &state),
+                    None => metadata,
+                });
+            }
             Ok(request)
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -647,6 +665,7 @@ fn plan_targets(
                 library: library.map(|dir| dir.to_string_lossy().into_owned()),
                 source,
                 target: target.to_string_lossy().into_owned(),
+                metadata: None,
             })
         })
         .collect()
@@ -682,11 +701,31 @@ fn copy_metadata(
     metadata
 }
 
-/// Registers `render` in `lib` and stacks it with the photograph of
-/// `source` (a virtual copy stacks with its photograph), which gives it its
-/// rating, label and keywords (a virtual copy's own).
-pub fn link_render(lib: &Library, source: &str, render: &Path) -> anyhow::Result<()> {
+/// The editor state of the virtual copy `source` names (None for a
+/// photograph): the library's, else its sidecar's.
+fn copy_state(lib: &Library, source: &str) -> Option<serde_json::Value> {
     let (file, copy) = parse_virtual_path(source);
+    let copy_id = source.rsplit_once("?vc=").map(|(_, id)| id)?;
+    let original = lib.asset_at(&file).ok().flatten();
+    original
+        .and_then(|asset| lib.copy_state(&asset.id, copy_id).ok().flatten())
+        .or_else(|| {
+            fs::read(&copy)
+                .ok()
+                .and_then(|b| serde_json::from_slice(&b).ok())
+        })
+}
+
+/// Registers `render` in `lib` with `metadata` (`EditTarget::metadata`)
+/// and stacks it with the photograph of `source` (a virtual copy stacks
+/// with its photograph).
+pub fn link_render(
+    lib: &Library,
+    source: &str,
+    render: &Path,
+    metadata: Option<&rawtonic_metadata::Metadata>,
+) -> anyhow::Result<()> {
+    let (file, _) = parse_virtual_path(source);
     let original = match lib.asset_at(&file)? {
         Some(asset) => asset,
         None => lib.add_asset(&file)?,
@@ -698,18 +737,9 @@ pub fn link_render(lib: &Library, source: &str, render: &Path) -> anyhow::Result
     );
     let edit = lib.add_asset(render)?;
     lib.set_derived_from(&edit.id, &original.id)?;
-    let mut metadata = lib.metadata(&original.id)?;
-    let copy_id = source.rsplit_once("?vc=").map(|(_, id)| id);
-    if let Some(state) = copy_id.and_then(|id| lib.copy_state(&original.id, id).ok().flatten()) {
-        metadata = copy_metadata(metadata, &state);
-    } else if copy_id.is_some()
-        && let Some(state) = fs::read(&copy)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-    {
-        metadata = copy_metadata(metadata, &state);
+    if let Some(metadata) = metadata {
+        lib.set_metadata(&edit.id, metadata)?;
     }
-    lib.set_metadata(&edit.id, &metadata)?;
     Ok(())
 }
 
@@ -730,8 +760,13 @@ fn link_renders(items: &[EditTarget]) -> EditWithResult {
             Ok(items
                 .iter()
                 .map(|item| {
-                    link_render(lib, &item.source, Path::new(&item.target))
-                        .map_err(|e| format!("{}: {e:#}", item.target))
+                    link_render(
+                        lib,
+                        &item.source,
+                        Path::new(&item.target),
+                        item.metadata.as_ref(),
+                    )
+                    .map_err(|e| format!("{}: {e:#}", item.target))
                 })
                 .collect::<Vec<_>>())
         });
@@ -1087,19 +1122,30 @@ mod tests {
         let mut meta = lib.metadata(&original.id).unwrap();
         meta.rating = 4;
         lib.set_metadata(&original.id, &meta).unwrap();
-        let render = capture.join("A_edit.tif");
-        fs::write(&render, b"tiff").unwrap();
         let before = fs::read(&source).unwrap();
+        let dir = tmp.path().join("S");
 
-        drop(lib);
         // The library planned with the render, not whichever is open now.
-        let result = link_renders(&[EditTarget {
-            source: source.to_string_lossy().into_owned(),
-            target: render.to_string_lossy().into_owned(),
-            library: Some(tmp.path().join("S").to_string_lossy().into_owned()),
-        }]);
+        let (targets, requests) = plan_edits(
+            vec![source.to_string_lossy().into_owned()],
+            tiff_recipe(None),
+            &|_| Some(dir.clone()),
+            &|_| false,
+        )
+        .unwrap();
+        let render = PathBuf::from(&targets[0].target);
+        assert_eq!(render, capture.join("A_edit.tiff"));
+        // The rating changes while the render waits in the queue: the file
+        // embeds the pinned one, and the library registers the same.
+        meta.rating = 1;
+        lib.set_metadata(&original.id, &meta).unwrap();
+        drop(lib);
+        let pinned = requests[0].pinned.as_ref().unwrap()[0].metadata.as_ref();
+        assert_eq!(pinned.map(|m| m.rating), Some(4));
+        fs::write(&render, b"tiff").unwrap();
+        let result = link_renders(&targets);
         assert_eq!((result.linked, result.problems.len()), (1, 0));
-        let lib = Library::open(&tmp.path().join("S")).unwrap();
+        let lib = Library::open(&dir).unwrap();
 
         let edit = lib.asset_at(&render).unwrap().unwrap();
         assert_eq!(lib.derived_from(&edit.id).unwrap().unwrap().id, original.id);
@@ -1160,10 +1206,26 @@ mod tests {
             &serde_json::json!({"rating": 5, "adjustments": {}, "tags": ["color:green", "user:print", "ai-tag"]}),
         )
         .unwrap();
-        let render = capture.join("A_edit.tiff");
+        let dir = tmp.path().join("S");
+        let (targets, _) = plan_edits(
+            vec![format!("{}?vc=9b8208", source.display())],
+            tiff_recipe(None),
+            &|_| Some(dir.clone()),
+            &|_| false,
+        )
+        .unwrap();
+        // Read when planned: a change of the copy afterwards does not count.
+        lib.save_copy_state(&original.id, "9b8208", &serde_json::json!({"rating": 1}))
+            .unwrap();
+        let render = PathBuf::from(&targets[0].target);
         fs::write(&render, b"tiff").unwrap();
-
-        link_render(&lib, &format!("{}?vc=9b8208", source.display()), &render).unwrap();
+        link_render(
+            &lib,
+            &targets[0].source,
+            &render,
+            targets[0].metadata.as_ref(),
+        )
+        .unwrap();
 
         let edit = lib.asset_at(&render).unwrap().unwrap();
         assert_eq!(lib.derived_from(&edit.id).unwrap().unwrap().id, original.id);
@@ -1174,7 +1236,7 @@ mod tests {
         );
         assert_eq!(got.keywords, ["print"]);
         // A render never takes over a photograph registered at its name.
-        assert!(link_render(&lib, &source.to_string_lossy(), &render).is_err());
+        assert!(link_render(&lib, &source.to_string_lossy(), &render, None).is_err());
     }
 
     fn tiff_recipe(current_edit: Option<(&Path, serde_json::Value)>) -> ExportRequest {

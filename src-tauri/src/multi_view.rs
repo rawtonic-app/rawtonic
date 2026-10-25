@@ -89,6 +89,45 @@ struct Memory {
     /// regions from them at once, until they are developed from the
     /// photographs at full resolution.
     interims: HashMap<String, Interim>,
+    /// The file each cell's photograph was when they were kept
+    /// ([`file_stamp`]).
+    stamps: HashMap<String, u64>,
+}
+
+impl Memory {
+    /// Forgets what was kept of the photographs of `paths` whose file
+    /// changed since (another program saved it: an Edit With render), so
+    /// they are developed again from the new file. True if one did.
+    fn forget_changed(&mut self, paths: &[&str]) -> bool {
+        let mut changed = false;
+        for &path in paths {
+            let now = file_stamp(path);
+            if self
+                .stamps
+                .insert(path.to_string(), now)
+                .is_some_and(|was| was != now)
+            {
+                self.facts.remove(path);
+                self.bases.remove(path);
+                self.interims.remove(path);
+                changed = true;
+            }
+        }
+        changed
+    }
+}
+
+/// What the file of `path` is now (size and modification time): part of
+/// the keys of its cell's textures, so a save by another program develops
+/// it again.
+fn file_stamp(path: &str) -> u64 {
+    let (source, _) = parse_virtual_path(path);
+    let mut hash = DefaultHasher::new();
+    if let Ok(meta) = std::fs::metadata(&source) {
+        meta.len().hash(&mut hash);
+        meta.modified().ok().hash(&mut hash);
+    }
+    hash.finish()
 }
 
 /// A cell's reduced source: the image, its pixels per full-resolution
@@ -256,8 +295,15 @@ fn show_cells(
         memory
             .interims
             .retain(|path, _| cells.iter().any(|cell| &cell.path == path));
+        memory
+            .stamps
+            .retain(|path, _| cells.iter().any(|cell| &cell.path == path));
         if interim_budget() == 0 {
             memory.interims.clear();
+        }
+        let paths: Vec<&str> = cells.iter().map(|cell| cell.path.as_str()).collect();
+        if memory.forget_changed(&paths) {
+            forget_regions(app_handle);
         }
     }
     worker.sender.send(Job {
@@ -326,7 +372,7 @@ pub(crate) async fn render_browser_view(
         }
         let recipe = js_adjustments.unwrap_or_else(|| recipe_of(&path));
         let dim = target_resolution.clamp(64, 4096);
-        let key = render_key(&recipe, dim, &context);
+        let key = render_key(&path, &recipe, dim, &context);
         let prepared = prepare(
             &app_handle,
             &worker,
@@ -390,8 +436,9 @@ fn cell_dim(area: [f32; 4], shown: (f32, f32)) -> u32 {
     ((long / SIZE_STEP).ceil() * SIZE_STEP) as u32
 }
 
-fn render_key(recipe: &serde_json::Value, dim: u32, context: &GpuContext) -> u64 {
+fn render_key(path: &str, recipe: &serde_json::Value, dim: u32, context: &GpuContext) -> u64 {
     let mut hash = DefaultHasher::new();
+    file_stamp(path).hash(&mut hash);
     recipe.to_string().hash(&mut hash);
     dim.hash(&mut hash);
     context.display_space.shader_code().hash(&mut hash);
@@ -753,7 +800,7 @@ fn prepare(
     };
     let (key, dim) = todo.planned.unwrap_or_else(|| {
         let dim = cell_dim(todo.area, shown_size(&todo.recipe, facts));
-        (render_key(&todo.recipe, dim, context), dim)
+        (render_key(&todo.path, &todo.recipe, dim, context), dim)
     });
     if current_key(context, &todo.path) == Some(key) {
         return Ok(None);
@@ -1064,7 +1111,7 @@ fn run(app_handle: &tauri::AppHandle, worker: &Worker, job: Job) {
             let shown = shown_size(&recipe, facts);
             sizes.push(CellSize::new(&cell.path, shown));
             let dim = cell_dim(cell.area, shown);
-            (render_key(&recipe, dim, &context), dim)
+            (render_key(&cell.path, &recipe, dim, &context), dim)
         });
         if planned.is_some_and(|(key, _)| current_key(&context, &cell.path) == Some(key)) {
             continue;
@@ -1433,8 +1480,9 @@ fn load_full_source(
     Ok((image, 1.0, facts, kind, None))
 }
 
-fn region_key(recipe: &serde_json::Value, zoom: CellZoom, context: &GpuContext) -> u64 {
+fn region_key(path: &str, recipe: &serde_json::Value, zoom: CellZoom, context: &GpuContext) -> u64 {
     let mut hash = DefaultHasher::new();
+    file_stamp(path).hash(&mut hash);
     recipe.to_string().hash(&mut hash);
     zoom.scale.to_bits().hash(&mut hash);
     context.display_space.shader_code().hash(&mut hash);
@@ -1970,7 +2018,8 @@ fn still_wanted(context: &GpuContext, path: &str, key: u64, scale: f32) -> bool 
         })
     };
     zoom.is_some_and(|zoom| {
-        zoom.scale == scale && region_key(&with_live_patch(recipe_of(path)), zoom, context) == key
+        zoom.scale == scale
+            && region_key(path, &with_live_patch(recipe_of(path)), zoom, context) == key
     })
 }
 
@@ -2193,7 +2242,7 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
             .filter_map(|cell| {
                 let zoom = multi.zoom_of(&cell.path)?;
                 let recipe = with_live_patch(recipe_of(&cell.path));
-                let key = region_key(&recipe, zoom, &context);
+                let key = region_key(&cell.path, &recipe, zoom, &context);
                 let shown = facts
                     .as_ref()
                     .and_then(|f| f.get(&cell.path))
@@ -2528,7 +2577,7 @@ pub(crate) fn live_step(app_handle: &tauri::AppHandle) -> bool {
         if preparation_key != base_key(app_handle, &path, &recipe) {
             continue;
         }
-        let key = render_key(&recipe, dim, &context);
+        let key = render_key(&path, &recipe, dim, &context);
         if current_key(&context, &path) == Some(key) {
             continue;
         }
@@ -2594,7 +2643,7 @@ fn live_region(
     let Some(regions) = REGIONS.get() else {
         return LiveRegion::Unavailable;
     };
-    let key = region_key(recipe, zoom, context);
+    let key = region_key(path, recipe, zoom, context);
     let shown_key = context
         .display
         .lock()
@@ -2652,6 +2701,47 @@ mod tests {
         let photo = session.join("Capture").join("A.RAF");
         std::fs::write(&photo, content).unwrap();
         (dir, photo)
+    }
+
+    #[test]
+    fn a_cells_file_saved_by_another_program_is_developed_again() {
+        let tmp = tempfile::tempdir().unwrap();
+        let render = tmp.path().join("A_edit.tiff");
+        std::fs::write(&render, b"before").unwrap();
+        let path = render.to_string_lossy().into_owned();
+        let other = tmp.path().join("B.tiff").to_string_lossy().into_owned();
+        let facts = Facts {
+            full_width: 30,
+            full_height: 20,
+            is_raw: false,
+            measures: None,
+        };
+        let interim = Interim {
+            image: Arc::new(DynamicImage::new_rgb8(3, 2)),
+            scale: 0.1,
+            facts,
+        };
+        let mut memory = Memory::default();
+        let kept = |memory: &mut Memory| {
+            for p in [&path, &other] {
+                memory.facts.insert(p.clone(), facts);
+                memory.interims.insert(p.clone(), interim.clone());
+            }
+        };
+        kept(&mut memory);
+        assert!(!memory.forget_changed(&[path.as_str(), other.as_str()]));
+        let before = file_stamp(&path);
+        assert!(!memory.forget_changed(&[path.as_str(), other.as_str()]));
+        assert_eq!(memory.facts.len(), 2);
+
+        // Another program saves the render (turned: another size).
+        std::fs::write(&render, b"after, turned").unwrap();
+        // Its texture's key changes, so the cell is developed again…
+        assert_ne!(file_stamp(&path), before);
+        // …from its new file, not from what was kept of the old one.
+        assert!(memory.forget_changed(&[path.as_str(), other.as_str()]));
+        assert!(!memory.facts.contains_key(&path) && !memory.interims.contains_key(&path));
+        assert!(memory.facts.contains_key(&other) && memory.interims.contains_key(&other));
     }
 
     #[test]
