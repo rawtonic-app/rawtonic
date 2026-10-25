@@ -307,6 +307,7 @@ describe("Metadata tool", () => {
     expect(mockInvoke).toHaveBeenCalledWith("set_color_label_for_paths", {
       paths: ["/job/Capture/a.arw", "/job/Capture/b.arw"],
       color: "blue",
+      directory: "/job",
     });
     expect(useLibraryStore.getState().imageList.map((image) => image.tags)).toEqual([
       ["color:blue"],

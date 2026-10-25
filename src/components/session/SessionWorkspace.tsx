@@ -78,7 +78,8 @@ import { throttleAsync } from "../../utils/throttle";
 import { hasRawJpegPairs, preselectIngestMode, type IngestMode } from "./ingestMode";
 import { Trans, useTranslation } from "react-i18next";
 import i18n from "i18next";
-import { catalogChanged } from "../../utils/catalogWrites";
+import { invokeInOrder } from "../../utils/catalogWrites";
+import { catalogAction, showCullingChanges, useCatalogUndoStore, type CullingChange } from "../../utils/appUndo";
 import "./session.css";
 import { noteTool } from "../contribute/usageStats";
 import { flagTargets, viewerShown } from "../../utils/viewerMode";
@@ -395,7 +396,6 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const [error, setError] = useState("");
   const dialog = useRef<HTMLDialogElement>(null);
   const restored = useRef(false);
-  const flagWriteQueue = useRef(Promise.resolve());
   const summaryRequest = useRef(0);
   const imageList = useLibraryStore((s) => s.imageList);
   const roots = useLibraryStore((s) => s.rootPaths);
@@ -814,6 +814,11 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   }, [session]);
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
+  // Undo/redo can restore flags without going through mark(): refresh the
+  // picked and pending-XMP counts after the catalog operation settles.
+  useEffect(() => useCatalogUndoStore.subscribe((state, previous) => {
+    if (previous.busy && !state.busy) void refreshRef.current().catch(() => {});
+  }), []);
   // The folder list's "Synchronize Folder…".
   useEffect(() => {
     const open = (e: Event) => setSyncing({ folder: (e as CustomEvent<OpenFolderSyncDetail>).detail.folder });
@@ -862,27 +867,17 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       if (!session || paths.length === 0) return;
       // Rapid P/X/U commands must reach SQLite in keyboard order. Apply only
       // acknowledged changes, and never paint a previous session's response.
-      flagWriteQueue.current = flagWriteQueue.current.then(async () => {
-        try {
-          noteTool("culling");
-          const changed = await invoke<Record<string, number>>(Invokes.SessionSetFlag, {
-            directory: session.directory,
-            paths,
-            flag,
-          });
-          catalogChanged();
-          if (useLibraryStore.getState().sessionDirectory !== session.directory) return;
-          useLibraryStore.getState().setLibrary((state) => ({
-            imageFlags: { ...state.imageFlags, ...changed },
-          }));
-          void refresh().catch((e) =>
-            toast.error(t("session.toasts.flagsSavedRefreshFailed", { error: String(e) })),
-          );
-        } catch (e) {
-          toast.error(t("session.toasts.flagsFailed", { error: String(e) }));
+      noteTool("culling");
+      return catalogAction('flag', async ({ resolvePaths }) => {
+        const changed = await invokeInOrder<CullingChange[]>(Invokes.SessionSetFlag, {
+          directory: session.directory, paths: resolvePaths(paths), flag,
+        });
+        if (useLibraryStore.getState().sessionDirectory === session.directory) {
+          showCullingChanges(changed);
+          void refresh().catch((e) => toast.error(t("session.toasts.flagsSavedRefreshFailed", { error: String(e) })));
         }
-      });
-      return flagWriteQueue.current;
+        return changed;
+      }).catch((e) => { toast.error(t("session.toasts.flagsFailed", { error: String(e) })); });
     },
     [session, refresh, t],
   );

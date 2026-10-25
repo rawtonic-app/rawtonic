@@ -1,3 +1,4 @@
+import { getUndoLabel, getRedoLabel, useCatalogUndoStore } from '../utils/appUndo';
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -106,9 +107,13 @@ export function useAppMenu(): void {
 
   useEffect(() => {
     if (!enabled) return;
-    const dispatch: MenuDispatch = { menu: buildMenuSpec(t as unknown as Translate, keybinds, menuCommandEnabled), keys: [], shown: new Map() };
+    const historyLabels = () => ({
+      undo: textFieldFocused('undo') ? t('appMenu.items.undo') : getUndoLabel(),
+      redo: textFieldFocused('redo') ? t('appMenu.items.redo') : getRedoLabel(),
+    });
+    const dispatch: MenuDispatch = { menu: buildMenuSpec(t as unknown as Translate, keybinds, menuCommandEnabled, 'Rawtonic', historyLabels()), keys: [], shown: new Map() };
     // The state the tree was built with; changes are sent from there.
-    const sent = new Map<string, MenuItemState>(menuItemStates(dispatch.menu!, menuCommandEnabled).map((state) => [state.id, state]));
+    const sent = new Map<string, MenuItemState>(menuItemStates(dispatch.menu!, menuCommandEnabled, historyLabels()).map((state) => [state.id, state]));
     const show = (state: MenuItemState) => dispatch.shown.set(state.id.slice(MENU_ID_PREFIX.length), state.enabled);
     sent.forEach(show);
     // The command each key equivalent belongs to.
@@ -124,9 +129,9 @@ export function useAppMenu(): void {
     const update = () => {
       timer = null;
       if (disposed) return;
-      const changed = menuItemStates(menu, menuCommandEnabled).filter((state) => {
+      const changed = menuItemStates(menu, menuCommandEnabled, historyLabels()).filter((state) => {
         const before = sent.get(state.id);
-        return !before || before.enabled !== state.enabled || before.checked !== state.checked;
+        return !before || before.enabled !== state.enabled || before.checked !== state.checked || before.label !== state.label;
       });
       if (changed.length === 0) return;
       changed.forEach((state) => {
@@ -141,6 +146,7 @@ export function useAppMenu(): void {
     const unsubscribers = [
       useUIStore.subscribe(schedule),
       useEditorStore.subscribe(schedule),
+      useCatalogUndoStore.subscribe(schedule),
       useLibraryStore.subscribe(schedule),
       useMultiViewStore.subscribe(schedule),
       useSettingsStore.subscribe(schedule),

@@ -4210,6 +4210,18 @@
       "reset": "Сбросить значение"
     }
   },
+  "undoHistory": {
+    "color": "Установить цветовую метку",
+    "edit": "Редактирование",
+    "file": "Изменение файла",
+    "flag": "Установить флажок",
+    "move": "Переместить",
+    "rating": "Установить оценку",
+    "redoAction": "Повторить: {{action}}",
+    "rename": "Переименовать",
+    "trash": "Переместить в корзину",
+    "undoAction": "Отменить: {{action}}"
+  },
   "updates": {
     "appImage": "Этот AppImage также можно обновить с помощью AppImageUpdate.",
     "available": "Доступен Rawtonic {{version}}",

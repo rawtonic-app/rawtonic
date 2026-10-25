@@ -1,3 +1,9 @@
+import {
+  catalogAction,
+  undo as appUndo,
+  useCatalogUndoStore,
+  fileOperationTravel,
+} from "../utils/appUndo";
 import { cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { listen } from '@tauri-apps/api/event';
@@ -273,6 +279,8 @@ describe('redo', () => {
     vi.mocked(invoke).mockResolvedValueOnce(null);
     await result.current.handleRedoFileOperation();
     expect(toast.info).toHaveBeenCalledWith('There is no file operation to redo.');
+    // A newly undone operation makes a fresh native redo available.
+    fileOperationTravel("undo", summary({ kind: "rename" }));
     vi.mocked(invoke).mockRejectedValueOnce('/job/Capture/b.RAF already exists: Nothing was redone');
     await result.current.handleRedoFileOperation();
     expect(toast.error).toHaveBeenCalledWith('Could not redo: /job/Capture/b.RAF already exists: Nothing was redone');
@@ -681,4 +689,45 @@ describe('moving a folder', () => {
     expect(toast.error).toHaveBeenCalledWith('Could not move the folder: /Users/a/Day 1/x is a link or special file');
     expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(Invokes.MoveFolder, expect.anything());
   });
+});
+it("Library Undo after rating then moving calls the file journal before metadata restore", async () => {
+  useCatalogUndoStore.setState(useCatalogUndoStore.getInitialState());
+  useUIStore.setState({ activeView: "library" });
+  useEditorStore.setState({ selectedImage: null });
+  const moved = summary({
+    id: "move-after-rating",
+    kind: "move",
+    moves: [{ from: "/a.nef", to: "/other/a.nef" }],
+  });
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if (command === Invokes.PlanMoveFiles) return { crossVolume: false };
+    if (command === Invokes.MoveFiles || command === Invokes.UndoFileOperation)
+      return moved;
+    return [];
+  });
+  const { result } = renderHook(() =>
+    useFileOperations(
+      vi.fn(async () => {}),
+      vi.fn(async () => {}),
+      vi.fn(),
+      vi.fn(),
+      [],
+    ),
+  );
+  await catalogAction("rating", async () => [
+    {
+      path: "/a.nef",
+      before: { kind: "rating", value: 0 },
+      after: { kind: "rating", value: 4 },
+    },
+  ]);
+  await result.current.handleMoveToFolder(["/a.nef"], "/other");
+  vi.mocked(invoke).mockClear();
+  await appUndo();
+  expect(invoke).toHaveBeenCalledWith(Invokes.UndoFileOperation);
+  expect(invoke).not.toHaveBeenCalledWith(
+    Invokes.RestoreCulling,
+    expect.anything(),
+  );
+  cleanup();
 });

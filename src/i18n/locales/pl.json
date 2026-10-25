@@ -4210,6 +4210,18 @@
       "reset": "Resetuj"
     }
   },
+  "undoHistory": {
+    "color": "Ustaw etykietę koloru",
+    "edit": "Edycja",
+    "file": "Zmiana pliku",
+    "flag": "Ustaw flagę",
+    "move": "Przenieś",
+    "rating": "Ustaw ocenę",
+    "redoAction": "Ponów: {{action}}",
+    "rename": "Zmień nazwę",
+    "trash": "Przenieś do kosza",
+    "undoAction": "Cofnij: {{action}}"
+  },
   "updates": {
     "appImage": "Ten AppImage można też zaktualizować za pomocą AppImageUpdate.",
     "available": "Dostępny jest Rawtonic {{version}}",

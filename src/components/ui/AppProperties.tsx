@@ -253,6 +253,7 @@ export enum Invokes {
   SamplePreviewGreyWorld = 'sample_preview_grey_world',
   SetColorLabelForPaths = 'set_color_label_for_paths',
   SetRatingForPaths = 'set_rating_for_paths',
+  RestoreCulling = 'restore_culling',
   ShowInFinder = 'show_in_finder',
   SetAppMenu = 'set_app_menu',
   SetAppMenuState = 'set_app_menu_state',

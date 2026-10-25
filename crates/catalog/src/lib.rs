@@ -635,17 +635,36 @@ impl Library {
     /// Commit an entire selection together, preserving ratings, keywords and edits.
     pub fn set_flags(&self, ids: &[String], flag: i8) -> Result<()> {
         ensure!((-1..=1).contains(&flag), "Flag must be -1, 0 or 1");
+        let mut seen = HashSet::new();
+        let values = ids
+            .iter()
+            .filter(|id| seen.insert(*id))
+            .map(|id| (id.clone(), flag))
+            .collect::<Vec<_>>();
+        self.set_flag_values(&values)?;
+        Ok(())
+    }
+
+    /// Set or restore a selection atomically, returning its exact previous flags.
+    /// A missing asset or invalid value rolls the whole step back. Undo follows
+    /// the normal pending-XMP path and preserves all unrelated metadata.
+    pub fn set_flag_values(&self, values: &[(String, i8)]) -> Result<Vec<(String, i8)>> {
         let tx = self.conn.unchecked_transaction()?;
-        for id in ids {
+        let mut previous = Vec::new();
+        let mut seen = HashSet::new();
+        for (id, flag) in values {
+            ensure!((-1..=1).contains(flag), "Flag must be -1, 0 or 1");
+            ensure!(seen.insert(id), "Duplicate asset in flag batch");
             let mut metadata = self.metadata(id)?;
-            metadata.flag = flag;
+            previous.push((id.clone(), metadata.flag));
+            metadata.flag = *flag;
             tx.execute(
                 "UPDATE metadata SET flag=?,data=?,xmp_status='pending',from_camera=0 WHERE asset_id=?",
                 params![flag, serde_json::to_string(&metadata)?, id],
             )?;
         }
         tx.commit()?;
-        Ok(())
+        Ok(previous)
     }
 
     pub fn set_metadata(&self, id: &str, metadata: &Metadata) -> Result<()> {

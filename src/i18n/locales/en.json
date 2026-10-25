@@ -3994,6 +3994,18 @@
       "reset": "Reset"
     }
   },
+  "undoHistory": {
+    "color": "Set Color Label",
+    "edit": "Edit",
+    "file": "File Change",
+    "flag": "Set Flag",
+    "move": "Move",
+    "rating": "Set Rating",
+    "redoAction": "Redo {{action}}",
+    "rename": "Rename",
+    "trash": "Move to Trash",
+    "undoAction": "Undo {{action}}"
+  },
   "updates": {
     "appImage": "You can also update this AppImage with AppImageUpdate.",
     "available": "Rawtonic {{version}} is available",

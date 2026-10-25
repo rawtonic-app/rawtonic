@@ -10,6 +10,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { computeSortedLibrary } from './useSortedLibrary';
 import { expandGroupedPaths } from '../utils/imageGrouping';
 import { invokeInOrder } from '../utils/catalogWrites';
+import { catalogAction, showCullingChanges, type CullingChange } from '../utils/appUndo';
 import type { FolderTree } from '../utils/folderTree';
 import { noteTool } from '../components/contribute/usageStats';
 
@@ -42,7 +43,11 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
 
     const currentRating = imageRatings[selectedPaths[0]] || 0;
     const finalRating = newRating === currentRating ? 0 : newRating;
+    const directory = useLibraryStore.getState().sessionDirectory;
     const previousRatings = Object.fromEntries(pathsToRate.map((p) => [p, imageRatings[p]]));
+
+    let previousAtWrite = previousRatings;
+    let pathsWritten = pathsToRate;
 
     setLibrary((state) => {
       const newRatings = { ...state.imageRatings };
@@ -53,17 +58,29 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
     });
 
     noteTool('culling');
-    invokeInOrder(Invokes.SetRatingForPaths, { paths: pathsToRate, rating: finalRating }).catch((err) => {
+    void catalogAction("rating", async ({ resolvePaths }) => {
+      pathsWritten = resolvePaths(pathsToRate);
+      previousAtWrite = Object.fromEntries(
+        pathsToRate.map((path, index) => [
+          pathsWritten[index],
+          previousRatings[path],
+        ]),
+      );
+      const changes = await invokeInOrder<CullingChange[]>(Invokes.SetRatingForPaths, { paths: pathsWritten, rating: finalRating, ...(directory ? { directory } : {}) });
+      if (useLibraryStore.getState().sessionDirectory === directory && changes) showCullingChanges(changes);
+      return changes;
+    }).catch((err) => {
+      if (useLibraryStore.getState().sessionDirectory !== directory) return;
       console.error(err);
       // Photos whose rating was not saved show their previous one again
       // (unless rated anew meanwhile).
-      const { message, failed } = saveFailure(err, pathsToRate);
+      const { message, failed } = saveFailure(err, pathsWritten);
       setLibrary((state) => {
         const ratings = { ...state.imageRatings };
         failed.forEach((p) => {
           if (ratings[p] !== finalRating) return;
-          if (previousRatings[p] === undefined) delete ratings[p];
-          else ratings[p] = previousRatings[p];
+          if (previousAtWrite[p] === undefined) delete ratings[p];
+          else ratings[p] = previousAtWrite[p];
         });
         return { imageRatings: ratings };
       });
@@ -93,6 +110,8 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
     }
     const finalColor = color !== null && color === currentColor ? null : color;
 
+    const directory = useLibraryStore.getState().sessionDirectory;
+    let pathsWritten = pathsToUpdate;
     const applyLabel = (paths: string[]) =>
       setLibrary((state) => ({
         imageList: state.imageList.map((image: ImageFile) => {
@@ -105,12 +124,16 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
         }),
       }));
     try {
-      await invokeInOrder(Invokes.SetColorLabelForPaths, { paths: pathsToUpdate, color: finalColor });
-      applyLabel(pathsToUpdate);
+      await catalogAction("color", ({ resolvePaths }) => {
+        pathsWritten = resolvePaths(pathsToUpdate);
+        return invokeInOrder<CullingChange[]>(Invokes.SetColorLabelForPaths, { paths: pathsWritten, color: finalColor, ...(directory ? { directory } : {}) });
+      });
+      if (useLibraryStore.getState().sessionDirectory === directory) applyLabel(pathsWritten);
     } catch (err) {
+      if (useLibraryStore.getState().sessionDirectory !== directory) return;
       // The photos that were saved show their new label.
-      const { message, failed } = saveFailure(err, pathsToUpdate);
-      applyLabel(pathsToUpdate.filter((p) => !failed.includes(p)));
+      const { message, failed } = saveFailure(err, pathsWritten);
+      applyLabel(pathsWritten.filter((p) => !failed.includes(p)));
       toast.error(`Failed to set color label: ${message}`);
     }
   }, []);

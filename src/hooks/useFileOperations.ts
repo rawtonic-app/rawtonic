@@ -13,6 +13,14 @@ import { ImageFile, Invokes } from '../components/ui/AppProperties';
 import { followPathMoves, type PathMove } from '../utils/pathKeyedState';
 import { recountAfterFileOperation } from '../utils/offline';
 import { flushRecipeSaves } from './useEditorActions';
+import {
+  fileAction,
+  fileOperationTravel,
+  registerFileUndoHandlers,
+  clearFileUndoHistory,
+  undoBranchId,
+  useCatalogUndoStore,
+} from "../utils/appUndo";
 import { isBelow } from '../utils/catalogFolders';
 
 /** Mirrors `OperationSummary` in src-tauri/src/file_operations.rs. */
@@ -434,7 +442,9 @@ export function useFileOperations(
       try {
         if (!(await saveEditsFirst(pathsToDelete, options.includeAssociated))) return;
         const command = options.includeAssociated ? Invokes.DeleteFilesWithAssociated : Invokes.DeleteFilesFromDisk;
-        const summary = await invoke<FileOperationSummary>(command, { paths: pathsToDelete });
+        const summary = await fileAction(() =>
+          invoke<FileOperationSummary>(command, { paths: pathsToDelete }),
+        );
         if (summary) toast.success(describeFileOperation(summary));
         await refreshImageList();
         await refreshAllFolderTrees();
@@ -474,9 +484,11 @@ export function useFileOperations(
   );
 
   const handleUndoFileOperation = useCallback(async () => {
+    const startedOnBranch = undoBranchId();
     try {
       await saveEditsFirst();
       const summary = await withCopyProgress(() => invoke<FileOperationSummary | null>(Invokes.UndoFileOperation));
+      fileOperationTravel("undo", summary, startedOnBranch);
       if (!summary) {
         toast.info(ops('nothingToUndo'));
         return;
@@ -499,9 +511,18 @@ export function useFileOperations(
   /** Redoes the file operation undone last (validated again; refused when
    * something took a place since). */
   const handleRedoFileOperation = useCallback(async () => {
+    if (
+      useCatalogUndoStore.getState().fileRedoBlocked &&
+      useCatalogUndoStore.getState().filesFuture.length === 0
+    ) {
+      toast.info(i18next.t("studio.library.fileOperations.nothingToRedo"));
+      return;
+    }
+    const startedOnBranch = undoBranchId();
     try {
       await saveEditsFirst();
       const summary = await withCopyProgress(() => invoke<FileOperationSummary | null>(Invokes.RedoFileOperation));
+      fileOperationTravel("redo", summary, startedOnBranch);
       if (!summary) {
         toast.info(i18next.t('studio.library.fileOperations.nothingToRedo'));
         return;
@@ -555,6 +576,7 @@ export function useFileOperations(
               files: contents.files,
               entries: contents.entries,
             });
+            clearFileUndoHistory();
             if (result?.note) {
               toast.warn(t('studio.library.trash.incomplete', { note: result.note }), { autoClose: false });
             } else if (contents.photos > 0) {
@@ -597,11 +619,13 @@ export function useFileOperations(
       const move = async () => {
         try {
           if (!(await saveEditsFirst(paths))) return;
-          const summary = await withCopyProgress(() =>
-            invoke<FileOperationSummary>(Invokes.MoveFiles, {
-              sourcePaths: paths,
-              destinationFolder: destination,
-            }),
+          const summary = await fileAction(() =>
+            withCopyProgress(() =>
+              invoke<FileOperationSummary>(Invokes.MoveFiles, {
+                sourcePaths: paths,
+                destinationFolder: destination,
+              }),
+            ),
           );
           if (summary) toast.success(describeFileOperation(summary));
           warnAboutNote(summary);
@@ -640,8 +664,10 @@ export function useFileOperations(
       const move = async () => {
         try {
           if (!(await saveEditsFirst([path]))) return;
-          const summary = await withCopyProgress(() =>
-            invoke<FileOperationSummary>(Invokes.MoveFolder, { path, destinationFolder: picked }),
+          const summary = await fileAction(() =>
+            withCopyProgress(() =>
+              invoke<FileOperationSummary>(Invokes.MoveFolder, { path, destinationFolder: picked }),
+            ),
           );
           if (summary) toast.success(describeFileOperation(summary));
           warnAboutNote(summary);
@@ -726,7 +752,9 @@ export function useFileOperations(
           onConfirm: async () => {
             try {
               if (!(await saveEditsFirst([path]))) return;
-              const summary = await invoke<FileOperationSummary>(Invokes.DeleteFolder, { path });
+              const summary = await fileAction(() =>
+                invoke<FileOperationSummary>(Invokes.DeleteFolder, { path }),
+              );
               if (summary) toast.success(describeFileOperation(summary));
               const { currentFolderPath, setLibrary } = useLibraryStore.getState();
               if (currentFolderPath && (currentFolderPath === path || isBelow(currentFolderPath, path))) {
@@ -818,10 +846,12 @@ export function useFileOperations(
           const trimmedNewName = newName.trim();
 
           if (!(await saveEditsFirst([oldPath]))) return;
-          const summary = await invoke<FileOperationSummary>(Invokes.RenameFolder, {
-            path: oldPath,
-            newName: trimmedNewName,
-          });
+          const summary = await fileAction(() =>
+            invoke<FileOperationSummary>(Invokes.RenameFolder, {
+              path: oldPath,
+              newName: trimmedNewName,
+            }),
+          );
           if (summary) toast.success(describeFileOperation(summary));
 
           const parentDir = getParentDir(oldPath);
@@ -851,10 +881,20 @@ export function useFileOperations(
       if (renameTargetPaths.length > 0 && nameTemplate) {
         try {
           if (!(await saveEditsFirst(renameTargetPaths))) return;
-          const newPaths: Array<string> = await invoke(Invokes.RenameFiles, {
-            nameTemplate,
-            paths: renameTargetPaths,
-          });
+          const newPaths: Array<string> = await fileAction(
+            () =>
+              invoke<string[]>(Invokes.RenameFiles, {
+                nameTemplate,
+                paths: renameTargetPaths,
+              }),
+            "rename",
+            (renamed) =>
+              renamed.some((path, index) => path !== renameTargetPaths[index]),
+            (renamed) =>
+              renameTargetPaths.flatMap((from, index) =>
+                renamed[index] ? [{ from, to: renamed[index] }] : [],
+              ),
+          );
           // The selection, the open photograph, picks, ratings and
           // thumbnails stay with the renamed photos (as on undo).
           const moves = renameTargetPaths.flatMap((from, i) => (newPaths[i] ? [{ from, to: newPaths[i] }] : []));
@@ -897,11 +937,13 @@ export function useFileOperations(
           const move = async () => {
             try {
               if (!(await saveEditsFirst(copiedFilePaths))) return;
-              const summary = await withCopyProgress(() =>
-                invoke<FileOperationSummary>(Invokes.MoveFiles, {
-                  sourcePaths: copiedFilePaths,
-                  destinationFolder: target,
-                }),
+              const summary = await fileAction(() =>
+                withCopyProgress(() =>
+                  invoke<FileOperationSummary>(Invokes.MoveFiles, {
+                    sourcePaths: copiedFilePaths,
+                    destinationFolder: target,
+                  }),
+                ),
               );
               if (summary) toast.success(describeFileOperation(summary));
               warnAboutNote(summary);
@@ -925,6 +967,15 @@ export function useFileOperations(
       }
     },
     [refreshImageList, refreshAllFolderTrees, followMoves],
+  );
+
+  useEffect(
+    () =>
+      registerFileUndoHandlers({
+        undo: handleUndoFileOperation,
+        redo: handleRedoFileOperation,
+      }),
+    [handleUndoFileOperation, handleRedoFileOperation],
   );
 
   return {

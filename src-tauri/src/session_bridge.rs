@@ -20,6 +20,26 @@ static ACTIVE_LIBRARY: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
 fn active() -> &'static Mutex<Option<PathBuf>> {
     ACTIVE_LIBRARY.get_or_init(|| Mutex::new(None))
 }
+thread_local! {
+    // Each Rayon task pins one already-resolved photo owner. This prevents
+    // another window/library opening from redirecting its sidecar helpers.
+    static WRITE_LIBRARY: std::cell::RefCell<Option<Option<PathBuf>>> = const { std::cell::RefCell::new(None) };
+}
+
+pub(crate) fn with_culling_owner<T>(directory: Option<&str>, work: impl FnOnce() -> T) -> T {
+    struct RestoreTarget(Option<Option<PathBuf>>);
+    impl Drop for RestoreTarget {
+        fn drop(&mut self) {
+            WRITE_LIBRARY.with(|target| {
+                target.replace(self.0.take());
+            });
+        }
+    }
+    let previous = WRITE_LIBRARY.with(|target| target.replace(Some(directory.map(PathBuf::from))));
+    let _restore = RestoreTarget(previous);
+    work()
+}
+
 /// The turn of a catalog metadata write outside the commands that already
 /// take it (the capture-facts pass taking a camera's rating).
 pub(crate) fn write_turn() -> std::sync::MutexGuard<'static, ()> {
@@ -62,14 +82,29 @@ fn registered_form(source: &Path) -> PathBuf {
         _ => source.to_path_buf(),
     }
 }
-fn library_for(source: &Path) -> Option<PathBuf> {
+/// Resolve by the original ownership rule: a photograph's own session first,
+/// otherwise the catalog selected when the command was submitted. An open
+/// session does not claim files in other folders.
+pub(crate) fn culling_library_for(source: &Path, selected: Option<&Path>) -> Option<PathBuf> {
     session_for(source).or_else(|| {
-        active()
-            .lock()
-            .ok()?
-            .clone()
+        selected
             .filter(|dir| dir.join("catalog.json").is_file())
+            .map(Path::to_path_buf)
     })
+}
+
+pub(crate) fn active_library_directory() -> Option<PathBuf> {
+    active().lock().ok()?.clone()
+}
+
+fn library_for(source: &Path) -> Option<PathBuf> {
+    // This scope is installed per photograph, only AFTER its real owner was
+    // resolved or its receipt's asset id validated; None explicitly means an
+    // unmanaged sidecar. Never install the UI's selected directory directly.
+    if let Some(owner) = WRITE_LIBRARY.with(|target| target.borrow().clone()) {
+        return owner;
+    }
+    culling_library_for(source, active_library_directory().as_deref())
 }
 
 /// The session or open catalog that manages `path`, if any.
@@ -942,33 +977,54 @@ pub async fn session_set_flag(
     directory: String,
     paths: Vec<String>,
     flag: i8,
-) -> Result<std::collections::HashMap<PathBuf, i8>, String> {
+) -> Result<Vec<crate::file_management::CullingChange>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let _lock = WRITE_LOCK.lock().map_err(|e| e.to_string())?;
-        let lib = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
-        // Resolve and validate the whole selection before changing any metadata.
-        let mut assets = std::collections::HashMap::new();
-        for path in paths {
-            let source = crate::file_management::parse_virtual_path(&path).0;
-            let asset = lib
-                .asset_at(&source)
-                .map_err(|e| e.to_string())?
-                .ok_or_else(|| {
-                    "This photograph is not registered in the open library".to_string()
-                })?;
-            assets.insert(asset.id, asset.path);
-        }
-        lib.set_flags(&assets.keys().cloned().collect::<Vec<_>>(), flag)
-            .map_err(|e| e.to_string())?;
-        for id in assets.keys() {
-            if let Err(e) = lib.sync_xmp(id) {
-                log::warn!("Flag saved; XMP pending: {e}");
-            }
-        }
-        Ok(assets.into_values().map(|path| (path, flag)).collect())
+        write_flag_values(
+            &directory,
+            paths.into_iter().map(|path| (path, flag)).collect(),
+        )
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+pub(crate) fn write_flag_values(
+    directory: &str,
+    values: Vec<(String, i8)>,
+) -> Result<Vec<crate::file_management::CullingChange>, String> {
+    use crate::file_management::{CullingChange, CullingValue};
+    let _lock = WRITE_LOCK.lock().map_err(|e| e.to_string())?;
+    let lib = Library::open(Path::new(directory)).map_err(|e| e.to_string())?;
+    // Flags belong to physical assets, including when several copies are selected.
+    let mut assets = std::collections::BTreeMap::new();
+    for (path, flag) in values {
+        let source = crate::file_management::parse_virtual_path(&path).0;
+        let asset = lib
+            .asset_at(&source)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "This photograph is not registered in the open library".to_string())?;
+        assets.insert(asset.id, (asset.path, flag));
+    }
+    let values: Vec<_> = assets
+        .iter()
+        .map(|(id, (_, flag))| (id.clone(), *flag))
+        .collect();
+    let before = lib.set_flag_values(&values).map_err(|e| e.to_string())?;
+    let mut receipts = Vec::new();
+    for (id, flag) in before {
+        let (path, after) = &assets[&id];
+        if let Err(error) = lib.sync_xmp(&id) {
+            log::warn!("Flag saved; XMP pending: {error}");
+        }
+        receipts.push(CullingChange {
+            path: path.to_string_lossy().into_owned(),
+            asset_id: Some(id),
+            directory: Some(lib.directory.to_string_lossy().into_owned()),
+            before: CullingValue::Flag(flag),
+            after: CullingValue::Flag(*after),
+        });
+    }
+    Ok(receipts)
 }
 
 /// Descriptive metadata of one photograph (IPTC core as Capture One's and
@@ -2488,8 +2544,14 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(changed.len(), 1);
-        assert_eq!(changed.get(&source), Some(&1));
-        assert_eq!(session_flags(directory).await.unwrap(), changed);
+        assert_eq!(
+            changed[0].after,
+            crate::file_management::CullingValue::Flag(1)
+        );
+        assert_eq!(
+            session_flags(directory).await.unwrap(),
+            std::collections::HashMap::from([(source.clone(), 1)])
+        );
         assert_eq!(fs::read(source).unwrap(), b"original");
         assert_eq!(fs::read(unregistered).unwrap(), b"unregistered original");
     }

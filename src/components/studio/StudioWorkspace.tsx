@@ -49,6 +49,7 @@ import {
   ListChecks,
   Maximize,
 } from "lucide-react";
+import { canUndo, canRedo, getUndoLabel, getRedoLabel, undo, redo, useCatalogUndoStore } from '../../utils/appUndo';
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useUIStore } from "../../store/useUIStore";
@@ -200,7 +201,9 @@ export default function StudioWorkspace(props: Props) {
     transformWrapperRef,
   } = props;
   const { t, i18n } = useTranslation();
-  const { selectedImage, historyIndex, historyPending, history, splitView, previousPhoto } = useEditorStore(
+  // Labels and routing read both histories; subscribe so they update on either change.
+  useCatalogUndoStore();
+  const { selectedImage, splitView, previousPhoto } = useEditorStore(
     useShallow((s) => ({
       selectedImage: s.selectedImage,
       historyIndex: s.historyIndex,
@@ -1243,22 +1246,22 @@ export default function StudioWorkspace(props: Props) {
                   </button>
                   <div className="studio-toolbar-divider" />
                   <button
-                    title={withShortcut(t("studio.workspace.viewer.undo"), "⌘Z")}
+                    title={withShortcut(getUndoLabel(), "⌘Z")}
                     aria-label={t("studio.workspace.viewer.undo")}
-                    disabled={!panelsReady || (!historyPending && historyIndex <= 0)}
-                    onClick={() => readyNow() && useEditorStore.getState().undo()}
+                    disabled={!panelsReady || !canUndo()}
+                    onClick={() => {
+                      if (readyNow()) void undo();
+                    }}
                   >
                     <Undo2 size={15} />
                   </button>
                   <button
-                    title={withShortcut(t("studio.workspace.viewer.redo"), "⇧⌘Z")}
+                    title={withShortcut(getRedoLabel(), "⇧⌘Z")}
                     aria-label={t("studio.workspace.viewer.redo")}
-                    disabled={
-                      !panelsReady ||
-                      historyPending ||
-                      historyIndex >= history.length - 1
-                    }
-                    onClick={() => readyNow() && useEditorStore.getState().redo()}
+                    disabled={!panelsReady || !canRedo()}
+                    onClick={() => {
+                      if (readyNow()) void redo();
+                    }}
                   >
                     <Redo2 size={15} />
                   </button>

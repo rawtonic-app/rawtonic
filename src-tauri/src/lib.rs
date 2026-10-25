@@ -845,6 +845,7 @@ pub fn run() {
             file_management::clear_thumbnail_cache,
             file_management::set_color_label_for_paths,
             file_management::set_rating_for_paths,
+            file_management::restore_culling,
             file_management::create_virtual_copy,
             file_management::get_albums,
             file_management::save_albums,

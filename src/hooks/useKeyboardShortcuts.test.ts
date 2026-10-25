@@ -693,7 +693,7 @@ describe("auto-advance after a rating", () => {
       new KeyboardEvent("keydown", { code: "KeyZ", key: "z", metaKey: true, bubbles: true, cancelable: true }),
     );
 
-  it("keeps the rating on the rated photograph and Undo for the next one's edits", () => {
+  it("undoes a new edit after auto-advance before the earlier rating", () => {
     open("/s/a.NEF", true);
     useLibraryStore.setState({ imageRatings: { "/s/a.NEF": 2 } });
     press("Digit4", "4");
@@ -701,7 +701,8 @@ describe("auto-advance after a rating", () => {
     // The step done (what handleImageSelect does to the stores), then Undo.
     useLibraryStore.setState({ multiSelectedPaths: ["/s/b.NEF"] });
     useEditorStore.getState().setEditor({ selectedImage: { path: "/s/b.NEF", isReady: true } as never });
-    useEditorStore.setState({ history: [{}, {}] as never, historyIndex: 1, historyPending: false });
+    useEditorStore.setState({ history: [{}] as never, historyIndex: 0, historyPending: false });
+    useEditorStore.getState().pushHistory({ exposure: 1 } as never);
     const editUndo = vi.spyOn(useEditorStore.getState(), "undo");
     vi.clearAllMocks();
     undo();
