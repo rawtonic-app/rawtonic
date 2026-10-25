@@ -1,4 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
 import { Sparkles } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -21,6 +20,7 @@ import StudioLuminanceArc, {
 } from "./StudioLuminanceArc";
 import { ToolGroup } from "./StudioDevelop";
 import type { ToolParams } from "./StudioToolCopy";
+import { invokeEditStep } from "../../utils/editGate";
 
 type Values = Pick<Adjustments, "colorGrading" | "sectionVisibility"> &
   Partial<Pick<Adjustments, "blackAndWhite" | "grayMixer">>;
@@ -369,7 +369,7 @@ export function StudioBlackAndWhite({
     if (!selectedImage?.isReady) return;
     setBusy(true);
     try {
-      const mix = await invoke<number[] | null>(Invokes.AutoGrayMix, {
+      const mix = await invokeEditStep<number[] | null>(Invokes.AutoGrayMix, {
         path: selectedImage.path,
         jsAdjustments: adjustments,
       });

@@ -1,4 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
 import { useRef, type PointerEvent } from "react";
 import { updateAdjustments } from "../../../hooks/useEditorActions";
 import { useEditorStore } from "../../../store/useEditorStore";
@@ -11,6 +10,7 @@ import {
   type TatStart,
 } from "../../../utils/targetedAdjustment";
 import { Invokes } from "../../ui/AppProperties";
+import { invokeEditStep } from "../../../utils/editGate";
 
 interface Rect {
   left: number;
@@ -72,12 +72,12 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
     const [linear, curveInput] = await Promise.all([
       isToneTarget(tatTarget)
         ? Promise.resolve(null)
-        : invoke<[number, number, number] | null>(
+        : invokeEditStep<[number, number, number] | null>(
             Invokes.SamplePreviewWhiteBalance,
             point,
           ).catch(() => null),
       isToneTarget(tatTarget)
-        ? invoke<[number, number, number][] | null>(Invokes.SampleCurveInput, {
+        ? invokeEditStep<[number, number, number][] | null>(Invokes.SampleCurveInput, {
             ...point,
             adjustments,
           }).catch(() => null)

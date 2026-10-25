@@ -51,7 +51,7 @@ import { draftFor, flushSliderDraft, renderDraft, updateDraft } from '../utils/s
 import { saveFailure } from './useLibraryActions';
 import { clampViewerZoom } from '../utils/viewerDisplay';
 import { noteTool } from '../components/contribute/usageStats';
-import { acceptEdit, editsRefused, invokeRecipeWrite, ViewOnlyRefusal } from '../utils/editGate';
+import { editsRefused, invokeEditStep, invokeRecipeWrite, onSettle, trackEdit, ViewOnlyRefusal } from '../utils/editGate';
 
 const pendingMetadataSaves = new Map<string, Promise<Adjustments | undefined>>();
 const unsavedRecipes = new Map<string, Adjustments>();
@@ -382,6 +382,12 @@ function afterRecipeSaves<T>(paths: string[], mutation: () => Promise<T>, preser
 useEditorStore.subscribe((state, previous) => {
   if (previous.isSliderDragging && !state.isSliderDragging) flushSliderDraft();
 });
+// Before the photograph is only shown, a drag (also Quick Adjust's, with
+// the key still held) ends and commits (utils/editGate).
+onSettle(() => {
+  flushSliderDraft();
+  if (useEditorStore.getState().isSliderDragging) useEditorStore.getState().setEditor({ isSliderDragging: false });
+});
 
 /** Commits a slider drag's draft (sliderDraft.ts) for `path`. */
 function commitDraft(path: string, adjustments: Adjustments) {
@@ -407,12 +413,7 @@ export function updateAdjustments(value: AdjustmentsUpdate) {
       image.width,
       image.height,
     );
-    // The draft commits later, maybe on the release of a gesture made
-    // before the photograph was only shown: it keeps its acceptance.
-    const accepted = acceptEdit();
-    if (!accepted) return;
-    const commit = (path: string, adjustments: Adjustments) => accepted(() => commitDraft(path, adjustments));
-    if (next === prev || renderDraft(image.path, next, commit)) return;
+    if (next === prev || renderDraft(image.path, next, commitDraft)) return;
   }
   flushSliderDraft();
   useEditorStore.getState().setEditor((state) => {
@@ -482,7 +483,7 @@ async function runAutoStraightenOnce(
   const asked = reframingInputs(adjustments as unknown as Record<string, unknown>);
   let result: { rotation: number; crop: Adjustments['crop'] } | null;
   try {
-    result = await invoke(Invokes.CalculateAutoStraighten, { path: selectedImage.path, adjustments });
+    result = await invokeEditStep(Invokes.CalculateAutoStraighten, { path: selectedImage.path, adjustments });
   } catch (err) {
     // The decode was another photograph's (auto_straighten.rs ANOTHER_PHOTO).
     if (String(err).includes('another photograph is open')) return 'stale';
@@ -545,7 +546,7 @@ export function useEditorActions() {
       const toneMapper = current.toneMapper ?? null;
       // The curve choice (Base characteristics) is part of the rendering Auto predicts.
       const baseCurve = current.baseCurve ?? null;
-      const { autoBlackPoint, ...autoAdjustments }: Adjustments & { autoBlackPoint?: number } = await invoke(
+      const { autoBlackPoint, ...autoAdjustments }: Adjustments & { autoBlackPoint?: number } = await invokeEditStep(
         Invokes.CalculateAutoAdjustments,
         { toneMapper, baseCurve },
       );
@@ -585,7 +586,7 @@ export function useEditorActions() {
     const selectedImage = useEditorStore.getState().selectedImage;
     if (!selectedImage?.isReady || editsRefused()) return;
     try {
-      const balance = await autoWhiteBalance(selectedImage);
+      const balance = await trackEdit(autoWhiteBalance(selectedImage));
       if (!isCurrentEditorImage(selectedImage.path)) return;
       if (!balance) {
         toast.warn(i18next.t('studio.whiteBalance.toasts.needsPreview'));
@@ -622,7 +623,7 @@ export function useEditorActions() {
       const image = useEditorStore.getState().selectedImage;
       if (!image?.isReady || editsRefused()) return;
       try {
-        const result: { size: number } = await invoke(Invokes.LoadAndParseLut, { path });
+        const result: { size: number } = await invokeEditStep(Invokes.LoadAndParseLut, { path });
         const name = displayName ?? (path.split(/[\\/]/).pop() || 'LUT');
         if (!isCurrentEditorImage(image.path)) return;
         setAdjustments((prev: Adjustments) => ({
@@ -678,7 +679,9 @@ export function useEditorActions() {
       // The last edit stays a step of its own, before the reset.
       debouncedSetHistory.flush();
 
-      afterRecipeSaves(
+      // Written after the saves before it, then shown: settled before the
+      // photograph is only shown (utils/editGate).
+      void trackEdit(afterRecipeSaves(
         pathsToReset,
         () => savedBatch(invokeRecipeWrite(Invokes.ResetAdjustmentsForPaths, { paths: pathsToReset }), pathsToReset, 'reset adjustments'),
         false,
@@ -700,7 +703,7 @@ export function useEditorActions() {
             setEditor({ adjustments: resetData });
           }
         })
-        .catch((err) => toast.error(`Failed to reset adjustments: ${err}`));
+        .catch((err) => toast.error(`Failed to reset adjustments: ${err}`)));
     },
     [setEditor],
   );
@@ -725,7 +728,7 @@ export function useEditorActions() {
 
       pathsToUpdate.forEach((p) => globalImageCache.delete(p));
 
-      afterRecipeSaves(pathsToUpdate, () =>
+      void trackEdit(afterRecipeSaves(pathsToUpdate, () =>
         savedBatch(
           invokeRecipeWrite(Invokes.ApplyAutoLensCorrectionToPaths, { paths: pathsToUpdate }),
           pathsToUpdate,
@@ -755,7 +758,7 @@ export function useEditorActions() {
             }
           }
         })
-        .catch((err) => toast.error(`Failed to apply auto lens correction: ${err}`));
+        .catch((err) => toast.error(`Failed to apply auto lens correction: ${err}`)));
     },
     [setEditor],
   );
@@ -820,7 +823,7 @@ export function useEditorActions() {
           flushSliderDraft();
           debouncedSetHistory.flush();
           const pastedStep = useEditorStore.getState().adjustments;
-          if (next !== merged) void resolvePastedLens(open.path, pastedStep);
+          if (next !== merged) void trackEdit(resolvePastedLens(open.path, pastedStep));
         }
       } else if (open) {
         setAdjustments({ ...adjustments, ...adjustmentsToApply });
@@ -846,13 +849,13 @@ export function useEditorActions() {
           if (pendingMetadataSaves.get(path) === settled) pendingMetadataSaves.delete(path);
         });
       });
-      return written
+      return trackEdit(written
         .then((failed) => {
           const updated = others.filter((path) => !failed.includes(path));
           updated.forEach((path) => unsavedRecipes.delete(path));
           if (!pastedOntoOpen && selectedImage && updated.includes(selectedImage.path)
             && isCurrentEditorImage(selectedImage.path)) {
-            invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path }).then((meta) => {
+            return invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path }).then((meta) => {
               if (isCurrentEditorImage(selectedImage.path) && meta.adjustments) {
                 setAdjustments((prev: Adjustments) => ({
                   ...prev,
@@ -864,7 +867,7 @@ export function useEditorActions() {
             });
           }
         })
-        .catch((err) => toast.error(`Failed to paste adjustments: ${err}`));
+        .catch((err) => toast.error(`Failed to paste adjustments: ${err}`)));
     },
     [setAdjustments],
   );
@@ -958,7 +961,9 @@ export function useEditorActions() {
       const { multiSelectedPaths } = useLibraryStore.getState();
       const targets =
         paths ?? (multiSelectedPaths.length > 0 ? multiSelectedPaths : selectedImage ? [selectedImage.path] : []);
-      const source = await settingsSource(previousPhoto);
+      if (editsRefused()) return;
+      // Read first: settled before the photograph is only shown (utils/editGate).
+      const source = await trackEdit(settingsSource(previousPhoto));
       if (!source) return;
       const choice = rememberedChoice(source);
       const applied = withSourceFrames(chosenSettings(source.adjustments, choice.keys, choice.layerIds), source);

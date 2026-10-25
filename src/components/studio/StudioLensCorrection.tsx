@@ -7,6 +7,7 @@ import { CAMERA_CA_VERSION, INITIAL_ADJUSTMENTS, autoCaOn, type Adjustments } fr
 import { Invokes } from "../ui/AppProperties";
 import AdjustmentControl from "./AdjustmentControl";
 import { ToolGroup } from "./StudioDevelop";
+import { invokeEditStep } from "../../utils/editGate";
 
 /** Every lens-profile setting back to "no profile". */
 export const LENS_PROFILE_OFF: Partial<Adjustments> = {
@@ -94,7 +95,7 @@ export default function StudioLensCorrection() {
     }));
 
   const params = (maker: string, model: string) =>
-    invoke<Adjustments["lensDistortionParams"]>(
+    invokeEditStep<Adjustments["lensDistortionParams"]>(
       Invokes.GetLensDistortionParams,
       {
         maker,
@@ -121,7 +122,7 @@ export default function StudioLensCorrection() {
     };
     setStatus("detecting");
     try {
-      const found = await invoke<[string, string] | null>(
+      const found = await invokeEditStep<[string, string] | null>(
         Invokes.AutodetectLens,
         {
           maker: exif.Make,

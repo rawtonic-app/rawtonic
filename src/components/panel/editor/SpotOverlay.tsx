@@ -10,6 +10,7 @@ import { toastAiError } from '../../../utils/aiErrors';
 import { getTransformAdjustments } from '../../../hooks/useAiMasking';
 import { createSubMask } from '../../../utils/maskUtils';
 import { shapeAsShown, shapeFrame, type SizedFrame } from '../../../utils/maskGeometry';
+import { invokeEditStep } from '../../../utils/editGate';
 
 interface Props {
   /** The displayed photograph's box in the viewer's (zoomed) content. */
@@ -205,7 +206,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     try {
       const definition = select ? await select(patch) : patch;
       if (useEditorStore.getState().selectedImage?.path !== path) return;
-      const json = await invoke<string>(Invokes.InvokeGenerativeReplaseWithMaskDef, {
+      const json = await invokeEditStep<string>(Invokes.InvokeGenerativeReplaseWithMaskDef, {
         currentAdjustments: adjustments,
         patchDefinition: definition,
         path,
@@ -313,7 +314,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
             },
         async (patch) => {
           const { adjustments } = useEditorStore.getState();
-          const mask = await invoke<Record<string, unknown>>(Invokes.GenerateAiSubjectMask, {
+          const mask = await invokeEditStep<Record<string, unknown>>(Invokes.GenerateAiSubjectMask, {
             jsAdjustments: getTransformAdjustments(adjustments),
             path: selectedImage.path,
             startPoint: [start.x, start.y],
@@ -345,7 +346,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     setPending({ x, y, radius, points });
     const path = selectedImage.path;
     try {
-      const [sourceX, sourceY] = await invoke<[number, number]>(Invokes.FindSpotSource, {
+      const [sourceX, sourceY] = await invokeEditStep<[number, number]>(Invokes.FindSpotSource, {
         x,
         y,
         radius,

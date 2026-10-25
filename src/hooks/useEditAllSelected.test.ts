@@ -61,8 +61,8 @@ describe('Edit all selected', () => {
   it('writes the last edits when the key that shows the photograph alone turns it off', () => {
     const { rerender } = renderHook(({ on }) => useEditAllSelected(on, selection), { initialProps: { on: true } });
     edit({ exposure: 0.5 });
-    // F: the full screen starts and Edit all goes off in the same key event
-    // (MultiViewStage); its edit was accepted before (utils/editGate).
+    // F: Edit all goes off in the same key event (MultiViewStage); its last
+    // edits are written before the full screen begins (utils/editGate).
     const onKey = () =>
       act(() => {
         useUIStore.setState({ activeView: 'editor', isFullScreen: true });

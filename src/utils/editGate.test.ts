@@ -8,7 +8,7 @@ import { useUIStore } from '../store/useUIStore';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from './adjustments';
 import { Invokes } from '../components/ui/AppProperties';
 import { registerSliderDraftRenderer } from './sliderDraft';
-import { EDIT_TOOL_STATES, RECIPE_WRITES, ViewOnlyRefusal, acceptEdit, editsRefused, invokeRecipeWrite } from './editGate';
+import { EDIT_TOOL_STATES, RECIPE_WRITES, ViewOnlyRefusal, asLoaded, editsRefused, invokeRecipeWrite } from './editGate';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), warn: vi.fn() } }));
@@ -52,8 +52,10 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-/** `step` done as the user, while one of their events is handled. */
+/** `step` done while a user's event of `type` is handled, or outside any
+ * ('answer': as an answer of the backend arrives). */
 function asUser<T>(type: string, step: () => T): T {
+  if (type === 'answer') return step();
   let out: T | undefined;
   const listener = () => {
     out = step();
@@ -62,8 +64,8 @@ function asUser<T>(type: string, step: () => T): T {
   window.dispatchEvent(new Event(type));
   return out as T;
 }
-// The user's ways in: a key, the wheel (the crop zoom), a click (a menu).
-const INPUTS = ['keydown', 'wheel', 'click'] as const;
+// The ways in: a key, the wheel (the crop zoom), a click (a menu), and none.
+const INPUTS = ['keydown', 'wheel', 'click', 'answer'] as const;
 
 const recipeWrites = () =>
   vi.mocked(invoke).mock.calls.filter(([command]) => (RECIPE_WRITES as readonly string[]).includes(command));
@@ -86,6 +88,8 @@ const EDITS: Array<[string, (actions: Actions) => unknown]> = [
   ['resetHistory', () => useEditorStore.getState().resetHistory(later)],
   ['handleRotate', (a) => a.handleRotate(90)],
   ['handleAutoAdjustments', (a) => a.handleAutoAdjustments()],
+  ['handleAutoWhiteBalance', (a) => a.handleAutoWhiteBalance()],
+  ['handleAutoStraighten', (a) => a.handleAutoStraighten()],
   ['handleLutSelect', (a) => a.handleLutSelect('/l.cube')],
   ['handleResetAdjustments (selection)', (a) => a.handleResetAdjustments()],
   ['handleAutoLensCorrection (selection)', (a) => a.handleAutoLensCorrection()],
@@ -96,38 +100,43 @@ const EDITS: Array<[string, (actions: Actions) => unknown]> = [
 
 describe.each(Object.entries(MODES))('in %s', (_mode, ui) => {
   it.each(INPUTS.flatMap((input) => EDITS.map(([name, edit]) => [name, input, edit] as const)))(
-    'refuses %s on a %s',
+    'refuses %s (%s)',
     async (_name, input, edit) => {
-    const { result } = renderHook(useEditorActions);
-    act(() => useUIStore.setState(ui));
-    expect(asUser(input, editsRefused)).toBe(true);
-    await act(async () => {
-      await asUser(input, () => edit(result.current));
-    });
-    debouncedSetHistory.flush();
-    const editor = useEditorStore.getState();
-    expect(editor.adjustments).toBe(shown);
-    expect(editor.historyIndex).toBe(1);
-    expect(editor.history).toEqual([earlier, shown, later]);
-    expect(recipeWrites()).toEqual([]);
+      const { result } = renderHook(useEditorActions);
+      act(() => useUIStore.setState(ui));
+      expect(useUIStore.getState()).toMatchObject(ui);
+      expect(editsRefused()).toBe(true);
+      await act(async () => {
+        await asUser(input, () => edit(result.current));
+      });
+      debouncedSetHistory.flush();
+      const editor = useEditorStore.getState();
+      expect(editor.adjustments).toBe(shown);
+      expect(editor.historyIndex).toBe(1);
+      expect(editor.history).toEqual([earlier, shown, later]);
+      expect(recipeWrites()).toEqual([]);
     },
   );
 
-  it.each(EDIT_TOOL_STATES)('keeps the user from turning %s on', (key) => {
+  it.each(EDIT_TOOL_STATES)('keeps %s from turning on', (key) => {
     act(() => useUIStore.setState(ui));
-    asUser('click', () => {
-      useEditorStore.getState().setEditor({ [key]: 'on' } as never);
-      useEditorStore.setState({ [key]: 'on' } as never);
-    });
+    asUser('click', () => useEditorStore.getState().setEditor({ [key]: 'on' } as never));
+    useEditorStore.setState({ [key]: 'on' } as never);
     expect(useEditorStore.getState()[key]).toBeNull();
   });
 
-  it.each(RECIPE_WRITES)('refuses the recipe write %s of the user without asking the backend', async (command) => {
+  it.each(RECIPE_WRITES)('refuses the recipe write %s without asking the backend', async (command) => {
     act(() => useUIStore.setState(ui));
-    await expect(asUser('click', () => invokeRecipeWrite(command, { paths: ['/s/a.dng'] }))).rejects.toBeInstanceOf(
-      ViewOnlyRefusal,
-    );
+    await expect(invokeRecipeWrite(command, { paths: ['/s/a.dng'] })).rejects.toBeInstanceOf(ViewOnlyRefusal);
     expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("lets the editor complete the shown photograph's recipe by itself (AI detections, placements)", () => {
+    act(() => useUIStore.setState(ui));
+    asLoaded(() => updateAdjustments({ exposure: 1 }));
+    expect(useEditorStore.getState().adjustments.exposure).toBe(1);
+    updateAdjustments({ exposure: 2 });
+    expect(useEditorStore.getState().adjustments.exposure).toBe(1);
   });
 
   it('lets the next photograph load on a key and a tool be turned off', () => {
@@ -140,99 +149,8 @@ describe.each(Object.entries(MODES))('in %s', (_mode, ui) => {
       useEditorStore.getState().setEditor({ adjustments: earlier });
     });
     expect(useEditorStore.getState()).toMatchObject({ isSpotToolActive: false, adjustments: earlier });
-    asUser('keydown', () =>
-      useEditorStore.getState().setEditor({ selectedImage: photo('/s/c.dng'), adjustments: later, history: [later], historyIndex: 0 }),
-    );
+    useEditorStore.getState().setEditor({ selectedImage: photo('/s/c.dng'), adjustments: later, history: [later], historyIndex: 0 });
     expect(useEditorStore.getState()).toMatchObject({ adjustments: later, historyIndex: 0 });
-  });
-
-  it("applies the editor's own updates outside the user's events (answers, retouch following the geometry)", () => {
-    act(() => useUIStore.setState(ui));
-    updateAdjustments({ exposure: 1 });
-    expect(useEditorStore.getState().adjustments.exposure).toBe(1);
-  });
-
-  it('carries out an edit accepted before, also during a key event (Edit all turned off by F)', async () => {
-    const accepted = acceptEdit()!;
-    act(() => useUIStore.setState(ui));
-    expect(asUser('keydown', () => acceptEdit())).toBeNull();
-    await asUser('keydown', () =>
-      accepted(() => {
-        updateAdjustments({ exposure: 1 });
-        return invokeRecipeWrite(Invokes.ApplyAdjustmentsToPaths, { paths: ['/s/a.dng'] });
-      }),
-    );
-    expect(useEditorStore.getState().adjustments.exposure).toBe(1);
-    expect(recipeWrites()).toHaveLength(1);
-  });
-});
-
-// Asked for in Develop, answered or written after F showed the photograph
-// alone: what was accepted is done, and the editor shows what is on disk.
-describe('work accepted before the photograph is only shown', () => {
-  type Held = { command: string; resolve(value: unknown): void };
-  let held: Held[];
-  const answer = async (command: string, value?: unknown) => {
-    await act(async () => {});
-    const request = held.find((r) => r.command === command)!;
-    held = held.filter((r) => r !== request);
-    await act(async () => request.resolve(value));
-    await act(async () => {});
-  };
-  const pressF = () => asUser('keydown', () => act(() => useUIStore.setState(MODES['the full screen from Develop'])));
-  beforeEach(() => {
-    held = [];
-    vi.mocked(invoke).mockImplementation((command) => new Promise((resolve) => held.push({ command, resolve })));
-  });
-
-  it('commits a drag begun before F when it is released after (its draft keeps its acceptance)', () => {
-    const stopDrafts = registerSliderDraftRenderer(() => true);
-    try {
-      useEditorStore.setState({ isSliderDragging: true });
-      updateAdjustments({ exposure: 2 });
-      expect(useEditorStore.getState().adjustments).toBe(shown);
-      pressF();
-      asUser('pointerup', () => useEditorStore.getState().setEditor({ isSliderDragging: false }));
-      debouncedSetHistory.flush();
-      const editor = useEditorStore.getState();
-      expect(editor.adjustments.exposure).toBe(2);
-      expect(editor.history.at(-1)).toBe(editor.adjustments);
-      // A drag begun in the full screen draws no draft.
-      useEditorStore.setState({ isSliderDragging: true });
-      asUser('pointermove', () => updateAdjustments({ exposure: 3 }));
-      asUser('pointerup', () => useEditorStore.getState().setEditor({ isSliderDragging: false }));
-      expect(useEditorStore.getState().adjustments.exposure).toBe(2);
-    } finally {
-      stopDrafts();
-    }
-  });
-
-  it('applies Auto answered after F', async () => {
-    const { result } = renderHook(useEditorActions);
-    act(() => void result.current.handleAutoAdjustments());
-    pressF();
-    await answer(Invokes.CalculateAutoAdjustments, { ...INITIAL_ADJUSTMENTS, exposure: 4 });
-    expect(useEditorStore.getState().adjustments.exposure).toBe(4);
-  });
-
-  it('shows the reset written after F, as one step', async () => {
-    const { result } = renderHook(useEditorActions);
-    act(() => result.current.handleResetAdjustments(['/s/b.dng']));
-    pressF();
-    await answer(Invokes.ResetAdjustmentsForPaths);
-    const editor = useEditorStore.getState();
-    expect(editor.adjustments.exposure).toBe(0);
-    expect(editor.history.at(-1)).toBe(editor.adjustments);
-    expect(editor.historyIndex).toBe(editor.history.length - 1);
-  });
-
-  it('shows the auto lens correction written after F', async () => {
-    const { result } = renderHook(useEditorActions);
-    act(() => result.current.handleAutoLensCorrection(['/s/b.dng']));
-    pressF();
-    await answer(Invokes.ApplyAutoLensCorrectionToPaths);
-    await answer(Invokes.LoadMetadata, { adjustments: { ...INITIAL_ADJUSTMENTS, lensMaker: 'Maker', lensModel: '35mm' } });
-    expect(useEditorStore.getState().adjustments.lensModel).toBe('35mm');
   });
 });
 
@@ -242,6 +160,120 @@ it('edits again once the photograph is no longer only shown', () => {
   useUIStore.setState(DEVELOP);
   updateAdjustments({ exposure: 1 });
   expect(useEditorStore.getState().adjustments.exposure).toBe(1);
+});
+
+// Asked for in Develop, still under way when F is pressed: the full screen
+// begins once it has settled, so what was accepted is done and the editor
+// shows what is on disk.
+describe('edits under way when the photograph is to be shown alone', () => {
+  type Held = { command: string; resolve(value: unknown): void };
+  let held: Held[];
+  const answer = async (command: string, value?: unknown) => {
+    await act(async () => {});
+    const request = held.find((r) => r.command === command)!;
+    held = held.filter((r) => r !== request);
+    await act(async () => request.resolve(value));
+    await act(async () => {});
+  };
+  // The macrotask the entry waits for after the last answer.
+  const settled = () => act(() => new Promise((resolve) => setTimeout(resolve, 5)));
+  const pressF = () => asUser('keydown', () => act(() => useUIStore.getState().setUI({ isFullScreen: true })));
+  const fullScreen = () => useUIStore.getState().isFullScreen;
+  beforeEach(() => {
+    held = [];
+    vi.mocked(invoke).mockImplementation((command) => new Promise((resolve) => held.push({ command, resolve })));
+  });
+  afterEach(async () => {
+    // Nothing left under way for the next test.
+    for (const request of held) request.resolve(undefined);
+    await settled();
+  });
+
+  it('applies Auto answered after F, then shows the photograph alone', async () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => void result.current.handleAutoAdjustments());
+    pressF();
+    expect(fullScreen()).toBe(false);
+    await answer(Invokes.CalculateAutoAdjustments, { ...INITIAL_ADJUSTMENTS, exposure: 4 });
+    await settled();
+    expect(useEditorStore.getState().adjustments.exposure).toBe(4);
+    expect(fullScreen()).toBe(true);
+  });
+
+  it('shows the reset written after F, as one step', async () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => result.current.handleResetAdjustments(['/s/b.dng']));
+    pressF();
+    expect(fullScreen()).toBe(false);
+    await answer(Invokes.ResetAdjustmentsForPaths);
+    await settled();
+    const editor = useEditorStore.getState();
+    expect(editor.adjustments.exposure).toBe(0);
+    expect(editor.history.at(-1)).toBe(editor.adjustments);
+    expect(editor.historyIndex).toBe(editor.history.length - 1);
+    expect(fullScreen()).toBe(true);
+  });
+
+  it('shows the auto lens correction written after F (written, then read back)', async () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => result.current.handleAutoLensCorrection(['/s/b.dng']));
+    pressF();
+    await answer(Invokes.ApplyAutoLensCorrectionToPaths);
+    await settled();
+    expect(fullScreen()).toBe(false);
+    const written = { adjustments: { ...INITIAL_ADJUSTMENTS, lensMaker: 'Maker', lensModel: '35mm' } };
+    await answer(Invokes.LoadMetadata, written);
+    expect(useEditorStore.getState().adjustments.lensModel).toBe('35mm');
+    // The Library's active photograph (the same one) is read back too.
+    await answer(Invokes.LoadMetadata, written);
+    await settled();
+    expect(fullScreen()).toBe(true);
+  });
+
+  it('commits a drag begun before F at once, also with the pointer or key still held', () => {
+    const stopDrafts = registerSliderDraftRenderer(() => true);
+    try {
+      useEditorStore.setState({ isSliderDragging: true });
+      updateAdjustments({ exposure: 2 });
+      expect(useEditorStore.getState().adjustments).toBe(shown);
+      pressF();
+      debouncedSetHistory.flush();
+      const editor = useEditorStore.getState();
+      expect(editor).toMatchObject({ isSliderDragging: false });
+      expect(editor.adjustments.exposure).toBe(2);
+      expect(editor.history.at(-1)).toBe(editor.adjustments);
+      expect(fullScreen()).toBe(true);
+      // A drag begun in the full screen draws no draft.
+      useEditorStore.setState({ isSliderDragging: true });
+      updateAdjustments({ exposure: 3 });
+      useEditorStore.getState().setEditor({ isSliderDragging: false });
+      expect(useEditorStore.getState().adjustments.exposure).toBe(2);
+    } finally {
+      stopDrafts();
+    }
+  });
+
+  it('waits for a held pointer: its gesture commits on release, then the full screen begins', async () => {
+    window.dispatchEvent(new Event('pointerdown'));
+    pressF();
+    expect(fullScreen()).toBe(false);
+    // The gesture's release commits its edit (before the mode begins).
+    window.addEventListener('pointerup', () => updateAdjustments({ exposure: 5 }), { once: true });
+    window.dispatchEvent(new Event('pointerup'));
+    await settled();
+    expect(useEditorStore.getState().adjustments.exposure).toBe(5);
+    expect(fullScreen()).toBe(true);
+  });
+
+  it('does not enter later when the user chose another mode meanwhile', async () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => void result.current.handleAutoAdjustments());
+    pressF();
+    act(() => useUIStore.getState().setUI({ activeView: 'library' }));
+    await answer(Invokes.CalculateAutoAdjustments, { ...INITIAL_ADJUSTMENTS, exposure: 4 });
+    await settled();
+    expect(fullScreen()).toBe(false);
+  });
 });
 
 // Every source file of the app (tests aside), as text.

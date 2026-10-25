@@ -91,6 +91,8 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  // No pointer left held down (a view-only mode waits for its release).
+  fireEvent.pointerUp(window);
   cleanup();
   vi.useRealTimers();
   vi.unstubAllGlobals();

@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
 import AdjustmentControl from "./AdjustmentControl";
+import { invokeEditStep } from "../../utils/editGate";
 
 interface LutEntry {
   name: string;
@@ -155,7 +156,7 @@ export default function StudioLut({
   // file it was imported from.
   const removeLut = async (path: string) => {
     try {
-      const list = await invoke<LutEntry[]>(Invokes.RemoveLut, { path });
+      const list = await invokeEditStep<LutEntry[]>(Invokes.RemoveLut, { path });
       setEntries(list ?? []);
       clear();
     } catch (error) {

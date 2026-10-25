@@ -80,7 +80,7 @@ import { previewsMenu } from '../utils/previews';
 import { MISSING_VIEW_ID, offlineMenu } from '../utils/offline';
 import { PREVIOUS_IMPORT_VIEW_ID } from '../utils/folderSync';
 import { noteTool } from '../components/contribute/usageStats';
-import { invokeRecipeWrite, ViewOnlyRefusal } from '../utils/editGate';
+import { invokeRecipeWrite, trackEdit, ViewOnlyRefusal } from '../utils/editGate';
 
 type TaggingSubMenuProps = Omit<ComponentProps<typeof TaggingSubMenu>, 'hideContextMenu'>;
 
@@ -528,7 +528,8 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         if (selectedImage && !selectedImage.isReady && finalSelection.includes(selectedImage.path)) return;
         finalSelection.forEach((p) => globalImageCache.delete(p));
 
-        invokeRecipeWrite(Invokes.ApplyAutoAdjustmentsToPaths, { paths: finalSelection })
+        // Written, then shown: settled before the photograph is only shown.
+        void trackEdit(invokeRecipeWrite(Invokes.ApplyAutoAdjustmentsToPaths, { paths: finalSelection })
           .then(
             () => [] as string[],
             (err) => {
@@ -565,7 +566,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           .catch((err) => {
             console.error('Failed to apply auto adjustments to paths:', err);
             toast.error(t('contextMenus.toasts.failedApplyAuto', { err }));
-          });
+          }));
       };
 
       const onExportClick = () => {
