@@ -72,39 +72,6 @@ fn library_for(source: &Path) -> Option<PathBuf> {
     })
 }
 
-/// Registers with the engine which photographs the active session keeps
-/// outside its folder (ADR 0016), so their recipes' session resources
-/// (`profiles/`, `resources/`) resolve there in edits, previews and
-/// exports; the library opened before is unregistered.
-pub(crate) fn refresh_outside_photos() {
-    static REGISTERED: Mutex<Option<PathBuf>> = Mutex::new(None);
-    let dir = active().lock().ok().and_then(|dir| dir.clone());
-    let photos = match dir
-        .as_ref()
-        .filter(|dir| dir.join("session.json").is_file())
-    {
-        Some(dir) => match Library::open(dir).and_then(|lib| lib.outside_photos()) {
-            Ok(photos) => photos.into_iter().collect(),
-            Err(e) => {
-                log::warn!("Photographs outside {} not read: {e:#}", dir.display());
-                HashSet::new()
-            }
-        },
-        None => HashSet::new(),
-    };
-    let mut registered = REGISTERED.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(previous) = registered
-        .take()
-        .filter(|previous| Some(previous) != dir.as_ref())
-    {
-        rawtonic_engine::session_layout::set_outside_photos(&previous, HashSet::new());
-    }
-    if let Some(dir) = dir {
-        rawtonic_engine::session_layout::set_outside_photos(&dir, photos);
-        *registered = Some(dir);
-    }
-}
-
 /// The session or open catalog that manages `path`, if any.
 pub(crate) fn library_dir_for(path: &Path) -> Option<PathBuf> {
     library_for(path)
@@ -464,7 +431,6 @@ fn follow_verified_moves(lib: &Library, new: &[PathBuf]) -> anyhow::Result<HashS
 
 fn remember(app: &tauri::AppHandle, dir: &Path) -> Result<(), String> {
     *active().lock().map_err(|e| e.to_string())? = Some(dir.into());
-    refresh_outside_photos();
     let cache = app.path().app_config_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
     rawtonic_metadata::atomic_write(
