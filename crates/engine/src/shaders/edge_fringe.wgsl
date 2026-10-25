@@ -15,6 +15,13 @@
 // (index m is tile row m - radius): the CPU computes those from windows of
 // repeated rows centred beyond the image, and repeats the models only along
 // rows (so does the tile).
+//
+// Whole 16 × 16 workgroups skip work no pixel of theirs can need, decided
+// from records of their own and the neighbouring blocks (`block`, in the
+// tail of `g4`): the side search where the luminance a block's pixels read
+// varies less than the edge test's start, and the window models of the
+// luminance and colour-line stages away from windows of some weight. The
+// skipped work would not change a pixel (as version 4's skips on the CPU).
 
 struct Params {
     width: u32,
@@ -24,14 +31,15 @@ struct Params {
     direction_radius: u32,
     side_radius: u32,
     profile_radius: u32,
-    _pad0: u32,
+    blocks_at: u32,
     out_x: u32,
     out_y: u32,
     out_width: u32,
     out_rows: u32,
     band_x: u32,
     band_width: u32,
-    _pad2: vec2<u32>,
+    blocks_width: u32,
+    _pad2: u32,
     noise: f32,
     push: f32,
     inv_area: f32,
@@ -118,6 +126,49 @@ fn tap(weights: array<vec4<f32>, 3>, k: u32) -> f32 {
     return weights[k / 4u][k % 4u];
 }
 
+// The record of 16 × 16 block (bx, by): x, y = the smallest and largest
+// direction luminance of its pixels; z = whether a colour-line window of
+// it has weight; w = whether a luminance window of it is near an edge (1).
+fn block(bx: i32, by: i32) -> u32 {
+    return P.blocks_at + u32(by) * P.blocks_width + u32(bx);
+}
+
+// Whether a block in the columns of blocks bx - 1 ..= bx + 1 and the rows
+// by - up ..= by + down of a grid over `rows` pixel rows has its `flag`
+// (2 or 3, the record's component) set.
+fn flagged_near(bx: i32, by: i32, up: i32, down: i32, rows: u32, flag: u32) -> bool {
+    let columns = i32((P.width + 15u) / 16u);
+    let block_rows = i32((rows + 15u) / 16u);
+    for (var j = max(by - up, 0); j <= min(by + down, block_rows - 1); j++) {
+        for (var i = max(bx - 1, 0); i <= min(bx + 1, columns - 1); i++) {
+            if g4[block(i, j)][flag] > 0.0 {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+var<workgroup> group_low: atomic<u32>;
+var<workgroup> group_high: atomic<u32>;
+var<workgroup> group_any: atomic<u32>;
+
+// Marks the group's block with `flag` (2 or 3) where any invocation's `marked`
+// is true; every invocation of the group calls it.
+fn mark_block(wid: vec3<u32>, li: u32, marked: bool, flag: u32) {
+    if li == 0u {
+        atomicStore(&group_any, 0u);
+    }
+    workgroupBarrier();
+    if marked {
+        atomicOr(&group_any, 1u);
+    }
+    workgroupBarrier();
+    if li == 0u {
+        g4[block(i32(wid.x), i32(wid.y))][flag] = f32(atomicLoad(&group_any));
+    }
+}
+
 // The tile's pixels from the band into `src`.
 @compute @workgroup_size(16, 16)
 fn unpack(@builtin(global_invocation_id) id: vec3<u32>) {
@@ -125,7 +176,9 @@ fn unpack(@builtin(global_invocation_id) id: vec3<u32>) {
         return;
     }
     let j = 3u * (id.y * P.band_width + P.band_x + id.x);
-    src[at(i32(id.x), i32(id.y))] = vec4<f32>(band[j], band[j + 1u], band[j + 2u], 0.0);
+    let c = vec3<f32>(band[j], band[j + 1u], band[j + 2u]);
+    // w: the square-root luminance the chromatic-aberration stage reads.
+    src[at(i32(id.x), i32(id.y))] = vec4<f32>(c, sqrt(max(lum(c), 0.0)));
 }
 
 // The tile's own pixels of `src`, packed RGB, into `dst`.
@@ -144,7 +197,7 @@ fn pack(@builtin(global_invocation_id) id: vec3<u32>) {
 // ---- Chromatic-aberration stage (version 4's first) ----
 
 fn root_at(x: i32, y: i32) -> f32 {
-    return sqrt(max(lum(src[at(x, y)].xyz), 0.0));
+    return src[at(x, y)].w;
 }
 
 // Gaussians along rows: g0 = (direction, profile) of the square-root
@@ -178,34 +231,57 @@ fn axial_across(@builtin(global_invocation_id) id: vec3<u32>) {
     g1[i] = vec4<f32>(colour, 0.0);
 }
 
-// The same along columns: g2 = (direction, profile), g3 = side colours.
+// The same along columns: g2 = (direction, profile), g3 = side colours,
+// and the block's direction range.
 @compute @workgroup_size(16, 16)
-fn axial_down(@builtin(global_invocation_id) id: vec3<u32>) {
-    if id.x >= P.width || id.y >= P.rows {
-        return;
+fn axial_down(
+    @builtin(global_invocation_id) id: vec3<u32>,
+    @builtin(workgroup_id) wid: vec3<u32>,
+    @builtin(local_invocation_index) li: u32,
+) {
+    if li == 0u {
+        atomicStore(&group_low, 0x7f800000u);
+        atomicStore(&group_high, 0u);
     }
-    let x = i32(id.x);
-    let y = i32(id.y);
-    var direction = 0.0;
-    let rd = i32(P.direction_radius);
-    for (var k = 0; k <= 2 * rd; k++) {
-        direction += tap(P.direction, u32(k)) * g0[at(x, cy(y - rd + k))].x;
+    workgroupBarrier();
+    if id.x < P.width && id.y < P.rows {
+        let x = i32(id.x);
+        let y = i32(id.y);
+        var direction = 0.0;
+        let rd = i32(P.direction_radius);
+        for (var k = 0; k <= 2 * rd; k++) {
+            direction += tap(P.direction, u32(k)) * g0[at(x, cy(y - rd + k))].x;
+        }
+        var profile = 0.0;
+        let rp = i32(P.profile_radius);
+        for (var k = 0; k <= 2 * rp; k++) {
+            profile += tap(P.profile, u32(k)) * g0[at(x, cy(y - rp + k))].y;
+        }
+        var colour = vec3<f32>(0.0);
+        let rs = i32(P.side_radius);
+        for (var k = 0; k <= 2 * rs; k++) {
+            let w = tap(P.side, u32(k));
+            let c = g1[at(x, cy(y - rs + k))].xyz;
+            colour = vec3<f32>(colour.x + w * c.x, colour.y + w * c.y, colour.z + w * c.z);
+        }
+        let i = at(x, y);
+        g2[i] = vec4<f32>(direction, profile, 0.0, 0.0);
+        g3[i] = vec4<f32>(colour, 0.0);
+        // Non-negative: the bits order as the values (a -0 as 0).
+        let bits = bitcast<u32>(abs(direction));
+        atomicMin(&group_low, bits);
+        atomicMax(&group_high, bits);
     }
-    var profile = 0.0;
-    let rp = i32(P.profile_radius);
-    for (var k = 0; k <= 2 * rp; k++) {
-        profile += tap(P.profile, u32(k)) * g0[at(x, cy(y - rp + k))].y;
+    workgroupBarrier();
+    if li == 0u {
+        let b = block(i32(wid.x), i32(wid.y));
+        g4[b] = vec4<f32>(
+            bitcast<f32>(atomicLoad(&group_low)),
+            bitcast<f32>(atomicLoad(&group_high)),
+            g4[b].z,
+            g4[b].w,
+        );
     }
-    var colour = vec3<f32>(0.0);
-    let rs = i32(P.side_radius);
-    for (var k = 0; k <= 2 * rs; k++) {
-        let w = tap(P.side, u32(k));
-        let c = g1[at(x, cy(y - rs + k))].xyz;
-        colour = vec3<f32>(colour.x + w * c.x, colour.y + w * c.y, colour.z + w * c.z);
-    }
-    let i = at(x, y);
-    g2[i] = vec4<f32>(direction, profile, 0.0, 0.0);
-    g3[i] = vec4<f32>(colour, 0.0);
 }
 
 // A bilinear read's four buffer indices and weights (`Planes::read`): the
@@ -367,7 +443,10 @@ fn two_steps(x: i32, y: i32, dx: f32, dy: f32, to_dark: f32, to_bright: f32) -> 
 // Each pixel's move (`pixel_move`): g4 = (goal, weight), g0.x = the cap,
 // below 0 where the pixel does not move (`None`).
 @compute @workgroup_size(16, 16)
-fn axial_moves(@builtin(global_invocation_id) id: vec3<u32>) {
+fn axial_moves(
+    @builtin(global_invocation_id) id: vec3<u32>,
+    @builtin(workgroup_id) wid: vec3<u32>,
+) {
     if id.x >= P.width || id.y >= P.rows {
         return;
     }
@@ -376,6 +455,25 @@ fn axial_moves(@builtin(global_invocation_id) id: vec3<u32>) {
     let i = at(x, y);
     g4[i] = vec4<f32>(0.0);
     g0[i] = vec4<f32>(-1.0, 0.0, 0.0, 0.0);
+    let low = max(STEP_LOW, STEP_NOISE * P.noise);
+    // Every luminance the side search reads lies within search + 1 (≤ 9) of
+    // the pixel, so within the neighbouring blocks: where those vary less
+    // than the edge test's start (with a margin for the reads' rounding),
+    // no pixel of the group changes.
+    var darkest = 3.40282347e38;
+    var brightest = 0.0;
+    let columns = i32((P.width + 15u) / 16u);
+    let block_rows = i32((P.rows + 15u) / 16u);
+    for (var by = max(i32(wid.y) - 1, 0); by <= min(i32(wid.y) + 1, block_rows - 1); by++) {
+        for (var bx = max(i32(wid.x) - 1, 0); bx <= min(i32(wid.x) + 1, columns - 1); bx++) {
+            let range = g4[block(bx, by)];
+            darkest = min(darkest, range.x);
+            brightest = max(brightest, range.y);
+        }
+    }
+    if brightest - darkest < low * (1.0 - 1e-4) {
+        return;
+    }
     let p = src[i].xyz;
     if !all_finite(p) {
         return;
@@ -406,7 +504,6 @@ fn axial_moves(@builtin(global_invocation_id) id: vec3<u32>) {
             to_dark = kf;
         }
     }
-    let low = max(STEP_LOW, STEP_NOISE * P.noise);
     let edge = ramp(bright - dark, low, low + STEP_SPAN);
     if edge <= 0.0 {
         return;
@@ -517,12 +614,56 @@ fn axial_apply(@builtin(global_invocation_id) id: vec3<u32>) {
 
 // ---- Luminance stage (`suppress`) ----
 
-// The window model at virtual row id.y (tile row id.y - radius): g0 = the
-// slopes and offsets of u and v on Y, g1.x = the edge weight.
+// The edge weight of the window at virtual row id.y (tile row id.y -
+// radius) into g1.x, and its block's record.
 @compute @workgroup_size(16, 16)
-fn suppress_models(@builtin(global_invocation_id) id: vec3<u32>) {
+fn suppress_edges(
+    @builtin(global_invocation_id) id: vec3<u32>,
+    @builtin(workgroup_id) wid: vec3<u32>,
+    @builtin(local_invocation_index) li: u32,
+) {
+    let r = i32(P.radius);
+    var edge = 0.0;
+    if id.x < P.width && id.y < P.rows + 2u * P.radius {
+        let x = i32(id.x);
+        let centre = i32(id.y) - r;
+        var sy = 0.0;
+        var syy = 0.0;
+        for (var j = -r; j <= r; j++) {
+            let yy = cy(centre + j);
+            var ry = 0.0;
+            var ryy = 0.0;
+            for (var k = -r; k <= r; k++) {
+                let px = src[at(cx(x + k), yy)].xyz;
+                let l = enc(0.25 * (px.x + 2.0 * px.y + px.z));
+                ry += l;
+                ryy += l * l;
+            }
+            sy += ry;
+            syy += ryy;
+        }
+        let ia = P.inv_area;
+        let my = sy * ia;
+        let var_y = max(syy * ia - my * my, 0.0);
+        edge = clamp((sqrt(var_y) - EDGE_LOW) / (EDGE_HIGH - EDGE_LOW), 0.0, 1.0);
+        g1[at(x, i32(id.y))] = vec4<f32>(edge, 0.0, 0.0, 0.0);
+    }
+    mark_block(wid, li, edge > 0.0, 3u);
+}
+
+// The window model at virtual row id.y: g0 = the slopes and offsets of u
+// and v on Y. Only windows within 2r of an edge window are read
+// (`suppress_apply`).
+@compute @workgroup_size(16, 16)
+fn suppress_models(
+    @builtin(global_invocation_id) id: vec3<u32>,
+    @builtin(workgroup_id) wid: vec3<u32>,
+) {
     let r = i32(P.radius);
     if id.x >= P.width || id.y >= P.rows + 2u * P.radius {
+        return;
+    }
+    if !flagged_near(i32(wid.x), i32(wid.y), 1, 1, P.rows + 2u * P.radius, 3u) {
         return;
     }
     let x = i32(id.x);
@@ -552,13 +693,14 @@ fn suppress_models(@builtin(global_invocation_id) id: vec3<u32>) {
     let var_y = max(s0.w * ia - my * my, 0.0);
     let au = (s1.x * ia - my * mu) / (var_y + EPS);
     let av = (s1.y * ia - my * mv) / (var_y + EPS);
-    let i = at(x, i32(id.y));
-    g0[i] = vec4<f32>(au, mu - au * my, av, mv - av * my);
-    g1[i] = vec4<f32>(clamp((sqrt(var_y) - EDGE_LOW) / (EDGE_HIGH - EDGE_LOW), 0.0, 1.0), 0.0, 0.0, 0.0);
+    g0[at(x, i32(id.y))] = vec4<f32>(au, mu - au * my, av, mv - av * my);
 }
 
 @compute @workgroup_size(16, 16)
-fn suppress_apply(@builtin(global_invocation_id) id: vec3<u32>) {
+fn suppress_apply(
+    @builtin(global_invocation_id) id: vec3<u32>,
+    @builtin(workgroup_id) wid: vec3<u32>,
+) {
     if id.x >= P.width || id.y >= P.rows {
         return;
     }
@@ -568,6 +710,10 @@ fn suppress_apply(@builtin(global_invocation_id) id: vec3<u32>) {
     let i = at(x, y);
     let px = src[i];
     dst[i] = px;
+    // The group's windows lie in its block of virtual rows and the next.
+    if !flagged_near(i32(wid.x), i32(wid.y), 0, 1, P.rows + 2u * P.radius, 3u) {
+        return;
+    }
     // The windows of rows y - r ..= y + r: virtual rows y ..= y + 2r. Their
     // edge weights first: most pixels lie away from strong edges.
     var m1 = 0.0;
@@ -703,36 +849,77 @@ fn line_weight(c: array<f32, 6>) -> f32 {
     return edge * two;
 }
 
+// The colour-line weight of the window at virtual row id.y into g2.y, and
+// its block's record.
+@compute @workgroup_size(16, 16)
+fn line_weights(
+    @builtin(global_invocation_id) id: vec3<u32>,
+    @builtin(workgroup_id) wid: vec3<u32>,
+    @builtin(local_invocation_index) li: u32,
+) {
+    let r = i32(P.radius);
+    var weight = 0.0;
+    if id.x < P.width && id.y < P.rows + 2u * P.radius {
+        let x = i32(id.x);
+        let centre = i32(id.y) - r;
+        var roots = array<f32, 9>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        for (var j = -r; j <= r; j++) {
+            let yy = cy(centre + j);
+            var rr = array<f32, 9>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+            for (var k = -r; k <= r; k++) {
+                let px = src[at(cx(x + k), yy)].xyz;
+                let q = vec3<f32>(enc(px.x), enc(px.y), enc(px.z));
+                rr[0] += q.x;
+                rr[1] += q.y;
+                rr[2] += q.z;
+                rr[3] += q.x * q.x;
+                rr[4] += q.x * q.y;
+                rr[5] += q.x * q.z;
+                rr[6] += q.y * q.y;
+                rr[7] += q.y * q.z;
+                rr[8] += q.z * q.z;
+            }
+            roots[0] += rr[0];
+            roots[1] += rr[1];
+            roots[2] += rr[2];
+            roots[3] += rr[3];
+            roots[4] += rr[4];
+            roots[5] += rr[5];
+            roots[6] += rr[6];
+            roots[7] += rr[7];
+            roots[8] += rr[8];
+        }
+        weight = line_weight(covariance(roots, P.inv_area));
+        g2[at(x, i32(id.y))] = vec4<f32>(0.0, weight, 0.0, 0.0);
+    }
+    mark_block(wid, li, weight > 0.0, 2u);
+}
+
 // The window at virtual row id.y: its projection onto its colour line as
 // ten map entries (g0 = offsets, slopes 0; g1 = slopes 1–4; g2 = slope 5,
-// weight) and its mean (g3) and axis (g4).
+// weight) and its mean (g3) and axis (g4). Only windows within 2r of a
+// window of some weight are read (`line_apply`).
 @compute @workgroup_size(16, 16)
-fn line_models(@builtin(global_invocation_id) id: vec3<u32>) {
+fn line_maps(
+    @builtin(global_invocation_id) id: vec3<u32>,
+    @builtin(workgroup_id) wid: vec3<u32>,
+) {
     let r = i32(P.radius);
     if id.x >= P.width || id.y >= P.rows + 2u * P.radius {
         return;
     }
+    if !flagged_near(i32(wid.x), i32(wid.y), 1, 1, P.rows + 2u * P.radius, 2u) {
+        return;
+    }
     let x = i32(id.x);
     let centre = i32(id.y) - r;
-    var roots = array<f32, 9>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
     var lin = array<f32, 9>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
     for (var j = -r; j <= r; j++) {
         let yy = cy(centre + j);
-        var rr = array<f32, 9>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         var rl = array<f32, 9>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         for (var k = -r; k <= r; k++) {
             let px = src[at(cx(x + k), yy)].xyz;
             let l = vec3<f32>(max(px.x, 0.0), max(px.y, 0.0), max(px.z, 0.0));
-            let q = vec3<f32>(enc(px.x), enc(px.y), enc(px.z));
-            rr[0] += q.x;
-            rr[1] += q.y;
-            rr[2] += q.z;
-            rr[3] += q.x * q.x;
-            rr[4] += q.x * q.y;
-            rr[5] += q.x * q.z;
-            rr[6] += q.y * q.y;
-            rr[7] += q.y * q.z;
-            rr[8] += q.z * q.z;
             rl[0] += l.x;
             rl[1] += l.y;
             rl[2] += l.z;
@@ -743,15 +930,6 @@ fn line_models(@builtin(global_invocation_id) id: vec3<u32>) {
             rl[7] += l.y * l.z;
             rl[8] += l.z * l.z;
         }
-        roots[0] += rr[0];
-        roots[1] += rr[1];
-        roots[2] += rr[2];
-        roots[3] += rr[3];
-        roots[4] += rr[4];
-        roots[5] += rr[5];
-        roots[6] += rr[6];
-        roots[7] += rr[7];
-        roots[8] += rr[8];
         lin[0] += rl[0];
         lin[1] += rl[1];
         lin[2] += rl[2];
@@ -763,7 +941,8 @@ fn line_models(@builtin(global_invocation_id) id: vec3<u32>) {
         lin[8] += rl[8];
     }
     let ia = P.inv_area;
-    let weight = line_weight(covariance(roots, ia));
+    let i = at(x, i32(id.y));
+    let weight = g2[i].y;
     let mean = vec3<f32>(lin[0] * ia, lin[1] * ia, lin[2] * ia);
     let principal = principal_of(covariance(lin, ia));
     let e = principal.axis;
@@ -775,7 +954,6 @@ fn line_models(@builtin(global_invocation_id) id: vec3<u32>) {
     if variance > 0.0 {
         w = weight;
     }
-    let i = at(x, i32(id.y));
     g0[i] = vec4<f32>(mean.x - t * e.x, mean.y - t * e.y, mean.z - t * e.z, shrink * e.x * e.x);
     g1[i] = vec4<f32>(shrink * e.x * e.y, shrink * e.x * e.z, shrink * e.y * e.y, shrink * e.y * e.z);
     g2[i] = vec4<f32>(shrink * e.z * e.z, w, 0.0, 0.0);
@@ -788,7 +966,10 @@ fn along(axis: vec3<f32>, mean: vec3<f32>, q: vec3<f32>) -> f32 {
 }
 
 @compute @workgroup_size(16, 16)
-fn line_apply(@builtin(global_invocation_id) id: vec3<u32>) {
+fn line_apply(
+    @builtin(global_invocation_id) id: vec3<u32>,
+    @builtin(workgroup_id) wid: vec3<u32>,
+) {
     if id.x >= P.width || id.y >= P.rows {
         return;
     }
@@ -798,6 +979,9 @@ fn line_apply(@builtin(global_invocation_id) id: vec3<u32>) {
     let i = at(x, y);
     let px = src[i];
     dst[i] = px;
+    if !flagged_near(i32(wid.x), i32(wid.y), 0, 1, P.rows + 2u * P.radius, 2u) {
+        return;
+    }
     // The windows' weights first, as in `suppress_apply`.
     var weights = 0.0;
     for (var j = 0; j <= 2 * r; j++) {

@@ -50,9 +50,11 @@ struct Pipelines {
     axial_down: wgpu::ComputePipeline,
     axial_moves: wgpu::ComputePipeline,
     axial_apply: wgpu::ComputePipeline,
+    suppress_edges: wgpu::ComputePipeline,
     suppress_models: wgpu::ComputePipeline,
     suppress_apply: wgpu::ComputePipeline,
-    line_models: wgpu::ComputePipeline,
+    line_weights: wgpu::ComputePipeline,
+    line_maps: wgpu::ComputePipeline,
     line_apply: wgpu::ComputePipeline,
 }
 
@@ -112,9 +114,11 @@ impl Pipelines {
             axial_down: pipeline("axial_down"),
             axial_moves: pipeline("axial_moves"),
             axial_apply: pipeline("axial_apply"),
+            suppress_edges: pipeline("suppress_edges"),
             suppress_models: pipeline("suppress_models"),
             suppress_apply: pipeline("suppress_apply"),
-            line_models: pipeline("line_models"),
+            line_weights: pipeline("line_weights"),
+            line_maps: pipeline("line_maps"),
             line_apply: pipeline("line_apply"),
             layout,
         }
@@ -136,14 +140,15 @@ struct Params {
     direction_radius: u32,
     side_radius: u32,
     profile_radius: u32,
-    _pad0: u32,
+    blocks_at: u32,
     out_x: u32,
     out_y: u32,
     out_width: u32,
     out_rows: u32,
     band_x: u32,
     band_width: u32,
-    _pad2: [u32; 2],
+    blocks_width: u32,
+    _pad2: u32,
     noise: f32,
     push: f32,
     inv_area: f32,
@@ -269,7 +274,12 @@ fn run(
     let halo = super::reach(plan);
     let (tile_w, tile_h) = (tile.min(w), tile.min(h));
     let (cap_w, cap_h) = ((tile_w + 2 * halo).min(w), (tile_h + 2 * halo).min(h));
-    let buffer_bytes = (cap_w * (cap_h + 2 * MAX_RADIUS) * 16) as u64;
+    // Each buffer holds a tile and its virtual rows; the last also the
+    // records of its 16 × 16 blocks after them.
+    let planes = cap_w * (cap_h + 2 * MAX_RADIUS);
+    let blocks_width = cap_w.div_ceil(GROUP as usize);
+    let blocks = blocks_width * (cap_h + 2 * MAX_RADIUS).div_ceil(GROUP as usize);
+    let buffer_bytes = ((planes + blocks) * 16) as u64;
     let limits = device.limits();
     if buffer_bytes > u64::from(limits.max_storage_buffer_binding_size)
         || buffer_bytes > limits.max_buffer_size
@@ -303,6 +313,8 @@ fn run(
         })
     });
     let mut base = Params {
+        blocks_at: planes as u32,
+        blocks_width: blocks_width as u32,
         radius: r as u32,
         inv_area: 1.0 / ((2 * r + 1) * (2 * r + 1)) as f32,
         ..Default::default()
@@ -330,12 +342,14 @@ fn run(
         ]);
     }
     passes.extend([
+        (&pipelines.suppress_edges, r, false),
         (&pipelines.suppress_models, r, false),
         (&pipelines.suppress_apply, 0, true),
     ]);
     if plan.colour_lines {
         passes.extend([
-            (&pipelines.line_models, r, false),
+            (&pipelines.line_weights, r, false),
+            (&pipelines.line_maps, r, false),
             (&pipelines.line_apply, 0, true),
         ]);
     }
