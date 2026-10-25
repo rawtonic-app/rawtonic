@@ -22,7 +22,7 @@ AVIF sources are decoded with [rav1d](https://github.com/memorysafety/rav1d) 1.1
 More crates are patched the same way to keep unmaintained crates out of the build (ADR 0005):
 - `vendor/paste` is a Rawtonic stand-in under the `paste` 1.0.15 name for crates that still depend on `paste` (pulp, through image → exr). It contains no code of `paste`; it re-exports the macros of `pastey` 0.2 (Aditya Kumar and David Tolnay, MIT OR Apache-2.0; both license texts kept there).
 - `vendor/glib-macros` contains glib-macros 0.18.5 and `vendor/gtk3-macros` gtk3-macros 0.18.2 (Copyright the gtk-rs Project Developers, MIT; LICENSE and COPYRIGHT preserved), the proc-macro crates of the GTK 3 bindings Tauri uses on Linux. Both no longer depend on proc-macro-error (or its fork proc-macro-error2, also unmaintained): the few parts they used are reimplemented in each crate's `src/abort.rs` (MIT, like the crates); the changes are listed in their `RAWTONIC_PATCH.md`.
-- `vendor/tauri-plugin-single-instance` contains tauri-plugin-single-instance 2.5.4 (Copyright Tauri Programme within The Commons Conservancy, Apache-2.0 OR MIT; both license texts and LICENSE.spdx preserved). Its Linux D-Bus code uses zbus 6 instead of zbus 5, whose zvariant, zvariant_derive and zbus_names are unmaintained since zbus 6 merged them; the changes are listed in its `RAWTONIC_PATCH.md`.
+- `vendor/tauri-plugin-single-instance` contains tauri-plugin-single-instance 2.5.4 (Copyright Tauri Programme within The Commons Conservancy, Apache-2.0 OR MIT; both license texts and LICENSE.spdx preserved). The Rawtonic invocation-directory resolver is AGPL-3.0-or-later; the patched crate therefore declares `(Apache-2.0 OR MIT) AND AGPL-3.0-or-later`, with the AGPL text in `LICENSE_RAWTONIC_AGPL-3.0` and the upstream SPDX notice preserved. Its Linux D-Bus code uses zbus 6 instead of zbus 5, whose zvariant, zvariant_derive and zbus_names are unmaintained since zbus 6 merged them; the changes are listed in its `RAWTONIC_PATCH.md`.
 
 Original Rawtonic work permits AGPL v3 or later. Inherited AGPL-3.0-only components, including jxl-encoder, retain their original terms; the combined development distribution uses AGPL v3. Our license does not relicense those dependencies.
 
@@ -735,7 +735,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | tauri-plugin-os | 2.3.2 | Apache-2.0 OR MIT |
 | tauri-plugin-process | 2.3.1 | Apache-2.0 OR MIT |
 | tauri-plugin-shell | 2.3.5 | Apache-2.0 OR MIT |
-| tauri-plugin-single-instance | 2.5.4 | Apache-2.0 OR MIT |
+| tauri-plugin-single-instance | 2.5.4 | (Apache-2.0 OR MIT) AND AGPL-3.0-or-later |
 | tauri-plugin-wayland-nvidia-quirk | 0.1.0 | Apache-2.0 |
 | tauri-runtime | 2.12.1 | Apache-2.0 OR MIT |
 | tauri-runtime-wry | 2.12.1 | Apache-2.0 OR MIT |
