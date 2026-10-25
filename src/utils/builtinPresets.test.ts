@@ -43,6 +43,9 @@ describe('built-in presets resource', () => {
           expect(preset.adjustments, `${preset.id}: ${key} needs ${along}`).toHaveProperty(along);
       }
       if ('grainAmount' in preset.adjustments) expect(preset.adjustments).toHaveProperty('grainVersion');
+      // Lowered Highlights also render by the tone-slider response (shader.wgsl).
+      if (((preset.adjustments.highlights as number | undefined) ?? 0) < 0)
+        expect(preset.adjustments, `${preset.id}: highlights needs toneVersion`).toHaveProperty('toneVersion');
     }
   });
 

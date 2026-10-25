@@ -89,9 +89,12 @@ function arrayMove<T>(array: T[], from: number, to: number): T[] {
  * that keep only changed settings (RAWs have their own detail defaults). */
 type PresetsUpdate = Array<UserPreset> | ((current: Array<UserPreset>) => Array<UserPreset>);
 
-/** Whether the shared list changed since presets.json was asked for. */
+/** Whether the shared list changed since presets.json was last read. */
 let changedSinceRead = false;
 let readRequest: Promise<void> | null = null;
+/** presets.json has been read: until then nothing is written, so a failed
+ * read never lets the list replace the file. */
+let fileRead = false;
 
 /** One preset list for every user of `usePresets` (the Develop tool, the
  * Library's context menu, the inherited panel), so a change shows everywhere. */
@@ -114,7 +117,7 @@ export const usePresetStore = create<{
  * second user's own timer could write an older list after a newer one. */
 const savePresetsToBackend = debounce(
   (presetsToSave: Array<UserPreset>): Promise<string[]> =>
-    invoke(Invokes.SavePresets, { presets: presetsToSave }).then(
+    (fileRead ? invoke(Invokes.SavePresets, { presets: presetsToSave }) : Promise.reject(new Error('presets.json not read'))).then(
       () => [],
       (err) => {
         console.error('Failed to save presets:', err);
@@ -128,14 +131,15 @@ const itemId = (item: UserPreset) => item.preset?.id ?? item.folder?.id;
 
 /** Reads presets.json into the shared list, once per run: every user of the
  * list (Develop's tools, the Library's menus) waits for the same read, and
- * the list is the truth afterwards. A list changed while the file was read
- * keeps its changes, takes the read items it lacks and is written again. */
+ * the list is the truth afterwards; a failed read is tried again on the next
+ * use. A list changed before the file was read keeps its changes, takes the
+ * read items it lacks and is written again. */
 export function loadPresetLibrary(): Promise<void> {
   if (!readRequest) {
-    changedSinceRead = false;
     readRequest = invoke<Array<UserPreset> | null>(Invokes.LoadPresets).then(
       (loaded) => {
         const read = Array.isArray(loaded) ? loaded : [];
+        fileRead = true;
         if (!changedSinceRead) {
           usePresetStore.setState({ presets: read, isLoading: false });
           return;
@@ -143,11 +147,14 @@ export function loadPresetLibrary(): Promise<void> {
         const current = usePresetStore.getState().presets;
         const ids = new Set(current.map(itemId));
         const merged = [...read.filter((item) => !ids.has(itemId(item))), ...current];
+        changedSinceRead = false;
         usePresetStore.setState({ presets: merged, isLoading: false });
         savePresetsToBackend(merged);
       },
       (error) => {
+        // Read again on the next use; changes stay in the list until then.
         console.error('Failed to load presets:', error);
+        readRequest = null;
         usePresetStore.setState({ isLoading: false });
       },
     );
@@ -160,6 +167,7 @@ export function resetPresetLibrary() {
   savePresetsToBackend.cancel();
   readRequest = null;
   changedSinceRead = false;
+  fileRead = false;
   usePresetStore.setState({ presets: [], isLoading: true });
 }
 

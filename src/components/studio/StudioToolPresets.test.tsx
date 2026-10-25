@@ -256,6 +256,34 @@ describe("reading presets.json", () => {
   });
 });
 
+describe("a failed read of presets.json", () => {
+  it("writes nothing over the file and is tried again on the next use", async () => {
+    let fail = true;
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === "load_presets") {
+        if (fail) throw new Error("presets.json: busy");
+        return stored;
+      }
+      if (command === "load_builtin_presets") return builtins;
+      return undefined;
+    });
+    await act(async () => loadPresetLibrary());
+    usePresetStore.getState().setPresets((list) => [
+      ...list,
+      { preset: { id: "new", name: "Saved early", presetType: "tool", adjustments: { grainAmount: 9 } } },
+    ]);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 600)));
+    expect(mockInvoke.mock.calls.some(([command]) => command === "save_presets")).toBe(false);
+    fail = false;
+    await act(async () => loadPresetLibrary());
+    expect(usePresetStore.getState().presets.map((item) => item.preset?.name)).toEqual(["My grain", "Mixed look", "Saved early"]);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 600)));
+    const written = JSON.stringify(mockInvoke.mock.calls.filter(([command]) => command === "save_presets").at(-1)?.[1]);
+    expect(written).toContain("My grain");
+    expect(written).toContain("Saved early");
+  });
+});
+
 describe("saving a tool preset", () => {
   it("states the colour noise filter of an edit from before its version, through JSON", () => {
     const legacy = { ...INITIAL_ADJUSTMENTS, colorNoiseReduction: 30, colorNoiseVersion: undefined } as Adjustments;

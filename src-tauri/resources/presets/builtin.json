@@ -120,7 +120,8 @@
         "grainSize": 20,
         "grainRoughness": 40,
         "grainStructure": "soft",
-        "grainVersion": 2
+        "grainVersion": 2,
+        "toneVersion": 2
       }
     },
     {
