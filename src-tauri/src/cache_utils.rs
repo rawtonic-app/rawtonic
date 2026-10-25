@@ -6,6 +6,10 @@ use crate::app_state::AppState;
 
 #[tauri::command]
 pub fn clear_image_caches(state: tauri::State<AppState>) {
+    // The multi view's decodes held for its 1:1 previews; first, as its
+    // generation tells a prefetch decode under way not to fill the decoded
+    // cache emptied below (proxy_worker).
+    crate::multi_view_prefetch::forget_decodes();
     if let Ok(mut decoded_cache) = state.decoded_image_cache.lock() {
         decoded_cache.clear();
     }
@@ -27,6 +31,4 @@ pub fn clear_image_caches(state: tauri::State<AppState>) {
     if let Ok(mut transformed_cache) = state.full_transformed_cache.lock() {
         *transformed_cache = None;
     }
-    // The multi view's decodes held for its 1:1 previews.
-    crate::multi_view_prefetch::forget_decodes();
 }

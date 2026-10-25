@@ -275,6 +275,9 @@ struct UnderWay {
     /// Its photograph and decoded-cache key.
     path: Option<String>,
     key: Option<String>,
+    /// The decoder settings' generation it was made with
+    /// (`multi_view_prefetch::decodes_generation`).
+    generation: usize,
     /// The open photograph's load waits for it: it is handed over.
     wanted: bool,
     handed: Option<HandedDecode>,
@@ -297,31 +300,36 @@ impl UnderWay {
         Self {
             path: None,
             key: None,
+            generation: 0,
             wanted: false,
             handed: None,
         }
     }
 
-    fn start(&mut self, path: &str, key: &str) {
+    fn start(&mut self, path: &str, key: &str, generation: usize) {
         self.path = Some(path.to_string());
         self.key = Some(key.to_string());
+        self.generation = generation;
         self.wanted = false;
         self.handed = None;
     }
 
-    /// The decode ended (`decoded`: None when cancelled or failed); whether
-    /// it was handed over.
+    /// The decode ended (`decoded`: None when cancelled or failed), the
+    /// decoder settings now being of `generation`; whether it was handed
+    /// over (never one of settings changed since it started).
     fn end(
         &mut self,
         decoded: Option<(
             Arc<image::DynamicImage>,
             Option<crate::image_loader::DecodeMeasures>,
         )>,
+        generation: usize,
     ) -> bool {
         let key = self.key.take();
         self.path = None;
+        let current = self.generation == generation;
         match (std::mem::take(&mut self.wanted), key, decoded) {
-            (true, Some(key), Some((image, measures))) => {
+            (true, Some(key), Some((image, measures))) if current => {
                 self.handed = Some((key, image, measures));
                 true
             }
@@ -569,6 +577,8 @@ fn prepare(
     if !is_raw_file(&source) || preview_proxy::proxy_path(&source).is_none() {
         return;
     }
+    // Before the settings are read: a change after it makes the decode stale.
+    let generation = crate::multi_view_prefetch::decodes_generation();
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
     let size = wanted_size(app_handle, 0);
     if preview_proxy::stored_size(&source, &settings).is_some_and(|s| s >= size)
@@ -603,7 +613,13 @@ fn prepare(
         {
             #[cfg(feature = "performance-profiling")]
             let _stage = crate::performance::PerformanceStage::new("preview_prefetch_decode");
-            let _ = decode(app_handle, &source, &settings, Some(cancel), Some(true));
+            let _ = decode(
+                app_handle,
+                &source,
+                &settings,
+                Some(cancel),
+                Some((true, generation)),
+            );
         }
         return;
     }
@@ -615,7 +631,7 @@ fn prepare(
         &source,
         &settings,
         Some((Arc::clone(&raised), token)),
-        Some(keep),
+        Some((keep, generation)),
     ) else {
         return;
     };
@@ -644,14 +660,16 @@ fn prepare(
 /// (returned with it and the decode's measures): the open photograph's when
 /// it is in memory, else decoded now (cancelled when `cancel` is raised past
 /// its value). `prefetch`: a prefetch decode, which the open photograph's
-/// load may take over (`decode_for_open`); with `Some(true)` it is kept in
-/// the decoded-image cache within its budget.
+/// load may take over (`decode_for_open`), with whether it is kept in the
+/// decoded-image cache within its budget and the decoder settings'
+/// generation `settings` are of (a decode of changed settings is neither
+/// kept nor handed over).
 fn decode(
     app_handle: &tauri::AppHandle,
     source: &Path,
     settings: &crate::app_settings::AppSettings,
     cancel: Option<(Arc<AtomicUsize>, usize)>,
-    prefetch: Option<bool>,
+    prefetch: Option<(bool, usize)>,
 ) -> Option<(
     Arc<image::DynamicImage>,
     crate::image_loader::DecodeVariant,
@@ -673,12 +691,12 @@ fn decode(
         .clone()
         .map(|(raised, value)| move || raised.load(Ordering::SeqCst) != value);
     let bytes = crate::file_management::read_file_mapped(source).ok()?;
-    if prefetch.is_some() {
+    if let Some((_, generation)) = prefetch {
         UNDER_WAY
             .0
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .start(&source_str, &key);
+            .start(&source_str, &key, generation);
     }
     let decoded = crate::image_loader::load_base_image_measured_for(
         &bytes,
@@ -691,23 +709,24 @@ fn decode(
         Some(variant),
     )
     .map(|(image, measures)| (Arc::new(image), measures));
-    if let Some(keep) = prefetch {
+    if let Some((keep, generation)) = prefetch {
         // Kept (before the load waiting for it is told), else handed over
         // to the open photograph's load, which waits for it.
         if keep && let Ok((image, measures)) = &decoded {
             let exif = crate::exif_processing::read_exif_data(&source_str, &bytes);
-            state
-                .decoded_image_cache
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .offer_ahead(
-                    key.clone(),
-                    Arc::clone(image),
-                    exif,
-                    *measures,
-                    // As the multi view holds decodes ahead.
-                    crate::multi_view_prefetch::hold_budget(),
-                );
+            keep_ahead(
+                &mut state
+                    .decoded_image_cache
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()),
+                // Read under the cache's lock: `clear_image_caches` raises
+                // the generation before it empties the cache.
+                crate::multi_view_prefetch::decodes_generation,
+                generation,
+                (key.clone(), Arc::clone(image), exif, *measures),
+                // As the multi view holds decodes ahead.
+                crate::multi_view_prefetch::hold_budget(),
+            );
         }
         let (under_way, ended) = &UNDER_WAY;
         under_way.lock().unwrap_or_else(|e| e.into_inner()).end(
@@ -715,6 +734,7 @@ fn decode(
                 .as_ref()
                 .ok()
                 .map(|(image, measures)| (Arc::clone(image), *measures)),
+            crate::multi_view_prefetch::decodes_generation(),
         );
         ended.notify_all();
     }
@@ -730,6 +750,24 @@ fn decode(
             None
         }
     }
+}
+
+/// Keeps a prefetch decode ahead in `cache` (`DecodedImageCache::offer_ahead`
+/// within `budget`) unless the decoder settings changed since it started:
+/// `generation_now` is read while the cache is locked. Whether it is kept.
+fn keep_ahead(
+    cache: &mut crate::cache_utils::DecodedImageCache,
+    generation_now: impl FnOnce() -> usize,
+    generation: usize,
+    (key, image, exif, measures): (
+        String,
+        Arc<image::DynamicImage>,
+        std::collections::HashMap<String, String>,
+        Option<crate::image_loader::DecodeMeasures>,
+    ),
+    budget: usize,
+) -> bool {
+    generation_now() == generation && cache.offer_ahead(key, image, exif, measures, budget)
 }
 
 /// Builds the asked-for previews of one photograph.
@@ -1259,7 +1297,7 @@ mod tests {
     fn a_jump_cancels_the_prefetch_decode_it_no_longer_asks_for() {
         let mut under_way = UnderWay::idle();
         assert!(!under_way.stale_for(&paths(&["N.RAF"])));
-        under_way.start("/s/Capture/N.RAF", "N-key");
+        under_way.start("/s/Capture/N.RAF", "N-key", 0);
         // Still asked for (a virtual copy of it counts): kept going.
         assert!(!under_way.stale_for(&paths(&["N.RAF?vc=2", "P.RAF"])));
         assert!(under_way.stale_for(&paths(&["X.RAF", "Y.RAF"])));
@@ -1274,7 +1312,11 @@ mod tests {
         let mut cancelled = false;
         assert!(take_under_way(&shared, "N-key", Duration::ZERO, || cancelled = true).is_none());
         assert!(!cancelled, "nothing under way: the load decodes");
-        shared.0.lock().unwrap().start("/s/Capture/N.RAF", "N-key");
+        shared
+            .0
+            .lock()
+            .unwrap()
+            .start("/s/Capture/N.RAF", "N-key", 0);
         assert!(
             take_under_way(&shared, "X-key", Duration::from_secs(1), || cancelled =
                 true)
@@ -1282,14 +1324,18 @@ mod tests {
         );
         assert!(cancelled);
         // The cancelled decode ends with nothing to hand over.
-        assert!(!shared.0.lock().unwrap().end(None));
+        assert!(!shared.0.lock().unwrap().end(None, 0));
         assert!(shared.0.lock().unwrap().handed.is_none());
     }
 
     #[test]
     fn the_open_photographs_load_takes_over_its_prefetch_decode() {
         let shared = Arc::new((Mutex::new(UnderWay::idle()), Condvar::new()));
-        shared.0.lock().unwrap().start("/s/Capture/N.RAF", "N-key");
+        shared
+            .0
+            .lock()
+            .unwrap()
+            .start("/s/Capture/N.RAF", "N-key", 0);
         let decoder = {
             let shared = Arc::clone(&shared);
             std::thread::spawn(move || {
@@ -1297,7 +1343,7 @@ mod tests {
                 while !shared.0.lock().unwrap().wanted {
                     std::thread::sleep(Duration::from_millis(1));
                 }
-                let handed = shared.0.lock().unwrap().end(Some(decoded()));
+                let handed = shared.0.lock().unwrap().end(Some(decoded()), 0);
                 shared.1.notify_all();
                 handed
             })
@@ -1311,15 +1357,45 @@ mod tests {
     }
 
     #[test]
+    fn a_decode_of_settings_changed_since_is_never_handed_over() {
+        let mut under_way = UnderWay::idle();
+        under_way.start("/s/Capture/N.RAF", "N-key", 3);
+        assert_eq!(under_way.on_open("N-key"), OnOpen::Wait);
+        // `clear_image_caches` raised the generation while it decoded.
+        assert!(!under_way.end(Some(decoded()), 4));
+        assert!(under_way.handed.is_none() && under_way.key.is_none());
+        under_way.start("/s/Capture/N.RAF", "N-key", 4);
+        assert_eq!(under_way.on_open("N-key"), OnOpen::Wait);
+        assert!(under_way.end(Some(decoded()), 4));
+    }
+
+    #[test]
+    fn a_decode_of_settings_changed_since_is_never_kept_ahead() {
+        let mut cache = crate::cache_utils::DecodedImageCache::new(5);
+        let entry = || {
+            let (image, measures) = decoded();
+            ("N-key".to_string(), image, Default::default(), measures)
+        };
+        assert!(!keep_ahead(&mut cache, || 4, 3, entry(), 1 << 30));
+        assert!(cache.get("N-key").is_none());
+        assert!(keep_ahead(&mut cache, || 4, 4, entry(), 1 << 30));
+        assert!(cache.get("N-key").is_some());
+    }
+
+    #[test]
     fn a_prefetch_decode_nobody_waits_for_is_not_handed_over() {
         let mut under_way = UnderWay::idle();
-        under_way.start("/s/Capture/N.RAF", "N-key");
-        assert!(!under_way.end(Some(decoded())));
+        under_way.start("/s/Capture/N.RAF", "N-key", 0);
+        assert!(!under_way.end(Some(decoded()), 0));
         assert!(under_way.handed.is_none() && under_way.key.is_none());
         // A load that gave up waiting leaves nothing behind either.
         let shared = (Mutex::new(UnderWay::idle()), Condvar::new());
-        shared.0.lock().unwrap().start("/s/Capture/N.RAF", "N-key");
+        shared
+            .0
+            .lock()
+            .unwrap()
+            .start("/s/Capture/N.RAF", "N-key", 0);
         assert!(take_under_way(&shared, "N-key", Duration::from_millis(5), || {}).is_none());
-        assert!(!shared.0.lock().unwrap().end(Some(decoded())));
+        assert!(!shared.0.lock().unwrap().end(Some(decoded()), 0));
     }
 }

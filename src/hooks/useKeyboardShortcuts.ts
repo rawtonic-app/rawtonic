@@ -1181,7 +1181,9 @@ export const useKeyboardShortcuts = ({
         if (
           editsBlocked &&
           RECIPE_ACTIONS.has(action) &&
-          !(state.ui.activeView !== 'editor' && (action === 'undo' || action === 'redo'))
+          !(state.ui.activeView !== 'editor' && (action === 'undo' || action === 'redo')) &&
+          // Undo of an auto-advance changes no recipe.
+          !(action === 'undo' && undoesAdvance(state))
         )
           continue;
         const handler = actions[action];

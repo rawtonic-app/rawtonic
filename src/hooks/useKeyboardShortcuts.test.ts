@@ -764,6 +764,21 @@ describe("auto-advance after a rating", () => {
     expect(useLibraryStore.getState().imageRatings["/s/a.NEF"]).toBe(3);
   });
 
+  it("takes the step back in Develop's full screen too, where edit keys are off", () => {
+    open("/s/a.NEF", true);
+    useUIStore.setState({ activeView: "editor", isFullScreen: true });
+    useLibraryStore.setState({ imageRatings: { "/s/a.NEF": 1 } });
+    press("Digit4", "4");
+    expect(props.handleImageSelect).toHaveBeenCalledExactlyOnceWith("/s/b.NEF", true);
+    stepTo("/s/b.NEF");
+    useEditorStore.setState({ historyIndex: 0, historyPending: false });
+    vi.clearAllMocks();
+    undo();
+    expect(useLibraryStore.getState().imageRatings["/s/a.NEF"]).toBe(1);
+    expect(props.handleImageSelect).toHaveBeenCalledExactlyOnceWith("/s/a.NEF", true);
+    useUIStore.setState({ isFullScreen: false });
+  });
+
   it("keeps Undo for the next photograph's edits once it was edited or left", () => {
     open("/s/a.NEF", true);
     press("Digit4", "4");
