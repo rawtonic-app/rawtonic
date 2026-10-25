@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use tauri::Emitter;
 
 use crate::export_processing::TiffBitDepth;
@@ -48,7 +49,37 @@ pub struct LaunchPayload {
     pub edit_session: Option<ExternalEditSession>,
 }
 
-pub fn parse_launch_args(args: &[String]) -> LaunchRequest {
+/// The folder the command was run in, which relative path arguments refer to.
+/// An AppImage's AppRun changes into the AppImage's own read-only folder
+/// (`$APPDIR/usr`) before it starts the app; the AppImage runtime keeps the
+/// user's folder in `OWD`, and `--appimage-extract-and-run`, which sets no
+/// `OWD`, keeps the shell's `PWD`. A plain binary and a macOS bundle keep the
+/// working directory. `var` reads the environment.
+pub fn invocation_dir(
+    var: impl Fn(&str) -> Option<OsString>,
+    cwd: Option<PathBuf>,
+) -> Option<PathBuf> {
+    if var("APPIMAGE").is_none() {
+        return cwd;
+    }
+    ["OWD", "PWD"]
+        .into_iter()
+        .filter_map(|name| var(name).map(PathBuf::from))
+        .find(|dir| dir.is_absolute())
+        .or(cwd)
+}
+
+/// Path arguments as given, relative ones joined to `base` (the folder the
+/// command was run in), so they never resolve against the app's own folder.
+pub fn parse_launch_args(args: &[String], base: Option<&Path>) -> LaunchRequest {
+    let absolute = |path: String| -> String {
+        match base {
+            Some(base) if !path.is_empty() && Path::new(&path).is_relative() => {
+                base.join(&path).to_string_lossy().into_owned()
+            }
+            _ => path,
+        }
+    };
     if args.first().map(|s| s.as_str()) == Some("export") {
         let mut iter = args.iter().skip(1);
 
@@ -67,14 +98,14 @@ pub fn parse_launch_args(args: &[String]) -> LaunchRequest {
         if let Some(src) = iter.next()
             && !src.starts_with('-')
         {
-            source = src.clone();
+            source = absolute(src.clone());
         }
 
         while let Some(arg) = iter.next() {
             match arg.as_str() {
                 "--output" => {
                     if let Some(out) = iter.next() {
-                        output = out.clone();
+                        output = absolute(out.clone());
                     }
                 }
                 "--format" => {
@@ -141,7 +172,7 @@ pub fn parse_launch_args(args: &[String]) -> LaunchRequest {
                 }
                 "--adjustments" => {
                     if let Some(adj) = iter.next() {
-                        adjustments_override = Some(adj.clone());
+                        adjustments_override = Some(absolute(adj.clone()));
                     }
                 }
                 "--recipes" => {
@@ -150,7 +181,7 @@ pub fn parse_launch_args(args: &[String]) -> LaunchRequest {
                             "Missing value for --recipes; expected a JSON file.".to_string(),
                         );
                     };
-                    recipes = Some(file.clone());
+                    recipes = Some(absolute(file.clone()));
                 }
                 _ => {}
             }
@@ -180,11 +211,11 @@ pub fn parse_launch_args(args: &[String]) -> LaunchRequest {
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
-            "--edit" => edit = iter.next().cloned(),
-            "--output" => output = iter.next().cloned(),
+            "--edit" => edit = iter.next().cloned().map(absolute),
+            "--output" => output = iter.next().cloned().map(absolute),
             "--format" => format = iter.next().cloned(),
             "--quality" => quality = iter.next().and_then(|q| q.parse().ok()),
-            s if !s.starts_with('-') && plain.is_none() => plain = Some(s.to_string()),
+            s if !s.starts_with('-') && plain.is_none() => plain = Some(absolute(s.to_string())),
             _ => {}
         }
     }
@@ -259,7 +290,7 @@ mod tests {
                 args.push("--keep-creator-contact");
             }
             let args: Vec<String> = args.into_iter().map(String::from).collect();
-            let LaunchRequest::HeadlessExport(session) = parse_launch_args(&args) else {
+            let LaunchRequest::HeadlessExport(session) = parse_launch_args(&args, None) else {
                 panic!("headless export");
             };
             assert_eq!(session.keep_creator_contact, keep);
@@ -276,18 +307,115 @@ mod tests {
                 .collect()
         };
         let LaunchRequest::HeadlessExport(session) =
-            parse_launch_args(&args(&["--recipes", "/qa/recipes.json"]))
+            parse_launch_args(&args(&["--recipes", "/qa/recipes.json"]), None)
         else {
             panic!("headless export");
         };
         assert_eq!(session.recipes.as_deref(), Some("/qa/recipes.json"));
-        let LaunchRequest::HeadlessExport(session) = parse_launch_args(&args(&[])) else {
+        let LaunchRequest::HeadlessExport(session) = parse_launch_args(&args(&[]), None) else {
             panic!("headless export");
         };
         assert_eq!(session.recipes, None);
         assert!(matches!(
-            parse_launch_args(&args(&["--recipes"])),
+            parse_launch_args(&args(&["--recipes"]), None),
             LaunchRequest::InvalidHeadless(_)
         ));
+    }
+
+    fn strings(args: &[&str]) -> Vec<String> {
+        args.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn an_appimage_resolves_against_the_folder_it_was_run_in() {
+        let env = |vars: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                vars.iter()
+                    .find(|(key, _)| *key == name)
+                    .map(|(_, value)| OsString::from(value))
+            }
+        };
+        let mount = Some(PathBuf::from("/tmp/.mount_Rawton/usr"));
+        let photos = Some(PathBuf::from("/home/u/photos"));
+        const APPIMAGE: (&str, &str) = ("APPIMAGE", "/home/u/Rawtonic.AppImage");
+        let owd = env(&[
+            APPIMAGE,
+            ("OWD", "/home/u/photos"),
+            ("PWD", "/home/u/other"),
+        ]);
+        assert_eq!(invocation_dir(owd, mount.clone()), photos);
+        // --appimage-extract-and-run: no OWD, the shell's PWD.
+        let extracted = env(&[APPIMAGE, ("PWD", "/home/u/photos")]);
+        assert_eq!(invocation_dir(extracted, mount.clone()), photos);
+        // Neither, or not absolute: nothing better than the working directory.
+        assert_eq!(invocation_dir(env(&[APPIMAGE]), mount.clone()), mount);
+        let relative = env(&[APPIMAGE, ("OWD", "photos"), ("PWD", "photos")]);
+        assert_eq!(invocation_dir(relative, mount.clone()), mount);
+        // A plain binary or a macOS bundle: the working directory, even with
+        // OWD or PWD in the environment.
+        let plain = env(&[("OWD", "/elsewhere"), ("PWD", "/elsewhere")]);
+        assert_eq!(invocation_dir(plain, mount.clone()), mount);
+        assert_eq!(invocation_dir(env(&[]), None), None);
+    }
+
+    #[test]
+    fn relative_path_arguments_join_the_invocation_folder() {
+        let base = Path::new("/home/u/photos");
+        let args = strings(&[
+            "export",
+            "a.ARW",
+            "--output",
+            "out/a.jpg",
+            "--adjustments",
+            "../look.json",
+            "--recipes",
+            "recipes.json",
+        ]);
+        let LaunchRequest::HeadlessExport(session) = parse_launch_args(&args, Some(base)) else {
+            panic!("headless export");
+        };
+        assert_eq!(session.source, "/home/u/photos/a.ARW");
+        assert_eq!(session.output, "/home/u/photos/out/a.jpg");
+        assert_eq!(
+            session.adjustments_override.as_deref(),
+            Some("/home/u/photos/../look.json")
+        );
+        assert_eq!(
+            session.recipes.as_deref(),
+            Some("/home/u/photos/recipes.json")
+        );
+
+        let args = strings(&["export", "/abs/a.ARW", "--output", "/abs/out"]);
+        let LaunchRequest::HeadlessExport(session) = parse_launch_args(&args, Some(base)) else {
+            panic!("headless export");
+        };
+        assert_eq!(
+            (session.source.as_str(), session.output.as_str()),
+            ("/abs/a.ARW", "/abs/out")
+        );
+
+        // A missing --output stays empty, not the folder itself.
+        let LaunchRequest::HeadlessExport(session) =
+            parse_launch_args(&strings(&["export", "a.ARW"]), Some(base))
+        else {
+            panic!("headless export");
+        };
+        assert_eq!(session.output, "");
+
+        let args = strings(&["--edit", "a.tif", "--output", "b.tif"]);
+        let LaunchRequest::EditSession(edit) = parse_launch_args(&args, Some(base)) else {
+            panic!("edit session");
+        };
+        assert_eq!(
+            (edit.source.as_str(), edit.output.as_str()),
+            ("/home/u/photos/a.tif", "/home/u/photos/b.tif")
+        );
+        assert_eq!(edit.format, "tiff");
+
+        let LaunchRequest::OpenFile(path) = parse_launch_args(&strings(&["a.jpg"]), Some(base))
+        else {
+            panic!("open file");
+        };
+        assert_eq!(path, "/home/u/photos/a.jpg");
     }
 }

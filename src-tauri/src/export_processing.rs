@@ -1481,6 +1481,33 @@ pub async fn export_images_batch(
     crate::export_queue::enqueue_all(&app_handle, requests)
 }
 
+/// Fails before any render when exports could not be written to `folder`
+/// (permissions or a read-only volume such as an AppImage mount).
+fn ensure_writable_folder(folder: &std::path::Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let folder = if folder.as_os_str().is_empty() {
+            std::path::Path::new(".")
+        } else {
+            folder
+        };
+        let path = std::ffi::CString::new(folder.as_os_str().as_bytes())
+            .map_err(|_| format!("Invalid output folder: {}", folder.display()))?;
+        // access() also reports a read-only file system (EROFS).
+        if unsafe { libc::access(path.as_ptr(), libc::W_OK | libc::X_OK) } != 0 {
+            return Err(format!(
+                "Output folder {} is not writable: {}",
+                folder.display(),
+                std::io::Error::last_os_error()
+            ));
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = folder;
+    Ok(())
+}
+
 pub async fn run_headless_export(
     session: crate::launch_request::HeadlessExportSession,
     app_handle: tauri::AppHandle,
@@ -1515,15 +1542,17 @@ pub async fn run_headless_export(
         && output_path.extension().is_some()
         && !output_path.is_dir();
 
-    if is_explicit_file_path {
-        if let Some(parent) = output_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create output parent directory: {}", e))?;
-        }
+    let output_folder = if is_explicit_file_path {
+        let parent = output_path.parent().unwrap_or(std::path::Path::new(""));
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create output parent directory: {}", e))?;
+        parent
     } else {
         std::fs::create_dir_all(&session.output)
             .map_err(|e| format!("Failed to create output directory: {}", e))?;
-    }
+        output_path
+    };
+    ensure_writable_folder(output_folder)?;
 
     println!("Found {} images to export. Processing...", paths.len());
 
@@ -2022,6 +2051,24 @@ fn estimate_sizes(
 #[cfg(test)]
 mod tests {
     use super::{ExportTarget, PhotoItem, export_in_turn, is_open_edit, plan_output_path};
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_exports_cannot_be_written_to_fails_before_rendering() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("rawtonic-readonly-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(super::ensure_writable_folder(&dir), Ok(()));
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let result = super::ensure_writable_folder(&dir);
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::remove_dir(&dir).unwrap();
+        let error = result.expect_err("a read-only folder");
+        assert!(
+            error.contains("not writable") && error.contains(&*dir.to_string_lossy()),
+            "{error}"
+        );
+    }
 
     #[test]
     fn a_recipes_file_lists_each_recipes_format_and_settings() {
