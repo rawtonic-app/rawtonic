@@ -13869,9 +13869,23 @@ fn edge_fringe_version_5_on_the_gpu_matches_version_4() {
         let changed_cpu = source.iter().zip(&cpu).filter(|(a, b)| a != b).count();
         let changed_gpu = source.iter().zip(&gpu).filter(|(a, b)| a != b).count();
         let (mean, p999, max, apart) = float_differences(&cpu, &gpu);
+        // Values only one of them changed, and values far apart (a decision
+        // that float rounding tipped the other way).
+        let one_sided = source
+            .iter()
+            .zip(&cpu)
+            .zip(&gpu)
+            .filter(|((s, c), g)| (s != c) != (s != g))
+            .count();
+        let far = cpu
+            .iter()
+            .zip(&gpu)
+            .filter(|(c, g)| (*c - *g).abs() > 1e-3)
+            .count();
         eprintln!(
             "sigma {sigma} scale {scale} rgba {rgba}: changed CPU {changed_cpu} GPU {changed_gpu} of {}, \
-             |GPU - CPU| mean {mean:.2e} p99.9 {p999:.2e} max {max:.2e}, > 1 code {:.4} %",
+             changed by one only {one_sided}, |GPU - CPU| mean {mean:.2e} p99.9 {p999:.2e} \
+             max {max:.2e}, > 1 code {:.4} %, > 1e-3 {far}",
             source.len(),
             100.0 * apart
         );
@@ -13883,6 +13897,20 @@ fn edge_fringe_version_5_on_the_gpu_matches_version_4() {
         assert!(
             relative < 0.002,
             "changed values CPU {changed_cpu} GPU {changed_gpu}"
+        );
+        // The same pixels change: a handful of values tipped by rounding.
+        assert!(
+            one_sided * 2000 < changed_cpu,
+            "{one_sided} values changed by only one of them"
+        );
+        // A decision tipped by rounding moves a value by at most its local
+        // correction (largest seen 9.5e-3); a defect moves values by about
+        // the fringes' size (0.1–0.3 in these scenes), and not in a few
+        // isolated values per million.
+        assert!(max < 0.02, "largest difference {max:e}");
+        assert!(
+            far * 250_000 < source.len(),
+            "{far} values more than 1e-3 apart"
         );
         assert!(mean < 2e-6, "mean difference {mean:e}");
         assert!(p999 < 2e-4, "p99.9 difference {p999:e}");
@@ -13896,6 +13924,81 @@ fn edge_fringe_version_5_on_the_gpu_matches_version_4() {
                 assert_eq!(s[3].to_bits(), g[3].to_bits(), "alpha is kept");
             }
         }
+    }
+}
+
+/// Wide-gamut colours (negative channels) beside a two-colour edge: the
+/// colour-line stage fits and measures its line on the clamped values on
+/// both processors, so third-colour pixels on the edge keep the same share
+/// of the move. With the chromatic-aberration stage off (it alone rounds
+/// its shoulder weights differently, up to ~6e-3 here, negative values or
+/// not) the stages agree to float rounding (≈ 1e-5); measured on signed
+/// values, as the shader once did, they differed by 0.15.
+#[test]
+#[ignore = "requires a native GPU"]
+fn edge_fringe_gpu_colour_lines_clamp_wide_gamut_neighbours() {
+    use rawtonic_engine::edge_fringe;
+    let context = context();
+    edge_fringe::gpu::register(context.device.clone(), context.queue.clone());
+    let (a, b) = ([-1.0, 0.5, 0.5], [0.8, 0.5, 0.5]);
+    let thirds = [[0.5, 0.3, 0.5], [0.6, 0.5, 0.7]];
+    let third_at = |x: u32, y: u32| (x == 128 && y % 9 == 1).then(|| thirds[(y / 9 % 2) as usize]);
+    let (w, h) = (256usize, 96usize);
+    for rgba in [false, true] {
+        let stride = if rgba { 4 } else { 3 };
+        let scene: Vec<f32> = (0..(w * h) as u32)
+            .flat_map(|i| {
+                let (x, y) = (i % w as u32, i / w as u32);
+                let c = third_at(x, y).unwrap_or(if x < 128 { a } else { b });
+                [c[0], c[1], c[2], 1.0].into_iter().take(stride)
+            })
+            .collect();
+        let full = edge_fringe::plan_of(5, 0.0, 1.0);
+        assert!(full.colour_lines && full.axial.is_some());
+        let run = |plan: edge_fringe::Plan| {
+            let mut cpu = scene.clone();
+            edge_fringe::apply(
+                &mut cpu,
+                w,
+                h,
+                stride,
+                edge_fringe::Plan { gpu: false, ..plan },
+            )
+            .unwrap();
+            let mut gpu = scene.clone();
+            edge_fringe::apply(&mut gpu, w, h, stride, plan).unwrap();
+            (cpu, gpu)
+        };
+        let lines = edge_fringe::Plan {
+            axial: None,
+            ..full
+        };
+        let (cpu, gpu) = run(lines);
+        let (before, _) = run(edge_fringe::Plan {
+            colour_lines: false,
+            ..lines
+        });
+        let lines_move_thirds = (0..h as u32)
+            .filter(|&y| third_at(128, y).is_some())
+            .all(|y| {
+                let i = (y as usize * w + 128) * stride;
+                before[i..i + 3] != cpu[i..i + 3]
+            });
+        assert!(
+            lines_move_thirds,
+            "the colour-line stage moves the third colours"
+        );
+        let (_, _, max, _) = float_differences(&cpu, &gpu);
+        assert!(
+            max < 1e-4,
+            "rgba {rgba}, colour lines: largest difference {max:e}"
+        );
+        let (cpu, gpu) = run(full);
+        let (_, _, max, _) = float_differences(&cpu, &gpu);
+        assert!(
+            max < 0.02,
+            "rgba {rgba}, all stages: largest difference {max:e}"
+        );
     }
 }
 

@@ -109,8 +109,17 @@ fn all_finite(c: vec3<f32>) -> bool {
     return finite(c.x) && finite(c.y) && finite(c.z);
 }
 
+// `v.max(0.0)` on the CPU: NaN and negative values become 0.
+fn nonneg(v: f32) -> f32 {
+    return select(0.0, v, v > 0.0);
+}
+
+fn nonneg3(c: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(nonneg(c.x), nonneg(c.y), nonneg(c.z));
+}
+
 fn enc(v: f32) -> f32 {
-    return sqrt(max(v, 0.0));
+    return sqrt(nonneg(v));
 }
 
 fn lum(c: vec3<f32>) -> f32 {
@@ -210,7 +219,7 @@ fn unpack(@builtin(global_invocation_id) id: vec3<u32>) {
     let j = 3u * (id.y * P.band_width + P.band_x + id.x);
     let c = vec3<f32>(band[j], band[j + 1u], band[j + 2u]);
     // w: the square-root luminance the chromatic-aberration stage reads.
-    src[at(i32(id.x), i32(id.y))] = vec4<f32>(c, sqrt(max(lum(c), 0.0)));
+    src[at(i32(id.x), i32(id.y))] = vec4<f32>(c, sqrt(nonneg(lum(c))));
 }
 
 // The tile's own pixels of `src`, packed RGB, into `dst`.
@@ -410,9 +419,9 @@ fn oklab(c: vec3<f32>) -> vec3<f32> {
     let l = 0.41222147 * c.x + 0.53633255 * c.y + 0.051445995 * c.z;
     let m = 0.2119035 * c.x + 0.6806995 * c.y + 0.10739696 * c.z;
     let s = 0.08830246 * c.x + 0.28171885 * c.y + 0.6299787 * c.z;
-    let l3 = cbrt(max(l, 0.0));
-    let m3 = cbrt(max(m, 0.0));
-    let s3 = cbrt(max(s, 0.0));
+    let l3 = cbrt(nonneg(l));
+    let m3 = cbrt(nonneg(m));
+    let s3 = cbrt(nonneg(s));
     return vec3<f32>(
         0.21045426 * l3 + 0.7936178 * m3 - 0.004072047 * s3,
         1.9779985 * l3 - 2.4285922 * m3 + 0.4505937 * s3,
@@ -561,10 +570,10 @@ fn axial_moves(
     let span = max(max(max(max(0.0, abs(lit.x - shade.x)), abs(lit.y - shade.y)), abs(lit.z - shade.z)), 1e-6);
     var beyond = 0.0;
     for (var c = 0u; c < 3u; c++) {
-        let tolerance = NOISE_TOLERANCE * 2.0 * sqrt(max(p[c], 0.0)) * P.noise;
+        let tolerance = NOISE_TOLERANCE * 2.0 * sqrt(nonneg(p[c])) * P.noise;
         let lo = min(lit[c], shade[c]) - tolerance;
         let hi = max(lit[c], shade[c]) + tolerance;
-        beyond = max(beyond, max(max(p[c] - hi, lo - p[c]), 0.0) / span);
+        beyond = max(beyond, nonneg(max(p[c] - hi, lo - p[c])) / span);
     }
     let between = 1.0 - ramp(beyond, BEYOND_FULL, BEYOND_NONE);
     let contrast = ramp(log2(max(l_lit, 1e-6) / max(l_shade, 1e-6)), STOPS_LOW, STOPS_HIGH);
@@ -687,7 +696,7 @@ fn suppress_edges(
         }
         let ia = P.inv_area;
         let my = sy * ia;
-        let var_y = max(syy * ia - my * my, 0.0);
+        let var_y = nonneg(syy * ia - my * my);
         edge = clamp((sqrt(var_y) - EDGE_LOW) / (EDGE_HIGH - EDGE_LOW), 0.0, 1.0);
         g1[at(i32(id.x), i32(id.y))] = vec4<f32>(edge, 0.0, 0.0, 0.0);
     }
@@ -753,7 +762,7 @@ fn suppress_models(
     let my = s0.x * ia;
     let mu = s0.y * ia;
     let mv = s0.z * ia;
-    let var_y = max(s0.w * ia - my * my, 0.0);
+    let var_y = nonneg(s0.w * ia - my * my);
     let au = (s1.x * ia - my * mu) / (var_y + EPS);
     let av = (s1.y * ia - my * mv) / (var_y + EPS);
     g0[at(i32(id.x), i32(id.y))] = vec4<f32>(au, mu - au * my, av, mv - av * my);
@@ -824,8 +833,8 @@ fn suppress_apply(
         u1 *= k;
         v1 *= k;
     }
-    let red = max(g + u0 + weight * (u1 - u0), 0.0);
-    let blue = max(g + v0 + weight * (v1 - v0), 0.0);
+    let red = nonneg(g + u0 + weight * (u1 - u0));
+    let blue = nonneg(g + v0 + weight * (v1 - v0));
     dst[i] = vec4<f32>(red * red, p.y, blue * blue, px.w);
 }
 
@@ -877,7 +886,7 @@ fn principal_of(c: array<f32, 6>) -> Principal {
     v = vec3<f32>(v.x / n, v.y / n, v.z / n);
     let cv = mul_cov(c, v);
     out.axis = v;
-    out.variance = max(v.x * cv.x + v.y * cv.y + v.z * cv.z, 0.0);
+    out.variance = nonneg(v.x * cv.x + v.y * cv.y + v.z * cv.z);
     return out;
 }
 
@@ -886,12 +895,12 @@ fn principal_of(c: array<f32, 6>) -> Principal {
 fn covariance(s: array<f32, 9>, ia: f32) -> array<f32, 6> {
     let m = vec3<f32>(s[0] * ia, s[1] * ia, s[2] * ia);
     return array<f32, 6>(
-        max(s[3] * ia - m.x * m.x, 0.0),
+        nonneg(s[3] * ia - m.x * m.x),
         s[4] * ia - m.x * m.y,
         s[5] * ia - m.x * m.z,
-        max(s[6] * ia - m.y * m.y, 0.0),
+        nonneg(s[6] * ia - m.y * m.y),
         s[7] * ia - m.y * m.z,
-        max(s[8] * ia - m.z * m.z, 0.0),
+        nonneg(s[8] * ia - m.z * m.z),
     );
 }
 
@@ -939,7 +948,7 @@ fn line_weight(c: array<f32, 6>) -> f32 {
     if !(variance > 0.0) {
         return 0.0;
     }
-    let off_line = max((total - variance) / max(variance, 1e-20), 0.0);
+    let off_line = nonneg((total - variance) / max(variance, 1e-20));
     let edge = clamp((sqrt(variance / 3.0) - EDGE_LOW) / (EDGE_HIGH - EDGE_LOW), 0.0, 1.0);
     let two = clamp((TWO_COLOUR_NONE - off_line) / (TWO_COLOUR_NONE - TWO_COLOUR_FULL), 0.0, 1.0);
     return edge * two;
@@ -1010,7 +1019,7 @@ fn line_maps(
         var rl = array<f32, 9>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         for (var k = -r; k <= r; k++) {
             let px = src[at(cx(x + k), yy)].xyz;
-            let l = vec3<f32>(max(px.x, 0.0), max(px.y, 0.0), max(px.z, 0.0));
+            let l = nonneg3(px);
             rl[0] += l.x;
             rl[1] += l.y;
             rl[2] += l.z;
@@ -1111,7 +1120,8 @@ fn line_apply(
         m2 += r2;
     }
     // Misregistration keeps every channel between the two colours: how far
-    // the pixel may move (`within_the_mixes`, the window centred on it).
+    // the pixel may move (`within_the_mixes`, the window centred on it,
+    // measured on the clamped values the line was fitted to).
     let own = at(x, y + r);
     let mean = g3[own].xyz;
     let axis = g4[own].xyz;
@@ -1120,7 +1130,7 @@ fn line_apply(
     for (var j = -r; j <= r; j++) {
         let yy = cy(y + j);
         for (var k = -r; k <= r; k++) {
-            let t = along(axis, mean, src[at(cx(x + k), yy)].xyz);
+            let t = along(axis, mean, nonneg3(src[at(cx(x + k), yy)].xyz));
             low = min(low, t);
             high = max(high, t);
         }
@@ -1132,7 +1142,7 @@ fn line_apply(
         for (var c = 0u; c < 3u; c++) {
             let a = mean[c] + low * axis[c];
             let b = mean[c] + high * axis[c];
-            beyond = max(beyond, max(max(min(a, b) - p[c], p[c] - max(a, b)), 0.0));
+            beyond = max(beyond, nonneg(max(min(a, b) - p[c], p[c] - max(a, b))));
         }
         beyond = beyond / extent;
         share = clamp((MIX_NONE - beyond) / (MIX_NONE - MIX_FULL), 0.0, 1.0);
@@ -1154,9 +1164,9 @@ fn line_apply(
         (m0.z + s02 * p.x + s12 * p.y + s22 * p.z) * ia,
     );
     dst[i] = vec4<f32>(
-        max(p.x + weight * (projected.x - p.x), 0.0),
-        max(p.y + weight * (projected.y - p.y), 0.0),
-        max(p.z + weight * (projected.z - p.z), 0.0),
+        nonneg(p.x + weight * (projected.x - p.x)),
+        nonneg(p.y + weight * (projected.y - p.y)),
+        nonneg(p.z + weight * (projected.z - p.z)),
         px.w,
     );
 }
