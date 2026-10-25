@@ -159,6 +159,23 @@ pub(crate) fn try_register_outside_photos(dir: &Path) -> Result<(), String> {
     crate::outside_photos::record(dir)
 }
 
+/// Reads again the records of every session keeping any of `paths` outside
+/// its folder (`outside_owners`); fails, naming each, when one of them is
+/// not available — an export must not render without its resources.
+pub(crate) fn outside_owners_available(paths: &[String]) -> Result<(), String> {
+    let unavailable: Vec<String> = outside_owners(paths)
+        .iter()
+        .filter_map(|dir| try_register_outside_photos(Path::new(dir)).err())
+        .collect();
+    if unavailable.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "{}; connect its drive and export again",
+        unavailable.join("; ")
+    ))
+}
+
 /// The sessions that keep any of `paths` (photographs, possibly virtual
 /// copies) outside their folder, as far as the app knows them now.
 pub(crate) fn outside_owners(paths: &[String]) -> Vec<String> {
@@ -170,7 +187,7 @@ pub(crate) fn outside_owners(paths: &[String]) -> Vec<String> {
                 return None;
             }
             // Also while its session's drive is away: the export then fails
-            // until it is back (`try_register_outside_photos`).
+            // until it is back (`outside_owners_available`).
             crate::outside_photos::session_of(&source).map(|dir| dir.to_string_lossy().into_owned())
         })
         .collect();

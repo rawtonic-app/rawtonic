@@ -72,12 +72,6 @@ pub struct ExportRequest {
     pub output_format: String,
     pub current_edit_path: Option<String>,
     pub current_edit_adjustments: Option<Value>,
-    /// The sessions that keep photographs of this export outside their
-    /// folder (moved to another drive, ADR 0016), found when it is queued:
-    /// registered when it runs, so their session resources resolve also
-    /// after another library opened or the app restarted.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub libraries: Vec<String>,
 }
 
 /// Which photos of a queued job to render and where their state goes.
@@ -354,13 +348,7 @@ pub fn enqueue(app: &AppHandle, request: ExportRequest) -> Result<String, String
 /// Adds exports to the queue together (a photo set's ticked recipes, which
 /// then run as one: each photo is developed once for all of them) and
 /// starts the queue if it is idle.
-pub fn enqueue_all(
-    app: &AppHandle,
-    mut requests: Vec<ExportRequest>,
-) -> Result<Vec<String>, String> {
-    for request in &mut requests {
-        request.libraries = crate::session_bridge::outside_owners(&request.paths);
-    }
+pub fn enqueue_all(app: &AppHandle, requests: Vec<ExportRequest>) -> Result<Vec<String>, String> {
     let requests = requests
         .iter()
         .map(|request| Ok((label_for(request), serde_json::to_value(request)?, request)))
@@ -573,32 +561,6 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
     let Some(request) = first else {
         return;
     };
-    // The sessions keeping its photographs outside their folders must be
-    // there: without them their recipes would render without the session's
-    // profiles, LUTs and masks. Their jobs fail, saying why.
-    let unavailable: Vec<String> = request
-        .libraries
-        .iter()
-        .filter_map(|dir| crate::session_bridge::try_register_outside_photos(Path::new(dir)).err())
-        .collect();
-    if !unavailable.is_empty() {
-        let reason = format!(
-            "{}; connect its drive and export again",
-            unavailable.join("; ")
-        );
-        log::error!("Export not started: {reason}");
-        for job in jobs {
-            // Photos exported in an earlier run stay done.
-            for item in with_queue(|q| q.items(&job.id)).unwrap_or_default() {
-                if item.state != ItemState::Done {
-                    with_queue(|q| q.item_failed(&job.id, item.index, &reason));
-                }
-            }
-            with_queue(|q| q.finish(&job.id, RunEnd::Completed));
-        }
-        notify(app);
-        return;
-    }
     *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = trackings
         .iter()
         .map(|(_, t)| RunningJob {

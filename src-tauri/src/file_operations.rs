@@ -710,7 +710,8 @@ fn operation_context(
 
 /// The libraries an operation recorded as holding what its step from
 /// `source` moved or trashed (several for a folder holding photographs of
-/// several sessions).
+/// several sessions), each where it is now (a session renamed or moved
+/// since, `outside_photos::now_at`).
 fn recorded_libraries(op: &Operation, source: &Path) -> Vec<PathBuf> {
     op.context
         .as_ref()
@@ -719,7 +720,7 @@ fn recorded_libraries(op: &Operation, source: &Path) -> Vec<PathBuf> {
         .map(|all| {
             all.iter()
                 .filter_map(|v| v.as_str())
-                .map(PathBuf::from)
+                .map(|dir| crate::outside_photos::now_at(Path::new(dir)))
                 .collect()
         })
         .unwrap_or_default()
@@ -2535,8 +2536,9 @@ mod tests {
         // running it fails until the session is back.
         fs::rename(&dir, root.join("Job away")).unwrap();
         assert_eq!(crate::session_bridge::outside_owners(&paths), owners);
-        assert!(crate::session_bridge::try_register_outside_photos(&dir).is_err());
+        assert!(crate::session_bridge::outside_owners_available(&paths).is_err());
         fs::rename(root.join("Job away"), &dir).unwrap();
+        assert!(crate::session_bridge::outside_owners_available(&paths).is_ok());
         rawtonic_engine::session_layout::set_outside_photos(&dir, HashSet::new());
         crate::session_bridge::set_active_for_test(None);
     }
@@ -2755,7 +2757,9 @@ mod tests {
             crate::session_bridge::outside_owners(&paths),
             [dir.to_string_lossy()]
         );
-        assert!(crate::session_bridge::try_register_outside_photos(&dir).is_err());
+        // Every export, also a headless one (`export_images_impl`), refuses.
+        let error = crate::session_bridge::outside_owners_available(&paths).unwrap_err();
+        assert!(error.contains("connect its drive"), "{error}");
         let steps = vec![Step::system_trash(&moved)];
         let context = operation_context(&steps, HashMap::new());
         assert_eq!(recorded_library_of(&context), Some(dir.clone()));
@@ -2789,6 +2793,100 @@ mod tests {
         sync_catalog(&op, true).unwrap();
         let lib = Library::open(&dir).unwrap();
         assert!(lib.asset_at(&moved).unwrap().unwrap().missing);
+        rawtonic_engine::session_layout::set_outside_photos(&dir, HashSet::new());
+        crate::outside_photos::set_record_file_for_test(None);
+        crate::session_bridge::set_active_for_test(None);
+    }
+
+    /// A session renamed while closed keeps its photographs outside its
+    /// folder: found again (opened) in its new folder, it is their owner
+    /// there — not the folder it left — for every lookup, after a restart,
+    /// and for an operation recorded before the rename.
+    #[test]
+    fn a_session_renamed_while_closed_owns_its_outside_photos_from_its_new_folder() {
+        let _active = crate::session_bridge::library_test_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        let records = root.join("config/outside-photos.json");
+        fs::create_dir_all(records.parent().unwrap()).unwrap();
+        crate::outside_photos::set_record_file_for_test(Some(records.clone()));
+        let dir = session(&root.join("Disk"));
+        let photo = dir.join("Capture/A.NEF");
+        fs::write(&photo, "a").unwrap();
+        let lib = Library::open(&dir).unwrap();
+        lib.add_asset(&photo).unwrap();
+        let drive = root.join("Drive/Shoots");
+        fs::create_dir_all(&drive).unwrap();
+        let moved = drive.join("A.NEF");
+        fs::rename(&photo, &moved).unwrap();
+        lib.relocate(&photo, &moved).unwrap();
+        drop(lib);
+        crate::outside_photos::record(&dir).unwrap();
+        // Trashed while the session was in its old folder.
+        let steps = vec![Step::system_trash(&moved)];
+        let context = operation_context(&steps, HashMap::new());
+        assert_eq!(recorded_library_of(&context), Some(dir.clone()));
+        let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
+        let trash = BesideTrash(root.join(".trash"));
+        let op = journal
+            .execute_in_context(
+                "trash",
+                "Delete",
+                steps,
+                context,
+                &trash,
+                &rawtonic_fileops::Unobserved,
+            )
+            .unwrap();
+        sync_catalog(&op, true).unwrap();
+        // Renamed while closed, then opened there.
+        let renamed = root.join("Disk/Job renamed");
+        fs::rename(&dir, &renamed).unwrap();
+        crate::session_bridge::set_active_for_test(Some(renamed.clone()));
+        let paths = [moved.to_string_lossy().into_owned()];
+        let owners_are_the_renamed_session = || {
+            assert_eq!(
+                crate::session_bridge::owner_of(&moved),
+                Some(renamed.clone())
+            );
+            assert_eq!(
+                rawtonic_engine::session_layout::library_root(&moved),
+                Some(renamed.clone())
+            );
+            assert_eq!(
+                crate::session_bridge::libraries_for_folder(&drive),
+                [renamed.clone()]
+            );
+            assert_eq!(
+                crate::session_bridge::outside_owners(&paths),
+                [renamed.to_string_lossy()]
+            );
+        };
+        // (The trashed photograph is still the session's, marked trashed.)
+        owners_are_the_renamed_session();
+        // Another library open, then a restart.
+        let catalog = root.join("Catalog");
+        Library::create(&catalog, "Catalog", rawtonic_catalog::Mode::Catalog).unwrap();
+        crate::session_bridge::set_active_for_test(Some(catalog.clone()));
+        rawtonic_engine::session_layout::set_outside_photos(&renamed, HashSet::new());
+        crate::outside_photos::load_records(records.clone());
+        assert_eq!(
+            crate::session_bridge::owner_of(&moved),
+            Some(renamed.clone())
+        );
+        assert!(crate::session_bridge::outside_owners_available(&paths).is_ok());
+        // Undo of the earlier Trash follows into the renamed session.
+        let op = journal.undo(&op.id, &trash).unwrap();
+        sync_catalog(&op, false).unwrap();
+        let lib = Library::open(&renamed).unwrap();
+        assert!(!lib.asset_at(&moved).unwrap().unwrap().missing);
+        drop(lib);
+        // Renamed back: its old folder is its own again.
+        fs::rename(&renamed, &dir).unwrap();
+        crate::session_bridge::register_outside_photos(&dir);
+        assert_eq!(crate::session_bridge::owner_of(&moved), Some(dir.clone()));
+        assert_eq!(crate::outside_photos::now_at(&renamed), dir);
+        assert_eq!(crate::outside_photos::now_at(&dir), dir);
         rawtonic_engine::session_layout::set_outside_photos(&dir, HashSet::new());
         crate::outside_photos::set_record_file_for_test(None);
         crate::session_bridge::set_active_for_test(None);

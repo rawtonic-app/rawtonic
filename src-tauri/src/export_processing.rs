@@ -644,6 +644,10 @@ pub(crate) async fn export_images_impl(
     completion_tx: Option<tokio::sync::oneshot::Sender<Result<(), usize>>>,
     max_jobs: Option<usize>,
 ) -> Result<(), String> {
+    // Every export (queued, resumed, headless): the sessions keeping these
+    // photographs outside their folders must be there, or their recipes
+    // would render without the session's profiles, LUTs and masks.
+    crate::session_bridge::outside_owners_available(&paths)?;
     let cancellation_token = register_export_task(&state.export_task_token)?;
     let task_guard = ExportTaskGuard::with_app_handle(
         Arc::clone(&state.export_task_token),
@@ -1455,7 +1459,6 @@ pub async fn export_images(
             output_format,
             current_edit_path,
             current_edit_adjustments,
-            libraries: Vec::new(),
         },
     )
 }
