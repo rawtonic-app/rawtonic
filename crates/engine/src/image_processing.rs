@@ -1106,27 +1106,46 @@ fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32
     };
 
     // The camera's framing itself (`lens_zoom_exact`, scaled like the
-    // distortion by the amount), zoomed further only where a point would
-    // still sample outside (manual distortion, an amount below 100 %), by the
-    // bisection below and without a margin.
+    // distortion by the amount), zoomed further only where a border pixel
+    // would still sample outside (manual distortion, an amount below 100 %),
+    // without a margin. The warp samples pixel positions 0 … width − 1
+    // (`interpolate_pixel`); `INSIDE` covers its f32 rounding.
     if has_lens_correction && params.lens_zoom_exact {
+        const INSIDE: f64 = 0.01;
+        const STEPS: usize = 32;
         let zoom = (1.0 + (params.lens_zoom as f64 - 1.0) * lens_dist_amt.clamp(0.0, 1.0)).max(1.0);
-        return sample_points.iter().fold(zoom, |scale, &(px, py)| {
-            let (dx, dy) = (px - cx, py - cy);
-            if ratio(dx / scale, dy / scale) <= scale {
-                return scale;
-            }
-            let (mut lo, mut hi) = (scale, 8.0f64);
-            for _ in 0..48 {
-                let mid = 0.5 * (lo + hi);
-                if ratio(dx / mid, dy / mid) <= mid {
-                    hi = mid;
-                } else {
-                    lo = mid;
+        let (last_x, last_y) = (width as f64 - 1.0, height as f64 - 1.0);
+        let inside = |dx: f64, dy: f64, s: f64| {
+            let g = ratio(dx / s, dy / s) / s;
+            let (x, y) = (cx + dx * g, cy + dy * g);
+            (INSIDE..=last_x - INSIDE).contains(&x) && (INSIDE..=last_y - INSIDE).contains(&y)
+        };
+        return (0..=STEPS)
+            .flat_map(|i| {
+                let t = i as f64 / STEPS as f64;
+                [
+                    (t * last_x, 0.0),
+                    (t * last_x, last_y),
+                    (0.0, t * last_y),
+                    (last_x, t * last_y),
+                ]
+            })
+            .fold(zoom, |scale, (px, py)| {
+                let (dx, dy) = (px - cx, py - cy);
+                if inside(dx, dy, scale) {
+                    return scale;
                 }
-            }
-            hi
-        });
+                let (mut lo, mut hi) = (scale, 8.0f64);
+                for _ in 0..48 {
+                    let mid = 0.5 * (lo + hi);
+                    if inside(dx, dy, mid) {
+                        hi = mid;
+                    } else {
+                        lo = mid;
+                    }
+                }
+                hi
+            });
     }
 
     let mut max_scale: f64 = 1.0;
@@ -7682,6 +7701,35 @@ mod warp_points_tests {
                     edge > 0.4 && (edge - inner).abs() < 0.05,
                     "{name} ({x},{y}): {edge} vs {inner}"
                 );
+            }
+        }
+    }
+
+    /// With the camera's framing exact (no margin), a binding edge still
+    /// keeps its last row and column (barrel data whose edges move out).
+    #[test]
+    fn an_exact_lens_zoom_leaves_no_black_border() {
+        let (w, h) = (1500u32, 1000u32);
+        let grey = image::Rgb([0.5f32, 0.5, 0.5]);
+        let flat = DynamicImage::ImageRgb32F(image::ImageBuffer::from_pixel(w, h, grey));
+        for (k3, zoom) in [(-0.02f32, 1.0f32), (-0.0215, 1.01), (-0.06, 1.0)] {
+            let params = GeometryParams {
+                lens_distortion_enabled: true,
+                lens_distortion_amount: 1.0,
+                lens_profile_exact: true,
+                lens_model: 1,
+                lens_dist_k3: k3,
+                lens_zoom: zoom,
+                lens_zoom_exact: true,
+                ..Default::default()
+            };
+            let out = warp_image_geometry(&flat, params).into_rgb32f();
+            let border = (0..w)
+                .flat_map(|x| [(x, 0), (x, h - 1)])
+                .chain((0..h).flat_map(|y| [(0, y), (w - 1, y)]));
+            for (x, y) in border {
+                let value = out.get_pixel(x, y)[0];
+                assert!(value > 0.4, "k3 {k3} zoom {zoom}: ({x},{y}) = {value}");
             }
         }
     }

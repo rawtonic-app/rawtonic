@@ -1144,11 +1144,11 @@ pub fn params_for(source: &Path) -> Option<LensDistortionParams> {
 }
 
 /// The camera geometry version `params_for` reads `source` with: the
-/// newest, except offline from facts registered before it, which carry an
-/// older version's data.
+/// newest, except offline from facts registered before a version that reads
+/// its format differently (`known_geometry_version`).
 pub fn current_geometry_version(source: &Path) -> u64 {
     crate::source_facts::registered(&source.to_string_lossy()).map_or(GEOMETRY_VERSION, |facts| {
-        facts_geometry_version(facts.version)
+        known_geometry_version(source, facts.version)
     })
 }
 
@@ -1156,12 +1156,34 @@ pub fn current_geometry_version(source: &Path) -> u64 {
 /// geometry version 1, 2, … (older versions in `camera_lens_geometry`).
 const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7];
 
+/// The file formats (extensions) whose data camera geometry version 1, 2, …
+/// reads differently from the version before: 1 Sony's (ARW, and Adobe DNG
+/// Converter's DNGs of Sony bodies).
+const GEOMETRY_FORMATS: [&[&str]; GEOMETRY_VERSION as usize] = [&["arw", "dng"]];
+
 /// The camera geometry version facts of `facts_version` carry.
 pub fn facts_geometry_version(facts_version: u32) -> u64 {
     GEOMETRY_FACTS
         .iter()
         .filter(|&&from| facts_version >= from)
         .count() as u64
+}
+
+/// The newest camera geometry version whose data for `source` facts of
+/// `facts_version` hold: the versions after theirs up to the first that
+/// reads its format differently read it as theirs does (a Fujifilm RAF's
+/// facts from before version 1 answer a version 1 recipe, a Sony ARW's do
+/// not).
+pub fn known_geometry_version(source: &Path, facts_version: u32) -> u64 {
+    let extension = source
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let held = facts_geometry_version(facts_version);
+    (held + 1..=GEOMETRY_VERSION)
+        .find(|&version| GEOMETRY_FORMATS[version as usize - 1].contains(&extension.as_str()))
+        .map_or(GEOMETRY_VERSION, |changed| changed - 1)
 }
 
 /// Parameters from the camera's data for a recipe: as its camera CA and
@@ -1186,14 +1208,14 @@ const PANASONIC_CA_FACTS: u32 = 3;
 /// Whether `params_for_recipe` gives the camera data the recipe reads. Not
 /// offline when the registered facts predate what its camera CA or
 /// geometry version reads (a Panasonic preview made before its CA data was
-/// read, any preview made before its geometry version): saving then keeps
-/// the recipe's parameters instead of replacing them with other data.
+/// read, a Sony one made before geometry version 1): saving then keeps the
+/// recipe's parameters instead of replacing them with other data.
 pub fn recipe_params_known(source: &Path, adjustments: &serde_json::Value) -> bool {
     crate::source_facts::registered(&source.to_string_lossy()).is_none_or(|facts| {
         (facts.version >= PANASONIC_CA_FACTS
             || ca_version_of(adjustments) == 0
             || !is_panasonic(source))
-            && geometry_version_of(adjustments) <= facts_geometry_version(facts.version)
+            && geometry_version_of(adjustments) <= known_geometry_version(source, facts.version)
     })
 }
 
@@ -2492,7 +2514,7 @@ mod tests {
         let new = serde_json::json!({GEOMETRY_VERSION_KEY: GEOMETRY_VERSION});
         let old = serde_json::json!({});
         assert_eq!(params_for_recipe(source, &new), Some(v1.clone()));
-        assert_eq!(params_for_recipe(source, &old), Some(v0));
+        assert_eq!(params_for_recipe(source, &old), Some(v0.clone()));
         assert!(recipe_params_known(source, &new) && recipe_params_known(source, &old));
         let mut never = serde_json::Value::Null;
         apply_default(&mut never, source);
@@ -2516,6 +2538,22 @@ mod tests {
         assert_eq!(never["lensCorrectionMode"], CAMERA_MODE);
         assert!(never.get(GEOMETRY_VERSION_KEY).is_none());
         forget(&path);
+        // Formats geometry version 1 reads as before: the old facts answer.
+        for name in ["DSCF0001.RAF", "P1000001.RW2", "_DSC0001.NEF"] {
+            let other = Path::new("/offline/volume/Job/Capture").join(name);
+            register(
+                &other.to_string_lossy(),
+                SourceFacts {
+                    version: 6,
+                    camera_lens: Some(v0.clone()),
+                    ..Default::default()
+                },
+            );
+            assert_eq!(current_geometry_version(&other), GEOMETRY_VERSION);
+            assert!(recipe_params_known(&other, &new), "{name}");
+            assert_eq!(params_for_recipe(&other, &new), Some(v0.clone()));
+            forget(&other.to_string_lossy());
+        }
     }
 
     // Fujifilm GFX 50R with GF63mmF2.8 R WR: eight knots (values as stored).

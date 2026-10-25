@@ -384,6 +384,54 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_pasted_camera_lens_choice_resolves_offline_from_older_facts_of_unchanged_formats() {
+        use crate::source_facts::{SourceFacts, forget, register};
+        let params =
+            crate::lens_correction::LensDistortionParams::ptlens(0.01, -0.02, 0.0, [0.0; 3]);
+        // A new edit's Lens Correction (geometry version 1) pasted onto
+        // offline photos whose previews were made before it (facts v6).
+        let pasted = serde_json::json!({
+            "lensCorrectionMode": "camera", "cameraCaVersion": 1,
+            crate::embedded_lens::GEOMETRY_VERSION_KEY: 1,
+        });
+        for (name, resolves) in [
+            ("DSCF0002.RAF", true),
+            ("P1000002.RW2", true),
+            ("DSC00002.ARW", false),
+        ] {
+            let source = Path::new("/offline/volume/Paste").join(name);
+            register(
+                &source.to_string_lossy(),
+                SourceFacts {
+                    version: 6,
+                    camera_lens: Some(params.clone()),
+                    ..Default::default()
+                },
+            );
+            let mut recipe = pasted.clone();
+            resolve_lens_params_in_adjustments(
+                &mut recipe,
+                LensLookup::Fresh,
+                &None,
+                None,
+                &source,
+            );
+            forget(&source.to_string_lossy());
+            assert_eq!(
+                recipe[LENS_PROFILE_FOR] != LENS_UNRESOLVED,
+                resolves,
+                "{name}"
+            );
+            if resolves {
+                assert_eq!(
+                    recipe["lensDistortionParams"],
+                    serde_json::to_value(&params).unwrap()
+                );
+            }
+        }
+    }
+
+    #[test]
     fn the_camera_geometry_version_joins_the_stamp_only_where_set() {
         let old = serde_json::json!({"lensCorrectionMode": "camera", "cameraCaVersion": 1});
         // Stamps saved before the key still match their recipes.
