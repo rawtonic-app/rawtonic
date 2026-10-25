@@ -72,3 +72,42 @@ impl<R: Runtime> Plugin<R> for PinchZoomDisablePlugin {
         });
     }
 }
+
+/// Puts the window into macOS full screen or takes it out, as ⌃⌘F and the
+/// green button do (`toggleFullScreen:`). Leaving through Tauri's
+/// `setFullscreen(false)` left the page without keyboard focus — the next F
+/// went nowhere until a click (measured 2026-10-25 in a QA build:
+/// `document.hasFocus()` false after leaving that way, true after
+/// `toggleFullScreen:`). Elsewhere the window's own full screen is used.
+#[tauri::command]
+pub fn set_window_full_screen(window: tauri::WebviewWindow, on: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let target = window.clone();
+        window
+            .run_on_main_thread(move || {
+                use objc::runtime::Object;
+                use objc::{msg_send, sel, sel_impl};
+                /// NSWindowStyleMaskFullScreen.
+                const FULL_SCREEN: usize = 1 << 14;
+                let Ok(ns_window) = target.ns_window() else {
+                    return;
+                };
+                let ns_window = ns_window.cast::<Object>();
+                if ns_window.is_null() {
+                    return;
+                }
+                // SAFETY: on the main thread with the live NSWindow.
+                unsafe {
+                    let mask: usize = msg_send![ns_window, styleMask];
+                    if (mask & FULL_SCREEN != 0) != on {
+                        let () =
+                            msg_send![ns_window, toggleFullScreen: std::ptr::null_mut::<Object>()];
+                    }
+                }
+            })
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    window.set_fullscreen(on).map_err(|e| e.to_string())
+}

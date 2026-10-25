@@ -651,6 +651,7 @@ pub fn run() {
         })
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
+            window_customizer::set_window_full_screen,
             session_bridge::session_create,
             snapshots::snapshots_list,
             snapshots::snapshot_create,

@@ -1,5 +1,7 @@
+import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { Invokes } from '../components/ui/AppProperties';
 
 // The window's full screen (F11; macOS also ⌃⌘F and the View menu): its own
 // Space on macOS, the whole monitor without borders on Windows and Linux.
@@ -58,7 +60,8 @@ function changeWindowFullScreen(next: (current: boolean) => boolean): Promise<vo
       const current = await appWindow.isFullscreen();
       const target = next(current);
       if (target === current) return;
-      await appWindow.setFullscreen(target);
+      // macOS: as ⌃⌘F does, which keeps the page's keyboard focus.
+      await invoke(Invokes.SetWindowFullScreen, { on: target });
       // The transition is animated on macOS: wait until the window reports
       // the new state (at most ~2 s), then take the keyboard focus again.
       for (let i = 0; i < 20 && (await appWindow.isFullscreen()) !== target; i++) await pause(100);
