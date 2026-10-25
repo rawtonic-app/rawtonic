@@ -265,6 +265,17 @@ describe('edits under way when the photograph is to be shown alone', () => {
     expect(fullScreen()).toBe(true);
   });
 
+  it('does not enter later after G back to the grid, which names the mode already shown', async () => {
+    useUIStore.setState({ activeView: 'library', libraryLoupe: false, isFullScreen: false });
+    const { result } = renderHook(useEditorActions);
+    act(() => result.current.handleResetAdjustments(['/s/a.dng']));
+    pressF();
+    act(() => useUIStore.getState().setUI({ activeView: 'library', libraryLoupe: false, isFullScreen: false }));
+    await answer(Invokes.ResetAdjustmentsForPaths);
+    await settled();
+    expect(fullScreen()).toBe(false);
+  });
+
   it('does not enter later when the user chose another mode meanwhile', async () => {
     const { result } = renderHook(useEditorActions);
     act(() => void result.current.handleAutoAdjustments());

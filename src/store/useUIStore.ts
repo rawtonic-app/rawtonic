@@ -310,8 +310,6 @@ export function isAnyModalOpen(state: UIState): boolean {
   );
 }
 
-// What chooses the mode of the viewer (utils/viewerMode).
-const MODE_KEYS = ['activeView', 'libraryLoupe', 'isFullScreen'] as const;
 // An update that shows the photograph alone, waiting for edits to settle.
 let heldEntry: Partial<UIState> | null = null;
 
@@ -327,7 +325,10 @@ const withSettledEntry =
       const state = get();
       const next = typeof partial === 'function' ? partial(state) : partial;
       if (next === state) return;
-      if (heldEntry && MODE_KEYS.some((key) => key in next && next[key] !== state[key])) heldEntry = null;
+      // An explicit choice of viewer (G, E, Esc: also one that names the
+      // mode already shown) or another module drops it.
+      if (heldEntry && ('libraryLoupe' in next || 'isFullScreen' in next || next.activeView !== undefined && next.activeView !== state.activeView))
+        heldEntry = null;
       if (!viewerOnly(state) && viewerOnly({ ...state, ...next })) {
         const settling = settleEdits();
         if (settling) {
