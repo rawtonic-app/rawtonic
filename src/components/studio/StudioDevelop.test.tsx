@@ -10,6 +10,7 @@ import {
   within,
 } from "@testing-library/react";
 import StudioDevelop from "./StudioDevelop";
+import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useUIStore } from "../../store/useUIStore";
 import { useProcessStore } from "../../store/useProcessStore";
@@ -1154,6 +1155,127 @@ describe("layer panel (Capture One's list, Lightroom's components)", () => {
     fireEvent.click(screen.getAllByRole("menuitem", { name: "Delete Sky warm" }).at(-1)!);
     expect(useEditorStore.getState().adjustments.masks).toHaveLength(0);
     expect(screen.getByRole("group", { name: "New layer" })).toBeTruthy();
+  });
+});
+
+describe("layer rename", () => {
+  const startRename = () => {
+    const adjustments = structuredClone(INITIAL_ADJUSTMENTS);
+    adjustments.masks = [{ ...structuredClone(INITIAL_MASK_CONTAINER), id: "a", name: "Layer 1", subMasks: [] }];
+    useEditorStore.setState({
+      adjustments, history: [adjustments], historyIndex: 0, historyPending: false,
+      activeMaskContainerId: "a", activeMaskId: null,
+    });
+    useUIStore.setState({ activeView: "editor", activePanel: Panel.Masks });
+    render(
+      <ContextMenuProvider>
+        <StudioDevelop />
+      </ContextMenuProvider>,
+    );
+    openLayersTab();
+    fireEvent.doubleClick(screen.getByRole("button", { name: "Select Layer 1" }));
+    const input = screen.getByRole("textbox", { name: "Name of Layer 1" }) as HTMLInputElement;
+    expect(document.activeElement).toBe(input);
+    return input;
+  };
+  const name = () => useEditorStore.getState().adjustments.masks[0].name;
+  const finish = (input: HTMLInputElement, via: "Enter" | "blur") => {
+    if (via === "Enter") fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+    else fireEvent.blur(input);
+  };
+
+  it.each(["Enter", "blur"] as const)("keeps the new name and closes on %s, as one undo step", (via) => {
+    const input = startRename();
+    for (const value of ["S", "Sky", "  Sky warm  "]) {
+      fireEvent.change(input, { target: { value } });
+      act(() => vi.advanceTimersByTime(1000));
+      expect(name()).toBe("Layer 1");
+      expect(useEditorStore.getState().history).toHaveLength(1);
+    }
+    finish(input, via);
+    expect(name()).toBe("Sky warm");
+    expect(screen.queryByRole("textbox", { name: /^Name of / })).toBeNull();
+    expect(screen.getByRole("button", { name: "Select Sky warm" })).toBeTruthy();
+    act(() => debouncedSetHistory.flush());
+    expect(useEditorStore.getState().history).toHaveLength(2);
+    act(() => useEditorStore.getState().undo());
+    expect(name()).toBe("Layer 1");
+    act(() => useEditorStore.getState().redo());
+    expect(name()).toBe("Sky warm");
+  });
+
+  it("discards the draft and closes on Escape without an undo step", () => {
+    const input = startRename();
+    fireEvent.change(input, { target: { value: "Discard this name" } });
+    fireEvent.keyDown(input, { key: "Escape", code: "Escape" });
+    act(() => debouncedSetHistory.flush());
+    expect(name()).toBe("Layer 1");
+    expect(screen.queryByRole("textbox", { name: /^Name of / })).toBeNull();
+    expect(screen.getByRole("button", { name: "Select Layer 1" })).toBeTruthy();
+    expect(useEditorStore.getState().history).toHaveLength(1);
+  });
+
+  it.each([
+    ["Enter", ""],
+    ["Enter", "   \t  "],
+    ["blur", ""],
+    ["blur", "   \t  "],
+  ] as const)("keeps the old name for %s with a blank draft (%j)", (via, value) => {
+    const input = startRename();
+    fireEvent.change(input, { target: { value } });
+    finish(input, via);
+    act(() => debouncedSetHistory.flush());
+    expect(name()).toBe("Layer 1");
+    expect(screen.queryByRole("textbox", { name: /^Name of / })).toBeNull();
+    expect(screen.getByRole("button", { name: "Select Layer 1" })).toBeTruthy();
+    expect(useEditorStore.getState().history).toHaveLength(1);
+  });
+
+  it("keeps M, F and digits in the focused rename field without firing shortcuts", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const settings = useSettingsStore.getState();
+    useSettingsStore.setState({
+      appSettings: {
+        ...settings.appSettings,
+        keybinds: {
+          toggle_mask_overlay: ["KeyM"],
+          toggle_fullscreen: ["KeyF"],
+          ...Object.fromEntries(Array.from({ length: 6 }, (_, digit) => [`rate_${digit}`, [`Digit${digit}`]])),
+        },
+      } as AppSettings,
+    });
+    try {
+      const input = startRename();
+      renderHook(() => useKeyboardShortcuts({
+        sortedImageList: [],
+        handleBackToLibrary: vi.fn(),
+        handleDeleteSelected: vi.fn(),
+        handleImageSelect: vi.fn(),
+        handlePasteFiles: vi.fn(),
+        handleZoomChange: vi.fn(),
+      }));
+      const editor = useEditorStore.getState();
+      const ui = useUIStore.getState();
+      const calls = vi.mocked(invoke).mock.calls.length;
+      let value = "";
+      for (const key of ["m", "f", "0", "1", "2", "3", "4", "5"]) {
+        const code = /\d/.test(key) ? `Digit${key}` : `Key${key.toUpperCase()}`;
+        fireEvent.keyDown(input, { key, code });
+        fireEvent.change(input, { target: { value: value += key } });
+        fireEvent.keyUp(input, { key, code });
+      }
+      expect(input.value).toBe("mf012345");
+      expect(document.activeElement).toBe(input);
+      expect(useEditorStore.getState()).toBe(editor);
+      expect(useUIStore.getState()).toBe(ui);
+      expect(vi.mocked(invoke).mock.calls).toHaveLength(calls);
+      // The shortcut listener is live: M works once the rename field closes.
+      fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+      fireEvent.keyDown(window, { key: "m", code: "KeyM" });
+      expect(useEditorStore.getState().showMaskWithSelectTool).toBe(true);
+    } finally {
+      useSettingsStore.setState(settings);
+    }
   });
 });
 
