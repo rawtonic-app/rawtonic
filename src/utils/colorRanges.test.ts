@@ -84,3 +84,16 @@ it('adds no range beyond the limit', () => {
   const full = Array.from({ length: 4 }, () => applyColorPick([], 'new', 4, 10, 0.1, 0.5).ranges[0]);
   expect(applyColorPick(full, 'skin', 4, 50, 0.06, 0.6)).toEqual({ ranges: full, id: null });
 });
+
+it('drops a sample whose pick was finished meanwhile (e.g. on the range wheel)', async () => {
+  let resolve!: (rgb: [number, number, number]) => void;
+  vi.mocked(invoke).mockReturnValue(new Promise((r) => (resolve = r)));
+  useEditorStore.setState({ colorPickerTarget: 'skin', colorPickerLayer: 'L1' });
+  const pending = pickColorRange('/a.cr3', 'skin', 0.5, 0.5);
+  useEditorStore.setState({ colorPickerTarget: null, colorPickerLayer: null });
+  resolve([200, 150, 120]);
+  expect(await pending).toBe(false);
+  const state = useEditorStore.getState();
+  expect(state.adjustments.colorRanges ?? []).toHaveLength(0);
+  expect(state.adjustments.masks[0].adjustments.colorRanges).toHaveLength(0);
+});

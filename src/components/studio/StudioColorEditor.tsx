@@ -225,6 +225,9 @@ export default function StudioColorEditor({
   );
   const wheel = (
     <StudioColorRangeWheel
+      // A new editing target ends a drag on the old one (its pending
+      // geometry is dropped, never written into the new range).
+      key={`${layerId ?? "photo"}:${mode}:${wheelPicking ? "pick" : (active?.id ?? "none")}`}
       ranges={mode === "skin" ? (skin ? [skin] : []) : listed}
       active={wheelPicking ? undefined : active}
       disabled={disabled || (wheelAdds && ranges.length >= limit)}

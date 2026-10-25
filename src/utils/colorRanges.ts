@@ -52,6 +52,12 @@ export function applyColorPick(
  * when nothing was sampled.
  */
 export async function pickColorRange(path: string, target: string, x: number, y: number) {
+  // The picker as it was when the sample was asked for: a picker finished
+  // or changed meanwhile (e.g. completed on the range wheel) drops it.
+  const asked = useEditorStore.getState();
+  const armed = asked.colorPickerTarget;
+  // A picker started on a layer edits that layer's ranges.
+  const layer = asked.colorPickerLayer;
   const rgb = await invoke<[number, number, number] | null>(Invokes.SamplePreviewColor, {
     path,
     normalizedX: x,
@@ -59,10 +65,9 @@ export async function pickColorRange(path: string, target: string, x: number, y:
   });
   const state = useEditorStore.getState();
   if (!rgb || state.selectedImage?.path !== path) return false;
+  if (state.colorPickerTarget !== armed || state.colorPickerLayer !== layer) return false;
   const { hue, chroma, lightness } = srgbToOklch(rgb);
   let activeId: string | null = target;
-  // A picker started on a layer edits that layer's ranges.
-  const layer = state.colorPickerLayer;
   const next = (ranges: ColorRange[], limit: number) => {
     const picked = applyColorPick(ranges, target, limit, hue, chroma, lightness);
     activeId = picked.id;

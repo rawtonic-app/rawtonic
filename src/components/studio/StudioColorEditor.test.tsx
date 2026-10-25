@@ -221,6 +221,30 @@ describe("range wheel <-> sliders", () => {
     }
   });
 
+  it("selecting another range mid-drag ends the drag without editing either", () => {
+    const a = skinish();
+    const b = { ...newColorRange(220, 0.08, 0.5), hueRange: 25 };
+    render(<Harness initial={[a, b]} />);
+    openTool();
+    wheelSvg();
+    const edge = screen.getByRole("slider", {
+      name: "Range hue edge, counter-clockwise",
+    });
+    fireEvent.pointerDown(edge, { button: 0, ...at(75, 0.06) });
+    fireEvent.pointerMove(edge, at(90, 0.06));
+    act(() => useEditorStore.setState({ activeColorRangeId: b.id }));
+    expect(interaction).toHaveBeenLastCalledWith(false);
+    fireEvent.pointerMove(edge, at(100, 0.06));
+    fireEvent.pointerUp(edge);
+    // Nothing was written: the pending frame of range A was dropped.
+    expect(changes).toHaveLength(0);
+    expect(
+      screen
+        .getByRole("slider", { name: "Range hue edge, counter-clockwise" })
+        .getAttribute("aria-valuenow"),
+    ).toBe("25");
+  });
+
   it("follows the sliders: a new hue range moves the edge handles", () => {
     const range = skinish();
     const { rerender } = render(<Harness initial={[range]} />);

@@ -169,6 +169,15 @@ export default memo(function StudioColorRangeWheel({
   }, [active]);
   const interaction = useRef(onInteraction);
   interaction.current = onInteraction;
+  // Disabled mid-drag: the drag ends without writing what is pending.
+  useEffect(() => {
+    if (!disabled || !drag.current) return;
+    drag.current = null;
+    if (frame.current !== null) cancelAnimationFrame(frame.current);
+    frame.current = null;
+    pending.current = {};
+    interaction.current?.(false);
+  }, [disabled]);
   useEffect(
     () => () => {
       if (frame.current !== null) cancelAnimationFrame(frame.current);
