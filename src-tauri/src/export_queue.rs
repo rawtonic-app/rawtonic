@@ -588,8 +588,11 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
         );
         log::error!("Export not started: {reason}");
         for job in jobs {
-            for index in 0..job.total {
-                with_queue(|q| q.item_failed(&job.id, index, &reason));
+            // Photos exported in an earlier run stay done.
+            for item in with_queue(|q| q.items(&job.id)).unwrap_or_default() {
+                if item.state != ItemState::Done {
+                    with_queue(|q| q.item_failed(&job.id, item.index, &reason));
+                }
             }
             with_queue(|q| q.finish(&job.id, RunEnd::Completed));
         }

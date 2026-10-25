@@ -657,10 +657,7 @@ fn plan_folder_move(
     let owners = match library_above(&parent)? {
         Some((session, true)) => vec![session],
         Some((_, false)) => Vec::new(),
-        None => rawtonic_engine::session_layout::registered_libraries_below(folder)
-            .into_iter()
-            .filter(|dir| dir.join("session.json").is_file())
-            .collect(),
+        None => rawtonic_engine::session_layout::registered_libraries_below(folder),
     };
     if let Some(refusal) = owners
         .into_iter()
@@ -709,7 +706,9 @@ fn owning_session(
     Ok(match library_above(parent)? {
         Some((session, true)) => Some(session),
         Some((_, false)) => None,
-        None => registered().filter(|dir| dir.join("session.json").is_file()),
+        // Only sessions register photographs; also while the session's
+        // drive is away its records would not follow into another library.
+        None => registered(),
     })
 }
 
@@ -1248,6 +1247,15 @@ mod tests {
         );
         let error = plan_folder_move(&drive, &catalog).unwrap_err();
         assert!(error.contains("into the library Catalog"), "{error}");
+        // Also while the session's drive is away (its folder gone).
+        fs::rename(&job, root.join("Job away")).unwrap();
+        let error = plan_move(&out_source, &other.join("Capture").to_string_lossy()).unwrap_err();
+        assert!(
+            error.contains("of the session Job into the library Other"),
+            "{error}"
+        );
+        assert!(plan_folder_move(&drive, &catalog).is_err());
+        fs::rename(root.join("Job away"), &job).unwrap();
         fs::create_dir_all(root.join("Loose")).unwrap();
         plan_move(&out_source, &root.join("Loose").to_string_lossy()).unwrap();
         rawtonic_engine::session_layout::set_outside_photos(&job, Default::default());

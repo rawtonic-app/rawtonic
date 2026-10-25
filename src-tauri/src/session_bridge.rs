@@ -181,8 +181,9 @@ pub(crate) fn outside_owners(paths: &[String]) -> Vec<String> {
             if session_for(&source).is_some() {
                 return None;
             }
-            library_for(&source)
-                .filter(|dir| dir.join("session.json").is_file())
+            // Also while its session's drive is away: the export then fails
+            // until it is back (`try_register_outside_photos`).
+            rawtonic_engine::session_layout::registered_library(&source)
                 .map(|dir| dir.to_string_lossy().into_owned())
         })
         .collect();
@@ -1272,8 +1273,8 @@ pub(crate) fn with_library<T: Send + 'static>(
         let result = work(&lib);
         if write {
             // A relink, folder sync or check may have moved records out of
-            // the session folder or back.
-            refresh_outside_photos();
+            // the session folder or back: this library's, whichever is open.
+            register_outside_photos(&lib.directory);
         }
         result
     })
@@ -1805,7 +1806,7 @@ pub(crate) fn rederive(lib: &Library, id: &str) {
 fn check_files(lib: &Library) -> anyhow::Result<usize> {
     let check = lib.check_files()?;
     if !check.followed.is_empty() {
-        refresh_outside_photos();
+        register_outside_photos(&lib.directory);
     }
     // A drive followed to another mount point keeps its previews.
     for (from, to) in &check.followed {

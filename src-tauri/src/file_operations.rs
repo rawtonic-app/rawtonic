@@ -2531,6 +2531,12 @@ mod tests {
             rawtonic_engine::session_layout::library_root(&moved),
             Some(dir.clone())
         );
+        // Its session's drive away: an export still records the session, and
+        // running it fails until the session is back.
+        fs::rename(&dir, root.join("Job away")).unwrap();
+        assert_eq!(crate::session_bridge::outside_owners(&paths), owners);
+        assert!(crate::session_bridge::try_register_outside_photos(&dir).is_err());
+        fs::rename(root.join("Job away"), &dir).unwrap();
         rawtonic_engine::session_layout::set_outside_photos(&dir, HashSet::new());
         crate::session_bridge::set_active_for_test(None);
     }
