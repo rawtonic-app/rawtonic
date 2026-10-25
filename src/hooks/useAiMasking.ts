@@ -78,6 +78,10 @@ const MASKS_USED_KEY = 'rawtonic.masks.used';
  * Subject and Sky computed ahead (quick stepping skips it). The first photo of
  * a Develop visit does not wait. */
 export const AI_MASKS_AHEAD_DELAY_MS = 500;
+/** For someone who has not masked yet, the Subject and Sky models' GPU
+ * kernels are built in the background once a decoded photo has stayed open
+ * this long in Develop (`warmUpAiMaskModels`). */
+export const AI_WARM_UP_DELAY_MS = 1000;
 /** The backend drops the masking models after this long without masking use
  * (`ai_lifecycle::IDLE_UNLOAD`). */
 export const AI_MODELS_IDLE_UNLOAD_MS = 5 * 60_000;
@@ -102,6 +106,8 @@ let lastUseReported = 0;
  * masking use (then recent use decides) and by an idle or memory-pressure
  * unload; set again when the Library is shown. */
 let firstPhotoOfVisit = true;
+/** This Develop visit asked for the warm-up (`warmUpAiMaskModels`). */
+let warmUpAsked = false;
 /** The visit's first photo started its run at once; if the photo was left
  * before the run ended, later photos wait `AI_MASKS_AHEAD_DELAY_MS` as after
  * recent use (quick stepping skips them). */
@@ -160,6 +166,7 @@ export function leaveDevelop() {
   cancelAiMaskPrecompute();
   firstPhotoOfVisit = true;
   firstPhotoStarted = false;
+  warmUpAsked = false;
   const reason: AiModelsUnloadReason = 'library';
   invoke(Invokes.UnloadAiModels, { reason }).catch((err) => console.error('Failed to unload the AI models:', err));
 }
@@ -170,6 +177,21 @@ export function preloadAiMaskModels() {
   invoke(Invokes.PreloadAiMaskModels).catch((err) => console.error('Failed to load the mask models:', err));
 }
 
+/** Builds the Subject and Sky models' GPU kernels in the background, once
+ * per Develop visit, for someone who has not masked yet: on a fresh install
+ * Core ML compiles them on a model's first run (Subject 11-14 s), which the
+ * first click would wait for. Installed models only; the backend skips
+ * models that have run in this app before, and keeps none loaded. Showing
+ * the Library cancels it (`unload_ai_models`). */
+export function warmUpAiMaskModels() {
+  if (warmUpAsked) return;
+  warmUpAsked = true;
+  const taskId = `mask-warm-up-${crypto.randomUUID()}`;
+  invoke(Invokes.WarmUpAiMaskModels, { taskId }).catch((err) =>
+    console.error('Failed to build the mask models ahead:', err),
+  );
+}
+
 /** Forgets the session state (tests). */
 export function resetAiMaskSession() {
   cancelAiMaskPrecompute();
@@ -177,6 +199,7 @@ export function resetAiMaskSession() {
   lastUseReported = 0;
   firstPhotoOfVisit = true;
   firstPhotoStarted = false;
+  warmUpAsked = false;
 }
 
 /**
@@ -252,10 +275,24 @@ export function cancelAiMaskPrecompute() {
 }
 
 /** The models' lifecycle in the workspace: showing the Library unloads them,
- * and the backend's own unloads (idle, memory pressure) stop loading them
- * ahead. */
+ * the backend's own unloads (idle, memory pressure) stop loading them ahead,
+ * and Develop builds their GPU kernels once for someone who has not masked
+ * (`warmUpAiMaskModels`). */
 export function useAiModelLifecycle(develop: boolean) {
   const wasDevelop = useRef(develop);
+  const photoDecoded = useEditorStore((s) => !!s.selectedImage?.isDecoded);
+  const photoPath = useEditorStore((s) => s.selectedImage?.path);
+  const masksPanelOpen = useUIStore((s) => s.activePanel === Panel.Masks);
+  // Someone who has not masked yet: nothing is loaded ahead, but the models'
+  // GPU kernels are built once in the background, in Develop only (not in
+  // the Library's loupe), after the photo's full decode (its frames first)
+  // and only on a photo that stays open.
+  useEffect(() => {
+    if (!develop || !photoDecoded || !photoPath) return;
+    if (masksPanelOpen || maskingUsedRecently() || maskingToolsUsedBefore()) return;
+    const timer = window.setTimeout(warmUpAiMaskModels, AI_WARM_UP_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [develop, masksPanelOpen, photoDecoded, photoPath]);
   useEffect(() => {
     if (wasDevelop.current && !develop) leaveDevelop();
     // Entering Develop (or starting in it): the models start loading at once,

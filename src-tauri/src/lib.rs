@@ -761,6 +761,7 @@ pub fn run() {
             ai_commands::precompute_ai_foreground_mask,
             ai_commands::precompute_ai_sky_mask,
             ai_commands::preload_ai_mask_models,
+            ai_commands::warm_up_ai_mask_models,
             ai_lifecycle::unload_ai_models,
             ai_lifecycle::note_ai_mask_use,
             ai_commands::generate_ai_foreground_mask,

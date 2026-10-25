@@ -125,6 +125,7 @@ export enum Invokes {
   PrecomputeAiForegroundMask = 'precompute_ai_foreground_mask',
   PrecomputeAiSkyMask = 'precompute_ai_sky_mask',
   PreloadAiMaskModels = 'preload_ai_mask_models',
+  WarmUpAiMaskModels = 'warm_up_ai_mask_models',
   UnloadAiModels = 'unload_ai_models',
   NoteAiMaskUse = 'note_ai_mask_use',
   GeneratePreviewForPath = 'generate_preview_for_path',

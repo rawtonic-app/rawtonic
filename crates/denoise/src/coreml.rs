@@ -52,6 +52,50 @@ unsafe impl Sync for Model {}
 /// A loaded Core ML model with one float input and one float output.
 pub struct CoreMlModel {
     model: Mutex<Model>,
+    /// Set by the first run that succeeds (`with_first_run_marker`).
+    first_run: Option<FirstRunMarker>,
+    marked: std::sync::atomic::AtomicBool,
+}
+
+/// Records that a model has run once in this app on this macOS build.
+///
+/// A model's first run in an app identifier Core ML has not run it in
+/// before is slow: Metal compiles the model's GPU kernels and keeps them in
+/// the app's Metal cache (per identifier and OS build), which later launches
+/// reuse. BiRefNet fp16 on an M5 Pro: first run 11-14 s on a fresh
+/// identifier against 1.1 s in the next launch; the sky model 6.8 s against
+/// 0.2 s (notes: reference/subject-first-use.md). The marker is an empty
+/// file named after the model and the OS build in the app's cache folder,
+/// so an app that never ran a model can build its kernels ahead
+/// (`is_set` false), and a macOS update, which brings a new Metal compiler,
+/// asks again.
+#[derive(Clone, Debug)]
+pub struct FirstRunMarker(PathBuf);
+
+impl FirstRunMarker {
+    /// The marker for model `key` (e.g. its name and a hash of its files) in
+    /// `dir`; `None` when the OS build is unknown.
+    pub fn new(dir: &Path, key: &str) -> Option<Self> {
+        Self::for_build(dir, key, &os_build()?)
+    }
+
+    fn for_build(dir: &Path, key: &str, build: &str) -> Option<Self> {
+        Some(Self(dir.join(format!("{key}-{build}"))))
+    }
+
+    /// Whether the model has run once here.
+    pub fn is_set(&self) -> bool {
+        self.0.is_file()
+    }
+
+    /// Notes the first run (an empty file, put in place by a rename).
+    pub fn set(&self) -> Result<()> {
+        let dir = self.0.parent().context("marker without a folder")?;
+        std::fs::create_dir_all(dir)?;
+        let file = tempfile::NamedTempFile::new_in(dir)?;
+        file.persist(&self.0)?;
+        Ok(())
+    }
 }
 
 /// The compiled model beside the package (`x.mlpackage` → `x.mlmodelc`).
@@ -86,7 +130,22 @@ impl CoreMlModel {
         .map_err(|e| anyhow!("Core ML could not load {}: {e:?}", compiled.display()))?;
         Ok(Self {
             model: Mutex::new(Model(model)),
+            first_run: None,
+            marked: Default::default(),
         })
+    }
+
+    /// Sets `marker` after the first run that succeeds.
+    pub fn with_first_run_marker(mut self, marker: Option<FirstRunMarker>) -> Self {
+        self.first_run = marker;
+        self
+    }
+
+    /// Runs the model once on a constant input of `shape` (Core ML builds
+    /// its GPU programs on the first run; see `FirstRunMarker`).
+    pub fn warm_up(&self, input: &str, shape: &[usize], output: &str) -> Result<()> {
+        let data = vec![0.0; shape.iter().product()];
+        self.predict(input, shape, &data, output).map(|_| ())
     }
 
     /// The shape of float input `name` as the model declares it.
@@ -155,6 +214,16 @@ impl CoreMlModel {
                 .with_context(|| format!("no {output} output"))?;
             read_array(&out)
         })
+        .inspect(|_| self.note_first_run())
+    }
+
+    fn note_first_run(&self) {
+        if let Some(marker) = &self.first_run
+            && !self.marked.swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            // Without the marker the next launch only builds ahead again.
+            let _ = marker.set();
+        }
     }
 }
 
@@ -462,4 +531,30 @@ unsafe fn read_array(array: &MLMultiArray) -> Result<(Vec<usize>, Vec<f32>)> {
         }
     }
     Ok((shape, out))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FirstRunMarker;
+
+    #[test]
+    fn first_run_marker_is_per_model_and_os_build() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("first-runs");
+        let subject = FirstRunMarker::for_build(&cache, "subject-abc", "25G83").unwrap();
+        let sky = FirstRunMarker::for_build(&cache, "sky-def", "25G83").unwrap();
+        let updated = FirstRunMarker::for_build(&cache, "subject-abc", "26A434").unwrap();
+        assert!(!subject.is_set());
+        subject.set().unwrap();
+        subject.set().unwrap();
+        assert!(subject.is_set());
+        assert!(!sky.is_set() && !updated.is_set());
+        assert_eq!(std::fs::read_dir(&cache).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn the_running_os_build_is_known() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(FirstRunMarker::new(dir.path(), "x").is_some());
+    }
 }

@@ -725,6 +725,7 @@ fn store_mask(state: &AppState, kind: AutoMask, key: String, data: Arc<String>) 
     });
 }
 
+#[derive(Clone)]
 enum Network {
     Subject(Arc<crate::ai_processing::SubjectModel>),
     Sky(Arc<crate::ai_processing::SkyModel>),
@@ -735,6 +736,14 @@ impl Network {
         match self {
             Self::Subject(model) => model.on_onnx(),
             Self::Sky(model) => model.on_onnx(),
+        }
+    }
+
+    /// One run on a constant input (Core ML only); `false` when not run.
+    fn warm_up(&self) -> anyhow::Result<bool> {
+        match self {
+            Self::Subject(model) => model.warm_up(),
+            Self::Sky(model) => model.warm_up(),
         }
     }
 }
@@ -1076,6 +1085,149 @@ pub async fn preload_ai_mask_models(
     Ok(())
 }
 
+/// Builds Core ML's GPU kernels for Subject, then Sky, once per app and
+/// macOS build, so the first click on Subject no longer waits for them: on
+/// a fresh install Metal compiles them on the model's first run (Subject
+/// 11-14 s, Sky 7 s on an M5 Pro; Lightroom's first Subject took 7.9 s).
+/// Asked for when a photo is ready in Develop for someone who has not
+/// masked yet (for others the photo's masks computed ahead do the same).
+/// Installed models only, not under memory pressure, and only for a model
+/// that has not run here yet (`core_ml_first_run_pending`; always false
+/// away from macOS): two file checks afterwards. The run is on a constant
+/// input on a utility-QoS thread (`at_utility_qos`); the model is dropped
+/// afterwards unless the masking tools were used meanwhile. Cancelling
+/// `task_id` (the Library, memory pressure) stops it before a model's run;
+/// Core ML's run itself cannot be stopped, and a click meanwhile waits for
+/// it (it would build the same kernels).
+#[tauri::command]
+pub async fn warm_up_ai_mask_models(
+    task_id: String,
+    state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    let guard = AiTaskGuard::new(&state.active_ai_tasks, task_id);
+    let stop = || {
+        if guard.token.is_cancelled() {
+            Some("cancelled")
+        } else if crate::memory_pressure::under_pressure() {
+            Some("the system is short of memory")
+        } else {
+            None
+        }
+    };
+    for kind in [AutoMask::Subject, AutoMask::Sky] {
+        if !crate::ai_processing::core_ml_first_run_pending(&app_handle, kind == AutoMask::Sky) {
+            continue;
+        }
+        let uses = LIFECYCLE.uses();
+        let _running = LIFECYCLE.run();
+        let outcome = warm_up_model(
+            network(&state, &app_handle, kind, false),
+            stop,
+            async |network: Network| {
+                tauri::async_runtime::spawn_blocking(move || {
+                    crate::ai_processing::at_utility_qos(|| network.warm_up())
+                })
+                .await
+                .map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())
+            },
+            |network: &Network| {
+                let mut ai = state.ai_state.lock().unwrap();
+                crate::ai_lifecycle::release_after_warm_up(&LIFECYCLE, &mut ai, uses, |ai| {
+                    release_network(ai, network)
+                });
+            },
+        )
+        .await?;
+        let name = kind.name();
+        match outcome {
+            WarmUp::Built { load_ms, run_ms } => log::info!(
+                "AI {name} mask: GPU kernels built ahead (load {load_ms} ms, run {run_ms} ms)"
+            ),
+            WarmUp::Stopped(reason) => {
+                log::info!("AI {name} mask: GPU kernels not built ahead, {reason}");
+                return Ok(());
+            }
+            WarmUp::Failed(e) => log::warn!("AI {name} mask: building ahead failed: {e}"),
+            WarmUp::NotInstalled | WarmUp::NotRun => {}
+        }
+    }
+    Ok(())
+}
+
+/// What `warm_up_model` did with one model.
+#[derive(Debug, PartialEq)]
+enum WarmUp {
+    /// The model is not installed.
+    NotInstalled,
+    /// Stopped before the run (cancelled, short of memory).
+    Stopped(&'static str),
+    /// Not a model that needs it (ONNX Runtime).
+    NotRun,
+    Built {
+        load_ms: u128,
+        run_ms: u128,
+    },
+    Failed(String),
+}
+
+/// One model's warm-up: `load`, then its `run` unless `stop` gives a
+/// reason before the load or after it (a load takes seconds on a fresh
+/// install). Whatever happens once the model is loaded, `release` gets it
+/// afterwards.
+async fn warm_up_model<M>(
+    load: impl Future<Output = Result<Option<M>, String>>,
+    stop: impl Fn() -> Option<&'static str>,
+    run: impl AsyncFnOnce(M) -> Result<bool, String>,
+    release: impl FnOnce(&M),
+) -> Result<WarmUp, String>
+where
+    M: Clone,
+{
+    if let Some(reason) = stop() {
+        return Ok(WarmUp::Stopped(reason));
+    }
+    let start = std::time::Instant::now();
+    let Some(model) = load.await? else {
+        return Ok(WarmUp::NotInstalled);
+    };
+    let load_ms = start.elapsed().as_millis();
+    let outcome = match stop() {
+        Some(reason) => WarmUp::Stopped(reason),
+        None => match run(model.clone()).await {
+            Ok(true) => WarmUp::Built {
+                load_ms,
+                run_ms: start.elapsed().as_millis() - load_ms,
+            },
+            Ok(false) => WarmUp::NotRun,
+            Err(e) => WarmUp::Failed(e),
+        },
+    };
+    release(&model);
+    Ok(outcome)
+}
+
+/// Drops `network` from the state when it is the loaded one.
+fn release_network(ai: &mut crate::ai_processing::AiState, network: &Network) {
+    match network {
+        Network::Subject(model) => {
+            if ai
+                .subject_model
+                .as_ref()
+                .is_some_and(|m| Arc::ptr_eq(m, model))
+            {
+                ai.subject_model = None;
+            }
+        }
+        Network::Sky(model) => {
+            if ai.sky_model.as_ref().is_some_and(|m| Arc::ptr_eq(m, model)) {
+                ai.sky_model = None;
+            }
+        }
+    }
+}
+
 /// Analyze only on request; subsequent light edits reuse the persisted depth.
 #[tauri::command]
 pub async fn generate_relight_depth(
@@ -1277,6 +1429,72 @@ pub async fn load_relight_pattern(path: String) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    use super::{WarmUp, warm_up_model};
+    use std::cell::{Cell, RefCell};
+
+    /// Runs `warm_up_model` on a fake model 7: `stops` are the answers of
+    /// `stop` in turn, `run` the run's result. Returns the outcome, whether
+    /// it ran and what was released.
+    async fn warm_up(
+        stops: &[Option<&'static str>],
+        installed: bool,
+        run: Result<bool, String>,
+    ) -> (WarmUp, bool, Vec<u32>) {
+        let asked = Cell::new(0);
+        let ran = Cell::new(false);
+        let released = RefCell::new(Vec::new());
+        let outcome = warm_up_model(
+            async { Ok(installed.then_some(7u32)) },
+            || {
+                asked.set(asked.get() + 1);
+                stops.get(asked.get() - 1).copied().flatten()
+            },
+            async |_model: u32| {
+                ran.set(true);
+                run
+            },
+            |model: &u32| released.borrow_mut().push(*model),
+        )
+        .await
+        .unwrap();
+        (outcome, ran.get(), released.into_inner())
+    }
+
+    #[tokio::test]
+    async fn a_warm_up_runs_and_releases_its_model() {
+        let (outcome, ran, released) = warm_up(&[None, None], true, Ok(true)).await;
+        assert!(matches!(outcome, WarmUp::Built { .. }) && ran);
+        assert_eq!(released, [7]);
+    }
+
+    #[tokio::test]
+    async fn a_warm_up_stopped_during_the_load_does_not_run_but_releases() {
+        let (outcome, ran, released) = warm_up(&[None, Some("cancelled")], true, Ok(true)).await;
+        assert_eq!(outcome, WarmUp::Stopped("cancelled"));
+        assert!(!ran);
+        assert_eq!(released, [7]);
+    }
+
+    #[tokio::test]
+    async fn a_warm_up_stopped_before_the_load_loads_nothing() {
+        let (outcome, ran, released) = warm_up(&[Some("short")], true, Ok(true)).await;
+        assert_eq!(outcome, WarmUp::Stopped("short"));
+        assert!(!ran && released.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_model_not_run_or_failing_is_released_too() {
+        let (outcome, _, released) = warm_up(&[None, None], true, Ok(false)).await;
+        assert_eq!(outcome, WarmUp::NotRun);
+        assert_eq!(released, [7]);
+        let (outcome, _, released) = warm_up(&[None, None], true, Err("gpu".into())).await;
+        assert_eq!(outcome, WarmUp::Failed("gpu".into()));
+        assert_eq!(released, [7]);
+        let (outcome, ran, released) = warm_up(&[None, None], false, Ok(true)).await;
+        assert_eq!(outcome, WarmUp::NotInstalled);
+        assert!(!ran && released.is_empty());
+    }
+
     /// A request cancelled while it waits for the encoder (another photo's
     /// encoding runs) does not start; one that was not cancelled does.
     #[tokio::test]
