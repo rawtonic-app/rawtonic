@@ -2417,7 +2417,7 @@ mod tests {
 
     /// One move holding photographs of two sessions (an album across
     /// sessions): each session's records follow its own photograph, out and
-    /// back, also with neither session open (review of #304).
+    /// back, also with neither session open (G40 move review).
     #[test]
     fn a_batch_of_two_sessions_photos_is_followed_by_each_session() {
         let _active = crate::session_bridge::library_test_lock();
@@ -2471,7 +2471,7 @@ mod tests {
     /// A session's photographs outside its folder keep their session
     /// resources after another library opens (an export queued before goes
     /// on), and an export job records their session so a resumed one
-    /// registers it again (review of #304).
+    /// registers it again (G40 move review).
     #[test]
     fn outside_photos_keep_their_session_after_another_library_opens() {
         let _active = crate::session_bridge::library_test_lock();
@@ -2543,7 +2543,7 @@ mod tests {
 
     /// A folder on a drive holding photographs two sessions moved there:
     /// moving or trashing the folder (with one of them open) has both
-    /// sessions' records follow, out and back (review of #304, round 2).
+    /// sessions' records follow, out and back (G40 move review, round 2).
     #[test]
     fn a_drive_folder_holding_two_sessions_photos_is_followed_by_both() {
         let _active = crate::session_bridge::library_test_lock();
@@ -2626,7 +2626,7 @@ mod tests {
     /// (RAW+JPEG pairs), with a catalog open: each photograph's state comes
     /// from its own session, both sessions' offline photographs are listed
     /// and both pairs' JPEGs are companions, not photographs of their own
-    /// (review of #304, round 3); a session that is not there cannot be
+    /// (G40 move review, round 3); a session that is not there cannot be
     /// registered (a resumed export of its photographs fails instead).
     #[test]
     fn listings_of_a_folder_two_sessions_share_ask_both_with_a_catalog_open() {
@@ -2704,8 +2704,8 @@ mod tests {
     /// away, every caller still names that session — the owner lookup, the
     /// recipe resources, a folder's owners, an export's owners (whose run
     /// then fails until the session is back), an operation's recorded
-    /// owner (whose records wait for it) and the move guard (review of
-    /// #304, rounds 1–4).
+    /// owner (whose records wait for it) and the move guard (from
+    /// the G40 move review, rounds 1–4).
     #[test]
     fn every_owner_lookup_names_the_recorded_session_while_it_is_away() {
         let _active = crate::session_bridge::library_test_lock();
