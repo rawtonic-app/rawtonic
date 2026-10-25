@@ -14,7 +14,7 @@ import { ToolGroup } from "./StudioDevelop";
 import { blendPreset } from "../../utils/presetAmount";
 import { loadBuiltinPresets, presetName, useBuiltinPresets } from "../../utils/builtinPresets";
 import { withPresetClarityVersion } from "../../utils/adjustments";
-import { presetPreview, presetValues } from "./toolPresets";
+import { presetPreview, presetValues, toolPresetToSave } from "./toolPresets";
 import { noteTool } from "../contribute/usageStats";
 
 type Entry = { folder: { id: string; name: string; builtin?: boolean } | null; presets: Preset[] };
@@ -270,7 +270,11 @@ export default function StudioPresets() {
       {
         label: t("studio.presets.menu.update"),
         disabled: !ready,
-        onClick: () => overwritePreset(preset.id),
+        onClick: () =>
+          overwritePreset(
+            preset.id,
+            preset.toolKeys ? toolPresetToSave(currentAdjustments(), preset.toolKeys) : undefined,
+          ),
       },
       { label: t("studio.presets.menu.duplicate"), onClick: () => duplicatePreset(preset.id) },
       {

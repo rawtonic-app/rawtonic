@@ -8,7 +8,7 @@ import { useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
 import { INITIAL_ADJUSTMENTS, initialAdjustmentsFor } from "../../utils/adjustments";
-import type { UserPreset } from "../../hooks/usePresets";
+import { resetPresetLibrary, usePresetStore, type UserPreset } from "../../hooks/usePresets";
 import i18n from "i18next";
 import { resetBuiltinPresets } from "../../utils/builtinPresets";
 import { useSettingsStore } from "../../store/useSettingsStore";
@@ -46,6 +46,8 @@ let builtinsFail = false;
 
 beforeEach(() => {
   resetBuiltinPresets();
+  // A fresh run: the preset list is read once per run.
+  resetPresetLibrary();
   builtinsFail = false;
   useSettingsStore.setState({ appSettings: {} as AppSettings });
   apply.mockReset();
@@ -345,9 +347,11 @@ describe("built-in presets", () => {
       return undefined;
     });
     await renderTool();
+    expect(mockInvoke).toHaveBeenCalledWith("load_presets");
     expect(screen.getByText("B&W high contrast")).toBeTruthy();
     cleanup();
     resetBuiltinPresets();
+    resetPresetLibrary();
     mockInvoke.mockImplementation(async (command) => {
       if (command === "load_presets") return stored;
       if (command === "load_builtin_presets") throw new Error("missing");
@@ -363,5 +367,27 @@ describe("built-in presets", () => {
     await renderTool();
     expect(screen.queryByRole("button", { name: /^Built-in/ })).toBeNull();
     expect(screen.getByText("Warm evening")).toBeTruthy();
+  });
+});
+
+describe("presets of a tool's menu", () => {
+  it("keep to their tool's parameters when updated with the current settings", async () => {
+    const file: UserPreset[] = [{
+      folder: {
+        id: "grain",
+        name: "Grain",
+        children: [
+          { id: "g", name: "My grain", presetType: "tool", toolKeys: ["grainAmount", "grainSize"], adjustments: { grainAmount: 10, grainVersion: 2 } },
+        ],
+      },
+    }];
+    mockInvoke.mockImplementation(async (command) => (command === "load_presets" ? file : undefined));
+    useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 0.5, grainAmount: 40, grainVersion: 2 } });
+    await renderTool();
+    fireEvent.contextMenu(screen.getByText("My grain"));
+    fireEvent.click(screen.getByText("Update with current settings"));
+    const updated = usePresetStore.getState().presets[0].folder!.children[0];
+    expect(JSON.parse(JSON.stringify(updated.adjustments))).toEqual({ grainAmount: 40, grainSize: INITIAL_ADJUSTMENTS.grainSize, grainVersion: 2 });
+    expect(updated.toolKeys).toEqual(["grainAmount", "grainSize"]);
   });
 });

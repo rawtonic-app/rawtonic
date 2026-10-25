@@ -604,6 +604,9 @@ export interface Preset {
   includeMasks?: boolean;
   includeCropTransform?: boolean;
   presetType?: 'tool' | 'style';
+  /** A preset of one tool's menu: that tool's parameters, which "Update
+   * with current settings" keeps to. */
+  toolKeys?: string[];
   /** One of Rawtonic's own, read-only presets (`load_builtin_presets`). */
   builtin?: boolean;
   /** A built-in's revision; recipes keep the values it had when applied. */

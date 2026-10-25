@@ -6,7 +6,7 @@ import { ToolGroup } from "./StudioDevelop";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
-import { usePresetStore, type UserPreset } from "../../hooks/usePresets";
+import { loadPresetLibrary, resetPresetLibrary, usePresetStore, type UserPreset } from "../../hooks/usePresets";
 import { debouncedSave, debouncedSetHistory } from "../../hooks/useEditorActions";
 import { resetBuiltinPresets } from "../../utils/builtinPresets";
 import { INITIAL_ADJUSTMENTS, type Adjustments } from "../../utils/adjustments";
@@ -43,7 +43,7 @@ beforeEach(() => {
     { preset: { id: "look", name: "Mixed look", presetType: "tool", adjustments: { grainAmount: 10, contrast: 20 } } },
   ];
   resetBuiltinPresets();
-  usePresetStore.setState({ presets: [], isLoading: true });
+  resetPresetLibrary();
   mockInvoke.mockReset();
   mockInvoke.mockImplementation(async (command) => {
     // No presets.json yet: load_presets fails or returns nothing.
@@ -188,11 +188,13 @@ describe("Tool preset menu", () => {
   });
 
   it("keeps changes of the shared preset list not written yet when it opens", async () => {
-    // Another user of the list (Styles & presets) changed it; its write is pending.
-    usePresetStore.setState({
-      presets: [{ preset: { id: "fresh", name: "Not on disk yet", presetType: "tool", adjustments: { grainAmount: 5 } } }],
-      isLoading: false,
-    });
+    // Read once; then another user of the list (Styles & presets) changed it
+    // and its write is pending.
+    await act(async () => loadPresetLibrary());
+    usePresetStore.getState().setPresets([
+      { preset: { id: "fresh", name: "Not on disk yet", presetType: "tool", adjustments: { grainAmount: 5 } } },
+    ]);
+    mockInvoke.mockClear();
     await renderTool();
     const menu = await openMenu();
     expect(mockInvoke.mock.calls.some(([command]) => command === "load_presets")).toBe(false);
@@ -224,6 +226,33 @@ describe("Tool preset menu", () => {
     expect(useEditorStore.getState().previewOverride).toBeNull();
     fireEvent.click(item);
     expect(useEditorStore.getState().adjustments.aiDenoise).toBe(60);
+  });
+});
+
+describe("reading presets.json", () => {
+  it("is one read for every user, and a preset saved meanwhile survives it", async () => {
+    let answer: (value: UserPreset[]) => void = () => {};
+    mockInvoke.mockImplementation((command) => {
+      if (command === "load_presets") return new Promise((resolve) => (answer = resolve as typeof answer));
+      if (command === "load_builtin_presets") return Promise.resolve(builtins);
+      return Promise.resolve(undefined);
+    });
+    void loadPresetLibrary();
+    void loadPresetLibrary();
+    expect(mockInvoke.mock.calls.filter(([command]) => command === "load_presets")).toHaveLength(1);
+    // A tool preset saved before the file has been read.
+    usePresetStore.getState().setPresets((list) => [
+      ...list,
+      { preset: { id: "new", name: "Saved early", presetType: "tool", adjustments: { grainAmount: 9 } } },
+    ]);
+    await act(async () => answer(stored!));
+    const names = usePresetStore.getState().presets.map((item) => item.preset?.name);
+    expect(names).toEqual(["My grain", "Mixed look", "Saved early"]);
+    // And the merged list is written (after the 500 ms the writes wait).
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 600)));
+    const written = mockInvoke.mock.calls.filter(([command]) => command === "save_presets").at(-1)?.[1];
+    expect(JSON.stringify(written)).toContain("My grain");
+    expect(JSON.stringify(written)).toContain("Saved early");
   });
 });
 

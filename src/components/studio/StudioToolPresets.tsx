@@ -127,7 +127,7 @@ function ToolPresetsPopover({
     onClose();
   };
   const saveCurrent = (name: string) => {
-    addToolPreset(name, toolPresetToSave(currentAdjustments(), keys), label);
+    addToolPreset(name, toolPresetToSave(currentAdjustments(), keys), label, keys);
     setNaming(false);
   };
 

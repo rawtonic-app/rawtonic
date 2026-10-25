@@ -26,6 +26,9 @@ pub struct Preset {
     pub include_crop_transform: Option<bool>,
     #[serde(rename = "presetType", skip_serializing_if = "Option::is_none")]
     pub preset_type: Option<String>,
+    /// A preset of one tool's menu: that tool's parameters, kept on update.
+    #[serde(rename = "toolKeys", skip_serializing_if = "Option::is_none")]
+    pub tool_keys: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -386,6 +389,25 @@ mod tests {
         assert!(presets.iter().any(|p| p.preset_type == "style"));
         assert!(presets.iter().any(|p| p.preset_type == "tool"));
         assert!(presets.iter().all(|p| p.version >= 1));
+    }
+
+    #[test]
+    fn a_tool_preset_keeps_its_parameters_when_saved() {
+        let json = r#"[{"preset":{"id":"g","name":"Grain","adjustments":{"grainAmount":30},"presetType":"tool","toolKeys":["grainAmount","grainSize"]}}]"#;
+        let items: Vec<PresetItem> = serde_json::from_str(json).unwrap();
+        let saved = serde_json::to_value(&items).unwrap();
+        assert_eq!(
+            saved[0]["preset"]["toolKeys"],
+            serde_json::json!(["grainAmount", "grainSize"])
+        );
+        // Presets without it are written as before.
+        let plain: Vec<PresetItem> =
+            serde_json::from_str(r#"[{"preset":{"id":"p","name":"P","adjustments":{}}}]"#).unwrap();
+        assert!(
+            serde_json::to_value(&plain).unwrap()[0]["preset"]
+                .get("toolKeys")
+                .is_none()
+        );
     }
 
     #[test]

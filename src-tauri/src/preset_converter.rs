@@ -790,6 +790,7 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         include_masks: Some(has_masks),
         include_crop_transform: Some(false),
         preset_type: Some("style".to_string()),
+        tool_keys: None,
     })
 }
 
