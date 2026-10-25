@@ -47,8 +47,10 @@ const centreChroma = (range: ColorRange) => Math.max(range.chroma, 0.005);
 
 /**
  * The range's selection as the renderer builds it (image_processing.rs
- * `pack_color_ranges`, shader `color_range_weight`): full weight within
- * ±hueRange and the chroma band, falling off over the feather.
+ * `pack_color_ranges`, shader `color_range_weight`): the nominal edges
+ * (half weight, where the handles sit), the core of full weight and the
+ * outer bounds where the weight reaches zero. The feathers lie on both
+ * sides of each nominal edge; `core` is null when they meet.
  */
 export function rangeBand(range: ColorRange) {
   const c = centreChroma(range);
@@ -58,13 +60,28 @@ export function rangeBand(range: ColorRange) {
   const hi = c * (1 + 2 * cr) + 0.01;
   const chromaFeather = 0.5 * soft * (hi - lo) + 0.004;
   const half = clampTo(range.hueRange, 5, 90);
+  const hueFeather = half * soft;
+  const core =
+    hi - lo > 2 * chromaFeather
+      ? {
+          hueLo: range.hue - half + hueFeather,
+          hueHi: range.hue + half - hueFeather,
+          chromaLo: lo + chromaFeather,
+          chromaHi: hi - chromaFeather,
+        }
+      : null;
   return {
     hueLo: range.hue - half,
     hueHi: range.hue + half,
-    hueFeather: half * soft,
     chromaLo: lo,
     chromaHi: hi,
-    chromaFeather,
+    core: core && core.hueHi > core.hueLo ? core : null,
+    outer: {
+      hueLo: range.hue - half - hueFeather,
+      hueHi: range.hue + half + hueFeather,
+      chromaLo: Math.max(lo - chromaFeather, 0),
+      chromaHi: hi + chromaFeather,
+    },
   };
 }
 
@@ -338,21 +355,23 @@ export default memo(function StudioColorRangeWheel({
             <path
               className="studio-range-wheel-feather"
               d={sectorPath(
-                band.hueLo - band.hueFeather,
-                band.hueHi + band.hueFeather,
-                band.chromaLo - band.chromaFeather,
-                band.chromaHi + band.chromaFeather,
+                band.outer.hueLo,
+                band.outer.hueHi,
+                band.outer.chromaLo,
+                band.outer.chromaHi,
               )}
             />
-            <path
-              className="studio-range-wheel-slice"
-              d={sectorPath(
-                band.hueLo,
-                band.hueHi,
-                band.chromaLo,
-                band.chromaHi,
-              )}
-            />
+            {band.core && (
+              <path
+                className="studio-range-wheel-slice"
+                d={sectorPath(
+                  band.core.hueLo,
+                  band.core.hueHi,
+                  band.core.chromaLo,
+                  band.core.chromaHi,
+                )}
+              />
+            )}
             {(["hueLo", "hueHi"] as const).map((h) => (
               <circle
                 key={h}

@@ -148,6 +148,8 @@ export default function StudioColorEditor({
   };
   // A pick armed for a range (or a new one) hands the wheel's next press to
   // the pick instead of moving the active range.
+  // Only a pick that adds a range needs room below the limit.
+  const wheelAdds = mode === "skin" ? !skin : pickerTarget === "new";
   const wheelPicking =
     mode === "skin"
       ? !skin || pickerTarget === "skin" || pickerTarget === skin.id
@@ -225,7 +227,7 @@ export default function StudioColorEditor({
     <StudioColorRangeWheel
       ranges={mode === "skin" ? (skin ? [skin] : []) : listed}
       active={wheelPicking ? undefined : active}
-      disabled={disabled || (wheelPicking && ranges.length >= limit && !skin)}
+      disabled={disabled || (wheelAdds && ranges.length >= limit)}
       onChange={setRange}
       onPick={pickOnWheel}
       onInteraction={onInteraction}

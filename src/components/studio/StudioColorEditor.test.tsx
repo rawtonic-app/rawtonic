@@ -107,6 +107,17 @@ describe("range wheel geometry", () => {
     expect(band.hueHi).toBe(75);
     expect(band.chromaLo).toBeCloseTo(0.03, 6);
     expect(band.chromaHi).toBeCloseTo(0.06 * 2 + 0.01, 6);
+    // Smoothness 50 → softness 0.55: the hue weight is full within
+    // ±25 × 0.45 and zero beyond ±25 × 1.55; the chroma feather is
+    // 0.5 × 0.55 × 0.1 + 0.004 on both sides of each chroma edge.
+    expect(band.core!.hueLo).toBeCloseTo(50 - 11.25, 6);
+    expect(band.core!.hueHi).toBeCloseTo(50 + 11.25, 6);
+    expect(band.outer.hueHi).toBeCloseTo(50 + 38.75, 6);
+    expect(band.core!.chromaLo).toBeCloseTo(0.03 + 0.0315, 6);
+    expect(band.core!.chromaHi).toBeCloseTo(0.13 - 0.0315, 6);
+    expect(band.outer.chromaHi).toBeCloseTo(0.13 + 0.0315, 6);
+    // A band narrower than its feathers has no full-weight core.
+    expect(rangeBand({ ...skinish(), chromaRange: 0 }).core).toBeNull();
   });
 });
 
@@ -236,6 +247,33 @@ describe("range wheel <-> sliders", () => {
     expect(lastRanges()[0].hue).toBeCloseTo(120, 0);
     expect(lastRanges()[0].lightness).toBe(0.65);
     expect(useEditorStore.getState().colorPickerTarget).toBeNull();
+  });
+
+  it("re-picks a range on the wheel at the range limit", () => {
+    const full = Array.from({ length: 8 }, (_, i) => ({
+      ...newColorRange(i * 45, 0.08, 0.6),
+      hueRange: 10,
+    }));
+    render(<Harness initial={full} />);
+    openTool();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Pick the range colour again" }),
+    );
+    const group = screen.getByRole("group", { name: "Color range wheel" });
+    expect(group.className).not.toContain("is-disabled");
+    const svg = wheelSvg();
+    fireEvent.pointerDown(svg, { button: 0, ...at(20, 0.1) });
+    expect(lastRanges()).toHaveLength(8);
+    expect(lastRanges()[0].hue).toBeCloseTo(20, 0);
+    expect(useEditorStore.getState().colorPickerTarget).toBeNull();
+    // Adding a ninth stays impossible.
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Pick a colour range",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
   });
 
   it("with the picker armed, a press on the wheel adds a range", () => {
