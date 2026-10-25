@@ -838,7 +838,7 @@ mod tests {
         fs::write(&file, b"two, longer").unwrap();
         // First seen changed, then unchanged: saved.
         assert!(watched.saved().is_empty());
-        assert_eq!(watched.saved(), [file.clone()]);
+        assert_eq!(watched.saved(), std::slice::from_ref(&file));
         assert!(watched.saved().is_empty());
         // A file removed (a save by replacement in progress) is not a save.
         fs::remove_file(&file).unwrap();
