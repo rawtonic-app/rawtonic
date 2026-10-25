@@ -7,8 +7,7 @@
 //! resumes single jobs and follows each photo (`export-item-progress`).
 use crate::app_state::AppState;
 use crate::export_processing::{
-    ExportPhotos, ExportSettings, ExportTarget, PinnedPhoto, denoise_models, export_images_impl,
-    pin_photos,
+    ExportPhotos, ExportSettings, ExportTarget, denoise_models, export_images_impl, pin_photos,
 };
 use rawtonic_export::queue::{ExportQueue, Item, ItemState, Job, JobState, RunEnd};
 use serde::{Deserialize, Serialize};
@@ -122,24 +121,64 @@ pub struct Pinned {
     pub denoise_models: BTreeSet<usize>,
 }
 
+/// Photos pinned and written to the queue together: pinning a batch holds
+/// only this many recipes (with their patch and mask data) at a time.
+const PIN_CHUNK: usize = 32;
+
+/// Runs `f` on `queue`; an error when it is not open or `f` fails.
+fn on_queue<T>(
+    queue: &Mutex<Option<ExportQueue>>,
+    f: impl FnOnce(&ExportQueue) -> anyhow::Result<T>,
+) -> Result<T, String> {
+    let guard = queue.lock().unwrap_or_else(|e| e.into_inner());
+    let queue = guard.as_ref().ok_or("The export queue is not available.")?;
+    f(queue).map_err(|e| format!("{e:#}"))
+}
+
 impl ExportRequest {
     /// Reads what each photo is exported with, once, through the library
-    /// the export was submitted from (`pin_photos`), and returns it.
-    fn pin(&mut self) -> Result<Vec<PinnedPhoto>, String> {
-        let photos = pin_photos(
-            &self.paths,
-            self.current_edit_path.as_deref(),
-            self.current_edit_adjustments.as_ref(),
-            self.library.directory(),
-        )?;
-        self.pinned = Some(Pinned {
-            digest: digest(&photos)?,
-            denoise_models: denoise_models(photos.iter().map(|photo| &photo.adjustments)),
-        });
-        Ok(photos)
+    /// the export was submitted from (`pin_photos`), a chunk at a time, and
+    /// keeps it with the photo in each of `jobs` (requests that read their
+    /// photos alike). Returns what the snapshots amount to; their digest
+    /// covers their JSON, which has a fixed order, so equal snapshots read
+    /// independently digest alike.
+    fn pin_into(
+        &self,
+        queue: &Mutex<Option<ExportQueue>>,
+        jobs: &[String],
+    ) -> Result<Pinned, String> {
+        let mut digest = blake3::Hasher::new();
+        let mut models = BTreeSet::new();
+        for (chunk, paths) in self.paths.chunks(PIN_CHUNK).enumerate() {
+            let photos = pin_photos(
+                paths,
+                self.current_edit_path.as_deref(),
+                self.current_edit_adjustments.as_ref(),
+                self.library.directory(),
+            )?;
+            models.extend(denoise_models(
+                photos.iter().map(|photo| &photo.adjustments),
+            ));
+            let snapshots = photos
+                .into_iter()
+                .map(|photo| serde_json::to_string(&photo).map_err(|e| e.to_string()))
+                .collect::<Result<Vec<_>, _>>()?;
+            for snapshot in &snapshots {
+                digest.update(snapshot.as_bytes());
+            }
+            for job in jobs {
+                on_queue(queue, |q| {
+                    q.stage_snapshots(job, chunk * PIN_CHUNK, &snapshots)
+                })?;
+            }
+        }
+        Ok(Pinned {
+            digest: digest.finalize().to_hex().to_string(),
+            denoise_models: models,
+        })
     }
 
-    /// Whether `other` reads its photos as this one does (`pin`).
+    /// Whether `other` reads its photos as this one does (`pin_into`).
     fn pins_like(&self, other: &ExportRequest) -> bool {
         self.paths == other.paths
             && self.current_edit_path == other.current_edit_path
@@ -148,46 +187,46 @@ impl ExportRequest {
     }
 }
 
-/// One digest of `photos` (their JSON has a fixed order: equal snapshots
-/// read independently digest alike).
-fn digest(photos: &[PinnedPhoto]) -> Result<String, String> {
-    let mut digest = blake3::Hasher::new();
-    for photo in photos {
-        digest.update(&serde_json::to_vec(photo).map_err(|e| e.to_string())?);
-    }
-    Ok(digest.finalize().to_hex().to_string())
-}
-
-/// Pins `requests` (`ExportRequest::pin`) on a blocking worker: each
-/// photo's recipe and metadata are read from its library there, once for
-/// requests that read their photos alike (a photo set's recipes). Returns
-/// each request with its photos' snapshots (JSON).
-async fn pin_all(
-    requests: Vec<ExportRequest>,
-) -> Result<Vec<(ExportRequest, Arc<Vec<String>>)>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut pinned: Vec<(ExportRequest, Arc<Vec<String>>)> = Vec::new();
-        for mut request in requests {
-            if let Some((earlier, snapshots)) = pinned
-                .iter()
-                .find(|(earlier, _)| earlier.pins_like(&request))
-            {
-                request.pinned.clone_from(&earlier.pinned);
-                let snapshots = Arc::clone(snapshots);
-                pinned.push((request, snapshots));
+/// Queues `requests` together, pinned (`pin_into`; once for requests that
+/// read their photos alike, a photo set's recipes): their jobs are staged,
+/// their photos' snapshots written a chunk at a time, and then all of them
+/// are queued at once, or on an error none. Blocking.
+fn queue_pinned(
+    queue: &Mutex<Option<ExportQueue>>,
+    mut requests: Vec<ExportRequest>,
+) -> Result<Vec<String>, String> {
+    let labels: Vec<String> = requests.iter().map(label_for).collect();
+    let staged: Vec<(&str, &[String])> = labels
+        .iter()
+        .zip(&requests)
+        .map(|(label, request)| (label.as_str(), request.paths.as_slice()))
+        .collect();
+    let ids = on_queue(queue, |q| q.stage_all(&staged))?;
+    let queued = (|| {
+        for i in 0..requests.len() {
+            if let Some(earlier) = (0..i).find(|&j| requests[j].pins_like(&requests[i])) {
+                requests[i].pinned = requests[earlier].pinned.clone();
                 continue;
             }
-            let snapshots = request
-                .pin()?
-                .iter()
-                .map(|photo| serde_json::to_string(photo).map_err(|e| e.to_string()))
-                .collect::<Result<Vec<_>, _>>()?;
-            pinned.push((request, Arc::new(snapshots)));
+            let alike: Vec<String> = (i..requests.len())
+                .filter(|&k| requests[i].pins_like(&requests[k]))
+                .map(|k| ids[k].clone())
+                .collect();
+            requests[i].pinned = Some(requests[i].pin_into(queue, &alike)?);
         }
-        Ok(pinned)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+        let values = requests
+            .iter()
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        let jobs: Vec<(&str, &Value)> = ids.iter().map(String::as_str).zip(&values).collect();
+        on_queue(queue, |q| q.commit_staged(&jobs))
+    })();
+    if let Err(e) = queued {
+        let _ = on_queue(queue, |q| q.discard_staged(&ids));
+        return Err(e);
+    }
+    Ok(ids)
 }
 
 /// The photos of a run of `jobs` (a group sharing its develop): each read
@@ -500,34 +539,9 @@ pub async fn enqueue_all(
     app: &AppHandle,
     requests: Vec<ExportRequest>,
 ) -> Result<Vec<String>, String> {
-    let requests = pin_all(requests).await?;
-    let requests = requests
-        .iter()
-        .map(|(request, snapshots)| {
-            Ok((
-                label_for(request),
-                serde_json::to_value(request)?,
-                request,
-                snapshots,
-            ))
-        })
-        .collect::<Result<Vec<_>, serde_json::Error>>()
-        .map_err(|e| e.to_string())?;
-    // Under one lock and in one transaction: the runner sees all of them
-    // or none, and a failure queues none.
-    let jobs: Vec<_> = requests
-        .iter()
-        .map(|(label, value, request, snapshots)| {
-            (
-                label.as_str(),
-                value,
-                request.paths.as_slice(),
-                snapshots.as_slice(),
-            )
-        })
-        .collect();
-    let ids =
-        with_queue(|q| q.enqueue_all_with(&jobs)).ok_or("The export queue is not available.")?;
+    let ids = tauri::async_runtime::spawn_blocking(move || queue_pinned(&QUEUE, requests))
+        .await
+        .map_err(|e| e.to_string())??;
     HOLD.store(false, Ordering::SeqCst);
     notify(app);
     kick(app);
@@ -746,21 +760,18 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
     let Some(request) = first else {
         return;
     };
-    let photos = if request.pinned.is_some() {
-        let jobs = trackings.iter().map(|(_, t)| t.job.clone()).collect();
-        queued_photos(&request, jobs, |job, index| {
-            with_queue(|q| q.item_snapshot(job, index)).flatten()
-        })
-    } else {
+    let job_ids: Vec<String> = trackings.iter().map(|(_, t)| t.job.clone()).collect();
+    let mut request = request;
+    if request.pinned.is_none() {
         // A job an older build queued was not pinned: it is, once, now,
         // with the library open now, as that build read it.
-        match pin_all(vec![request.clone()]).await {
-            Ok(mut pinned) => {
-                let (legacy, snapshots) = pinned.remove(0);
-                queued_photos(&legacy, vec![String::new()], move |_, index| {
-                    snapshots.get(index).cloned()
-                })
-            }
+        let (legacy, ids) = (request.clone(), job_ids.clone());
+        let pinned = tauri::async_runtime::spawn_blocking(move || legacy.pin_into(&QUEUE, &ids))
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|pinned| pinned);
+        match pinned {
+            Ok(pinned) => request.pinned = Some(pinned),
             Err(e) => {
                 for (_, tracking) in &trackings {
                     for index in tracking.pending.iter() {
@@ -771,7 +782,10 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
                 return;
             }
         }
-    };
+    }
+    let photos = queued_photos(&request, job_ids, |job, index| {
+        with_queue(|q| q.item_snapshot(job, index)).flatten()
+    });
     *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = trackings
         .iter()
         .map(|(_, t)| RunningJob {
@@ -896,6 +910,7 @@ pub fn export_queue_remove(job: String, app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::export_processing::PinnedPhoto;
     use serde_json::json;
     use std::{sync::mpsc, thread, time::Duration};
 
@@ -960,44 +975,50 @@ mod tests {
         .unwrap()
     }
 
-    /// A request pinned (`pin`) and queued as `enqueue_all` queues it.
+    /// A queue of its own, as the app's.
+    fn test_queue() -> (tempfile::TempDir, Arc<Mutex<Option<ExportQueue>>>) {
+        let tmp = tempfile::tempdir().unwrap();
+        let queue = ExportQueue::open(&tmp.path().join("export-queue.sqlite")).unwrap();
+        (tmp, Arc::new(Mutex::new(Some(queue))))
+    }
+
+    /// A request queued as `enqueue_all` queues it (`queue_pinned`).
     struct Queued {
         _tmp: tempfile::TempDir,
-        queue: Arc<Mutex<ExportQueue>>,
+        queue: Arc<Mutex<Option<ExportQueue>>>,
         job: String,
         request: ExportRequest,
     }
 
-    fn queued(mut request: ExportRequest) -> Queued {
-        let tmp = tempfile::tempdir().unwrap();
-        let queue = ExportQueue::open(&tmp.path().join("export-queue.sqlite")).unwrap();
-        let snapshots: Vec<String> = request
-            .pin()
-            .unwrap()
-            .iter()
-            .map(|photo| serde_json::to_string(photo).unwrap())
-            .collect();
-        let value = serde_json::to_value(&request).unwrap();
-        let job = queue
-            .enqueue_all_with(&[("Job", &value, &request.paths, &snapshots)])
-            .unwrap()
-            .remove(0);
-        let request = serde_json::from_value(queue.job(&job).unwrap().request).unwrap();
-        Queued {
+    fn try_queued(request: ExportRequest) -> Result<Queued, String> {
+        let (tmp, queue) = test_queue();
+        let job = queue_pinned(&queue, vec![request])?.remove(0);
+        let request = on_queue(&queue, |q| q.job(&job))
+            .map(|job| serde_json::from_value(job.request).unwrap())?;
+        Ok(Queued {
             _tmp: tmp,
-            queue: Arc::new(Mutex::new(queue)),
+            queue,
             job,
             request,
-        }
+        })
+    }
+
+    fn queued(request: ExportRequest) -> Queued {
+        try_queued(request).unwrap()
     }
 
     impl Queued {
+        /// What the runner reads of the job's photos.
+        fn photos(&self) -> ExportPhotos {
+            let queue = Arc::clone(&self.queue);
+            queued_photos(&self.request, vec![self.job.clone()], move |job, i| {
+                on_queue(&queue, |q| q.item_snapshot(job, i)).unwrap()
+            })
+        }
+
         /// What the runner reads for each photo of the job.
         fn as_run(&self) -> Vec<PinnedPhoto> {
-            let queue = Arc::clone(&self.queue);
-            let photos = queued_photos(&self.request, vec![self.job.clone()], move |job, i| {
-                queue.lock().unwrap().item_snapshot(job, i).unwrap()
-            });
+            let photos = self.photos();
             (0..self.request.paths.len())
                 .map(|i| (photos.read)(i).unwrap())
                 .collect()
@@ -1117,12 +1138,17 @@ mod tests {
             let libs = two_catalogs();
             std::fs::remove_file(libs.a.directory.join(lost)).unwrap();
             let path = libs.source.to_string_lossy().into_owned();
-            let mut job = request(&[path], Some(libs.a.directory.as_path()));
-            let error = job
-                .pin()
-                .expect_err("not queued with a sidecar's or no metadata");
+            let (_tmp, queue) = test_queue();
+            let error = queue_pinned(
+                &queue,
+                vec![request(&[path], Some(libs.a.directory.as_path()))],
+            )
+            .expect_err("not queued with a sidecar's or no metadata");
             assert!(error.contains("cannot be read"), "{lost}: {error}");
-            assert!(job.pinned.is_none());
+            let left = on_queue(&queue, |q| {
+                Ok(q.jobs()?.len() + q.recover()?.len() + q.jobs()?.len())
+            });
+            assert_eq!(left, Ok(0), "nothing queued, nothing staged left");
         }
     }
 
@@ -1168,12 +1194,11 @@ mod tests {
         std::fs::write(libs.source.with_file_name("A.jpg.rrdata"), b"{}").unwrap();
         let path = libs.source.to_string_lossy().into_owned();
         let digest = || {
-            let mut job = request(
+            let job = queued(request(
                 std::slice::from_ref(&path),
                 Some(libs.a.directory.as_path()),
-            );
-            job.pin().unwrap();
-            job.pinned.unwrap().digest
+            ));
+            job.request.pinned.unwrap().digest
         };
         let first = digest();
         assert!((0..8).all(|_| digest() == first));
@@ -1200,12 +1225,54 @@ mod tests {
                 .contains("exposure"),
             "the recipes are kept with the photos, not in the job's request"
         );
-        job.queue.lock().unwrap().item_done(&job.job, 0).unwrap();
-        let queue = Arc::clone(&job.queue);
-        let photos = queued_photos(&job.request, vec![job.job.clone()], move |job, i| {
-            queue.lock().unwrap().item_snapshot(job, i).unwrap()
-        });
-        assert!((photos.read)(0).is_err(), "an exported photo is not again");
+        on_queue(&job.queue, |q| q.item_done(&job.job, 0)).unwrap();
+        assert!(
+            (job.photos().read)(0).is_err(),
+            "an exported photo is not again"
+        );
+    }
+
+    #[test]
+    fn a_large_batch_is_pinned_a_chunk_at_a_time_into_all_its_recipes() {
+        let libs = two_catalogs();
+        let photos = libs.source.with_file_name("many");
+        std::fs::create_dir_all(&photos).unwrap();
+        let paths: Vec<String> = (0..PIN_CHUNK * 2 + 5)
+            .map(|i| {
+                let path = photos.join(format!("{i}.jpg"));
+                std::fs::write(&path, b"jpeg").unwrap();
+                std::fs::write(
+                    photos.join(format!("{i}.jpg.rrdata")),
+                    serde_json::to_vec(&recipe(i as f64, 0, &[])).unwrap(),
+                )
+                .unwrap();
+                path.to_string_lossy().into_owned()
+            })
+            .collect();
+        let (_tmp, queue) = test_queue();
+        let web = request(&paths, None);
+        let mut print = web.clone();
+        print.output_format = "tiff".into();
+        let ids = queue_pinned(&queue, vec![web, print]).unwrap();
+        let requests: Vec<ExportRequest> = ids
+            .iter()
+            .map(|id| {
+                serde_json::from_value(on_queue(&queue, |q| q.job(id)).unwrap().request).unwrap()
+            })
+            .collect();
+        assert_eq!(requests[0].pinned, requests[1].pinned, "pinned once");
+        for (id, request) in ids.iter().zip(&requests) {
+            let read = Arc::clone(&queue);
+            let photos = queued_photos(request, vec![id.clone()], move |job, i| {
+                on_queue(&read, |q| q.item_snapshot(job, i)).unwrap()
+            });
+            for (i, _) in paths.iter().enumerate() {
+                assert_eq!(
+                    (photos.read)(i).unwrap().adjustments["exposure"],
+                    json!(i as f64)
+                );
+            }
+        }
     }
 
     #[test]
