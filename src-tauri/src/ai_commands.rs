@@ -1113,7 +1113,14 @@ pub async fn warm_up_ai_mask_models(
             if !crate::ai_processing::core_ml_first_run_pending(&app_handle, sky) {
                 continue;
             }
-            if guard.token.is_cancelled() || crate::memory_pressure::under_pressure() {
+            if guard.token.is_cancelled() {
+                return Ok(());
+            }
+            if crate::memory_pressure::under_pressure() {
+                log::info!(
+                    "AI {} mask: GPU kernels not built ahead, the system is short of memory",
+                    kind.name()
+                );
                 return Ok(());
             }
             let uses = LIFECYCLE.uses();
