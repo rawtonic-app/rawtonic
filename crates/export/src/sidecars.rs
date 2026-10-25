@@ -128,7 +128,7 @@ pub fn read_sidecar_file(sidecar_path: &Path) -> (ImageMetadata, bool) {
     };
 
     let mut value = serde_json::from_str::<serde_json::Value>(&content).unwrap_or_default();
-    if let Some(root) = rawtonic_engine::session_layout::session_root(sidecar_path) {
+    if let Some(root) = rawtonic_engine::session_layout::library_root(sidecar_path) {
         rawtonic_metadata::resources::resolve(&mut value, &root);
     }
     let mut meta = serde_json::from_value::<ImageMetadata>(value).unwrap_or_default();
@@ -335,6 +335,35 @@ mod tests {
                 .join("resources/camera.dcp")
                 .to_string_lossy()
                 .as_ref()
+        );
+        assert_eq!(std::fs::read_to_string(sidecar).unwrap(), state);
+    }
+
+    #[test]
+    fn sidecars_of_photos_a_session_keeps_outside_resolve_its_resources() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = dir.path().join("Job");
+        std::fs::create_dir_all(&session).unwrap();
+        std::fs::write(session.join("session.json"), "{}").unwrap();
+        std::fs::write(session.join("session.sqlite"), "fixture").unwrap();
+        let drive = dir.path().join("Drive");
+        std::fs::create_dir(&drive).unwrap();
+        let photo = drive.join("a.nef");
+        std::fs::write(&photo, b"x").unwrap();
+        let sidecar = drive.join("a.nef.rrdata");
+        let state = r#"{"version":1,"rating":0,"adjustments":{"lutPath":"rawtonic-resource:resources/look.cube","masks":[{"raster_path":"rawtonic-resource:resources/m.png"}]}}"#;
+        std::fs::write(&sidecar, state).unwrap();
+        rawtonic_engine::session_layout::set_outside_photos(
+            &session,
+            std::collections::HashSet::from([photo.canonicalize().unwrap()]),
+        );
+        let (meta, _) = read_sidecar_file(&sidecar);
+        rawtonic_engine::session_layout::set_outside_photos(&session, Default::default());
+        let at = |p: &str| session.join(p).to_string_lossy().into_owned();
+        assert_eq!(meta.adjustments["lutPath"], at("resources/look.cube"));
+        assert_eq!(
+            meta.adjustments["masks"][0]["raster_path"],
+            at("resources/m.png")
         );
         assert_eq!(std::fs::read_to_string(sidecar).unwrap(), state);
     }

@@ -1110,6 +1110,15 @@ fn export(args: ExportArgs) -> Result<()> {
     let mut failed = Vec::new();
     for ((photo, output), recipe) in jobs.iter().zip(recipes) {
         let (source, _) = parse_virtual_path(photo);
+        if let Some(resource) = recipe
+            .as_ref()
+            .and_then(|r| unresolved_resource(r, &source))
+        {
+            failed.push(serde_json::json!({"source": photo, "error": format!(
+                "The recipe names the library resource {resource}, but the photo is in no session or catalog"
+            )}));
+            continue;
+        }
         let result = exporter.export(&rawtonic_export::file_export::FileExport {
             source: &source,
             output,
@@ -1168,6 +1177,48 @@ fn catalog_metadata(source: &std::path::Path) -> Option<rawtonic_metadata::Metad
     let asset = lib.asset_at(source).ok()??;
     lib.metadata(&asset.id).ok()
 }
+/// A file a recipe names inside a library (a camera profile by its path in
+/// the session, `profiles/…dcp`; a `rawtonic-resource:` LUT, profile or
+/// mask) that cannot be found because `source` belongs to no library:
+/// exporting without it would silently change the photo. Other relative
+/// paths (a LUT beside the recipe) are the caller's own.
+fn unresolved_resource(recipe: &serde_json::Value, source: &std::path::Path) -> Option<String> {
+    if rawtonic_engine::session_layout::library_root(source).is_some() {
+        return None;
+    }
+    let mut found = None;
+    rawtonic_metadata::resources::visit(&mut recipe.clone(), &mut |path| {
+        if found.is_none() && path.starts_with(rawtonic_metadata::resources::PREFIX) {
+            found = Some(path.clone());
+        }
+    });
+    // `cameraProfile` names a path in the photo's library unless absolute
+    // (camera_profile::resolve).
+    fn profiles(value: &serde_json::Value, found: &mut Option<String>) {
+        match value {
+            serde_json::Value::Object(map) => {
+                for (key, child) in map {
+                    match (key.as_str(), child) {
+                        ("cameraProfile", serde_json::Value::String(name))
+                            if found.is_none()
+                                && !name.is_empty()
+                                && !std::path::Path::new(name).is_absolute() =>
+                        {
+                            *found = Some(name.clone())
+                        }
+                        _ => profiles(child, found),
+                    }
+                }
+            }
+            serde_json::Value::Array(values) => values.iter().for_each(|v| profiles(v, found)),
+            _ => {}
+        }
+    }
+    if found.is_none() {
+        profiles(recipe, &mut found);
+    }
+    found
+}
 /// Set once ONNX Runtime ran (face models): its environment aborts when
 /// static destructors tear it down at exit, so the process ends without
 /// them.
@@ -1193,4 +1244,43 @@ fn main() {
         }
     }
     std::process::exit(code);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn library_resources_of_photos_outside_any_library_are_named_not_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = dir.path().join("Job");
+        std::fs::create_dir_all(session.join("Capture")).unwrap();
+        std::fs::write(session.join("session.json"), "{}").unwrap();
+        std::fs::write(session.join("session.sqlite"), "").unwrap();
+        let loose = dir.path().join("a.NEF");
+        let profile = serde_json::json!({"cameraProfile": "profiles/x.dcp"});
+        let lut = serde_json::json!({"lutPath": "rawtonic-resource:resources/l.cube"});
+        let absolute = serde_json::json!({"cameraProfile": dir.path().join("x.dcp")});
+        // A LUT beside the recipe, as `--adjustments` has always read it.
+        let own_lut = serde_json::json!({"lutPath": "look.cube"});
+        assert_eq!(
+            unresolved_resource(&profile, &loose).as_deref(),
+            Some("profiles/x.dcp")
+        );
+        assert!(unresolved_resource(&lut, &loose).is_some());
+        assert_eq!(unresolved_resource(&absolute, &loose), None);
+        assert_eq!(unresolved_resource(&own_lut, &loose), None);
+        assert_eq!(unresolved_resource(&serde_json::json!({}), &loose), None);
+        assert_eq!(
+            unresolved_resource(&profile, &session.join("Capture/a.NEF")),
+            None
+        );
+        // Kept by the session outside its folder: resolved.
+        rawtonic_engine::session_layout::set_outside_photos(
+            &session,
+            std::collections::HashSet::from([loose.clone()]),
+        );
+        assert_eq!(unresolved_resource(&profile, &loose), None);
+        rawtonic_engine::session_layout::set_outside_photos(&session, Default::default());
+    }
 }
