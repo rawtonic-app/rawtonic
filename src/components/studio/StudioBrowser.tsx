@@ -267,6 +267,13 @@ export default function StudioBrowser({
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
+    // Measured before the first paint: the guessed box drew the grid with
+    // other columns for a frame when the Library came back from Develop.
+    const style = getComputedStyle(el);
+    const padding = (a: string, b: string) => (parseFloat(a) || 0) + (parseFloat(b) || 0);
+    const width = el.clientWidth - padding(style.paddingLeft, style.paddingRight);
+    const height = el.clientHeight - padding(style.paddingTop, style.paddingBottom);
+    if (width > 0 && height > 0) setBox({ width, height });
     const observer = new ResizeObserver(([entry]) =>
       setBox({
         width: entry.contentRect.width,

@@ -5,6 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useProcessStore } from "../../store/useProcessStore";
 import StudioBrowser, { isEmptySpace } from "./StudioBrowser";
 import { useLibraryStore } from "../../store/useLibraryStore";
+import { useUIStore } from "../../store/useUIStore";
 import type { ImageFile } from "../ui/AppProperties";
 import { clearLibrarySelection, reselectForDevelop } from "./workspaceInteractions";
 
@@ -71,6 +72,20 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+it("lays the grid out for its real width from the first frame, not for a guessed one", () => {
+  // The client area exists before the grid mounts (the Library coming back
+  // from Develop); the resize observer reports only after the first paint.
+  const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1440);
+  const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(800);
+  try {
+    grid();
+    expect(useUIStore.getState().gridColumns).toBe(Math.floor(1440 / 190));
+  } finally {
+    width.mockRestore();
+    height.mockRestore();
+  }
 });
 
 describe("library grid empty space", () => {
