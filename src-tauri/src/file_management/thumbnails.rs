@@ -1220,13 +1220,31 @@ pub(crate) fn emit_thumbnail_generated(
     );
 }
 
+// Recovery bypasses the viewport generation queue. Admit it before entering
+// the blocking pool so a cache-miss burst cannot allocate many RAW decodes.
+static RESTORATION_SLOT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+
+async fn restoration_job<R: Send + 'static>(
+    work: impl FnOnce() -> R + Send + 'static,
+) -> Result<R, String> {
+    let permit = RESTORATION_SLOT
+        .acquire()
+        .await
+        .map_err(|error| error.to_string())?;
+    super::blocking(move || {
+        let _permit = permit;
+        work()
+    })
+    .await
+}
+
 /// Rebuilds a missing disk-cache entry without replacing the viewport queue.
 #[tauri::command]
 pub async fn restore_thumbnail(
     path: String,
     app_handle: AppHandle,
 ) -> Result<(String, String), String> {
-    super::blocking(move || {
+    restoration_job(move || {
         let state = app_handle.state::<AppState>();
         let gpu = crate::gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
         let settings = load_settings(app_handle.clone()).unwrap_or_default();
@@ -1336,6 +1354,44 @@ pub fn get_cached_or_generate_thumbnail_image(
 
 #[cfg(test)]
 mod source_preview_tests {
+    #[tokio::test]
+    async fn restoration_jobs_are_bounded_before_decoder_work() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let mut jobs = tokio::task::JoinSet::new();
+        for index in 0..8 {
+            let active = active.clone();
+            let peak = peak.clone();
+            jobs.spawn(async move {
+                super::restoration_job(move || {
+                    let running = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak.fetch_max(running, Ordering::SeqCst);
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    index
+                })
+                .await
+                .unwrap()
+            });
+        }
+        let mut completed = Vec::new();
+        while let Some(result) = jobs.join_next().await {
+            completed.push(result.unwrap());
+        }
+        completed.sort();
+        assert_eq!(completed, (0..8).collect::<Vec<_>>());
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            peak.load(Ordering::SeqCst),
+            1,
+            "cache misses must not fan out unbounded decodes"
+        );
+    }
+
     #[test]
     fn cached_thumbnail_can_be_replaced_without_changing_its_bytes() {
         let directory = tempfile::tempdir().unwrap();

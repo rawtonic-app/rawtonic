@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
+import { useLibraryStore } from "../../store/useLibraryStore";
 import StorageSettings from "./StorageSettings";
 import { type AppSettings, Invokes } from "../ui/AppProperties";
 
@@ -48,6 +49,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  useLibraryStore.setState({ sessionDirectory: null });
 });
 
 it("shows sizes and owned locations; system caches have no removal action", async () => {
@@ -257,4 +259,42 @@ it("keeps selective 1:1 clearing behind the same confirmed Storage action", asyn
       fullOnly: true,
     }),
   );
+});
+
+it("saves the Standard preview limit and applies it to the open library", async () => {
+  useLibraryStore.setState({ sessionDirectory: "/library" });
+  vi.mocked(invoke).mockImplementation((command) =>
+    Promise.resolve(
+      command === Invokes.StorageUsage
+        ? [
+            {
+              category: "previews",
+              bytes: 2048,
+              files: 2,
+              path: "/cache/previews",
+              clearable: true,
+            },
+          ]
+        : undefined,
+    ),
+  );
+  const save = vi.fn().mockResolvedValue(undefined);
+  render(
+    <StorageSettings
+      appSettings={{} as AppSettings}
+      onSettingsChange={save}
+      onLibraryRefresh={vi.fn()}
+    />,
+  );
+  const control = await screen.findByLabelText(
+    "previews.settings.standardLimit",
+  );
+  fireEvent.change(control, { target: { value: "5" } });
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith(Invokes.ApplyPreviewLimits, {
+      folder: "/library",
+    }),
+  );
+  expect(save).toHaveBeenCalledWith({ standardPreviewsLimitGb: 5 });
+  expect(invoke).not.toHaveBeenCalledWith(Invokes.StorageApplyLimits);
 });
