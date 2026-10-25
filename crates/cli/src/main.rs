@@ -287,6 +287,11 @@ struct ExportArgs {
     /// `ORT_DYLIB_PATH`) and replace the recipe's own face retouch.
     #[arg(long)]
     face_retouch: Option<String>,
+    /// The session that keeps the photos outside its folder (the app moved
+    /// them to another drive): their recipes, catalog metadata and session
+    /// resources (`profiles/`, `resources/`) come from it.
+    #[arg(long)]
+    library: Option<PathBuf>,
 }
 
 fn parse_color_space(
@@ -943,7 +948,15 @@ fn export(args: ExportArgs) -> Result<()> {
         models,
         output_sharpening,
         face_retouch,
+        library,
     } = args;
+    if let Some(dir) = &library {
+        let lib = Library::open(dir).with_context(|| format!("Open {}", dir.display()))?;
+        rawtonic_engine::session_layout::set_outside_photos(
+            dir,
+            lib.outside_photos()?.into_iter().collect(),
+        );
+    }
     let lensfun_db = lensfun_db
         .or_else(|| std::env::var_os("RAWTONIC_LENSFUN_DB").map(PathBuf::from))
         .or_else(|| {
@@ -1110,6 +1123,12 @@ fn export(args: ExportArgs) -> Result<()> {
     let mut failed = Vec::new();
     for ((photo, output), recipe) in jobs.iter().zip(recipes) {
         let (source, _) = parse_virtual_path(photo);
+        if let Some(resource) = recipe.as_ref().and_then(|r| unresolved_resource(r, &source)) {
+            failed.push(serde_json::json!({"source": photo, "error": format!(
+                "The recipe names the library resource {resource}, but the photo is in no session or catalog; pass --library with the session that keeps it"
+            )}));
+            continue;
+        }
         let result = exporter.export(&rawtonic_export::file_export::FileExport {
             source: &source,
             output,
@@ -1149,7 +1168,7 @@ fn editor_recipe(sidecar: &std::path::Path) -> serde_json::Value {
         if !source.is_file() {
             return None;
         }
-        let lib = Library::open(&rawtonic_catalog::session_for(&source)?).ok()?;
+        let lib = Library::open(&owning_library(&source)?).ok()?;
         let asset = lib.asset_at(&source).ok()??;
         lib.editor_state(&asset.id).ok().flatten()
     };
@@ -1164,9 +1183,33 @@ fn editor_recipe(sidecar: &std::path::Path) -> serde_json::Value {
 }
 /// The catalog metadata of a source inside a session, as the app writes it.
 fn catalog_metadata(source: &std::path::Path) -> Option<rawtonic_metadata::Metadata> {
-    let lib = Library::open(&rawtonic_catalog::session_for(source)?).ok()?;
+    let lib = Library::open(&owning_library(source)?).ok()?;
     let asset = lib.asset_at(source).ok()??;
     lib.metadata(&asset.id).ok()
+}
+/// The session or catalog folder above `source`, else the `--library` that
+/// keeps it outside its folder.
+fn owning_library(source: &std::path::Path) -> Option<PathBuf> {
+    rawtonic_catalog::session_for(source)
+        .or_else(|| rawtonic_engine::session_layout::library_root(source))
+}
+/// A file a recipe names inside a library (a `profiles/` camera profile, a
+/// `rawtonic-resource:` LUT or mask) that cannot be found because `source`
+/// belongs to no library: exporting without it would silently change the
+/// photo.
+fn unresolved_resource(recipe: &serde_json::Value, source: &std::path::Path) -> Option<String> {
+    let mut found = None;
+    rawtonic_metadata::resources::visit(&mut recipe.clone(), &mut |path| {
+        let relative = path.starts_with(rawtonic_metadata::resources::PREFIX)
+            || (!path.is_empty() && !std::path::Path::new(path.as_str()).is_absolute());
+        if found.is_none()
+            && relative
+            && rawtonic_engine::session_layout::library_root(source).is_none()
+        {
+            found = Some(path.clone());
+        }
+    });
+    found
 }
 /// Set once ONNX Runtime ran (face models): its environment aborts when
 /// static destructors tear it down at exit, so the process ends without
@@ -1193,4 +1236,41 @@ fn main() {
         }
     }
     std::process::exit(code);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn library_resources_of_photos_outside_any_library_are_named_not_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = dir.path().join("Job");
+        std::fs::create_dir_all(session.join("Capture")).unwrap();
+        std::fs::write(session.join("session.json"), "{}").unwrap();
+        std::fs::write(session.join("session.sqlite"), "").unwrap();
+        let loose = dir.path().join("a.NEF");
+        let profile = serde_json::json!({"cameraProfile": "profiles/x.dcp"});
+        let lut = serde_json::json!({"lutPath": "rawtonic-resource:resources/l.cube"});
+        let absolute = serde_json::json!({"cameraProfile": dir.path().join("x.dcp")});
+        assert_eq!(
+            unresolved_resource(&profile, &loose).as_deref(),
+            Some("profiles/x.dcp")
+        );
+        assert!(unresolved_resource(&lut, &loose).is_some());
+        assert_eq!(unresolved_resource(&absolute, &loose), None);
+        assert_eq!(unresolved_resource(&serde_json::json!({}), &loose), None);
+        assert_eq!(
+            unresolved_resource(&profile, &session.join("Capture/a.NEF")),
+            None
+        );
+        // Kept by the session outside its folder (`--library`): resolved.
+        rawtonic_engine::session_layout::set_outside_photos(
+            &session,
+            std::collections::HashSet::from([loose.clone()]),
+        );
+        assert_eq!(unresolved_resource(&profile, &loose), None);
+        assert_eq!(owning_library(&loose), Some(session.clone()));
+        rawtonic_engine::session_layout::set_outside_photos(&session, Default::default());
+    }
 }

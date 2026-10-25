@@ -1,7 +1,8 @@
 //! Camera profiles the photographer chooses: DCP files (DNG Camera
 //! Profile, e.g. from a ColorChecker or dcamprof). Rawtonic never picks one
 //! by itself; a recipe names one in `cameraProfile`, as a path inside the
-//! session (`profiles/Name.dcp`) or, outside sessions, an absolute path.
+//! photo's session (`profiles/Name.dcp`, also for a photo the session keeps
+//! outside its folder) or, outside sessions, an absolute path.
 //!
 //! A profile replaces the look's colour: as the DNG SDK renders it, the
 //! camera's white-balanced RGB goes through the profile's forward matrix
@@ -587,14 +588,14 @@ pub fn resolve(name: &str, image_path: &Path) -> Option<PathBuf> {
     if path.is_absolute() {
         return Some(path.to_path_buf());
     }
-    // Inside the session only: no parent components.
+    // Inside the photo's library only: no parent components.
     if path
         .components()
         .any(|c| !matches!(c, std::path::Component::Normal(_)))
     {
         return None;
     }
-    Some(crate::session_layout::session_root(image_path)?.join(path))
+    Some(crate::session_layout::library_root(image_path)?.join(path))
 }
 
 type Prepared = Arc<(Rendering, Vec<[f32; 4]>)>;
@@ -902,7 +903,7 @@ fn entry(value: String, bytes: &[u8], file_name: &str) -> Option<ProfileEntry> {
 }
 
 fn profile_folder(image_path: &Path, app_data: Option<&Path>) -> Option<(PathBuf, bool)> {
-    match crate::session_layout::session_root(image_path) {
+    match crate::session_layout::library_root(image_path) {
         Some(root) => Some((root.join("profiles"), true)),
         None => Some((app_data?.join("camera_profiles"), false)),
     }
@@ -1324,6 +1325,40 @@ mod tests {
         let key = register("profiles/x.dcp");
         assert!(key != 0 && key == register("profiles/x.dcp"));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn session_profiles_follow_photos_the_session_keeps_outside_its_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = dir.path().join("Job");
+        std::fs::create_dir_all(session.join("Capture")).unwrap();
+        std::fs::write(session.join("session.json"), "{}").unwrap();
+        std::fs::write(session.join("session.sqlite"), "").unwrap();
+        let drive = dir.path().join("Drive");
+        std::fs::create_dir_all(&drive).unwrap();
+        let photo = drive.join("a.CR3");
+        std::fs::write(&photo, "a").unwrap();
+        crate::session_layout::set_outside_photos(
+            &session,
+            std::collections::HashSet::from([photo.canonicalize().unwrap()]),
+        );
+        // The same name as inside the session, not dropped and not the
+        // app's folder: the edit and its export stay the same.
+        assert_eq!(
+            resolve("profiles/x.dcp", &photo),
+            resolve("profiles/x.dcp", &session.join("Capture/a.CR3"))
+        );
+        assert_eq!(
+            resolve("profiles/x.dcp", &photo),
+            Some(session.join("profiles/x.dcp"))
+        );
+        let source = dir.path().join("My Camera.dcp");
+        std::fs::write(&source, tiny_profile()).unwrap();
+        let imported = import(&source, &photo, Some(&dir.path().join("app"))).unwrap();
+        assert_eq!(imported.value, "profiles/My Camera.dcp");
+        assert!(session.join("profiles/My Camera.dcp").is_file());
+        assert_eq!(list(&photo, None), vec![imported]);
+        crate::session_layout::set_outside_photos(&session, Default::default());
     }
 
     fn tiny_profile() -> Vec<u8> {

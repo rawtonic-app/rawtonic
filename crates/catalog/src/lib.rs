@@ -1345,6 +1345,42 @@ impl Library {
         }
     }
 
+    /// The photographs a session keeps outside its folder (the app moved
+    /// them there, ADR 0016) with their recorded companion files (a RAW's
+    /// JPEG), as recorded: nothing is read from disk. None for a catalog,
+    /// whose photographs are anywhere.
+    pub fn outside_photos(&self) -> Result<Vec<PathBuf>> {
+        if self.manifest.mode == Mode::Catalog {
+            return Ok(Vec::new());
+        }
+        let mut query = self.conn.prepare(
+            "SELECT a.id,a.rel_path,r.path FROM assets a JOIN roots r ON r.id=a.root_id WHERE r.external=1",
+        )?;
+        let mut ids = HashSet::new();
+        let mut paths = Vec::new();
+        for row in query.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })? {
+            let (id, relative, root) = row?;
+            ids.insert(id);
+            paths.push(PathBuf::from(root).join(relative));
+        }
+        drop(query);
+        if !ids.is_empty() {
+            paths.extend(
+                self.companion_records()?
+                    .into_iter()
+                    .filter(|record| ids.contains(&record.owner))
+                    .map(|record| record.path),
+            );
+        }
+        Ok(paths)
+    }
+
     /// Whether an external root's folder is gone (a drive disconnected,
     /// renamed or mounted elsewhere).
     fn has_lost_roots(&self) -> Result<bool> {
