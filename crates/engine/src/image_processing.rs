@@ -3481,6 +3481,11 @@ pub struct GlobalAdjustments {
     /// `image_key`; 0 = unknown. Lowered Highlights (tone version 3) adapts
     /// to it.
     pub image_key_median: f32,
+    /// Colours outside the output space (`renderVersion` 4,
+    /// `GAMUT_MAPPING_RENDER_VERSION`): 1 = clipped to it and turned back to
+    /// their own hue (shader.wgsl `restore_hue`), 0 = clipped per channel.
+    pub gamut_mapping: u32,
+    pub gamut_mapping_padding: [u32; 3],
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -4534,6 +4539,8 @@ fn get_global_adjustments_from_json(
         grain_version: grain_version(js_adjustments) as u32,
         clarity_version: clarity_version(js_adjustments) as u32,
         image_key_median: 0.0,
+        gamut_mapping: u32::from(render_version(js_adjustments) >= GAMUT_MAPPING_RENDER_VERSION),
+        gamut_mapping_padding: [0; 3],
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()
@@ -4934,9 +4941,16 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// looks' Color Grading and Calibration off with their tool switches. 3
 /// (2026-10-23) takes a RAW photosite for dead only when it is also darker
 /// than its adjacent samples of the other colours, so thin dark lines keep
-/// their colour (`image_loader::DecodeVariant`, hot_pixels.rs).
+/// their colour (`image_loader::DecodeVariant`, hot_pixels.rs). 4
+/// (2026-10-25) turns colours outside the output space back to their own
+/// hue after clipping them (`GAMUT_MAPPING_RENDER_VERSION`).
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 3;
+pub const RENDER_VERSION: u64 = 4;
+
+/// The render version from which colours outside the output space keep
+/// their hue (`GlobalAdjustments::gamut_mapping`; notes:
+/// parity-gaps/G01-base-profiles.md).
+pub const GAMUT_MAPPING_RENDER_VERSION: u64 = 4;
 
 /// The recipe's render pipeline version, 1 when missing, never newer than
 /// this renderer knows.
@@ -8040,6 +8054,22 @@ mod thumbnail_tests {
 mod render_version_tests {
     use super::*;
     use serde_json::json;
+
+    /// Colours outside the output space keep their hue from `renderVersion`
+    /// 4 on; saved edits made before it, and recipes without the key, clip.
+    #[test]
+    fn gamut_mapping_starts_with_render_version_4() {
+        let mapping = |recipe: serde_json::Value| {
+            get_global_adjustments_from_json(&recipe, true, None).gamut_mapping
+        };
+        assert_eq!(mapping(json!({})), 0);
+        assert_eq!(mapping(json!({"renderVersion": 3, "exposure": 1})), 0);
+        assert_eq!(mapping(json!({"renderVersion": 4})), 1);
+        assert_eq!(mapping(json!({"renderVersion": 9})), 1);
+        let mut new_edit = serde_json::Value::Null;
+        apply_render_default(&mut new_edit);
+        assert_eq!(mapping(new_edit), 1);
+    }
 
     /// A recipe started by a batch edit (paste, preset, Auto) or for a
     /// never-edited render gets the current render version first; a saved
