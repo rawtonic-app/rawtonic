@@ -69,7 +69,7 @@ impl FileExporter {
         ));
         Ok(Self {
             context: GpuContext::headless()?,
-            processor: GpuProcessorSlot::new(None),
+            processor: GpuProcessorSlot::background(None),
             image_cache: Mutex::new(None),
             mosaic_denoisers: [None, None],
         })

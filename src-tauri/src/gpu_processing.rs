@@ -222,7 +222,7 @@ pub fn prewarm_gpu_processor(slot: &GpuProcessorSlot, context: &GpuContext) {
         return;
     }
     let max_dim = context.limits.max_texture_dimension_2d;
-    match GpuProcessor::new(context.clone(), max_dim, max_dim) {
+    match create_processor(slot, context, max_dim, max_dim) {
         Ok(processor) => {
             *processor_lock = Some(crate::app_state::GpuProcessorState {
                 processor,

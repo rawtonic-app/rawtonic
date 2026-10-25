@@ -498,6 +498,27 @@ fn curve_upload_counts_cannot_exceed_the_uniform_arrays() {
 }
 
 #[test]
+#[ignore = "requires a native GPU"]
+fn export_processors_compile_no_display_variant_ahead() {
+    let context = context();
+    let started = |processor: &GpuProcessor| {
+        (0..PREVIEW_PIPELINE_COUNT)
+            .filter(|&features| processor.preview_compilation[features].get().is_some())
+            .collect::<Vec<_>>()
+    };
+    let gate_open = |processor: &GpuProcessor| *processor.start_gate.open.lock().unwrap();
+
+    let develop = create_processor(&ProcessorSlot::new(None), &context, 64, 64).unwrap();
+    assert!(started(&develop).contains(&RAW_DEFAULT_PREVIEW_FEATURES));
+
+    let exports = create_processor(&ProcessorSlot::background(None), &context, 64, 64).unwrap();
+    assert_eq!(started(&exports), Vec::<usize>::new());
+    // No display variant to wait for: the general pipelines compile at once.
+    assert!(gate_open(&exports));
+    exports.main_pipeline.wait().unwrap();
+}
+
+#[test]
 #[ignore = "requires a native GPU; invalid WGSL must fail instead of rendering black"]
 fn invalid_shader_source_fails_processor_construction() {
     let context = context();
@@ -505,7 +526,7 @@ fn invalid_shader_source_fails_processor_construction() {
         "{}\nconst BROKEN_CONSTANT: f32 = ;\n",
         include_str!("shaders/shader.wgsl")
     );
-    let error = match GpuProcessor::with_shader_source(context.clone(), 64, 64, &broken) {
+    let error = match GpuProcessor::with_shader_source(context.clone(), 64, 64, &broken, true) {
         Ok(_) => panic!("an invalid image-processing shader must not build a processor"),
         Err(error) => error,
     };
