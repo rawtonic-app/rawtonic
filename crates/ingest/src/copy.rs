@@ -212,7 +212,7 @@ impl ReadAhead {
                 if reading.load(Ordering::Acquire) {
                     break;
                 }
-                let Ok(mut file) = File::open(&path) else {
+                let Ok(mut file) = open_without_waiting(&path) else {
                     continue;
                 };
                 let Ok(before) = file.metadata() else {
@@ -308,13 +308,27 @@ impl Drop for ReadAhead {
             self.stop.store(true, Ordering::Release);
         }
         self.budget.freed.notify_all();
-        // Dropping the queue ends the hasher, and with it the reader.
+        // Dropping the queue ends the hasher, and with it the reader. Not
+        // joined: a reader held up in a slow read (a failing card) must not
+        // hold up the end of the import; it ends on its own, owning only
+        // what it reads.
         self.head.take();
         self.queue.take();
-        for thread in self.threads.drain(..) {
-            let _ = thread.join();
-        }
+        self.threads.clear();
     }
+}
+
+/// Opens `path` to read without waiting at it: a fifo or device put where
+/// a photograph was is not waited for (its type is checked next).
+fn open_without_waiting(path: &Path) -> std::io::Result<File> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    options.open(path)
 }
 
 /// What every copy must equal.
@@ -849,35 +863,48 @@ mod tests {
         }
     }
 
-    /// A cancel ends the wait for a file still being read.
+    /// A cancel ends the wait for a file still being read (here one that
+    /// never comes: the queue stays open and empty).
     #[test]
-    #[cfg(unix)]
     fn a_cancel_ends_the_wait_for_a_file_read_ahead() {
-        let d = tempfile::tempdir().unwrap();
-        let source = d.path().join("DSC.ARW");
-        fs::write(&source, [1u8; 16]).unwrap();
-        // The reader blocks opening a fifo until something opens it for
-        // writing, so the source behind it is not read yet.
-        let fifo = d.path().join("stuck");
-        let name = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
-        // SAFETY: a valid NUL-terminated path.
-        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
-        let ahead = ReadAhead::start(vec![fifo.clone(), source.clone()]);
+        let source = PathBuf::from("DSC.ARW");
+        let (_reader, queue) = std::sync::mpsc::channel();
+        let ahead = ReadAhead {
+            order: [(source.clone(), 0)].into(),
+            head: Default::default(),
+            queue: Some(queue),
+            budget: Default::default(),
+            stop: Default::default(),
+            threads: Vec::new(),
+        };
         let cancel = AtomicBool::new(false);
-        let cancelling = std::thread::scope(|scope| {
+        let (taken, waited) = std::thread::scope(|scope| {
             scope.spawn(|| {
                 std::thread::sleep(std::time::Duration::from_millis(200));
                 cancel.store(true, Ordering::Release);
             });
             let started = std::time::Instant::now();
-            let taken = ahead.take(&source, &cancel);
-            (taken.is_none(), started.elapsed())
+            (ahead.take(&source, &cancel).is_none(), started.elapsed())
         });
-        assert!(cancelling.0);
-        assert!(cancelling.1 < std::time::Duration::from_secs(5));
-        // Released, the reader skips the fifo (not a file) and reads on.
-        drop(fs::OpenOptions::new().write(true).open(&fifo).unwrap());
-        assert!(ahead.take_now(&source).is_some());
+        assert!(taken);
+        assert!(waited >= std::time::Duration::from_millis(150));
+        assert!(waited < std::time::Duration::from_secs(5));
+    }
+
+    /// A fifo where a photograph was is not waited for: skipped, the next
+    /// file is read.
+    #[test]
+    #[cfg(unix)]
+    fn a_fifo_is_not_waited_for() {
+        let d = tempfile::tempdir().unwrap();
+        let source = d.path().join("DSC.ARW");
+        fs::write(&source, [1u8; 16]).unwrap();
+        let fifo = d.path().join("DSC.JPG");
+        let name = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+        // SAFETY: a valid NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        let ahead = ReadAhead::start(vec![fifo, source.clone()]);
+        assert_eq!(ahead.take_now(&source).unwrap().buffer, [1u8; 16]);
     }
 
     /// The drive cache is flushed once per volume for everything synced to
