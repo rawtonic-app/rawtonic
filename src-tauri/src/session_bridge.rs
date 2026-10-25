@@ -74,50 +74,58 @@ fn library_above(source: &Path) -> Option<PathBuf> {
     })
 }
 
+/// The library that manages `source`: the session or catalog folder above
+/// it; else the session that keeps it outside its folder (moved there by
+/// the app, ADR 0016; every session opened since start-up, whichever
+/// library is open now; a folder by the photographs below it); else the
+/// open catalog.
 fn library_for(source: &Path) -> Option<PathBuf> {
-    session_for(source).or_else(|| {
-        let dir = active().lock().ok()?.clone()?;
-        (dir.join("catalog.json").is_file()
-            || outside_of_active_session(&dir, source, false)
-            || outside_of_active_session(&dir, source, true) && source.is_dir())
-        .then_some(dir)
-    })
+    if source.is_dir() {
+        return library_for_folder(source);
+    }
+    session_for(source)
+        .or_else(|| rawtonic_engine::session_layout::registered_library(source))
+        .or_else(open_catalog)
 }
 
-/// Whether `path` is a photograph the session `dir` keeps outside its own
-/// folder, or (`folder`) a folder holding some. The photographs (with their
-/// companion JPEGs; the app moved them there, e.g. to another drive, ADR
-/// 0016) are registered with the engine, which resolves their recipes'
-/// session resources by them, when the session opens, after each file
-/// operation's records followed and after each library write
-/// (`refresh_outside_photos`). Only these are the session's there: other
-/// files in their folders stay files of no project.
-fn outside_of_active_session(dir: &Path, path: &Path, folder: bool) -> bool {
-    let registered = registered_form(path);
-    rawtonic_engine::session_layout::outside_photos_match(dir, |photos| {
-        let holds = |path: &Path| {
-            if folder {
-                photos.iter().any(|photo| photo.starts_with(path))
-            } else {
-                photos.contains(path)
-            }
-        };
-        holds(path) || holds(&registered)
-    })
+fn open_catalog() -> Option<PathBuf> {
+    active()
+        .lock()
+        .ok()?
+        .clone()
+        .filter(|dir| dir.join("catalog.json").is_file())
 }
 
 /// The session or open catalog that manages the photographs in `folder`
 /// (also when the folder is gone: by the photographs recorded below it).
+/// Of several sessions keeping photographs there, the open one, else the
+/// first; `libraries_for_folder` names all.
 pub(crate) fn library_dir_for_folder(folder: &Path) -> Option<PathBuf> {
     library_for_folder(folder)
 }
 
 fn library_for_folder(folder: &Path) -> Option<PathBuf> {
-    session_for(&folder.join("_")).or_else(|| {
-        let dir = active().lock().ok()?.clone()?;
-        (dir.join("catalog.json").is_file() || outside_of_active_session(&dir, folder, true))
-            .then_some(dir)
-    })
+    let all = libraries_for_folder(folder);
+    let open = active().lock().ok().and_then(|dir| dir.clone());
+    all.iter()
+        .find(|dir| Some(*dir) == open.as_ref())
+        .or(all.first())
+        .cloned()
+}
+
+/// Every library holding photographs in `folder` or below it: the library
+/// folder above it, else each session keeping photographs there outside its
+/// folder and the open catalog.
+pub(crate) fn libraries_for_folder(folder: &Path) -> Vec<PathBuf> {
+    if let Some(dir) = session_for(&folder.join("_")) {
+        return vec![dir];
+    }
+    let mut all = rawtonic_engine::session_layout::registered_libraries_below(folder);
+    if all.is_empty() {
+        all = rawtonic_engine::session_layout::registered_libraries_below(&registered_form(folder));
+    }
+    all.extend(open_catalog());
+    all
 }
 
 /// Whether a library is open.
@@ -250,8 +258,9 @@ pub(crate) fn visit_editor_sidecars(
         let Some(parent) = source.parent() else {
             continue;
         };
-        // The library above a folder holds for all of it; outside the
-        // session folder the active session owns single photographs.
+        // The library above a folder holds for all of it; outside every
+        // library folder single photographs belong to the session that
+        // keeps them there.
         let library = directories
             .entry(parent.to_owned())
             .or_insert_with(|| library_above(source))

@@ -653,10 +653,19 @@ fn plan_folder_move(
             session.display()
         ));
     }
-    let owner = owning_session(&parent, || {
-        rawtonic_engine::session_layout::registered_owner_below(folder)
-    })?;
-    if let Some(refusal) = leaving_for_another_library(owner, &to_library) {
+    // Every session keeping photographs in it (several may).
+    let owners = match library_above(&parent)? {
+        Some((session, true)) => vec![session],
+        Some((_, false)) => Vec::new(),
+        None => rawtonic_engine::session_layout::registered_libraries_below(folder)
+            .into_iter()
+            .filter(|dir| dir.join("session.json").is_file())
+            .collect(),
+    };
+    if let Some(refusal) = owners
+        .into_iter()
+        .find_map(|owner| leaving_for_another_library(Some(owner), &to_library))
+    {
         return Err(refusal);
     }
     let step = rawtonic_fileops::Step::moving(folder, target).map_err(|e| format!("{e:#}"))?;

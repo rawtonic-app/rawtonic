@@ -32,29 +32,21 @@ pub fn set_outside_photos(library: &Path, photos: HashSet<PathBuf>) {
     }
 }
 
-/// Whether `test` holds for the photographs registered for `library`
-/// (false when none are).
-pub fn outside_photos_match(library: &Path, test: impl FnOnce(&HashSet<PathBuf>) -> bool) -> bool {
-    let outside = OUTSIDE.read().unwrap_or_else(|e| e.into_inner());
-    outside
-        .iter()
-        .find(|(dir, _)| dir == library)
-        .is_some_and(|(_, photos)| test(photos))
-}
-
-/// The library that registered photographs at or below `folder` (a folder
-/// it keeps photographs in outside its own), if any.
-pub fn registered_owner_below(folder: &Path) -> Option<PathBuf> {
+/// Every library that registered photographs at or below `folder` (a
+/// folder libraries keep photographs in outside their own; several sessions
+/// may), in registration order.
+pub fn registered_libraries_below(folder: &Path) -> Vec<PathBuf> {
     let outside = OUTSIDE.read().unwrap_or_else(|e| e.into_inner());
     let forms = [folder.to_path_buf(), registered_form(folder)];
     outside
         .iter()
-        .find(|(_, photos)| {
+        .filter(|(_, photos)| {
             photos
                 .iter()
                 .any(|photo| forms.iter().any(|f| photo.starts_with(f)))
         })
         .map(|(dir, _)| dir.clone())
+        .collect()
 }
 
 /// The library (session or catalog folder) whose resources — `profiles/`,
@@ -63,10 +55,12 @@ pub fn registered_owner_below(folder: &Path) -> Option<PathBuf> {
 /// photographs outside its folder. `path` may also be the photograph's
 /// editor sidecar (`<file>.rrdata`, `<file>.<copy>.rrdata`).
 pub fn library_root(path: &Path) -> Option<PathBuf> {
-    session_root(path).or_else(|| registered_owner(path))
+    session_root(path).or_else(|| registered_library(path))
 }
 
-fn registered_owner(path: &Path) -> Option<PathBuf> {
+/// The library that registered the photograph at `path` (or its editor
+/// sidecar) as one of its photographs outside its folder.
+pub fn registered_library(path: &Path) -> Option<PathBuf> {
     let outside = OUTSIDE.read().unwrap_or_else(|e| e.into_inner());
     if outside.is_empty() {
         return None;
