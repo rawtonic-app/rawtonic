@@ -982,11 +982,13 @@ const HL_V2_RESTORE: f32 = 1.4;
 // (p10 and p90 alone shifted a lit Christmas star as far as a toy on
 // black). It is zero on frames of daylight or mid-tone key (those render
 // as with version 2), faded in by amount^0.5 (−50 at least Camera Raw's −50
-// on the night frames), and none without a measured median or on frames
-// that are nearly black (a moon on a black sky, where lowering darkens the
-// one thing shown; Camera Raw turns it black). Fitted against Camera Raw's
-// −100 change per neutral L* band on 11 dark and mixed raw.pixls.us
-// frames, checked on 27 held-out ones (notes: G05).
+// on the night frames), none without a measured median, and faded out on
+// frames that are nearly black, fully where the 90th percentile is at the
+// black point (a moon on a black sky, where lowering darkens the one thing
+// shown; Camera Raw turns it black). Fitted against Camera Raw's −100
+// change per neutral L* band on 11 dark and mixed raw.pixls.us frames with
+// 27 more as a development set, validated on 10 untouched ones (notes:
+// G05).
 const HL_V3_SHIFT0: f32 = 7.5;
 const HL_V3_MEDIAN_SLOPE: f32 = 1.25;
 const HL_V3_KEY_SLOPE: f32 = 0.75;
@@ -1829,8 +1831,8 @@ fn apply_tonal_adjustments(
 
 // EV by which lowering Highlights (tone version 3) treats the frame as
 // brighter at −100: 0 on frames of daylight key or without a measured key,
-// at most HL_V3_SHIFT_MAX; none on frames that are nearly black (90th
-// percentile within 2 EV of the black point).
+// at most HL_V3_SHIFT_MAX; faded out as the 90th percentile falls from 2 EV
+// over the black point to it (none at or below it).
 fn hl_v3_shift() -> f32 {
     let key = adjustments.global.image_key;
     let median = adjustments.global.image_key_median;
