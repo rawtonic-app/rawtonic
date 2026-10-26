@@ -130,6 +130,7 @@ if [ "$RELAY" = 1 ]; then
   run "relay: tests" npm --prefix services/relay test --silent
 fi
 run "scripts: ship.sh test" sh scripts/ship_test.sh
+run "scripts: macOS packaging test" python3 scripts/package_macos_test.py
 if command -v shellcheck >/dev/null 2>&1; then
   run "scripts: shellcheck" shellcheck scripts/*.sh scripts/git-hooks/pre-push
 fi

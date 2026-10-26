@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Developer ID builds re-sign all bundled native libraries with our team.
+     No hardened-runtime exceptions are needed: no in-process JIT, unsigned
+     executable memory, or foreign-team library loading. WebKit's JavaScript
+     runs in Apple's separate WebContent process. This is not a sandbox build.
+     Keep the ad-hoc build's Entitlements.plist unchanged. -->
+<plist version="1.0">
+<dict/>
+</plist>

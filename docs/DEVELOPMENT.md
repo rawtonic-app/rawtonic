@@ -186,6 +186,26 @@ How to read it: measure on an idle machine (the script prints the load average) 
 
 [Fixture instructions](testing/README.md) describe `APP_FIXTURES`, GPU gating and golden comparisons. [Packaging](../packaging/README.md) records signing, Linux and tethering blockers. AI is optional; missing ONNX runtime produces an error, with an opt-in build path documented there.
 
+### macOS release signing (opt-in)
+
+`RAWTONIC_BUNDLE_ONNX=1 npm run package:mac` still makes the existing ad-hoc app and DMG when no Apple credentials are set. Developer ID signing is prepared but **off by default**; no Apple Developer account or credentials are configured as of 2026-10-26. There is no install script. Signed/notarized distribution must be qualified with real credentials before calling it ready.
+
+Later, enroll in the Apple Developer Program and create a **Developer ID Application** certificate (outside-the-App-Store distribution), using a CSR from Keychain Access. Install the certificate and its private key in the login keychain; `security find-identity -v -p codesigning` must show a valid identity. Set `APPLE_SIGNING_IDENTITY` to its complete `Developer ID Application: … (TEAMID)` name, then use the same packaging command. The login keychain must be unlocked and codesign must have access to its private key. For CI instead, export that identity **with its private key** as a password-protected `.p12`, set `APPLE_CERTIFICATE` to its single-line base64 encoding and `APPLE_CERTIFICATE_PASSWORD` to its export password. The identity is inferred from the certificate; if also set, `APPLE_SIGNING_IDENTITY` must match it. The packager and Tauri use temporary keychains and clean them up; no identity is installed permanently.
+
+For notarization, create an **App Store Connect team API key** with Developer access in Users and Access → Integrations. Record the issuer UUID (`APPLE_API_ISSUER`), key ID (`APPLE_API_KEY`), and download the private `.p8` key once; point `APPLE_API_KEY_PATH` to it outside the repository. Alternatively set all three of `APPLE_ID`, `APPLE_PASSWORD` (an **app-specific password**, never the account password), and `APPLE_TEAM_ID`. Choose one complete credential set; partial credentials fail before building. Keep certificates, passwords, `.p12`/`.p8` files and base64 values in a secret manager or CI secret store, never in the repository, shell history, PRs or build logs. Unset Apple variables for ad-hoc builds. See the [Tauri 2 signing instructions](https://v2.tauri.app/distribute/sign/macos/) for certificate and key creation.
+
+The signed path builds first, then signs staged copies of native resources (ONNX Runtime under `Contents/Resources/resources/` and the libgphoto2 camera/port drivers). Tauri signs the helper (`rawtonic-tether`), app executable, libraries in `Contents/Frameworks`, app bundle and DMG with that same Developer ID, enabling the hardened runtime for executables. Source libraries remain unchanged so the ONNX download hash check continues to work. `DeveloperID.entitlements.plist` is intentionally empty: bundled code has our team signature, WebKit runs JavaScript in its own process, and the app needs no JIT, unsigned-memory, library-validation or sandbox exceptions. The ad-hoc build keeps its existing `Entitlements.plist` library-validation exception for the separately signed runtime. Adding native code must keep it covered by staging/framework/sidecar signing.
+
+With notarization credentials, Tauri submits and staples the app, then the packager submits the signed DMG, waits for **Accepted**, and staples the DMG. A failure stops packaging; signing alone is not a distributable release. The final verification runs automatically after notarization and can be repeated explicitly:
+
+```sh
+scripts/verify_macos_release.sh \
+  target/release/bundle/macos/Rawtonic.app \
+  target/release/bundle/dmg/Rawtonic_<version>_aarch64.dmg
+```
+
+It checks strict deep app signatures, the DMG signature, Gatekeeper acceptance, and stapled tickets on both artifacts. Run it on the actual release artifacts without removing quarantine; also mount the DMG and smoke-test a copied app on a clean Mac (QA identifier/config for GUI tests). An ad-hoc result is expected to fail Gatekeeper and stapling. Never bypass those failures for a signed release. Signing control-flow tests run in `scripts/check.sh`; they do not prove Apple acceptance, Intel compatibility, camera access or AI operation under the signed runtime.
+
 ## Architecture and implementation
 
 [Architecture](ARCHITECTURE.md) · [Recipe schema](RECIPE_SCHEMA.md) · [AI models](MODELS.md) · [Contributing](../CONTRIBUTING.md)
