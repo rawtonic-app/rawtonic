@@ -12,6 +12,17 @@ from unittest.mock import patch
 import package_macos as packaging
 
 
+IDENTITY = "Developer ID Application: Example (TEAM123456)"
+HASH = "0123456789ABCDEF0123456789ABCDEF01234567"
+OTHER_HASH = "89ABCDEF0123456789ABCDEF0123456789ABCDEF"
+
+
+def security_output(*identities):
+    return "\n".join(f'  {index}) {sha1} "{name}"'
+                     for index, (sha1, name) in enumerate(identities, 1)) + \
+        f"\n     {len(identities)} valid identities found\n"
+
+
 class PackagingTests(unittest.TestCase):
     def test_default_keeps_existing_commands(self):
         with patch.object(packaging, "run") as run, patch.object(packaging, "finish") as finish:
@@ -106,14 +117,99 @@ class PackagingTests(unittest.TestCase):
                 run.assert_not_called()
 
     def test_api_credentials_use_the_explicit_private_key_path(self):
-        with tempfile.NamedTemporaryFile(suffix=".p8") as key:
+        with tempfile.NamedTemporaryFile(suffix=".p8") as key, \
+                patch.object(packaging, "run", return_value=security_output((HASH, IDENTITY))):
             signed, identity, auth = packaging.configuration({
-                "APPLE_SIGNING_IDENTITY": "Developer ID Application: Example",
+                "APPLE_SIGNING_IDENTITY": IDENTITY,
                 **dict(zip(packaging.API, ("issuer", "key-id", key.name))),
             })
         self.assertTrue(signed)
-        self.assertEqual(identity, "Developer ID Application: Example")
+        self.assertEqual(identity, IDENTITY)
         self.assertEqual(auth, ["--issuer", "issuer", "--key-id", "key-id", "--key", key.name])
+
+    def test_local_identity_accepts_unique_name_and_exact_hash_with_duplicate_names(self):
+        for requested, entries, expected in (
+                (IDENTITY, ((HASH, IDENTITY),), IDENTITY),
+                (HASH, ((HASH, IDENTITY), (OTHER_HASH, IDENTITY)), HASH),
+                (HASH.lower(), ((HASH.lower(), IDENTITY), (OTHER_HASH, IDENTITY)), HASH)):
+            with self.subTest(requested=requested), \
+                    patch.object(packaging, "run", return_value=security_output(*entries)) as run:
+                self.assertEqual(packaging.configuration({"APPLE_SIGNING_IDENTITY": requested}),
+                                 (True, expected, []))
+                run.assert_called_once_with(
+                    ["security", "find-identity", "-v", "-p", "codesigning"], capture=True)
+
+    def test_ambiguous_name_fails_before_build_and_requests_hash(self):
+        with patch.object(packaging, "run", return_value=security_output(
+                (HASH, IDENTITY), (OTHER_HASH, IDENTITY))) as run:
+            with self.assertRaisesRegex(ValueError, "multiple valid identities.*SHA-1 hash"):
+                packaging.package({"APPLE_SIGNING_IDENTITY": IDENTITY})
+        self.assertEqual(len(run.call_args_list), 1)
+
+    def test_hash_and_name_must_match_one_valid_developer_id_application(self):
+        for requested, output in (
+                (HASH, security_output((OTHER_HASH, IDENTITY))),
+                (HASH, security_output((HASH, "Apple Development: Example"))),
+                (HASH, security_output((HASH, "Developer ID Installer: Example"))),
+                (HASH, security_output((HASH, IDENTITY)).replace('"\n', '" (CSSMERR_TP_CERT_EXPIRED)\n')),
+                (HASH, security_output((HASH, IDENTITY), (HASH, IDENTITY))),
+                (IDENTITY, security_output((HASH, IDENTITY + " extra"))),
+                (HASH, "0 valid identities found")):
+            with self.subTest(requested=requested, output=output), \
+                    patch.object(packaging, "run", return_value=output) as run:
+                with self.assertRaises(ValueError):
+                    packaging.package({"APPLE_SIGNING_IDENTITY": requested})
+                self.assertEqual(len(run.call_args_list), 1)
+
+    def test_malformed_hash_is_rejected_without_querying_keychain(self):
+        for requested in (HASH[:-1], HASH + "0", "Z" * 40, HASH + "\n", " " + HASH):
+            with self.subTest(requested=requested), patch.object(packaging, "run") as run:
+                with self.assertRaises(ValueError):
+                    packaging.configuration({"APPLE_SIGNING_IDENTITY": requested})
+                run.assert_not_called()
+
+    def test_ad_hoc_identity_does_not_query_keychain(self):
+        with patch.object(packaging, "run") as run:
+            self.assertEqual(packaging.configuration({"APPLE_SIGNING_IDENTITY": "-"}),
+                             (False, "-", []))
+        run.assert_not_called()
+
+    def test_certificate_hash_resolves_to_name_in_its_isolated_keychain(self):
+        for requested in (None, IDENTITY, HASH, HASH.lower()):
+            with self.subTest(requested=requested), tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary)
+                env = {"APPLE_CERTIFICATE": "Y2VydA==", "APPLE_CERTIFICATE_PASSWORD": "password"}
+                if requested:
+                    env["APPLE_SIGNING_IDENTITY"] = requested
+
+                def command(args, **_kwargs):
+                    if args[:2] == ["security", "find-identity"]:
+                        self.assertEqual(args[-1], str(directory / "signing.keychain-db"))
+                        return security_output((HASH, IDENTITY))
+
+                with patch.object(packaging, "run", side_effect=command):
+                    self.assertEqual(packaging.import_certificate(env, directory),
+                                     (directory / "signing.keychain-db", IDENTITY))
+                self.assertFalse((directory / "certificate.p12").exists())
+
+    def test_certificate_mismatch_or_invalid_identity_cleans_up(self):
+        for output in (security_output((OTHER_HASH, IDENTITY)),
+                       security_output((HASH, "Apple Development: Example")),
+                       security_output((HASH, IDENTITY), (OTHER_HASH, IDENTITY))):
+            with self.subTest(output=output), tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary)
+
+                def command(args, **_kwargs):
+                    if args[:2] == ["security", "find-identity"]:
+                        return output
+
+                with patch.object(packaging, "run", side_effect=command) as run:
+                    with self.assertRaises(ValueError):
+                        packaging.import_certificate({"APPLE_CERTIFICATE": "Y2VydA==",
+                                                      "APPLE_CERTIFICATE_PASSWORD": "password",
+                                                      "APPLE_SIGNING_IDENTITY": HASH}, directory)
+                self.assertFalse((directory / "certificate.p12").exists())
+                self.assertEqual(run.call_args.args[0][:2], ["security", "delete-keychain"])
 
     def test_command_failure_does_not_print_secret_arguments(self):
         with patch.object(packaging.subprocess, "run") as run:
@@ -152,19 +248,22 @@ class PackagingTests(unittest.TestCase):
             (sources[0] / "license.txt").write_text("plain data")
             before = runtime.read_bytes(), driver.read_bytes()
             with patch.object(packaging, "REPO", repo), patch.object(packaging, "run") as run:
-                overlay = packaging.stage_resources(target, "Developer ID Application: Example", None,
+                overlay = packaging.stage_resources(target, HASH, None,
                                                     target / "tether-bundle")
             calls = [call.args[0] for call in run.call_args_list]
             self.assertEqual(len(calls), 2)
             self.assertTrue(all(call[:2] == ["codesign", "--force"] for call in calls))
+            self.assertTrue(all(call[call.index("--sign") + 1] == HASH for call in calls))
             self.assertTrue(all("runtime" in call and "--timestamp" in call for call in calls))
             self.assertTrue(all("macos-signing" in call[-1] for call in calls))
             self.assertEqual(before, (runtime.read_bytes(), driver.read_bytes()))
             config = json.loads(overlay.read_text())["bundle"]
             self.assertTrue(config["macOS"]["hardenedRuntime"])
+            self.assertEqual(config["macOS"]["signingIdentity"], HASH)
             self.assertEqual(set(config["resources"].values()), {"resources/", "lensfun_db/", "gphoto2/"})
 
-    def signed_build(self, status="Accepted", with_auth=True, with_certificate=False):
+    def signed_build(self, status="Accepted", with_auth=True, with_certificate=False,
+                     identity=IDENTITY):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         target = Path(temporary.name)
@@ -176,26 +275,34 @@ class PackagingTests(unittest.TestCase):
         overlay.write_text(json.dumps({"bundle": {"resources": {"signed": "resources/"},
                                                   "macOS": {"entitlements": "empty.plist"}}}))
         env = {"CARGO_TARGET_DIR": str(target),
-               "APPLE_SIGNING_IDENTITY": "Developer ID Application: Example"}
+               "APPLE_SIGNING_IDENTITY": identity}
         if with_auth:
             env.update(dict(zip(packaging.APPLE_ID, ("id", "password", "team"))))
         if with_certificate:
             env.update(APPLE_CERTIFICATE="certificate", APPLE_CERTIFICATE_PASSWORD="password")
 
         def command(args, **_kwargs):
+            if args[:2] == ["security", "find-identity"]:
+                return security_output((HASH, IDENTITY), (OTHER_HASH, IDENTITY)) if \
+                    packaging.SHA1.fullmatch(identity) else security_output((HASH, IDENTITY))
             if args[:3] == ["xcrun", "notarytool", "submit"]:
                 return json.dumps({"status": status})
             return None
 
         with patch.object(packaging, "run", side_effect=command) as run, \
-                patch.object(packaging, "stage_resources", return_value=overlay), \
+                patch.object(packaging, "stage_resources", return_value=overlay) as stage, \
                 patch.object(packaging, "finish"), \
-                patch.object(packaging, "import_certificate", return_value=(target / "keychain", env["APPLE_SIGNING_IDENTITY"])):
+                patch.object(packaging, "import_certificate", return_value=(target / "keychain", IDENTITY)):
             error = None
             try:
                 packaging.package(env)
             except RuntimeError as caught:
                 error = caught
+            expected = IDENTITY if with_certificate else identity
+            self.assertEqual(stage.call_args.args[1], expected)
+            bundle_call = next(call for call in run.call_args_list
+                               if call.args[0][:2] == ["tauri", "bundle"])
+            self.assertEqual(bundle_call.kwargs["env"]["APPLE_SIGNING_IDENTITY"], expected)
         return [call.args[0] for call in run.call_args_list], json.loads(overlay.read_text()), error
 
     def test_signed_bundle_uses_only_staged_resources_then_notarizes_dmg(self):
@@ -203,8 +310,8 @@ class PackagingTests(unittest.TestCase):
         self.assertIsNone(error)
         self.assertEqual(config["bundle"]["resources"], {"signed": "resources/"})
         self.assertEqual(config["bundle"]["macOS"]["frameworks"], ["libgphoto2.dylib"])
-        self.assertEqual(calls[2][0:3], ["tauri", "build", "--no-bundle"])
-        self.assertEqual(calls[3][0:4], ["tauri", "bundle", "--bundles", "app,dmg"])
+        self.assertEqual(calls[3][0:3], ["tauri", "build", "--no-bundle"])
+        self.assertEqual(calls[4][0:4], ["tauri", "bundle", "--bundles", "app,dmg"])
         self.assertEqual(calls[-3][:3], ["xcrun", "notarytool", "submit"])
         self.assertEqual(calls[-2][:3], ["xcrun", "stapler", "staple"])
         self.assertTrue(calls[-1][0].endswith("verify_macos_release.sh"))
@@ -219,6 +326,14 @@ class PackagingTests(unittest.TestCase):
         calls, _, error = self.signed_build(with_auth=False)
         self.assertIsNone(error)
         self.assertFalse(any(call[0] == "xcrun" for call in calls))
+
+    def test_local_hash_reaches_staging_and_tauri_unchanged_despite_duplicate_names(self):
+        _, _, error = self.signed_build(identity=HASH)
+        self.assertIsNone(error)
+
+    def test_certificate_hash_passes_resolved_name_to_tauri(self):
+        _, _, error = self.signed_build(identity=HASH, with_certificate=True)
+        self.assertIsNone(error)
 
 
 if __name__ == "__main__":
