@@ -16,6 +16,8 @@
 # build machine's macOS). Linux: run inside the AppImage container.
 #
 # Usage: scripts/tether/build_libgphoto2.sh [PREFIX]   (default target/gphoto2)
+# GPHOTO2_ARCH=x86_64 (macOS only) builds for that architecture instead of
+# the machine's (the Intel app on Apple Silicon).
 # Sources are cached in target/gphoto2-src. The build is skipped when PREFIX
 # already holds this exact build (its stamp file).
 set -euo pipefail
@@ -40,6 +42,15 @@ case "$(uname -s)" in
   Darwin)
     export MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET:-13.0}
     STAMP="$LIBTOOL $GPHOTO ptp2 icc-$(shasum -a 256 "$ICC_PORT" | cut -c1-16) macos$MACOSX_DEPLOYMENT_TARGET"
+    ARCH=()
+    CROSS=()
+    if [ -n "${GPHOTO2_ARCH:-}" ] && [ "$GPHOTO2_ARCH" != "$(uname -m)" ]; then
+      ARCH=(-arch "$GPHOTO2_ARCH")
+      # configure cross-compiles (runs no test programs) for another host.
+      CROSS=(--host="${GPHOTO2_ARCH/arm64/aarch64}-apple-darwin" CC="clang -arch $GPHOTO2_ARCH"
+        CXX="clang++ -arch $GPHOTO2_ARCH")
+      STAMP="$STAMP $GPHOTO2_ARCH"
+    fi
     sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
     ;;
   *)
@@ -86,13 +97,14 @@ if [ "$(uname -s)" != Darwin ]; then
 fi
 
 tar -xJf "$SRC/$LIBTOOL.tar.xz" -C "$BUILD"
-(cd "$BUILD/$LIBTOOL" && ./configure --prefix="$PREFIX" --disable-static --enable-ltdl-install >/dev/null &&
+(cd "$BUILD/$LIBTOOL" && ./configure --prefix="$PREFIX" --disable-static --enable-ltdl-install ${CROSS[@]+"${CROSS[@]}"} >/dev/null &&
   make -j"$JOBS" >/dev/null && make install >/dev/null)
 
 tar -xjf "$SRC/$GPHOTO.tar.bz2" -C "$BUILD"
 (cd "$BUILD/$GPHOTO" && ./configure --prefix="$PREFIX" --disable-static --disable-nls \
   --with-camlibs=ptp2 --without-libexif --without-jpeg --with-libxml-2.0=no --with-libcurl=no \
   --with-gdlib=no --with-libtiff-4=no --without-libusb "${USB[@]}" --disable-serial --disable-disk --disable-ptpip \
+  ${CROSS[@]+"${CROSS[@]}"} \
   LTDLINCL="-I$PREFIX/include" LIBLTDL="-L$PREFIX/lib -lltdl" >/dev/null &&
   make -j"$JOBS" >/dev/null && make install >/dev/null)
 
@@ -101,7 +113,7 @@ if [ "$(uname -s)" = Darwin ]; then
   # port-driver header is not installed; it comes from the source tree).
   IOLIBS_DIR=$(PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig" pkg-config --variable=driverdir libgphoto2_port)
   mkdir -p "$IOLIBS_DIR"
-  clang -fobjc-arc -O2 -Wall -Wextra -Wno-unused-parameter -Werror -bundle \
+  clang ${ARCH[@]+"${ARCH[@]}"} -fobjc-arc -O2 -Wall -Wextra -Wno-unused-parameter -Werror -bundle \
     -mmacosx-version-min="$MACOSX_DEPLOYMENT_TARGET" \
     -I"$PREFIX/include" -I"$BUILD/$GPHOTO/libgphoto2_port" -o "$IOLIBS_DIR/icc.so" "$ICC_PORT" \
     -L"$PREFIX/lib" -lgphoto2_port -framework Foundation -framework ImageCaptureCore

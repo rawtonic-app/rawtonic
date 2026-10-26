@@ -22,22 +22,41 @@
 #
 # Usage: scripts/tether/bundle_helper.sh   then
 #        tauri build --config target/tether-bundle/tauri.tether.conf.json …
+# Another macOS architecture (the Intel build on Apple Silicon):
+#        RAWTONIC_TARGET=x86_64-apple-darwin scripts/tether/bundle_helper.sh
+# stages in target/x86_64-apple-darwin/tether-bundle instead.
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 TARGET=${CARGO_TARGET_DIR:-$REPO/target}
-PREFIX=$TARGET/gphoto2
-OUT=$TARGET/tether-bundle
+HOST=$(rustc -vV | sed -n 's/^host: //p')
+TRIPLE=${RAWTONIC_TARGET:-$HOST}
+if [ "$TRIPLE" = "$HOST" ]; then
+  PREFIX=$TARGET/gphoto2
+  OUT=$TARGET/tether-bundle
+  BUILT=$TARGET/release
+  CARGO_TARGET=()
+else
+  case "$(uname -s)-$TRIPLE" in
+    Darwin-x86_64-apple-darwin) export GPHOTO2_ARCH=x86_64 ;;
+    Darwin-aarch64-apple-darwin) export GPHOTO2_ARCH=arm64 ;;
+    *) echo "bundle_helper: cannot build for $TRIPLE on $HOST" >&2; exit 1 ;;
+  esac
+  PREFIX=$TARGET/$TRIPLE/gphoto2
+  OUT=$TARGET/$TRIPLE/tether-bundle
+  BUILT=$TARGET/$TRIPLE/release
+  CARGO_TARGET=(--target "$TRIPLE")
+fi
 "$REPO/scripts/tether/build_libgphoto2.sh" "$PREFIX"
 
-TRIPLE=$(rustc -vV | sed -n 's/^host: //p')
 GPHOTO2_LIB_DIR=$PREFIX/lib GPHOTO2_INCLUDE_DIR=$PREFIX/include \
-  cargo build --release --locked -p rawtonic-tether --features gphoto2 --manifest-path "$REPO/Cargo.toml"
+  cargo build --release --locked -p rawtonic-tether --features gphoto2 ${CARGO_TARGET[@]+"${CARGO_TARGET[@]}"} \
+  --manifest-path "$REPO/Cargo.toml"
 
 rm -rf "$OUT"
 mkdir -p "$OUT/binaries" "$OUT/Frameworks" "$OUT/gphoto2/camlibs" "$OUT/gphoto2/iolibs"
 HELPER=$OUT/binaries/rawtonic-tether-$TRIPLE
-cp "$TARGET/release/rawtonic-tether" "$HELPER"
+cp "$BUILT/rawtonic-tether" "$HELPER"
 cp "$PREFIX"/lib/libgphoto2/*/ptp2.so "$OUT/gphoto2/camlibs/"
 
 case "$(uname -s)" in
@@ -63,6 +82,12 @@ case "$(uname -s)" in
       echo "bundle_helper: a library reference points outside the bundle" >&2
       exit 1
     fi
+    for file in "${FILES[@]}"; do
+      if [ "$(lipo -archs "$file")" != "${GPHOTO2_ARCH:-$(uname -m)}" ]; then
+        echo "bundle_helper: $file is $(lipo -archs "$file"), not ${GPHOTO2_ARCH:-$(uname -m)}" >&2
+        exit 1
+      fi
+    done
     FRAMEWORKS=$(printf '"%s",' "$OUT"/Frameworks/*.dylib)
     cat >"$OUT/tauri.tether.conf.json" <<EOF
 {
