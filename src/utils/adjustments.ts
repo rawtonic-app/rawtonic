@@ -1313,7 +1313,7 @@ export const SHARPEN_VERSION = 6;
 export const LUMA_NOISE_VERSION = 2;
 
 /** The render pipeline fixes new edits start with (`renderVersion`). */
-export const RENDER_VERSION = 5;
+export const RENDER_VERSION = 6;
 
 /** The render version from which a RAW is developed with the second
  * dead-photosite test (crates/engine/src/image_loader.rs
