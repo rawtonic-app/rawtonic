@@ -1175,7 +1175,11 @@ fn the_live_view_sequence_reports_each_phase_and_writes_a_new_trace() {
     assert!(phases[0]["stopped"].as_array().unwrap().is_empty());
     let shot = &phases[1];
     assert_eq!(shot["framesAfterShot"], 0, "{report}");
-    assert_eq!(shot["captured"].as_array().unwrap().len(), 1, "{report}");
+    assert!(shot["request"].is_u64(), "{report}");
+    let photos = report["photos"].as_array().unwrap();
+    assert_eq!(photos.len(), 1, "{report}");
+    assert_eq!(photos[0]["shot"], "shot 1", "{report}");
+    assert_eq!(photos[0]["request"], shot["request"], "{report}");
     assert!(
         shot["stopped"][0]["error"]["message"]
             .as_str()
@@ -1191,6 +1195,43 @@ fn the_live_view_sequence_reports_each_phase_and_writes_a_new_trace() {
         "{written}"
     );
     assert!(written.contains("live view stopped after"), "{written}");
+}
+
+#[test]
+fn a_photo_that_comes_after_its_phase_still_belongs_to_its_shot() {
+    let dir = tempfile::tempdir().unwrap();
+    // The photo comes 2.5 s after the shot, fired half a second into a
+    // 2 s phase: it arrives in a later phase.
+    let spec = MockSpec {
+        event_delay_ms: 2500,
+        ..MockSpec::default()
+    };
+    let output = std::process::Command::new(HELPER)
+        .args([
+            "liveview",
+            "--mock",
+            "--seconds",
+            "2",
+            "--shots",
+            "1",
+            "--out",
+        ])
+        .arg(dir.path().join("out"))
+        .env(
+            "RAWTONIC_TETHER_MOCK",
+            serde_json::to_string(&spec).unwrap(),
+        )
+        .output()
+        .unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let photos = report["photos"].as_array().unwrap();
+    assert_eq!(photos.len(), 1, "{report}");
+    assert_eq!(photos[0]["shot"], "shot 1", "{report}");
+    assert_ne!(photos[0]["arrivedIn"], "shot 1", "{report}");
+    assert!(
+        photos[0]["msAfterFire"].as_f64().unwrap() >= 2400.0,
+        "{report}"
+    );
 }
 
 #[test]

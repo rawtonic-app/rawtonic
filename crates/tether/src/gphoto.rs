@@ -360,9 +360,15 @@ impl GphotoCamera {
     /// `LiveViewExperiment::reopen`: ends the camera's live view
     /// (libgphoto2's "movie" toggle off sends TerminateOpenCapture), so the
     /// next frame opens it again.
+    /// Only on libgphoto2's Fujifilm tether path: on other vendors' paths
+    /// the widget of that name starts and stops movie recording.
     fn end_live_view(&mut self) {
         let started = std::time::Instant::now();
         self.live_view_open = false;
+        if !self.transfer_queue {
+            log::warn!("experiment reopen: only on the Fujifilm tether path; not done");
+            return;
+        }
         let Some(widget) = self.widget("movie") else {
             log::warn!("experiment reopen: the camera has no open capture to end");
             return;

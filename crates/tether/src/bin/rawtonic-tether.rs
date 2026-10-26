@@ -635,7 +635,8 @@ struct Phase {
     frames: Vec<Instant>,
     sizes: Vec<usize>,
     stopped: Vec<Value>,
-    captured: Vec<Value>,
+    /// The request number of the shot fired in this phase.
+    request: Option<u64>,
     /// When the shot was asked for, when the helper answered (it had fired:
     /// a frame that comes after the answer was taken after the shot).
     fire: Option<(Instant, Instant, Value)>,
@@ -675,12 +676,31 @@ impl Phase {
             "framesAfterShot": fired.map(|f| self.frames.iter().filter(|t| **t > f).count()),
             "firstFrameAfterShotMs": fired
                 .and_then(|f| self.frames.iter().find(|t| **t > f).map(|t| ms(t.duration_since(f)))),
-            "captured": self.captured,
+            "request": self.request,
             "stopped": self.stopped,
             "turnedOnAgain": self.restart,
             "firstFrameFile": self.first_frame_file,
         })
     }
+}
+
+/// A photo of the `liveview` sequence, with the shot it answers (by its
+/// request number) and when it came.
+fn photo(
+    photos: &mut Vec<Value>,
+    fired: &std::collections::HashMap<u64, (String, Instant)>,
+    captured: &rawtonic_tether::protocol::Captured,
+    at: Instant,
+    arrived_in: &str,
+) {
+    let shot = captured.request.and_then(|r| fired.get(&r));
+    photos.push(json!({
+        "file": captured.camera_name,
+        "request": captured.request,
+        "shot": shot.map(|(phase, _)| phase),
+        "msAfterFire": shot.map(|(_, t)| ms(at.duration_since(*t))),
+        "arrivedIn": arrived_in,
+    }));
 }
 
 /// `liveview`: live view the way a session uses it. Phase "before shots";
@@ -732,6 +752,10 @@ fn live_view_sequence(args: &[String], mock: bool) -> Result<(), String> {
         }
     }
     let mut phases = Vec::new();
+    // Each shot's request number → its phase and when it was asked for:
+    // a photo belongs to the shot it answers, whenever it comes.
+    let mut fired: std::collections::HashMap<u64, (String, Instant)> = Default::default();
+    let mut photos = Vec::new();
     let count = shots + 2;
     for n in 0..count {
         let name = match n {
@@ -745,8 +769,14 @@ fn live_view_sequence(args: &[String], mock: bool) -> Result<(), String> {
             phase
                 .stopped
                 .push(json!({ "turnedOff": format!("{off:?}") }));
-            std::thread::sleep(Duration::from_secs(1));
-            while rx.try_recv().is_ok() {}
+            let pause = Instant::now() + Duration::from_secs(1);
+            while let Ok((at, incoming)) =
+                rx.recv_timeout(pause.saturating_duration_since(Instant::now()))
+            {
+                if let Incoming::Event(Event::Captured { captured }) = incoming {
+                    photo(&mut photos, &fired, &captured, at, "between phases");
+                }
+            }
         }
         let started = Instant::now();
         let on = client.request(Request::LiveView { on: true }, long);
@@ -763,6 +793,10 @@ fn live_view_sequence(args: &[String], mock: bool) -> Result<(), String> {
             {
                 let t = Instant::now();
                 let r = client.request(Request::Capture, long);
+                if let Ok(Reply::Fired { request }) = &r {
+                    phase.request = Some(*request);
+                    fired.insert(*request, (name.clone(), t));
+                }
                 phase.fire = Some((
                     t,
                     Instant::now(),
@@ -782,7 +816,11 @@ fn live_view_sequence(args: &[String], mock: bool) -> Result<(), String> {
             let next = fire_at
                 .filter(|_| phase.fire.is_none())
                 .into_iter()
-                .chain(stopped_at.map(|at| at + Duration::from_secs(1)))
+                .chain(
+                    stopped_at
+                        .filter(|_| phase.restart.is_none())
+                        .map(|at| at + Duration::from_secs(1)),
+                )
                 .chain([end])
                 .min()
                 .unwrap_or(end);
@@ -806,10 +844,7 @@ fn live_view_sequence(args: &[String], mock: bool) -> Result<(), String> {
                     }));
                 }
                 Ok((at, Incoming::Event(Event::Captured { captured }))) => {
-                    phase.captured.push(json!({
-                        "file": captured.camera_name,
-                        "msAfterFire": phase.fire.as_ref().map(|(f, _, _)| ms(at.duration_since(*f))),
-                    }));
+                    photo(&mut photos, &fired, &captured, at, &name);
                 }
                 Ok((_, Incoming::Event(e))) => {
                     phase.stopped.push(json!({ "event": format!("{e:?}") }))
@@ -824,8 +859,18 @@ fn live_view_sequence(args: &[String], mock: bool) -> Result<(), String> {
         phases.push(phase.report(&name, started));
     }
     let _ = client.request(Request::LiveView { on: false }, long);
+    // Photos still on their way: waited for (up to 10 s), never dropped.
+    let late = Instant::now() + Duration::from_secs(10);
+    while photos.len() < fired.len() && Instant::now() < late {
+        if let Ok((at, Incoming::Event(Event::Captured { captured }))) =
+            rx.recv_timeout(late.saturating_duration_since(Instant::now()))
+        {
+            photo(&mut photos, &fired, &captured, at, "after the phases");
+        }
+    }
     let _ = client.request(Request::Disconnect, long);
     report["phases"] = json!(phases);
+    report["photos"] = json!(photos);
     println!("{}", serde_json::to_string_pretty(&report).unwrap());
     Ok(())
 }
