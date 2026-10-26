@@ -1,3 +1,5 @@
+import "../i18n";
+import { toast } from "react-toastify";
 import { cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useKeyboardShortcuts } from "./useKeyboardShortcuts";
@@ -13,7 +15,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("react-toastify", () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
+  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
 }));
 
 const props = {
@@ -332,8 +334,10 @@ describe("M after a layer's first adjustment (Lightroom's automatic overlay)", (
     expect(display()).toBeUndefined();
     press("KeyM", "m");
     expect(display()).toBe("never");
+    expect(toast.info).toHaveBeenLastCalledWith("Mask display: Never", expect.objectContaining({ autoClose: 1800 }));
     press("KeyM", "m");
     expect(display()).toBe("always");
+    expect(toast.info).toHaveBeenLastCalledWith("Mask display: Always", expect.any(Object));
     expect(useEditorStore.getState().maskOverlayAuto).toBe("pinned");
   });
 
@@ -353,6 +357,21 @@ describe("M after a layer's first adjustment (Lightroom's automatic overlay)", (
     expect(useEditorStore.getState()).toMatchObject({ showMaskWithSelectTool: true, maskOverlayAuto: "pinned" });
     press("KeyM", "m");
     expect(useEditorStore.getState().showMaskWithSelectTool).toBe(false);
+  });
+
+  it("announces grayscale and the restored drawing mode with Option+M", () => {
+    useSettingsStore.setState((s) => ({
+      appSettings: { ...s.appSettings!, maskDisplay: "drawing" },
+    }));
+    const toggle = () => window.dispatchEvent(new KeyboardEvent("keydown", {
+      code: "KeyM", key: "µ", altKey: true, bubbles: true, cancelable: true,
+    }));
+    toggle();
+    expect(display()).toBe("grayscale");
+    expect(toast.info).toHaveBeenLastCalledWith("Mask display: Grayscale", expect.any(Object));
+    toggle();
+    expect(display()).toBe("drawing");
+    expect(toast.info).toHaveBeenLastCalledWith("Mask display: While drawing", expect.any(Object));
   });
 
   it("ends the luma range eyedropper with Escape", () => {

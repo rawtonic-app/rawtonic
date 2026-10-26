@@ -2303,6 +2303,7 @@
           "red": "Red",
           "white": "White"
         },
+        "currentMode": "Mask display: {{mode}}",
         "custom": "Custom mask color",
         "display": "Mask display",
         "modes": {

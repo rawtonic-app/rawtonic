@@ -13,7 +13,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("react-toastify", () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
+  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
 }));
 vi.mock("../utils/photoFullScreen", () => ({
   toggleWindowFullScreen: vi.fn(() => Promise.resolve()),

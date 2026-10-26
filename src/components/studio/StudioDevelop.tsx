@@ -479,6 +479,10 @@ export default function StudioDevelop() {
   const handleSettingsChange = useSettingsStore((s) => s.handleSettingsChange);
   const setAppSettings = useSettingsStore((s) => s.setAppSettings);
   const isMac = useSettingsStore((s) => s.osPlatform === "macos");
+  const maskDisplay = maskDisplayOf(appSettings);
+  const maskDisplayLabel = t("studio.develop.maskOverlay.currentMode", {
+    mode: t(`studio.develop.maskOverlay.modes.${maskDisplay}`),
+  });
   const maskColor = maskColorOf(appSettings);
   // Names of the overlay swatches (MASK_COLOR_PRESETS keeps English ids).
   const maskColorName = (name: string) =>
@@ -862,15 +866,17 @@ export default function StudioDevelop() {
                 <>
                   <button
                     type="button"
-                    aria-label={t("studio.develop.maskOverlay.button")}
+                    className="studio-mask-display-button"
+                    aria-label={maskDisplay === "always" ? t("studio.develop.maskOverlay.button") : maskDisplayLabel}
                     aria-pressed={maskOptions}
-                    title={t("studio.develop.maskOverlay.title")}
+                    title={maskDisplay === "always" ? t("studio.develop.maskOverlay.title") : maskDisplayLabel}
                     onClick={(e) => {
                       e.preventDefault();
                       setMaskOptions(!maskOptions);
                     }}
                   >
                     <Eye size={12} />
+                    {maskDisplay !== "always" && <span className="studio-mask-display-dot" aria-hidden="true" />}
                   </button>
                   <NewLayerButton />
                 </>

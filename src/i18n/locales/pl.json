@@ -2423,6 +2423,7 @@
           "red": "Czerwony",
           "white": "Biały"
         },
+        "currentMode": "Wyświetlanie maski: {{mode}}",
         "custom": "Własny kolor maski",
         "display": "Wyświetlanie maski",
         "modes": {

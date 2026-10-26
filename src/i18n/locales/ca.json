@@ -2363,6 +2363,7 @@
           "red": "Vermell",
           "white": "Blanc"
         },
+        "currentMode": "Visualització de la màscara: {{mode}}",
         "custom": "Color de màscara personalitzat",
         "display": "Visualització de la màscara",
         "modes": {

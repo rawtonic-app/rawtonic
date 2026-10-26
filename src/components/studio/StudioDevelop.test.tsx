@@ -1444,3 +1444,28 @@ it("anchors keyboard copy at its trigger and restores focus after closing", () =
   fireEvent.keyDown(document.activeElement!, { key: "Escape" });
   expect(document.activeElement).toBe(trigger);
 });
+
+
+describe("mask display mode hint", () => {
+  it.each([
+    ["drawing", "While drawing"],
+    ["grayscale", "Grayscale"],
+    ["never", "Never"],
+  ] as const)("marks %s and names the mode while options are closed", (mode, label) => {
+    useSettingsStore.setState({ appSettings: { maskDisplay: mode } as AppSettings });
+    mount();
+    openLayersTab();
+    openGroups();
+    const button = screen.getByRole("button", { name: `Mask display: ${label}` });
+    expect(button.title).toBe(`Mask display: ${label}`);
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    expect(button.querySelector(".studio-mask-display-dot")?.getAttribute("aria-hidden")).toBe("true");
+    fireEvent.click(button);
+    const select = screen.getByRole("combobox", { name: "Mask display" });
+    expect((select as HTMLSelectElement).value).toBe(mode);
+    fireEvent.change(select, { target: { value: "always" } });
+    expect(button.querySelector(".studio-mask-display-dot")).toBeNull();
+    expect(button.getAttribute("aria-label")).toBe("Mask overlay");
+    expect(button.title).toBe("Mask overlay: when and how masks are shown");
+  });
+});
