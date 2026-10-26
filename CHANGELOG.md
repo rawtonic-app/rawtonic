@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Tethering fetches the photos waiting on the camera.** A camera that keeps tethered photos until the computer takes them (Fujifilm in USB tether mode) may hold photos taken while Rawtonic was not connected; on a GFX 50R that is their only copy. They are now downloaded and added to the library when the camera is connected or reconnected, as Capture One does when it starts, while you can keep shooting. Each is freed on the camera only once it is safely in the library, and only with "Free photos on the camera once they are in the library" on; one that cannot be downloaded stays on the camera and is reported. Photos already in the library are recognised and not added twice. Tested with a simulated camera; not yet with a body holding waiting photos.
+
 ## 0.1.0-alpha.7.1 — 2026-10-26
 
 A fix release for alpha.7 with one fix; edits and libraries are unchanged.

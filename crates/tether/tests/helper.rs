@@ -1704,3 +1704,180 @@ fn a_slow_set_is_read_back_after_it_returned() {
         }
     );
 }
+
+fn release(p: &Captured) -> Request {
+    Request::Release {
+        connection: p.connection,
+        download: p.download,
+        camera_folder: p.camera_folder.clone(),
+        camera_name: p.camera_name.clone(),
+    }
+}
+
+/// The photos of a transfer queue (`MockSpec::queue_state`).
+fn queue_now(state: &Path) -> Vec<String> {
+    serde_json::from_slice(&std::fs::read(state).unwrap()).unwrap()
+}
+
+/// Photos left in the camera's transfer queue (taken while no computer took
+/// them; a GFX 50R keeps no other copy) are fetched at the connect, like
+/// photos fired on the body, and stay on the camera until each is released.
+#[test]
+fn photos_left_in_the_transfer_queue_are_fetched_at_the_connect_and_kept_until_released() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("queue.json");
+    let spec = MockSpec {
+        queue_limit: Some(10),
+        queued: vec!["DSCF0001.RAF".into(), "DSCF0002.RAF".into()],
+        queue_state: Some(state.clone()),
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let (photos, other) = helper.photos(2);
+    assert!(other.is_empty(), "{other:?}");
+    let names: Vec<_> = photos.iter().map(|p| p.camera_name.as_str()).collect();
+    assert_eq!(names, ["DSCF0001.RAF", "DSCF0002.RAF"]);
+    for photo in &photos {
+        assert!(!photo.requested && photo.request.is_none());
+        assert_eq!(std::fs::metadata(&photo.path).unwrap().len(), photo.size);
+    }
+    assert_eq!(photos[0].exposure + 1, photos[1].exposure);
+    // Downloaded, not freed: the camera still has both.
+    assert_eq!(queue_now(&state).len(), 2);
+    assert_eq!(
+        helper.client.request(release(&photos[0]), WAIT).unwrap(),
+        Reply::Released { freed: true }
+    );
+    assert_eq!(queue_now(&state), ["DSCF0002.RAF"]);
+    // Nothing more arrives (each photo once).
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(helper.photos(1).0.is_empty());
+}
+
+/// A shot fired while the queue is still being fetched gets its own photo;
+/// no queued photo is taken for it, also when the camera reports the queued
+/// photos as new ones (libgphoto2's Fujifilm event wait), and each queued
+/// photo arrives once.
+#[test]
+fn a_shot_fired_while_the_queue_is_fetched_gets_its_own_photo() {
+    let dir = tempfile::tempdir().unwrap();
+    let queued: Vec<String> = (1..=30).map(|n| format!("DSCF{n:04}.RAF")).collect();
+    let spec = MockSpec {
+        queue_limit: Some(100),
+        queued: queued.clone(),
+        queued_reported: true,
+        report_twice: true,
+        file_size: 512 * 1024,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let request = helper.capture();
+    let (photos, other) = helper.photos(31);
+    assert!(other.is_empty(), "{other:?}");
+    let mine: Vec<_> = photos.iter().filter(|p| p.requested).collect();
+    assert_eq!(mine.len(), 1);
+    assert_eq!(mine[0].request, Some(request));
+    assert_eq!(mine[0].camera_name, "DSC00001.ARW");
+    let fetched: HashSet<_> = photos
+        .iter()
+        .filter(|p| !p.requested)
+        .map(|p| p.camera_name.clone())
+        .collect();
+    assert_eq!(fetched.len(), 30);
+    assert_eq!(fetched, queued.into_iter().collect());
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(helper.photos(1).0.is_empty(), "a photo arrived twice");
+}
+
+/// A crash while the queue is fetched leaves the partial download as
+/// incomplete (never ingested) and every photo on the camera: the next
+/// helper fetches them all again.
+#[test]
+fn a_crash_while_the_queue_is_fetched_keeps_every_photo_on_the_camera() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("queue.json");
+    let spec = MockSpec {
+        queue_limit: Some(10),
+        queued: vec!["Q1.RAF".into(), "Q2.RAF".into(), "Q3.RAF".into()],
+        queue_state: Some(state.clone()),
+        abort_mid_download: Some(2),
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let (photos, other) = helper.photos(3);
+    assert_eq!(photos.len(), 1);
+    assert_eq!(other.last(), Some(&None), "the helper ended");
+    assert_eq!(queue_now(&state).len(), 3, "nothing freed");
+    let recovered = staging::recover(&helper.staging).unwrap();
+    assert_eq!(recovered.complete, vec![photos[0].path.clone()]);
+    assert_eq!(recovered.incomplete.len(), 1);
+    // The next helper (the app starts one) fetches all three again; the
+    // one fetched before is the same photo (the library takes it once).
+    let again = start(
+        &MockSpec {
+            abort_mid_download: None,
+            ..spec
+        },
+        dir.path(),
+    );
+    again.connect().unwrap();
+    let (photos_again, _) = again.photos(3);
+    let names: Vec<_> = photos_again
+        .iter()
+        .map(|p| p.camera_name.as_str())
+        .collect();
+    assert_eq!(names, ["Q1.RAF", "Q2.RAF", "Q3.RAF"]);
+    assert_eq!(
+        std::fs::read(&photos_again[0].path).unwrap(),
+        std::fs::read(&recovered.complete[0]).unwrap()
+    );
+    assert_eq!(queue_now(&state).len(), 3);
+}
+
+/// A queue that cannot be listed does not stop the connect; it is
+/// reported, and its photos stay on the camera.
+#[test]
+fn a_transfer_queue_that_cannot_be_listed_is_reported() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        queue_limit: Some(10),
+        queued: vec!["Q1.RAF".into()],
+        queue_list_fails: true,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    match helper.next_event(WAIT) {
+        Some(Event::CaptureFailed {
+            error,
+            request: None,
+            exposure: None,
+            ..
+        }) => assert!(error.message.contains("stay on the camera"), "{error:?}"),
+        other => panic!("{other:?}"),
+    }
+    helper.capture();
+    let (photos, _) = helper.photos(1);
+    assert!(photos[0].requested);
+}
+
+/// A held camera fetches nothing more from its queue either.
+#[test]
+fn a_held_camera_fetches_nothing_more_from_its_queue() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        queue_limit: Some(100),
+        queued: (1..=40).map(|n| format!("Q{n}.RAF")).collect(),
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    helper.client.request(Request::Hold, WAIT).unwrap();
+    // One per turn of 20 ms: a few came before the hold, never all.
+    std::thread::sleep(Duration::from_millis(500));
+    let (photos, _) = helper.photos(40);
+    assert!(photos.len() < 40, "{}", photos.len());
+}
