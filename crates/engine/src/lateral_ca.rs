@@ -554,9 +554,9 @@ impl<'a> Reduced<'a> {
             image,
             factor: factor as usize,
             size: (sw, sh),
-            green: vec![0.0; sw as usize * sh as usize],
+            green: Vec::new(),
         };
-        let mut green = std::mem::take(&mut reduced.green);
+        let mut green = vec![0.0; sw as usize * sh as usize];
         green
             .par_chunks_mut(sw as usize)
             .enumerate()
@@ -878,10 +878,10 @@ const LANES: usize = 8;
 
 /// The colour that the local luminance does not explain at the edges in
 /// windows around `centres` of `image` when red and blue are sampled with
-/// each of `models`: in square-root RGB, `u = √R − √G` and `v = √B − √G` are fitted
-/// as linear in `Y = √((R + 2G + B) / 4)` in every 5 × 5 window (as the
-/// edge-fringe pass does) and the squared residual is summed over pixels
-/// whose window holds an edge. Lateral CA leaves colour on one side of an
+/// each of `models`: in square-root RGB, `u = √R − √G` and `v = √B − √G`
+/// are fitted as linear in `Y = √((R + 2G + B) / 4)` in every 5 × 5 window
+/// (as the edge-fringe pass does) and the squared residual is summed over
+/// pixels whose window holds an edge. Lateral CA leaves colour on one side of an
 /// edge and its complement on the other, which no such fit explains;
 /// a two-colour edge is explained. Sum and number of pixels, per window
 /// and model: `[window][model]`. Each window's square-root values are read
