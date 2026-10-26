@@ -45,6 +45,7 @@ struct Pipelines {
     layout: wgpu::BindGroupLayout,
     unpack: wgpu::ComputePipeline,
     pack: wgpu::ComputePipeline,
+    pack_half: wgpu::ComputePipeline,
     axial_across: wgpu::ComputePipeline,
     axial_down: wgpu::ComputePipeline,
     axial_moves: wgpu::ComputePipeline,
@@ -118,6 +119,7 @@ impl Pipelines {
             device: device.clone(),
             unpack: pipeline("unpack"),
             pack: pipeline("pack"),
+            pack_half: pipeline("pack_half"),
             axial_across: pipeline("axial_across"),
             axial_down: pipeline("axial_down"),
             axial_moves: pipeline("axial_moves"),
@@ -156,7 +158,7 @@ struct Params {
     band_x: u32,
     band_width: u32,
     blocks_width: u32,
-    _pad2: u32,
+    half_stride: u32,
     noise: f32,
     push: f32,
     inv_area: f32,
@@ -206,6 +208,8 @@ fn pipelines_for(device: &Arc<wgpu::Device>) -> Arc<Pipelines> {
 /// blocking poll holds the device's fence lock until the GPU is done and
 /// stalls other threads' submissions (display frames during an export).
 fn wait_for<T>(device: &wgpu::Device, done: &std::sync::mpsc::Receiver<T>) -> Result<T, String> {
+    #[cfg(feature = "performance-profiling")]
+    let _stage = crate::performance::PerformanceStage::new("fringe_gpu_wait");
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         device
@@ -259,6 +263,75 @@ pub(super) fn apply_on_device(
     plan: Plan,
     tile: usize,
 ) -> Result<(), String> {
+    run_scoped(
+        device,
+        queue,
+        Target::Data(data),
+        (w, h, stride),
+        plan,
+        tile,
+    )
+}
+
+/// [`apply`] on `w × h` RGB pixels with the result written into `texture`
+/// instead of `data` (see [`Target::Texture`]).
+pub(super) fn apply_into_texture(
+    device: &Arc<wgpu::Device>,
+    queue: &wgpu::Queue,
+    data: &[f32],
+    (w, h): (usize, usize),
+    plan: Plan,
+    window: [usize; 4],
+    texture: &wgpu::Texture,
+) -> Result<(), String> {
+    run_scoped(
+        device,
+        queue,
+        Target::Texture {
+            data,
+            window,
+            texture,
+        },
+        (w, h, 3),
+        plan,
+        TILE,
+    )
+}
+
+/// Where a run's results go.
+enum Target<'a> {
+    /// Back into the pixels, in place.
+    Data(&'a mut [f32]),
+    /// Into an `Rgba16Float` texture (with `COPY_DST`) the size of
+    /// `window` (x, y, width, height in the image): its pixels at the
+    /// texture's origin, as f16 RGBA with alpha 1 exactly as `f16::from_f32`
+    /// converts them on the CPU, so the texture holds what uploading the
+    /// pass's result cropped to `window` would. `data` is not changed, and
+    /// nothing is read back or waited for beyond the tile before.
+    Texture {
+        data: &'a [f32],
+        window: [usize; 4],
+        texture: &'a wgpu::Texture,
+    },
+}
+
+impl Target<'_> {
+    fn data(&self) -> &[f32] {
+        match self {
+            Target::Data(data) => data,
+            Target::Texture { data, .. } => data,
+        }
+    }
+}
+
+fn run_scoped(
+    device: &Arc<wgpu::Device>,
+    queue: &wgpu::Queue,
+    target: Target,
+    (w, h, stride): (usize, usize, usize),
+    plan: Plan,
+    tile: usize,
+) -> Result<(), String> {
     if w == 0 || h == 0 {
         return Ok(());
     }
@@ -269,7 +342,7 @@ pub(super) fn apply_on_device(
         device,
         queue,
         &pipelines,
-        data,
+        target,
         (w, h, stride),
         plan,
         tile.max(1),
@@ -286,7 +359,7 @@ fn run(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     pipelines: &Pipelines,
-    data: &mut [f32],
+    mut target: Target,
     (w, h, stride): (usize, usize, usize),
     plan: Plan,
     tile: usize,
@@ -308,7 +381,12 @@ fn run(
     let planes = cap_w * (cap_h + 2 * MAX_RADIUS);
     let blocks_width = cap_w.div_ceil(8);
     let blocks = blocks_width * (cap_h + 2 * MAX_RADIUS).div_ceil(8);
-    let buffer_bytes = ((planes + blocks) * 16) as u64;
+    let mut buffer_bytes = ((planes + blocks) * 16) as u64;
+    if matches!(target, Target::Texture { .. }) {
+        // A tile's texels in rows padded to the copy's alignment, which
+        // for narrow images is more than its planes.
+        buffer_bytes = buffer_bytes.max((texel_row_bytes(tile_w) * tile_h) as u64);
+    }
     let limits = device.limits();
     let max_binding = limits
         .max_storage_buffer_binding_size
@@ -443,44 +521,72 @@ fn run(
             });
         out
     };
+    // Texels go to the texture's window only (x0, y0, x1, y1 in the image);
+    // the pixels stay as they are, so bands read them all, no carry.
+    let window = match &target {
+        Target::Data(_) => None,
+        Target::Texture { window, .. } => {
+            let [x, y, width, height] = *window;
+            Some([x, y, x + width, y + height])
+        }
+    };
     let mut carry: Vec<f32> = Vec::new();
     // (readback, tile's own rectangle)
     let mut pending: Option<(usize, [usize; 4])> = None;
+    // A texture's tile before: done before the next is submitted, so a
+    // worker keeps two tiles in the queue at most, as with readbacks.
+    let mut in_flight: Option<std::sync::mpsc::Receiver<()>> = None;
     let mut count = 0;
     for y0 in (0..h).step_by(tile_h) {
         let y1 = (y0 + tile_h).min(h);
         let (top, bottom) = (y0.saturating_sub(halo), (y1 + halo).min(h));
-        // The next band's carry, while rows y0.. are still original.
-        let next_top = y1.saturating_sub(halo);
-        let mut next_carry = Vec::with_capacity((y1 - next_top) * w * 3);
-        if next_top < y0 {
-            next_carry.extend_from_slice(&carry[(next_top - top) * w * 3..]);
-        }
-        if stride == 3 {
-            next_carry.extend_from_slice(&data[next_top.max(y0) * w * 3..y1 * w * 3]);
-        } else {
-            next_carry.extend(packed(data, stride, next_top.max(y0)..y1, (0, w)));
-        }
-        for (band_buffer, &(_, _, c0, c1)) in band_buffers.iter().zip(&groups) {
-            let all_columns = c0 == 0 && c1 == w;
-            if !carry.is_empty() {
-                if all_columns {
-                    queue.write_buffer(band_buffer, 0, bytemuck::cast_slice(&carry));
+        if let Some([_, wy0, _, wy1]) = window {
+            if y1 <= wy0 || y0 >= wy1 {
+                continue;
+            }
+            let data = target.data();
+            for (band_buffer, &(_, _, c0, c1)) in band_buffers.iter().zip(&groups) {
+                let rows = if c0 == 0 && c1 == w {
+                    std::borrow::Cow::Borrowed(&data[top * w * 3..bottom * w * 3])
                 } else {
-                    let rows = packed(&carry, 3, 0..y0 - top, (c0, c1));
-                    queue.write_buffer(band_buffer, 0, bytemuck::cast_slice(&rows));
+                    std::borrow::Cow::Owned(packed(data, 3, top..bottom, (c0, c1)))
+                };
+                queue.write_buffer(band_buffer, 0, bytemuck::cast_slice(&rows));
+            }
+        } else {
+            let data = target.data();
+            // The next band's carry, while rows y0.. are still original.
+            let next_top = y1.saturating_sub(halo);
+            let mut next_carry = Vec::with_capacity((y1 - next_top) * w * 3);
+            if next_top < y0 {
+                next_carry.extend_from_slice(&carry[(next_top - top) * w * 3..]);
+            }
+            if stride == 3 {
+                next_carry.extend_from_slice(&data[next_top.max(y0) * w * 3..y1 * w * 3]);
+            } else {
+                next_carry.extend(packed(data, stride, next_top.max(y0)..y1, (0, w)));
+            }
+            for (band_buffer, &(_, _, c0, c1)) in band_buffers.iter().zip(&groups) {
+                let all_columns = c0 == 0 && c1 == w;
+                if !carry.is_empty() {
+                    if all_columns {
+                        queue.write_buffer(band_buffer, 0, bytemuck::cast_slice(&carry));
+                    } else {
+                        let rows = packed(&carry, 3, 0..y0 - top, (c0, c1));
+                        queue.write_buffer(band_buffer, 0, bytemuck::cast_slice(&rows));
+                    }
+                }
+                let below = ((y0 - top) * (c1 - c0) * 12) as u64;
+                if all_columns && stride == 3 {
+                    let rows = &data[y0 * w * 3..bottom * w * 3];
+                    queue.write_buffer(band_buffer, below, bytemuck::cast_slice(rows));
+                } else {
+                    let rows = packed(data, stride, y0..bottom, (c0, c1));
+                    queue.write_buffer(band_buffer, below, bytemuck::cast_slice(&rows));
                 }
             }
-            let below = ((y0 - top) * (c1 - c0) * 12) as u64;
-            if all_columns && stride == 3 {
-                let rows = &data[y0 * w * 3..bottom * w * 3];
-                queue.write_buffer(band_buffer, below, bytemuck::cast_slice(rows));
-            } else {
-                let rows = packed(data, stride, y0..bottom, (c0, c1));
-                queue.write_buffer(band_buffer, below, bytemuck::cast_slice(&rows));
-            }
+            carry = next_carry;
         }
-        carry = next_carry;
         let tiles = groups
             .iter()
             .zip(&band_buffers)
@@ -489,17 +595,28 @@ fn run(
             });
         for (x0, c0, c1, band_buffer) in tiles {
             let x1 = (x0 + tile_w).min(w);
+            // The pixels of the tile that are kept: its own, within the
+            // texture's window.
+            let [ox0, oy0, ox1, oy1] = match window {
+                None => [x0, y0, x1, y1],
+                Some([wx0, wy0, wx1, wy1]) => [x0.max(wx0), y0.max(wy0), x1.min(wx1), y1.min(wy1)],
+            };
+            if ox0 >= ox1 || oy0 >= oy1 {
+                continue;
+            }
             let (left, right) = (x0.saturating_sub(halo), (x1 + halo).min(w));
             let (in_w, in_h) = (right - left, bottom - top);
+            let half_stride = texel_row_bytes(ox1 - ox0) / 4;
             let params = Params {
                 width: in_w as u32,
                 rows: in_h as u32,
                 band_x: (left - c0) as u32,
                 band_width: (c1 - c0) as u32,
-                out_x: (x0 - left) as u32,
-                out_y: (y0 - top) as u32,
-                out_width: (x1 - x0) as u32,
-                out_rows: (y1 - y0) as u32,
+                out_x: (ox0 - left) as u32,
+                out_y: (oy0 - top) as u32,
+                out_width: (ox1 - ox0) as u32,
+                out_rows: (oy1 - oy0) as u32,
+                half_stride: half_stride as u32,
                 ..base
             };
             let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -559,9 +676,54 @@ fn run(
                     }
                 }
                 // The tile's own pixels, packed, into the other buffer.
-                pass.set_pipeline(&pipelines.pack);
+                let pack = match window {
+                    None => &pipelines.pack,
+                    Some(_) => &pipelines.pack_half,
+                };
+                pass.set_pipeline(pack);
                 pass.set_bind_group(0, &groups[input], &[]);
-                dispatch(&mut pass, 16, x1 - x0, y1 - y0);
+                dispatch(&mut pass, 16, ox1 - ox0, oy1 - oy0);
+            }
+            if let Target::Texture {
+                texture,
+                window: [wx, wy, _, _],
+                ..
+            } = &target
+            {
+                encoder.copy_buffer_to_texture(
+                    wgpu::TexelCopyBufferInfo {
+                        buffer: &buffers[1 - input],
+                        layout: wgpu::TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(half_stride as u32 * 4),
+                            rows_per_image: Some((oy1 - oy0) as u32),
+                        },
+                    },
+                    wgpu::TexelCopyTextureInfo {
+                        texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d {
+                            x: (ox0 - wx) as u32,
+                            y: (oy0 - wy) as u32,
+                            z: 0,
+                        },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    wgpu::Extent3d {
+                        width: (ox1 - ox0) as u32,
+                        height: (oy1 - oy0) as u32,
+                        depth_or_array_layers: 1,
+                    },
+                );
+                queue.submit(Some(encoder.finish()));
+                let (sender, done) = std::sync::mpsc::channel();
+                queue.on_submitted_work_done(move || {
+                    let _ = sender.send(());
+                });
+                if let Some(previous) = in_flight.replace(done) {
+                    wait_for(device, &previous)?;
+                }
+                continue;
             }
             let slot = count % 2;
             count += 1;
@@ -573,15 +735,25 @@ fn run(
                 ((x1 - x0) * (y1 - y0) * 12) as u64,
             );
             queue.submit(Some(encoder.finish()));
-            if let Some(previous) = pending.replace((slot, [x0, y0, x1, y1])) {
+            if let Some(previous) = pending.replace((slot, [x0, y0, x1, y1]))
+                && let Target::Data(data) = &mut target
+            {
                 read_back(device, &readbacks, previous, data, w, stride)?;
             }
         }
     }
-    if let Some(previous) = pending.take() {
+    if let Some(previous) = pending.take()
+        && let Target::Data(data) = &mut target
+    {
         read_back(device, &readbacks, previous, data, w, stride)?;
     }
     Ok(())
+}
+
+/// Bytes of a row of `width` f16 RGBA texels in a buffer copied to a
+/// texture: padded to the copy's row alignment.
+fn texel_row_bytes(width: usize) -> usize {
+    (width * 8).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize)
 }
 
 /// Copies a tile's own pixels from readback buffer `slot` into `data` once

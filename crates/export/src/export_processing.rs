@@ -15,12 +15,12 @@ use jxl_encoder::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::adjustment_utils::apply_all_transformations;
+use crate::adjustment_utils::{apply_transformations_after_warp, apply_warp, crop_after_fringe};
 use crate::cache_utils::calculate_full_job_hash;
 use crate::gpu_processing::{
     GpuContext, GpuImageCache, GpuProcessorSlot, MaskUploader, ReadbackShader, RenderOutput,
     RenderOutputPrecision, RenderRequest, RenderSource, process_and_get_dynamic_image_inner,
-    process_and_get_dynamic_images, upload_render_source,
+    process_and_get_dynamic_images, upload_fringed_render_source, upload_render_source,
 };
 use crate::image_processing::{
     AllAdjustments, MAX_MASKS, PreparedAdjustments, get_all_adjustments_with_masks,
@@ -1253,42 +1253,7 @@ pub fn prepare_export_render(
     is_raw: bool,
 ) -> Result<PreparedExport, String> {
     let context = env.context;
-    #[cfg(feature = "performance-profiling")]
-    let transform_stage = crate::performance::PerformanceStage::new("export_transform");
-    let (transformed_image, unscaled_crop_offset) =
-        apply_all_transformations(Cow::Borrowed(source.base()), js_adjustments)?;
-    let (img_w, img_h) = transformed_image.dimensions();
-    #[cfg(feature = "performance-profiling")]
-    drop(transform_stage);
     let mask_definitions = mask_definitions_from_json(js_adjustments);
-
-    let warped_image = mask_definitions
-        .iter()
-        .any(MaskDefinition::requires_warped_image)
-        .then(|| prepare_parametric_mask_source(&source.pristine, is_raw, 1.0, js_adjustments))
-        .transpose()?;
-    let (photo_w, photo_h) = source.pristine.dimensions();
-    let mask_geometry =
-        PhotoGeometry::from_adjustments(js_adjustments).with_decoded_size(photo_w, photo_h);
-    // The layers a render uses, in order.
-    let layers: Vec<&MaskDefinition> = mask_definitions
-        .iter()
-        .filter(|def| def.produces_bitmap())
-        .take(MAX_MASKS)
-        .collect();
-    let generate = |def: &MaskDefinition| {
-        generate_layer_mask(
-            def,
-            img_w,
-            img_h,
-            1.0,
-            unscaled_crop_offset,
-            &mask_geometry,
-            warped_image.as_ref(),
-        )
-        .ok_or_else(|| "A mask layer produced no bitmap.".to_string())
-    };
-
     let tm_override = (env.tonemapper_override)(is_raw);
     let mut all_adjustments =
         get_all_adjustments_with_masks(js_adjustments, is_raw, tm_override, &mask_definitions);
@@ -1317,9 +1282,78 @@ pub fn prepare_export_render(
                 rawtonic_gpu::gpu_processing::color_noise_tuning(global).1,
             )
         });
-    let Some(uploaded) =
-        upload_render_source(context, &transformed_image, unique_hash, color_noise)?
-    else {
+
+    #[cfg(feature = "performance-profiling")]
+    let transform_stage = crate::performance::PerformanceStage::new("export_transform");
+    let warped = apply_warp(Cow::Borrowed(source.base()), js_adjustments);
+    // Where only a crop follows the edge-fringe pass, the pass writes its
+    // result straight into the render's input texture: no readback, no
+    // conversion and upload of the pixels on the CPU (notes:
+    // parity-gaps/G43, task BX7).
+    let (warped_w, warped_h) = warped.dimensions();
+    let fringed = crop_after_fringe(js_adjustments, warped_w, warped_h)
+        .map(|(window, offset)| {
+            upload_fringed_render_source(
+                context,
+                &warped,
+                js_adjustments,
+                window,
+                unique_hash,
+                color_noise,
+            )
+            .map(|uploaded| uploaded.map(|uploaded| (uploaded, window, offset)))
+        })
+        .transpose()?
+        .flatten();
+    let (transformed_image, uploaded, (img_w, img_h), unscaled_crop_offset) = match fringed {
+        Some((uploaded, [_, _, width, height], offset)) => {
+            drop(warped);
+            (None, Some(uploaded), (width, height), offset)
+        }
+        None => {
+            let (transformed, offset) = apply_transformations_after_warp(warped, js_adjustments)?;
+            let size = transformed.dimensions();
+            (Some(transformed), None, size, offset)
+        }
+    };
+    #[cfg(feature = "performance-profiling")]
+    drop(transform_stage);
+
+    let warped_image = mask_definitions
+        .iter()
+        .any(MaskDefinition::requires_warped_image)
+        .then(|| prepare_parametric_mask_source(&source.pristine, is_raw, 1.0, js_adjustments))
+        .transpose()?;
+    let (photo_w, photo_h) = source.pristine.dimensions();
+    let mask_geometry =
+        PhotoGeometry::from_adjustments(js_adjustments).with_decoded_size(photo_w, photo_h);
+    // The layers a render uses, in order.
+    let layers: Vec<&MaskDefinition> = mask_definitions
+        .iter()
+        .filter(|def| def.produces_bitmap())
+        .take(MAX_MASKS)
+        .collect();
+    let generate = |def: &MaskDefinition| {
+        generate_layer_mask(
+            def,
+            img_w,
+            img_h,
+            1.0,
+            unscaled_crop_offset,
+            &mask_geometry,
+            warped_image.as_ref(),
+        )
+        .ok_or_else(|| "A mask layer produced no bitmap.".to_string())
+    };
+
+    let uploaded = match (uploaded, &transformed_image) {
+        (Some(uploaded), _) => Some(uploaded),
+        (None, Some(transformed)) => {
+            upload_render_source(context, transformed, unique_hash, color_noise)?
+        }
+        (None, None) => unreachable!("a transformed image unless uploaded"),
+    };
+    let Some(uploaded) = uploaded else {
         #[cfg(feature = "performance-profiling")]
         let masks_stage = crate::performance::PerformanceStage::new("export_masks");
         let mask_bitmaps: Vec<Arc<MaskBitmap>> = layers
@@ -1331,7 +1365,9 @@ pub fn prepare_export_render(
         drop(masks_stage);
         return Ok(PreparedExport {
             target: PreparedTarget::Windows {
-                image: transformed_image.into_owned(),
+                image: transformed_image
+                    .expect("not uploaded, so transformed")
+                    .into_owned(),
                 transform_hash: unique_hash,
                 mask_bitmaps,
             },

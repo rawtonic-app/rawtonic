@@ -164,22 +164,74 @@ fn hydrate_fields(
     }
 }
 
+/// The spatial steps of a recipe, as [`apply_spatial_transformations`]
+/// reads them.
+struct SpatialSteps {
+    orientation_steps: u8,
+    rotation_degrees: f32,
+    flip_horizontal: bool,
+    flip_vertical: bool,
+    crop_json: serde_json::Value,
+    unscaled_crop_offset: (f32, f32),
+}
+
+impl SpatialSteps {
+    fn of(adjustments: &serde_json::Value) -> Self {
+        let crop_data: Option<Crop> = serde_json::from_value(adjustments["crop"].clone()).ok();
+        Self {
+            orientation_steps: adjustments["orientationSteps"].as_u64().unwrap_or(0) as u8,
+            rotation_degrees: adjustments["rotation"].as_f64().unwrap_or(0.0) as f32,
+            flip_horizontal: adjustments["flipHorizontal"].as_bool().unwrap_or(false),
+            flip_vertical: adjustments["flipVertical"].as_bool().unwrap_or(false),
+            crop_json: serde_json::to_value(crop_data).unwrap_or(serde_json::Value::Null),
+            unscaled_crop_offset: crop_data.map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32)),
+        }
+    }
+
+    fn reorients(&self) -> bool {
+        matches!(self.orientation_steps, 1..=3) || self.flip_horizontal || self.flip_vertical
+    }
+}
+
+/// When all that follows the edge-fringe pass in
+/// [`apply_all_transformations`] on a `width × height` warped frame is a
+/// crop (no lens blur, orientation, flip or rotation): the window it keeps
+/// (x, y, width, height; the whole frame without a crop) and the crop
+/// offset that function returns.
+pub fn crop_after_fringe(
+    adjustments: &serde_json::Value,
+    width: u32,
+    height: u32,
+) -> Option<([u32; 4], (f32, f32))> {
+    let steps = SpatialSteps::of(adjustments);
+    if crate::lens_blur::may_apply(adjustments)
+        || steps.reorients()
+        || steps.rotation_degrees % 360.0 != 0.0
+    {
+        return None;
+    }
+    let (x, y, w, h) = crate::image_processing::crop_rect(&steps.crop_json, width, height)
+        .unwrap_or((0, 0, width, height));
+    Some(([x, y, w, h], steps.unscaled_crop_offset))
+}
+
 pub fn apply_spatial_transformations<'a, I: IntoCowImage<'a>>(
     image: I,
     adjustments: &serde_json::Value,
 ) -> (Cow<'a, DynamicImage>, (f32, f32)) {
-    let orientation_steps = adjustments["orientationSteps"].as_u64().unwrap_or(0) as u8;
-    let rotation_degrees = adjustments["rotation"].as_f64().unwrap_or(0.0) as f32;
-    let flip_horizontal = adjustments["flipHorizontal"].as_bool().unwrap_or(false);
-    let flip_vertical = adjustments["flipVertical"].as_bool().unwrap_or(false);
     let keep_negative = crate::image_processing::render_version(adjustments) >= 2;
-
-    let crop_data: Option<Crop> = serde_json::from_value(adjustments["crop"].clone()).ok();
-    let crop_json = serde_json::to_value(crop_data).unwrap_or(serde_json::Value::Null);
-    let unscaled_crop_offset = crop_data.map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32));
+    let steps = SpatialSteps::of(adjustments);
+    let reorients = steps.reorients();
+    let SpatialSteps {
+        orientation_steps,
+        rotation_degrees,
+        flip_horizontal,
+        flip_vertical,
+        crop_json,
+        unscaled_crop_offset,
+    } = steps;
 
     let image = image.into_cow();
-    let reorients = matches!(orientation_steps, 1..=3) || flip_horizontal || flip_vertical;
     if (reorients || rotation_degrees % 360.0 != 0.0)
         && let Some(transformed) = fused_spatial_transform(
             &image,
@@ -210,19 +262,38 @@ pub fn apply_all_transformations<'a, I: IntoCowImage<'a>>(
     adjustments: &serde_json::Value,
 ) -> Result<(Cow<'a, DynamicImage>, (f32, f32)), String> {
     let start_time = std::time::Instant::now();
-    let image = image.into_cow();
+    let warped_image = apply_warp(image, adjustments);
+    let result = apply_transformations_after_warp(warped_image, adjustments);
+    log::info!(
+        "apply_all_transformations took {:.2?}",
+        start_time.elapsed()
+    );
+    result
+}
 
-    let warped_image = apply_geometry_warp(image, adjustments);
+/// The warp of [`apply_all_transformations`].
+pub fn apply_warp<'a, I: IntoCowImage<'a>>(
+    image: I,
+    adjustments: &serde_json::Value,
+) -> Cow<'a, DynamicImage> {
+    #[cfg(feature = "performance-profiling")]
+    let _stage = crate::performance::PerformanceStage::new("transform_warp");
+    apply_geometry_warp(image.into_cow(), adjustments)
+}
+
+/// What follows the warp in [`apply_all_transformations`]: the edge-fringe
+/// pass, lens blur, then orientation, rotation and crop.
+pub fn apply_transformations_after_warp<'a>(
+    warped_image: Cow<'a, DynamicImage>,
+    adjustments: &serde_json::Value,
+) -> Result<(Cow<'a, DynamicImage>, (f32, f32)), String> {
+    #[cfg(feature = "performance-profiling")]
+    let fringe_stage = crate::performance::PerformanceStage::new("transform_fringe");
     let warped_image = crate::edge_fringe::apply_for_recipe(warped_image, adjustments, 1.0)?;
+    #[cfg(feature = "performance-profiling")]
+    drop(fringe_stage);
     let blurred_image = crate::lens_blur::apply_lens_blur(warped_image, adjustments);
-
-    let (cropped_image, unscaled_crop_offset) =
-        apply_spatial_transformations(blurred_image, adjustments);
-
-    let total_duration = start_time.elapsed();
-    log::info!("apply_all_transformations took {:.2?}", total_duration);
-
-    Ok((cropped_image, unscaled_crop_offset))
+    Ok(apply_spatial_transformations(blurred_image, adjustments))
 }
 
 #[cfg(test)]

@@ -39,7 +39,7 @@ struct Params {
     band_x: u32,
     band_width: u32,
     blocks_width: u32,
-    _pad2: u32,
+    half_stride: u32,
     noise: f32,
     push: f32,
     inv_area: f32,
@@ -59,6 +59,9 @@ struct Params {
 @group(0) @binding(7) var<storage, read_write> g4: array<vec4<f32>>;
 // `dst` as packed RGB: the tile's own pixels to read back (`pack`).
 @group(0) @binding(2) var<storage, read_write> packed: array<f32>;
+// `dst` as f16 RGBA texels (two words each, `P.half_stride` words a row):
+// the tile's own pixels for a texture (`pack_half`).
+@group(0) @binding(2) var<storage, read_write> halves: array<u32>;
 // The band of rows the tile lies in, packed RGB, all columns.
 @group(0) @binding(8) var<storage, read> band: array<f32>;
 
@@ -233,6 +236,58 @@ fn pack(@builtin(global_invocation_id) id: vec3<u32>) {
     packed[j] = v.x;
     packed[j + 1u] = v.y;
     packed[j + 2u] = v.z;
+}
+
+// The f16 bits of `value` as the CPU upload converts it (`f16::from_f32`,
+// the `half` crate's conversion: nearest, ties to even; infinity above the
+// range; NaN kept quiet with its top payload bits), in integer arithmetic so
+// that no GPU rounding mode enters.
+fn half_bits(value: f32) -> u32 {
+    let x = bitcast<u32>(value);
+    let sign = (x & 0x80000000u) >> 16u;
+    let exp = x & 0x7f800000u;
+    let man = x & 0x007fffffu;
+    if exp == 0x7f800000u {
+        var nan_bit = 0u;
+        if man != 0u {
+            nan_bit = 0x0200u;
+        }
+        return sign | 0x7c00u | nan_bit | (man >> 13u);
+    }
+    let half_exp = i32(exp >> 23u) - 127 + 15;
+    if half_exp >= 0x1f {
+        return sign | 0x7c00u;
+    }
+    if half_exp <= 0 {
+        if 14 - half_exp > 24 {
+            return sign;
+        }
+        let full = man | 0x00800000u;
+        var half_man = full >> u32(14 - half_exp);
+        let round_bit = 1u << u32(13 - half_exp);
+        if (full & round_bit) != 0u && (full & (3u * round_bit - 1u)) != 0u {
+            half_man += 1u;
+        }
+        return sign | half_man;
+    }
+    let bits = sign | (u32(half_exp) << 10u) | (man >> 13u);
+    if (man & 0x1000u) != 0u && (man & 0x2fffu) != 0u {
+        return bits + 1u;
+    }
+    return bits;
+}
+
+// The tile's own pixels of `src` as f16 RGBA with alpha 1 (the render's
+// input texels) into `dst`.
+@compute @workgroup_size(16, 16)
+fn pack_half(@builtin(global_invocation_id) id: vec3<u32>) {
+    if id.x >= P.out_width || id.y >= P.out_rows {
+        return;
+    }
+    let v = src[at(i32(id.x + P.out_x), i32(id.y + P.out_y))];
+    let j = id.y * P.half_stride + 2u * id.x;
+    halves[j] = half_bits(v.x) | (half_bits(v.y) << 16u);
+    halves[j + 1u] = half_bits(v.z) | (0x3c00u << 16u);
 }
 
 // ---- Chromatic-aberration stage (version 4's first) ----

@@ -12,29 +12,32 @@ struct BokehTap {
     weight: f32,
 }
 
-pub fn apply_lens_blur<'a>(
-    image: Cow<'a, DynamicImage>,
-    adjustments: &serde_json::Value,
-) -> Cow<'a, DynamicImage> {
+/// Whether [`apply_lens_blur`] may change an image: the blur is on and
+/// visible, has a depth map and an amount.
+pub fn may_apply(adjustments: &serde_json::Value) -> bool {
     let effects_visible = adjustments
         .get("sectionVisibility")
         .and_then(|v| v.get("effects"))
         .and_then(|s| s.as_bool())
         .unwrap_or(true);
+    adjustments["lensBlurEnabled"].as_bool().unwrap_or(false)
+        && effects_visible
+        && !adjustments["lensBlurDepthMap"]
+            .as_str()
+            .unwrap_or("")
+            .is_empty()
+        && adjustments["lensBlurAmount"].as_f64().unwrap_or(50.0) as f32 > 0.0
+}
 
-    if !adjustments["lensBlurEnabled"].as_bool().unwrap_or(false) || !effects_visible {
+pub fn apply_lens_blur<'a>(
+    image: Cow<'a, DynamicImage>,
+    adjustments: &serde_json::Value,
+) -> Cow<'a, DynamicImage> {
+    if !may_apply(adjustments) {
         return image;
     }
-
     let depth_b64 = adjustments["lensBlurDepthMap"].as_str().unwrap_or("");
-    if depth_b64.is_empty() {
-        return image;
-    }
-
     let amount = adjustments["lensBlurAmount"].as_f64().unwrap_or(50.0) as f32;
-    if amount <= 0.0 {
-        return image;
-    }
 
     let b64_data = match depth_b64.find(',') {
         Some(idx) => &depth_b64[idx + 1..],

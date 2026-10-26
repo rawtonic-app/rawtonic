@@ -14054,6 +14054,105 @@ fn edge_fringe_version_5_on_the_gpu_matches_version_4() {
     }
 }
 
+/// The edge-fringe pass written straight into a render's input texture
+/// (`upload_fringed_render_source`, task BX7) holds the very texels of
+/// uploading the pass's CPU result cropped to the window: whole frames and
+/// windows that cut tiles and bands (several of each), on a scene with the
+/// values where f16 rounding has edge cases (ties, overflow to infinity,
+/// subnormals, negative values).
+#[test]
+#[ignore = "requires a native GPU"]
+fn edge_fringe_into_the_input_texture_matches_uploading_its_result() {
+    let context = context();
+    rawtonic_engine::edge_fringe::gpu::register(context.device.clone(), context.queue.clone());
+    let (width, height) = (2600, 2200);
+    let mut scene = edge_fringe_scene(width, height, 0.002);
+    let specials = [
+        65504.0,
+        65519.0,
+        65520.0,
+        1.0e6,
+        -3.0,
+        -0.0,
+        6.0e-8,
+        2.9e-8,
+        3.0e-5,
+        1.0 + 1.0 / 2048.0,
+        1.0 + 3.0 / 2048.0,
+        f32::from_bits(0x3f80_1000),
+        f32::from_bits(0x3f80_1001),
+    ];
+    for (k, pixel) in scene.pixels_mut().enumerate().filter(|(k, _)| k % 997 == 0) {
+        let value = specials[k / 997 % specials.len()];
+        pixel.0[k % 3] = value;
+    }
+    let image = DynamicImage::ImageRgb32F(scene);
+    let recipe = json!({ (rawtonic_engine::edge_fringe::VERSION_KEY): 5 });
+    assert!(rawtonic_engine::edge_fringe::runs_into_texture(
+        &image, &recipe
+    ));
+    let fringed = fringe_recipe_render(&image, 5, 1.0);
+    for window in [
+        [0, 0, width, height],
+        [37, 1030, 1500, 300],
+        [1000, 0, 1100, 2200],
+        [0, 1024, 1024, 1024],
+        [width - 1, height - 1, 1, 1],
+    ] {
+        let [x, y, w, h] = window;
+        let expected = to_rgba_f16(&fringed.crop_imm(x, y, w, h));
+        let uploaded = upload_fringed_render_source(&context, &image, &recipe, window, 0, None)
+            .unwrap()
+            .expect("runs into the texture");
+        let texels = read_texture_data_roi(
+            &context.device,
+            &context.queue,
+            &uploaded.0.texture,
+            wgpu::Origin3d::ZERO,
+            wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            8,
+        )
+        .unwrap();
+        let expected: &[u8] = bytemuck::cast_slice(&expected);
+        let differing = texels.iter().zip(expected).filter(|(a, b)| a != b).count();
+        assert_eq!(differing, 0, "window {window:?}: {differing} bytes differ");
+        assert_eq!(texels.len(), expected.len());
+    }
+    // Narrow and small images: their padded texel rows exceed the tile's
+    // planes.
+    for (width, height) in [(8, 32), (3, 3), (1, 40), (40, 1), (31, 1100)] {
+        let image = DynamicImage::ImageRgb32F(edge_fringe_scene(width, height, 0.002));
+        let fringed = fringe_recipe_render(&image, 5, 1.0);
+        let window = [0, 0, width, height];
+        let uploaded = upload_fringed_render_source(&context, &image, &recipe, window, 0, None)
+            .unwrap()
+            .expect("runs into the texture");
+        let texels = read_texture_data_roi(
+            &context.device,
+            &context.queue,
+            &uploaded.0.texture,
+            wgpu::Origin3d::ZERO,
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            8,
+        )
+        .unwrap();
+        let expected = to_rgba_f16(&fringed);
+        assert_eq!(
+            texels,
+            bytemuck::cast_slice::<_, u8>(&expected),
+            "{width} x {height}"
+        );
+    }
+}
+
 /// Wide-gamut colours (negative channels) beside a two-colour edge: the
 /// colour-line stage fits and measures its line on the clamped values on
 /// both processors, so third-colour pixels on the edge keep the same share
