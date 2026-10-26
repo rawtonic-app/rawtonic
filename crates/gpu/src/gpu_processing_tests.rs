@@ -14272,6 +14272,28 @@ fn gpu_warp_matches_the_cpu_f32_warp_within_rounding() {
         assert!(max < 2e-3, "{recipe}: largest difference {max:e}");
         assert!(mean < 1e-5, "{recipe}: mean difference {mean:e}");
     }
+    // Frames one pixel wide or high: lateral CA samples its channels at the
+    // edge, where such a frame has no neighbour (weight 0). The CPU's warp
+    // reads past such a frame there, so only the GPU's result is checked.
+    for (width, height) in [(1, 40), (40, 1), (1, 1), (2, 2)] {
+        let flat = DynamicImage::ImageRgb32F(image::Rgb32FImage::from_pixel(
+            width,
+            height,
+            image::Rgb([0.25, 0.5, 0.75]),
+        ));
+        for recipe in gpu_warp_recipes() {
+            let gpu = rawtonic_engine::image_processing::apply_geometry_warp(&flat, &recipe)
+                .unwrap_or_else(|e| panic!("{width} x {height} {recipe}: {e}"));
+            assert!(
+                gpu.as_rgb32f()
+                    .unwrap()
+                    .as_raw()
+                    .iter()
+                    .all(|v| v.is_finite()),
+                "{width} x {height} {recipe}"
+            );
+        }
+    }
 }
 
 /// Columns `cols` of rows `rows` of an RGB frame `width` wide.

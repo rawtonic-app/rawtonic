@@ -243,8 +243,12 @@ fn sample_channel(tx: f32, ty: f32, c: u32) -> f32 {
     }
     let wx = xc - f32(x0);
     let wy = yc - f32(y0);
-    let top = at(x0, y0, c) * (1.0 - wx) + at(x0 + 1u, y0, c) * wx;
-    let bot = at(x0, y0 + 1u, c) * (1.0 - wx) + at(x0 + 1u, y0 + 1u, c) * wx;
+    // A one-pixel-wide or -high frame has no neighbour there (its weight
+    // is 0): the pixel itself.
+    let x1 = min(x0 + 1u, P.width - 1u);
+    let y1 = min(y0 + 1u, P.height - 1u);
+    let top = at(x0, y0, c) * (1.0 - wx) + at(x1, y0, c) * wx;
+    let bot = at(x0, y1, c) * (1.0 - wx) + at(x1, y1, c) * wx;
     return top * (1.0 - wy) + bot * wy;
 }
 
