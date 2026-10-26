@@ -64,6 +64,8 @@ import { useSessionBar } from "./sessionBar";
 import { SESSION_ALBUMS_CHANGED } from "../studio/StudioAlbums";
 import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes, type SelectView } from "../../utils/offline";
 import { catalogChanged } from "../../utils/catalogEvents";
+import { reloadSessionFlags } from "../../utils/pathKeyedState";
+import { useTextMetadataCache } from "../studio/StudioMetadata";
 import { requestAutoAdvance } from "../../utils/photoStepping";
 import { hotFolderCommand } from "../../utils/hotFolderCommands";
 import { FOLDER_SYNC_APPLIED, IMPORTS_CHANGED, OPEN_FOLDER_SYNC_EVENT, type OpenFolderSyncDetail } from "../../utils/folderSync";
@@ -1592,7 +1594,11 @@ export default function SessionWorkspace({ onNavigate, onSelectView, nativeTitle
             if (first) xmpViewShown.current = xmpViewPaths(entries);
             onSelectView?.(XMP_VIEW_ID, t("session.xmp.view"), xmpViewShown.current, !first);
             if (!first) {
+              // Use XMP and its undo change flags, titles and IPTC too.
               void refresh().catch(() => {});
+              void reloadSessionFlags();
+              const text = useTextMetadataCache.getState();
+              if (text.session === session.directory) void text.load(session.directory);
               catalogChanged();
             }
           }}

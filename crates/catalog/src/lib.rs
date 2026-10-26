@@ -1162,6 +1162,21 @@ impl Library {
         Ok(state)
     }
 
+    /// The editor state a derived `.rrdata` sidecar holds: `editor_state`,
+    /// or for a photograph never edited and without metadata the empty
+    /// state (so a sidecar written for metadata that is gone again is
+    /// brought back to nothing rather than kept).
+    pub fn derived_editor_state(&self, asset: &str) -> Result<Value> {
+        Ok(match self.editor_state(asset)? {
+            Some(state) => state,
+            None => {
+                let mut state = json!({"version": 1, "rating": 0, "tags": [], "adjustments": null});
+                apply_editor_metadata(&mut state, self.metadata(asset)?);
+                state
+            }
+        })
+    }
+
     /// One connection/query for a listing. Stream one editor payload at a time
     /// to let callers retain only their compact browser fields. Primary heads
     /// and metadata overrides have the same meaning as `editor_state`.
@@ -1283,7 +1298,8 @@ impl Library {
         )?;
         if hash.is_none() && path.exists() {
             self.mark_xmp_conflict(asset)?;
-            anyhow::bail!("Existing XMP has not been adopted; refusing to replace its metadata");
+            return Err(anyhow::Error::new(rawtonic_metadata::XmpConflict)
+                .context("Existing XMP has not been adopted; refusing to replace its metadata"));
         }
         self.write_sidecar(asset, &path, hash.as_deref())
     }

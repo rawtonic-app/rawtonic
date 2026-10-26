@@ -12,6 +12,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { toast } from "react-toastify";
 import { useUIStore } from "../../store/useUIStore";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
+import { useTextMetadataCache } from "../studio/StudioMetadata";
 
 vi.mock("@tauri-apps/api/core", () => ({
   isTauri: () => false,
@@ -169,6 +170,7 @@ describe("Session workspace keyboard flows", () => {
     );
     expect(within(dialog).getByRole("heading", { name: "1 pending" })).toBeTruthy();
     expect(within(dialog).getByRole("heading", { name: "1 conflict" })).toBeTruthy();
+    useTextMetadataCache.setState({ session: "/jobs/Acme", loaded: true, byPath: {} });
     await user.click(within(dialog).getByRole("button", { name: "Keep library for b.nef" }));
     await waitFor(() =>
       expect(selectView).toHaveBeenLastCalledWith(
@@ -182,6 +184,9 @@ describe("Session workspace keyboard flows", () => {
     // Only an offline photograph is left: nothing to write until it is back.
     expect(within(dialog).getByText("1 photo is offline: its XMP is written when its file or drive is back.")).toBeTruthy();
     expect((within(dialog).getByRole("button", { name: "Sync now" }) as HTMLButtonElement).disabled).toBe(true);
+    // Flags and the text/IPTC metadata the library shows are read again.
+    expect(invoke).toHaveBeenCalledWith("session_flags", { directory: "/jobs/Acme" });
+    expect(invoke).toHaveBeenCalledWith("session_all_text_metadata", { directory: "/jobs/Acme" });
     expect(invoke).toHaveBeenCalledWith("session_xmp_resolve", {
       directory: "/jobs/Acme",
       paths: ["/jobs/Acme/Capture/b.nef"],

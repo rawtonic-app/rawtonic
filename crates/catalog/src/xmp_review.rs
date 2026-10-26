@@ -109,20 +109,6 @@ impl Library {
             .collect())
     }
 
-    /// The XMP state of one photograph; None when its sidecar is in sync.
-    pub fn xmp_state(&self, asset: &str) -> Result<Option<XmpState>> {
-        let status: String = self.conn.query_row(
-            "SELECT xmp_status FROM metadata WHERE asset_id=?",
-            [asset],
-            |r| r.get(0),
-        )?;
-        Ok(match status.as_str() {
-            "synced" => None,
-            "conflict" => Some(XmpState::Conflict),
-            _ => Some(XmpState::Pending),
-        })
-    }
-
     /// Resolves a conflict for the library: its metadata and recipe replace
     /// the sidecar's owned properties (everything else in the sidecar is
     /// kept). Refused while the photograph is offline; a sidecar changed
@@ -141,8 +127,9 @@ impl Library {
     /// from XMP (rating, label, flag, keywords, title, caption, creator,
     /// copyright, IPTC) replaces the library's; the edit (recipe) stays the
     /// library's, which never reads it back. A sidecar without a flag keeps
-    /// the library's flag. The sidecar is then brought up to date (the
-    /// recipe); when that write fails the photograph stays pending.
+    /// the library's flag. The photograph is then pending: `sync_xmp`
+    /// writes the library's recipe into the sidecar it has just read (a
+    /// sidecar changed again meanwhile is a conflict again).
     pub fn use_xmp(&self, asset: &str) -> Result<XmpUndo> {
         let path = self.writable_sidecar(asset)?;
         let text = match fs::read_to_string(&path) {
@@ -170,9 +157,6 @@ impl Library {
             params![rawtonic_metadata::digest(text.as_bytes()), asset],
         )?;
         tx.commit()?;
-        if let Err(e) = self.sync_xmp(asset) {
-            log::warn!("Read from XMP; writing it back is pending: {e}");
-        }
         Ok(XmpUndo {
             asset: asset.to_string(),
             before,
@@ -193,15 +177,14 @@ impl Library {
         );
         let before: Metadata = serde_json::from_str(&undo.before)?;
         before.validate()?;
-        let after: Metadata = serde_json::from_str(&undo.after)?;
-        ensure!(
-            self.metadata(&undo.asset)? == after,
-            "The photograph's metadata was changed since; it is left as it is"
-        );
+        // Only over the metadata `use_xmp` wrote (`write_metadata` stores
+        // exactly this serialization): checked and restored in one
+        // statement, so an edit committed meanwhile by another connection
+        // is never overwritten.
         let tx = self.conn.unchecked_transaction()?;
-        tx.execute(
+        let restored = tx.execute(
             "UPDATE metadata SET rating=?,label=?,flag=?,data=?,xmp_hash=?,xmp_status=?,from_camera=?
-             WHERE asset_id=?",
+             WHERE asset_id=? AND data=?",
             params![
                 before.rating,
                 before.label,
@@ -210,9 +193,14 @@ impl Library {
                 undo.xmp_hash,
                 undo.xmp_status,
                 undo.from_camera,
-                undo.asset
+                undo.asset,
+                undo.after
             ],
         )?;
+        ensure!(
+            restored == 1,
+            "The photograph's metadata was changed since; it is left as it is"
+        );
         tx.execute(
             "UPDATE assets SET search_text=? WHERE id=?",
             params![search_text(&before), undo.asset],

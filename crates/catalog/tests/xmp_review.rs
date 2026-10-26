@@ -146,7 +146,7 @@ fn an_external_edit_is_a_conflict_and_keep_library_writes_over_it() {
 }
 
 #[test]
-fn an_external_edit_is_read_with_use_xmp_and_undone() {
+fn an_external_edit_is_read_with_use_xmp_written_back_and_undone() {
     let f = synced();
     fs::write(&f.xmp, external_packet(5)).unwrap();
     set_rating(&f, 3);
@@ -155,6 +155,12 @@ fn an_external_edit_is_read_with_use_xmp_and_undone() {
     let recipe = f.lib.recipe(&version).unwrap();
 
     let undo = f.lib.use_xmp(&f.id).unwrap();
+    assert_eq!(
+        state(&f),
+        Some((XmpState::Pending, false)),
+        "the recipe is still to be written"
+    );
+    f.lib.sync_xmp(&f.id).unwrap();
     let meta = f.lib.metadata(&f.id).unwrap();
     assert_eq!(meta.rating, 5);
     assert_eq!(meta.keywords, vec!["External".to_string()]);
@@ -164,7 +170,7 @@ fn an_external_edit_is_read_with_use_xmp_and_undone() {
         recipe,
         "the edit is the library's"
     );
-    assert!(state(&f).is_none(), "in sync after reading it");
+    assert!(state(&f).is_none(), "in sync after writing it back");
     let written = fs::read_to_string(&f.xmp).unwrap();
     assert!(written.contains(r#"xmp:Rating="5""#) && written.contains(r#"other:Kept="yes""#));
     assert!(
@@ -230,4 +236,18 @@ fn the_review_lists_what_the_session_bar_counts() {
     fs::remove_file(&f.xmp).unwrap();
     assert_eq!(f.lib.xmp_unsynced().unwrap().len(), 1);
     assert_eq!(f.lib.summary().unwrap().xmp_pending, 1);
+}
+
+#[test]
+fn an_undo_never_overwrites_an_edit_from_another_connection() {
+    let f = synced();
+    fs::write(&f.xmp, external_packet(5)).unwrap();
+    assert!(f.lib.sync_xmp(&f.id).is_err());
+    let undo = f.lib.use_xmp(&f.id).unwrap();
+    let other = Library::open(&f.lib.directory).unwrap();
+    let mut meta = other.metadata(&f.id).unwrap();
+    meta.title = "Edited in another window".into();
+    other.set_metadata(&f.id, &meta).unwrap();
+    assert!(f.lib.undo_use_xmp(&undo).is_err());
+    assert_eq!(f.lib.metadata(&f.id).unwrap(), meta);
 }

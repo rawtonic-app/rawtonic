@@ -7,6 +7,7 @@
 
 use crate::session_bridge::{rederive_editor_sidecar, with_library};
 use rawtonic_catalog::{Library, XmpOffline, XmpState, XmpUndo};
+use rawtonic_metadata::XmpConflict;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap};
 
@@ -65,20 +66,15 @@ pub fn review(lib: &Library) -> anyhow::Result<Vec<XmpReviewEntry>> {
 }
 
 impl XmpReport {
-    fn note(&mut self, lib: &Library, id: &str, path: String, result: anyhow::Result<()>) {
+    fn note(&mut self, path: String, result: anyhow::Result<()>) {
         match result {
             Ok(()) => self.done.push(path),
             Err(e) if e.is::<XmpOffline>() => self.offline.push(path),
-            Err(e) => {
-                if matches!(lib.xmp_state(id), Ok(Some(XmpState::Conflict))) {
-                    self.conflicts.push(path);
-                } else {
-                    self.failed.push(XmpFailure {
-                        path,
-                        reason: e.to_string(),
-                    });
-                }
-            }
+            Err(e) if e.is::<XmpConflict>() => self.conflicts.push(path),
+            Err(e) => self.failed.push(XmpFailure {
+                path,
+                reason: e.to_string(),
+            }),
         }
     }
 }
@@ -92,7 +88,7 @@ pub fn sync_pending(lib: &Library) -> anyhow::Result<XmpReport> {
             XmpState::Conflict => report.conflicts.push(path),
             XmpState::Pending => {
                 let result = lib.sync_xmp(&entry.id);
-                report.note(lib, &entry.id, path, result);
+                report.note(path, result);
             }
         }
     }
@@ -121,13 +117,17 @@ pub fn resolve(lib: &Library, paths: &[String], keep: XmpChoice) -> anyhow::Resu
         let shown = source.to_string_lossy().into_owned();
         let result = match keep {
             XmpChoice::Library => lib.keep_library_xmp(&asset.id),
-            XmpChoice::Xmp => lib.use_xmp(&asset.id).map(|undo| {
+            XmpChoice::Xmp => lib.use_xmp(&asset.id).and_then(|undo| {
+                // Read: undoable even when writing the sidecar back fails.
                 report.undo.push(undo);
                 // The editor sidecar carries the rating and keywords too.
                 rederive_editor_sidecar(lib, &asset.id);
+                lib.sync_xmp(&asset.id).map_err(|e| {
+                    anyhow::anyhow!("Read from the XMP sidecar; writing it back failed: {e}")
+                })
             }),
         };
-        report.note(lib, &asset.id, shown, result);
+        report.note(shown, result);
     }
     Ok(report)
 }
@@ -353,5 +353,71 @@ mod tests {
             fs::read_to_string(photos[0].with_extension("xmp")).unwrap(),
             EXTERNAL
         );
+    }
+
+    #[test]
+    fn undoing_use_xmp_on_a_never_edited_photo_clears_its_editor_sidecar_again() {
+        let tmp = tempfile::tempdir().unwrap();
+        let lib = Library::create(tmp.path(), "Fresh", Mode::Session).unwrap();
+        let photo = tmp.path().join("Capture/e.nef");
+        fs::write(&photo, b"synthetic original").unwrap();
+        let id = lib.add_asset(&photo).unwrap().id;
+        let photo = photo.canonicalize().unwrap();
+        // A sidecar another application wrote, never adopted: a conflict.
+        fs::write(photo.with_extension("xmp"), EXTERNAL).unwrap();
+        assert!(lib.sync_xmp(&id).is_err());
+        let report = resolve(&lib, &[shown(&photo)], XmpChoice::Xmp).unwrap();
+        assert_eq!(report.done, vec![shown(&photo)]);
+        let rrdata = photo.with_file_name("e.nef.rrdata");
+        let read = |path: &Path| -> serde_json::Value {
+            serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
+        };
+        assert_eq!(read(&rrdata)["rating"], 5);
+        assert_eq!(undo(&lib, &report.undo).done, vec![shown(&photo)]);
+        assert_eq!(lib.metadata(&id).unwrap().rating, 0);
+        assert_eq!(
+            read(&rrdata)["rating"],
+            0,
+            "the editor sidecar follows the undo"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_read_only_conflict_reports_why_it_stays() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_tmp, lib, photos) = session();
+        sync_pending(&lib).unwrap();
+        let xmp = photos[2].with_extension("xmp");
+        fs::set_permissions(&xmp, fs::Permissions::from_mode(0o444)).unwrap();
+        let path = shown(&photos[2]);
+
+        let kept = resolve(&lib, std::slice::from_ref(&path), XmpChoice::Library).unwrap();
+        assert!(kept.done.is_empty() && kept.conflicts.is_empty());
+        assert_eq!(kept.failed.len(), 1);
+        assert!(
+            kept.failed[0].reason.contains("read-only"),
+            "{:?}",
+            kept.failed
+        );
+
+        // Read into the library, but the sidecar cannot take the recipe:
+        // reported, still undoable, and the photograph is pending.
+        let read = resolve(&lib, std::slice::from_ref(&path), XmpChoice::Xmp).unwrap();
+        assert_eq!(read.undo.len(), 1);
+        assert!(
+            read.failed[0].reason.contains("writing it back failed"),
+            "{:?}",
+            read.failed
+        );
+        let id = lib.asset_at(&photos[2]).unwrap().unwrap().id;
+        assert_eq!(lib.metadata(&id).unwrap().rating, 5);
+        let entry = review(&lib)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.path == path)
+            .unwrap();
+        assert_eq!(entry.state, XmpState::Pending);
+        assert_eq!(fs::read_to_string(&xmp).unwrap(), EXTERNAL);
     }
 }
