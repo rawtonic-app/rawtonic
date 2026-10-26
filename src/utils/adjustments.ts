@@ -676,7 +676,9 @@ export interface Adjustments {
    * their switches; 3 = a RAW photosite counts as dead only when it is also
    * darker than its adjacent samples of the other colours, so thin dark
    * lines keep their colour; 4 = colours outside the output space keep
-   * their own hue when clipped to it; 1 or missing = before. Per photo, never copied. */
+   * their own hue when clipped to it; 5 = exports render with the shader
+   * variant specialized for the recipe's features; 1 or missing = before.
+   * Per photo, never copied. */
   renderVersion?: number;
   lutData?: string | null;
   lutIntensity?: number;
@@ -1311,7 +1313,7 @@ export const SHARPEN_VERSION = 6;
 export const LUMA_NOISE_VERSION = 2;
 
 /** The render pipeline fixes new edits start with (`renderVersion`). */
-export const RENDER_VERSION = 4;
+export const RENDER_VERSION = 5;
 
 /** The render version from which a RAW is developed with the second
  * dead-photosite test (crates/engine/src/image_loader.rs

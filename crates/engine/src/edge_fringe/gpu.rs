@@ -97,13 +97,20 @@ impl Pipelines {
             bind_group_layouts: &[Some(&layout)],
             immediate_size: 0,
         });
+        // Every pass writes the workgroup values it reads first (the row
+        // sums of the rows its windows span, the group flags), so naga's
+        // zero fill of them (one invocation writes all 1008 row sums while
+        // the group waits) is left out: 16 % of the pass's GPU time.
         let pipeline = |entry: &str| {
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(entry),
                 layout: Some(&pipeline_layout),
                 module: &module,
                 entry_point: Some(entry),
-                compilation_options: Default::default(),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    zero_initialize_workgroup_memory: false,
+                    ..Default::default()
+                },
                 cache: None,
             })
         };
