@@ -43,10 +43,23 @@ pub struct EmbeddedLensData {
     /// `LensDistortionParams::polynomial`), which `to_params` takes as it is
     /// instead of fitting `distortion` (Samsung's model, `samsung_curve`).
     pub polynomial: Option<[f64; 3]>,
-    /// `distortion` is the warp's radial table itself, at uniform knots
-    /// from the centre (`LensDistortionParams::radial_table`), which
-    /// `to_params` takes as it is (Sony from `cameraGeometryVersion` 6).
-    pub tabulated: bool,
+    /// `distortion` is the warp's radial table itself, which `to_params`
+    /// takes as it is (`Tabulated`).
+    pub tabulated: Option<Tabulated>,
+}
+
+/// The kinds of the warp's radial tables `EmbeddedLensData::distortion` can
+/// be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tabulated {
+    /// At uniform knots from the centre, cubic between them
+    /// (`LensDistortionParams::radial_table`; Sony from
+    /// `cameraGeometryVersion` 6).
+    Uniform,
+    /// At the knots' own radii, linear in r² between them
+    /// (`LensDistortionParams::knot_table`; Fujifilm from
+    /// `cameraGeometryVersion` 7).
+    Knots,
 }
 
 const FUJI_DISTORTION: u16 = 0xf00b;
@@ -119,7 +132,7 @@ pub fn fuji_curves_with_ca(
         zoom: 1.0,
         exact_zoom: false,
         polynomial: None,
-        tabulated: false,
+        tabulated: None,
         chromatic: chromatic
             .filter(|v| v.len() > 3 * n && v[1..=n] == *knots)
             .map(|v| {
@@ -175,20 +188,52 @@ fn fuji_k(curve: &[(f64, f64)], r: f64) -> f64 {
 /// version 0's reading.
 pub fn fuji_framed(data: EmbeddedLensData, aspect: f64) -> Option<EmbeddedLensData> {
     let curve = data.distortion.clone();
-    let k = |r: f64| fuji_k(&curve, r);
-    let short = 1.0 / aspect.max(1.0 / aspect).hypot(1.0);
-    let peak = curve
-        .iter()
-        .map(|&(r, _)| r)
-        .filter(|r| (short..1.0).contains(r))
-        .chain([short, 1.0])
-        .map(k)
-        .fold(f64::MIN, f64::max);
-    let (distortion, zoom) = framed_curve(|u| k(u) / peak)?;
+    let peak = fuji_border_peak(&curve, aspect);
+    let (distortion, zoom) = framed_curve(|u| fuji_k(&curve, u) / peak)?;
     plausible(&distortion).then_some(EmbeddedLensData {
         distortion,
         zoom,
         exact_zoom: true,
+        ..data
+    })
+}
+
+/// The largest k (`fuji_k`) on the border of a frame of width over height
+/// `aspect`, whose radii run from the shorter side's midpoint to the
+/// corner; k is monotone between knots.
+fn fuji_border_peak(curve: &[(f64, f64)], aspect: f64) -> f64 {
+    let short = 1.0 / aspect.max(1.0 / aspect).hypot(1.0);
+    curve
+        .iter()
+        .map(|&(r, _)| r)
+        .filter(|r| (short..1.0).contains(r))
+        .chain([short, 1.0])
+        .map(|r| fuji_k(curve, r))
+        .fold(f64::MIN, f64::max)
+}
+
+/// Fujifilm's distortion as camera geometry version 7 applies it: framed as
+/// `fuji_framed` (A = 1 / max k on the frame's border), but warped through
+/// the camera's knots themselves (`Tabulated::Knots`, linear in r² as
+/// `fuji_k`) instead of a three-term PTLens fit of that curve, which on
+/// wide lenses errs by up to ±3.3 px (X-S20 + XF16-80 at 16 mm; X-T4 +
+/// XF16-55 at 16 mm ±1.8 px; notes: parity-gaps/G71). The warp's table
+/// T(q) = zoom A k(zoom q): the knots at r_i / zoom, from the centre.
+pub fn fuji_tabulated(data: EmbeddedLensData, aspect: f64) -> Option<EmbeddedLensData> {
+    let curve = data.distortion.clone();
+    let peak = fuji_border_peak(&curve, aspect);
+    let zoom = framing_zoom(|u| fuji_k(&curve, u) / peak)?;
+    let centre = (curve[0].0 > 0.0).then_some((0.0, 1.0));
+    let distortion: Vec<(f64, f64)> = centre
+        .into_iter()
+        .chain(curve.iter().copied())
+        .map(|(r, k)| (r / zoom, zoom * k / peak))
+        .collect();
+    plausible(&distortion).then_some(EmbeddedLensData {
+        distortion,
+        zoom,
+        exact_zoom: true,
+        tabulated: Some(Tabulated::Knots),
         ..data
     })
 }
@@ -248,7 +293,7 @@ pub fn sony_curves_with_ca(
         zoom: 1.0,
         exact_zoom: false,
         polynomial: None,
-        tabulated: false,
+        tabulated: None,
         chromatic: chromatic.and_then(sony_chromatic),
     })
 }
@@ -398,7 +443,7 @@ pub fn sony_lens(
             distortion,
             zoom,
             exact_zoom: true,
-            tabulated: true,
+            tabulated: Some(Tabulated::Uniform),
             ..data
         });
     }
@@ -564,7 +609,7 @@ pub fn panasonic_curve(
         zoom: framing,
         exact_zoom: framed,
         polynomial: None,
-        tabulated: false,
+        tabulated: None,
         chromatic: None,
     })
 }
@@ -650,7 +695,7 @@ pub fn olympus_curve(d: &[f64], reach: f64) -> Option<EmbeddedLensData> {
         zoom,
         exact_zoom: false,
         polynomial: None,
-        tabulated: false,
+        tabulated: None,
         chromatic: None,
     })
 }
@@ -845,7 +890,7 @@ pub fn nikon_compact_curve(values: &[f64]) -> Option<EmbeddedLensData> {
         zoom: 1.0,
         exact_zoom: false,
         polynomial: None,
-        tabulated: false,
+        tabulated: None,
         chromatic: None,
     })
 }
@@ -913,7 +958,7 @@ pub fn nikon_curve(info: &NikonLensInfo, framed: bool) -> Option<EmbeddedLensDat
         zoom,
         exact_zoom: framing.is_some(),
         polynomial: None,
-        tabulated: false,
+        tabulated: None,
         chromatic: None,
     })
 }
@@ -995,7 +1040,7 @@ pub fn samsung_curve(values: &[f64], half_diagonal: f64) -> Option<EmbeddedLensD
         exact_zoom: true,
         chromatic: None,
         polynomial: Some(k),
-        tabulated: false,
+        tabulated: None,
     })
 }
 
@@ -1041,10 +1086,13 @@ pub const GEOMETRY_VERSION_KEY: &str = "cameraGeometryVersion";
 /// unit of its brightness table (`canon_curves`); 4 (2026-10-26) also
 /// Samsung's (`samsung_curve`); 5 (2026-10-26) frames Panasonic's and
 /// Fujifilm's data as the cameras do (`panasonic_curve`, `fuji_framed`); 6
-/// (2026-10-26) warps Sony's knots themselves (`sony_lens`). Recipes
-/// without the key keep their parameters; saving them again fills in the
-/// same as before.
-pub const GEOMETRY_VERSION: u64 = 6;
+/// (2026-10-26) warps Sony's knots themselves (`sony_lens`); 7
+/// (2026-10-26) Fujifilm's (`fuji_tabulated`). Recipes without the key
+/// keep their parameters; saving them again fills in the same as before.
+pub const GEOMETRY_VERSION: u64 = 7;
+
+/// The camera geometry version that warps Fujifilm's knot table itself.
+const FUJIFILM_TABLE_GEOMETRY: u64 = 7;
 
 /// The camera geometry version that warps Sony's knot table itself.
 const SONY_TABLE_GEOMETRY: u64 = 6;
@@ -1119,6 +1167,9 @@ pub fn read_version(
                 .map(|(_, [w, h])| w as f64 / h as f64)
                 .filter(|aspect| aspect.is_finite() && *aspect > 0.0)
                 .unwrap_or(1.5);
+            if geometry_version >= FUJIFILM_TABLE_GEOMETRY {
+                return fuji_tabulated(data, aspect);
+            }
             fuji_framed(data, aspect)
         }
         "arw" => {
@@ -1211,7 +1262,7 @@ pub fn read_version(
                     zoom: 1.0,
                     exact_zoom: false,
                     polynomial: None,
-                    tabulated: false,
+                    tabulated: None,
                     chromatic: Some(chromatic),
                 }),
             }
@@ -1446,10 +1497,19 @@ pub fn to_params(data: &EmbeddedLensData) -> Option<LensDistortionParams> {
     };
     let mut params = if let Some([k1, k2, k3]) = data.polynomial {
         LensDistortionParams::polynomial(k1, k2, k3, vignetting()).with_zoom(data.zoom)
-    } else if data.tabulated {
-        let end = data.distortion.last()?.0;
+    } else if let Some(table) = data.tabulated {
         let values = data.distortion.iter().map(|&(_, k)| k).collect();
-        LensDistortionParams::radial_table(values, end, vignetting()).with_zoom(data.zoom)
+        match table {
+            Tabulated::Uniform => {
+                let end = data.distortion.last()?.0;
+                LensDistortionParams::radial_table(values, end, vignetting())
+            }
+            Tabulated::Knots => {
+                let radii = data.distortion.iter().map(|&(r, _)| r).collect();
+                LensDistortionParams::knot_table(radii, values, vignetting())
+            }
+        }
+        .with_zoom(data.zoom)
     } else {
         let ([a, b, c], zoom) = if data.exact_zoom && data.zoom > 1.0 {
             fit_framed_distortion(&data.distortion, data.zoom)?
@@ -1491,13 +1551,13 @@ pub fn current_geometry_version(source: &Path) -> u64 {
 
 /// The `source_facts` versions from which `camera_lens` is read at camera
 /// geometry version 1, 2, … (older versions in `camera_lens_geometry`).
-const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7, 8, 9, 10, 11, 12];
+const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7, 8, 9, 10, 11, 12, 13];
 
 /// The file formats (extensions) whose data camera geometry version 1, 2, …
 /// reads differently from the version before: 1 Sony's (ARW, and Adobe DNG
 /// Converter's DNGs of Sony bodies), 2 Nikon's (NEF; NRW share its reader),
 /// 3 Canon's (CR3), 4 Samsung's (SRW), 5 Panasonic's and Fujifilm's (RW2,
-/// RWL, RAF), 6 Sony's again.
+/// RWL, RAF), 6 Sony's again, 7 Fujifilm's again.
 const GEOMETRY_FORMATS: [&[&str]; GEOMETRY_VERSION as usize] = [
     &["arw", "dng"],
     &["nef", "nrw"],
@@ -1505,6 +1565,7 @@ const GEOMETRY_FORMATS: [&[&str]; GEOMETRY_VERSION as usize] = [
     &["srw"],
     &["rw2", "rwl", "raf"],
     &["arw", "dng"],
+    &["raf"],
 ];
 
 /// The camera geometry version facts of `facts_version` carry.
@@ -1907,7 +1968,7 @@ fn canon_curves(
         exact_zoom,
         chromatic: None,
         polynomial: None,
-        tabulated: false,
+        tabulated: None,
     })
 }
 
@@ -2150,7 +2211,7 @@ fn adobe_profile(source: &RawSource) -> Option<EmbeddedLensData> {
         zoom,
         exact_zoom: false,
         polynomial: None,
-        tabulated: false,
+        tabulated: None,
         chromatic: None,
     })
 }
@@ -2449,7 +2510,7 @@ mod tests {
         // Previews from before Sony's knots read neither; facts version 7
         // has Sony's (1), 8 also Nikon's framing (2), 9 Canon's
         // distortion (3), 10 Samsung's data (4), 11 Panasonic's and Fujifilm's
-        // framing (5).
+        // framing (5), 12 Sony's knot table (6), 13 Fujifilm's (7).
         assert_eq!(facts_geometry_version(6), 0);
         assert_eq!(facts_geometry_version(7), 1);
         assert_eq!(facts_geometry_version(8), 2);
@@ -2457,6 +2518,7 @@ mod tests {
         assert_eq!(facts_geometry_version(10), 4);
         assert_eq!(facts_geometry_version(11), 5);
         assert_eq!(facts_geometry_version(12), 6);
+        assert_eq!(facts_geometry_version(13), 7);
         assert_eq!(
             facts_geometry_version(crate::source_facts::VERSION),
             GEOMETRY_VERSION
@@ -2464,22 +2526,27 @@ mod tests {
         // A NEF's version 7 facts predate Nikon's framing, a CR3's version
         // 8 facts Canon's distortion, an SRW's version 9 facts Samsung's
         // data, an RW2's or RAF's version 10 facts their framing, an ARW's
-        // or DNG's version 7 to 11 facts Sony's knot table; an ORF's hold.
+        // or DNG's version 7 to 11 facts Sony's knot table, a RAF's version
+        // 11 and 12 facts Fujifilm's; an ORF's hold.
         assert_eq!(known_geometry_version(Path::new("a.nef"), 7), 1);
         assert_eq!(known_geometry_version(Path::new("a.NRW"), 7), 1);
         assert_eq!(known_geometry_version(Path::new("a.arw"), 7), 5);
         assert_eq!(known_geometry_version(Path::new("a.arw"), 11), 5);
         assert_eq!(known_geometry_version(Path::new("a.DNG"), 11), 5);
-        assert_eq!(known_geometry_version(Path::new("a.arw"), 12), 6);
-        assert_eq!(known_geometry_version(Path::new("a.nef"), 8), 6);
+        assert_eq!(known_geometry_version(Path::new("a.arw"), 12), 7);
+        assert_eq!(known_geometry_version(Path::new("a.nef"), 8), 7);
         assert_eq!(known_geometry_version(Path::new("a.CR3"), 8), 2);
-        assert_eq!(known_geometry_version(Path::new("a.cr3"), 9), 6);
+        assert_eq!(known_geometry_version(Path::new("a.cr3"), 9), 7);
         assert_eq!(known_geometry_version(Path::new("a.srw"), 9), 3);
-        assert_eq!(known_geometry_version(Path::new("a.SRW"), 10), 6);
+        assert_eq!(known_geometry_version(Path::new("a.SRW"), 10), 7);
         assert_eq!(known_geometry_version(Path::new("a.RW2"), 10), 4);
         assert_eq!(known_geometry_version(Path::new("a.raf"), 10), 4);
-        assert_eq!(known_geometry_version(Path::new("a.rwl"), 11), 6);
-        assert_eq!(known_geometry_version(Path::new("a.orf"), 6), 6);
+        assert_eq!(known_geometry_version(Path::new("a.RAF"), 11), 6);
+        assert_eq!(known_geometry_version(Path::new("a.raf"), 12), 6);
+        assert_eq!(known_geometry_version(Path::new("a.raf"), 13), 7);
+        assert_eq!(known_geometry_version(Path::new("a.rw2"), 12), 7);
+        assert_eq!(known_geometry_version(Path::new("a.rwl"), 11), 7);
+        assert_eq!(known_geometry_version(Path::new("a.orf"), 6), 7);
     }
 
     #[test]
@@ -2626,7 +2693,7 @@ mod tests {
             zoom: 1.0,
             exact_zoom: false,
             polynomial: None,
-            tabulated: false,
+            tabulated: None,
             chromatic: Some(curve),
         })
         .unwrap();
@@ -3080,7 +3147,7 @@ mod tests {
                 1.0
             };
             let data = sony_lens(values, None, None, frame, 6).unwrap();
-            assert!(data.tabulated);
+            assert_eq!(data.tabulated, Some(Tabulated::Uniform));
             // Data that would sample beyond the frame's corner keep the
             // corners on the corners (as version 1).
             let corner = data.zoom.min(1.0);
@@ -3152,7 +3219,7 @@ mod tests {
             old,
             sony_lens(&RX100M3_DISTORTION_VALUES, None, None, frame, 1).unwrap()
         );
-        assert!(!old.tabulated);
+        assert!(old.tabulated.is_none());
     }
 
     #[test]
@@ -3497,6 +3564,99 @@ mod tests {
         none[10..].fill(0.0);
         let flat = fuji_framed(fuji_curves(&none, None).unwrap(), 1.5).unwrap();
         assert!((flat.zoom - 1.0).abs() < 1e-9);
+    }
+
+    // X-S20 + XF16-80mm at 16 mm (GeometricDistortionParams as stored):
+    // a wide lens whose curve the three-term PTLens fit cannot follow.
+    const X_S20_XF16_80_AT_16: [f64; 19] = [
+        515.8888889,
+        0.3535211268,
+        0.5,
+        0.6126760563,
+        0.7070422535,
+        0.7908450704,
+        0.8661971831,
+        0.9352112676,
+        1.0,
+        1.06056338,
+        -1.19178772,
+        -2.569900513,
+        -3.965667725,
+        -5.33253479,
+        -6.6512146,
+        -7.862289429,
+        -8.858123779,
+        -9.425109863,
+        -9.992095947,
+    ];
+
+    #[test]
+    fn fuji_geometry_version_7_warps_the_knot_table_itself() {
+        // Version 5's PTLens fit of the camera's curve errs by up to ±3.3 px
+        // on this 26 MP frame (notes: parity-gaps/G71); version 7 warps
+        // through the knots (linear in r², framed at A = 1 / max k on the
+        // border), so the warp samples A u k(u) everywhere in the frame.
+        let (w, h) = (6240u32, 4160u32);
+        let (cx, cy) = (w as f64 / 2.0, h as f64 / 2.0);
+        let hd = cx.hypot(cy);
+        for (values, wide) in [(&X_S20_XF16_80_AT_16, true), (&X_T5_XF18, false)] {
+            let data = fuji_curves(values, None).unwrap();
+            let peak = fuji_border_peak(&data.distortion, 1.5);
+            let camera = |u: f64| u * fuji_k(&data.distortion, u) / peak;
+            let warp_of = |data: &EmbeddedLensData| {
+                let recipe = serde_json::json!({
+                    "lensCorrectionMode": CAMERA_MODE,
+                    "lensDistortionParams": to_params(data).unwrap(),
+                });
+                crate::image_processing::WarpPoints::new(
+                    &crate::image_processing::get_geometry_params_from_json(&recipe),
+                    w,
+                    h,
+                )
+            };
+            // Points along the long and short axes and the diagonal.
+            let points: Vec<(f64, f64)> = (1..=40)
+                .flat_map(|i| {
+                    let t = i as f64 / 40.0;
+                    [
+                        (cx + t * (cx - 1.0), cy),
+                        (cx, cy - t * (cy - 1.0)),
+                        (cx + t * (cx - 1.0), cy + t * (cy - 1.0)),
+                    ]
+                })
+                .collect();
+            // The largest radial error after the warp's uniform zoom (its
+            // auto-crop may zoom in a hair beyond the camera's framing,
+            // where the frame's edge touches the border): (zoom, px).
+            let worst = |warp: &crate::image_processing::WarpPoints| {
+                let pairs: Vec<(f64, f64)> = points
+                    .iter()
+                    .map(|&(x, y)| {
+                        let (sx, sy) = warp.to_source(x as f32, y as f32).unwrap();
+                        let u = (x - cx).hypot(y - cy) / hd;
+                        ((sx as f64 - cx).hypot(sy as f64 - cy), camera(u) * hd)
+                    })
+                    .collect();
+                let zoom = pairs.iter().map(|(_, want)| want * want).sum::<f64>()
+                    / pairs.iter().map(|(got, want)| got * want).sum::<f64>();
+                let error = pairs
+                    .iter()
+                    .map(|(got, want)| (got * zoom - want).abs())
+                    .fold(0.0, f64::max);
+                (zoom, error)
+            };
+            let tabulated = fuji_tabulated(data.clone(), 1.5).unwrap();
+            assert_eq!(tabulated.tabulated, Some(Tabulated::Knots));
+            let framed = fuji_framed(data.clone(), 1.5).unwrap();
+            assert!((tabulated.zoom - framed.zoom).abs() < 1e-12);
+            let (zoom, table_error) = worst(&warp_of(&tabulated));
+            assert!((zoom - 1.0).abs() < 1.5e-4, "zoom {zoom}");
+            assert!(table_error < 0.05, "table {table_error} px");
+            if wide {
+                let (_, fit_error) = worst(&warp_of(&framed));
+                assert!(fit_error > 1.0, "PTLens fit {fit_error} px");
+            }
+        }
     }
 
     // Fujifilm GFX 50R with GF63mmF2.8 R WR: eight knots (values as stored).
