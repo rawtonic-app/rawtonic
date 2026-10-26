@@ -581,7 +581,7 @@ fn failed_export_variant_uses_the_general_pipeline() {
         processor
             .export_pipeline(&adjustments, MainOutput::SixteenBit)
             .unwrap(),
-        processor.high_precision_pipeline.wait().unwrap()
+        processor.plain_pipeline(MainOutput::SixteenBit).unwrap()
     ));
 }
 
@@ -13354,9 +13354,16 @@ fn sixteen_bit_export_compiles_no_eight_bit_pipeline() {
             RenderOutputPrecision::SixteenBit,
         )
         .unwrap();
-    assert!(processor.edge_pipelines[1].get().is_some());
+    // CPU-readback exports encode in their own pass (deferred main pass).
     assert!(
-        processor.edge_pipelines[0].get().is_none(),
+        processor.edge_pipelines[MainOutput::Deferred.index()]
+            .get()
+            .is_some()
+    );
+    assert!(
+        processor.edge_pipelines[MainOutput::EightBit.index()]
+            .get()
+            .is_none(),
         "the 16-bit export compiled the 8-bit general pipeline"
     );
 }
