@@ -1029,12 +1029,13 @@ const FILM_BLEND_CELL: f32 = 128.0;
 // Print response: display value = 1 / (1 + exp(-slope x)) of the negative's
 // density x above mid grey (slope 4 × gamma 1.6).
 const FILM_PRINT_SLOPE: f32 = 6.4;
-// The negative: fog plus mid grey's density, and the layer's density at
-// full coverage.
-const FILM_FOG_MID: f32 = 1.2;
+// The negative: fog plus mid grey's density (a third of the layer's
+// grains developed, as in a normally exposed negative), and the layer's
+// density at full coverage.
+const FILM_FOG_MID: f32 = 0.9;
 const FILM_DMAX: f32 = 2.4;
 // Amount (grain_amount = slider / 200) to the density scale of the grain.
-const FILM_GAIN: f32 = 0.272;
+const FILM_GAIN: f32 = 0.314;
 
 // Words before mip `j` of the tile.
 fn film_mip_offset(j: u32) -> u32 {
@@ -1149,7 +1150,10 @@ fn film_density(v: f32) -> f32 {
 }
 
 fn apply_film_grain(rgb: vec3<f32>, coord: vec2<u32>) -> vec3<f32> {
-    let amount = adjustments.global.grain_amount * FILM_GAIN;
+    // Finer grain averages out over a pixel; Size keeps most of the strength
+    // so Amount stays the strength (Size 25 = grain_size 0.5 unchanged).
+    let size = clamp(adjustments.global.grain_size, 0.1, 4.0);
+    let amount = adjustments.global.grain_amount * FILM_GAIN * sqrt(0.5 / size);
     let roughness = adjustments.global.grain_roughness;
     let vc = clamp(rgb, vec3<f32>(0.002), vec3<f32>(0.998));
     let x = log(vc / (1.0 - vc)) / FILM_PRINT_SLOPE;
