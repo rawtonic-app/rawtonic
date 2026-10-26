@@ -3,6 +3,7 @@
 //! downloaded like the ones the app asks for, and sends live-view frames
 //! while they are wanted.
 use crate::camera::{AbortPoint, Camera, CameraEvent, CameraFile, Driver, Fired};
+use crate::experiment::LiveViewExperiment;
 use crate::frame;
 use crate::protocol::{
     Captured, Envelope, ErrorKind, Event, Message, PROTOCOL, Reply, Request, TetherError,
@@ -67,6 +68,13 @@ struct Open {
     camera: Box<dyn Camera>,
     staging: PathBuf,
     live_view: bool,
+    /// Live-view frames sent on this connection (for the log).
+    frames: u64,
+    /// Failed live-view frames in a row (`LiveViewExperiment::tolerate`).
+    frame_failures: u32,
+    /// When the camera's events were last read during live view
+    /// (`LiveViewExperiment::poll_every`).
+    events_read_at: Option<Instant>,
     /// App shots still waiting for their file, oldest first.
     waiting: VecDeque<Asked>,
     /// Files downloaded from this camera.
@@ -112,6 +120,7 @@ pub struct Server<W: Write> {
     connections: u64,
     /// App shot requests so far (`Asked::id`).
     asked: u64,
+    experiment: LiveViewExperiment,
 }
 
 /// Reads requests on their own thread, so the loop can wait for the camera
@@ -168,7 +177,14 @@ impl<W: Write> Server<W> {
             one_at_a_time_wait: ONE_AT_A_TIME_WAIT,
             connections: 0,
             asked: 0,
+            experiment: LiveViewExperiment::default(),
         }
+    }
+
+    /// Live-view experiments for a session with a body (`experiment`).
+    pub fn with_live_view_experiment(mut self, experiment: LiveViewExperiment) -> Self {
+        self.experiment = experiment;
+        self
     }
 
     pub fn with_shot_timeout(mut self, timeout: Duration) -> Self {
@@ -321,6 +337,9 @@ impl<W: Write> Server<W> {
                     camera,
                     staging,
                     live_view: false,
+                    frames: 0,
+                    frame_failures: 0,
+                    events_read_at: None,
                     waiting: VecDeque::new(),
                     downloaded: 0,
                     published: Default::default(),
@@ -554,17 +573,52 @@ impl<W: Write> Server<W> {
             return Ok(());
         };
         let mut wait = EVENT_POLL;
-        if open.live_view {
+        let mut read = true;
+        let live_view = open.live_view;
+        if live_view {
             wait = Duration::from_millis(1);
+            // Every frame's timing goes to the debug log (a body session's
+            // trace: how long a frame takes, how long the event reads).
+            let started = Instant::now();
             match open.camera.preview() {
-                Ok(jpeg) => frame::write(&mut self.out, frame::LIVE_VIEW, &jpeg)?,
+                Ok(jpeg) => {
+                    open.frames += 1;
+                    open.frame_failures = 0;
+                    log::debug!(
+                        "live view frame {}: {} bytes in {} ms",
+                        open.frames,
+                        jpeg.len(),
+                        ms(started)
+                    );
+                    frame::write(&mut self.out, frame::LIVE_VIEW, &jpeg)?
+                }
+                Err(error) if error.kind == ErrorKind::Disconnected => {
+                    open.live_view = false;
+                    return self.lost(error);
+                }
+                Err(error) if open.frame_failures < self.experiment.tolerate => {
+                    open.frame_failures += 1;
+                    log::info!(
+                        "live view frame failed after {} ms ({} in a row, tolerated): {error}",
+                        ms(started),
+                        open.frame_failures
+                    );
+                }
                 Err(error) => {
                     open.live_view = false;
-                    if error.kind == ErrorKind::Disconnected {
-                        return self.lost(error);
-                    }
+                    log::info!(
+                        "live view stopped after {} frames: frame failed after {} ms ({:?}: {error})",
+                        open.frames,
+                        ms(started),
+                        error.kind
+                    );
                     self.event(Event::LiveViewStopped { error })?;
                 }
+            }
+            if let Some(open) = self.open.as_ref()
+                && let Some(every) = self.experiment.poll_every
+            {
+                read = open.events_read_at.is_none_or(|at| at.elapsed() >= every);
             }
         }
         while let Some(open) = self.open.as_mut()
@@ -596,7 +650,20 @@ impl<W: Write> Server<W> {
                 ambiguous: Vec::new(),
             })?;
         }
-        self.read_events(wait).map(|_| ())
+        if !read {
+            return Ok(());
+        }
+        let started = Instant::now();
+        let handled = self.read_events(wait)?;
+        if live_view && let Some(open) = self.open.as_mut() {
+            open.events_read_at = Some(Instant::now());
+            log::debug!(
+                "live view: camera events read in {} ms{}",
+                ms(started),
+                if handled { " (one handled)" } else { "" }
+            );
+        }
+        Ok(())
     }
 
     /// Reads the camera's events for up to `wait` (after checking that a

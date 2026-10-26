@@ -9,10 +9,12 @@
 //!   `gphoto` implement it.
 //! - `server`: the helper's loop; `staging`: its crash-safe transfer folder.
 //! - `client`: the app's side.
+//! - `experiment`: live-view experiments for a session with a body.
 //!
 //! Nothing here deletes or changes files on the camera.
 pub mod camera;
 pub mod client;
+pub mod experiment;
 pub mod frame;
 #[cfg(all(feature = "gphoto2", any(target_os = "macos", target_os = "linux")))]
 pub mod gphoto;
