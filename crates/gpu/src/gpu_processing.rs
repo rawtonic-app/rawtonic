@@ -8598,6 +8598,76 @@ pub fn upload_fringed_render_source(
     )))
 }
 
+/// [`upload_fringed_render_source`] of `source` before its warp, where the
+/// recipe's warp runs on the GPU (`renderVersion` 7,
+/// `warp_gpu::warp_into_buffer`): the edge-fringe pass reads its bands from
+/// the warped frame there, so the photo goes up once as decoded and the
+/// warped frame is neither read back nor uploaded again. The texels equal
+/// those of [`upload_fringed_render_source`] of the same warp read back
+/// (`apply_warp`). `None` where any of it does not run on the GPU.
+pub fn upload_warped_render_source(
+    context: &GpuContext,
+    source: &DynamicImage,
+    adjustments: &serde_json::Value,
+    window: [u32; 4],
+    transform_hash: u64,
+    color_noise: Option<(bool, color_noise::Tuning)>,
+) -> Result<Option<UploadedImage>, String> {
+    let [_, _, width, height] = window;
+    let max_dim = context.limits.max_texture_dimension_2d;
+    if width > max_dim
+        || height > max_dim
+        || color_noise.is_some_and(|(_, tuning)| !tuning.gpu_pyramid)
+        || !rawtonic_engine::edge_fringe::runs_into_texture(source, adjustments)
+    {
+        return Ok(None);
+    }
+    #[cfg(feature = "performance-profiling")]
+    let warp_stage = crate::performance::PerformanceStage::new("transform_warp_gpu");
+    let warped = rawtonic_engine::warp_gpu::warp_into_buffer(
+        &context.device,
+        &context.queue,
+        source,
+        adjustments,
+    )?;
+    #[cfg(feature = "performance-profiling")]
+    drop(warp_stage);
+    let Some(warped) = warped else {
+        return Ok(None);
+    };
+    #[cfg(feature = "performance-profiling")]
+    let _stage = crate::performance::PerformanceStage::new("transform_fringe");
+    let texture = gpu_scoped(&context.device, || {
+        let texture = input_texture(&context.device, width, height);
+        rawtonic_engine::edge_fringe::apply_for_recipe_into_texture_from_buffer(
+            &context.device,
+            &context.queue,
+            &warped,
+            source.dimensions(),
+            adjustments,
+            window,
+            &texture,
+        )
+        .map(|()| texture)
+    })??;
+    drop(warped);
+    let texture_view = texture.create_view(&Default::default());
+    Ok(Some(UploadedImage(
+        Box::new(GpuImageCache {
+            texture,
+            texture_view,
+            width,
+            height,
+            transform_hash,
+            chroma: None,
+            chroma_gpu: None,
+            chroma_levels: None,
+            spare: None,
+        }),
+        None,
+    )))
+}
+
 /// The error of a render this GPU cannot do because the photo exceeds its
 /// texture size limit. The app translates it (`src/utils/renderErrors.ts`
 /// matches this wording).

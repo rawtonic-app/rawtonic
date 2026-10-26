@@ -349,7 +349,8 @@ fn with_face_retouch(
         &std::sync::Arc::new(base),
         is_raw,
         &recipe,
-    );
+    )
+    .map_err(anyhow::Error::msg)?;
     let mut uncropped = recipe.clone();
     uncropped["crop"] = serde_json::Value::Null;
     let (framed, _) = rawtonic_engine::adjustment_utils::apply_spatial_transformations(

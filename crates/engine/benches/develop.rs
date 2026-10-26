@@ -109,7 +109,7 @@ fn fringe_and_ca(c: &mut Criterion, id: &str, photo: &Rgb32FImage) {
         ..GeometryParams::default()
     };
     group.bench_function(BenchmarkId::new("warp_lens_ca", id), |b| {
-        b.iter(|| warp_image_geometry(black_box(&image), params.clone()))
+        b.iter(|| warp_image_geometry(black_box(&image), params.clone()).unwrap())
     });
     group.finish();
 }

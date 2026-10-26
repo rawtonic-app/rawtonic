@@ -47,6 +47,7 @@ pub mod session_layout;
 pub mod source_facts;
 pub mod spot_removal;
 pub mod upright;
+pub mod warp_gpu;
 pub mod white_balance_estimate;
 
 use rawtonic_rawdecode::{

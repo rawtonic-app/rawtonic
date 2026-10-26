@@ -21,6 +21,7 @@ use crate::gpu_processing::{
     GpuContext, GpuImageCache, GpuProcessorSlot, MaskUploader, ReadbackShader, RenderOutput,
     RenderOutputPrecision, RenderRequest, RenderSource, process_and_get_dynamic_image_inner,
     process_and_get_dynamic_images, upload_fringed_render_source, upload_render_source,
+    upload_warped_render_source,
 };
 use crate::image_processing::{
     AllAdjustments, MAX_MASKS, PreparedAdjustments, get_all_adjustments_with_masks,
@@ -1285,17 +1286,18 @@ pub fn prepare_export_render(
 
     #[cfg(feature = "performance-profiling")]
     let transform_stage = crate::performance::PerformanceStage::new("export_transform");
-    let warped = apply_warp(Cow::Borrowed(source.base()), js_adjustments);
     // Where only a crop follows the edge-fringe pass, the pass writes its
     // result straight into the render's input texture: no readback, no
-    // conversion and upload of the pixels on the CPU (notes:
-    // parity-gaps/G43, task BX7).
-    let (warped_w, warped_h) = warped.dimensions();
-    let fringed = crop_after_fringe(js_adjustments, warped_w, warped_h)
+    // conversion and upload of the pixels on the CPU; a `renderVersion` 7
+    // warp before it stays on the GPU too (notes: parity-gaps/G43, tasks
+    // BX7, GW). The warp keeps the frame's size.
+    let (source_w, source_h) = source.base().dimensions();
+    let after_fringe = crop_after_fringe(js_adjustments, source_w, source_h);
+    let on_gpu = after_fringe
         .map(|(window, offset)| {
-            upload_fringed_render_source(
+            upload_warped_render_source(
                 context,
-                &warped,
+                source.base(),
                 js_adjustments,
                 window,
                 unique_hash,
@@ -1305,12 +1307,34 @@ pub fn prepare_export_render(
         })
         .transpose()?
         .flatten();
+    let (warped, fringed) = match on_gpu {
+        Some(uploaded) => (None, Some(uploaded)),
+        None => {
+            let warped = apply_warp(Cow::Borrowed(source.base()), js_adjustments)?;
+            let fringed = after_fringe
+                .map(|(window, offset)| {
+                    upload_fringed_render_source(
+                        context,
+                        &warped,
+                        js_adjustments,
+                        window,
+                        unique_hash,
+                        color_noise,
+                    )
+                    .map(|uploaded| uploaded.map(|uploaded| (uploaded, window, offset)))
+                })
+                .transpose()?
+                .flatten();
+            (Some(warped), fringed)
+        }
+    };
     let (transformed_image, uploaded, (img_w, img_h), unscaled_crop_offset) = match fringed {
         Some((uploaded, [_, _, width, height], offset)) => {
             drop(warped);
             (None, Some(uploaded), (width, height), offset)
         }
         None => {
+            let warped = warped.expect("warped on the CPU unless uploaded");
             let (transformed, offset) = apply_transformations_after_warp(warped, js_adjustments)?;
             let size = transformed.dimensions();
             (Some(transformed), None, size, offset)

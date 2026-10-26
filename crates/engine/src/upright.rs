@@ -742,7 +742,7 @@ mod tests {
             "guidedPerspective": {"enabled": true, "lines": result.lines, "autoCrop": true, "upright": "vertical"}
         });
         let source = DynamicImage::ImageRgb8(source);
-        let warped = crate::image_processing::apply_geometry_warp(&source, &adjustments);
+        let warped = crate::image_processing::apply_geometry_warp(&source, &adjustments).unwrap();
         let (gray, ww, wh) = analysis_image(&warped, 400);
         let after = detect_segments(&gray, ww, wh, 20.0);
         let tilts: Vec<f64> = after
@@ -860,7 +860,7 @@ mod diagnose_warp {
             serde_json::from_str(&lines).unwrap()
         };
         let adjustments = serde_json::json!({"guidedPerspective": {"enabled": true, "lines": lines, "autoCrop": true, "upright": "vertical"}});
-        let warped = crate::image_processing::apply_geometry_warp(&image, &adjustments);
+        let warped = crate::image_processing::apply_geometry_warp(&image, &adjustments).unwrap();
         warped.to_rgb8().save(out).unwrap();
     }
 }

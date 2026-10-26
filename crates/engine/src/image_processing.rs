@@ -166,6 +166,11 @@ pub struct GeometryParams {
     /// GPU warp does.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub f32_warp: bool,
+    /// The warp runs on the GPU (`renderVersion` 7,
+    /// [`GPU_WARP_RENDER_VERSION`], `warp_gpu`) for every use of it alike;
+    /// on the CPU with `f32_warp` only where `warp_gpu::runs_for` says no.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub gpu_warp: bool,
 }
 
 impl Default for GeometryParams {
@@ -210,6 +215,7 @@ impl Default for GeometryParams {
             auto_ca_versus_own: false,
             keep_negative: false,
             f32_warp: false,
+            gpu_warp: false,
         }
     }
 }
@@ -327,6 +333,7 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         auto_ca_versus_own: false,
         keep_negative: render_version(adjustments) >= 2,
         f32_warp: render_version(adjustments) >= F32_WARP_RENDER_VERSION,
+        gpu_warp: render_version(adjustments) >= GPU_WARP_RENDER_VERSION,
     };
     let own = has_own_tca(&params);
     params.auto_ca = crate::lateral_ca::applies(adjustments, own);
@@ -1318,6 +1325,8 @@ struct WarpKernel {
     keep_negative: bool,
     /// `GeometryParams::f32_warp`.
     f32_warp: bool,
+    /// `GeometryParams::gpu_warp`.
+    gpu_warp: bool,
 }
 
 impl WarpKernel {
@@ -1439,6 +1448,7 @@ impl WarpKernel {
             has_vignetting,
             keep_negative: params.keep_negative,
             f32_warp: params.f32_warp,
+            gpu_warp: params.gpu_warp,
         }
     }
 
@@ -1830,6 +1840,106 @@ impl WarpKernel {
     }
 }
 
+/// The constants of a `WarpKernel`, as its f32 arithmetic uses them: what
+/// the GPU warp (`warp_gpu`) computes from.
+pub(crate) struct WarpUniforms {
+    pub origin: [f32; 3],
+    pub step_x: [f32; 3],
+    pub step_y: [f32; 3],
+    pub cx: f32,
+    pub cy: f32,
+    pub hd: f32,
+    pub max_radius_sq_inv: f32,
+    pub auto_crop_scale: f32,
+    pub lens: bool,
+    pub ptlens: bool,
+    pub k: [f32; 3],
+    pub lens_dist_amt: f32,
+    pub table: Option<crate::lens_correction::RadialTable32>,
+    /// `manual_distortion_c`, when the manual distortion applies.
+    pub manual_c: Option<f32>,
+    /// (vr, vb, vr2, vb2, 1 / half-diagonal²) of the lateral CA.
+    pub tca: Option<[f32; 5]>,
+    /// (k1, k2, k3, amount) of the vignetting.
+    pub vignetting: Option<[f32; 4]>,
+    pub keep_negative: bool,
+}
+
+impl WarpKernel {
+    fn uniforms(&self) -> WarpUniforms {
+        let v = |c: NaVector3<f32>| [c.x, c.y, c.z];
+        WarpUniforms {
+            origin: v(self.origin_vec),
+            step_x: v(self.step_vec_x),
+            step_y: v(self.step_vec_y),
+            cx: self.cx,
+            cy: self.cy,
+            hd: self.hd as f32,
+            max_radius_sq_inv: self.max_radius_sq_inv as f32,
+            auto_crop_scale: self.auto_crop_scale,
+            lens: self.has_lens_correction,
+            ptlens: self.is_ptlens,
+            k: [self.lk1 as f32, self.lk2 as f32, self.lk3 as f32],
+            lens_dist_amt: self.lens_dist_amt as f32,
+            table: self.lens_table32.clone(),
+            manual_c: (self.k_distortion.abs() > 1e-5)
+                .then(|| manual_distortion_c(self.k_distortion) as f32),
+            tca: self.has_tca.then(|| {
+                [
+                    self.vr,
+                    self.vb,
+                    self.vr2,
+                    self.vb2,
+                    1.0 / (self.cx * self.cx + self.cy * self.cy).max(1.0),
+                ]
+            }),
+            vignetting: self.has_vignetting.then_some([
+                self.vk1 as f32,
+                self.vk2 as f32,
+                self.vk3 as f32,
+                self.lens_vig_amt as f32,
+            ]),
+            keep_negative: self.keep_negative,
+        }
+    }
+
+    /// Whether this warp of `source`'s frame runs on the GPU (`gpu_warp`,
+    /// `warp_gpu::runs_for`).
+    fn on_gpu(&self, source: &SourceRows) -> bool {
+        self.gpu_warp && crate::warp_gpu::runs_for(source.width, source.height)
+    }
+
+    /// Output pixels `out` warped on the GPU from `source` (RGB rows of
+    /// `out.width`); call only where [`WarpKernel::on_gpu`].
+    fn warp_on_gpu(
+        &self,
+        source: &SourceRows,
+        out: crate::warp_gpu::OutputRows,
+    ) -> Result<Vec<f32>, String> {
+        crate::warp_gpu::warp(&self.uniforms(), source, out)
+    }
+}
+
+/// The uniforms of the GPU warp of `adjustments` on `image` (its whole
+/// decode): None unless the recipe warps on the GPU (`gpu_warp`, a warp
+/// that moves or shades pixels, `warp_gpu::runs_for`). The automatic
+/// lateral CA is measured on `image`, as [`warp_image_geometry`] does.
+pub(crate) fn gpu_warp_uniforms(
+    image: &Rgb32FImage,
+    adjustments: &serde_json::Value,
+) -> Option<WarpUniforms> {
+    let params = get_geometry_params_from_json(adjustments);
+    let (width, height) = image.dimensions();
+    if !params.gpu_warp
+        || is_geometry_identity(&params)
+        || !crate::warp_gpu::runs_for(width, height)
+    {
+        return None;
+    }
+    let estimate = MeasuredCa::of_params(&params, Some(image));
+    Some(WarpKernel::with_estimate(&params, width, height, estimate).uniforms())
+}
+
 /// The projective positions of an output row's pixels, in order
 /// ([`WarpKernel::positions`]): along the row's running sum, or with
 /// `f32_warp` each placed directly (row start + x steps), as a GPU thread
@@ -1926,6 +2036,75 @@ pub fn warp_f32_displacement(
     }
 }
 
+/// [`warp_f32_displacement`] of the GPU warp (`gpu_warp`, the registered
+/// device): `old` is the CPU's f32 warp, `new` the GPU's positions, both
+/// against the exact positions; None without a device that warps the frame.
+#[cfg(any(test, feature = "test-support"))]
+pub fn warp_gpu_displacement(
+    params: &GeometryParams,
+    width: u32,
+    height: u32,
+    step: u32,
+) -> Option<WarpPrecision> {
+    if !crate::warp_gpu::runs_for(width, height) {
+        return None;
+    }
+    let params = GeometryParams {
+        f32_warp: true,
+        gpu_warp: true,
+        ..params.clone()
+    };
+    let kernel = WarpKernel::new(&params, width, height, None);
+    let rows: Vec<u32> = (0..height)
+        .step_by(step as usize)
+        .chain([height - 1])
+        .collect();
+    let (last_x, last_y) = (f64::from(width) - 1.0, f64::from(height) - 1.0);
+    let inside = |(x, y): (f64, f64)| x >= 0.0 && y >= 0.0 && x <= last_x && y <= last_y;
+    let distance = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).hypot(a.1 - b.1);
+    let mut errors: Vec<[f64; 3]> = Vec::new();
+    for &y in &rows {
+        let out = crate::warp_gpu::OutputRows {
+            y0: y,
+            rows: 1,
+            ..crate::warp_gpu::OutputRows::whole(width, height)
+        };
+        let gpu = crate::warp_gpu::positions(&kernel.uniforms(), (width, height), out).ok()?;
+        let mut along = kernel.positions(y, 0);
+        for x in 0..width {
+            let cpu = kernel.source_point(&along.step());
+            if !(x % step == 0 || x == width - 1) {
+                continue;
+            }
+            let g = &gpu[x as usize * 3..x as usize * 3 + 3];
+            if let (Some(cpu), Some(exact)) = (cpu, kernel.source_point_exact(x, y))
+                && g[2] > 0.0
+            {
+                let (cpu, gpu) = (
+                    (f64::from(cpu.0), f64::from(cpu.1)),
+                    (f64::from(g[0]), f64::from(g[1])),
+                );
+                if inside(cpu) && inside(gpu) && inside(exact) {
+                    errors.push([
+                        distance(cpu, exact),
+                        distance(gpu, exact),
+                        distance(cpu, gpu),
+                    ]);
+                }
+            }
+        }
+    }
+    let n = errors.len().max(1) as f64;
+    let max = |k: usize| errors.iter().map(|e| e[k]).fold(0.0, f64::max);
+    let mean = |k: usize| errors.iter().map(|e| e[k]).sum::<f64>() / n;
+    Some(WarpPrecision {
+        old: (max(0), mean(0)),
+        new: (max(1), mean(1)),
+        apart: max(2),
+        pixels: errors.len(),
+    })
+}
+
 /// [`warp_f32_displacement`]'s result: (largest, mean) error in pixels.
 #[cfg(any(test, feature = "test-support"))]
 #[derive(Debug, Clone, Copy)]
@@ -1968,7 +2147,13 @@ pub fn geometry_valid_pixels(params: &GeometryParams, width: u32, height: u32) -
     Some(mask)
 }
 
-pub fn warp_image_geometry(image: &DynamicImage, params: GeometryParams) -> DynamicImage {
+/// The lens and geometry warp of `params` on `image`. Fails only where
+/// the warp runs on the GPU (`renderVersion` 7, `warp_gpu`) and the GPU
+/// fails: the CPU's warp would give other pixels.
+pub fn warp_image_geometry(
+    image: &DynamicImage,
+    params: GeometryParams,
+) -> Result<DynamicImage, String> {
     warp_whole_image(image, &params, |src| {
         MeasuredCa::of_params(&params, Some(src))
     })
@@ -1977,7 +2162,10 @@ pub fn warp_image_geometry(image: &DynamicImage, params: GeometryParams) -> Dyna
 /// `warp_image_geometry` of a reduced copy shown only until the
 /// photograph's decode is in (its draft, or a stored preview proxy): the
 /// automatic lateral CA is not measured on the copy (`MeasuredCa::interim`).
-pub fn warp_image_geometry_interim(image: &DynamicImage, params: GeometryParams) -> DynamicImage {
+pub fn warp_image_geometry_interim(
+    image: &DynamicImage,
+    params: GeometryParams,
+) -> Result<DynamicImage, String> {
     warp_whole_image(image, &params, |src| MeasuredCa::interim(&params, src))
 }
 
@@ -1985,13 +2173,13 @@ pub fn warp_image_geometry_interim(image: &DynamicImage, params: GeometryParams)
 pub fn apply_geometry_warp_interim<'a>(
     image: impl IntoCowImage<'a>,
     adjustments: &serde_json::Value,
-) -> Cow<'a, DynamicImage> {
+) -> Result<Cow<'a, DynamicImage>, String> {
     let image = image.into_cow();
     let params = get_geometry_params_from_json(adjustments);
     if !is_geometry_identity(&params) {
-        Cow::Owned(warp_image_geometry_interim(image.as_ref(), params))
+        warp_image_geometry_interim(image.as_ref(), params).map(Cow::Owned)
     } else {
-        image
+        Ok(image)
     }
 }
 
@@ -1999,7 +2187,7 @@ fn warp_whole_image(
     image: &DynamicImage,
     params: &GeometryParams,
     estimate: impl FnOnce(&Rgb32FImage) -> Option<MeasuredCa>,
-) -> DynamicImage {
+) -> Result<DynamicImage, String> {
     // RAW sources are float RGB already; converting would copy the whole
     // frame (about 1 GB at 80 MP) before the warp.
     let converted;
@@ -2011,19 +2199,25 @@ fn warp_whole_image(
         }
     };
     let (width, height) = src_img.dimensions();
-    let mut out_buffer = vec![0.0f32; (width * height * 3) as usize];
     let kernel = WarpKernel::with_estimate(params, width, height, estimate(src_img));
     let source = SourceRows::whole(src_img.as_raw(), width, height);
-
-    out_buffer
-        .par_chunks_exact_mut(width as usize * 3)
-        .enumerate()
-        .for_each(|(y, row_pixel_data)| {
-            kernel.warp_row(&source, y as u32, 0, row_pixel_data);
-        });
+    let out_buffer = if kernel.on_gpu(&source) {
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("transform_warp_gpu");
+        kernel.warp_on_gpu(&source, crate::warp_gpu::OutputRows::whole(width, height))?
+    } else {
+        let mut out_buffer = vec![0.0f32; (width * height * 3) as usize];
+        out_buffer
+            .par_chunks_exact_mut(width as usize * 3)
+            .enumerate()
+            .for_each(|(y, row_pixel_data)| {
+                kernel.warp_row(&source, y as u32, 0, row_pixel_data);
+            });
+        out_buffer
+    };
 
     let out_img = Rgb32FImage::from_vec(width, height, out_buffer).unwrap();
-    DynamicImage::ImageRgb32F(out_img)
+    Ok(DynamicImage::ImageRgb32F(out_img))
 }
 
 pub fn unwarp_image_geometry(warped_image: &DynamicImage, params: GeometryParams) -> DynamicImage {
@@ -2642,16 +2836,18 @@ pub fn apply_linear_to_srgb(mut image: DynamicImage) -> DynamicImage {
 
 pub use rawtonic_rawdecode::orientation::apply_orientation;
 
+/// The recipe's lens and geometry warp on `image` ([`warp_image_geometry`];
+/// fails only where it runs on the GPU and the GPU fails).
 pub fn apply_geometry_warp<'a>(
     image: impl IntoCowImage<'a>,
     adjustments: &serde_json::Value,
-) -> Cow<'a, DynamicImage> {
+) -> Result<Cow<'a, DynamicImage>, String> {
     let image = image.into_cow();
     let params = get_geometry_params_from_json(adjustments);
     if !is_geometry_identity(&params) {
-        Cow::Owned(warp_image_geometry(image.as_ref(), params))
+        warp_image_geometry(image.as_ref(), params).map(Cow::Owned)
     } else {
-        image
+        Ok(image)
     }
 }
 
@@ -3021,6 +3217,61 @@ impl<'a> SourceRows<'a> {
     pub fn rows(&self) -> u32 {
         (self.pixels.len() / (self.cols as usize * 3).max(1)) as u32
     }
+
+    /// Columns `cols` and rows `rows` (frame pixels, end exclusive) of the
+    /// pixels held, which must hold them; borrowed where they are whole
+    /// rows of the pixels held.
+    fn window(&self, cols: (u32, u32), rows: (u32, u32)) -> HeldWindow<'a> {
+        let stride = self.cols as usize * 3;
+        let first = (rows.0 - self.row0) as usize * stride;
+        let last = (rows.1 - self.row0) as usize * stride;
+        let pixels = if cols == (self.col0, self.col0 + self.cols) {
+            Cow::Borrowed(&self.pixels[first..last])
+        } else {
+            let (c0, c1) = (
+                (cols.0 - self.col0) as usize * 3,
+                (cols.1 - self.col0) as usize * 3,
+            );
+            Cow::Owned(
+                self.pixels[first..last]
+                    .chunks_exact(stride)
+                    .flat_map(|row| &row[c0..c1])
+                    .copied()
+                    .collect(),
+            )
+        };
+        HeldWindow {
+            pixels,
+            width: self.width,
+            height: self.height,
+            row0: rows.0,
+            col0: cols.0,
+            cols: cols.1 - cols.0,
+        }
+    }
+}
+
+/// [`SourceRows::window`]: some of the pixels a `SourceRows` holds.
+struct HeldWindow<'a> {
+    pixels: Cow<'a, [f32]>,
+    width: u32,
+    height: u32,
+    row0: u32,
+    col0: u32,
+    cols: u32,
+}
+
+impl HeldWindow<'_> {
+    fn rows(&self) -> SourceRows<'_> {
+        SourceRows {
+            pixels: &self.pixels,
+            width: self.width,
+            height: self.height,
+            row0: self.row0,
+            col0: self.col0,
+            cols: self.cols,
+        }
+    }
 }
 
 /// The automatic lateral CA estimate of a photograph (`lateral_ca::
@@ -3083,8 +3334,9 @@ pub struct RegionMeasures {
 }
 
 impl RegionMeasures {
-    /// The measures of `image`, a whole decode, for `adjustments`.
-    pub fn of(image: &Rgb32FImage, adjustments: &Value) -> Self {
+    /// The measures of `image`, a whole decode, for `adjustments`. Fails
+    /// only where the warp runs on the GPU and the GPU fails.
+    pub fn of(image: &Rgb32FImage, adjustments: &Value) -> Result<Self, String> {
         let params = get_geometry_params_from_json(adjustments);
         let ca = MeasuredCa::of_params(&params, Some(image));
         let (width, height) = image.dimensions();
@@ -3100,18 +3352,40 @@ impl RegionMeasures {
         } else {
             let kernel = WarpKernel::with_estimate(&params, width, height, ca);
             let source = SourceRows::whole(raw, width, height);
+            // The plan reads every fourth row, if any: warped at once on the
+            // GPU.
+            let fourth_rows = (kernel.on_gpu(&source)
+                && crate::edge_fringe::full_resolution_plan_reads_rows(
+                    adjustments,
+                    width as usize,
+                ))
+            .then(|| {
+                let out = crate::warp_gpu::OutputRows {
+                    step: 4,
+                    rows: height.div_ceil(4),
+                    ..crate::warp_gpu::OutputRows::whole(width, height)
+                };
+                kernel.warp_on_gpu(&source, out)
+            })
+            .transpose()?;
             crate::edge_fringe::full_resolution_plan(
                 adjustments,
                 width as usize,
                 height as usize,
-                |y| {
-                    let mut row = vec![0.0f32; row_len];
-                    kernel.warp_row(&source, y as u32, 0, &mut row);
-                    row
+                |y| match &fourth_rows {
+                    Some(rows) => {
+                        debug_assert_eq!(y % 4, 0, "the plan reads every fourth row");
+                        rows[y / 4 * row_len..(y / 4 + 1) * row_len].to_vec()
+                    }
+                    None => {
+                        let mut row = vec![0.0f32; row_len];
+                        kernel.warp_row(&source, y as u32, 0, &mut row);
+                        row
+                    }
                 },
             )
         };
-        Self { ca, fringe }
+        Ok(Self { ca, fringe })
     }
 
     /// What the measures of `adjustments` depend on besides the photograph:
@@ -3426,12 +3700,31 @@ pub fn transformed_region(
     if plan.warp {
         let params = get_geometry_params_from_json(adjustments);
         let kernel = WarpKernel::with_estimate(&params, width, height, plan.estimate);
-        warped
-            .par_chunks_exact_mut(row_len)
-            .enumerate()
-            .for_each(|(r, row)| {
-                kernel.warp_row(source, wy + r as u32, wx, row);
-            });
+        if kernel.on_gpu(source) {
+            let out = crate::warp_gpu::OutputRows {
+                x0: wx,
+                y0: wy,
+                width: ww,
+                rows: wh,
+                step: 1,
+            };
+            // Only the planned rows and columns go up (the source may hold
+            // the whole frame). A failure (a plan too tight among them)
+            // makes the caller render the whole frame, as any region it
+            // cannot make.
+            let held = source.window(plan.cols, plan.rows);
+            warped = kernel
+                .warp_on_gpu(&held.rows(), out)
+                .inspect_err(|e| log::warn!("Region warp: {e}"))
+                .ok()?;
+        } else {
+            warped
+                .par_chunks_exact_mut(row_len)
+                .enumerate()
+                .for_each(|(r, row)| {
+                    kernel.warp_row(source, wy + r as u32, wx, row);
+                });
+        }
     } else {
         let stride = source.cols as usize * 3;
         warped
@@ -5372,9 +5665,10 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// hue after clipping them (`GAMUT_MAPPING_RENDER_VERSION`). 5 (2026-10-26)
 /// exports with the shader variant specialized for the recipe's features
 /// (`SPECIALIZED_EXPORT_RENDER_VERSION`). 6 (2026-10-26) computes the lens
-/// and geometry warp in f32 (`F32_WARP_RENDER_VERSION`).
+/// and geometry warp in f32 (`F32_WARP_RENDER_VERSION`). 7 (2026-10-27)
+/// computes that warp on the GPU (`GPU_WARP_RENDER_VERSION`).
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 6;
+pub const RENDER_VERSION: u64 = 7;
 
 /// The render version from which the geometry warp places each pixel
 /// directly and computes the lens model, the manual distortion and the
@@ -5384,6 +5678,14 @@ pub const RENDER_VERSION: u64 = 6;
 /// from the f64 steps before (351 photos with camera or lensfun data,
 /// mean 0.00007 px; notes: benchmark-results/bx7-export-latency-2026-10-26).
 pub const F32_WARP_RENDER_VERSION: u64 = 6;
+
+/// The render version from which the geometry warp runs on the GPU
+/// (`GeometryParams::gpu_warp`, `warp_gpu`): version 6's f32 arithmetic in
+/// one shader that the display and the exports both warp with, so they
+/// compute the same warped pixels. Metal compiles it with fast math, so it
+/// rounds differently from the CPU's f32 warp (notes: parity-gaps/G43,
+/// task GW).
+pub const GPU_WARP_RENDER_VERSION: u64 = 7;
 
 /// The render version from which colours outside the output space keep
 /// their hue (`GlobalAdjustments::gamut_mapping`; notes:
@@ -8202,7 +8504,7 @@ mod warp_points_tests {
         };
         for (name, params) in [("vignette", vignette), ("auto CA", auto_ca)] {
             assert!(!is_geometry_identity(&params), "{name}");
-            let out = warp_image_geometry(&flat, params).into_rgb32f();
+            let out = warp_image_geometry(&flat, params).unwrap().into_rgb32f();
             for (x, y) in [(w - 1, 10), (10, h - 1), (w - 1, h - 1)] {
                 let inner = out.get_pixel(x.min(w - 2), y.min(h - 2))[0];
                 let edge = out.get_pixel(x, y)[0];
@@ -8240,7 +8542,7 @@ mod warp_points_tests {
                 lens_zoom_exact: true,
                 ..Default::default()
             };
-            let out = warp_image_geometry(&flat, params).into_rgb32f();
+            let out = warp_image_geometry(&flat, params).unwrap().into_rgb32f();
             let border = (0..w)
                 .flat_map(|x| [(x, 0), (x, h - 1)])
                 .chain((0..h).flat_map(|y| [(0, y), (w - 1, y)]));
@@ -8323,7 +8625,9 @@ mod warp_points_tests {
             h,
             image::Rgb([0.5f32; 3]),
         ));
-        let out = warp_image_geometry(&flat, params.clone()).into_rgb32f();
+        let out = warp_image_geometry(&flat, params.clone())
+            .unwrap()
+            .into_rgb32f();
         for (x, y) in (0..w)
             .flat_map(|x| [(x, 0), (x, h - 1)])
             .chain((0..h).flat_map(|y| [(0, y), (w - 1, y)]))
@@ -8331,8 +8635,11 @@ mod warp_points_tests {
             assert!(out.get_pixel(x, y)[0] > 0.4, "({x},{y})");
         }
         let image = coordinates(w, h);
-        let back = unwarp_image_geometry(&warp_image_geometry(&image, params.clone()), params)
-            .into_rgb32f();
+        let back = unwarp_image_geometry(
+            &warp_image_geometry(&image, params.clone()).unwrap(),
+            params,
+        )
+        .into_rgb32f();
         let source = image.to_rgb32f();
         for (x, y) in [(400u32, 300u32), (750, 500), (1100, 700)] {
             let (a, b) = (back.get_pixel(x, y), source.get_pixel(x, y));
@@ -8415,7 +8722,7 @@ mod warp_points_tests {
             h,
             image::Rgb([0.5f32; 3]),
         ));
-        let out = warp_image_geometry(&flat, params).into_rgb32f();
+        let out = warp_image_geometry(&flat, params).unwrap().into_rgb32f();
         for (x, y) in (0..w)
             .flat_map(|x| [(x, 0), (x, h - 1)])
             .chain((0..h).flat_map(|y| [(0, y), (w - 1, y)]))
@@ -8448,8 +8755,8 @@ mod warp_points_tests {
             lens_distortion_enabled: false,
             ..exact.clone()
         };
-        let a = warp_image_geometry(&image, exact).into_rgb32f();
-        let b = warp_image_geometry(&image, off).into_rgb32f();
+        let a = warp_image_geometry(&image, exact).unwrap().into_rgb32f();
+        let b = warp_image_geometry(&image, off).unwrap().into_rgb32f();
         assert_eq!(a.as_raw(), b.as_raw());
     }
 
@@ -8479,7 +8786,9 @@ mod warp_points_tests {
             compute_lens_auto_crop_scale(&geometry, w as f32, h as f32),
             1.0
         );
-        let out = warp_image_geometry(&coordinates(w, h), geometry).into_rgb32f();
+        let out = warp_image_geometry(&coordinates(w, h), geometry)
+            .unwrap()
+            .into_rgb32f();
         let (cx, cy) = (w as f64 / 2.0, h as f64 / 2.0);
         for (x, y) in [
             (1100u32, 700u32),
@@ -8514,7 +8823,9 @@ mod warp_points_tests {
         ] {
             let params = get_geometry_params_from_json(&adjustments);
             let points = WarpPoints::new(&params, w, h);
-            let warped = warp_image_geometry(&image, params.clone()).into_rgb32f();
+            let warped = warp_image_geometry(&image, params.clone())
+                .unwrap()
+                .into_rgb32f();
             let unwarped = unwarp_image_geometry(&image, params).into_rgb32f();
             let mut checked = 0;
             for y in (20..h - 20).step_by(7) {
@@ -8614,13 +8925,51 @@ mod region_tests {
     }
 
     #[test]
+    fn a_window_of_held_rows_holds_their_pixels() {
+        let (w, h) = (9u32, 7u32);
+        let raw: Vec<f32> = (0..w * h * 3).map(|v| v as f32).collect();
+        // Rows 2..6 of the frame held, all columns.
+        let held = SourceRows {
+            pixels: &raw[2 * 27..6 * 27],
+            width: w,
+            height: h,
+            row0: 2,
+            col0: 0,
+            cols: w,
+        };
+        let pixel = |s: &SourceRows, x: u32, y: u32| {
+            let i = (((y - s.row0) * s.cols + (x - s.col0)) * 3) as usize;
+            s.pixels[i..i + 3].to_vec()
+        };
+        for (cols, rows) in [((0, w), (3, 5)), ((2, 7), (2, 6)), ((8, 9), (5, 6))] {
+            let window = held.window(cols, rows);
+            let part = window.rows();
+            assert_eq!(
+                (part.row0, part.col0, part.cols),
+                (rows.0, cols.0, cols.1 - cols.0)
+            );
+            assert_eq!(part.rows(), rows.1 - rows.0);
+            assert_eq!(
+                matches!(window.pixels, Cow::Borrowed(_)),
+                cols == (0, w),
+                "whole rows are borrowed"
+            );
+            for y in rows.0..rows.1 {
+                for x in cols.0..cols.1 {
+                    assert_eq!(pixel(&part, x, y), pixel(&held, x, y), "{x} {y}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn a_region_is_the_same_pixels_as_the_whole_frame() {
         let (w, h) = (301u32, 211u32);
         let image = frame(w, h);
         let raw = image.as_rgb32f().unwrap().as_raw().clone();
         let mut checked = 0;
         for adjustments in recipes() {
-            let warped = apply_geometry_warp(&image, &adjustments);
+            let warped = apply_geometry_warp(&image, &adjustments).unwrap();
             let (whole, _) = apply_spatial_transformations(warped, &adjustments);
             let (fw, fh) = whole.dimensions();
             for rect in [
@@ -8681,10 +9030,10 @@ mod region_tests {
         ] {
             let params = get_geometry_params_from_json(&adjustments);
             assert!(params.auto_ca, "{adjustments}");
-            let measures = RegionMeasures::of(rgb, &adjustments);
+            let measures = RegionMeasures::of(rgb, &adjustments).unwrap();
             assert!(measures.ca.is_some());
             assert!(RegionMeasures::inputs_key(&adjustments).is_some());
-            let warped = apply_geometry_warp(&image, &adjustments);
+            let warped = apply_geometry_warp(&image, &adjustments).unwrap();
             let (whole, _) = apply_spatial_transformations(warped, &adjustments);
             let (fw, fh) = whole.dimensions();
             for rect in [[0, 0, fw, fh], [5, 7, 40, 30], [fw - 20, fh - 9, 60, 60]] {
@@ -8759,11 +9108,11 @@ mod region_tests {
                 json!({"fringeVersion": 4, "lensDistortionParams": lens, "rotation": 2.0,
                     "crop": {"x": 31.0, "y": 17.4, "width": 180.0, "height": 120.0}}),
             ] {
-                let measures = RegionMeasures::of(rgb, &adjustments);
+                let measures = RegionMeasures::of(rgb, &adjustments).unwrap();
                 let fringe = measures.fringe.expect("a fringe plan");
                 radii.insert((fringe.radius, fringe.colour_lines, fringe.axial.is_some()));
                 assert!(RegionMeasures::inputs_key(&adjustments).is_some());
-                let warped = apply_geometry_warp(&image, &adjustments);
+                let warped = apply_geometry_warp(&image, &adjustments).unwrap();
                 let plain = apply_spatial_transformations(warped.clone(), &adjustments)
                     .0
                     .into_owned();
@@ -9081,7 +9430,7 @@ mod render_version_tests {
                 "lensCorrectionMode": "manual", "rotation": 3.0, "renderVersion": version})
         };
         for version in [1, 2] {
-            let warped = apply_geometry_warp(&source, &recipe(version));
+            let warped = apply_geometry_warp(&source, &recipe(version)).unwrap();
             let (turned, _) =
                 crate::adjustment_utils::apply_spatial_transformations(&source, &recipe(version));
             for (name, image) in [("warp", warped.as_ref()), ("straighten", turned.as_ref())] {
@@ -9102,8 +9451,8 @@ mod render_version_tests {
                 image::Rgb([1.0, 0.9, 0.8])
             }
         }));
-        let v1 = apply_geometry_warp(&plain, &recipe(1)).to_rgb32f();
-        let v2 = apply_geometry_warp(&plain, &recipe(2)).to_rgb32f();
+        let v1 = apply_geometry_warp(&plain, &recipe(1)).unwrap().to_rgb32f();
+        let v2 = apply_geometry_warp(&plain, &recipe(2)).unwrap().to_rgb32f();
         assert_eq!(v1.as_raw(), v2.as_raw());
         let (t1, _) = crate::adjustment_utils::apply_spatial_transformations(&plain, &recipe(1));
         let (t2, _) = crate::adjustment_utils::apply_spatial_transformations(&plain, &recipe(2));
