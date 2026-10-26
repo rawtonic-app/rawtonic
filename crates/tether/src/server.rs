@@ -121,6 +121,12 @@ struct Open {
     /// (`Request::Release`). One that cannot be downloaded stays on the
     /// camera and is reported.
     queue: VecDeque<CameraFile>,
+    /// The photos the transfer queue held at the connect that are not safely
+    /// downloaded yet: one the camera reports as new (also after a failed
+    /// download) is fetched as a queued photo, never taken for an app
+    /// shot's. Once one is in the transfer folder, a later file of its name
+    /// is a repeated report (same bytes, `published`) or a new photo.
+    from_queue: std::collections::HashSet<CameraFile>,
     /// Why the transfer queue could not be listed, told once after the
     /// connect (its photos stay on the camera).
     queue_unlisted: Option<TetherError>,
@@ -345,7 +351,7 @@ impl<W: Write> Server<W> {
                 }
                 // Listed before the reply; downloaded afterwards, one per
                 // turn (`tick`).
-                let (queue, queue_unlisted) = match camera.queued() {
+                let (queue, queue_unlisted): (VecDeque<CameraFile>, _) = match camera.queued() {
                     Ok(queued) => {
                         if !queued.is_empty() {
                             log::info!(
@@ -386,6 +392,7 @@ impl<W: Write> Server<W> {
                     connection: self.connections,
                     held: false,
                     transferring: false,
+                    from_queue: queue.iter().cloned().collect(),
                     queue,
                     queue_unlisted,
                 });
@@ -781,8 +788,8 @@ impl<W: Write> Server<W> {
                 // A photo of the transfer queue reported as new (libgphoto2's
                 // Fujifilm event wait reports every object it has not listed
                 // itself): fetched now, never taken for an app shot's photo.
-                if let Some(at) = open.queue.iter().position(|queued| *queued == file) {
-                    open.queue.remove(at);
+                if open.from_queue.contains(&file) {
+                    open.queue.retain(|queued| *queued != file);
                     return self.download(file, Shot::Queued).map(|()| true);
                 }
                 if open.camera.one_shot_at_a_time() {
@@ -991,6 +998,9 @@ impl<W: Write> Server<W> {
         // downloaded (a repeat of a failed one is taken again).
         open.published.insert(file.clone(), identity);
         open.downloads.insert(file.clone(), shot);
+        if queued {
+            open.from_queue.remove(&file);
+        }
         if open.camera.abort_at(AbortPoint::BeforeEvent, shot) {
             std::process::exit(70);
         }

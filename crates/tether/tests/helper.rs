@@ -1,7 +1,7 @@
 //! The real helper process with the scripted mock camera, driven through
 //! the client as the app drives it.
 use rawtonic_tether::client::{Client, Incoming};
-use rawtonic_tether::mock::MockSpec;
+use rawtonic_tether::mock::{MockSpec, QueueState};
 use rawtonic_tether::protocol::{Captured, ErrorKind, Event, Reply, Request};
 use rawtonic_tether::staging;
 use std::collections::HashSet;
@@ -1716,11 +1716,7 @@ fn release(p: &Captured) -> Request {
 
 /// The photos of a transfer queue (`MockSpec::queue_state`).
 fn queue_now(state: &Path) -> Vec<String> {
-    serde_json::from_slice::<Vec<(String, u64)>>(&std::fs::read(state).unwrap())
-        .unwrap()
-        .into_iter()
-        .map(|(name, _)| name)
-        .collect()
+    QueueState::read(state).unwrap().names()
 }
 
 /// Photos left in the camera's transfer queue (taken while no computer took
@@ -1770,7 +1766,7 @@ fn a_shot_fired_while_the_queue_is_fetched_gets_its_own_photo() {
     let spec = MockSpec {
         queue_limit: Some(100),
         queued: queued.clone(),
-        queued_reported: true,
+        queued_reported_ms: Some(0),
         report_twice: true,
         file_size: 512 * 1024,
         ..MockSpec::default()
@@ -1934,4 +1930,67 @@ fn a_photo_kept_on_the_camera_is_fetched_again_unchanged_after_a_reconnect() {
     assert_eq!(fetched.camera_name, "DSC00001.ARW");
     assert!(!fetched.requested);
     assert_eq!(std::fs::read(&fetched.path).unwrap(), bytes);
+}
+
+/// A queued photo whose download failed stays a queued photo: reported
+/// again later by the camera, it is fetched without taking the request of
+/// a shot fired meanwhile.
+#[test]
+fn a_queued_photo_reported_after_a_failed_download_takes_no_shot_s_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        queue_limit: Some(10),
+        queued: vec!["Q1.RAF".into()],
+        failed_downloads: vec![1],
+        queued_reported_ms: Some(400),
+        event_delay_ms: 900,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    match helper.next_event(WAIT) {
+        Some(Event::CaptureFailed {
+            request: None,
+            exposure: Some(_),
+            ..
+        }) => {}
+        other => panic!("{other:?}"),
+    }
+    let request = helper.capture();
+    let (photos, other) = helper.photos(2);
+    assert!(other.is_empty(), "{other:?}");
+    let names: Vec<_> = photos.iter().map(|p| p.camera_name.as_str()).collect();
+    assert_eq!(names, ["Q1.RAF", "DSC00001.ARW"]);
+    assert!(!photos[0].requested && photos[0].request.is_none());
+    assert_eq!(photos[1].request, Some(request));
+}
+
+/// After a reconnect that fetched a kept photo, a new shot under the same
+/// (restarted) file name is a new photo with its own request.
+#[test]
+fn a_new_shot_after_a_reconnect_is_not_taken_for_the_kept_photo_of_its_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("queue.json");
+    let spec = MockSpec {
+        queue_limit: Some(10),
+        queue_state: Some(state.clone()),
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    helper.capture();
+    let kept = helper.photos(1).0.remove(0);
+    drop(helper);
+    let again = start(&spec, dir.path());
+    again.connect().unwrap();
+    let fetched = again.photos(1).0.remove(0);
+    assert_eq!(fetched.camera_name, kept.camera_name);
+    let request = again.capture();
+    let new = again.photos(1).0.remove(0);
+    assert_eq!(new.camera_name, kept.camera_name);
+    assert_eq!(new.request, Some(request));
+    assert_ne!(
+        std::fs::read(&new.path).unwrap(),
+        std::fs::read(&fetched.path).unwrap()
+    );
 }

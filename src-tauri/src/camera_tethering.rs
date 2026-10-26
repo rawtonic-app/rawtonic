@@ -1321,7 +1321,7 @@ pub fn tether_next_capture(
 mod tests {
     use super::*;
     use rawtonic_catalog::Mode;
-    use rawtonic_tether::mock::MockSpec;
+    use rawtonic_tether::mock::{MockSpec, QueueState};
     use std::collections::HashSet;
     use std::fs;
 
@@ -2293,8 +2293,7 @@ mod tests {
             )
             .unwrap()
         };
-        let on_camera =
-            || serde_json::from_slice::<Vec<(String, u64)>>(&fs::read(&queue).unwrap()).unwrap();
+        let on_camera = || QueueState::read(&queue).unwrap().queue;
         // Freeing off: in the library, and still on the camera, with a shot
         // fired meanwhile.
         open(false);

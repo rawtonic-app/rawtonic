@@ -59,9 +59,11 @@ pub struct MockSpec {
     /// yet), written on every change.
     pub queue_state: Option<std::path::PathBuf>,
     /// The camera also reports the photos of its transfer queue as new ones
-    /// right after the connect (libgphoto2's Fujifilm event wait reports
+    /// this long after the connect (libgphoto2's Fujifilm event wait reports
     /// every object it has not listed itself).
-    pub queued_reported: bool,
+    pub queued_reported_ms: Option<u64>,
+    /// Downloads (1-based, counted per connection) that fail.
+    pub failed_downloads: Vec<u64>,
     /// Listing the transfer queue fails.
     pub queue_list_fails: bool,
     /// Each file is reported a second time right after (as libgphoto2 does
@@ -144,7 +146,8 @@ impl Default for MockSpec {
             queue_limit: None,
             queued: vec![],
             queue_state: None,
-            queued_reported: false,
+            queued_reported_ms: None,
+            failed_downloads: vec![],
             queue_list_fails: false,
             report_twice: false,
             preview: true,
@@ -209,30 +212,31 @@ impl Driver for MockDriver {
             .collect();
         // Each queued photo with its shot: its bytes are the same at every
         // download, also after a reconnect or in another helper.
-        let queue: Vec<(CameraFile, u64)> = if self.spec.queue_limit.is_none() {
-            Vec::new()
+        let (queue, fired): (Vec<(CameraFile, u64)>, u64) = if self.spec.queue_limit.is_none() {
+            (Vec::new(), 0)
         } else {
-            let entries: Vec<(String, u64)> = match &self.spec.queue_state {
-                Some(state) if state.exists() => std::fs::read(state)
-                    .ok()
-                    .and_then(|data| serde_json::from_slice(&data).ok())
-                    .ok_or_else(|| {
-                        TetherError::new(ErrorKind::Other, "The mock queue state is unreadable.")
-                    })?,
+            let state = match &self.spec.queue_state {
+                Some(state) if state.exists() => QueueState::read(state).ok_or_else(|| {
+                    TetherError::new(ErrorKind::Other, "The mock queue state is unreadable.")
+                })?,
                 // Shots taken before: a hash of the name stands for each.
-                _ => self
-                    .spec
-                    .queued
-                    .iter()
-                    .map(|name| {
-                        use std::hash::{Hash, Hasher};
-                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                        name.hash(&mut hasher);
-                        (name.clone(), hasher.finish() | 1 << 63)
-                    })
-                    .collect(),
+                _ => QueueState {
+                    fired: 0,
+                    queue: self
+                        .spec
+                        .queued
+                        .iter()
+                        .map(|name| {
+                            use std::hash::{Hash, Hasher};
+                            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                            name.hash(&mut hasher);
+                            (name.clone(), hasher.finish() | 1 << 63)
+                        })
+                        .collect(),
+                },
             };
-            entries
+            let queue = state
+                .queue
                 .into_iter()
                 .map(|(name, shot)| {
                     (
@@ -243,20 +247,25 @@ impl Driver for MockDriver {
                         shot,
                     )
                 })
-                .collect()
+                .collect();
+            (queue, state.fired)
         };
         let shots = queue
             .iter()
             .map(|(file, shot)| (file.name.clone(), *shot))
             .collect();
-        let due = if self.spec.queued_reported {
-            queue.iter().map(|(file, _)| (now, file.clone())).collect()
-        } else {
-            VecDeque::new()
+        let due = match self.spec.queued_reported_ms {
+            Some(ms) => queue
+                .iter()
+                .map(|(file, _)| (now + Duration::from_millis(ms), file.clone()))
+                .collect(),
+            None => VecDeque::new(),
         };
         let camera = MockCamera {
             spec: self.spec.clone(),
-            fired: 0,
+            // Shots stay distinct across connections (the file numbering
+            // restarts as scripted; the camera's shot counter does not).
+            fired,
             numbered: 0,
             downloaded: 0,
             due,
@@ -310,6 +319,25 @@ impl Driver for MockDriver {
 
 /// Where the mock camera keeps its photos.
 const FOLDER: &str = "/store_00010001/DCIM/100MOCK";
+
+/// What `MockSpec::queue_state` keeps: the camera's shot counter and its
+/// transfer queue (each photo's file name and shot).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct QueueState {
+    pub fired: u64,
+    pub queue: Vec<(String, u64)>,
+}
+
+impl QueueState {
+    pub fn read(path: &std::path::Path) -> Option<Self> {
+        serde_json::from_slice(&std::fs::read(path).ok()?).ok()
+    }
+
+    /// The queued photos' file names, oldest first.
+    pub fn names(&self) -> Vec<String> {
+        self.queue.iter().map(|(name, _)| name.clone()).collect()
+    }
+}
 
 fn setting(key: &str, label: &str, value: &str, choices: &[&str]) -> Setting {
     Setting {
@@ -375,12 +403,15 @@ impl MockCamera {
     /// Writes the transfer queue to `queue_state`, if the script names one.
     fn save_queue(&self) {
         if let Some(state) = &self.spec.queue_state {
-            let entries: Vec<(&str, u64)> = self
-                .queue
-                .iter()
-                .map(|(f, shot)| (f.name.as_str(), *shot))
-                .collect();
-            std::fs::write(state, serde_json::to_vec(&entries).unwrap())
+            let saved = QueueState {
+                fired: self.fired,
+                queue: self
+                    .queue
+                    .iter()
+                    .map(|(f, shot)| (f.name.clone(), *shot))
+                    .collect(),
+            };
+            std::fs::write(state, serde_json::to_vec(&saved).unwrap())
                 .expect("the mock queue state is written");
         }
     }
@@ -751,6 +782,12 @@ impl Camera for MockCamera {
             return Err(Self::gone());
         }
         self.downloaded += 1;
+        if self.spec.failed_downloads.contains(&self.downloaded) {
+            return Err(TetherError::new(
+                ErrorKind::Other,
+                "The camera did not hand the file over.",
+            ));
+        }
         let shot = self
             .shots
             .get(&file.name)
