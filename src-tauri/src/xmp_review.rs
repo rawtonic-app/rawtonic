@@ -133,10 +133,12 @@ pub fn resolve(lib: &Library, paths: &[String], keep: XmpChoice) -> anyhow::Resu
 }
 
 /// Undoes "Use XMP": puts each photograph's metadata back unless it was
-/// edited since.
+/// edited since, newest step first (a photograph read twice goes back to
+/// what it held before the first). Steps that could not be undone are
+/// returned in `undo`, in their order, so they can be tried again.
 pub fn undo(lib: &Library, undo: &[XmpUndo]) -> XmpReport {
     let mut report = XmpReport::default();
-    for step in undo {
+    for step in undo.iter().rev() {
         let path = lib
             .asset(&step.asset)
             .map(|a| a.path.to_string_lossy().into_owned())
@@ -146,12 +148,16 @@ pub fn undo(lib: &Library, undo: &[XmpUndo]) -> XmpReport {
                 rederive_editor_sidecar(lib, &step.asset);
                 report.done.push(path);
             }
-            Err(e) => report.failed.push(XmpFailure {
-                path,
-                reason: e.to_string(),
-            }),
+            Err(e) => {
+                report.undo.push(step.clone());
+                report.failed.push(XmpFailure {
+                    path,
+                    reason: e.to_string(),
+                });
+            }
         }
     }
+    report.undo.reverse();
     report
 }
 
@@ -419,5 +425,36 @@ mod tests {
             .unwrap();
         assert_eq!(entry.state, XmpState::Pending);
         assert_eq!(fs::read_to_string(&xmp).unwrap(), EXTERNAL);
+    }
+
+    #[test]
+    fn undo_goes_back_through_two_readings_of_one_photo() {
+        let (_tmp, lib, photos) = session();
+        sync_pending(&lib).unwrap();
+        let path = shown(&photos[2]);
+        let id = lib.asset_at(&photos[2]).unwrap().unwrap().id;
+        let first = resolve(&lib, std::slice::from_ref(&path), XmpChoice::Xmp).unwrap();
+        assert_eq!(lib.metadata(&id).unwrap().rating, 5);
+        // Changed outside again, read again.
+        fs::write(
+            photos[2].with_extension("xmp"),
+            EXTERNAL.replace(r#"Rating="5""#, r#"Rating="1""#),
+        )
+        .unwrap();
+        assert!(lib.sync_xmp(&id).is_err());
+        let second = resolve(&lib, std::slice::from_ref(&path), XmpChoice::Xmp).unwrap();
+        assert_eq!(lib.metadata(&id).unwrap().rating, 1);
+        let steps: Vec<_> = first.undo.into_iter().chain(second.undo).collect();
+        // A step that cannot be undone yet is handed back for another try.
+        let blocked = undo(&lib, &steps[..1]);
+        assert_eq!(blocked.undo, steps[..1].to_vec());
+        let report = undo(&lib, &steps);
+        assert!(report.failed.is_empty(), "{:?}", report.failed);
+        assert!(report.undo.is_empty());
+        assert_eq!(
+            lib.metadata(&id).unwrap().rating,
+            3,
+            "back to before the first reading"
+        );
     }
 }

@@ -339,8 +339,86 @@ fn iptc_namespaces(metadata: &Metadata) -> String {
     )
 }
 
+/// What other applications keep inside the sidecar's creator contact
+/// structure (properties Rawtonic does not model), for the structure
+/// Rawtonic writes in its place: the start tag's namespace declarations and
+/// attributes, and the child elements, copied as they are. The declarations
+/// are those in scope at the old structure, so the copies mean the same.
+#[derive(Default)]
+struct ForeignContact {
+    start: String,
+    children: String,
+}
+
+/// Prefixes the description Rawtonic writes declares (`merge_xmp_with`).
+const OWN_PREFIXES: [(&str, &str); 8] = [
+    ("rdf", RDF),
+    ("xmp", XMP),
+    ("dc", DC),
+    ("lr", LR),
+    ("rawtonic", RT),
+    ("photoshop", PHOTOSHOP),
+    ("Iptc4xmpCore", IPTC_CORE),
+    ("xmpRights", XMP_RIGHTS),
+];
+
+fn foreign_contact(text: &str, root: roxmltree::Node) -> Result<ForeignContact> {
+    let Some(node) = root
+        .descendants()
+        .find(|n| n.has_tag_name((IPTC_CORE, "CreatorContactInfo")))
+    else {
+        return Ok(ForeignContact::default());
+    };
+    // The structure as `rdf:parseType="Resource"` or a nested description.
+    let inner = node
+        .children()
+        .find(|n| n.has_tag_name((RDF, "Description")));
+    let mut start = String::new();
+    let mut children = String::new();
+    for holder in std::iter::once(node).chain(inner) {
+        for attr in holder.attributes() {
+            if attr.namespace() != Some(RDF) && contact_key(attr.namespace(), attr.name()).is_none()
+            {
+                start.push(' ');
+                start.push_str(&text[attr.range()]);
+            }
+        }
+    }
+    for child in inner.unwrap_or(node).children().filter(|n| n.is_element()) {
+        let tag = child.tag_name();
+        if contact_key(tag.namespace(), tag.name()).is_none() {
+            children.push_str(&text[child.range()]);
+        }
+    }
+    if start.is_empty() && children.is_empty() {
+        return Ok(ForeignContact::default());
+    }
+    let mut declarations = String::new();
+    for ns in node.namespaces() {
+        match ns.name() {
+            Some("xml") => {}
+            Some(prefix) => match OWN_PREFIXES.iter().find(|(own, _)| *own == prefix) {
+                Some((_, uri)) => ensure!(
+                    *uri == ns.uri(),
+                    "XMP prefix {prefix} names another namespace; refusing to rewrite the creator contact"
+                ),
+                None => declarations.push_str(&format!(" xmlns:{prefix}=\"{}\"", escape(ns.uri()))),
+            },
+            None => declarations.push_str(&format!(" xmlns=\"{}\"", escape(ns.uri()))),
+        }
+    }
+    Ok(ForeignContact {
+        start: declarations + &start,
+        children,
+    })
+}
+
 /// The IPTC fields as XMP elements (prefixes declared by the caller).
-fn iptc_elements(metadata: &Metadata, kept_contact: &BTreeMap<String, String>) -> String {
+fn iptc_elements(
+    metadata: &Metadata,
+    kept_contact: &BTreeMap<String, String>,
+    foreign: &ForeignContact,
+) -> String {
     let prefix = |ns: &str| match ns {
         PHOTOSHOP => "photoshop",
         IPTC_CORE => "Iptc4xmpCore",
@@ -369,7 +447,8 @@ fn iptc_elements(metadata: &Metadata, kept_contact: &BTreeMap<String, String>) -
     }
     if !contact.is_empty() {
         out.push_str(&format!(
-            "<Iptc4xmpCore:CreatorContactInfo rdf:parseType=\"Resource\">{contact}</Iptc4xmpCore:CreatorContactInfo>"
+            "<Iptc4xmpCore:CreatorContactInfo{} rdf:parseType=\"Resource\">{contact}{}</Iptc4xmpCore:CreatorContactInfo>",
+            foreign.start, foreign.children
         ));
     }
     out
@@ -506,7 +585,14 @@ fn merge_xmp_with(
     } else {
         BTreeMap::new()
     };
-    out.push_str(&iptc_elements(metadata, &kept_contact));
+    // The structure is rewritten (`has_contact`): what other applications
+    // keep in it goes along.
+    let foreign = if has_contact {
+        foreign_contact(base, root)?
+    } else {
+        ForeignContact::default()
+    };
+    out.push_str(&iptc_elements(metadata, &kept_contact, &foreign));
     for tag in ["dc:subject", "lr:hierarchicalSubject"] {
         out.push_str(&format!("<{tag}><rdf:Bag>"));
         for keyword in &metadata.keywords {
@@ -587,7 +673,11 @@ pub fn export_xmp_with_source(
             escape(&metadata.creator)
         ));
     }
-    out.push_str(&iptc_elements(metadata, &BTreeMap::new()));
+    out.push_str(&iptc_elements(
+        metadata,
+        &BTreeMap::new(),
+        &ForeignContact::default(),
+    ));
     let mut terms: Vec<&str> = Vec::new();
     for term in metadata
         .keywords
@@ -753,6 +843,51 @@ mod tests {
         // Without replacing, the sidecar's contact field stays.
         let kept = merge_xmp(Some(&packet), &Metadata::default(), None).unwrap();
         assert!(kept.contains("someone@"), "{kept}");
+    }
+
+    #[test]
+    fn rewriting_the_contact_structure_keeps_foreign_properties_inside_it() {
+        for structure in [
+            r#"<Iptc4xmpCore:CreatorContactInfo rdf:parseType="Resource" other:Note="n"><Iptc4xmpCore:CiEmailWork>someone@example.invalid</Iptc4xmpCore:CiEmailWork><other:Pager>123</other:Pager></Iptc4xmpCore:CreatorContactInfo>"#,
+            r#"<Iptc4xmpCore:CreatorContactInfo><rdf:Description other:Note="n"><Iptc4xmpCore:CiEmailWork>someone@example.invalid</Iptc4xmpCore:CiEmailWork><other:Pager>123</other:Pager></rdf:Description></Iptc4xmpCore:CreatorContactInfo>"#,
+        ] {
+            let packet = format!(
+                r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="{RDF}"><rdf:Description rdf:about="" xmlns:Iptc4xmpCore="{IPTC_CORE}" xmlns:other="https://example.invalid/other/">{structure}</rdf:Description></rdf:RDF></x:xmpmeta>"#
+            );
+            // As Use XMP reads it, written back with the library's metadata.
+            let mut meta = read_xmp(&packet).unwrap().0;
+            meta.set_iptc("creatorPhone", "+1 555");
+            for replace in [false, true] {
+                let written = merge_xmp_with(Some(&packet), &meta, None, replace).unwrap();
+                let doc = roxmltree::Document::parse(&written).unwrap();
+                let pager = doc
+                    .descendants()
+                    .find(|n| n.has_tag_name(("https://example.invalid/other/", "Pager")))
+                    .unwrap_or_else(|| panic!("{written}"));
+                assert_eq!(pager.text(), Some("123"));
+                assert!(
+                    doc.descendants()
+                        .any(|n| n.attribute(("https://example.invalid/other/", "Note"))
+                            == Some("n"))
+                );
+                let read = read_xmp(&written).unwrap().0;
+                assert_eq!(
+                    read.iptc.get("creatorEmail").map(String::as_str),
+                    Some("someone@example.invalid")
+                );
+                assert_eq!(
+                    read.iptc.get("creatorPhone").map(String::as_str),
+                    Some("+1 555")
+                );
+                assert_eq!(
+                    doc.descendants()
+                        .filter(|n| n.has_tag_name((IPTC_CORE, "CreatorContactInfo")))
+                        .count(),
+                    1,
+                    "{written}"
+                );
+            }
+        }
     }
 
     #[test]

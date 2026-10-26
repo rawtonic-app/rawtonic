@@ -122,4 +122,25 @@ describe("XMP review dialog undo", () => {
     expect(invoke).toHaveBeenCalledWith("session_xmp_undo", { directory: "/jobs/Acme", steps });
     await waitFor(() => expect(within(dialog).queryByRole("button", { name: /Undo Use XMP/ })).toBeNull());
   });
+
+  it("keeps the steps an undo could not take back", async () => {
+    const user = userEvent.setup();
+    const steps = [{ asset: "a" }];
+    let entries: XmpReviewEntry[] = [conflict("a.nef")];
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "session_xmp_review") return entries;
+      if (command === "session_xmp_resolve") {
+        entries = [];
+        return { ...empty, done: ["/jobs/Acme/Capture/a.nef"], undo: steps };
+      }
+      if (command === "session_xmp_undo")
+        return { ...empty, failed: [{ path: "/jobs/Acme/Capture/a.nef", reason: "database is locked" }], undo: steps };
+      throw new Error(`unexpected ${command}`);
+    });
+    const { dialog } = open();
+    await user.click(await within(dialog).findByRole("button", { name: "Use XMP for a.nef" }));
+    await user.click(await within(dialog).findByRole("button", { name: "Undo Use XMP" }));
+    expect(await within(dialog).findByText("database is locked")).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Undo Use XMP" })).toBeTruthy();
+  });
 });

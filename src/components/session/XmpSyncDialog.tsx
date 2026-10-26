@@ -78,7 +78,8 @@ export default function XmpSyncDialog({ directory, syncEnabled, onClose, onEntri
       const result = await work();
       if (!mounted.current) return;
       setReport(result);
-      if (undo) setUndoSteps([]);
+      // Steps an undo could not take back stay for another try.
+      if (undo) setUndoSteps(result.undo);
       else if (result.undo.length) setUndoSteps((steps) => [...steps, ...result.undo]);
       await load(false);
     } catch (e) {

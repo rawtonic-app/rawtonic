@@ -28,6 +28,7 @@ export interface XmpReport {
   offline: string[];
   conflicts: string[];
   failed: Array<{ path: string; reason: string }>;
+  /** Use XMP: what undoes it. Undo: the steps that could not be undone. */
   undo: XmpUndoStep[];
 }
 
