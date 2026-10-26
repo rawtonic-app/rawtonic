@@ -25,6 +25,7 @@ import {
   withSharpenVersion,
   withGrainStructure,
   withLegacyGrainVersion,
+  withLoadedCurves,
 } from '../utils/adjustments';
 import { calculateCenteredCrop, reframingInputs } from '../utils/cropUtils';
 import { cropGestures } from '../utils/cropGesture';
@@ -828,9 +829,11 @@ export function useEditorActions() {
       // picker (`asChosen`): those carry them only when chosen there, else
       // each photograph keeps its own (a never-edited one: a new edit's).
       const grain = withGrainStructure(partial);
-      const adjustmentsToApply = asChosen
+      let adjustmentsToApply = asChosen
         ? grain
         : withClarityVersion(withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withLegacyGrainVersion(grain))))));
+      // A style's curves as loading makes them (src/utils/appliedStyle.ts).
+      if (style && !style.remove) adjustmentsToApply = withLoadedCurves(adjustmentsToApply);
       const { selectedImage, adjustments } = useEditorStore.getState();
       const { multiSelectedPaths } = useLibraryStore.getState();
       const pathsToUpdate =

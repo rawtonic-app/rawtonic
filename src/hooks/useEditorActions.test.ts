@@ -17,7 +17,8 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
-import { INITIAL_ADJUSTMENTS, PasteMode } from '../utils/adjustments';
+import { INITIAL_ADJUSTMENTS, PasteMode, normalizeLoadedAdjustments } from '../utils/adjustments';
+import { revertStyle } from '../utils/appliedStyle';
 import { AppSettings, Invokes } from '../components/ui/AppProperties';
 import { COMMIT_INTERVAL_MS, registerSliderDraftRenderer } from '../utils/sliderDraft';
 import { cropEditCancelled, cropGestureEnded, cropGestureStarted } from '../utils/cropGesture';
@@ -731,6 +732,15 @@ describe('styles', () => {
     await act(async () => {});
     expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === Invokes.ResolvePastedLens)).toHaveLength(1);
     await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+  });
+
+  it('applies a partial curve with every channel, so it is still the style\'s after reopening', async () => {
+    const { result } = renderHook(useEditorActions);
+    applyStyle(result, { curves: { luma: [{ x: 0, y: 0 }, { x: 128, y: 150 }, { x: 255, y: 255 }] } }, 'curve');
+    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    const reopened = normalizeLoadedAdjustments(JSON.parse(JSON.stringify(recipe())));
+    expect(revertStyle(reopened).kept).toEqual([]);
+    expect(revertStyle(reopened).recipe.curves).toEqual(INITIAL_ADJUSTMENTS.curves);
   });
 
   it('leaves the open photo alone when the style taken back is not its own', async () => {

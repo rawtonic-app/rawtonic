@@ -1260,6 +1260,13 @@ const deepCloneCurves = (curves: Partial<Curves> | undefined): Curves => ({
   ...(curves?.version !== undefined ? { version: curves.version } : {}),
 });
 
+/** A style's settings with its curves as loading fills them in (every
+ * channel; the version as it is), so that the record of an applied style
+ * still matches the curves after the photo is opened again. */
+export function withLoadedCurves<T extends { curves?: Partial<Curves> }>(values: T): T {
+  return values.curves ? { ...values, curves: deepCloneCurves(values.curves) } : values;
+}
+
 const deepCloneParametric = (pCurve: Partial<ParametricCurve> | undefined): ParametricCurve => ({
   luma: { ...DEFAULT_PARAMETRIC_CURVE_SETTINGS, ...(pCurve?.luma || {}) },
   red: { ...DEFAULT_PARAMETRIC_CURVE_SETTINGS, ...(pCurve?.red || {}) },
