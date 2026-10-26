@@ -20,8 +20,17 @@ struct Helper {
 }
 
 fn start_with(spec: &MockSpec, session: &Path, shot_timeout_ms: u64) -> Helper {
+    start_with_env(spec, session, shot_timeout_ms, &[])
+}
+
+fn start_with_env(
+    spec: &MockSpec,
+    session: &Path,
+    shot_timeout_ms: u64,
+    extra: &[(&str, &str)],
+) -> Helper {
     let (tx, rx) = mpsc::channel();
-    let envs: Vec<(OsString, OsString)> = vec![
+    let mut envs: Vec<(OsString, OsString)> = vec![
         (
             "RAWTONIC_TETHER_MOCK".into(),
             serde_json::to_string(spec).unwrap().into(),
@@ -32,6 +41,7 @@ fn start_with(spec: &MockSpec, session: &Path, shot_timeout_ms: u64) -> Helper {
         ),
         ("RAWTONIC_TETHER_ONE_AT_A_TIME_MS".into(), "1500".into()),
     ];
+    envs.extend(extra.iter().map(|(k, v)| (k.into(), v.into())));
     let (client, library) = Client::spawn(Path::new(HELPER), &["--mock".into()], &envs, move |i| {
         let _ = tx.send(i);
     })
@@ -1049,6 +1059,241 @@ fn live_view_frames_arrive_while_on() {
             .unwrap_err()
             .kind,
         ErrorKind::Unsupported
+    );
+}
+
+/// Live-view frames (and whether live view stopped) for `span`.
+fn frames_for(helper: &Helper, span: Duration) -> (usize, bool) {
+    let mut frames = 0;
+    let mut stopped = false;
+    let deadline = Instant::now() + span;
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        match helper.incoming.recv_timeout(left) {
+            Ok(Incoming::LiveView(_)) => frames += 1,
+            Ok(Incoming::Event(Event::LiveViewStopped { .. })) => stopped = true,
+            _ => {}
+        }
+    }
+    (frames, stopped)
+}
+
+#[test]
+fn live_view_event_reads_can_be_spaced_out() {
+    // Each event read takes 300 ms, as libgphoto2's Fujifilm event wait does
+    // even when asked for 1 ms: a frame per read, about 3 a second.
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        event_poll_ms: 300,
+        ..MockSpec::default()
+    };
+    let span = Duration::from_millis(1500);
+    let run = |extra: &[(&str, &str)]| {
+        let helper = start_with_env(&spec, dir.path(), 60_000, extra);
+        helper.connect().unwrap();
+        helper
+            .client
+            .request(Request::LiveView { on: true }, WAIT)
+            .unwrap();
+        let (frames, stopped) = frames_for(&helper, span);
+        assert!(!stopped);
+        frames
+    };
+    let every_frame = run(&[]);
+    assert!(every_frame <= 8, "{every_frame} frames");
+    // The experiment reads them once a second: frames in between.
+    let spaced = run(&[("RAWTONIC_TETHER_LV_EXPERIMENT", "poll-ms=1000")]);
+    assert!(spaced >= 15, "{spaced} frames (every frame: {every_frame})");
+}
+
+#[test]
+fn live_view_goes_on_through_tolerated_frame_failures() {
+    // After a shot, three frames fail before the camera has frames again.
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        live_view_gap_after_shot: 3,
+        ..MockSpec::default()
+    };
+    let run = |extra: &[(&str, &str)]| {
+        let helper = start_with_env(&spec, dir.path(), 60_000, extra);
+        helper.connect().unwrap();
+        helper
+            .client
+            .request(Request::LiveView { on: true }, WAIT)
+            .unwrap();
+        helper.capture();
+        frames_for(&helper, Duration::from_millis(600))
+    };
+    // As before: the first failed frame stops live view.
+    let (_, stopped) = run(&[]);
+    assert!(stopped);
+    let (frames, stopped) = run(&[("RAWTONIC_TETHER_LV_EXPERIMENT", "tolerate=5")]);
+    assert!(!stopped && frames > 0, "{frames} frames, stopped {stopped}");
+}
+
+#[test]
+fn the_live_view_sequence_reports_each_phase_and_writes_a_new_trace() {
+    let dir = tempfile::tempdir().unwrap();
+    // A trace file already there is kept; the helper writes FILE.2.
+    let trace = dir.path().join("trace.txt");
+    std::fs::write(&trace, b"mine").unwrap();
+    let out = dir.path().join("out");
+    // Live view never comes back after a shot (the X-H2S's symptom).
+    let spec = MockSpec {
+        live_view_gap_after_shot: 1000,
+        ..MockSpec::default()
+    };
+    let output = std::process::Command::new(HELPER)
+        .args([
+            "liveview",
+            "--mock",
+            "--seconds",
+            "2",
+            "--shots",
+            "1",
+            "--out",
+        ])
+        .arg(&out)
+        .env(
+            "RAWTONIC_TETHER_MOCK",
+            serde_json::to_string(&spec).unwrap(),
+        )
+        .env("RAWTONIC_TETHER_TRACE", &trace)
+        .output()
+        .unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let phases = report["phases"].as_array().unwrap();
+    let names: Vec<&str> = phases
+        .iter()
+        .map(|p| p["phase"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        ["before shots", "shot 1", "started again"],
+        "{report}"
+    );
+    assert!(phases[0]["frames"].as_u64().unwrap() > 3, "{report}");
+    assert!(phases[0]["stopped"].as_array().unwrap().is_empty());
+    let shot = &phases[1];
+    assert_eq!(shot["framesAfterShot"], 0, "{report}");
+    assert!(shot["request"].is_u64(), "{report}");
+    let photos = report["photos"].as_array().unwrap();
+    assert_eq!(photos.len(), 1, "{report}");
+    assert_eq!(photos[0]["shot"], "shot 1", "{report}");
+    assert_eq!(photos[0]["request"], shot["request"], "{report}");
+    assert!(
+        shot["stopped"][0]["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("no frame"),
+        "{report}"
+    );
+    assert!(shot["turnedOnAgain"]["result"].is_string(), "{report}");
+    assert_eq!(std::fs::read(&trace).unwrap(), b"mine");
+    let written = std::fs::read_to_string(dir.path().join("trace.txt.2")).unwrap();
+    assert!(
+        written.contains("live view frame 1: 4 bytes in"),
+        "{written}"
+    );
+    assert!(written.contains("live view stopped after"), "{written}");
+}
+
+#[test]
+fn a_photo_that_comes_after_its_phase_still_belongs_to_its_shot() {
+    let dir = tempfile::tempdir().unwrap();
+    // The photo comes 2.5 s after the shot, fired half a second into a
+    // 2 s phase: it arrives in a later phase.
+    let spec = MockSpec {
+        event_delay_ms: 2500,
+        ..MockSpec::default()
+    };
+    let output = std::process::Command::new(HELPER)
+        .args([
+            "liveview",
+            "--mock",
+            "--seconds",
+            "2",
+            "--shots",
+            "1",
+            "--out",
+        ])
+        .arg(dir.path().join("out"))
+        .env(
+            "RAWTONIC_TETHER_MOCK",
+            serde_json::to_string(&spec).unwrap(),
+        )
+        .output()
+        .unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let photos = report["photos"].as_array().unwrap();
+    assert_eq!(photos.len(), 1, "{report}");
+    assert_eq!(photos[0]["shot"], "shot 1", "{report}");
+    assert_ne!(photos[0]["arrivedIn"], "shot 1", "{report}");
+    assert!(
+        photos[0]["msAfterFire"].as_f64().unwrap() >= 2400.0,
+        "{report}"
+    );
+}
+
+/// The `liveview` sequence's photos with `spec`, 1.5 s phases, two shots.
+fn sequence_photos(spec: &MockSpec) -> (Vec<serde_json::Value>, serde_json::Value) {
+    let dir = tempfile::tempdir().unwrap();
+    let output = std::process::Command::new(HELPER)
+        .args([
+            "liveview",
+            "--mock",
+            "--seconds",
+            "1.5",
+            "--shots",
+            "2",
+            "--out",
+        ])
+        .arg(dir.path().join("out"))
+        .env("RAWTONIC_TETHER_MOCK", serde_json::to_string(spec).unwrap())
+        .output()
+        .unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    (report["photos"].as_array().unwrap().clone(), report)
+}
+
+#[test]
+fn the_sequence_waits_for_every_shot_and_its_companion_files() {
+    // RAW+JPEG; the second shot's files come 4 s late, after the last phase
+    // began; the first shot's two files must not count for it.
+    let (photos, report) = sequence_photos(&MockSpec {
+        raw_and_jpeg: true,
+        late_shots: vec![2],
+        late_ms: 4000,
+        ..MockSpec::default()
+    });
+    let of = |shot: &str| photos.iter().filter(|p| p["shot"] == shot).count();
+    assert_eq!((of("shot 1"), of("shot 2")), (2, 2), "{report}");
+    assert!(photos.iter().all(|p| p["certain"] == true), "{report}");
+}
+
+#[test]
+fn the_sequence_marks_a_photo_whose_shot_cannot_be_told() {
+    // A reused name: shot 1 RAW only, shot 2 RAW+JPEG — the JPEG may be
+    // either's.
+    let (photos, report) = sequence_photos(&MockSpec {
+        restart_numbering_every: Some(1),
+        raw_and_jpeg: true,
+        jpeg_from_shot: Some(2),
+        ..MockSpec::default()
+    });
+    assert_eq!(photos.len(), 3, "{report}");
+    let jpeg = photos.iter().find(|p| p["file"] == "DSC00001.JPG").unwrap();
+    assert_eq!(jpeg["certain"], false, "{report}");
+    assert!(jpeg["msAfterFire"].is_null(), "{report}");
+    assert!(
+        !jpeg["ambiguous"].as_array().unwrap().is_empty(),
+        "{report}"
+    );
+    assert!(
+        photos
+            .iter()
+            .filter(|p| p["file"] == "DSC00001.ARW")
+            .all(|p| p["certain"] == true && p["msAfterFire"].is_number()),
+        "{report}"
     );
 }
 

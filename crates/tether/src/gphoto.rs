@@ -5,6 +5,7 @@
 //! controls (e.g. a body listed without capture that captures). Nothing on the camera is changed except the
 //! settings the user sets; nothing on it is deleted.
 use crate::camera::{Camera, CameraEvent, CameraFile, Driver, Fired, SETTINGS, setting_aliases};
+use crate::experiment::LiveViewExperiment;
 use crate::protocol::{CameraInfo, CameraStatus, ErrorKind, Setting, TetherError};
 use gphoto2::error::ErrorKind as Gp;
 use gphoto2::widget::{WidgetType, WidgetValue};
@@ -137,6 +138,7 @@ fn firmware_version(summary: &str) -> Option<String> {
 
 pub struct GphotoDriver {
     context: gphoto2::Context,
+    experiment: LiveViewExperiment,
 }
 
 impl GphotoDriver {
@@ -144,7 +146,16 @@ impl GphotoDriver {
         let mut context = gphoto2::Context::new().map_err(|e| error("libgphoto2", e))?;
         context.set_error_handler(|text| log::warn!("libgphoto2: {text}"));
         context.set_message_handler(|text| log::info!("libgphoto2: {text}"));
-        Ok(Self { context })
+        Ok(Self {
+            context,
+            experiment: LiveViewExperiment::default(),
+        })
+    }
+
+    /// Live-view experiments for a session with a body (`experiment`).
+    pub fn with_live_view_experiment(mut self, experiment: LiveViewExperiment) -> Self {
+        self.experiment = experiment;
+        self
     }
 }
 
@@ -246,6 +257,8 @@ impl Driver for GphotoDriver {
             capture: true,
             preview: true,
             names: HashMap::new(),
+            experiment: self.experiment.clone(),
+            live_view_open: false,
         }))
     }
 }
@@ -268,6 +281,10 @@ pub struct GphotoCamera {
     one_at_a_time: bool,
     /// Our setting key → the camera's name for it, once found.
     names: HashMap<&'static str, String>,
+    experiment: LiveViewExperiment,
+    /// A live-view frame came since the connect or the last
+    /// `end_live_view` (libgphoto2 keeps the camera's live view open).
+    live_view_open: bool,
 }
 
 fn text(value: WidgetValue) -> Option<String> {
@@ -309,6 +326,63 @@ impl GphotoCamera {
                 log::warn!("priority mode not set to {computer}: {e}");
                 false
             }
+        }
+    }
+
+    /// `LiveViewExperiment::priority`: sets `prioritymode` to the
+    /// computer's choice without reading it first (libgphoto2 may answer
+    /// "USB" from its cache while the camera is back on "Camera").
+    fn force_priority(&self) {
+        let started = std::time::Instant::now();
+        let Some(widget) = self.widget("prioritymode") else {
+            return;
+        };
+        let Some(computer) = widget
+            .choices()
+            .ok()
+            .and_then(|choices| choices.into_iter().find(|c| c != "Camera"))
+        else {
+            return;
+        };
+        let set = widget.set_choice(&computer).and_then(|()| {
+            self.camera
+                .set_single_config(&self.context, "prioritymode", &widget)
+        });
+        match set {
+            Ok(()) => log::debug!(
+                "experiment priority: set to {computer} in {} ms",
+                started.elapsed().as_millis()
+            ),
+            Err(e) => log::warn!("experiment priority: not set to {computer}: {e}"),
+        }
+    }
+
+    /// `LiveViewExperiment::reopen`: ends the camera's live view
+    /// (libgphoto2's "movie" toggle off sends TerminateOpenCapture), so the
+    /// next frame opens it again.
+    /// Only on libgphoto2's Fujifilm tether path: on other vendors' paths
+    /// the widget of that name starts and stops movie recording.
+    fn end_live_view(&mut self) {
+        let started = std::time::Instant::now();
+        self.live_view_open = false;
+        if !self.transfer_queue {
+            log::warn!("experiment reopen: only on the Fujifilm tether path; not done");
+            return;
+        }
+        let Some(widget) = self.widget("movie") else {
+            log::warn!("experiment reopen: the camera has no open capture to end");
+            return;
+        };
+        let set = widget.set_toggle(false).and_then(|()| {
+            self.camera
+                .set_single_config(&self.context, "movie", &widget)
+        });
+        match set {
+            Ok(()) => log::info!(
+                "experiment reopen: live view ended before the shot in {} ms",
+                started.elapsed().as_millis()
+            ),
+            Err(e) => log::warn!("experiment reopen: live view not ended: {e}"),
         }
     }
 
@@ -455,6 +529,9 @@ impl Camera for GphotoCamera {
     }
 
     fn fire(&mut self) -> Result<Fired, TetherError> {
+        if self.experiment.reopen && self.live_view_open {
+            self.end_live_view();
+        }
         if self.trigger {
             // libgphoto2's Fujifilm tether path hands priority back to the
             // body each time it reads the camera's events, and a body that
@@ -539,8 +616,14 @@ impl Camera for GphotoCamera {
     }
 
     fn preview(&mut self) -> Result<Vec<u8>, TetherError> {
+        if self.experiment.priority {
+            self.force_priority();
+        }
         let file = match self.camera.capture_preview(&self.context) {
-            Ok(file) => file,
+            Ok(file) => {
+                self.live_view_open = true;
+                file
+            }
             Err(e) if e.kind() == Gp::NotSupported => {
                 self.preview = false;
                 return Err(TetherError::new(

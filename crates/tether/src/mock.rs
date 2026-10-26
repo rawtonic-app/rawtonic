@@ -54,6 +54,13 @@ pub struct MockSpec {
     pub report_twice: bool,
     /// Live view is offered.
     pub preview: bool,
+    /// An event read that finds nothing takes at least this long, also when
+    /// asked to wait less (libgphoto2's Fujifilm event wait ends with an
+    /// interrupt read of up to 2 × 150 ms, also for a 1 ms wait).
+    pub event_poll_ms: u64,
+    /// After each shot this many live-view frames fail before frames come
+    /// again (a large number: live view never comes back after a shot).
+    pub live_view_gap_after_shot: u32,
     /// The body's serial number.
     pub serial: Option<String>,
     /// Its firmware version.
@@ -122,6 +129,8 @@ impl Default for MockSpec {
             queue_limit: None,
             report_twice: false,
             preview: true,
+            event_poll_ms: 0,
+            live_view_gap_after_shot: 0,
             serial: Some("MOCK0001".into()),
             firmware: Some("1.00".into()),
             capture_target: None,
@@ -193,6 +202,7 @@ impl Driver for MockDriver {
             opened: now,
             stale: None,
             complete: false,
+            live_view_failing: 0,
             settings: vec![
                 match &self.spec.iso {
                     Some((value, choices)) => {
@@ -261,6 +271,8 @@ pub struct MockCamera {
     stale: Option<(String, String, Instant)>,
     /// A CaptureComplete to report next (`ignores_triggers_while_busy`).
     complete: bool,
+    /// Live-view frames still to fail (`live_view_gap_after_shot`).
+    live_view_failing: u32,
 }
 
 impl MockCamera {
@@ -460,6 +472,7 @@ impl Camera for MockCamera {
             self.due.retain(|(at, _)| *at > now);
         }
         let file = self.shutter(now);
+        self.live_view_failing = self.spec.live_view_gap_after_shot;
         if self.spec.no_trigger {
             // The driver waits for the file itself.
             let (at, file) = file.ok_or_else(|| {
@@ -538,6 +551,13 @@ impl Camera for MockCamera {
             return Err(Self::gone());
         }
         std::thread::sleep(Duration::from_millis(20));
+        if self.live_view_failing > 0 {
+            self.live_view_failing -= 1;
+            return Err(TetherError::new(
+                ErrorKind::Other,
+                "Live view: the camera has no frame (PTP Invalid ObjectHandle).",
+            ));
+        }
         Ok(vec![0xff, 0xd8, 0xff, 0xd9])
     }
 
@@ -593,7 +613,7 @@ impl Camera for MockCamera {
                 Ok(CameraEvent::Timeout)
             }
             _ => {
-                std::thread::sleep(timeout);
+                std::thread::sleep(timeout.max(Duration::from_millis(self.spec.event_poll_ms)));
                 Ok(CameraEvent::Timeout)
             }
         }
