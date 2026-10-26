@@ -95,4 +95,13 @@ describe('applied style', () => {
     expect(list).toContain('LENS_PROFILE_FOR');
   });
 
+
+  it('keeps an older edit\'s response below half strength (a missing version key stays missing)', () => {
+    const own = { highlights: -50 };
+    const values = { highlights: 0, toneVersion: 3 };
+    const recipe = recordStyle(own, { ...own, ...values }, values, 'tone');
+    const at0 = withStyleAmount(recipe, revertStyle(recipe).recipe, values, 0, { highlights: 0, toneVersion: 3 });
+    expect(at0).toEqual({ highlights: -50, appliedStyle: expect.anything() });
+    expect('toneVersion' in at0).toBe(false);
+  });
 });

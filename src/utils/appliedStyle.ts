@@ -198,8 +198,8 @@ function blendSetting(path: string[], from: unknown, full: unknown, a: number): 
 
 /** `recipe` with its applied style at `amount` percent: each setting still
  * the style's blended from its value before the style (in `base`: the
- * recipe without it, with the editor's defaults filled in; `defaults` where
- * the photo has no value) to its value at full strength on this photo (as
+ * recipe without it, with the editor's defaults filled in; `defaults` for a
+ * slider missing inside a group) to its value at full strength on this photo (as
  * recorded: `full`, or `to` at 100 %; else the style's own, `values`).
  * Settings the user changed since stay the user's and leave the record. */
 export function withStyleAmount<T extends object>(
@@ -220,7 +220,10 @@ export function withStyleAmount<T extends object>(
     // Its value at full strength as recorded on this photo, else the style's.
     const full = 'full' in change ? change.full : applied.amount >= 100 ? change.to : get(values, path);
     const own = get(base, path);
-    const from = own !== undefined ? own : get(defaults, path);
+    // A slider missing inside a group the photo has only partly blends from
+    // its default; a missing setting of its own (a version key: the older
+    // response) stays missing below half strength.
+    const from = own !== undefined || path.length === 1 ? own : get(defaults, path);
     const to = blendSetting(path, from, full, a);
     out = set(out, path, to);
     const { to: _old, full: _full, ...rest } = change;
