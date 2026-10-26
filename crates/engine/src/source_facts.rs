@@ -41,7 +41,8 @@ use crate::lens_correction::LensDistortionParams;
 /// 10: `camera_lens` at camera geometry version 4 (Samsung's distortion).
 /// 11: `camera_lens` at camera geometry version 5 (Panasonic and Fujifilm
 /// framing).
-pub const VERSION: u32 = 11;
+/// 12: `camera_lens` at camera geometry version 6 (Sony's knot table).
+pub const VERSION: u32 = 12;
 
 /// The file facts the rendering of one photograph uses.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
