@@ -1301,7 +1301,7 @@ impl Library {
             return Err(anyhow::Error::new(rawtonic_metadata::XmpConflict)
                 .context("Existing XMP has not been adopted; refusing to replace its metadata"));
         }
-        self.write_sidecar(asset, &path, hash.as_deref())
+        self.write_sidecar(asset, &path, hash.as_deref(), false)
     }
 
     pub fn undo(&self, version: &str) -> Result<bool> {

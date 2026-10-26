@@ -120,7 +120,7 @@ impl Library {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
             Err(e) => return Err(e.into()),
         };
-        self.write_sidecar(asset, &path, current.as_deref())
+        self.write_sidecar(asset, &path, current.as_deref(), true)
     }
 
     /// Resolves a conflict for the sidecar: the metadata Rawtonic reads
@@ -225,7 +225,8 @@ impl Library {
     }
 
     /// Writes the library's metadata and recipe over a sidecar whose digest
-    /// is `expected` (None: there is none). A changed sidecar marks a
+    /// is `expected` (None: there is none); `replace_iptc` as
+    /// `rawtonic_metadata::write_xmp_replacing_iptc`. A changed sidecar marks a
     /// conflict; other failures (read-only, a full disk) leave the state as
     /// it was, so the photograph stays pending.
     pub(crate) fn write_sidecar(
@@ -233,10 +234,16 @@ impl Library {
         asset: &str,
         path: &std::path::Path,
         expected: Option<&str>,
+        replace_iptc: bool,
     ) -> Result<()> {
         let recipe = self.recipe(&self.primary_version(asset)?)?;
-        match rawtonic_metadata::write_xmp(path, &self.metadata(asset)?, recipe.as_ref(), expected)
-        {
+        let metadata = self.metadata(asset)?;
+        let written = if replace_iptc {
+            rawtonic_metadata::write_xmp_replacing_iptc(path, &metadata, recipe.as_ref(), expected)
+        } else {
+            rawtonic_metadata::write_xmp(path, &metadata, recipe.as_ref(), expected)
+        };
+        match written {
             Ok(hash) => {
                 self.conn.execute(
                     "UPDATE metadata SET xmp_hash=?,xmp_status='synced' WHERE asset_id=?",

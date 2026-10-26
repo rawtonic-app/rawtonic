@@ -251,3 +251,50 @@ fn an_undo_never_overwrites_an_edit_from_another_connection() {
     assert!(f.lib.undo_use_xmp(&undo).is_err());
     assert_eq!(f.lib.metadata(&f.id).unwrap(), meta);
 }
+
+#[test]
+fn keep_library_removes_iptc_the_library_has_empty_and_keeps_unmodelled_properties() {
+    let f = synced();
+    // Another editor adds a city and a creator e-mail beside a property
+    // Rawtonic does not model.
+    let text = fs::read_to_string(&f.xmp).unwrap().replace(
+        "</rdf:RDF>",
+        r#"<rdf:Description rdf:about="" xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/" xmlns:Iptc4xmpCore="http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/" xmlns:other="https://example.invalid/other/" photoshop:City="Elsewhere" other:Kept="yes"><Iptc4xmpCore:CreatorContactInfo rdf:parseType="Resource"><Iptc4xmpCore:CiEmailWork>someone@example.invalid</Iptc4xmpCore:CiEmailWork></Iptc4xmpCore:CreatorContactInfo></rdf:Description></rdf:RDF>"#,
+    );
+    fs::write(&f.xmp, &text).unwrap();
+    set_rating(&f, 3);
+    assert!(f.lib.sync_xmp(&f.id).is_err());
+    f.lib.keep_library_xmp(&f.id).unwrap();
+    let written = fs::read_to_string(&f.xmp).unwrap();
+    let (meta, _) = rawtonic_metadata::read_xmp(&written).unwrap();
+    assert!(meta.iptc.is_empty(), "{:?}", meta.iptc);
+    assert!(
+        !written.contains("Elsewhere") && !written.contains("someone@"),
+        "{written}"
+    );
+    assert!(written.contains(r#"other:Kept="yes""#), "{written}");
+    assert_eq!(meta.rating, 3);
+}
+
+#[test]
+fn use_xmp_takes_an_outside_rejection_of_a_rawtonic_packet() {
+    let f = synced();
+    // The packet Rawtonic wrote holds the pick (`rawtonic:Flag="1"`);
+    // another editor changes only the rating to rejected.
+    let text = fs::read_to_string(&f.xmp).unwrap();
+    assert!(text.contains(r#"xmp:Rating="2""#) && text.contains(r#"rawtonic:Flag="1""#));
+    fs::write(
+        &f.xmp,
+        text.replace(r#"xmp:Rating="2""#, r#"xmp:Rating="-1""#),
+    )
+    .unwrap();
+    assert!(f.lib.sync_xmp(&f.id).is_err());
+    f.lib.use_xmp(&f.id).unwrap();
+    assert_eq!(f.lib.metadata(&f.id).unwrap().flag, -1);
+    f.lib.sync_xmp(&f.id).unwrap();
+    assert!(
+        fs::read_to_string(&f.xmp)
+            .unwrap()
+            .contains(r#"rawtonic:Flag="-1""#)
+    );
+}

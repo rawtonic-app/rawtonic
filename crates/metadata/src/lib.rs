@@ -239,6 +239,10 @@ pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
     let doc = roxmltree::Document::parse(text)?;
     let mut result = Metadata::default();
     let mut recipe = None;
+    // A rejected rating (another editor's reject) wins over a flag property
+    // in any order: Rawtonic writes ratings 0–5 and its flag apart, so a -1
+    // rating beside a pick is an outside change the flag did not follow.
+    let mut rejected = false;
     for node in doc.descendants().filter(|n| n.is_element()) {
         let name = node.tag_name();
         for attr in node.attributes() {
@@ -246,9 +250,7 @@ pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
                 (Some(XMP), "Rating") => {
                     let rating: i8 = attr.value().parse()?;
                     result.rating = rating.max(0) as u8;
-                    if rating == -1 {
-                        result.flag = -1;
-                    }
+                    rejected |= rating == -1;
                 }
                 (Some(XMP), "Label") => result.label = attr.value().into(),
                 (Some(RT | FORMER_RT), "Flag") => result.flag = attr.value().parse()?,
@@ -286,9 +288,7 @@ pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
             (Some(XMP), "Rating") => {
                 let rating: i8 = value().parse()?;
                 result.rating = rating.max(0) as u8;
-                if rating == -1 {
-                    result.flag = -1;
-                }
+                rejected |= rating == -1;
             }
             (Some(XMP), "Label") => result.label = value(),
             (Some(RT | FORMER_RT), "Flag") => result.flag = value().parse()?,
@@ -320,6 +320,9 @@ pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
             }
             _ => {}
         }
+    }
+    if rejected {
+        result.flag = -1;
     }
     result.validate()?;
     Ok((result, recipe))
@@ -379,6 +382,19 @@ pub fn merge_xmp(
     metadata: &Metadata,
     recipe: Option<&serde_json::Value>,
 ) -> Result<String> {
+    merge_xmp_with(existing, metadata, recipe, false)
+}
+
+/// `merge_xmp`; with `replace_iptc` the IPTC fields Rawtonic models are
+/// the library's only (one the library has empty is removed from the
+/// sidecar), for resolving a conflict in the library's favour. Without it,
+/// a field the library does not hold keeps the sidecar's value.
+fn merge_xmp_with(
+    existing: Option<&str>,
+    metadata: &Metadata,
+    recipe: Option<&serde_json::Value>,
+    replace_iptc: bool,
+) -> Result<String> {
     metadata.validate()?;
     let base = existing.unwrap_or("<?xml version=\"1.0\" encoding=\"UTF-8\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"></rdf:RDF></x:xmpmeta>");
     ensure!(base.len() <= 16 * 1024 * 1024, "XMP exceeds 16 MiB limit");
@@ -402,8 +418,11 @@ pub fn merge_xmp(
         .any(|(k, _, _, kind)| *kind == IptcKind::Contact && metadata.iptc.contains_key(*k));
     let managed = |namespace: Option<&str>, name: &str| {
         managed(namespace, name)
-            || iptc_key(namespace, name).is_some_and(|k| metadata.iptc.contains_key(k))
-            || (has_contact && namespace == Some(IPTC_CORE) && name == "CreatorContactInfo")
+            || iptc_key(namespace, name)
+                .is_some_and(|k| replace_iptc || metadata.iptc.contains_key(k))
+            || ((has_contact || replace_iptc)
+                && namespace == Some(IPTC_CORE)
+                && name == "CreatorContactInfo")
     };
     let owned =
         |node: roxmltree::Node| managed(node.tag_name().namespace(), node.tag_name().name());
@@ -473,7 +492,7 @@ pub fn merge_xmp(
     ));
     // The contact structure is rewritten as a whole; its fields this model
     // does not set keep the sidecar's values.
-    let kept_contact: BTreeMap<String, String> = if has_contact {
+    let kept_contact: BTreeMap<String, String> = if has_contact && !replace_iptc {
         read_xmp(base)
             .map(|(old, _)| old.iptc)
             .unwrap_or_default()
@@ -627,6 +646,29 @@ pub fn write_xmp(
     recipe: Option<&serde_json::Value>,
     expected_hash: Option<&str>,
 ) -> Result<String> {
+    write_xmp_with(path, metadata, recipe, expected_hash, false)
+}
+
+/// `write_xmp` for a conflict resolved in the library's favour: the IPTC
+/// fields Rawtonic models are written as the library holds them, an empty
+/// one removing the sidecar's (`merge_xmp_with`). Properties Rawtonic does
+/// not model are kept as with `write_xmp`.
+pub fn write_xmp_replacing_iptc(
+    path: &Path,
+    metadata: &Metadata,
+    recipe: Option<&serde_json::Value>,
+    expected_hash: Option<&str>,
+) -> Result<String> {
+    write_xmp_with(path, metadata, recipe, expected_hash, true)
+}
+
+fn write_xmp_with(
+    path: &Path,
+    metadata: &Metadata,
+    recipe: Option<&serde_json::Value>,
+    expected_hash: Option<&str>,
+    replace_iptc: bool,
+) -> Result<String> {
     let existing = match fs::read_to_string(path) {
         Ok(s) => Some(s),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
@@ -645,7 +687,7 @@ pub fn write_xmp(
             "The XMP sidecar is read-only"
         );
     }
-    let merged = merge_xmp(existing.as_deref(), metadata, recipe)?;
+    let merged = merge_xmp_with(existing.as_deref(), metadata, recipe, replace_iptc)?;
     atomic_write(path, merged.as_bytes())?;
     Ok(digest(merged.as_bytes()))
 }
@@ -690,6 +732,19 @@ mod tests {
         assert!(carries_flag(&packet(r#"xmp:Rating="3" rawtonic:Flag="0""#)).unwrap());
         let written = merge_xmp(None, &Metadata::default(), None).unwrap();
         assert!(carries_flag(&written).unwrap());
+    }
+
+    #[test]
+    fn a_rejected_rating_wins_over_a_pick_in_any_order() {
+        for attrs in [
+            r#"xmp:Rating="-1" rawtonic:Flag="1""#,
+            r#"rawtonic:Flag="1" xmp:Rating="-1""#,
+        ] {
+            let packet = format!(
+                r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="{RDF}"><rdf:Description xmlns:xmp="{XMP}" xmlns:rawtonic="{RT}" {attrs}/></rdf:RDF></x:xmpmeta>"#
+            );
+            assert_eq!(read_xmp(&packet).unwrap().0.flag, -1, "{attrs}");
+        }
     }
 
     #[test]
