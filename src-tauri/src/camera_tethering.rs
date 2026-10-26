@@ -1321,7 +1321,7 @@ pub fn tether_next_capture(
 mod tests {
     use super::*;
     use rawtonic_catalog::Mode;
-    use rawtonic_tether::mock::MockSpec;
+    use rawtonic_tether::mock::{MockSpec, QueueState};
     use std::collections::HashSet;
     use std::fs;
 
@@ -2249,6 +2249,101 @@ mod tests {
             client.request(Request::Capture, CAPTURE).is_err(),
             "the new camera's photo was not freed"
         );
+    }
+
+    /// Photos left in a camera's transfer queue (a GFX 50R keeps no other
+    /// copy) go into the library at the connect, and each is freed on the
+    /// camera only after its commit, and only with freeing on. Fetched again
+    /// at the next connect, they are recognised and not taken in twice.
+    #[test]
+    fn photos_left_in_the_transfer_queue_go_in_once_and_are_freed_only_after_their_commit() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session = session(tmp.path());
+        let queue = tmp.path().join("queue.json");
+        let spec = MockSpec {
+            file_size: 16 * 1024,
+            queue_limit: Some(10),
+            queued: vec![
+                "QUEUE001.ARW".into(),
+                "QUEUE002.ARW".into(),
+                "QUEUE003.ARW".into(),
+            ],
+            queue_state: Some(queue.clone()),
+            ..MockSpec::default()
+        };
+        let (state, client) = mock_helper(&spec);
+        let (notify, seen) = collector();
+        let transition = Mutex::new(());
+        let open = |free: bool| {
+            open_session(
+                &state,
+                &transition,
+                client.clone(),
+                notify.clone(),
+                Opening {
+                    session: session.clone(),
+                    port: None,
+                    config: Arc::new(Mutex::new(CaptureConfig {
+                        template: "{orig}".into(),
+                        settings: settings(0, "queue"),
+                        free_camera_copies: free,
+                    })),
+                },
+                || {},
+            )
+            .unwrap()
+        };
+        let on_camera = || QueueState::read(&queue).unwrap().queue;
+        // Freeing off: in the library, and still on the camera, with a shot
+        // fired meanwhile.
+        open(false);
+        let mut first = captured(&seen, 3);
+        client.request(Request::Capture, CAPTURE).unwrap();
+        first.extend(captured(&seen, 1));
+        assert!(
+            first
+                .iter()
+                .all(|c| c.error.is_none() && !c.skipped && c.asset_id.is_some()),
+            "{first:?}"
+        );
+        finish_ingest(&state);
+        assert_eq!(photos_in_capture(&session), 4);
+        assert_eq!(on_camera().len(), 4);
+        // Connected again: fetched again, recognised as in the library.
+        open(false);
+        let again = captured(&seen, 4);
+        assert!(
+            again.iter().all(|c| c.skipped && c.error.is_none()),
+            "{again:?}"
+        );
+        finish_ingest(&state);
+        assert_eq!(photos_in_capture(&session), 4, "each once");
+        assert_eq!(on_camera().len(), 4, "nothing freed with freeing off");
+        // Freeing on: each is freed once it is known to be in the library.
+        open(true);
+        let (mut photos, mut freed) = (0, 0);
+        while freed < 4 {
+            let (name, value) = seen
+                .recv_timeout(Duration::from_secs(30))
+                .expect("an event");
+            match name.as_str() {
+                "tether-captured" => {
+                    // Its release comes after it.
+                    assert_eq!(freed, photos);
+                    photos += 1;
+                }
+                "tether-released" => {
+                    let released: TetherReleased = serde_json::from_value(value).unwrap();
+                    assert!(released.freed && released.error.is_none(), "{released:?}");
+                    freed += 1;
+                }
+                _ => {}
+            }
+        }
+        finish_ingest(&state);
+        assert_eq!(photos_in_capture(&session), 4);
+        assert!(on_camera().is_empty());
+        assert_eq!(incoming_left(&session), 0);
     }
 
     /// The helper binary cargo built for the workspace (`--workspace`
