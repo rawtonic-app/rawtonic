@@ -209,6 +209,17 @@ impl LensDistortionParams {
         }
     }
 
+    /// The warp's polynomial distortion (model 0): an output radius r
+    /// samples r (1 + k1 r² + k2 r⁴ + k3 r⁶), radii relative to the half
+    /// diagonal, with pa-model vignetting and no TCA (Samsung's own model,
+    /// embedded_lens.rs `samsung_curve`).
+    pub fn polynomial(k1: f64, k2: f64, k3: f64, vignetting: [f64; 3]) -> Self {
+        Self {
+            model: 0,
+            ..Self::ptlens(k1, k2, k3, vignetting)
+        }
+    }
+
     /// The same parameters with lateral CA: red and blue scaled to green by
     /// `1 + a + b r²` ((a, b) per channel, r relative to the half diagonal).
     pub fn with_tca(mut self, red: (f64, f64), blue: (f64, f64)) -> Self {

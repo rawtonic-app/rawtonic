@@ -1,5 +1,6 @@
 //! Lens corrections the camera stores in its RAW files (Fujifilm RAF, Sony
-//! ARW, Panasonic RW2, Olympus / OM System ORF, Nikon Z NEF, newer Canon CR3), fitted to the profile model
+//! ARW, Panasonic RW2, Olympus / OM System ORF, Nikon Z NEF, newer Canon CR3,
+//! Samsung SRW since `cameraGeometryVersion` 4), fitted to the profile model
 //! the geometry warp already applies. Camera Raw and Capture One apply these
 //! built-in corrections to every photo of such a body.
 //!
@@ -38,6 +39,10 @@ pub struct EmbeddedLensData {
     /// Lateral chromatic aberration: (normalized radius, red scale − 1, blue
     /// scale − 1) relative to green, radius ascending.
     pub chromatic: Option<Vec<(f64, f64, f64)>>,
+    /// The model is the warp's polynomial itself (k1, k2, k3 of
+    /// `LensDistortionParams::polynomial`), which `to_params` takes as it is
+    /// instead of fitting `distortion` (Samsung's model, `samsung_curve`).
+    pub polynomial: Option<[f64; 3]>,
 }
 
 const FUJI_DISTORTION: u16 = 0xf00b;
@@ -50,6 +55,9 @@ const SR2_VIGNETTING: u16 = 0x797d;
 const SR2_DISTORTION: u16 = 0x7982;
 const SR2_CHROMATIC: u16 = 0x7980;
 const NIKON_NEF_INFO: u16 = 0xc7d5;
+const SAMSUNG_KEY: u16 = 0xa020;
+const SAMSUNG_DISTORTION: u16 = 0xa050;
+const SAMSUNG_APPLIED_DISTORTION: u16 = 0xa057;
 const SUB_IFDS: u16 = 0x014a;
 const EXIF_IFD: u16 = 0x8769;
 
@@ -106,6 +114,7 @@ pub fn fuji_curves_with_ca(
         vignetting: vignetting_curve.filter(|c| c.iter().all(|&(_, b)| b > 0.05 && b <= 1.5)),
         zoom: 1.0,
         exact_zoom: false,
+        polynomial: None,
         chromatic: chromatic
             .filter(|v| v.len() > 3 * n && v[1..=n] == *knots)
             .map(|v| {
@@ -175,6 +184,7 @@ pub fn sony_curves_with_ca(
         vignetting: vignetting.filter(|c| c.iter().all(|&(_, b)| b > 0.05 && b <= 1.5)),
         zoom: 1.0,
         exact_zoom: false,
+        polynomial: None,
         chromatic: chromatic.and_then(sony_chromatic),
     })
 }
@@ -426,6 +436,7 @@ pub fn panasonic_curve(v: &[i16; 16], half_diagonal: Option<f64>) -> Option<Embe
         vignetting: None,
         zoom,
         exact_zoom: false,
+        polynomial: None,
         chromatic: None,
     })
 }
@@ -510,6 +521,7 @@ pub fn olympus_curve(d: &[f64], reach: f64) -> Option<EmbeddedLensData> {
         vignetting: None,
         zoom,
         exact_zoom: false,
+        polynomial: None,
         chromatic: None,
     })
 }
@@ -703,6 +715,7 @@ pub fn nikon_compact_curve(values: &[f64]) -> Option<EmbeddedLensData> {
         vignetting: None,
         zoom: 1.0,
         exact_zoom: false,
+        polynomial: None,
         chromatic: None,
     })
 }
@@ -769,7 +782,88 @@ pub fn nikon_curve(info: &NikonLensInfo, framed: bool) -> Option<EmbeddedLensDat
         vignetting: vignetting.filter(|c| c.iter().all(|&(_, b)| b > 0.05 && b <= 1.5)),
         zoom,
         exact_zoom: framing.is_some(),
+        polynomial: None,
         chromatic: None,
+    })
+}
+
+/// The camera geometry version from which Samsung's distortion data are
+/// read (`samsung_curve`); before it SRW files have no camera data.
+const SAMSUNG_GEOMETRY: u64 = 4;
+
+/// Each value of Samsung's distortion tags is stored minus one of the
+/// eleven values of the maker note's key (0xA020, ExifTool's
+/// EncryptionKey), taken in turn through the tags 0xA050, 0xA055, 0xA056
+/// and 0xA057 (eight values each): value i of the tag starting at `start`
+/// (0, 8, 16, 24) minus key (start + i) mod 11 (all 27 raw.pixls.us SRW
+/// files, big- and little-endian). The values as written, `None` without a
+/// key of eleven values.
+pub fn samsung_decrypt(stored: &[f64], key: &[f64], start: usize) -> Option<Vec<f64>> {
+    (key.len() == 11).then(|| {
+        stored
+            .iter()
+            .enumerate()
+            .map(|(i, v)| v + key[(start + i) % 11])
+            .collect()
+    })
+}
+
+/// Which Samsung model a file's distortion is, with its place in the key
+/// stream (`samsung_decrypt`): the one the camera applied to its own JPEG
+/// (0xA057), else, in compacts that write no such tag (EX1, EX2F, WB2000;
+/// their JPEGs are corrected), the lens's (0xA050). Of the 27 raw.pixls.us
+/// SRW files the two whose 0xA057 is empty although 0xA050 is not (NX11 +
+/// 18-55mm at 55 mm, NX210 + 60mm) have uncorrected camera JPEGs (0.06 /
+/// 0.11 px median against the uncorrected frame; notes: parity-gaps/G71).
+pub fn samsung_model<'a>(
+    applied: Option<&'a [f64]>,
+    recorded: Option<&'a [f64]>,
+) -> Option<(&'a [f64], usize)> {
+    applied.map(|v| (v, 24)).or(recorded.map(|v| (v, 0)))
+}
+
+/// Samsung's distortion model (maker note 0xA050 / 0xA057, decrypted): four
+/// pairs of a mantissa and a power of ten, c0 … c3; an output pixel r
+/// pixels from the frame's centre samples the uncorrected frame at
+/// r (c0 + c1 r² + c2 r⁴ + c3 r⁶), with no zoom on top. As rendered that
+/// matches Camera Raw on the six raw.pixls.us files it corrects from the
+/// data the camera applied, to 0.05–0.09 px median, 0.66 px max (corners
+/// moved by up to 260 px; the EX2F's shape to 0.23 px, its 16:9 frame
+/// aside), and the camera's own JPEGs of five whose lenses Camera Raw
+/// corrects with its own profiles to 0.05–0.23 px (notes: parity-gaps/G71). `half_diagonal` (pixels) turns it into the warp's
+/// polynomial, exact, without a fit. `None` for no model (c1 … c3 zero),
+/// for a c0 other than 1 (never seen; its framing is unknown) and for
+/// implausible values.
+pub fn samsung_curve(values: &[f64], half_diagonal: f64) -> Option<EmbeddedLensData> {
+    if values.len() != 8 || !half_diagonal.is_finite() || half_diagonal <= 1.0 {
+        return None;
+    }
+    let c: Vec<f64> = (0..4)
+        .map(|i| values[2 * i] * 10f64.powf(values[2 * i + 1]))
+        .collect();
+    if (c[0] - 1.0).abs() > 1e-9 || c[1..].iter().all(|&v| v == 0.0) {
+        return None;
+    }
+    let k = [1, 2, 3].map(|i| c[i] * half_diagonal.powi(2 * i as i32));
+    let p = |u: f64| 1.0 + k[0] * u * u + k[1] * u.powi(4) + k[2] * u.powi(6);
+    let distortion: Vec<(f64, f64)> = (1..=FORMULA_KNOTS)
+        .map(|i| {
+            let u = i as f64 / FORMULA_KNOTS as f64;
+            (u, p(u))
+        })
+        .collect();
+    // The source radius grows with the output radius (the warp inverts it).
+    let monotonic = distortion
+        .windows(2)
+        .all(|w| w[0].0 * w[0].1 < w[1].0 * w[1].1);
+    (monotonic && plausible(&distortion)).then_some(EmbeddedLensData {
+        maker: "Samsung",
+        distortion,
+        vignetting: None,
+        zoom: 1.0,
+        exact_zoom: true,
+        chromatic: None,
+        polynomial: Some(k),
     })
 }
 
@@ -812,9 +906,10 @@ pub const GEOMETRY_VERSION_KEY: &str = "cameraGeometryVersion";
 /// The newest: 1 (2026-10-26) reads Sony's distortion as Camera Raw does
 /// (`sony_lens`); 2 (2026-10-26) frames Nikon Z data as the camera does
 /// (`nikon_curve`); 3 (2026-10-26) reads Canon's distortion and the radius
-/// unit of its brightness table (`canon_curves`). Recipes without the key
-/// keep their parameters; saving them again fills in the same as before.
-pub const GEOMETRY_VERSION: u64 = 3;
+/// unit of its brightness table (`canon_curves`); 4 (2026-10-26) also
+/// Samsung's (`samsung_curve`). Recipes without the key keep their
+/// parameters; saving them again fills in the same as before.
+pub const GEOMETRY_VERSION: u64 = 4;
 
 /// The recipe's camera geometry version: `cameraGeometryVersion`, 0 when
 /// missing.
@@ -953,6 +1048,7 @@ pub fn read_version(
                     vignetting: None,
                     zoom: 1.0,
                     exact_zoom: false,
+                    polynomial: None,
                     chromatic: Some(chromatic),
                 }),
             }
@@ -995,6 +1091,34 @@ pub fn read_version(
                 .filter(|reach| (0.5..=1.0).contains(reach))
                 .unwrap_or(1.0);
             olympus_curve(&distortion, reach)
+        }
+        // Samsung's distortion only: its lateral CA (0xA051, one red and
+        // one blue scale per file) states up to ten times the CA the
+        // uncorrected frames show (NX200 + 16mm: red +10 / 10,000 stored,
+        // +1.1 measured), where the automatic CA leaves under 0.3 (notes:
+        // parity-gaps/G71); its vignetting (0xA052) is flat on NX200 and
+        // later bodies, and their cameras applied none (0xA053).
+        "srw" if geometry_version >= SAMSUNG_GEOMETRY => {
+            let ifd =
+                IFD::new_root_with_correction(&mut reader, 0, 0, 0, 10, &[SUB_IFDS, EXIF_IFD])
+                    .ok()?;
+            let notes = ifd
+                .find_first_ifd_with_tag(rawler::tags::ExifTag::MakerNotes)?
+                .parse_makernote(
+                    &mut reader,
+                    rawler::formats::tiff::ifd::OffsetMode::RelativeToIFD,
+                    &[],
+                )
+                .ok()??;
+            let key = values(&notes, SAMSUNG_KEY)?;
+            let applied = values(&notes, SAMSUNG_APPLIED_DISTORTION);
+            let recorded = values(&notes, SAMSUNG_DISTORTION);
+            let (model, start) = samsung_model(applied.as_deref(), recorded.as_deref())?;
+            let (_, [w, h]) = crate::raw_processing::sensor_and_frame(&source)?;
+            samsung_curve(
+                &samsung_decrypt(model, &key, start)?,
+                (w as f64).hypot(h as f64) / 2.0,
+            )
         }
         _ => None,
     }
@@ -1151,19 +1275,23 @@ fn ptlens_factor(r: f64, [a, b, c]: [f64; 3]) -> f64 {
 
 /// The data as parameters of the geometry warp's PTLens model.
 pub fn to_params(data: &EmbeddedLensData) -> Option<LensDistortionParams> {
-    let ([a, b, c], zoom) = if data.exact_zoom && data.zoom > 1.0 {
-        fit_framed_distortion(&data.distortion, data.zoom)?
-    } else {
-        (fit_distortion(&data.distortion)?, data.zoom)
+    let vignetting = || {
+        data.vignetting
+            .as_deref()
+            .and_then(fit_vignetting)
+            .unwrap_or([0.0; 3])
     };
-    let vignetting = data
-        .vignetting
-        .as_deref()
-        .and_then(fit_vignetting)
-        .unwrap_or([0.0; 3]);
-    let mut params = LensDistortionParams::ptlens(a, b, c, vignetting)
-        .with_zoom(zoom)
-        .with_exact_zoom(data.exact_zoom);
+    let mut params = if let Some([k1, k2, k3]) = data.polynomial {
+        LensDistortionParams::polynomial(k1, k2, k3, vignetting()).with_zoom(data.zoom)
+    } else {
+        let ([a, b, c], zoom) = if data.exact_zoom && data.zoom > 1.0 {
+            fit_framed_distortion(&data.distortion, data.zoom)?
+        } else {
+            (fit_distortion(&data.distortion)?, data.zoom)
+        };
+        LensDistortionParams::ptlens(a, b, c, vignetting()).with_zoom(zoom)
+    }
+    .with_exact_zoom(data.exact_zoom);
     if let Some(chromatic) = data.chromatic.as_deref().filter(|c| !c.is_empty()) {
         let channel = |pick: fn(&(f64, f64, f64)) -> f64| {
             let curve: Vec<(f64, f64)> = chromatic.iter().map(|p| (p.0, pick(p))).collect();
@@ -1196,14 +1324,14 @@ pub fn current_geometry_version(source: &Path) -> u64 {
 
 /// The `source_facts` versions from which `camera_lens` is read at camera
 /// geometry version 1, 2, … (older versions in `camera_lens_geometry`).
-const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7, 8, 9];
+const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7, 8, 9, 10];
 
 /// The file formats (extensions) whose data camera geometry version 1, 2, …
 /// reads differently from the version before: 1 Sony's (ARW, and Adobe DNG
 /// Converter's DNGs of Sony bodies), 2 Nikon's (NEF; NRW share its reader),
-/// 3 Canon's (CR3).
+/// 3 Canon's (CR3), 4 Samsung's (SRW).
 const GEOMETRY_FORMATS: [&[&str]; GEOMETRY_VERSION as usize] =
-    [&["arw", "dng"], &["nef", "nrw"], &["cr3"]];
+    [&["arw", "dng"], &["nef", "nrw"], &["cr3"], &["srw"]];
 
 /// The camera geometry version facts of `facts_version` carry.
 pub fn facts_geometry_version(facts_version: u32) -> u64 {
@@ -1604,6 +1732,7 @@ fn canon_curves(
         zoom,
         exact_zoom,
         chromatic: None,
+        polynomial: None,
     })
 }
 
@@ -1845,6 +1974,7 @@ fn adobe_profile(source: &RawSource) -> Option<EmbeddedLensData> {
         vignetting,
         zoom,
         exact_zoom: false,
+        polynomial: None,
         chromatic: None,
     })
 }
@@ -2142,23 +2272,27 @@ mod tests {
     fn offline_facts_carry_the_geometry_version_they_were_read_at() {
         // Previews from before Sony's knots read neither; facts version 7
         // has Sony's (1), 8 also Nikon's framing (2), 9 Canon's
-        // distortion (3).
+        // distortion (3), 10 Samsung's data (4).
         assert_eq!(facts_geometry_version(6), 0);
         assert_eq!(facts_geometry_version(7), 1);
         assert_eq!(facts_geometry_version(8), 2);
         assert_eq!(facts_geometry_version(9), 3);
+        assert_eq!(facts_geometry_version(10), 4);
         assert_eq!(
             facts_geometry_version(crate::source_facts::VERSION),
             GEOMETRY_VERSION
         );
         // A NEF's version 7 facts predate Nikon's framing, a CR3's version
-        // 8 facts Canon's distortion; an ARW's hold.
+        // 8 facts Canon's distortion, an SRW's version 9 facts Samsung's
+        // data; an ARW's hold.
         assert_eq!(known_geometry_version(Path::new("a.nef"), 7), 1);
         assert_eq!(known_geometry_version(Path::new("a.NRW"), 7), 1);
-        assert_eq!(known_geometry_version(Path::new("a.arw"), 7), 3);
-        assert_eq!(known_geometry_version(Path::new("a.nef"), 8), 3);
+        assert_eq!(known_geometry_version(Path::new("a.arw"), 7), 4);
+        assert_eq!(known_geometry_version(Path::new("a.nef"), 8), 4);
         assert_eq!(known_geometry_version(Path::new("a.CR3"), 8), 2);
-        assert_eq!(known_geometry_version(Path::new("a.cr3"), 9), 3);
+        assert_eq!(known_geometry_version(Path::new("a.cr3"), 9), 4);
+        assert_eq!(known_geometry_version(Path::new("a.srw"), 9), 3);
+        assert_eq!(known_geometry_version(Path::new("a.SRW"), 10), 4);
     }
 
     #[test]
@@ -2274,6 +2408,7 @@ mod tests {
             vignetting: None,
             zoom: 1.0,
             exact_zoom: false,
+            polynomial: None,
             chromatic: Some(curve),
         })
         .unwrap();
@@ -2712,6 +2847,117 @@ mod tests {
         // doing: version 1, framed inside.
         let full = sony_lens(&SONY_DISTORTION_VALUES, None, None, SonyFrame::FULL, 1).unwrap();
         assert!(full.exact_zoom);
+    }
+
+    // NX200 + NX 16mm F2.4 (maker note 0xA020 and 0xA057 as stored).
+    const NX200_KEY: [f64; 11] = [
+        305.0, 72.0, 737.0, 456.0, 282.0, 307.0, 519.0, 724.0, 13.0, 505.0, 193.0,
+    ];
+    const NX200_STORED: [f64; 8] = [
+        -304.0, -72.0, -9313.0, -468.0, 1390.0, -326.0, -519.0, -724.0,
+    ];
+    const NX200_APPLIED_STORED: [f64; 8] = [
+        -736.0, -456.0, -8858.0, -319.0, 1153.0, -743.0, -13.0, -505.0,
+    ];
+
+    #[test]
+    fn samsung_distortion_is_a_pixel_radius_polynomial() {
+        let values = samsung_decrypt(&NX200_STORED, &NX200_KEY, 0).unwrap();
+        assert_eq!(values, [1.0, 0.0, -8576.0, -12.0, 1672.0, -19.0, 0.0, 0.0]);
+        // 0xA057 continues the key stream after 0xA050, 0xA055 and 0xA056.
+        let (applied, start) =
+            samsung_model(Some(&NX200_APPLIED_STORED), Some(&NX200_STORED)).unwrap();
+        assert_eq!(samsung_decrypt(applied, &NX200_KEY, start).unwrap(), values);
+        assert!(samsung_decrypt(&NX200_STORED, &NX200_KEY[..10], 0).is_none());
+        // c0 + c1 r² + c2 r⁴ + c3 r⁶, r in pixels: over the 5472 × 3648
+        // frame's half-diagonal, exact (no fit), no zoom.
+        let half_diagonal = 5472.0f64.hypot(3648.0) / 2.0;
+        let data = samsung_curve(&values, half_diagonal).unwrap();
+        let [k1, k2, k3] = data.polynomial.unwrap();
+        assert!((k1 - -8576e-12 * half_diagonal.powi(2)).abs() < 1e-12);
+        assert!((k2 - 1672e-19 * half_diagonal.powi(4)).abs() < 1e-12);
+        assert_eq!(k3, 0.0);
+        assert!(data.exact_zoom && data.zoom == 1.0 && data.chromatic.is_none());
+        let corner = data.distortion.last().unwrap();
+        assert!(corner.0 == 1.0 && (corner.1 - (1.0 + k1 + k2)).abs() < 1e-12);
+        let params = serde_json::to_value(to_params(&data).unwrap()).unwrap();
+        assert_eq!(params["model"], 0);
+        assert_eq!(params["exact_zoom"], true);
+        assert!((params["k1"].as_f64().unwrap() - k1).abs() < 1e-12);
+        // No model: all coefficients zero (NX1, NX500 files), or zero but
+        // for c0 (NX11 + 18-55mm at 55 mm: the camera applied none).
+        assert!(samsung_curve(&[0.0; 8], half_diagonal).is_none());
+        assert!(samsung_curve(&[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], half_diagonal).is_none());
+        assert!(
+            samsung_curve(&[1.0, 0.0, 0.0, -40.0, 0.0, -40.0, 0.0, 0.0], half_diagonal).is_none()
+        );
+        assert!(
+            samsung_curve(
+                &[0.0, 0.0, -8576.0, -12.0, 0.0, 0.0, 0.0, 0.0],
+                half_diagonal
+            )
+            .is_none()
+        );
+        // Garbage: corners moved by far more than any lens.
+        assert!(
+            samsung_curve(
+                &[1.0, 0.0, -8576.0, -10.0, 0.0, 0.0, 0.0, 0.0],
+                half_diagonal
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn samsung_reads_the_model_the_camera_applied() {
+        let recorded = [1.0, 0.0, 2360.0, -12.0, 6256.0, -20.0, 0.0, 0.0];
+        let applied = [1.0, 0.0, 0.0, -40.0, 0.0, -40.0, 0.0, 0.0];
+        // NX11 + 18-55mm at 55 mm: 0xA050 holds the lens's model, 0xA057
+        // none; the camera's JPEG is uncorrected.
+        assert_eq!(
+            samsung_model(Some(&applied), Some(&recorded)),
+            Some((&applied[..], 24))
+        );
+        // Compacts (EX1, EX2F, WB2000) write no 0xA057: their 0xA050.
+        assert_eq!(
+            samsung_model(None, Some(&recorded)),
+            Some((&recorded[..], 0))
+        );
+    }
+
+    #[test]
+    fn samsung_data_are_read_from_their_geometry_version() {
+        use crate::source_facts::{SourceFacts, forget, register};
+        let source = Path::new("/offline/volume/Job/Capture/SAM_0001.SRW");
+        let path = source.to_string_lossy();
+        let params =
+            LensDistortionParams::polynomial(-0.09, 0.02, 0.0, [0.0; 3]).with_exact_zoom(true);
+        // Facts from before Samsung's version: their (no) data answer the
+        // versions before it only.
+        register(
+            &path,
+            SourceFacts {
+                version: 7,
+                camera_lens: None,
+                ..Default::default()
+            },
+        );
+        assert_eq!(current_geometry_version(source), SAMSUNG_GEOMETRY - 1);
+        let new = serde_json::json!({GEOMETRY_VERSION_KEY: SAMSUNG_GEOMETRY});
+        assert!(!recipe_params_known(source, &new));
+        forget(&path);
+        register(
+            &path,
+            SourceFacts {
+                version: crate::source_facts::VERSION,
+                camera_lens: Some(params.clone()),
+                camera_lens_geometry: (0..SAMSUNG_GEOMETRY).map(|v| (v, None)).collect(),
+                ..Default::default()
+            },
+        );
+        assert_eq!(params_for_recipe(source, &new), Some(params));
+        assert_eq!(params_for_recipe(source, &serde_json::json!({})), None);
+        forget(&path);
     }
 
     #[test]
