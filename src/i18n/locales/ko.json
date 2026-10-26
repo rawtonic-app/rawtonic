@@ -1418,11 +1418,13 @@
     "xmp": {
       "conflictHeading_other": "충돌 {{count}}",
       "conflictHint": "마지막 동기화 이후 XMP 사이드카가 Rawtonic 외부에서 변경되었습니다. 유지할 메타데이터를 선택하세요.",
+      "editNotAdopted": "저장된 보정이 아직 라이브러리에 없습니다. 먼저 현상에서 이 사진을 보정한 다음 해결하세요.",
       "inSync": "모든 XMP 사이드카가 동기화되었습니다.",
       "keepLibrary": "라이브러리 유지",
       "keepLibraryAll": "모두 라이브러리 유지",
       "keepLibraryFor": "{{name}}: 라이브러리 유지",
       "keepLibraryTitle": "라이브러리의 메타데이터를 XMP 사이드카에 기록합니다",
+      "leftOut_other": "사진 {{count}}장을 XMP 사용에서 제외했습니다. 먼저 현상에서 보정하세요.",
       "loading": "XMP 사이드카 확인 중…",
       "more_other": "외 {{count}}개",
       "offline": "오프라인",

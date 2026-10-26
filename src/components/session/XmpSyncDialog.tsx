@@ -95,6 +95,7 @@ export default function XmpSyncDialog({ directory, syncEnabled, onClose, onEntri
 
   const counts = entries ? xmpCounts(entries) : null;
   const conflicts = entries?.filter((entry) => entry.state === "conflict") ?? [];
+  const readable = conflicts.filter((entry) => !entry.edit_not_adopted);
   const writable = counts ? counts.pending - counts.offline : 0;
 
   const outcome = (result: XmpReport) => (
@@ -107,6 +108,9 @@ export default function XmpSyncDialog({ directory, syncEnabled, onClose, onEntri
           failed: result.failed.length,
         })}
       </p>
+      {(result.edit_not_adopted?.length ?? 0) > 0 && (
+        <p>{t("session.xmp.leftOut", { count: result.edit_not_adopted.length })}</p>
+      )}
       {result.failed.length > 0 && (
         <ul className="session-sync-skipped">
           {result.failed.map((failure) => (
@@ -196,9 +200,9 @@ export default function XmpSyncDialog({ directory, syncEnabled, onClose, onEntri
                 <button
                   type="button"
                   className="session-action"
-                  disabled={busy}
+                  disabled={busy || readable.length === 0}
                   title={t("session.xmp.useXmpTitle")}
-                  onClick={() => void resolve(conflicts.map((entry) => entry.path), "xmp")}
+                  onClick={() => void resolve(readable.map((entry) => entry.path), "xmp")}
                 >
                   {t("session.xmp.useXmpAll")}
                 </button>
@@ -211,6 +215,7 @@ export default function XmpSyncDialog({ directory, syncEnabled, onClose, onEntri
                   <li key={entry.path} title={entry.path}>
                     <span>{name}</span>
                     {entry.offline && <small>{t("session.xmp.offline")}</small>}
+                    {entry.edit_not_adopted && <small>{t("session.xmp.editNotAdopted")}</small>}
                     <button
                       type="button"
                       className="session-action"
@@ -224,9 +229,9 @@ export default function XmpSyncDialog({ directory, syncEnabled, onClose, onEntri
                     <button
                       type="button"
                       className="session-action"
-                      disabled={busy || entry.offline}
+                      disabled={busy || entry.offline || entry.edit_not_adopted}
                       aria-label={t("session.xmp.useXmpFor", { name })}
-                      title={t("session.xmp.useXmpTitle")}
+                      title={t(entry.edit_not_adopted ? "session.xmp.editNotAdopted" : "session.xmp.useXmpTitle")}
                       onClick={() => void resolve([entry.path], "xmp")}
                     >
                       {t("session.xmp.useXmp")}

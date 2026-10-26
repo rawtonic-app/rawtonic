@@ -1418,11 +1418,13 @@
     "xmp": {
       "conflictHeading_other": "{{count}} 個衝突",
       "conflictHint": "自上次同步以來,XMP 附屬檔案已在 Rawtonic 之外被修改。請選擇要保留哪一方的中繼資料。",
+      "editNotAdopted": "其已儲存的調整尚未進入圖庫:請先在「顯影」中編輯此照片,再行解決。",
       "inSync": "所有 XMP 附屬檔案皆已同步。",
       "keepLibrary": "保留圖庫",
       "keepLibraryAll": "全部保留圖庫",
       "keepLibraryFor": "為 {{name}} 保留圖庫",
       "keepLibraryTitle": "將圖庫的中繼資料寫入 XMP 附屬檔案",
+      "leftOut_other": "有 {{count}} 張照片未參與「使用 XMP」:請先在「顯影」中編輯。",
       "loading": "正在檢查 XMP 附屬檔案…",
       "more_other": "另有 {{count}} 個",
       "offline": "離線",

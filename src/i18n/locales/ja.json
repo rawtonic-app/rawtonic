@@ -1418,11 +1418,13 @@
     "xmp": {
       "conflictHeading_other": "競合 {{count}}",
       "conflictHint": "前回の同期以降、XMP サイドカーが Rawtonic の外部で変更されました。どちらのメタデータを残すか選んでください。",
+      "editNotAdopted": "保存された補正がまだライブラリにありません。先に現像でこの写真を補正してから解決してください。",
       "inSync": "すべての XMP サイドカーは同期済みです。",
       "keepLibrary": "ライブラリを保持",
       "keepLibraryAll": "すべてライブラリを保持",
       "keepLibraryFor": "{{name}} でライブラリを保持",
       "keepLibraryTitle": "ライブラリのメタデータを XMP サイドカーに書き込みます",
+      "leftOut_other": "{{count}} 枚の写真を「XMP を使用」から除外しました。先に現像で補正してください。",
       "loading": "XMP サイドカーを確認しています…",
       "more_other": "ほか {{count}} 件",
       "offline": "オフライン",

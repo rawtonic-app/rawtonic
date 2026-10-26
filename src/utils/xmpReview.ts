@@ -23,6 +23,9 @@ export interface XmpReviewEntry {
   volume: string | null;
   /** Its virtual copies (copy ids), listed in the grid with it. */
   copies: string[];
+  /** Its edit is only in the editor sidecar beside it, not in the library
+   * yet: Use XMP is not offered until it is edited in Develop. */
+  edit_not_adopted: boolean;
 }
 
 /** Opaque to the webview: handed back to `session_xmp_undo`. */
@@ -35,6 +38,8 @@ export interface XmpReport {
   failed: Array<{ path: string; reason: string }>;
   /** Use XMP: what undoes it. Undo: the steps that could not be undone. */
   undo: XmpUndoStep[];
+  /** Left out of Use XMP (`XmpReviewEntry.edit_not_adopted`). */
+  edit_not_adopted: string[];
 }
 
 /** The grid paths of the entries, with their virtual copies. */

@@ -11,6 +11,7 @@ const entry = (path: string, state: XmpReviewEntry['state'], offline = false, co
   offline,
   volume: null,
   copies,
+  edit_not_adopted: false,
 });
 
 beforeEach(() => {

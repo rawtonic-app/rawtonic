@@ -9,7 +9,10 @@ use crate::session_bridge::with_library;
 use rawtonic_catalog::{Library, XmpOffline, XmpState, XmpUndo};
 use rawtonic_metadata::XmpConflict;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashMap};
+use std::{
+    collections::{BTreeSet, HashMap},
+    path::Path,
+};
 
 /// A photograph in the review, with its virtual copies (the grid lists them too).
 #[derive(Debug, Clone, Serialize)]
@@ -19,6 +22,9 @@ pub struct XmpReviewEntry {
     pub offline: bool,
     pub volume: Option<String>,
     pub copies: Vec<String>,
+    /// An edit is saved beside it (`.rrdata`) that the library has not
+    /// taken over: Use XMP is not offered (`edit_not_adopted`).
+    pub edit_not_adopted: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -39,6 +45,8 @@ pub struct XmpReport {
     pub failed: Vec<XmpFailure>,
     /// For "Use XMP": what puts the library's metadata back.
     pub undo: Vec<XmpUndo>,
+    /// Left out of "Use XMP": their edit is not the library's yet.
+    pub edit_not_adopted: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -50,11 +58,26 @@ pub enum XmpChoice {
     Xmp,
 }
 
+/// Whether the photograph's edit is only in its editor sidecar: the library
+/// holds no state for it (never edited here, no metadata) and a `.rrdata`
+/// is beside it. Reading XMP metadata into the library would give it a state
+/// without that edit, which the app would then show and export instead of
+/// the sidecar's; an edit made in Develop takes the sidecar's over first.
+fn edit_not_adopted(lib: &Library, id: &str, path: &Path) -> anyhow::Result<bool> {
+    let Some(name) = path.file_name() else {
+        return Ok(false);
+    };
+    let sidecar = path.with_file_name(format!("{}.rrdata", name.to_string_lossy()));
+    Ok(sidecar.is_file() && lib.editor_state(id)?.is_none())
+}
+
 pub fn review(lib: &Library) -> anyhow::Result<Vec<XmpReviewEntry>> {
     lib.xmp_unsynced()?
         .into_iter()
         .map(|entry| {
             Ok(XmpReviewEntry {
+                edit_not_adopted: entry.state == XmpState::Conflict
+                    && edit_not_adopted(lib, &entry.id, &entry.path)?,
                 copies: lib.copies(&entry.id)?,
                 path: entry.path.to_string_lossy().into_owned(),
                 state: entry.state,
@@ -115,6 +138,10 @@ pub fn resolve(lib: &Library, paths: &[String], keep: XmpChoice) -> anyhow::Resu
             continue;
         }
         let shown = source.to_string_lossy().into_owned();
+        if keep == XmpChoice::Xmp && edit_not_adopted(lib, &asset.id, &asset.path)? {
+            report.edit_not_adopted.push(shown);
+            continue;
+        }
         let result = match keep {
             XmpChoice::Library => lib.keep_library_xmp(&asset.id),
             // The editor sidecar (`.rrdata`) is left as it is: the library's
@@ -365,39 +392,46 @@ mod tests {
     }
 
     #[test]
-    fn use_xmp_and_its_undo_leave_an_editor_sidecar_as_it_is() {
+    fn use_xmp_is_not_offered_for_a_photo_whose_edit_is_only_beside_it() {
         let tmp = tempfile::tempdir().unwrap();
         let lib = Library::create(tmp.path(), "Fresh", Mode::Session).unwrap();
         let photo = tmp.path().join("Capture/e.nef");
         fs::write(&photo, b"synthetic original").unwrap();
         let id = lib.add_asset(&photo).unwrap().id;
         let photo = photo.canonicalize().unwrap();
-        // Edits that appeared beside it after it was registered (not adopted).
+        // An edit that appeared beside it after it was registered (not adopted).
         let rrdata = photo.with_file_name("e.nef.rrdata");
         let edits = br#"{"version":1,"rating":0,"tags":[],"adjustments":{"exposure":1.25}}"#;
         fs::write(&rrdata, edits).unwrap();
         // A sidecar another application wrote, never adopted: a conflict.
         fs::write(photo.with_extension("xmp"), EXTERNAL).unwrap();
         assert!(lib.sync_xmp(&id).is_err());
+        let exposure =
+            || crate::exif_processing::load_sidecar(&rrdata).adjustments["exposure"].clone();
+        assert_eq!(exposure(), 1.25);
+
         let report = resolve(&lib, &[shown(&photo)], XmpChoice::Xmp).unwrap();
-        assert_eq!(report.done, vec![shown(&photo)]);
-        assert_eq!(lib.metadata(&id).unwrap().rating, 5);
-        assert_eq!(fs::read(&rrdata).unwrap(), edits);
-        assert_eq!(undo(&lib, &report.undo).done, vec![shown(&photo)]);
+        // Develop and exports still see the edit; nothing was read or written.
+        assert_eq!(exposure(), 1.25);
         assert_eq!(lib.metadata(&id).unwrap().rating, 0);
+        assert_eq!(fs::read(&rrdata).unwrap(), edits);
         assert_eq!(
-            fs::read(&rrdata).unwrap(),
-            edits,
-            "the edits are still there"
+            fs::read_to_string(photo.with_extension("xmp")).unwrap(),
+            EXTERNAL
         );
-        // Without one, none is made.
-        let other = photo.with_file_name("f.nef");
-        fs::write(&other, b"synthetic original").unwrap();
-        let other_id = lib.add_asset(&other).unwrap().id;
-        fs::write(other.with_extension("xmp"), EXTERNAL).unwrap();
-        assert!(lib.sync_xmp(&other_id).is_err());
-        resolve(&lib, &[shown(&other)], XmpChoice::Xmp).unwrap();
-        assert!(!other.with_file_name("f.nef.rrdata").exists());
+        assert!(report.done.is_empty() && report.undo.is_empty());
+        assert_eq!(report.edit_not_adopted, vec![shown(&photo)]);
+        let entry = review(&lib)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.path == shown(&photo))
+            .unwrap();
+        assert!(entry.edit_not_adopted && entry.state == XmpState::Conflict);
+
+        // Keep library is unaffected.
+        let kept = resolve(&lib, &[shown(&photo)], XmpChoice::Library).unwrap();
+        assert_eq!(kept.done, vec![shown(&photo)]);
+        assert_eq!(exposure(), 1.25);
     }
 
     #[cfg(unix)]

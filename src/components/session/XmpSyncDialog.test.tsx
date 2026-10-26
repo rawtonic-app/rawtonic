@@ -14,8 +14,9 @@ const conflict = (name: string, offline = false): XmpReviewEntry => ({
   offline,
   volume: null,
   copies: [],
+  edit_not_adopted: false,
 });
-const empty = { done: [], offline: [], conflicts: [], failed: [], undo: [] };
+const empty = { done: [], offline: [], conflicts: [], failed: [], undo: [], edit_not_adopted: [] };
 
 afterEach(() => cleanup());
 beforeEach(() => {
@@ -142,5 +143,26 @@ describe("XMP review dialog undo", () => {
     await user.click(await within(dialog).findByRole("button", { name: "Undo Use XMP" }));
     expect(await within(dialog).findByText("database is locked")).toBeTruthy();
     expect(within(dialog).getByRole("button", { name: "Undo Use XMP" })).toBeTruthy();
+  });
+
+  it("does not offer Use XMP for a photo whose edit is not in the library yet", async () => {
+    const user = userEvent.setup();
+    const entries = [{ ...conflict("a.nef"), edit_not_adopted: true }, conflict("b.nef")];
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "session_xmp_review") return entries;
+      if (command === "session_xmp_resolve") return { ...empty, done: ["/jobs/Acme/Capture/b.nef"] };
+      throw new Error(`unexpected ${command}`);
+    });
+    const { dialog } = open();
+    const single = await within(dialog).findByRole("button", { name: "Use XMP for a.nef" });
+    expect((single as HTMLButtonElement).disabled).toBe(true);
+    expect(within(dialog).getByText("Its saved edit is not in the library yet: edit this photo in Develop first, then resolve.")).toBeTruthy();
+    expect((within(dialog).getByRole("button", { name: "Keep library for a.nef" }) as HTMLButtonElement).disabled).toBe(false);
+    await user.click(within(dialog).getByRole("button", { name: "Use XMP for all" }));
+    expect(invoke).toHaveBeenCalledWith("session_xmp_resolve", {
+      directory: "/jobs/Acme",
+      paths: ["/jobs/Acme/Capture/b.nef"],
+      keep: "xmp",
+    });
   });
 });
