@@ -14294,6 +14294,20 @@ fn gpu_warp_matches_the_cpu_f32_warp_within_rounding() {
             );
         }
     }
+    // Beyond one dispatch: a column taller than a dispatch's rows warps in
+    // more bands; a row wider than a dispatch warps on the CPU (for every
+    // use alike).
+    let max = context.limits.max_compute_workgroups_per_dimension * 16;
+    let tall = DynamicImage::ImageRgb32F(image::Rgb32FImage::from_pixel(
+        1,
+        max + 100,
+        image::Rgb([0.25, 0.5, 0.75]),
+    ));
+    assert!(rawtonic_engine::warp_gpu::runs_for(1, max + 100));
+    rawtonic_engine::image_processing::apply_geometry_warp(&tall, &gpu_warp_recipes()[0])
+        .expect("warps in bands");
+    assert!(!rawtonic_engine::warp_gpu::runs_for(max + 100, 1));
+    assert!(rawtonic_engine::warp_gpu::runs_for(max, 1));
 }
 
 /// Columns `cols` of rows `rows` of an RGB frame `width` wide.

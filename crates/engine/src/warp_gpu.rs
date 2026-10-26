@@ -180,16 +180,21 @@ fn max_binding(device: &wgpu::Device) -> u64 {
         .min(limits.max_buffer_size)
 }
 
+/// Pixels per workgroup along each side (shaders/warp.wgsl).
+const WORKGROUP: u32 = 16;
+
 /// Whether the warp of a `width × height` frame runs on the GPU: a device
-/// is registered and the whole frame fits one storage buffer. Every warp
-/// of the frame (whole, regions, rows) asks this, so they all run on the
-/// same processor.
+/// is registered, the whole frame fits one storage buffer and a row fits
+/// one dispatch. Every warp of the frame (whole, regions, rows) asks this,
+/// so they all run on the same processor.
 pub fn runs_for(width: u32, height: u32) -> bool {
     let bytes = u64::from(width) * u64::from(height) * 12;
     width > 0
         && height > 0
-        && crate::edge_fringe::gpu::device()
-            .is_some_and(|(device, _)| bytes <= max_binding(&device))
+        && crate::edge_fringe::gpu::device().is_some_and(|(device, _)| {
+            bytes <= max_binding(&device)
+                && width.div_ceil(WORKGROUP) <= device.limits().max_compute_workgroups_per_dimension
+        })
 }
 
 /// Polls the device until `done` receives, sleeping between polls: a
@@ -536,7 +541,14 @@ impl<'a> Prepared<'a> {
 
     /// Output rows per band.
     fn band_rows(&self) -> u32 {
-        (BAND_PIXELS / self.out.width.max(1)).clamp(1, self.out.rows.max(1))
+        let dispatch = self
+            .device
+            .limits()
+            .max_compute_workgroups_per_dimension
+            .saturating_mul(WORKGROUP);
+        (BAND_PIXELS / self.out.width.max(1))
+            .min(dispatch)
+            .clamp(1, self.out.rows.max(1))
     }
 
     /// The bands: first output row and rows.
@@ -588,7 +600,11 @@ impl<'a> Prepared<'a> {
         let mut pass = encoder.begin_compute_pass(&Default::default());
         pass.set_pipeline(&self.pipeline.warp);
         pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(self.out.width.div_ceil(16), rows.div_ceil(16), 1);
+        pass.dispatch_workgroups(
+            self.out.width.div_ceil(WORKGROUP),
+            rows.div_ceil(WORKGROUP),
+            1,
+        );
     }
 
     /// Warps band by band into `result` (RGB rows of `out.width`), two
