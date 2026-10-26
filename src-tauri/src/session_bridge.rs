@@ -1714,15 +1714,8 @@ pub(crate) fn rederive_editor_sidecar(lib: &Library, id: &str) {
     let sidecar = asset
         .path
         .with_file_name(format!("{}.rrdata", name.to_string_lossy()));
-    // A photograph without edits or metadata gets no sidecar, but one
-    // written before (metadata read from XMP, then undone) follows too.
-    let state = match lib.editor_state(id) {
-        Ok(Some(state)) => state,
-        Ok(None) if sidecar.exists() => match lib.derived_editor_state(id) {
-            Ok(state) => state,
-            Err(_) => return,
-        },
-        _ => return,
+    let Ok(Some(state)) = lib.editor_state(id) else {
+        return;
     };
     let current: Option<Value> = fs::read(&sidecar)
         .ok()

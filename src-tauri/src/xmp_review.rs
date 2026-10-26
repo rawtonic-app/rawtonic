@@ -5,7 +5,7 @@
 //! in a blocking worker under the library's write lock; originals are never
 //! touched.
 
-use crate::session_bridge::{rederive_editor_sidecar, with_library};
+use crate::session_bridge::with_library;
 use rawtonic_catalog::{Library, XmpOffline, XmpState, XmpUndo};
 use rawtonic_metadata::XmpConflict;
 use serde::{Deserialize, Serialize};
@@ -79,6 +79,36 @@ impl XmpReport {
     }
 }
 
+/// The photograph's editor sidecar (`.rrdata`, derived from the library),
+/// when there is one, follows a metadata change of the review: Use XMP or
+/// its undo. None is created, and one of a photograph left without edits
+/// or metadata by an undo gets the empty state rather than keeping the
+/// metadata read from the XMP.
+fn follow_editor_sidecar(lib: &Library, id: &str) {
+    let Ok(asset) = lib.asset(id) else { return };
+    let Some(name) = asset.path.file_name() else {
+        return;
+    };
+    let sidecar = asset
+        .path
+        .with_file_name(format!("{}.rrdata", name.to_string_lossy()));
+    if !asset.path.is_file() || !sidecar.is_file() {
+        return;
+    }
+    let Ok(state) = lib.derived_editor_state(id) else {
+        return;
+    };
+    let current: Option<serde_json::Value> = std::fs::read(&sidecar)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+    if current.as_ref() != Some(&state)
+        && let Ok(bytes) = serde_json::to_vec_pretty(&state)
+        && let Err(e) = rawtonic_metadata::atomic_write(&sidecar, bytes)
+    {
+        log::warn!("Editor sidecar pending for {}: {e}", asset.path.display());
+    }
+}
+
 /// Writes every pending sidecar; conflicts are left for review.
 pub fn sync_pending(lib: &Library) -> anyhow::Result<XmpReport> {
     let mut report = XmpReport::default();
@@ -121,7 +151,7 @@ pub fn resolve(lib: &Library, paths: &[String], keep: XmpChoice) -> anyhow::Resu
                 // Read: undoable even when writing the sidecar back fails.
                 report.undo.push(undo);
                 // The editor sidecar carries the rating and keywords too.
-                rederive_editor_sidecar(lib, &asset.id);
+                follow_editor_sidecar(lib, &asset.id);
                 lib.sync_xmp(&asset.id).map_err(|e| {
                     anyhow::anyhow!("Read from the XMP sidecar; writing it back failed: {e}")
                 })
@@ -145,7 +175,7 @@ pub fn undo(lib: &Library, undo: &[XmpUndo]) -> XmpReport {
             .unwrap_or_else(|_| step.asset.clone());
         match lib.undo_use_xmp(step) {
             Ok(()) => {
-                rederive_editor_sidecar(lib, &step.asset);
+                follow_editor_sidecar(lib, &step.asset);
                 report.done.push(path);
             }
             Err(e) => {
@@ -317,10 +347,13 @@ mod tests {
         let (_tmp, lib, photos) = session();
         sync_pending(&lib).unwrap();
         let id = lib.asset_at(&photos[2]).unwrap().unwrap().id;
+        // Its editor sidecar, as edits write it.
+        let rrdata = photos[2].with_file_name("c.nef.rrdata");
+        crate::session_bridge::rederive_editor_sidecar(&lib, &id);
+        assert!(rrdata.is_file());
         let report = resolve(&lib, &[shown(&photos[2])], XmpChoice::Xmp).unwrap();
         assert_eq!(report.done, vec![shown(&photos[2])]);
         assert_eq!(lib.metadata(&id).unwrap().rating, 5);
-        let rrdata = photos[2].with_file_name("c.nef.rrdata");
         let state: serde_json::Value = serde_json::from_slice(&fs::read(&rrdata).unwrap()).unwrap();
         assert_eq!(state["rating"], 5);
         assert!(
@@ -362,7 +395,7 @@ mod tests {
     }
 
     #[test]
-    fn undoing_use_xmp_on_a_never_edited_photo_clears_its_editor_sidecar_again() {
+    fn use_xmp_and_its_undo_update_an_editor_sidecar_but_never_create_one() {
         let tmp = tempfile::tempdir().unwrap();
         let lib = Library::create(tmp.path(), "Fresh", Mode::Session).unwrap();
         let photo = tmp.path().join("Capture/e.nef");
@@ -372,9 +405,20 @@ mod tests {
         // A sidecar another application wrote, never adopted: a conflict.
         fs::write(photo.with_extension("xmp"), EXTERNAL).unwrap();
         assert!(lib.sync_xmp(&id).is_err());
+        let rrdata = photo.with_file_name("e.nef.rrdata");
+        // Without an editor sidecar none is made.
+        let report = resolve(&lib, &[shown(&photo)], XmpChoice::Xmp).unwrap();
+        assert!(!rrdata.exists());
+        undo(&lib, &report.undo);
+        assert!(lib.sync_xmp(&id).is_err(), "a conflict again");
+        // One there (an empty editor state) follows Use XMP and its undo.
+        fs::write(
+            &rrdata,
+            r#"{"version":1,"rating":0,"tags":[],"adjustments":null}"#,
+        )
+        .unwrap();
         let report = resolve(&lib, &[shown(&photo)], XmpChoice::Xmp).unwrap();
         assert_eq!(report.done, vec![shown(&photo)]);
-        let rrdata = photo.with_file_name("e.nef.rrdata");
         let read = |path: &Path| -> serde_json::Value {
             serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
         };

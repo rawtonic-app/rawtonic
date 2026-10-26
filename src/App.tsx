@@ -33,6 +33,7 @@ import { useSettingsStore } from './store/useSettingsStore';
 import { useUIStore } from './store/useUIStore';
 import { moduleOf, readModuleLayout } from './utils/panelLayout';
 import { reloadSessionFlags } from './utils/pathKeyedState';
+import { XMP_VIEW_ID, openXmpView } from './utils/xmpReview';
 import { useLibraryStore } from './store/useLibraryStore';
 import { useEditorStore } from './store/useEditorStore';
 import { useProcessStore } from './store/useProcessStore';
@@ -243,6 +244,13 @@ function App() {
           ).catch((e) => toast.error(String(e)));
         } else if (activeAlbumId === MISSING_VIEW_ID && sessionDirectory) {
           await openMissingView(
+            sessionDirectory,
+            currentFolderPath.slice('Album: '.length),
+            handleSelectAlbum,
+            true,
+          ).catch((e) => toast.error(String(e)));
+        } else if (activeAlbumId === XMP_VIEW_ID && sessionDirectory) {
+          await openXmpView(
             sessionDirectory,
             currentFolderPath.slice('Album: '.length),
             handleSelectAlbum,

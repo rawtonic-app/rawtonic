@@ -173,12 +173,7 @@ describe("Session workspace keyboard flows", () => {
     useTextMetadataCache.setState({ session: "/jobs/Acme", loaded: true, byPath: {} });
     await user.click(within(dialog).getByRole("button", { name: "Keep library for b.nef" }));
     await waitFor(() =>
-      expect(selectView).toHaveBeenLastCalledWith(
-        "session-xmp",
-        "XMP to review",
-        ["/jobs/Acme/Capture/a.nef", "/jobs/Acme/Capture/b.nef", "/jobs/Acme/Capture/b.nef?vc=v1"],
-        true,
-      ),
+      expect(selectView).toHaveBeenLastCalledWith("session-xmp", "XMP to review", ["/jobs/Acme/Capture/a.nef"], true),
     );
     expect(await screen.findByRole("button", { name: "1 photo needs XMP sync – click to review" })).toBeTruthy();
     // Only an offline photograph is left: nothing to write until it is back.

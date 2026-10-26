@@ -393,8 +393,23 @@ fn foreign_contact(text: &str, root: roxmltree::Node) -> Result<ForeignContact> 
     if start.is_empty() && children.is_empty() {
         return Ok(ForeignContact::default());
     }
+    // Copies keep their meaning under the declarations in scope where the
+    // children are (the nested description's, when there is one); an outer
+    // attribute whose prefix the nested description redeclares would not.
+    let scope = inner.unwrap_or(node);
+    if let Some(inner) = inner {
+        for attr in node.attributes() {
+            let Some(prefix) = text[attr.range_qname()].split_once(':').map(|(p, _)| p) else {
+                continue;
+            };
+            ensure!(
+                inner.lookup_namespace_uri(Some(prefix)) == attr.namespace(),
+                "XMP prefix {prefix} is redeclared in the creator contact; refusing to rewrite it"
+            );
+        }
+    }
     let mut declarations = String::new();
-    for ns in node.namespaces() {
+    for ns in scope.namespaces() {
         match ns.name() {
             Some("xml") => {}
             Some(prefix) => match OWN_PREFIXES.iter().find(|(own, _)| *own == prefix) {
@@ -888,6 +903,39 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn contact_properties_keep_the_namespaces_of_a_nested_description() {
+        let packet = |inner: &str| {
+            format!(
+                r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="{RDF}"><rdf:Description rdf:about="" xmlns:Iptc4xmpCore="{IPTC_CORE}" xmlns:other="https://example.invalid/other/"><Iptc4xmpCore:CreatorContactInfo other:Note="n">{inner}</Iptc4xmpCore:CreatorContactInfo></rdf:Description></rdf:RDF></x:xmpmeta>"#
+            )
+        };
+        let mut meta = Metadata::default();
+        meta.set_iptc("creatorPhone", "+1 555");
+        // Declared on the nested description, also shadowing an outer prefix.
+        let nested = packet(
+            r#"<rdf:Description xmlns:inner="https://example.invalid/inner/"><inner:Thing>t</inner:Thing><Iptc4xmpCore:CiEmailWork>someone@example.invalid</Iptc4xmpCore:CiEmailWork></rdf:Description>"#,
+        );
+        let written = merge_xmp(Some(&nested), &meta, None).unwrap();
+        let doc = roxmltree::Document::parse(&written).unwrap();
+        assert!(
+            doc.descendants()
+                .any(|n| n.has_tag_name(("https://example.invalid/inner/", "Thing"))),
+            "{written}"
+        );
+        assert!(
+            doc.descendants()
+                .any(|n| n.attribute(("https://example.invalid/other/", "Note")) == Some("n"))
+        );
+        let shadowing = packet(
+            r#"<rdf:Description xmlns:other="https://example.invalid/elsewhere/"><other:Thing>t</other:Thing></rdf:Description>"#,
+        );
+        assert!(
+            merge_xmp(Some(&shadowing), &meta, None).is_err(),
+            "fails closed"
+        );
     }
 
     #[test]

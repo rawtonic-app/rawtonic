@@ -1,3 +1,8 @@
+import { invoke } from '@tauri-apps/api/core';
+import { Invokes } from '../components/ui/AppProperties';
+import { useLibraryStore } from '../store/useLibraryStore';
+import type { SelectView } from './offline';
+
 /**
  * The session bar's XMP review (`src-tauri/src/xmp_review.rs`): photographs
  * whose XMP sidecar is *pending* (the library is newer and the sidecar not
@@ -44,4 +49,19 @@ export function xmpCounts(entries: XmpReviewEntry[]) {
     offline: pending.filter((entry) => entry.offline).length,
     conflicts: entries.filter((entry) => entry.state === 'conflict').length,
   };
+}
+
+/** Shows the photographs whose XMP is pending or in conflict in the grid
+ * (as the Missing Photographs view: listed again on each refresh, so file
+ * operations and resolutions show). Returns them. */
+export async function openXmpView(
+  directory: string,
+  name: string,
+  select: SelectView,
+  preserveEditor = false,
+): Promise<XmpReviewEntry[]> {
+  const asked = useLibraryStore.getState().sessionDirectory;
+  const entries = (await invoke<XmpReviewEntry[]>(Invokes.SessionXmpReview, { directory })) ?? [];
+  if (useLibraryStore.getState().sessionDirectory === asked) select(XMP_VIEW_ID, name, xmpViewPaths(entries), preserveEditor);
+  return entries;
 }

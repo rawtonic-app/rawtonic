@@ -1162,10 +1162,9 @@ impl Library {
         Ok(state)
     }
 
-    /// The editor state a derived `.rrdata` sidecar holds: `editor_state`,
-    /// or for a photograph never edited and without metadata the empty
-    /// state (so a sidecar written for metadata that is gone again is
-    /// brought back to nothing rather than kept).
+    /// The editor state an existing derived `.rrdata` sidecar is brought
+    /// to: `editor_state`, or for a photograph without edits and metadata
+    /// the empty state (so metadata gone again does not stay in it).
     pub fn derived_editor_state(&self, asset: &str) -> Result<Value> {
         Ok(match self.editor_state(asset)? {
             Some(state) => state,

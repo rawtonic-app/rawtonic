@@ -346,7 +346,6 @@ export default function SessionWorkspace({ onNavigate, onSelectView, nativeTitle
   /** Synchronize Folder's review dialog, for a folder (null: the whole library). */
   const [syncing, setSyncing] = useState<{ folder: string | null } | null>(null);
   const [xmpReview, setXmpReview] = useState(false);
-  const xmpViewShown = useRef<string[]>([]);
   const xmpSyncEnabled = useSettingsStore((state) => state.appSettings?.enableXmpSync ?? true);
   // Coming from Lightroom or Capture One: a new catalog first, then the import.
   const [importAfterCreate, setImportAfterCreate] = useState(false);
@@ -1588,11 +1587,9 @@ export default function SessionWorkspace({ onNavigate, onSelectView, nativeTitle
           syncEnabled={xmpSyncEnabled}
           onClose={() => setXmpReview(false)}
           onEntries={(entries, first) => {
-            // The grid shows the photographs to review; after a change it
-            // lists them again (resolved ones too, with their new metadata),
-            // so the view does not empty as they are resolved.
-            if (first) xmpViewShown.current = xmpViewPaths(entries);
-            onSelectView?.(XMP_VIEW_ID, t("session.xmp.view"), xmpViewShown.current, !first);
+            // The grid shows the photographs still to review (`openXmpView`
+            // lists them again on later refreshes).
+            onSelectView?.(XMP_VIEW_ID, t("session.xmp.view"), xmpViewPaths(entries), !first);
             if (!first) {
               // Use XMP and its undo change flags, titles and IPTC too.
               void refresh().catch(() => {});
