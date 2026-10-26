@@ -6,7 +6,7 @@ The README images are genuine window captures of Rawtonic on macOS. Their photog
 
 `readme-develop.jpg`, `readme-library.jpg`, `readme-color.jpg` and `readme-multiview.jpg` are unchanged copies of `shot-develop.jpg`, `shot-library.jpg`, `shot-grading.jpg` and `shot-multiview.jpg` from the [website](https://github.com/rawtonic-app/website/tree/929d473/site/assets), captured on October 26, 2026 with 0.1.0-alpha.7. The photographs were developed in Rawtonic; the website captures were cropped and scaled, with nothing painted or retouched afterwards. These four screenshots are adaptations shared under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/), as documented in the [website credits](https://github.com/rawtonic-app/website/blob/929d473/CREDITS.md). Their photographs, including filmstrip thumbnails, are credited below; display filenames are chosen for the demo. The source RAW files are not included.
 
-| Name in the demo | Photographer (forum name) | Source | Licence as stated in the post |
+| Name in the demo | Photographer (forum name) | Source | License as stated in the post |
 | :-- | :-- | :-- | :-- |
 | Dolomites_sunset.ARW | MarcoNex | [Sunset in the Dolomites (color grading challenge)](https://discuss.pixls.us/t/sunset-in-the-dolomites-color-grading-challenge/23936) | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) |
 | Cat_in_the_brush.ARW | mino | [Big kitty in the brush](https://discuss.pixls.us/t/big-kitty-in-the-brush/52989) | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) |
