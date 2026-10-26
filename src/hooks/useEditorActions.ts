@@ -396,6 +396,9 @@ export interface FrameStatus {
   from: [number, number] | null;
   to: [number, number] | null;
   hiddenPatches: number;
+  /** Its RAW (or what its previews keep) cannot be read now: whether its
+   * frame changes is not known. */
+  unreadable: boolean;
 }
 
 /** A recipe moved to another frame (source_frame.rs `MigratedRecipe`). */
@@ -418,14 +421,12 @@ function noteHiddenPatches(count: number) {
  * frame and coordinates back. Resolves with the AI patches it hid, or null
  * when nothing changed (no newer frame, or the recipe changed meanwhile).
  */
-export async function updateOpenPhotoFrame(expected?: string): Promise<number | null> {
+export async function updateOpenPhotoFrame(): Promise<number | null> {
   flushSliderDraft();
   debouncedSetHistory.flush();
   const { selectedImage, adjustments } = useEditorStore.getState();
   if (!selectedImage?.isReady || !frameUpdateAvailable(selectedImage, adjustments)) return null;
   const path = selectedImage.path;
-  // Only the photograph it was asked for (a batch started before a step).
-  if (expected !== undefined && expected !== path) return null;
   const answer = await invoke<MigratedRecipe>(Invokes.MigrateSourceFrame, { path, adjustments });
   const now = useEditorStore.getState();
   // Edited or left meanwhile: the step would drop that edit; the note stays.
@@ -473,12 +474,31 @@ export async function resetRecipeFor(
   }
 }
 
+/** The photographs of `paths` whose saved recipes a batch mutation is
+ * writing: opening one waits for it (`waitForPendingMetadataSave`), as for
+ * a save, and reads the recipe written. */
+function holdRecipesWhile<T>(paths: string[], mutation: Promise<T>): Promise<T> {
+  const held = mutation.then(
+    () => undefined,
+    () => undefined,
+  );
+  for (const path of paths) pendingMetadataSaves.set(path, held);
+  void held.then(() => {
+    for (const path of paths) if (pendingMetadataSaves.get(path) === held) pendingMetadataSaves.delete(path);
+  });
+  return mutation;
+}
+
 /**
  * "Update frame" for `paths` (else the Library's selection, else the open
- * photograph): first says how many of them change and how many AI patches
- * will have to be made again, then, confirmed, updates the closed ones'
- * recipes (`update_source_frame_for_paths`) and the open one as a history
- * step (`updateOpenPhotoFrame`).
+ * photograph): first says how many of them change, how many AI patches will
+ * have to be made again and which are left out, then, confirmed, updates
+ * their saved recipes (`update_source_frame_for_paths`). The photograph open
+ * in the editor is left out (its lens tool's note updates it as a history
+ * step, `updateOpenPhotoFrame`), and named; asked for it alone, it is
+ * updated that way. A target opened while the batch writes waits for its
+ * recipe. Photographs whose RAW cannot be read are counted apart, never as
+ * already current.
  */
 export async function updateSourceFrameOf(paths?: string[]): Promise<void> {
   const { multiSelectedPaths, libraryActivePath, setLibrary } = useLibraryStore.getState();
@@ -493,22 +513,42 @@ export async function updateSourceFrameOf(paths?: string[]): Promise<void> {
   if (targets.length === 0) return;
   flushSliderDraft();
   debouncedSetHistory.flush();
-  const open = selectedImage?.isReady ? selectedImage.path : null;
+  const openPath = () => useEditorStore.getState().selectedImage?.path ?? null;
+  const open = openPath();
+  if (targets.length === 1 && targets[0] === open) {
+    try {
+      await updateOpenPhotoFrame();
+    } catch (err) {
+      toast.error(i18next.t('studio.sourceFrame.failed', { error: String(err) }));
+    }
+    return;
+  }
+  const others = targets.filter((path) => path !== open);
+  const skipped = open && targets.includes(open) ? open : null;
+  /** Names the open photograph the batch left out. */
+  const noteSkipped = (path: string | null) => {
+    if (path) toast.info(i18next.t('studio.sourceFrame.openSkipped', { name: path.split(/[\\/]/).pop()?.split('?')[0] }));
+  };
   let statuses: FrameStatus[];
   try {
     statuses = await invoke<FrameStatus[]>(Invokes.SourceFrameStatus, {
-      items: targets.map((path) => ({
-        path,
-        adjustments: path === open ? useEditorStore.getState().adjustments : null,
-      })),
+      items: others.map((path) => ({ path, adjustments: null })),
     });
   } catch (err) {
     toast.error(i18next.t('studio.sourceFrame.failed', { error: String(err) }));
     return;
   }
   const changing = statuses.filter((status) => status.changes).map((status) => status.path);
+  const unreadable = statuses.filter((status) => status.unreadable).length;
+  const noteUnreadable = () => {
+    if (unreadable > 0) toast.warn(i18next.t('studio.sourceFrame.unreadable', { count: unreadable }));
+  };
   if (changing.length === 0) {
-    toast.info(i18next.t('studio.sourceFrame.noneChanges', { count: targets.length }));
+    if (unreadable === 0 && !skipped) {
+      toast.info(i18next.t('studio.sourceFrame.noneChanges', { count: targets.length }));
+    }
+    noteUnreadable();
+    noteSkipped(skipped);
     return;
   }
   const patches = statuses.reduce((sum, status) => sum + (status.changes ? status.hiddenPatches : 0), 0);
@@ -517,43 +557,41 @@ export async function updateSourceFrameOf(paths?: string[]): Promise<void> {
     patches > 0
       ? i18next.t('studio.sourceFrame.confirmPatches', { count: patches })
       : i18next.t('studio.sourceFrame.confirmNoPatches'),
+    ...(unreadable > 0 ? [i18next.t('studio.sourceFrame.unreadable', { count: unreadable })] : []),
   ].join(' ');
-  /** Updates the closed photographs `paths` in their saved recipes. */
-  const updateClosed = async (paths: string[]) => {
-    let result: { updated: number; hiddenPatches: number } = { updated: 0, hiddenPatches: 0 };
-    const failed: string[] = [];
-    await afterRecipeSaves(paths, () =>
-      invoke<{ updated: number; hiddenPatches: number }>(Invokes.UpdateSourceFrameForPaths, { paths }).then(
-        (answer) => {
-          result = answer;
-        },
-        (err) => {
-          const { message: why, failed: notSaved } = saveFailure(err, paths);
-          failed.push(...notSaved);
-          // The others were written (`SaveFailure` names the failed ones).
-          result = { updated: paths.length - notSaved.length, hiddenPatches: 0 };
-          toast.error(i18next.t('studio.sourceFrame.failed', { error: why }));
-        },
-      ),
-    );
-    const written = paths.filter((path) => !failed.includes(path));
-    written.forEach((path) => unsavedRecipes.delete(path));
-    return { ...result, written };
-  };
   const run = async () => {
-    // The photograph open now, which may not be the one open when asked: it
-    // is updated as a history step, every other one in its saved recipe.
-    const current = useEditorStore.getState().selectedImage;
-    const openNow = current?.isReady ? current.path : null;
+    // The photograph open now, which may not be the one open when asked,
+    // is left out too.
+    const openNow = openPath();
     const closed = changing.filter((path) => path !== openNow);
     closed.forEach((path) => globalImageCache.delete(path));
     let hidden = 0;
     let updated = 0;
     if (closed.length > 0) {
-      const done = await updateClosed(closed);
-      hidden += done.hiddenPatches;
-      updated += done.updated;
-      if (libraryActivePath && done.written.includes(libraryActivePath)
+      let result: { updated: number; hiddenPatches: number } = { updated: 0, hiddenPatches: 0 };
+      const failed: string[] = [];
+      await holdRecipesWhile(
+        closed,
+        afterRecipeSaves(closed, () =>
+          invoke<{ updated: number; hiddenPatches: number }>(Invokes.UpdateSourceFrameForPaths, { paths: closed }).then(
+            (answer) => {
+              result = answer;
+            },
+            (err) => {
+              const { message: why, failed: notSaved } = saveFailure(err, closed);
+              failed.push(...notSaved);
+              // The others were written (`SaveFailure` names the failed ones).
+              result = { updated: closed.length - notSaved.length, hiddenPatches: 0 };
+              toast.error(i18next.t('studio.sourceFrame.failed', { error: why }));
+            },
+          ),
+        ),
+      );
+      const written = closed.filter((path) => !failed.includes(path));
+      written.forEach((path) => unsavedRecipes.delete(path));
+      hidden += result.hiddenPatches;
+      updated += result.updated;
+      if (libraryActivePath && written.includes(libraryActivePath)
         && useLibraryStore.getState().libraryActivePath === libraryActivePath) {
         const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: libraryActivePath });
         if (useLibraryStore.getState().libraryActivePath === libraryActivePath
@@ -564,25 +602,10 @@ export async function updateSourceFrameOf(paths?: string[]): Promise<void> {
         }
       }
     }
-    if (openNow && changing.includes(openNow)) {
-      try {
-        // Its own patches are told by the step; left meanwhile, it is
-        // updated as a closed photograph.
-        const step = await updateOpenPhotoFrame(openNow);
-        if (step !== null) {
-          updated += 1;
-        } else if (useEditorStore.getState().selectedImage?.path !== openNow) {
-          globalImageCache.delete(openNow);
-          const done = await updateClosed([openNow]);
-          hidden += done.hiddenPatches;
-          updated += done.updated;
-        }
-      } catch (err) {
-        toast.error(i18next.t('studio.sourceFrame.failed', { error: String(err) }));
-      }
-    }
     noteHiddenPatches(hidden);
     if (updated > 0) toast.success(i18next.t('studio.sourceFrame.updated', { count: updated }));
+    noteUnreadable();
+    noteSkipped(skipped ?? (openNow && changing.includes(openNow) ? openNow : null));
   };
   useUIStore.getState().setUI({
     confirmModalState: {

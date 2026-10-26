@@ -3622,9 +3622,11 @@
       "note": "이 RAW 파일에 더 새로운 프레임이 있습니다: {{from}} → {{to}} 픽셀(카메라의 프레임).",
       "notePatches_other": "AI 영역 {{count}}개가 숨겨지며 다시 생성해야 합니다.",
       "noteTitle": "RAW 파일의 최신 프레임으로 현상합니다. 자르기, 마스크, 리터칭은 같은 내용 위에 남습니다. 실행 취소하면 이전 프레임으로 돌아갑니다.",
+      "openSkipped": "{{name}}은(는) 편집기에서 열려 있어 제외되었습니다. 렌즈 보정 도구의 \"업데이트\"로 업데이트하세요.",
       "patchesHidden_other": "AI 영역 {{count}}개를 숨겼습니다. 새 프레임에 맞지 않습니다. 제거 도구에서 다시 생성하세요.",
       "regenerate": "다시 생성",
       "regenerateFailed_other": "AI 영역 {{count}}개를 다시 생성하지 못했습니다.",
+      "unreadable_other": "사진 {{count}}장은 그대로 둡니다. RAW 파일을 지금 읽을 수 없습니다(오프라인 또는 손상).",
       "update": "업데이트",
       "updated_other": "사진 {{count}}장의 프레임을 업데이트했습니다"
     },

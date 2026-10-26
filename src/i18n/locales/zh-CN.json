@@ -3622,9 +3622,11 @@
       "note": "此 RAW 文件有更新的画幅：{{from}} → {{to}} 像素（相机的画幅）。",
       "notePatches_other": "{{count}} 个 AI 区域将被隐藏，需要重新生成。",
       "noteTitle": "使用 RAW 文件的最新画幅冲印；裁剪、蒙版和修饰仍留在相同的内容上。撤销可恢复原来的画幅。",
+      "openSkipped": "{{name}} 已在编辑器中打开，已被跳过：请在其镜头校正工具中点击“更新”。",
       "patchesHidden_other": "已隐藏 {{count}} 个 AI 区域：它们不适合新画幅。请在移除工具中重新生成。",
       "regenerate": "重新生成",
       "regenerateFailed_other": "无法重新生成 {{count}} 个 AI 区域。",
+      "unreadable_other": "{{count}} 张照片保持不变：暂时无法读取其 RAW 文件（离线或已损坏）。",
       "update": "更新",
       "updated_other": "已更新 {{count}} 张照片的画幅"
     },

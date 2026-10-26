@@ -68,6 +68,9 @@ pub struct FrameStatus {
     pub to: Option<(u32, u32)>,
     /// Visible AI patches that would be hidden for regeneration.
     pub hidden_patches: usize,
+    /// The newest frame may differ from its recipe's but the RAW cannot be
+    /// read now (offline, damaged): not known to change, nor to be current.
+    pub unreadable: bool,
 }
 
 /// A photo asked about: its path (a virtual copy's too) and, for the open
@@ -84,10 +87,13 @@ pub struct FrameQuery {
 pub fn status(path: &str, adjustments: &Value) -> FrameStatus {
     let (source, _) = parse_virtual_path(path);
     let source_str = source.to_string_lossy();
-    let change = (crate::formats::is_raw_file(&source)
-        && !rawtonic_engine::image_processing::is_new_recipe(adjustments))
-    .then(|| change(&source_str, requested(adjustments), VERSION))
-    .flatten();
+    let from = requested(adjustments);
+    let differs = crate::formats::is_raw_file(&source)
+        && !rawtonic_engine::image_processing::is_new_recipe(adjustments)
+        && effective(&source_str, from) != effective(&source_str, VERSION);
+    let change = differs
+        .then(|| change(&source_str, from, VERSION))
+        .flatten();
     let hidden_patches = change.as_ref().map_or(0, |change| {
         let (dx, dy) = change.offset;
         let fits = change.only_grows() && dx.fract() == 0.0 && dy.fract() == 0.0;
@@ -107,6 +113,7 @@ pub fn status(path: &str, adjustments: &Value) -> FrameStatus {
         from: change.map(|c| c.from),
         to: change.map(|c| c.to),
         hidden_patches,
+        unreadable: differs && change.is_none(),
     }
 }
 
@@ -177,6 +184,14 @@ mod tests {
         // Files no frame version changes need not be read: only the key.
         let moved = migrated(&dir.path().join("C.NEF"), &json!({"exposure": 1}), VERSION).unwrap();
         assert_eq!(moved.adjustments, json!({"exposure": 1, KEY: VERSION}));
+        // Its status says so, apart from a frame known to be current.
+        let missing_status = status(&missing.to_string_lossy(), &json!({"exposure": 1}));
+        assert!(!missing_status.changes && missing_status.unreadable);
+        let current = status(
+            &dir.path().join("C.NEF").to_string_lossy(),
+            &json!({"exposure": 1}),
+        );
+        assert!(!current.changes && !current.unreadable);
         // A never-edited recipe already develops the newest frame.
         assert_eq!(
             migrated(&missing, &json!({}), VERSION).unwrap().adjustments,

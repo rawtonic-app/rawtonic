@@ -292,29 +292,91 @@ describe('Update frame and Reset adopt the newest frame of the RAW (ADR 0020)', 
     expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).not.toContain(Invokes.MigrateSourceFrame);
   });
 
-  it('updates the photograph open when asked as a closed one when another is open by the time it is confirmed', async () => {
+  it('leaves out the photograph open by the time the batch is confirmed and names it', async () => {
     openR5Crop();
     const said = vi.spyOn(i18next, 't');
+    useLibraryStore.setState({ multiSelectedPaths: ['/first.cr3', '/b.cr3', '/c.cr3'] });
+    let asked: Promise<void> | undefined;
+    act(() => {
+      asked = updateSourceFrameOf();
+    });
+    await finish(Invokes.SourceFrameStatus, [
+      { path: '/b.cr3', changes: true, from: [4970, 3392], to: [5088, 3392], hiddenPatches: 0, unreadable: false },
+      { path: '/c.cr3', changes: true, from: [4970, 3392], to: [5088, 3392], hiddenPatches: 0, unreadable: false },
+    ]);
+    await asked;
+    // /c.cr3 is opened before the batch is confirmed: it is left out too.
+    act(() => select('/c.cr3'));
+    act(() => useUIStore.getState().confirmModalState.onConfirm?.());
+    await act(async () => {});
+    expect(vi.mocked(invoke).mock.calls.find(([command]) => command === Invokes.UpdateSourceFrameForPaths)?.[1]).toEqual({
+      paths: ['/b.cr3'],
+    });
+    await finish(Invokes.UpdateSourceFrameForPaths, { updated: 1, hiddenPatches: 0 });
+    expect(said).toHaveBeenCalledWith('studio.sourceFrame.updated', { count: 1 });
+    expect(said).toHaveBeenCalledWith('studio.sourceFrame.openSkipped', { name: 'first.cr3' });
+    expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).not.toContain(Invokes.MigrateSourceFrame);
+    expect(useEditorStore.getState().selectedImage?.path).toBe('/c.cr3');
+  });
+
+  it('makes a target opened while the batch writes wait for its updated recipe', async () => {
+    openR5Crop();
     useLibraryStore.setState({ multiSelectedPaths: ['/first.cr3', '/b.cr3'] });
     let asked: Promise<void> | undefined;
     act(() => {
       asked = updateSourceFrameOf();
     });
     await finish(Invokes.SourceFrameStatus, [
-      { path: '/first.cr3', changes: true, from: [4970, 3392], to: [5088, 3392], hiddenPatches: 0 },
-      { path: '/b.cr3', changes: true, from: [4970, 3392], to: [5088, 3392], hiddenPatches: 0 },
+      { path: '/b.cr3', changes: true, from: [4970, 3392], to: [5088, 3392], hiddenPatches: 0, unreadable: false },
     ]);
     await asked;
-    act(() => select('/second.dng'));
+    expect(waitForPendingMetadataSave('/b.cr3')).toBeUndefined();
     act(() => useUIStore.getState().confirmModalState.onConfirm?.());
     await act(async () => {});
-    expect(vi.mocked(invoke).mock.calls.find(([command]) => command === Invokes.UpdateSourceFrameForPaths)?.[1]).toEqual({
-      paths: ['/first.cr3', '/b.cr3'],
+    // The loader of /b.cr3 reads its recipe only after the batch wrote it.
+    const opened = waitForPendingMetadataSave('/b.cr3');
+    expect(opened).toBeDefined();
+    let read = false;
+    void opened!.then(() => {
+      read = true;
     });
-    await finish(Invokes.UpdateSourceFrameForPaths, { updated: 2, hiddenPatches: 0 });
-    expect(said).toHaveBeenCalledWith('studio.sourceFrame.updated', { count: 2 });
-    expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).not.toContain(Invokes.MigrateSourceFrame);
-    expect(useEditorStore.getState().selectedImage?.path).toBe('/second.dng');
+    await act(async () => {});
+    expect(read).toBe(false);
+    await finish(Invokes.UpdateSourceFrameForPaths, { updated: 1, hiddenPatches: 0 });
+    expect(read).toBe(true);
+    expect(waitForPendingMetadataSave('/b.cr3')).toBeUndefined();
+  });
+
+  it('tells photographs whose RAW cannot be read apart from current ones', async () => {
+    openR5Crop();
+    const said = vi.spyOn(i18next, 't');
+    useLibraryStore.setState({ multiSelectedPaths: ['/b.cr3', '/c.cr3'] });
+    let asked: Promise<void> | undefined;
+    act(() => {
+      asked = updateSourceFrameOf();
+    });
+    await finish(Invokes.SourceFrameStatus, [
+      { path: '/b.cr3', changes: false, from: null, to: null, hiddenPatches: 0, unreadable: true },
+      { path: '/c.cr3', changes: false, from: null, to: null, hiddenPatches: 0, unreadable: false },
+    ]);
+    await asked;
+    expect(said).toHaveBeenCalledWith('studio.sourceFrame.unreadable', { count: 1 });
+    expect(said).not.toHaveBeenCalledWith('studio.sourceFrame.noneChanges', expect.anything());
+    expect(said).not.toHaveBeenCalledWith('studio.sourceFrame.confirmTitle');
+  });
+
+  it('updates the open photograph as a history step when it alone is asked for', async () => {
+    const old = openR5Crop();
+    let asked: Promise<void> | undefined;
+    act(() => {
+      asked = updateSourceFrameOf();
+    });
+    expect(vi.mocked(invoke).mock.calls.at(-1)?.[0]).toBe(Invokes.MigrateSourceFrame);
+    const moved = { ...old, sourceFrameVersion: 1 };
+    await finish(Invokes.MigrateSourceFrame, { adjustments: moved, hiddenPatches: 0 });
+    await asked;
+    expect(useEditorStore.getState().history).toEqual([old, moved]);
+    expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).not.toContain(Invokes.UpdateSourceFrameForPaths);
   });
 
   it('keeps current face retouch current in the panel when the update moves the geometry', async () => {
@@ -337,22 +399,23 @@ describe('Update frame and Reset adopt the newest frame of the RAW (ADR 0020)', 
     expect(faceRetouchIsCurrent(shown.faceRetouch, shown)).toBe(true);
   });
 
-  it('says first how many photographs and AI patches the batch changes, then updates closed and open ones', async () => {
-    const open = openR5Crop();
+  it('says first how many photographs and AI patches the batch changes, then updates the closed ones', async () => {
+    openR5Crop();
     const said = vi.spyOn(i18next, 't');
-    useLibraryStore.setState({ multiSelectedPaths: ['/first.cr3', '/b.cr3', '/c.cr3'] });
+    useLibraryStore.setState({ multiSelectedPaths: ['/first.cr3', '/b.cr3', '/c.cr3', '/d.cr3'] });
     let asked: Promise<void> | undefined;
     act(() => {
       asked = updateSourceFrameOf();
     });
+    // The open photograph is not asked about: the batch leaves it out.
     expect(vi.mocked(invoke).mock.calls.at(-1)).toEqual([
       Invokes.SourceFrameStatus,
-      { items: [{ path: '/first.cr3', adjustments: open }, { path: '/b.cr3', adjustments: null }, { path: '/c.cr3', adjustments: null }] },
+      { items: [{ path: '/b.cr3', adjustments: null }, { path: '/c.cr3', adjustments: null }, { path: '/d.cr3', adjustments: null }] },
     ]);
     await finish(Invokes.SourceFrameStatus, [
-      { path: '/first.cr3', changes: true, from: [4970, 3392], to: [5088, 3392], hiddenPatches: 0 },
-      { path: '/b.cr3', changes: true, from: [4970, 3392], to: [5088, 3392], hiddenPatches: 2 },
-      { path: '/c.cr3', changes: false, from: null, to: null, hiddenPatches: 0 },
+      { path: '/b.cr3', changes: true, from: [4970, 3392], to: [5088, 3392], hiddenPatches: 2, unreadable: false },
+      { path: '/c.cr3', changes: true, from: [4970, 3392], to: [5088, 3392], hiddenPatches: 0, unreadable: false },
+      { path: '/d.cr3', changes: false, from: null, to: null, hiddenPatches: 0, unreadable: false },
     ]);
     await asked;
     const confirm = useUIStore.getState().confirmModalState;
@@ -364,16 +427,15 @@ describe('Update frame and Reset adopt the newest frame of the RAW (ADR 0020)', 
     act(() => confirm.onConfirm?.());
     await act(async () => {});
     expect(vi.mocked(invoke).mock.calls.find(([command]) => command === Invokes.UpdateSourceFrameForPaths)?.[1]).toEqual({
-      paths: ['/b.cr3'],
+      paths: ['/b.cr3', '/c.cr3'],
     });
-    await finish(Invokes.UpdateSourceFrameForPaths, { updated: 1, hiddenPatches: 2 });
-    expect(vi.mocked(invoke).mock.calls.at(-1)?.[0]).toBe(Invokes.MigrateSourceFrame);
-    const moved = { ...open, sourceFrameVersion: 1 };
-    await finish(Invokes.MigrateSourceFrame, { adjustments: moved, hiddenPatches: 0 });
-    expect(useEditorStore.getState().adjustments).toBe(moved);
-    expect(useEditorStore.getState().history).toEqual([open, moved]);
+    const open = useEditorStore.getState().adjustments;
+    await finish(Invokes.UpdateSourceFrameForPaths, { updated: 2, hiddenPatches: 2 });
+    expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).not.toContain(Invokes.MigrateSourceFrame);
+    expect(useEditorStore.getState().adjustments).toBe(open);
     expect(toast.warn).toHaveBeenCalled();
     expect(said).toHaveBeenCalledWith('studio.sourceFrame.updated', { count: 2 });
+    expect(said).toHaveBeenCalledWith('studio.sourceFrame.openSkipped', { name: 'first.cr3' });
   });
 
   it('announces no update when every photograph of the batch failed', async () => {
@@ -385,7 +447,7 @@ describe('Update frame and Reset adopt the newest frame of the RAW (ADR 0020)', 
       asked = updateSourceFrameOf();
     });
     await finish(Invokes.SourceFrameStatus, [
-      { path: '/b.cr3', changes: true, from: [4970, 3392], to: [5088, 3392], hiddenPatches: 0 },
+      { path: '/b.cr3', changes: true, from: [4970, 3392], to: [5088, 3392], hiddenPatches: 0, unreadable: false },
     ]);
     await asked;
     act(() => useUIStore.getState().confirmModalState.onConfirm?.());

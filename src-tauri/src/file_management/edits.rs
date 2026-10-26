@@ -574,9 +574,9 @@ pub struct FrameUpdate {
 /// "Update frame" for closed photos (ADR 0020): each recipe whose frame
 /// the newest frame version changes is moved to it, its coordinates carried
 /// over (`source_frame::migrated`; a photo whose RAW or lens data cannot be
-/// read is not written and counts as failed); the others are left as they
-/// are. Their stored previews of the old frame go. The open photo is
-/// updated by the editor instead (one history step).
+/// read is not written and counts as failed, never as current); the others
+/// are left as they are. Their stored previews of the old frame go. The
+/// open photo is updated by the editor instead (one history step).
 #[tauri::command]
 pub async fn update_source_frame_for_paths(
     paths: Vec<String>,
@@ -589,11 +589,11 @@ pub async fn update_source_frame_for_paths(
         .into_iter()
         .filter(|path| {
             let (_, sidecar) = parse_virtual_path(path);
-            crate::source_frame::status(
+            let status = crate::source_frame::status(
                 path,
                 &crate::exif_processing::load_sidecar(&sidecar).adjustments,
-            )
-            .changes
+            );
+            status.changes || status.unreadable
         })
         .collect();
     let total = changing.len();
