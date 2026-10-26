@@ -811,9 +811,10 @@ pub fn ca_version_of(adjustments: &serde_json::Value) -> u64 {
 pub const GEOMETRY_VERSION_KEY: &str = "cameraGeometryVersion";
 /// The newest: 1 (2026-10-26) reads Sony's distortion as Camera Raw does
 /// (`sony_lens`); 2 (2026-10-26) frames Nikon Z data as the camera does
-/// (`nikon_curve`). Recipes without the key keep their parameters; saving
-/// them again fills in the same as before.
-pub const GEOMETRY_VERSION: u64 = 2;
+/// (`nikon_curve`); 3 (2026-10-26) reads Canon's distortion and the radius
+/// unit of its brightness table (`canon_curves`). Recipes without the key
+/// keep their parameters; saving them again fills in the same as before.
+pub const GEOMETRY_VERSION: u64 = 3;
 
 /// The recipe's camera geometry version: `cameraGeometryVersion`, 0 when
 /// missing.
@@ -935,7 +936,7 @@ pub fn read_version(
             )
         }
         "dng" => sony_dng_lens(&source, geometry_version).or_else(|| adobe_profile(&source)),
-        "cr3" => canon_ctmd_lens(path),
+        "cr3" => canon_ctmd_lens(path, geometry_version),
         "rw2" | "rwl" => {
             let path = path.to_str()?;
             let chromatic = crate::capture_info::panasonic_ca_info(path)
@@ -1195,12 +1196,14 @@ pub fn current_geometry_version(source: &Path) -> u64 {
 
 /// The `source_facts` versions from which `camera_lens` is read at camera
 /// geometry version 1, 2, … (older versions in `camera_lens_geometry`).
-const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7, 8];
+const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7, 8, 9];
 
 /// The file formats (extensions) whose data camera geometry version 1, 2, …
 /// reads differently from the version before: 1 Sony's (ARW, and Adobe DNG
-/// Converter's DNGs of Sony bodies), 2 Nikon's (NEF; NRW share its reader).
-const GEOMETRY_FORMATS: [&[&str]; GEOMETRY_VERSION as usize] = [&["arw", "dng"], &["nef", "nrw"]];
+/// Converter's DNGs of Sony bodies), 2 Nikon's (NEF; NRW share its reader),
+/// 3 Canon's (CR3).
+const GEOMETRY_FORMATS: [&[&str]; GEOMETRY_VERSION as usize] =
+    [&["arw", "dng"], &["nef", "nrw"], &["cr3"]];
 
 /// The camera geometry version facts of `facts_version` carry.
 pub fn facts_geometry_version(facts_version: u32) -> u64 {
@@ -1461,9 +1464,19 @@ fn canon_ctmd_sample(path: &Path) -> Option<Vec<u8>> {
     None
 }
 
-/// Radii and brightness of CTMD record 14 in a CTMD sample
-/// (`canon_ctmd_lens`).
-fn canon_vignetting_table(sample: &[u8]) -> Option<(Vec<u16>, Vec<u16>)> {
+/// The tables of CTMD record 14 (`canon_lens_tables`), knot values with
+/// their radii.
+#[derive(Debug, Clone, PartialEq)]
+struct CanonLensTables {
+    brightness: Vec<u16>,
+    brightness_radii: Vec<u16>,
+    /// Empty when the record ends before it.
+    distortion: Vec<u16>,
+    distortion_radii: Vec<u16>,
+}
+
+/// CTMD record 14 of a CTMD sample (`canon_ctmd_lens`).
+fn canon_lens_tables(sample: &[u8]) -> Option<CanonLensTables> {
     const SLOTS: usize = 23;
     let mut rest = sample;
     let record = loop {
@@ -1486,29 +1499,123 @@ fn canon_vignetting_table(sample: &[u8]) -> Option<(Vec<u16>, Vec<u16>)> {
         .iter()
         .map(|c| u16::from_le_bytes(*c))
         .collect();
+    // Block `index` of the record, its first `count` slots.
+    let block = |index: usize, count: usize| {
+        let start = 3 + index * SLOTS;
+        (2..=SLOTS)
+            .contains(&count)
+            .then(|| words.get(start..start + count))
+            .flatten()
+    };
+    let ascending = |radii: &[u16]| radii.windows(2).all(|w| w[0] < w[1]);
     let count = *words.first()? as usize;
-    if !(2..=SLOTS).contains(&count) || words.len() < 3 + 2 * SLOTS {
+    let brightness = block(0, count)?;
+    let brightness_radii = block(1, count)?;
+    if brightness[0] == 0 || !ascending(brightness_radii) {
         return None;
     }
-    let brightness = &words[3..3 + count];
-    let radii = &words[3 + SLOTS..3 + SLOTS + count];
-    if brightness[0] == 0 || radii.windows(2).any(|w| w[1] <= w[0]) {
-        return None;
-    }
-    Some((radii.to_vec(), brightness.to_vec()))
+    let count = words.get(2).map_or(0, |&c| c as usize);
+    let (distortion, distortion_radii) = match (block(5, count), block(6, count)) {
+        (Some(values), Some(radii)) if values[0] != 0 && ascending(radii) => {
+            (values.to_vec(), radii.to_vec())
+        }
+        _ => Default::default(),
+    };
+    Some(CanonLensTables {
+        brightness: brightness.to_vec(),
+        brightness_radii: brightness_radii.to_vec(),
+        distortion,
+        distortion_radii,
+    })
+}
+
+/// Millimetres per radius unit of CTMD record 14: 1/4096 of the 35 mm
+/// frame's half diagonal. The knots then lie at whole millimetres (757: 4,
+/// 1893: 10, 3596: 19, 4088: 21.6, 4543: 24 mm; R50 V: 379: 2, 3218: 17).
+const CANON_RADIUS_MM: f64 = 21.633307652783937 / 4096.0;
+/// The unit as read before camera geometry version 3.
+const CANON_RADIUS_MM_V0: f64 = 0.005;
+/// The part of a distortion value's departure from 16384 that is
+/// corrected. Not derived from the format: fitted on Camera Raw's own
+/// correction of an R5 Mark II + RF 135 and an R6 Mark III + RF 50 (0.80 and
+/// 0.81 with the radius unit free, which then landed on
+/// `CANON_RADIUS_MM`), then checked held out on the camera's own corrected
+/// JPEG of an R50 V + RF 28 mm (other body, sensor size, lens, sign of the
+/// distortion and reference): 0.15 px median with 0.8, 1.1 px with the full
+/// value (`the_distortion_share_reproduces_the_cameras_own_correction`;
+/// notes: parity-gaps/G71).
+const CANON_DISTORTION_SHARE: f64 = 0.8;
+
+/// The curves of CTMD record 14 for an image whose half diagonal on the
+/// sensor is `half_diagonal_mm`, as camera geometry version `geometry`
+/// reads them. Brightness: 8191 = centre. Distortion (since version 3,
+/// none before): a corrected radius u samples the camera's image at
+/// u k(u), k = 1 + `CANON_DISTORTION_SHARE` (value / 16384 − 1); data
+/// that reach beyond the corners (k(1) > 1, pincushion) keep the corners
+/// on the sensor's corners as Camera Raw does, others keep the camera's
+/// framing (zoomed in by the radius that reaches the corner). Radii in
+/// `CANON_RADIUS_MM`, 5 µm before version 3.
+fn canon_curves(
+    tables: &CanonLensTables,
+    half_diagonal_mm: f64,
+    geometry: u64,
+) -> Option<EmbeddedLensData> {
+    let mm = if geometry >= 3 {
+        CANON_RADIUS_MM
+    } else {
+        CANON_RADIUS_MM_V0
+    };
+    let radius = |units: u16| f64::from(units) * mm / half_diagonal_mm;
+    let centre = f64::from(*tables.brightness.first()?);
+    let vignetting = tables
+        .brightness_radii
+        .iter()
+        .zip(&tables.brightness)
+        .map(|(&units, &value)| (radius(units), f64::from(value) / centre))
+        .collect();
+    let identity = || (vec![(0.0, 1.0), (1.0, 1.0)], 1.0, false);
+    let (distortion, zoom, exact_zoom) = if geometry >= 3 && !tables.distortion.is_empty() {
+        // Knots beyond twice the half diagonal (small crops) are not needed.
+        let knots: Vec<(f64, f64)> = tables
+            .distortion_radii
+            .iter()
+            .zip(&tables.distortion)
+            .map(|(&units, &value)| {
+                let k = f64::from(value) / 16384.0;
+                (radius(units), 1.0 + CANON_DISTORTION_SHARE * (k - 1.0))
+            })
+            .filter(|&(r, _)| r <= 2.0)
+            .collect();
+        if knots.len() < 2 || !plausible(&knots) {
+            identity()
+        } else if interpolate(&knots, 1.0) >= 1.0 {
+            (knots, 1.0, false)
+        } else {
+            let (curve, zoom) = framed_curve(|u| interpolate(&knots, u))?;
+            (curve, zoom, true)
+        }
+    } else {
+        identity()
+    };
+    Some(EmbeddedLensData {
+        maker: "Canon",
+        distortion,
+        vignetting: Some(vignetting),
+        zoom,
+        exact_zoom,
+        chromatic: None,
+    })
 }
 
 /// Canon's lens correction data in CTMD record 14 of newer CR3s (EOS R5
 /// Mark II, R6 Mark III; Camera Raw's "Camera Settings" profile for them).
 /// After three counts (17) come 23-slot blocks of little-endian u16:
-/// brightness (8191 = centre), radii, two tables and radii, one table and
-/// radii (the tables around 16384 are not used yet). Radii are in 5 µm on
-/// the sensor: 3596 is half the width of a 36 mm sensor, the last knot (4543)
-/// lies just beyond a full-frame corner (21.6 mm). Normalized here by half
-/// the recorded image's diagonal (FocalPlaneXResolution), so crop modes
-/// read the same table.
-fn canon_ctmd_lens(path: &Path) -> Option<EmbeddedLensData> {
-    const RADIUS_MM: f64 = 0.005;
+/// brightness, radii, two tables and radii (around 16384, not used: no
+/// lateral CA in the files they describe), distortion and radii
+/// (`canon_curves`). Radii are on the sensor, normalized here by half the
+/// recorded image's diagonal (FocalPlaneXResolution), so crop modes read
+/// the same tables.
+fn canon_ctmd_lens(path: &Path, geometry: u64) -> Option<EmbeddedLensData> {
     let sample = canon_ctmd_sample(path)?;
     let source = RawSource::new(path).ok()?;
     let decoder = rawler::get_decoder(&source).ok()?;
@@ -1528,8 +1635,7 @@ fn canon_ctmd_lens(path: &Path) -> Option<EmbeddedLensData> {
     {
         return None;
     }
-    let (radii, brightness) = canon_vignetting_table(&sample)?;
-    let centre = f64::from(*brightness.first()?);
+    let tables = canon_lens_tables(&sample)?;
     let resolution = metadata
         .exif
         .focal_plane_x_resolution
@@ -1541,25 +1647,7 @@ fn canon_ctmd_lens(path: &Path) -> Option<EmbeddedLensData> {
     };
     let width = f64::from(metadata.exif.exif_image_width.filter(|w| *w > 0)?);
     let height = f64::from(metadata.exif.exif_image_height.filter(|h| *h > 0)?);
-    let half_diagonal_mm = width.hypot(height) / 2.0 / per_mm;
-    let vignetting = radii
-        .iter()
-        .zip(&brightness)
-        .map(|(&radius, &value)| {
-            (
-                f64::from(radius) * RADIUS_MM / half_diagonal_mm,
-                f64::from(value) / centre,
-            )
-        })
-        .collect();
-    Some(EmbeddedLensData {
-        maker: "Canon",
-        distortion: vec![(0.0, 1.0), (1.0, 1.0)],
-        vignetting: Some(vignetting),
-        zoom: 1.0,
-        exact_zoom: false,
-        chromatic: None,
-    })
+    canon_curves(&tables, width.hypot(height) / 2.0 / per_mm, geometry)
 }
 
 /// The blocks of Adobe DNG Converter's DNGPrivateData: "Adobe\0", then
@@ -2052,19 +2140,25 @@ mod tests {
 
     #[test]
     fn offline_facts_carry_the_geometry_version_they_were_read_at() {
-        // Facts version 7 carry Sony's knots (1), 8 also Nikon's framing (2).
+        // Previews from before Sony's knots read neither; facts version 7
+        // has Sony's (1), 8 also Nikon's framing (2), 9 Canon's
+        // distortion (3).
         assert_eq!(facts_geometry_version(6), 0);
         assert_eq!(facts_geometry_version(7), 1);
         assert_eq!(facts_geometry_version(8), 2);
+        assert_eq!(facts_geometry_version(9), 3);
         assert_eq!(
             facts_geometry_version(crate::source_facts::VERSION),
             GEOMETRY_VERSION
         );
-        // A NEF's version 7 facts predate Nikon's framing; an ARW's hold.
+        // A NEF's version 7 facts predate Nikon's framing, a CR3's version
+        // 8 facts Canon's distortion; an ARW's hold.
         assert_eq!(known_geometry_version(Path::new("a.nef"), 7), 1);
         assert_eq!(known_geometry_version(Path::new("a.NRW"), 7), 1);
-        assert_eq!(known_geometry_version(Path::new("a.arw"), 7), 2);
-        assert_eq!(known_geometry_version(Path::new("a.nef"), 8), 2);
+        assert_eq!(known_geometry_version(Path::new("a.arw"), 7), 3);
+        assert_eq!(known_geometry_version(Path::new("a.nef"), 8), 3);
+        assert_eq!(known_geometry_version(Path::new("a.CR3"), 8), 2);
+        assert_eq!(known_geometry_version(Path::new("a.cr3"), 9), 3);
     }
 
     #[test]
@@ -2848,26 +2942,43 @@ mod tests {
 
 #[cfg(test)]
 mod canon_ctmd_tests {
-    #[test]
-    fn reads_the_brightness_table_after_other_records() {
-        // EOS R6 Mark III + RF 50mm F1.4 L VCM at f/7.1, CTMD record 14.
-        let brightness: [u16; 17] = [
-            8191, 8079, 7767, 7550, 7302, 7028, 6734, 6428, 6275, 6124, 5975, 5889, 5834, 5766,
-            5692, 5505, 5095,
-        ];
-        let radii: [u16; 17] = [
-            0, 757, 1514, 1893, 2271, 2650, 3028, 3407, 3596, 3786, 3975, 4088, 4164, 4259, 4353,
-            4448, 4543,
-        ];
-        let mut words = vec![17u16, 17, 17];
-        for block in [&brightness[..], &radii[..]] {
+    use super::*;
+
+    // EOS R6 Mark III + RF 50mm F1.4 L VCM at f/7.1 (raw.pixls.us
+    // IMG_4241.CR3), CTMD record 14.
+    const BRIGHTNESS: [u16; 17] = [
+        8191, 8079, 7767, 7550, 7302, 7028, 6734, 6428, 6275, 6124, 5975, 5889, 5834, 5766, 5692,
+        5505, 5095,
+    ];
+    const RADII: [u16; 17] = [
+        0, 757, 1514, 1893, 2271, 2650, 3028, 3407, 3596, 3786, 3975, 4088, 4164, 4259, 4353, 4448,
+        4543,
+    ];
+    const DISTORTION: [u16; 17] = [
+        16384, 16379, 16412, 16437, 16466, 16499, 16532, 16562, 16576, 16586, 16594, 16596, 16596,
+        16595, 16593, 16588, 16582,
+    ];
+    // EOS R50 V + RF28mm F2.8 STM (raw.pixls.us IMG_0034.CR3): strong
+    // barrel, 20 knots.
+    const BARREL_RADII: [u16; 20] = [
+        0, 379, 757, 1136, 1514, 1893, 2271, 2650, 3028, 3218, 3407, 3502, 3596, 3691, 3786, 3880,
+        3975, 4088, 4164, 4259,
+    ];
+    const BARREL: [u16; 20] = [
+        16384, 16282, 16256, 16202, 16116, 16003, 15863, 15703, 15547, 15478, 15416, 15386, 15355,
+        15322, 15285, 15245, 15198, 15132, 15081, 15008,
+    ];
+
+    /// A CTMD sample: a type-1 record, then record 14 with `blocks` (each
+    /// padded to 23 slots) after the three counts.
+    fn sample(counts: [u16; 3], blocks: &[&[u16]]) -> Vec<u8> {
+        let mut words = counts.to_vec();
+        for block in blocks {
             words.extend_from_slice(block);
             words.extend(std::iter::repeat_n(0, 23 - block.len()));
         }
-        words.extend(std::iter::repeat_n(16384, 23 * 5));
         let payload: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
         let mut sample = Vec::new();
-        // A preceding record (type 1, 24 bytes) is skipped.
         sample.extend_from_slice(&24u32.to_le_bytes());
         sample.extend_from_slice(&1u16.to_le_bytes());
         sample.extend_from_slice(&[0; 18]);
@@ -2875,10 +2986,193 @@ mod canon_ctmd_tests {
         sample.extend_from_slice(&14u16.to_le_bytes());
         sample.extend_from_slice(&[0; 6]);
         sample.extend_from_slice(&payload);
-        let (r, b) = super::canon_vignetting_table(&sample).expect("table");
-        assert_eq!(r, radii);
-        assert_eq!(b, brightness);
-        // Without record 14: nothing.
-        assert!(super::canon_vignetting_table(&sample[..24]).is_none());
+        sample
+    }
+
+    fn r6_tables() -> CanonLensTables {
+        // The two tables in between (around 16384) are not used.
+        let other = [16384u16; 17];
+        let sample = sample(
+            [17, 17, 17],
+            &[
+                &BRIGHTNESS,
+                &RADII,
+                &other,
+                &other,
+                &RADII,
+                &DISTORTION,
+                &RADII,
+            ],
+        );
+        canon_lens_tables(&sample).expect("tables")
+    }
+
+    #[test]
+    fn reads_the_brightness_and_distortion_tables_after_other_records() {
+        let tables = r6_tables();
+        assert_eq!(tables.brightness, BRIGHTNESS);
+        assert_eq!(tables.brightness_radii, RADII);
+        assert_eq!(tables.distortion, DISTORTION);
+        assert_eq!(tables.distortion_radii, RADII);
+        // Without record 14: nothing; without the distortion blocks: the
+        // brightness alone.
+        let other = [16384u16; 17];
+        let full = sample(
+            [17, 17, 17],
+            &[
+                &BRIGHTNESS,
+                &RADII,
+                &other,
+                &other,
+                &RADII,
+                &DISTORTION,
+                &RADII,
+            ],
+        );
+        assert!(canon_lens_tables(&full[..24]).is_none());
+        let short = canon_lens_tables(&sample([17, 17, 17], &[&BRIGHTNESS, &RADII])).unwrap();
+        assert_eq!(short.brightness, BRIGHTNESS);
+        assert!(short.distortion.is_empty());
+    }
+
+    /// Where the warp's output radius `u` (relative to the half diagonal)
+    /// samples the camera's image with the parameters of `data`.
+    fn source_radius(data: &EmbeddedLensData, u: f64) -> f64 {
+        let params = serde_json::to_value(to_params(data).unwrap()).unwrap();
+        let get = |key: &str| params.get(key).and_then(|v| v.as_f64());
+        let [a, b, c] = [get("k1").unwrap(), get("k2").unwrap(), get("k3").unwrap()];
+        let q = u / get("zoom").unwrap_or(1.0);
+        q * (a * q * q * q + b * q * q + c * q + 1.0 - a - b - c)
+    }
+
+    #[test]
+    fn distortion_is_read_at_geometry_version_3() {
+        // R6 Mark III full frame: 6960 x 4640 at 5.16 µm, 21.59 mm half
+        // diagonal. Knots lie at whole millimetres when a unit is 1/4096 of
+        // the 35 mm frame's half diagonal (757: 4 mm, 4088: 21.6 mm, 4543:
+        // 24 mm); the corrected radius u samples the camera's image at
+        // u k(u) with k = 1 + 0.8 (value / 16384 - 1), framed so the
+        // corners stay on the sensor's corners (k rises to the corner).
+        let half_diagonal = 6960f64.hypot(4640.0) / 2.0 * 25.4 / 4922.206506;
+        let tables = r6_tables();
+        let data = canon_curves(&tables, half_diagonal, 3).unwrap();
+        let mm_per_unit = 21.633307652783937 / 4096.0;
+        let k = |u: f64| {
+            let r = u * half_diagonal / mm_per_unit;
+            let knots: Vec<(f64, f64)> = RADII
+                .iter()
+                .zip(DISTORTION)
+                .map(|(&r, v)| (f64::from(r), f64::from(v) / 16384.0))
+                .collect();
+            1.0 + 0.8 * (interpolate(&knots, r) - 1.0)
+        };
+        assert!(k(1.0) > 1.0);
+        assert_eq!(data.zoom, 1.0);
+        for i in 1..=20 {
+            let u = i as f64 / 20.0;
+            let expected = u * k(u) / k(1.0);
+            let got = source_radius(&data, u);
+            // 1e-4 of the half diagonal: 0.4 px.
+            assert!((got - expected).abs() < 1e-4, "u {u}: {got} vs {expected}");
+        }
+        // The brightness table on the same radii.
+        let vignetting = data.vignetting.as_ref().unwrap();
+        assert!((vignetting[1].0 - 757.0 * mm_per_unit / half_diagonal).abs() < 1e-12);
+        // Older versions: no distortion, the radii in 5 µm as before.
+        for geometry in 0..3 {
+            let old = canon_curves(&tables, half_diagonal, geometry).unwrap();
+            assert_eq!(old.distortion, vec![(0.0, 1.0), (1.0, 1.0)]);
+            assert_eq!(
+                old.vignetting.as_ref().unwrap()[1].0,
+                757.0 * 0.005 / half_diagonal
+            );
+        }
+    }
+
+    #[test]
+    fn the_distortion_share_reproduces_the_cameras_own_correction() {
+        // Held out from choosing CANON_DISTORTION_SHARE (fitted on Camera
+        // Raw's fields of an R5 Mark II and an R6 Mark III): the R50 V's own
+        // corrected JPEG of raw.pixls.us IMG_0034.CR3 (RF 28 mm, in-camera
+        // distortion correction on) against our uncorrected render, binned
+        // (notes: benchmark-results/g71c-canon-2026-10-26): output radius,
+        // and the radius it shows from the sensor over it, relative to the
+        // 6000 x 4000 frame's half diagonal (3606 px).
+        const MEASURED: [(f64, f64); 8] = [
+            (0.2027, 0.99476),
+            (0.3151, 0.99350),
+            (0.4054, 0.99184),
+            (0.4926, 0.98982),
+            (0.5371, 0.98854),
+            (0.6429, 0.98537),
+            (0.7164, 0.98245),
+            (0.8109, 0.97848),
+        ];
+        let half_diagonal_px = 6000f64.hypot(4000.0) / 2.0;
+        let half_diagonal = half_diagonal_px * 25.4 / 6825.938567;
+        let brightness = [8191u16; 20];
+        let other = [16384u16; 20];
+        let sample = sample(
+            [20, 20, 20],
+            &[
+                &brightness,
+                &BARREL_RADII,
+                &other,
+                &other,
+                &BARREL_RADII,
+                &BARREL,
+                &BARREL_RADII,
+            ],
+        );
+        let data = canon_curves(&canon_lens_tables(&sample).unwrap(), half_diagonal, 3).unwrap();
+        for (u, ratio) in MEASURED {
+            let error = (source_radius(&data, u) - u * ratio).abs() * half_diagonal_px;
+            assert!(error < 0.5, "u {u}: {error} px");
+        }
+    }
+
+    #[test]
+    fn barrel_data_keep_the_cameras_framing() {
+        // R50 V (APS-C, 6000 x 4000 at 3.72 µm) + RF 28: the corrected
+        // corners sample inside the sensor's corners, as in the camera's
+        // own corrected JPEG: u samples u k(u), zoomed in by the radius
+        // that reaches the corner.
+        let half_diagonal = 6000f64.hypot(4000.0) / 2.0 * 25.4 / 6825.938567;
+        let brightness = [8191u16; 20];
+        let other = [16384u16; 20];
+        let sample = sample(
+            [20, 20, 20],
+            &[
+                &brightness,
+                &BARREL_RADII,
+                &other,
+                &other,
+                &BARREL_RADII,
+                &BARREL,
+                &BARREL_RADII,
+            ],
+        );
+        let tables = canon_lens_tables(&sample).unwrap();
+        let data = canon_curves(&tables, half_diagonal, 3).unwrap();
+        assert!(data.zoom > 1.0 && data.exact_zoom);
+        let mm_per_unit = 21.633307652783937 / 4096.0;
+        let k = |u: f64| {
+            let r = u * half_diagonal / mm_per_unit;
+            let knots: Vec<(f64, f64)> = BARREL_RADII
+                .iter()
+                .zip(BARREL)
+                .map(|(&r, v)| (f64::from(r), f64::from(v) / 16384.0))
+                .collect();
+            1.0 + 0.8 * (interpolate(&knots, r) - 1.0)
+        };
+        for i in 1..=20 {
+            let u = i as f64 / 20.0;
+            let got = source_radius(&data, u);
+            assert!(
+                (got - u * k(u)).abs() < 2e-4,
+                "u {u}: {got} vs {}",
+                u * k(u)
+            );
+        }
     }
 }
