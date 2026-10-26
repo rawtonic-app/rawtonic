@@ -718,11 +718,16 @@ fn live_view_sequence(args: &[String], mock: bool) -> Result<(), String> {
     let out = PathBuf::from(arg(args, "--out").ok_or("liveview needs --out DIR")?);
     std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
     let out = out.canonicalize().map_err(|e| e.to_string())?;
-    let span = Duration::from_secs_f64(
-        arg(args, "--seconds")
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(8.0),
-    );
+    let span = arg(args, "--seconds")
+        .map(|s| {
+            s.parse::<f64>()
+                .ok()
+                .filter(|s| *s > 0.0)
+                .and_then(|s| Duration::try_from_secs_f64(s).ok())
+                .ok_or(format!("--seconds {s}: not a positive number of seconds"))
+        })
+        .transpose()?
+        .unwrap_or(Duration::from_secs(8));
     let shots: u32 = arg(args, "--shots")
         .and_then(|s| s.parse().ok())
         .unwrap_or(2);
