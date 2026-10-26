@@ -530,11 +530,10 @@ pub async fn load_image_proxy(
         Some(loaded)
     } else {
         let read_path = path.clone();
-        let proxy = tokio::task::spawn_blocking(move || {
-            crate::preview_proxy::read(&source_path, &settings)
-        })
-        .await
-        .map_err(|e| e.to_string())?;
+        let proxy =
+            tokio::task::spawn_blocking(move || editor_proxy(&source_path, wanted, &settings))
+                .await
+                .map_err(|e| e.to_string())?;
         proxy.map(|proxy| {
             state
                 .proxy_memory
@@ -621,21 +620,23 @@ fn decode_for_proxy(
 /// the photograph's previews (`preview_proxy::stands_for`).
 const OTHER_VARIANT_OFFLINE: &str = "This copy develops the RAW differently from the photograph's stored previews (another colour noise filter or render version); reconnect the RAW to open it";
 
-/// An offline photograph whose recipe develops another frame of the RAW
-/// than its stored previews show (`offline_frame_fits`).
-const OTHER_FRAME_OFFLINE: &str = "This photograph's edit uses another frame of the RAW than its stored previews (its frame was updated since they were made); reconnect the RAW to open it";
-
-/// Whether previews made for frame `proxy_frame` can show an offline
-/// photograph whose recipe develops `wanted`: the same frame, or any frame
-/// for a never-edited one (`new_recipe`: its new edit takes the previews'
-/// frame). Where neither the file nor the previews' facts tell the file's
-/// frames (previews from before they were recorded, of a kind of file a
-/// frame version can change), `wanted` is the recipe's version itself, so
-/// an edit of a newer frame waits for the RAW rather than show its
-/// coordinates on another frame.
-fn offline_frame_fits(proxy_frame: u32, wanted: u32, new_recipe: bool) -> bool {
-    proxy_frame == wanted || new_recipe
+/// The stored Standard proxy of the RAW `source` for the editor developing
+/// `wanted`: only when its previews are made for that variant (the stored
+/// recipe's; not for a virtual copy or a frame the editor asks for that
+/// differs) and, offline, of its frame (`preview_proxy::frame_fits`).
+fn editor_proxy(
+    source: &Path,
+    wanted: DecodeVariant,
+    settings: &AppSettings,
+) -> Option<crate::preview_proxy::Proxy> {
+    (wanted == stored_decode_variant(&source.to_string_lossy()))
+        .then(|| crate::preview_proxy::read(source, settings))
+        .flatten()
 }
+
+/// An offline photograph whose recipe develops another frame of the RAW
+/// than its stored previews show (`preview_proxy::frame_fits`).
+const OTHER_FRAME_OFFLINE: &str = "This photograph's edit uses another frame of the RAW than its stored previews (its frame was updated since they were made); reconnect the RAW to open it";
 
 const NOT_BAYER: &str = "AI Denoise works on Bayer sensors only; this photograph's sensor (X-Trans, Foveon or a linear DNG) is not supported";
 
@@ -1385,16 +1386,13 @@ async fn open_offline(
     let source_str = source.to_string_lossy().to_string();
     let frames = rawtonic_engine::source_frame::frames(&source_str);
     // Previews of another frame than the recipe's cannot show its
-    // coordinates; a never-edited photograph takes their frame for its new
-    // edit (`offline_frame_fits`).
+    // coordinates (the stored recipe's are checked on reading them; this is
+    // for the frame the editor asks for); a never-edited photograph takes
+    // their frame for its new edit.
     let frame_fits = |proxy_frame: u32| {
-        offline_frame_fits(
-            proxy_frame,
-            variant.frame,
-            rawtonic_engine::image_processing::is_new_recipe(&metadata.adjustments),
-        )
-        .then_some(())
-        .ok_or_else(|| OTHER_FRAME_OFFLINE.to_string())
+        crate::preview_proxy::frame_fits(proxy_frame, variant.frame, &metadata.adjustments)
+            .then_some(())
+            .ok_or_else(|| OTHER_FRAME_OFFLINE.to_string())
     };
     let exif = crate::exif_processing::read_rrexif_sidecar(source)
         .or(stored_exif)
@@ -1517,17 +1515,38 @@ async fn open_offline(
 
 #[cfg(test)]
 mod offline_frame_tests {
-    use super::offline_frame_fits;
+    use super::*;
+    use crate::preview_proxy::frame_fixture::{offline_cr3, updated_edit};
 
+    /// The editor's proxy (`load_image_proxy`) of an updated edit (ADR
+    /// 0020) is never an offline preview of the RAW's old frame, nor of the
+    /// stored frame when the editor asks for another.
+    #[test]
+    fn the_editors_offline_proxy_shows_the_recipes_frame() {
+        let settings = AppSettings::default();
+        for (frame, shown) in [(0, false), (1, true)] {
+            let directory = tempfile::tempdir().unwrap();
+            let photo = offline_cr3(directory.path(), updated_edit(), frame);
+            let path = photo.to_string_lossy().to_string();
+            let wanted = stored_decode_variant(&path);
+            assert_eq!(wanted.frame, 1);
+            assert_eq!(editor_proxy(&photo, wanted, &settings).is_some(), shown);
+            let other = with_frame(wanted, &path, Some(0));
+            assert!(editor_proxy(&photo, other, &settings).is_none());
+        }
+    }
+
+    /// The offline open (`open_offline`) of a frame the editor asks for:
+    /// previews of that frame only, but for a never-edited photograph.
     #[test]
     fn offline_previews_show_only_their_own_frame_but_to_a_new_edit() {
-        assert!(offline_frame_fits(0, 0, false));
-        assert!(offline_frame_fits(1, 1, false));
-        // An updated edit on previews of the old frame waits for the RAW.
-        assert!(!offline_frame_fits(0, 1, false));
-        assert!(!offline_frame_fits(1, 0, false));
-        // A never-edited photograph takes the previews' frame.
-        assert!(offline_frame_fits(0, 1, true));
+        use crate::preview_proxy::frame_fits;
+        let edit = serde_json::json!({"exposure": 1.0});
+        assert!(frame_fits(0, 0, &edit));
+        assert!(frame_fits(1, 1, &edit));
+        assert!(!frame_fits(0, 1, &edit));
+        assert!(!frame_fits(1, 0, &edit));
+        assert!(frame_fits(0, 1, &serde_json::json!({})));
     }
 }
 

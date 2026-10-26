@@ -2721,6 +2721,34 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The multi view never measures or reads rows of an offline 1:1
+    /// preview of another frame than the recipe's (ADR 0020).
+    #[test]
+    fn offline_cells_use_previews_of_their_own_frame_only() {
+        use crate::preview_proxy::frame_fixture::{offline_cr3, updated_edit};
+        let _one = MEASURES_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let settings = crate::app_settings::AppSettings::default();
+        let mut recipe = updated_edit();
+        recipe["fringeVersion"] = serde_json::json!(2);
+        for (frame, shown) in [(0, false), (1, true)] {
+            let directory = tempfile::tempdir().unwrap();
+            let photo = offline_cr3(directory.path(), recipe.clone(), frame);
+            let path = photo.to_string_lossy().to_string();
+            measure_preview(&path, &recipe, &settings);
+            let measured = crate::preview_proxy::full_key(&photo, &settings)
+                .and_then(|key| known_measures(&path, &recipe, MeasuredOn::Preview(&key)));
+            assert_eq!(measured.is_some(), shown);
+            assert_eq!(
+                crate::preview_proxy::full_size(&photo, &settings).is_some(),
+                shown
+            );
+            assert_eq!(
+                crate::preview_proxy::read_full_rows(&photo, &settings, (0, 4), (0, 4)).is_some(),
+                shown
+            );
+        }
+    }
+
     #[test]
     fn a_region_gets_the_same_measures_from_a_warm_or_a_cold_store() {
         let _one = MEASURES_TESTS.lock().unwrap_or_else(|e| e.into_inner());
