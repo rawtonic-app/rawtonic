@@ -1,6 +1,6 @@
 # ADR 0020: When the developed source changes its frame
 
-- Status: Proposed (task SD, G71, 2026-10-26) — design only, nothing implemented; the user decides
+- Status: Accepted 2026-10-26 (decided by the coordinator on the user's behalf, "decide as a professional photographer"); B for R5 II and Sony 16:9, C for the EX2F
 
 ## Context
 
@@ -132,3 +132,13 @@ Sony 16:9, then EX2F.
    regenerate (proposed), or block the update while patches exist?
 5. One key for all frame changes (`sourceFrameVersion`), or fold it into
    `renderVersion` (but then Reset/paste semantics of that key change)?
+
+## Decision (2026-10-26)
+
+Option B for the R5 II APS-C frame and the Sony 16:9 warp-before-crop, option C for the EX2F, in the order of the recommendation. The open questions, decided from a working photographer's view (a Reset means "today's best start", a whole shoot is updated at once, no work is ever lost silently):
+
+1. **Reset adopts the newest frame**, as a Reset adopts the newest process version in Lightroom. It is one history step that also translates the coordinates Reset keeps (spots, AI patches) through the same migration as "Update frame"; undo brings the old frame and coordinates back.
+2. **"Update frame" lives in both places:** a short note with an Update button in the lens correction tool, shown only on photos whose frame would change, and a batch command for the selected photos (Photo menu and command palette), because a shoot from one body is updated as a whole. The batch command says first how many photos change and how many AI patches will need to be regenerated.
+3. **EX2F: an initial crop the user may widen to 4:3** (option C). The camera's 16:9 framing is the start; the pixels outside it stay available, as for in-camera aspect ratios in Lightroom.
+4. **AI patches when the frame does not only grow:** the update is never blocked. Patches that cannot be translated are hidden (kept in the recipe, IPTC marking intact, restored by undo) and the photo shows a "regenerate" notice for them; generated content is never moved to a wrong place.
+5. **One own key, `sourceFrameVersion`**, independent of `renderVersion`, so Reset/paste/preset semantics of the look stay as they are.
