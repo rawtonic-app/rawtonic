@@ -1234,6 +1234,69 @@ fn a_photo_that_comes_after_its_phase_still_belongs_to_its_shot() {
     );
 }
 
+/// The `liveview` sequence's photos with `spec`, 1.5 s phases, two shots.
+fn sequence_photos(spec: &MockSpec) -> (Vec<serde_json::Value>, serde_json::Value) {
+    let dir = tempfile::tempdir().unwrap();
+    let output = std::process::Command::new(HELPER)
+        .args([
+            "liveview",
+            "--mock",
+            "--seconds",
+            "1.5",
+            "--shots",
+            "2",
+            "--out",
+        ])
+        .arg(dir.path().join("out"))
+        .env("RAWTONIC_TETHER_MOCK", serde_json::to_string(spec).unwrap())
+        .output()
+        .unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    (report["photos"].as_array().unwrap().clone(), report)
+}
+
+#[test]
+fn the_sequence_waits_for_every_shot_and_its_companion_files() {
+    // RAW+JPEG; the second shot's files come 4 s late, after the last phase
+    // began; the first shot's two files must not count for it.
+    let (photos, report) = sequence_photos(&MockSpec {
+        raw_and_jpeg: true,
+        late_shots: vec![2],
+        late_ms: 4000,
+        ..MockSpec::default()
+    });
+    let of = |shot: &str| photos.iter().filter(|p| p["shot"] == shot).count();
+    assert_eq!((of("shot 1"), of("shot 2")), (2, 2), "{report}");
+    assert!(photos.iter().all(|p| p["certain"] == true), "{report}");
+}
+
+#[test]
+fn the_sequence_marks_a_photo_whose_shot_cannot_be_told() {
+    // A reused name: shot 1 RAW only, shot 2 RAW+JPEG — the JPEG may be
+    // either's.
+    let (photos, report) = sequence_photos(&MockSpec {
+        restart_numbering_every: Some(1),
+        raw_and_jpeg: true,
+        jpeg_from_shot: Some(2),
+        ..MockSpec::default()
+    });
+    assert_eq!(photos.len(), 3, "{report}");
+    let jpeg = photos.iter().find(|p| p["file"] == "DSC00001.JPG").unwrap();
+    assert_eq!(jpeg["certain"], false, "{report}");
+    assert!(jpeg["msAfterFire"].is_null(), "{report}");
+    assert!(
+        !jpeg["ambiguous"].as_array().unwrap().is_empty(),
+        "{report}"
+    );
+    assert!(
+        photos
+            .iter()
+            .filter(|p| p["file"] == "DSC00001.ARW")
+            .all(|p| p["certain"] == true && p["msAfterFire"].is_number()),
+        "{report}"
+    );
+}
+
 #[test]
 fn the_probe_never_writes_over_a_file_in_its_output_folder() {
     let dir = tempfile::tempdir().unwrap();

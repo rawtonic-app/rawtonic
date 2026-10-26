@@ -685,7 +685,9 @@ impl Phase {
 }
 
 /// A photo of the `liveview` sequence, with the shot it answers (by its
-/// request number) and when it came.
+/// request number) and when it came. When the helper could not tell which
+/// exposure a file belongs to (a reused name: `Captured::ambiguous`), the
+/// shot is a guess: `certain` is false and no time after the shot is given.
 fn photo(
     photos: &mut Vec<Value>,
     fired: &std::collections::HashMap<u64, (String, Instant)>,
@@ -694,11 +696,15 @@ fn photo(
     arrived_in: &str,
 ) {
     let shot = captured.request.and_then(|r| fired.get(&r));
+    let certain = captured.ambiguous.is_empty();
     photos.push(json!({
         "file": captured.camera_name,
         "request": captured.request,
+        "exposure": captured.exposure,
+        "ambiguous": captured.ambiguous,
+        "certain": certain,
         "shot": shot.map(|(phase, _)| phase),
-        "msAfterFire": shot.map(|(_, t)| ms(at.duration_since(*t))),
+        "msAfterFire": shot.filter(|_| certain).map(|(_, t)| ms(at.duration_since(*t))),
         "arrivedIn": arrived_in,
     }));
 }
@@ -859,11 +865,26 @@ fn live_view_sequence(args: &[String], mock: bool) -> Result<(), String> {
         phases.push(phase.report(&name, started));
     }
     let _ = client.request(Request::LiveView { on: false }, long);
-    // Photos still on their way: waited for (up to 10 s), never dropped.
+    // Photos still on their way: waited for until every shot has one (up
+    // to 10 s), then 2 s more for their companions (the JPEG of a
+    // RAW+JPEG); never dropped.
     let late = Instant::now() + Duration::from_secs(10);
-    while photos.len() < fired.len() && Instant::now() < late {
+    let mut companions = None;
+    loop {
+        let answered = |photos: &[Value]| {
+            fired
+                .keys()
+                .all(|r| photos.iter().any(|p| p["request"].as_u64() == Some(*r)))
+        };
+        if companions.is_none() && answered(&photos) {
+            companions = Some(Instant::now() + Duration::from_secs(2));
+        }
+        let until = companions.unwrap_or(late).min(late);
+        if Instant::now() >= until {
+            break;
+        }
         if let Ok((at, Incoming::Event(Event::Captured { captured }))) =
-            rx.recv_timeout(late.saturating_duration_since(Instant::now()))
+            rx.recv_timeout(until.saturating_duration_since(Instant::now()))
         {
             photo(&mut photos, &fired, &captured, at, "after the phases");
         }
