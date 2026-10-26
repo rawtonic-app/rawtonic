@@ -1162,20 +1162,6 @@ impl Library {
         Ok(state)
     }
 
-    /// The editor state an existing derived `.rrdata` sidecar is brought
-    /// to: `editor_state`, or for a photograph without edits and metadata
-    /// the empty state (so metadata gone again does not stay in it).
-    pub fn derived_editor_state(&self, asset: &str) -> Result<Value> {
-        Ok(match self.editor_state(asset)? {
-            Some(state) => state,
-            None => {
-                let mut state = json!({"version": 1, "rating": 0, "tags": [], "adjustments": null});
-                apply_editor_metadata(&mut state, self.metadata(asset)?);
-                state
-            }
-        })
-    }
-
     /// One connection/query for a listing. Stream one editor payload at a time
     /// to let callers retain only their compact browser fields. Primary heads
     /// and metadata overrides have the same meaning as `editor_state`.

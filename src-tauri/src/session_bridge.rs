@@ -1695,28 +1695,15 @@ pub(crate) fn after_relink(lib: &Library, report: &rawtonic_catalog::RelinkRepor
 /// XMP follows, as after an edit. The original is not touched.
 pub(crate) fn rederive(lib: &Library, id: &str) {
     let Ok(asset) = lib.asset(id) else { return };
-    rederive_editor_sidecar(lib, id);
-    if let Err(e) = lib.sync_xmp(id) {
-        log::warn!("XMP pending for {}: {e}", asset.path.display());
-    }
-}
-
-/// The derived editor sidecar beside a photograph that is there, brought
-/// up to the library's state (written only when it differs).
-pub(crate) fn rederive_editor_sidecar(lib: &Library, id: &str) {
-    let Ok(asset) = lib.asset(id) else { return };
-    if !asset.path.is_file() {
+    let Ok(Some(state)) = lib.editor_state(id) else {
         return;
-    }
+    };
     let Some(name) = asset.path.file_name() else {
         return;
     };
     let sidecar = asset
         .path
         .with_file_name(format!("{}.rrdata", name.to_string_lossy()));
-    let Ok(Some(state)) = lib.editor_state(id) else {
-        return;
-    };
     let current: Option<Value> = fs::read(&sidecar)
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok());
@@ -1725,6 +1712,9 @@ pub(crate) fn rederive_editor_sidecar(lib: &Library, id: &str) {
         && let Err(e) = rawtonic_metadata::atomic_write(&sidecar, bytes)
     {
         log::warn!("Editor sidecar pending for {}: {e}", asset.path.display());
+    }
+    if let Err(e) = lib.sync_xmp(id) {
+        log::warn!("XMP pending for {}: {e}", asset.path.display());
     }
 }
 
