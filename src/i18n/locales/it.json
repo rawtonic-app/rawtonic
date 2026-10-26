@@ -2363,6 +2363,7 @@
           "red": "Rosso",
           "white": "Bianco"
         },
+        "currentMode": "Visualizzazione maschera: {{mode}}",
         "custom": "Colore maschera personalizzato",
         "display": "Visualizzazione maschera",
         "modes": {

@@ -2303,6 +2303,7 @@
           "red": "Rot",
           "white": "Weiß"
         },
+        "currentMode": "Maskenanzeige: {{mode}}",
         "custom": "Eigene Maskenfarbe",
         "display": "Maskenanzeige",
         "modes": {

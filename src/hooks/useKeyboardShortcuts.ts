@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { toast } from 'react-toastify';
+import i18n from 'i18next';
 import { BrushSettings, ImageFile, Panel } from '../components/ui/AppProperties';
 import { buildComboMap, fieldOwnsKey, normalizeCombo } from '../utils/keyboardUtils';
 import { toggleWindowFullScreen } from '../utils/photoFullScreen';
@@ -25,6 +26,12 @@ import { flagTargets, libraryViewer, viewerOnly, viewerShown } from '../utils/vi
 import { canUndo, canRedo, undo, redo, catalogUndoAvailable, useCatalogUndoStore } from '../utils/appUndo';
 import { pointerHeld } from '../utils/heldPointer';
 import { COMMAND_DIALOG_SELECTOR, registerAppCommands, runAppCommand, type AppCommand } from '../utils/appCommands';
+
+function showMaskDisplayNotice(mode: ReturnType<typeof maskDisplayOf>): void {
+  toast.info(i18n.t('studio.develop.maskOverlay.currentMode', {
+    mode: i18n.t(`studio.develop.maskOverlay.modes.${mode}`),
+  }), { autoClose: 1800, hideProgressBar: true });
+}
 
 /** The photograph an arrow key moves to in the Library, from `index` of
  * `count`. Left/Right step one and wrap around; in the grid (`columns` per
@@ -711,18 +718,22 @@ export const useKeyboardShortcuts = ({
             const show = autoHidden || !s.editor.showMaskWithSelectTool;
             s.editor.setEditor(show ? { showMaskWithSelectTool: true, maskOverlayAuto: 'pinned' } : { showMaskWithSelectTool: false });
             if (show && settings && maskDisplayOf(settings) === 'never') {
-              s.settings.handleSettingsChange({ ...settings, ...toggleMaskDisplay(settings) });
+              const next = toggleMaskDisplay(settings);
+              s.settings.handleSettingsChange({ ...settings, ...next });
             }
+            showMaskDisplayNotice(show ? maskDisplayOf(useSettingsStore.getState().appSettings) : 'never');
             return;
           }
           if (autoHidden && isMaskOverlayShown(maskDisplayOf(settings), false)) {
             s.editor.setEditor({ maskOverlayAuto: 'pinned' });
+            showMaskDisplayNotice(maskDisplayOf(settings));
             return;
           }
           if (!settings) return;
           const next = toggleMaskDisplay(settings);
           s.settings.handleSettingsChange({ ...settings, ...next });
           if (next.maskDisplay !== 'never') s.editor.setEditor({ maskOverlayAuto: 'pinned' });
+          showMaskDisplayNotice(maskDisplayOf(next));
         },
       },
       toggle_mask_grayscale: {
@@ -733,7 +744,9 @@ export const useKeyboardShortcuts = ({
           if (!settings) return;
           // Choosing a display mode shows the overlay, also after the
           // automatic switch-off.
-          s.settings.handleSettingsChange({ ...settings, ...toggleGrayscaleMask(settings) });
+          const next = toggleGrayscaleMask(settings);
+          s.settings.handleSettingsChange({ ...settings, ...next });
+          showMaskDisplayNotice(maskDisplayOf(next));
           s.editor.setEditor({ maskOverlayAuto: 'pinned' });
         },
       },

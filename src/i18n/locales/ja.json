@@ -2265,6 +2265,7 @@
           "red": "レッド",
           "white": "ホワイト"
         },
+        "currentMode": "マスクの表示: {{mode}}",
         "custom": "カスタムのマスク色",
         "display": "マスクの表示",
         "modes": {

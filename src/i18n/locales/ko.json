@@ -2265,6 +2265,7 @@
           "red": "빨강",
           "white": "흰색"
         },
+        "currentMode": "마스크 표시 방식: {{mode}}",
         "custom": "사용자 지정 마스크 색상",
         "display": "마스크 표시 방식",
         "modes": {

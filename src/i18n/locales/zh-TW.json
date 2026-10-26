@@ -2265,6 +2265,7 @@
           "red": "紅色",
           "white": "白色"
         },
+        "currentMode": "遮色片顯示: {{mode}}",
         "custom": "自訂遮色片顏色",
         "display": "遮色片顯示",
         "modes": {

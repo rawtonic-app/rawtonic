@@ -2265,6 +2265,7 @@
           "red": "红色",
           "white": "白色"
         },
+        "currentMode": "蒙版显示: {{mode}}",
         "custom": "自定义蒙版颜色",
         "display": "蒙版显示",
         "modes": {
