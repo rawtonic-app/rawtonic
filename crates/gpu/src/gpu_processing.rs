@@ -7250,7 +7250,10 @@ impl GpuProcessor {
         // A CPU-readback export encodes its output in its own pass, as the
         // outputs of one render for several do, so both give the same bytes
         // on every backend (NVIDIA compiled the gamut mapping inside `main`
-        // differently from `encode_deferred`).
+        // differently from `encode_deferred`). Not versioned: Metal's bytes do
+        // not change, and on NVIDIA only `renderVersion` 4 (gamut mapping, in
+        // no release yet) changes, whose single exports did not match its
+        // exports of several outputs before.
         let own_output;
         let outputs = if outputs.is_empty()
             && !output_to_display
