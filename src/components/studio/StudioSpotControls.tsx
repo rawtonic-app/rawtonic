@@ -1,4 +1,7 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "react-toastify";
+import { hiddenByFrame, regenerateHiddenPatches } from "../../utils/regeneratePatches";
 import AdjustmentControl from "./AdjustmentControl";
 import { useEditorStore } from "../../store/useEditorStore";
 import { updateAdjustments } from "../../hooks/useEditorActions";
@@ -16,6 +19,34 @@ type Settings = ReturnType<typeof useEditorStore.getState>["spotSettings"];
  * object by a click, a loose brush stroke over it or a box around it;
  * Shift adds to the selected removal and Alt subtracts from it. Red eye
  * places red eye and pet eye corrections (`StudioRedEyeControls`). */
+/** AI patches a frame update hid (they do not fit the new frame): a note
+ * and their regeneration on the new frame. */
+function HiddenPatchesNote() {
+  const { t } = useTranslation();
+  const count = useEditorStore((s) => hiddenByFrame(s.adjustments.aiPatches).length);
+  const [busy, setBusy] = useState(false);
+  if (count === 0) return null;
+  return (
+    <div className="studio-metadata-note studio-frame-note" role="status">
+      <span>{t("studio.sourceFrame.hiddenNote", { count })}</span>
+      <button
+        className="studio-text-button"
+        disabled={busy}
+        onClick={() => {
+          setBusy(true);
+          regenerateHiddenPatches()
+            .then((failed) => {
+              if (failed > 0) toast.error(t("studio.sourceFrame.regenerateFailed", { count: failed }));
+            })
+            .finally(() => setBusy(false));
+        }}
+      >
+        {t("studio.sourceFrame.regenerate")}
+      </button>
+    </div>
+  );
+}
+
 export default function StudioSpotControls() {
   const { t } = useTranslation();
   const settings = useEditorStore((s) => s.spotSettings);
@@ -69,6 +100,7 @@ export default function StudioSpotControls() {
 
   return (
     <div className="studio-spot-controls">
+      <HiddenPatchesNote />
       <div className="studio-segments" role="radiogroup" aria-label={t("spotRemoval.mode")}>
         {(["remove", "heal", "clone", "redEye"] as const).map((mode) => (
           <button

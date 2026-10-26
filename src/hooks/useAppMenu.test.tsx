@@ -268,7 +268,7 @@ describe('the macOS menu bar', () => {
   it('has a handler for every shortcut-table command it places', () => {
     // The rest register in their owners (appMenu.test.ts checks them).
     const owners = new Set(['command_palette', 'about', 'check_updates', 'keyboard_shortcuts', 'website', 'report_problem', 'select_none',
-      'clear_recent', 'show_in_finder', 'new_session', 'open_session', 'import_photos', 'flag_pick', 'flag_unflag', 'flag_reject',
+      'clear_recent', 'show_in_finder', 'update_source_frame', 'new_session', 'open_session', 'import_photos', 'flag_pick', 'flag_unflag', 'flag_reject',
       'view_grid', 'view_loupe', 'view_develop']);
     const missing = menuCommands().filter((command) => !owners.has(command) && !appCommand(command));
     expect(missing).toEqual([]);

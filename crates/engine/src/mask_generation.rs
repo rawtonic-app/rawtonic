@@ -443,6 +443,191 @@ pub fn keep_drawn_masks_on_photo(
     stamped
 }
 
+/// The drawn masks, AI masks and colour samples of `out` (masks and AI
+/// patches; a recipe `before` it moved, whose geometry they are shown in)
+/// moved onto the same content of the new frame of `map`
+/// (`source_frame::migrate`). A shape or stroke ends up framed (`ShapeFrame`)
+/// in its own geometry with the new frame's size: one drawn on a photo of
+/// another size (copied there, placed proportionally) is first placed on
+/// the old frame as it is shown now, one without a frame is taken in the
+/// photo's geometry. AI bitmaps are drawn again in the new frame, in the
+/// recipe's warp (`warp` written). Lightroom's components not yet placed are
+/// moved by `lightroom_masks::move_pending`.
+pub(crate) fn move_masks(out: &mut Value, before: &Value, map: &crate::source_frame::FrameMap) {
+    let current = SourceGeometry::from_adjustments(before);
+    let ((ow, oh), (nw, nh)) = map.sizes();
+    let warp_now = mask_warp(out);
+    let recipe_params = get_geometry_params_from_json(before);
+    let framed = |geometry: SourceGeometry| -> Value {
+        let mut frame = shape_frame(&Value::Null, Some((nw, nh)));
+        frame["rotation"] = Value::from(f64::from(geometry.rotation));
+        frame["flipHorizontal"] = Value::from(geometry.flip_horizontal);
+        frame["flipVertical"] = Value::from(geometry.flip_vertical);
+        frame["orientationSteps"] = Value::from(geometry.orientation_steps % 4);
+        frame
+    };
+    let num = |v: &Value, k: &str| v.get(k).and_then(Value::as_f64);
+    let move_xy = |v: &mut Value, kx: &str, ky: &str, g: SourceGeometry| {
+        if let (Some(x), Some(y)) = (num(v, kx), num(v, ky)) {
+            let (x, y) = map.shown(g, (x, y));
+            v[kx] = Value::from(x);
+            v[ky] = Value::from(y);
+        }
+    };
+    // The geometry a component recorded (colour, AI): its own keys where
+    // set, the photo's otherwise.
+    let recorded = |p: &Value, fallback: SourceGeometry| SourceGeometry {
+        rotation: p["rotation"]
+            .as_f64()
+            .map_or(fallback.rotation, |r| r as f32),
+        flip_horizontal: p["flipHorizontal"]
+            .as_bool()
+            .unwrap_or(fallback.flip_horizontal),
+        flip_vertical: p["flipVertical"]
+            .as_bool()
+            .unwrap_or(fallback.flip_vertical),
+        orientation_steps: p["orientationSteps"]
+            .as_u64()
+            .map_or(fallback.orientation_steps, |s| (s % 4) as u8),
+    };
+    for key in ["masks", "aiPatches"] {
+        let Some(list) = out.get_mut(key).and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for sub in list
+            .iter_mut()
+            .filter_map(|container| container.get_mut("subMasks").and_then(Value::as_array_mut))
+            .flatten()
+        {
+            let kind = sub["type"].as_str().unwrap_or_default().to_string();
+            let Some(params) = sub.get_mut("parameters").filter(|p| p.is_object()) else {
+                continue;
+            };
+            if params.get(crate::lightroom_retouch::PENDING).is_some() {
+                continue;
+            }
+            if FRAMED_SHAPES.contains(&kind.as_str()) {
+                let (geometry, mut shown) = match ShapeFrame::of(params) {
+                    Some(frame) => {
+                        let at_old = Shown {
+                            geometry: frame.geometry(),
+                            size: Some((ow, oh)),
+                        };
+                        (
+                            frame.geometry(),
+                            shape_as_shown(&kind, params, at_old, 1.0).into_owned(),
+                        )
+                    }
+                    None => (current, params.clone()),
+                };
+                if kind == "radial" {
+                    move_xy(&mut shown, "centerX", "centerY", geometry);
+                } else {
+                    move_xy(&mut shown, "startX", "startY", geometry);
+                    move_xy(&mut shown, "endX", "endY", geometry);
+                }
+                shown["frame"] = framed(geometry);
+                *params = shown;
+            } else if FRAMED_STROKES.contains(&kind.as_str()) {
+                let Some(lines) = params.get_mut("lines").and_then(Value::as_array_mut) else {
+                    continue;
+                };
+                for line in lines.iter_mut().filter(|line| line.is_object()) {
+                    let frame = line
+                        .get("frame")
+                        .and_then(|f| serde_json::from_value::<ShapeFrame>(f.clone()).ok())
+                        .and_then(ShapeFrame::usable);
+                    let geometry = frame.map_or(current, |f| f.geometry());
+                    // Placed on the old frame as shown now (a stroke copied
+                    // from a photo of another size is placed proportionally).
+                    let resize = frame.and_then(|f| {
+                        f.map_to(
+                            Shown {
+                                geometry,
+                                size: Some((ow, oh)),
+                            },
+                            1.0,
+                        )
+                    });
+                    if let Some(points) = line.get_mut("points").and_then(Value::as_array_mut) {
+                        for point in points.iter_mut() {
+                            if let (Some(x), Some(y)) = (num(point, "x"), num(point, "y")) {
+                                let (x, y) = resize.as_ref().map_or((x, y), |m| m.point(x, y));
+                                let (x, y) = map.shown(geometry, (x, y));
+                                point["x"] = Value::from(x);
+                                point["y"] = Value::from(y);
+                            }
+                        }
+                    }
+                    if let Some(m) = resize.as_ref().filter(|m| m.resize.is_some())
+                        && let Some(size) = num(line, "brushSize")
+                    {
+                        line["brushSize"] = Value::from(size * m.area_scale().sqrt());
+                    }
+                    line["frame"] = framed(geometry);
+                }
+            } else if matches!(kind.as_str(), "color" | "luminance") {
+                let geometry = recorded(params, current);
+                move_xy(params, "targetX", "targetY", geometry);
+                if let Some(samples) = params.get_mut("samples").and_then(Value::as_array_mut) {
+                    for sample in samples.iter_mut() {
+                        let g = recorded(sample, geometry);
+                        let (w, h) = (
+                            num(sample, "width").unwrap_or(0.0),
+                            num(sample, "height").unwrap_or(0.0),
+                        );
+                        if let (Some(x), Some(y)) = (num(sample, "x"), num(sample, "y")) {
+                            // An area moves with its centre.
+                            let (cx, cy) = map.shown(g, (x + w / 2.0, y + h / 2.0));
+                            sample["x"] = Value::from(cx - w / 2.0);
+                            sample["y"] = Value::from(cy - h / 2.0);
+                        }
+                    }
+                }
+            } else if kind.starts_with("ai-") || kind == "quick-eraser" {
+                let geometry = recorded(params, current);
+                for (kx, ky) in [("startX", "startY"), ("endX", "endY")] {
+                    move_xy(params, kx, ky, geometry);
+                }
+                if let Some(prompts) = params.get_mut("prompts").and_then(Value::as_array_mut) {
+                    for prompt in prompts.iter_mut() {
+                        for (kx, ky) in [("x", "y"), ("startX", "startY"), ("endX", "endY")] {
+                            move_xy(prompt, kx, ky, geometry);
+                        }
+                    }
+                }
+                for field in ["maskDataBase64", "mask_data_base64"] {
+                    let Some(data) = params
+                        .get(field)
+                        .and_then(Value::as_str)
+                        .filter(|d| !d.is_empty())
+                        .map(str::to_string)
+                    else {
+                        continue;
+                    };
+                    // The bitmap is in the warp it was made in (`warp`), or,
+                    // without one, in the photo's.
+                    let then_params = params
+                        .get("warp")
+                        .filter(|w| w.is_object())
+                        .map(get_geometry_params_from_json)
+                        .unwrap_or_else(|| recipe_params.clone());
+                    let then = WarpPoints::new(&then_params, ow as u32, oh as u32);
+                    if let Some(moved) = crate::source_frame::remap_bitmap(
+                        &data,
+                        map,
+                        &then,
+                        crate::source_frame::Outside::Zero,
+                    ) {
+                        params[field] = Value::from(moved);
+                        params["warp"] = warp_now.clone();
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// A stroke's `frame`: an unreadable one is left out (the stroke is drawn
 /// as stored) instead of failing the whole mask.
 fn lenient_frame<'de, D: serde::Deserializer<'de>>(
@@ -481,7 +666,7 @@ fn strokes_as_shown<'a>(
 /// `apply_flip` (index i of n to n − 1 − i), then `apply_rotation` about the
 /// frame's centre. The mask rasterizers evaluate shapes at pixel indices, so
 /// a shape moved by these maps covers the same pixels of the photo.
-struct Placement {
+pub(crate) struct Placement {
     geometry: SourceGeometry,
     /// The photo's size before orientation, and as shown.
     photo: (f64, f64),
@@ -490,7 +675,7 @@ struct Placement {
 }
 
 impl Placement {
-    fn new(geometry: SourceGeometry, photo: (f64, f64)) -> Self {
+    pub(crate) fn new(geometry: SourceGeometry, photo: (f64, f64)) -> Self {
         Self {
             geometry,
             photo,
@@ -504,7 +689,7 @@ impl Placement {
     }
 
     /// The photo's pixel shown at (`x`, `y`).
-    fn to_photo(&self, (x, y): (f64, f64)) -> (f64, f64) {
+    pub(crate) fn to_photo(&self, (x, y): (f64, f64)) -> (f64, f64) {
         let (w, h) = self.shown;
         let (sin, cos) = self.sin_cos;
         let (dx, dy) = (x - w / 2.0, y - h / 2.0);
@@ -529,7 +714,7 @@ impl Placement {
     }
 
     /// Where the photo's pixel (`x`, `y`) is shown.
-    fn to_shown(&self, (x, y): (f64, f64)) -> (f64, f64) {
+    pub(crate) fn to_shown(&self, (x, y): (f64, f64)) -> (f64, f64) {
         let (pw, ph) = self.photo;
         let (x, y) = match self.geometry.orientation_steps {
             1 => (ph - 1.0 - y, x),

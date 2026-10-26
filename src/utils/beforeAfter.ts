@@ -37,6 +37,8 @@ export const BEFORE_FRAMING_KEYS: Array<keyof Adjustments> = [
   'fringeVersion',
   'lensVignetteEnabled',
   'guidedPerspective',
+  // The frame of the RAW (ADR 0020): both sides show the same source.
+  'sourceFrameVersion',
 ];
 
 /** Stable JSON of a value: object keys sorted, undefined as null. */

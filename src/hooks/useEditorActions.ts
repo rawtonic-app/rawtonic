@@ -26,6 +26,8 @@ import {
   withGrainStructure,
   withLegacyGrainVersion,
 } from '../utils/adjustments';
+import { frameUpdateAvailable, requestedSourceFrame } from '../utils/sourceFrame';
+import { useUIStore } from '../store/useUIStore';
 import { calculateCenteredCrop, reframingInputs } from '../utils/cropUtils';
 import { cropGestures } from '../utils/cropGesture';
 import { autoWhiteBalance } from '../utils/whiteBalance';
@@ -45,7 +47,7 @@ import { MAX_RENDERED_LAYERS } from '../utils/layerLimit';
 import { useCopySettingsDialog, type SettingsChoice, type SettingsSource } from '../components/studio/CopySettingsDialog';
 import { editorRecipe, withNeverEditedDefaults, type CameraLens } from '../utils/neverEdited';
 import { withOwnBitmapIds } from '../utils/bitmapIds';
-import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
+import { ImageMetadata, Invokes, type SelectedImage } from '../components/ui/AppProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { registerQuitFlush } from '../utils/quit';
 import { draftFor, flushSliderDraft, renderDraft, updateDraft } from '../utils/sliderDraft';
@@ -386,6 +388,173 @@ function afterRecipeSaves<T>(paths: string[], mutation: () => Promise<T>, preser
   })).then(mutation);
 }
 
+/** What "Update frame" would do to a photo (source_frame.rs `FrameStatus`). */
+export interface FrameStatus {
+  path: string;
+  changes: boolean;
+  from: [number, number] | null;
+  to: [number, number] | null;
+  hiddenPatches: number;
+}
+
+/** A recipe moved to another frame (source_frame.rs `MigratedRecipe`). */
+interface MigratedRecipe {
+  adjustments: Adjustments;
+  hiddenPatches: number;
+}
+
+/** Tells how many AI patches a frame update hid (they wait to be made again
+ * in the Remove tool). */
+function noteHiddenPatches(count: number) {
+  if (count > 0) toast.warn(i18next.t('studio.sourceFrame.patchesHidden', { count }));
+}
+
+/**
+ * "Update frame" for the open photograph (ADR 0020): its recipe moved to the
+ * newest frame of the RAW, every coordinate carried over by the backend's
+ * migration (`migrate_source_frame`), as one history step; the photograph is
+ * then opened again for that frame (useImageProcessing). Undo brings the old
+ * frame and coordinates back. Resolves with the AI patches it hid, or null
+ * when nothing changed (no newer frame, or the recipe changed meanwhile).
+ */
+export async function updateOpenPhotoFrame(): Promise<number | null> {
+  flushSliderDraft();
+  debouncedSetHistory.flush();
+  const { selectedImage, adjustments } = useEditorStore.getState();
+  if (!selectedImage?.isReady || !frameUpdateAvailable(selectedImage, adjustments)) return null;
+  const path = selectedImage.path;
+  const moved = await invoke<MigratedRecipe>(Invokes.MigrateSourceFrame, { path, adjustments });
+  const now = useEditorStore.getState();
+  // Edited meanwhile: the step would drop that edit; the note stays.
+  if (now.selectedImage?.path !== path || now.adjustments !== adjustments) return null;
+  now.pushHistory(moved.adjustments);
+  now.setEditor({ adjustments: moved.adjustments });
+  noteHiddenPatches(moved.hiddenPatches);
+  return moved.hiddenPatches;
+}
+
+/**
+ * The recipe a Reset of the open photograph `image` (shown with
+ * `adjustments`) gives: a new edit's (which develops the newest frame), its
+ * aspect ratio the photograph's own. A Reset adopts the newest frame of the
+ * RAW (ADR 0020): the reset recipe is moved there from the frame shown by
+ * the same migration as "Update frame", so what it keeps follows the frame.
+ */
+export async function resetRecipeFor(
+  image: Pick<SelectedImage, 'path' | 'isRaw' | 'width' | 'height' | 'offline' | 'sourceFrames'>,
+  adjustments: Adjustments,
+): Promise<Adjustments> {
+  const aspect = image.width && image.height ? image.width / image.height : null;
+  const reset = { ...initialAdjustmentsFor(!!image.isRaw), aspectRatio: aspect, aiPatches: [] };
+  // Where the newest frame is the one shown (every file no frame version
+  // changes) nothing moves.
+  if (!frameUpdateAvailable(image, adjustments)) return reset;
+  const shown = requestedSourceFrame(adjustments);
+  const moved = await invoke<MigratedRecipe>(Invokes.MigrateSourceFrame, {
+    path: image.path,
+    adjustments: { ...reset, sourceFrameVersion: shown },
+  });
+  return moved.adjustments;
+}
+
+/**
+ * "Update frame" for `paths` (else the Library's selection, else the open
+ * photograph): first says how many of them change and how many AI patches
+ * will have to be made again, then, confirmed, updates the closed ones'
+ * recipes (`update_source_frame_for_paths`) and the open one as a history
+ * step (`updateOpenPhotoFrame`).
+ */
+export async function updateSourceFrameOf(paths?: string[]): Promise<void> {
+  const { multiSelectedPaths, libraryActivePath, setLibrary } = useLibraryStore.getState();
+  const { selectedImage } = useEditorStore.getState();
+  const targets = paths?.length
+    ? paths
+    : multiSelectedPaths.length
+      ? multiSelectedPaths
+      : selectedImage
+        ? [selectedImage.path]
+        : [];
+  if (targets.length === 0) return;
+  flushSliderDraft();
+  debouncedSetHistory.flush();
+  const open = selectedImage?.isReady ? selectedImage.path : null;
+  let statuses: FrameStatus[];
+  try {
+    statuses = await invoke<FrameStatus[]>(Invokes.SourceFrameStatus, {
+      items: targets.map((path) => ({
+        path,
+        adjustments: path === open ? useEditorStore.getState().adjustments : null,
+      })),
+    });
+  } catch (err) {
+    toast.error(i18next.t('studio.sourceFrame.failed', { error: String(err) }));
+    return;
+  }
+  const changing = statuses.filter((status) => status.changes).map((status) => status.path);
+  if (changing.length === 0) {
+    toast.info(i18next.t('studio.sourceFrame.noneChanges', { count: targets.length }));
+    return;
+  }
+  const patches = statuses.reduce((sum, status) => sum + (status.changes ? status.hiddenPatches : 0), 0);
+  const message = [
+    i18next.t('studio.sourceFrame.confirmPhotos', { count: changing.length }),
+    patches > 0
+      ? i18next.t('studio.sourceFrame.confirmPatches', { count: patches })
+      : i18next.t('studio.sourceFrame.confirmNoPatches'),
+  ].join(' ');
+  const run = async () => {
+    const closed = changing.filter((path) => path !== open);
+    closed.forEach((path) => globalImageCache.delete(path));
+    let hidden = 0;
+    if (closed.length > 0) {
+      const failed: string[] = [];
+      await afterRecipeSaves(closed, () =>
+        invoke<number>(Invokes.UpdateSourceFrameForPaths, { paths: closed }).then(
+          (count) => {
+            hidden += count;
+          },
+          (err) => {
+            const { message: why, failed: notSaved } = saveFailure(err, closed);
+            failed.push(...notSaved);
+            toast.error(i18next.t('studio.sourceFrame.failed', { error: why }));
+          },
+        ),
+      );
+      const updated = closed.filter((path) => !failed.includes(path));
+      updated.forEach((path) => unsavedRecipes.delete(path));
+      if (libraryActivePath && updated.includes(libraryActivePath)
+        && useLibraryStore.getState().libraryActivePath === libraryActivePath) {
+        const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: libraryActivePath });
+        if (useLibraryStore.getState().libraryActivePath === libraryActivePath
+          && meta.adjustments && !meta.adjustments.is_null) {
+          setLibrary({
+            libraryActiveAdjustments: normalizeLoadedAdjustments(meta.adjustments, isRawInLibrary(libraryActivePath)),
+          });
+        }
+      }
+    }
+    if (open && changing.includes(open)) {
+      try {
+        // Its own count is told by the step.
+        await updateOpenPhotoFrame();
+      } catch (err) {
+        toast.error(i18next.t('studio.sourceFrame.failed', { error: String(err) }));
+      }
+    }
+    noteHiddenPatches(hidden);
+    toast.success(i18next.t('studio.sourceFrame.updated', { count: changing.length }));
+  };
+  useUIStore.getState().setUI({
+    confirmModalState: {
+      isOpen: true,
+      title: i18next.t('studio.sourceFrame.confirmTitle'),
+      message,
+      confirmText: i18next.t('studio.sourceFrame.update'),
+      onConfirm: () => void run(),
+    },
+  });
+}
+
 // A drag's last moves commit as it ends, before the final render.
 useEditorStore.subscribe((state, previous) => {
   if (previous.isSliderDragging && !state.isSliderDragging) flushSliderDraft();
@@ -697,13 +866,16 @@ export function useEditorActions() {
             setLibrary({ libraryActiveAdjustments: { ...INITIAL_ADJUSTMENTS } });
           if (selectedImage && reset.includes(selectedImage.path)
             && isCurrentEditorImage(selectedImage.path)) {
-            const aspect =
-              selectedImage.width && selectedImage.height ? selectedImage.width / selectedImage.height : null;
-            const resetData = { ...initialAdjustmentsFor(!!selectedImage.isRaw), aspectRatio: aspect, aiPatches: [] };
-            // One undoable step, as in Capture One and Lightroom.
-            debouncedSetHistory.flush();
-            pushHistory(resetData);
-            setEditor({ adjustments: resetData });
+            const shown = useEditorStore.getState().adjustments;
+            // A Reset adopts the newest frame (`resetRecipeFor`); the
+            // photograph is then opened again for it.
+            return resetRecipeFor(selectedImage, shown).then((resetData) => {
+              if (!isCurrentEditorImage(selectedImage.path)) return;
+              // One undoable step, as in Capture One and Lightroom.
+              debouncedSetHistory.flush();
+              pushHistory(resetData);
+              setEditor({ adjustments: resetData });
+            });
           }
         })
         .catch((err) => toast.error(`Failed to reset adjustments: ${err}`));

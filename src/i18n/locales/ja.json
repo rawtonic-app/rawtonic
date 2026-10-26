@@ -174,6 +174,7 @@
       "toggle_soft_proof": "ソフト校正",
       "toggle_split_view": "補正前/補正後",
       "undo": "取り消す",
+      "update_source_frame": "フレームを更新…",
       "view_develop": "現像",
       "view_grid": "ライブラリグリッド",
       "view_loupe": "ルーペ",
@@ -3609,6 +3610,23 @@
       "wholePhoto": "写真全体",
       "x": "X位置",
       "y": "Y位置"
+    },
+    "sourceFrame": {
+      "confirmNoPatches": "作り直す必要のある AI 領域はありません。",
+      "confirmPatches_other": "{{count}} 個の AI 領域が新しいフレームに収まりません。非表示になり、作り直す必要があります。",
+      "confirmPhotos_other": "{{count}} 枚の写真が RAW ファイルの最新のフレームになります。切り抜き、マスク、レタッチは同じ内容の上に残ります。",
+      "confirmTitle": "フレームを更新",
+      "failed": "フレームを更新できませんでした: {{error}}",
+      "hiddenNote_other": "フレームの更新で {{count}} 個の AI 領域が非表示になりました。",
+      "noneChanges_other": "{{count}} 枚の写真はすでに RAW ファイルの最新のフレームです。",
+      "note": "この RAW ファイルには新しいフレームがあります: {{from}} → {{to}} ピクセル（カメラのフレーム）。",
+      "notePatches_other": "{{count}} 個の AI 領域が非表示になり、作り直す必要があります。",
+      "noteTitle": "RAW ファイルの最新のフレームで現像します。切り抜き、マスク、レタッチは同じ内容の上に残ります。取り消すと元のフレームに戻ります。",
+      "patchesHidden_other": "{{count}} 個の AI 領域を非表示にしました。新しいフレームに収まりません。除去ツールで作り直してください。",
+      "regenerate": "作り直す",
+      "regenerateFailed_other": "{{count}} 個の AI 領域を作り直せませんでした。",
+      "update": "更新",
+      "updated_other": "{{count}} 枚の写真のフレームを更新しました"
     },
     "spot": {
       "withShortcut": "{{text}}（{{key}}）"

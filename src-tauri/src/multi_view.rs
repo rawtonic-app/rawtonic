@@ -403,7 +403,7 @@ fn render_key(recipe: &serde_json::Value, dim: u32, context: &GpuContext) -> u64
 fn decoded_key(path: &str, recipe: &serde_json::Value) -> String {
     let (source_path, _) = parse_virtual_path(path);
     let source = source_path.to_string_lossy();
-    let variant = crate::image_loader::decode_variant(recipe, is_raw_file(&source_path));
+    let variant = crate::image_loader::decode_variant(recipe, &source);
     crate::image_loader::decoded_cache_key(&source, None, variant)
 }
 
@@ -616,7 +616,10 @@ fn load_source(
         .proxy_memory
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(path, crate::image_loader::decode_variant(recipe, true))
+        .get(
+            path,
+            crate::image_loader::decode_variant(recipe, &source_path.to_string_lossy()),
+        )
         .filter(|_| proxy_fits)
     {
         let scale = proxy.image.width() as f32 / proxy.full_width.max(1) as f32;
@@ -1421,7 +1424,7 @@ fn load_full_source(
         measures,
     };
     let image = Arc::new(image);
-    let variant = crate::image_loader::decode_variant(recipe, is_raw);
+    let variant = crate::image_loader::decode_variant(recipe, &source_str);
     let held = crate::multi_view_prefetch::offer_decode(
         path, &key, &image, measures, variant, generation, settings,
     );

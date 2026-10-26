@@ -678,6 +678,13 @@ export interface Adjustments {
    * lines keep their colour; 4 = colours outside the output space keep
    * their own hue when clipped to it; 1 or missing = before. Per photo, never copied. */
   renderVersion?: number;
+  /** The frame of the RAW the recipe develops (crates/rawdecode/src/source_frame.rs,
+   * ADR 0020): 1 = a CR3's active area holds the crop the camera records
+   * (EOS R5 Mark II APS-C: 5088 × 3392 instead of 4970 × 3392); missing =
+   * 0, the frame earlier edits were made on. Per photo, never copied:
+   * changed only by Update frame and Reset, which carry the recipe's
+   * coordinates over (`source_frame::migrate`). */
+  sourceFrameVersion?: number;
   lutData?: string | null;
   lutIntensity?: number;
   lutName?: string | null;
@@ -832,6 +839,9 @@ export interface AiPatch {
   invert: boolean;
   /** false: no model made the pixels (Fill edges); exports are not marked. */
   generated?: boolean;
+  /** Hidden by a frame update its pixels do not fit (source_frame.rs
+   * `HIDDEN_PATCH`): kept, with its marking, to be generated again. */
+  frameHidden?: boolean;
   name: string;
   patchData: AiPatchData | null;
   prompt: string;
@@ -1313,6 +1323,10 @@ export const LUMA_NOISE_VERSION = 2;
 /** The render pipeline fixes new edits start with (`renderVersion`). */
 export const RENDER_VERSION = 4;
 
+/** The frame new edits develop (`sourceFrameVersion`,
+ * crates/rawdecode/src/source_frame.rs `VERSION`). */
+export const SOURCE_FRAME_VERSION = 1;
+
 /** The render version from which a RAW is developed with the second
  * dead-photosite test (crates/engine/src/image_loader.rs
  * `DEAD_TEST_RENDER_VERSION`). */
@@ -1377,6 +1391,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         lumaNoiseVersion: LUMA_NOISE_VERSION,
         aiDenoiseVersion: AI_DENOISE_VERSION,
         renderVersion: RENDER_VERSION,
+        sourceFrameVersion: SOURCE_FRAME_VERSION,
         grainVersion: GRAIN_VERSION,
       }
     : {
@@ -1388,6 +1403,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         sharpenVersion: SHARPEN_VERSION,
         lumaNoiseVersion: LUMA_NOISE_VERSION,
         renderVersion: RENDER_VERSION,
+        sourceFrameVersion: SOURCE_FRAME_VERSION,
         grainVersion: GRAIN_VERSION,
       };
 
@@ -1404,6 +1420,16 @@ const loadedRenderVersion = (loaded: Partial<Adjustments>): number | undefined =
     return loaded.renderVersion;
   }
   return isNewRecipe(loaded) ? RENDER_VERSION : undefined;
+};
+
+/** The frame a saved recipe develops: its own; the current one for a new
+ * recipe; else the first (missing key), as the backend reads it
+ * (`source_frame::requested`). */
+const loadedSourceFrameVersion = (loaded: Partial<Adjustments>): number | undefined => {
+  if (loaded.sourceFrameVersion !== undefined && loaded.sourceFrameVersion !== null) {
+    return loaded.sourceFrameVersion;
+  }
+  return isNewRecipe(loaded) ? SOURCE_FRAME_VERSION : undefined;
 };
 
 /** The Defringe detector of a saved recipe: its own; else the current one
@@ -1814,6 +1840,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     cameraGeometryVersion: loadedAdjustments.cameraGeometryVersion,
     autoCaVersion: loadedAdjustments.autoCaVersion,
     renderVersion: loadedRenderVersion(loadedAdjustments),
+    sourceFrameVersion: loadedSourceFrameVersion(loadedAdjustments),
     ...normalizeRelight(loadedAdjustments.relightLights, loadedAdjustments.relightDepth),
     relightDepthAmount: loadedAdjustments.relightDepthAmount,
     relightSkinReflections: loadedAdjustments.relightSkinReflections,
@@ -2068,7 +2095,8 @@ export const COPYABLE_ADJUSTMENT_KEYS: string[] = Object.values(ADJUSTMENT_GROUP
 
 /** Adjustments that belong to one photograph or to the view and are never
  * copied: retouching, the depth-based lens blur, derived lens data, the
- * render pipeline version, tool visibility and the clipping display. Every other key must be copyable. */
+ * render pipeline version, the frame of the RAW developed, tool visibility
+ * and the clipping display. Every other key must be copyable. */
 export const NON_COPYABLE_ADJUSTMENT_KEYS: string[] = [
   'relightDepth',
   'aiPatches',
@@ -2087,6 +2115,7 @@ export const NON_COPYABLE_ADJUSTMENT_KEYS: string[] = [
   'lensDistortionParams',
   'lensProfileFor',
   'renderVersion',
+  'sourceFrameVersion',
   'sectionVisibility',
   'showClipping',
 ];

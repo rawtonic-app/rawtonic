@@ -14,6 +14,7 @@ import {
 } from '../utils/adjustments';
 import { rememberOpenedRecipe, waitForPendingMetadataSave } from './useEditorActions';
 import { editorRecipe, neverEdited } from '../utils/neverEdited';
+import { withSourceFrameOf } from '../utils/sourceFrame';
 import { globalImageCache, type ImageCacheEntry } from '../utils/ImageLRUCache';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
 
@@ -32,7 +33,14 @@ function canShowCameraPreview(recipe: Partial<Adjustments> | null | undefined) {
 /** Event of the full decode's draft (image_loader.rs `DRAFT_EVENT`). */
 export const DEVELOP_DRAFT_EVENT = 'develop-draft-ready';
 
-type ProxyInfo = { width: number; height: number; isRaw: boolean };
+type ProxyInfo = {
+  width: number;
+  height: number;
+  isRaw: boolean;
+  /** The frame of the RAW the proxy shows (image_loader.rs `ProxyInfo`). */
+  sourceFrame?: number | null;
+  sourceFrames?: number[] | null;
+};
 
 /**
  * Listens for the draft the full decode of `path` hands over before it
@@ -109,6 +117,10 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
       let isEffectActive = true;
       const stillCurrent = () => isEffectActive && useEditorStore.getState().selectedImage?.path === selectedImage.path;
 
+      // Opened again for another frame of the RAW (src/utils/sourceFrame.ts):
+      // the recipe and history stay as they are, the source and everything
+      // that depends on its size are set as for any photograph opened.
+      const reopenFrame = selectedImage.reopenFrame;
       const loadAll = async () => {
         try {
           useEditorStore.getState().patchesSentToBackend.clear();
@@ -132,6 +144,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
           // before it demosaics.
           const storedProxy = invoke<ProxyInfo | null>(Invokes.LoadImageProxy, {
             path: selectedImage.path,
+            sourceFrameVersion: reopenFrame ?? null,
           }).catch(() => null);
           const draftListener = storedProxy.then((proxy) => (proxy ? null : listenForDraft(selectedImage.path)));
           const showCameraPreview = () => {
@@ -164,7 +177,13 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             Invokes.GetCameraLensProfile, { path: selectedImage.path },
           ).catch(() => null);
           // The recipe to render: saved, or the defaults for a never-edited photo.
-          const recipeFor = async (metadata: ImageMetadata | null, isRaw: boolean, width: number, height: number) => {
+          const recipeFor = async (
+            metadata: ImageMetadata | null,
+            isRaw: boolean,
+            width: number,
+            height: number,
+            frame?: { sourceFrame?: number | null; sourceFrames?: number[] | null },
+          ) => {
             const savedAdjustments = unsavedAdjustments ?? metadata?.adjustments;
             // Profile corrections are on by default: a never-edited RAW (its
             // recipe has no lens mode at all) starts with the camera's own lens
@@ -172,8 +191,13 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             // export does.
             const camera = isRaw && neverEdited(savedAdjustments) ? await cameraRequest : null;
             // Kept for a paste onto it while it is not edited (it pastes onto
-            // this saved recipe, as onto a closed photograph).
-            const shown = editorRecipe(savedAdjustments, isRaw, width, height, camera);
+            // this saved recipe, as onto a closed photograph). A new edit on
+            // previews of another frame than the newest (an offline
+            // photograph: no decode can follow) takes their frame.
+            const editor = editorRecipe(savedAdjustments, isRaw, width, height, camera);
+            const shown = neverEdited(savedAdjustments)
+              ? withSourceFrameOf(editor, frame?.sourceFrame, frame?.sourceFrames)
+              : editor;
             rememberOpenedRecipe(selectedImage.path, { saved: savedAdjustments ?? null, camera, width, height, shown });
             return shown;
           };
@@ -188,13 +212,14 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             // Readiness is published together with the native source's
             // dimensions and current recipe. Cached UI pixels may be shown during
             // loading, but they must never make a new recipe render against the
-            // old source.
+            // old source. Opened again for another frame, the recipe and its
+            // history are the editor's.
             setEditor((state) => {
               if (state.selectedImage?.path !== selectedImage.path) return state;
               return {
-                adjustments: initialAdjusts,
-                history: [initialAdjusts],
-                historyIndex: 0,
+                ...(reopenFrame === undefined
+                  ? { adjustments: initialAdjusts, history: [initialAdjusts], historyIndex: 0 }
+                  : {}),
                 panelsHeld: false,
                 originalSize: { width, height },
                 previewSize: {
@@ -232,7 +257,9 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             metadataRequest.finally(() => mark('loader_metadata_answer')),
           ]).then(async ([proxy, metadata]) => {
             if (!proxy || !stillCurrent() || useEditorStore.getState().selectedImage?.isDecoded) return;
-            const recipe = await recipeFor(metadata, proxy.isRaw, proxy.width, proxy.height);
+            const recipe = reopenFrame === undefined
+              ? await recipeFor(metadata, proxy.isRaw, proxy.width, proxy.height, proxy)
+              : useEditorStore.getState().adjustments;
             mark('loader_proxy_recipe');
             if (!stillCurrent() || useEditorStore.getState().selectedImage?.isDecoded) return;
             published.proxy = { width: proxy.width, height: proxy.height };
@@ -259,7 +286,10 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
               // A photograph left while its decode waited is not decoded: the
               // backend would cancel the next photograph's decode for it.
               if (!stillCurrent()) throw new Error('Photograph left before its decode started');
-              return invoke<LoadImageResult>(Invokes.LoadImage, { path: selectedImage.path });
+              return invoke<LoadImageResult>(Invokes.LoadImage, {
+                path: selectedImage.path,
+                sourceFrameVersion: reopenFrame ?? null,
+              });
             })
             .finally(() => {
               decodeSettled();
@@ -285,6 +315,9 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             aiDenoiseVersion: loadImageResult.ai_denoise_version ?? 1,
             colorNoiseMultiscale: loadImageResult.color_noise_multiscale ?? undefined,
             deadPixelAdjacent: loadImageResult.dead_pixel_adjacent ?? undefined,
+            sourceFrame: loadImageResult.source_frame ?? undefined,
+            sourceFrames: loadImageResult.source_frames ?? undefined,
+            reopenFrame: undefined,
             // Offline: the preview proxy is all there is (no decode follows).
             offline: loadImageResult.offline ?? null,
             ...(loadImageResult.ai_denoise_error
@@ -319,7 +352,12 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
               };
             });
           } else {
-            const initialAdjusts = await recipeFor(storedMetadata, loadImageResult.is_raw, width, height);
+            const initialAdjusts = reopenFrame === undefined
+              ? await recipeFor(storedMetadata, loadImageResult.is_raw, width, height, {
+                  sourceFrame: loadImageResult.source_frame,
+                  sourceFrames: loadImageResult.source_frames,
+                })
+              : useEditorStore.getState().adjustments;
             if (!stillCurrent()) return;
             publishSource(initialAdjusts, width, height, fullSource);
           }

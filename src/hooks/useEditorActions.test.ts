@@ -9,6 +9,8 @@ import {
   registerScheduledRecipe,
   startBeforePeek,
   updateAdjustments,
+  updateOpenPhotoFrame,
+  updateSourceFrameOf,
   useEditorActions,
   waitForPendingMetadataSave,
 } from './useEditorActions';
@@ -16,14 +18,17 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
+import { useUIStore } from '../store/useUIStore';
+import { sourceFrameToOpen } from '../utils/sourceFrame';
 import { INITIAL_ADJUSTMENTS, PasteMode } from '../utils/adjustments';
 import { AppSettings, Invokes } from '../components/ui/AppProperties';
 import { COMMIT_INTERVAL_MS, registerSliderDraftRenderer } from '../utils/sliderDraft';
 import { cropEditCancelled, cropGestureEnded, cropGestureStarted } from '../utils/cropGesture';
 import { toast } from 'react-toastify';
+import i18next from 'i18next';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn() } }));
+vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), info: vi.fn(), success: vi.fn(), warn: vi.fn() } }));
 
 type Pending = { command: string; resolve(value: unknown): void; settled?: boolean };
 let pending: Pending[];
@@ -190,6 +195,129 @@ it('makes Reset one undoable step for the open photograph', async () => {
   expect(useEditorStore.getState().history).toHaveLength(2);
   act(() => useEditorStore.getState().undo());
   expect(useEditorStore.getState().adjustments.exposure).toBe(-2);
+});
+
+describe('Update frame and Reset adopt the newest frame of the RAW (ADR 0020)', () => {
+  /** The open photograph: an EOS R5 Mark II APS-C file whose edit is from
+   * before frame versions (its source shows frame 0, version 1 frames it
+   * anew). */
+  const openR5Crop = () => {
+    const adjustments = { ...INITIAL_ADJUSTMENTS, exposure: -2, crop: { unit: 'px' as const, x: 10, y: 20, width: 300, height: 200 } };
+    useEditorStore.setState({
+      selectedImage: { ...photo('/first.cr3'), width: 4970, height: 3392, isDecoded: true, sourceFrame: 0, sourceFrames: [0, 1] },
+      adjustments,
+      history: [adjustments],
+      historyIndex: 0,
+    });
+    useLibraryStore.setState({ libraryActivePath: '/first.cr3', multiSelectedPaths: ['/first.cr3'] });
+    return adjustments;
+  };
+
+  it('makes Update frame one history step that undo and redo cross', async () => {
+    const old = openR5Crop();
+    let done: Promise<number | null> | undefined;
+    act(() => {
+      done = updateOpenPhotoFrame();
+    });
+    expect(vi.mocked(invoke).mock.calls.at(-1)).toEqual([
+      Invokes.MigrateSourceFrame,
+      { path: '/first.cr3', adjustments: old },
+    ]);
+    const moved = { ...old, sourceFrameVersion: 1, crop: { unit: 'px' as const, x: 10, y: 20, width: 300, height: 200 } };
+    await finish(Invokes.MigrateSourceFrame, { adjustments: moved, hiddenPatches: 0 });
+    expect(await done).toBe(0);
+    const state = () => useEditorStore.getState();
+    expect(state().adjustments).toBe(moved);
+    expect(state().history).toEqual([old, moved]);
+    // The source still shows the old frame: the photograph opens again.
+    expect(sourceFrameToOpen(state().selectedImage, state().adjustments, false)).toBe(1);
+    act(() => state().undo());
+    expect(state().adjustments).toBe(old);
+    expect(sourceFrameToOpen(state().selectedImage, state().adjustments, false)).toBeNull();
+    act(() => state().redo());
+    expect(state().adjustments).toBe(moved);
+    expect(sourceFrameToOpen(state().selectedImage, state().adjustments, false)).toBe(1);
+  });
+
+  it('leaves the recipe alone when it was edited while the update was asked for', async () => {
+    const old = openR5Crop();
+    let done: Promise<number | null> | undefined;
+    act(() => {
+      done = updateOpenPhotoFrame();
+    });
+    const edited = { ...old, exposure: 1 };
+    act(() => useEditorStore.setState({ adjustments: edited }));
+    await finish(Invokes.MigrateSourceFrame, { adjustments: { ...old, sourceFrameVersion: 1 }, hiddenPatches: 0 });
+    expect(await done).toBeNull();
+    expect(useEditorStore.getState().adjustments).toBe(edited);
+  });
+
+  it('makes Reset adopt the newest frame through the same migration, one undoable step', async () => {
+    const old = openR5Crop();
+    const { result } = renderHook(useEditorActions);
+    act(() => result.current.handleResetAdjustments(['/first.cr3']));
+    await finish(Invokes.ResetAdjustmentsForPaths, undefined);
+    await act(async () => {});
+    // The reset recipe, at the frame shown, moved to the newest frame.
+    const asked = vi.mocked(invoke).mock.calls.at(-1)!;
+    expect(asked[0]).toBe(Invokes.MigrateSourceFrame);
+    expect(asked[1]).toMatchObject({ path: '/first.cr3', adjustments: { sourceFrameVersion: 0, exposure: 0, aspectRatio: 4970 / 3392 } });
+    const reset = { ...(asked[1] as { adjustments: object }).adjustments, sourceFrameVersion: 1, aspectRatio: 5088 / 3392 };
+    await finish(Invokes.MigrateSourceFrame, { adjustments: reset, hiddenPatches: 0 });
+    const state = useEditorStore.getState();
+    expect(state.adjustments).toBe(reset);
+    expect(state.history).toEqual([old, reset]);
+    act(() => useEditorStore.getState().undo());
+    expect(useEditorStore.getState().adjustments).toBe(old);
+  });
+
+  it('resets a photograph every frame version frames alike without asking the backend', async () => {
+    select('/first.dng');
+    useEditorStore.setState((s) => ({ selectedImage: { ...s.selectedImage!, sourceFrame: 0, sourceFrames: [0, 0] } }));
+    const { result } = renderHook(useEditorActions);
+    act(() => result.current.handleResetAdjustments(['/first.dng']));
+    await finish(Invokes.ResetAdjustmentsForPaths, undefined);
+    expect(useEditorStore.getState().adjustments).toMatchObject({ exposure: 0, sourceFrameVersion: 1 });
+    expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).not.toContain(Invokes.MigrateSourceFrame);
+  });
+
+  it('says first how many photographs and AI patches the batch changes, then updates closed and open ones', async () => {
+    const open = openR5Crop();
+    const said = vi.spyOn(i18next, 't');
+    useLibraryStore.setState({ multiSelectedPaths: ['/first.cr3', '/b.cr3', '/c.cr3'] });
+    let asked: Promise<void> | undefined;
+    act(() => {
+      asked = updateSourceFrameOf();
+    });
+    expect(vi.mocked(invoke).mock.calls.at(-1)).toEqual([
+      Invokes.SourceFrameStatus,
+      { items: [{ path: '/first.cr3', adjustments: open }, { path: '/b.cr3', adjustments: null }, { path: '/c.cr3', adjustments: null }] },
+    ]);
+    await finish(Invokes.SourceFrameStatus, [
+      { path: '/first.cr3', changes: true, from: [4970, 3392], to: [5088, 3392], hiddenPatches: 0 },
+      { path: '/b.cr3', changes: true, from: [4970, 3392], to: [5088, 3392], hiddenPatches: 2 },
+      { path: '/c.cr3', changes: false, from: null, to: null, hiddenPatches: 0 },
+    ]);
+    await asked;
+    const confirm = useUIStore.getState().confirmModalState;
+    expect(confirm.isOpen).toBe(true);
+    // Nothing changes before it is confirmed.
+    expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).not.toContain(Invokes.UpdateSourceFrameForPaths);
+    expect(said).toHaveBeenCalledWith('studio.sourceFrame.confirmPhotos', { count: 2 });
+    expect(said).toHaveBeenCalledWith('studio.sourceFrame.confirmPatches', { count: 2 });
+    act(() => confirm.onConfirm?.());
+    await act(async () => {});
+    expect(vi.mocked(invoke).mock.calls.find(([command]) => command === Invokes.UpdateSourceFrameForPaths)?.[1]).toEqual({
+      paths: ['/b.cr3'],
+    });
+    await finish(Invokes.UpdateSourceFrameForPaths, 2);
+    expect(vi.mocked(invoke).mock.calls.at(-1)?.[0]).toBe(Invokes.MigrateSourceFrame);
+    const moved = { ...open, sourceFrameVersion: 1 };
+    await finish(Invokes.MigrateSourceFrame, { adjustments: moved, hiddenPatches: 0 });
+    expect(useEditorStore.getState().adjustments).toBe(moved);
+    expect(useEditorStore.getState().history).toEqual([open, moved]);
+    expect(toast.warn).toHaveBeenCalled();
+  });
 });
 
 describe('canvas edits (crop, straighten, drawn masks) in the history', () => {

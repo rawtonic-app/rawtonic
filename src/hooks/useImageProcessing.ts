@@ -19,6 +19,8 @@ import { globalImageCache } from '../utils/ImageLRUCache';
 import { epochOf, latestPointerDispatchTime, latestPointerInputTime, performanceDiagnosticsEnabled, reportPerformance, notePointerSessionFrame, registerDiagnosticQueue, noteBrowserPreview } from './usePerformanceDiagnostics';
 import { LatestPreviewQueue } from '../utils/latestPreviewQueue';
 import { sourceDevelopToApply } from '../utils/aiDenoise';
+import { sourceFrameToOpen } from '../utils/sourceFrame';
+import { HOLD_FRAME_MS } from './useAppNavigation';
 import { beforeAdjustments, beforeSnapshot } from '../utils/beforeSnapshot';
 import { toastAiError } from '../utils/aiErrors';
 
@@ -497,10 +499,39 @@ export function useImageProcessing(
     [previewQueue, currentResRef],
   );
 
+  // The frame of the RAW lives in the decode too, and sets the source's
+  // size: when the recipe's differs from the source's (Update frame, a
+  // Reset, undo or redo across them) the photograph is opened again for it
+  // through the ordinary open path (useImageLoader), its recipe and history
+  // kept; developing it again in place (`apply_ai_denoise`) keeps the size.
+  const frameToOpen = sourceFrameToOpen(selectedImage, adjustments, isSliderDragging);
+  useEffect(() => {
+    if (frameToOpen === null) return;
+    const path = useEditorStore.getState().selectedImage?.path;
+    setEditor((state) => {
+      const image = state.selectedImage;
+      if (!image || sourceFrameToOpen(image, state.adjustments, state.isSliderDragging) !== frameToOpen) return state;
+      // As when stepping to another photograph: its frame and panel values
+      // stay on screen until the new source's arrive.
+      return {
+        selectedImage: { ...image, isDecoded: false, isReady: false, isPreviewReady: false, reopenFrame: frameToOpen },
+        hasRenderedFirstFrame: false,
+        holdingNativeFrame: useSettingsStore.getState().appSettings?.useWgpuRenderer !== false,
+        panelsHeld: true,
+      };
+    });
+    const release = setTimeout(() => {
+      const now = useEditorStore.getState();
+      if (now.selectedImage?.path === path && now.holdingNativeFrame) now.setEditor({ holdingNativeFrame: false });
+    }, HOLD_FRAME_MS);
+    return () => clearTimeout(release);
+  }, [frameToOpen, setEditor]);
+
   // AI Denoise, the colour noise filter's base and the dead-photosite test
   // live in the decode: develop the RAW again when the recipe's differ from
   // the source's (src/utils/aiDenoise.ts), then render.
-  const sourceDevelop = sourceDevelopToApply(selectedImage, adjustments, isSliderDragging);
+  const sourceDevelop =
+    frameToOpen === null ? sourceDevelopToApply(selectedImage, adjustments, isSliderDragging) : null;
   const developAiDenoise = sourceDevelop?.aiDenoise ?? null;
   const developAiDenoiseVersion = sourceDevelop?.aiDenoiseVersion;
   const developMultiscale = sourceDevelop?.multiscale;

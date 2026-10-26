@@ -360,8 +360,9 @@ fn content_sample(source: &Path) -> Option<String> {
 /// with `recipe`: a virtual copy whose recipe asks for another variant
 /// (colour noise filter, dead-photosite test) must not be shown from them.
 pub fn stands_for(source: &Path, recipe: &serde_json::Value) -> bool {
-    crate::image_loader::decode_variant(recipe, true)
-        == crate::image_loader::stored_decode_variant(&source.to_string_lossy())
+    let source = source.to_string_lossy();
+    crate::image_loader::decode_variant(recipe, &source)
+        == crate::image_loader::stored_decode_variant(&source)
 }
 
 /// The key a proxy of `source` made now from a decode for `variant` would
@@ -390,7 +391,7 @@ pub fn current_key(
 /// variant (`image_loader::load_base_image_from_bytes_for`): the multi-scale
 /// colour noise filter (no decode-time chroma clean-up) and, appended only
 /// when set so earlier proxies keep their key, the second dead-photosite
-/// test.
+/// test and a frame other than version 0's (`source_frame`).
 fn decoder_key(settings: &AppSettings, variant: DecodeVariant) -> String {
     let key = format!(
         "hl={:?};linear={};cnr={:?};sharp={:?};nonraw={:?};raw9={:?};cnrms={}",
@@ -402,8 +403,13 @@ fn decoder_key(settings: &AppSettings, variant: DecodeVariant) -> String {
         settings.use_apple_raw9.unwrap_or(false),
         u8::from(variant.multiscale),
     );
-    if variant.dead_test == DeadTest::Adjacent {
+    let key = if variant.dead_test == DeadTest::Adjacent {
         key + ";dead=adjacent"
+    } else {
+        key
+    };
+    if variant.frame > 0 {
+        format!("{key};frame={}", variant.frame)
     } else {
         key
     }
@@ -417,14 +423,18 @@ fn decoder_settings(decoder: &str) -> &str {
 
 /// The decode variant a proxy key's `decoder` part was made for (the
 /// inverse of `decoder_key`'s variant fields).
-fn variant_of_key(decoder: &str) -> DecodeVariant {
+pub(crate) fn variant_of_key(decoder: &str) -> DecodeVariant {
     DecodeVariant {
         multiscale: decoder.contains(";cnrms=1"),
-        dead_test: if decoder.ends_with(";dead=adjacent") {
+        dead_test: if decoder.contains(";dead=adjacent") {
             DeadTest::Adjacent
         } else {
             DeadTest::SameColour
         },
+        frame: decoder
+            .split_once(";frame=")
+            .and_then(|(_, frame)| frame.split(';').next()?.parse().ok())
+            .unwrap_or(0),
     }
 }
 
@@ -1301,11 +1311,13 @@ mod tests {
     const NEW_EDIT: DecodeVariant = DecodeVariant {
         multiscale: true,
         dead_test: DeadTest::Adjacent,
+        frame: 0,
     };
     /// A decode for an edit with the old colour noise filter.
     const LEGACY: DecodeVariant = DecodeVariant {
         multiscale: false,
         dead_test: DeadTest::SameColour,
+        frame: 0,
     };
 
     fn key() -> ProxyKey {
@@ -1636,12 +1648,19 @@ mod tests {
         let settings = AppSettings::default();
         for multiscale in [false, true] {
             for dead_test in [DeadTest::SameColour, DeadTest::Adjacent] {
-                let variant = DecodeVariant {
-                    multiscale,
-                    dead_test,
-                };
-                assert_eq!(variant_of_key(&decoder_key(&settings, variant)), variant);
+                for frame in [0, 1] {
+                    let variant = DecodeVariant {
+                        multiscale,
+                        dead_test,
+                        frame,
+                    };
+                    assert_eq!(variant_of_key(&decoder_key(&settings, variant)), variant);
+                }
             }
+        }
+        // Version 0's frame keeps the keys proxies were made with.
+        for variant in [NEW_EDIT, LEGACY] {
+            assert!(!decoder_key(&settings, variant).contains("frame"));
         }
         // A proxy kept for a photograph whose recipe was reset since (render
         // version 2 → 3) is not handed out for the new variant.
@@ -1651,6 +1670,7 @@ mod tests {
         let old = DecodeVariant {
             multiscale: true,
             dead_test: DeadTest::SameColour,
+            frame: 0,
         };
         let proxy = write(&photo, &gradient(80, 60), 40, &settings, old, None).unwrap();
         let mut memory = ProxyMemory::default();
@@ -1866,6 +1886,7 @@ mod tests {
         let before_upgrade = DecodeVariant {
             multiscale: true,
             dead_test: DeadTest::SameColour,
+            frame: 0,
         };
         write(
             &photo,

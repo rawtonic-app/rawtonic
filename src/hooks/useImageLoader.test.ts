@@ -408,3 +408,55 @@ it('never starts the decode of a photograph left while its proxy frame was await
     vi.useRealTimers();
   }
 });
+
+it('opens the photograph again for another frame of the RAW, keeping its recipe and history', async () => {
+  const renderRefs = {
+    previewJobIdRef: { current: 0 },
+    latestRenderedJobIdRef: { current: 0 },
+    currentResRef: { current: 0 },
+  };
+  renderHook(() => {
+    useImageLoader({ current: null });
+    useImageProcessing({ current: null }, { current: null }, renderRefs);
+  });
+  await act(async () => {});
+  // An EOS R5 Mark II APS-C edit from before frame versions: 4970 px wide.
+  const framed = { ...nativeResult, width: 4970, height: 3392, source_frame: 0, source_frames: [0, 1] };
+  await resolve(Invokes.LoadImage, '/first.dng', framed);
+  await resolve(Invokes.LoadMetadata, '/first.dng', { adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 1.5 } });
+  const loaded = useEditorStore.getState();
+  expect(loaded.selectedImage).toMatchObject({ sourceFrame: 0, sourceFrames: [0, 1], width: 4970 });
+  const old = loaded.adjustments;
+  expect(old.sourceFrameVersion).toBeUndefined();
+  // Update frame: one history step to the newest frame.
+  const updated = { ...old, sourceFrameVersion: 1 };
+  act(() => {
+    useEditorStore.getState().pushHistory(updated);
+    useEditorStore.getState().setEditor({ adjustments: updated });
+  });
+  await act(async () => {});
+  expect(useEditorStore.getState().selectedImage).toMatchObject({ isDecoded: false, isReady: false, reopenFrame: 1 });
+  const reopen = () => vi.mocked(invoke).mock.calls.filter(([command]) => command === Invokes.LoadImage).at(-1)?.[1];
+  expect(reopen()).toEqual({ path: '/first.dng', sourceFrameVersion: 1 });
+  await resolve(Invokes.LoadImage, '/first.dng', { ...framed, width: 5088, source_frame: 1 });
+  await resolve(Invokes.LoadMetadata, '/first.dng', { adjustments: updated });
+  const shown = useEditorStore.getState();
+  expect(shown.adjustments).toBe(updated);
+  expect(shown.history).toEqual([old, updated]);
+  expect(shown.originalSize).toEqual({ width: 5088, height: 3392 });
+  expect(shown.selectedImage).toMatchObject({ isReady: true, isDecoded: true, sourceFrame: 1, width: 5088 });
+  expect(shown.selectedImage?.reopenFrame).toBeUndefined();
+  // Undo across the step brings the old frame back.
+  act(() => useEditorStore.getState().undo());
+  await act(async () => {});
+  expect(useEditorStore.getState().adjustments).toBe(old);
+  expect(reopen()).toEqual({ path: '/first.dng', sourceFrameVersion: 0 });
+  await resolve(Invokes.LoadImage, '/first.dng', framed);
+  await resolve(Invokes.LoadMetadata, '/first.dng', { adjustments: updated });
+  expect(useEditorStore.getState()).toMatchObject({
+    adjustments: old,
+    historyIndex: 0,
+    originalSize: { width: 4970, height: 3392 },
+    selectedImage: { sourceFrame: 0, width: 4970, isDecoded: true },
+  });
+});

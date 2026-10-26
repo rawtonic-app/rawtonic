@@ -45,6 +45,7 @@ pub mod region_curve;
 pub mod relight;
 pub mod session_layout;
 pub mod source_facts;
+pub mod source_frame;
 pub mod spot_removal;
 pub mod upright;
 pub mod white_balance_estimate;

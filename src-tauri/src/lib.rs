@@ -75,6 +75,7 @@ mod qa_control;
 mod red_eye;
 mod session_bridge;
 mod snapshots;
+mod source_frame;
 mod spot_removal;
 mod startup;
 mod storage;
@@ -857,6 +858,9 @@ pub fn run() {
             file_management::load_builtin_presets,
             file_management::save_presets,
             file_management::reset_adjustments_for_paths,
+            file_management::update_source_frame_for_paths,
+            source_frame::source_frame_status,
+            source_frame::migrate_source_frame,
             file_management::apply_auto_lens_correction_to_paths,
             file_management::resolve_pasted_lens,
             file_management::apply_auto_adjustments_to_paths,

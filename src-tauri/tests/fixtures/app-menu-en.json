@@ -381,6 +381,12 @@
           "accelerator": "CmdOrCtrl+Shift+KeyU"
         },
         {
+          "kind": "item",
+          "id": "cmd:update_source_frame",
+          "label": "Update Frame…",
+          "enabled": false
+        },
+        {
           "kind": "separator"
         },
         {

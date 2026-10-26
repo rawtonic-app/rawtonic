@@ -1,6 +1,7 @@
 import {
   ADJUSTMENT_GROUPS,
   RENDER_VERSION,
+  SOURCE_FRAME_VERSION,
   initialAdjustmentsFor,
   sameAdjustmentValue,
   type Adjustments,
@@ -173,6 +174,7 @@ export function pasteInto(
   const out: Record<string, unknown> = { ...(base ?? {}) };
   if (Object.keys(out).every((key) => key === 'lensProfileFor')) {
     out.renderVersion = RENDER_VERSION;
+    out.sourceFrameVersion = SOURCE_FRAME_VERSION;
     for (const [key, value] of Object.entries(newEdit ?? {})) if (!(key in out)) out[key] = value;
   }
   const rendered = (masks: unknown) => ((masks as MaskContainer[] | undefined) ?? []).filter(isRenderedLayer).length;

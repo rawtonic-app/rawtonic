@@ -256,6 +256,14 @@ pub fn geometry(recipe: &Value) -> Value {
     ]) {
         map.insert(key.into(), recipe[key].clone());
     }
+    // The frame version, where the recipe has one (ADR 0020): depth analysed
+    // on another frame of the raw is not this one's.
+    if let Some(frame) = recipe
+        .get(crate::source_frame::KEY)
+        .filter(|v| !v.is_null())
+    {
+        map.insert(crate::source_frame::KEY.into(), frame.clone());
+    }
     // Depth is analyzed in the displayed (straightened and cropped) frame.
     // Keep legacy identity-frame maps valid, but reject them after a crop.
     if !recipe["crop"].is_null() {

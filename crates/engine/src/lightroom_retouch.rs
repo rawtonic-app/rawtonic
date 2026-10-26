@@ -321,6 +321,104 @@ pub fn place(adjustments: &mut Value, width: u32, height: u32, orientation: Opti
     placed
 }
 
+/// Moves the pending spots and red eye corrections onto the same content of
+/// another frame of the raw (`source_frame::migrate`): their normalised
+/// points through the unrotated frames' offset, their sizes with the
+/// frames' widths and heights.
+pub fn move_pending(adjustments: &mut Value, change: &crate::source_frame::FrameChange) {
+    let frames = UnrotatedFrames::of(change);
+    for key in ["spots", "redEyes"] {
+        let Some(items) = adjustments.get_mut(key).and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for g in items
+            .iter_mut()
+            .filter_map(|item| item.get_mut(PENDING).filter(|g| g.is_object()))
+        {
+            frames.move_point(g, "x", "y");
+            if key == "spots" {
+                frames.move_point(g, "sourceX", "sourceY");
+                frames.scale(g, "radius", frames.x_scale());
+                if let Some(points) = g.get_mut("points").and_then(Value::as_array_mut) {
+                    for point in points {
+                        frames.move_pair(point);
+                    }
+                }
+            } else {
+                frames.scale(g, "width", frames.x_scale());
+                frames.scale(g, "height", frames.y_scale());
+            }
+        }
+    }
+}
+
+/// Points normalised in the unrotated raw (Lightroom's form) from one
+/// frame of it to another.
+pub(crate) struct UnrotatedFrames {
+    from: (f64, f64),
+    to: (f64, f64),
+    offset: (f64, f64),
+}
+
+impl UnrotatedFrames {
+    pub(crate) fn of(change: &crate::source_frame::FrameChange) -> Self {
+        let size = |(w, h): (u32, u32)| (f64::from(w), f64::from(h));
+        Self {
+            from: size(change.from_unrotated),
+            to: size(change.to_unrotated),
+            offset: change.offset_unrotated,
+        }
+    }
+
+    pub(crate) fn point(&self, x: f64, y: f64) -> (f64, f64) {
+        (
+            (x * self.from.0 + self.offset.0) / self.to.0,
+            (y * self.from.1 + self.offset.1) / self.to.1,
+        )
+    }
+
+    pub(crate) fn x_scale(&self) -> f64 {
+        self.from.0 / self.to.0
+    }
+
+    pub(crate) fn y_scale(&self) -> f64 {
+        self.from.1 / self.to.1
+    }
+
+    /// Lengths in units of the long side.
+    pub(crate) fn long_scale(&self) -> f64 {
+        self.from.0.max(self.from.1) / self.to.0.max(self.to.1)
+    }
+
+    pub(crate) fn move_point(&self, g: &mut Value, kx: &str, ky: &str) {
+        if let (Some(x), Some(y)) = (g[kx].as_f64(), g[ky].as_f64()) {
+            let (x, y) = self.point(x, y);
+            g[kx] = json!(x);
+            g[ky] = json!(y);
+        }
+    }
+
+    /// An `[x, y, …]` array's first two numbers.
+    pub(crate) fn move_pair(&self, pair: &mut Value) {
+        if let Some(list) = pair.as_array_mut()
+            && let (Some(x), Some(y)) = (
+                list.first().and_then(Value::as_f64),
+                list.get(1).and_then(Value::as_f64),
+            )
+        {
+            let (x, y) = self.point(x, y);
+            list[0] = json!(x);
+            list[1] = json!(y);
+        }
+    }
+
+    pub(crate) fn scale(&self, g: &mut Value, key: &str, factor: f64) {
+        if let Some(v) = g[key].as_f64() {
+            g[key] = json!(v * factor);
+        }
+    }
+}
+
 /// `adjustments` without its pending spots and red eye corrections (for
 /// reduced copies of the base, `image_loader::composite_patches_on_scaled_image`),
 /// borrowed when it has none.

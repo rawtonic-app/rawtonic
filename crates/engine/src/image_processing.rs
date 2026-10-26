@@ -5132,7 +5132,8 @@ pub fn is_new_recipe(adjustments: &serde_json::Value) -> bool {
         })
 }
 
-/// Sets the current render version and sharpening response on a new recipe
+/// Sets the current render version, sharpening response and frame version
+/// (`source_frame`) on a new recipe
 /// (`is_new_recipe`), as the editor does for new edits (RAW or not): before
 /// a never-edited photo renders, and before a batch edit (paste, preset,
 /// Auto) fills one. Saved recipes, partial ones included, keep the versions
@@ -5152,6 +5153,10 @@ pub fn apply_render_default(adjustments: &mut serde_json::Value) {
         map.insert(
             SHARPEN_VERSION_KEY.to_string(),
             serde_json::json!(SHARPEN_VERSION),
+        );
+        map.insert(
+            crate::source_frame::KEY.to_string(),
+            serde_json::json!(crate::source_frame::VERSION),
         );
     }
 }

@@ -29,7 +29,7 @@ export function rootContaining(path: string, roots: string[]): string | undefine
 }
 
 /** Longest time the previous photograph's frame stands in for the next one. */
-const HOLD_FRAME_MS = 700;
+export const HOLD_FRAME_MS = 700;
 /** Longest time the panels keep the previous photograph's look while the
  * next one loads (after that they show it is not ready yet). */
 export const HOLD_PANELS_MS = 2000;

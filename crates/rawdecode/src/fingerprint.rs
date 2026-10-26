@@ -230,7 +230,7 @@ fn describe(
         orientation,
         iso,
         gain_table_map_bytes,
-    } = prepare_raw_image(decoder.as_ref(), &source, &mut raw_image, file_bytes)?;
+    } = prepare_raw_image(decoder.as_ref(), &source, &mut raw_image, file_bytes, 0)?;
     if crate::raw_processing::is_canon_sraw(&raw_image, file_bytes) {
         raw_image.blacklevel = rawler::rawimage::BlackLevel::zero(1, 1, 3);
     }

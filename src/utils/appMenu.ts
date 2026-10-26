@@ -136,6 +136,7 @@ export const MENU_LAYOUT: TopMenu[] = [
       'separator',
       c('auto_adjust'),
       c('auto_white_balance'),
+      c('update_source_frame'),
       'separator',
       c('move_to_selects'),
       c('show_in_finder'),

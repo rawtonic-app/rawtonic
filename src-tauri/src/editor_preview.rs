@@ -110,6 +110,7 @@ const SPLIT_FRAMING_KEYS: &[&str] = &[
     "flipVertical",
     "orientationSteps",
     "aspectRatio",
+    "sourceFrameVersion",
 ];
 
 /// The photograph and framing of a frame: a split before is drawn only
@@ -2012,7 +2013,7 @@ pub(crate) async fn activate_photo(
             .clone()
             .filter(|a| a.is_object())
             .unwrap_or_else(|| crate::exif_processing::load_sidecar(&sidecar_path).adjustments),
-        true,
+        &source_path.to_string_lossy(),
     );
     if wanted != crate::image_loader::stored_decode_variant(&source_path.to_string_lossy()) {
         #[cfg(feature = "performance-profiling")]

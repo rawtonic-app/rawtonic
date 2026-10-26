@@ -256,6 +256,49 @@ pub fn place(adjustments: &mut Value, width: f64, height: f64, orientation: Opti
     placed
 }
 
+/// Moves the pending mask components onto the same content of another
+/// frame of the raw (`source_frame::migrate`): their normalised points
+/// through the unrotated frames' offset, brush radii (shares of the long
+/// side) with it.
+pub fn move_pending(adjustments: &mut Value, change: &crate::source_frame::FrameChange) {
+    let frames = crate::lightroom_retouch::UnrotatedFrames::of(change);
+    for parameters in pending_parameters_mut(adjustments) {
+        let g = &mut parameters[PENDING];
+        frames.move_point(g, "zeroX", "zeroY");
+        frames.move_point(g, "fullX", "fullY");
+        frames.move_point(g, "left", "top");
+        frames.move_point(g, "right", "bottom");
+        if let Some(strokes) = g.get_mut("strokes").and_then(Value::as_array_mut) {
+            for stroke in strokes {
+                frames.scale(stroke, "radius", frames.long_scale());
+                if let Some(dabs) = stroke.get_mut("dabs").and_then(Value::as_array_mut) {
+                    for dab in dabs {
+                        frames.move_pair(dab);
+                    }
+                }
+            }
+        }
+        if let Some(points) = g.get_mut("points").and_then(Value::as_array_mut) {
+            for point in points {
+                frames.move_pair(point);
+            }
+        }
+        if let Some(areas) = g.get_mut("areas").and_then(Value::as_array_mut) {
+            for corners in areas.iter_mut().filter_map(Value::as_array_mut) {
+                for i in 0..corners.len() / 2 {
+                    if let (Some(x), Some(y)) =
+                        (corners[2 * i].as_f64(), corners[2 * i + 1].as_f64())
+                    {
+                        let (x, y) = frames.point(x, y);
+                        corners[2 * i] = json!(x);
+                        corners[2 * i + 1] = json!(y);
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// `def` with its pending components placed for a render of a photo whose
 /// full decode is `width` × `height` (see the module comment); None when it
 /// has none that can be placed (no orientation recorded, or no shape).

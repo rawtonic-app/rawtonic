@@ -174,6 +174,7 @@
       "toggle_soft_proof": "螢幕校樣",
       "toggle_split_view": "修改前/修改後",
       "undo": "還原",
+      "update_source_frame": "更新畫幅…",
       "view_develop": "沖印",
       "view_grid": "圖庫格狀",
       "view_loupe": "放大檢視",
@@ -3609,6 +3610,23 @@
       "wholePhoto": "整張照片",
       "x": "X 位置",
       "y": "Y 位置"
+    },
+    "sourceFrame": {
+      "confirmNoPatches": "沒有需要重新產生的 AI 區域。",
+      "confirmPatches_other": "{{count}} 個 AI 區域不適合新畫幅：它們將被隱藏，需要重新產生。",
+      "confirmPhotos_other": "{{count}} 張照片將使用其 RAW 檔案的最新畫幅；裁切、遮色片和修飾仍留在相同的內容上。",
+      "confirmTitle": "更新畫幅",
+      "failed": "無法更新畫幅：{{error}}",
+      "hiddenNote_other": "更新畫幅時隱藏了 {{count}} 個 AI 區域。",
+      "noneChanges_other": "這 {{count}} 張照片已使用其 RAW 檔案的最新畫幅。",
+      "note": "此 RAW 檔案有更新的畫幅：{{from}} → {{to}} 像素（相機的畫幅）。",
+      "notePatches_other": "{{count}} 個 AI 區域將被隱藏，需要重新產生。",
+      "noteTitle": "使用 RAW 檔案的最新畫幅沖印；裁切、遮色片和修飾仍留在相同的內容上。復原可回到原來的畫幅。",
+      "patchesHidden_other": "已隱藏 {{count}} 個 AI 區域：它們不適合新畫幅。請在移除工具中重新產生。",
+      "regenerate": "重新產生",
+      "regenerateFailed_other": "無法重新產生 {{count}} 個 AI 區域。",
+      "update": "更新",
+      "updated_other": "已更新 {{count}} 張照片的畫幅"
     },
     "spot": {
       "withShortcut": "{{text}}（{{key}}）"

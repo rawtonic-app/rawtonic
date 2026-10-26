@@ -8,7 +8,8 @@ import { SOURCE_URL } from '../components/panel/AboutSettings';
 import { clearLibrarySelection } from '../components/studio/workspaceInteractions';
 import { registerAppCommands } from '../utils/appCommands';
 import { useEditorStore } from '../store/useEditorStore';
-import { useLibraryStore } from '../store/useLibraryStore';
+import { isRawPhoto, useLibraryStore } from '../store/useLibraryStore';
+import { updateSourceFrameOf } from './useEditorActions';
 import { useUIStore } from '../store/useUIStore';
 import { useUpdateStore } from '../store/useUpdateStore';
 
@@ -42,6 +43,14 @@ export function useAppLevelCommands(): void {
         },
         website: { run: () => void open(SOURCE_URL) },
         report_problem: { run: () => useUIStore.getState().setProblemReportOpen(true) },
+        // ADR 0020: the selected photographs (else the open one) get the
+        // newest frame of their RAWs, after saying how many change.
+        update_source_frame: {
+          enabled: () =>
+            useLibraryStore.getState().multiSelectedPaths.some(isRawPhoto) ||
+            Boolean(useEditorStore.getState().selectedImage?.isRaw),
+          run: () => void updateSourceFrameOf(),
+        },
         select_none: {
           enabled: () => useLibraryStore.getState().multiSelectedPaths.length > 0,
           run: clearLibrarySelection,

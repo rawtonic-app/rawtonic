@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
+import { toast } from "react-toastify";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
-import { isCurrentEditorImage, useEditorActions } from "../../hooks/useEditorActions";
+import {
+  isCurrentEditorImage,
+  updateOpenPhotoFrame,
+  useEditorActions,
+  type FrameStatus,
+} from "../../hooks/useEditorActions";
+import { frameUpdateAvailable, requestedSourceFrame } from "../../utils/sourceFrame";
 import { CAMERA_CA_VERSION, CAMERA_GEOMETRY_VERSION, INITIAL_ADJUSTMENTS, autoCaOn, type Adjustments } from "../../utils/adjustments";
 import { Invokes } from "../ui/AppProperties";
 import AdjustmentControl from "./AdjustmentControl";
@@ -23,6 +30,60 @@ export const LENS_PROFILE_OFF: Partial<Adjustments> = {
 };
 
 type Status = "idle" | "detecting" | "not_found";
+
+/** "Update frame" for the open photograph, shown only when the newest frame
+ * of its RAW is another than its recipe's (ADR 0020): the sizes before and
+ * after, and the AI patches it would hide. One history step. */
+function FrameUpdateNote() {
+  const { t } = useTranslation();
+  const selectedImage = useEditorStore((s) => s.selectedImage);
+  const adjustments = useEditorStore((s) => s.adjustments);
+  const ready = useEditorStore(panelsShowReady);
+  const available = frameUpdateAvailable(selectedImage, adjustments);
+  const path = selectedImage?.path;
+  const frame = requestedSourceFrame(adjustments);
+  const patches = adjustments.aiPatches?.length ?? 0;
+  const [status, setStatus] = useState<FrameStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    setStatus(null);
+    if (!available || !path) return;
+    let current = true;
+    invoke<FrameStatus[]>(Invokes.SourceFrameStatus, {
+      items: [{ path, adjustments: useEditorStore.getState().adjustments }],
+    })
+      .then((found) => current && setStatus(found[0] ?? null))
+      .catch(() => current && setStatus(null));
+    return () => {
+      current = false;
+    };
+  }, [available, path, frame, patches]);
+  if (!available || !status?.changes) return null;
+  const size = (s: [number, number] | null) => (s ? `${s[0]} × ${s[1]}` : "—");
+  return (
+    <div className="studio-metadata-note studio-frame-note" role="status">
+      <span>
+        {t("studio.sourceFrame.note", { from: size(status.from), to: size(status.to) })}
+        {status.hiddenPatches > 0 && (
+          <> {t("studio.sourceFrame.notePatches", { count: status.hiddenPatches })}</>
+        )}
+      </span>
+      <button
+        className="studio-text-button"
+        title={t("studio.sourceFrame.noteTitle")}
+        disabled={!ready || busy}
+        onClick={() => {
+          setBusy(true);
+          updateOpenPhotoFrame()
+            .catch((err) => toast.error(t("studio.sourceFrame.failed", { error: String(err) })))
+            .finally(() => setBusy(false));
+        }}
+      >
+        {t("studio.sourceFrame.update")}
+      </button>
+    </div>
+  );
+}
 
 /** The camera's own correction data for a RAW (`get_camera_lens_profile`). */
 interface CameraLensProfile {
@@ -216,6 +277,7 @@ export default function StudioLensCorrection() {
         />
         {t("studio.lens.enable")}
       </label>
+      <FrameUpdateNote />
       {status === "detecting" && (
         <p className="studio-metadata-note">{t("studio.lens.lookingUp")}</p>
       )}

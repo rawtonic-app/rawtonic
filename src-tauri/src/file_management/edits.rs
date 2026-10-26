@@ -561,6 +561,53 @@ pub async fn reset_adjustments_for_paths(
     .await
 }
 
+/// "Update frame" for closed photos (ADR 0020): each recipe whose frame
+/// the newest frame version changes is moved to it, its coordinates carried
+/// over (`source_frame::migrated`); the others are left as they are. The
+/// open photo is updated by the editor instead (one history step).
+/// Returns how many AI patches were hidden for regeneration.
+#[tauri::command]
+pub async fn update_source_frame_for_paths(
+    paths: Vec<String>,
+    app_handle: AppHandle,
+) -> Result<usize, SaveFailure> {
+    let hidden = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = hidden.clone();
+    let changing: Vec<String> = paths
+        .into_iter()
+        .filter(|path| {
+            let (_, sidecar) = parse_virtual_path(path);
+            crate::source_frame::status(
+                path,
+                &crate::exif_processing::load_sidecar(&sidecar).adjustments,
+            )
+            .changes
+        })
+        .collect();
+    if changing.is_empty() {
+        return Ok(0);
+    }
+    save_then_regenerate(app_handle, changing, move |app_handle, paths| {
+        edit_sidecars(
+            paths,
+            xmp_sync(app_handle),
+            |_, source_path, sidecar_path| {
+                let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
+                let moved = crate::source_frame::migrated(
+                    source_path,
+                    &metadata.adjustments,
+                    crate::source_frame::VERSION,
+                );
+                counted.fetch_add(moved.hidden_patches, std::sync::atomic::Ordering::SeqCst);
+                metadata.adjustments = moved.adjustments;
+                Ok(metadata)
+            },
+        )
+    })
+    .await?;
+    Ok(hidden.load(std::sync::atomic::Ordering::SeqCst))
+}
+
 #[tauri::command]
 pub async fn apply_auto_lens_correction_to_paths(
     paths: Vec<String>,

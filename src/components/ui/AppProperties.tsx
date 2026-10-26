@@ -218,6 +218,9 @@ export enum Invokes {
   SessionTrashContents = 'session_trash_contents',
   EmptySessionTrash = 'empty_session_trash',
   ResetAdjustmentsForPaths = 'reset_adjustments_for_paths',
+  SourceFrameStatus = 'source_frame_status',
+  MigrateSourceFrame = 'migrate_source_frame',
+  UpdateSourceFrameForPaths = 'update_source_frame_for_paths',
   SaveMetadataAndUpdateThumbnail = 'save_metadata_and_update_thumbnail',
   SaveCollage = 'save_collage',
   SnapshotsList = 'snapshots_list',
@@ -673,6 +676,12 @@ export interface LoadImageResult {
   /** The source was developed with the second dead-photosite test
    * (`renderVersion` 3); null for preview data. */
   dead_pixel_adjacent?: boolean | null;
+  /** The frame of the RAW developed (`DecodeVariant::frame`; preview data:
+   * the frame their decode had); null when unknown. */
+  source_frame?: number | null;
+  /** For each `sourceFrameVersion` (the index) the frame it develops of
+   * this file (`source_frame::frames`). */
+  source_frames?: number[] | null;
   /** The RAW data could not be developed; the camera's embedded preview is
    * shown. */
   developed_from_preview?: boolean;
@@ -730,6 +739,15 @@ export interface SelectedImage {
   deadPixelAdjacent?: boolean;
   /** A dead-photosite test the source failed to develop for (not retried). */
   deadPixelAdjacentFailed?: boolean;
+  /** The frame of the RAW the source shows (`sourceFrame` in
+   * src/utils/sourceFrame.ts); unknown for other photographs. */
+  sourceFrame?: number;
+  /** The frame each `sourceFrameVersion` develops of this file (the index). */
+  sourceFrames?: number[];
+  /** Set while the photograph is opened again for this `sourceFrameVersion`
+   * (its recipe's frame differs from the source's): the recipe and history
+   * stay, only the source and its size change. */
+  reopenFrame?: number;
   /** The RAW is offline: the photograph shows (and is edited on) this preview. */
   offline?: OfflinePreview | null;
   metadata?: ImageMetadata | null;

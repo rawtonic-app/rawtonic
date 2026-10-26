@@ -21,6 +21,7 @@ pub mod multi_exposure;
 pub mod noise_level;
 pub mod orientation;
 pub mod raw_processing;
+pub mod source_frame;
 pub mod unit_calibration;
 pub mod unit_calibration_table;
 

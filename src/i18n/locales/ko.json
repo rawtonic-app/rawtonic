@@ -174,6 +174,7 @@
       "toggle_soft_proof": "소프트 교정",
       "toggle_split_view": "보정 전/후",
       "undo": "실행 취소",
+      "update_source_frame": "프레임 업데이트…",
       "view_develop": "현상",
       "view_grid": "라이브러리 격자",
       "view_loupe": "확대경",
@@ -3609,6 +3610,23 @@
       "wholePhoto": "사진 전체",
       "x": "X 위치",
       "y": "Y 위치"
+    },
+    "sourceFrame": {
+      "confirmNoPatches": "다시 생성해야 할 AI 영역이 없습니다.",
+      "confirmPatches_other": "AI 영역 {{count}}개가 새 프레임에 맞지 않습니다. 숨겨지며 다시 생성해야 합니다.",
+      "confirmPhotos_other": "사진 {{count}}장이 RAW 파일의 최신 프레임을 받습니다. 자르기, 마스크, 리터칭은 같은 내용 위에 그대로 남습니다.",
+      "confirmTitle": "프레임 업데이트",
+      "failed": "프레임을 업데이트하지 못했습니다: {{error}}",
+      "hiddenNote_other": "프레임을 업데이트하면서 AI 영역 {{count}}개가 숨겨졌습니다.",
+      "noneChanges_other": "사진 {{count}}장은 이미 RAW 파일의 최신 프레임입니다.",
+      "note": "이 RAW 파일에 더 새로운 프레임이 있습니다: {{from}} → {{to}} 픽셀(카메라의 프레임).",
+      "notePatches_other": "AI 영역 {{count}}개가 숨겨지며 다시 생성해야 합니다.",
+      "noteTitle": "RAW 파일의 최신 프레임으로 현상합니다. 자르기, 마스크, 리터칭은 같은 내용 위에 남습니다. 실행 취소하면 이전 프레임으로 돌아갑니다.",
+      "patchesHidden_other": "AI 영역 {{count}}개를 숨겼습니다. 새 프레임에 맞지 않습니다. 제거 도구에서 다시 생성하세요.",
+      "regenerate": "다시 생성",
+      "regenerateFailed_other": "AI 영역 {{count}}개를 다시 생성하지 못했습니다.",
+      "update": "업데이트",
+      "updated_other": "사진 {{count}}장의 프레임을 업데이트했습니다"
     },
     "spot": {
       "withShortcut": "{{text}}({{key}})"

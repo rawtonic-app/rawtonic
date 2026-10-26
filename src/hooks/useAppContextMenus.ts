@@ -67,14 +67,13 @@ import {
 import {
   Color,
   COLOR_LABELS,
-  initialAdjustmentsFor,
   normalizeLoadedAdjustments,
   withPresetClarityVersion,
 } from '../utils/adjustments';
 import TaggingSubMenu from '../context/TaggingSubMenu';
 import SessionAlbumSubMenu from '../components/studio/SessionAlbumSubMenu';
 import { SESSION_ALBUM_PREFIX, SESSION_ALBUMS_CHANGED } from '../components/studio/StudioAlbums';
-import { isCurrentEditorImage, useEditorActions } from './useEditorActions';
+import { isCurrentEditorImage, resetRecipeFor, useEditorActions } from './useEditorActions';
 import { saveFailure, useLibraryActions } from './useLibraryActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { runAutoStraighten } from '../utils/autoStraighten';
@@ -358,15 +357,14 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               icon: Check,
               isDestructive: true,
               onClick: () => {
-                const originalAspectRatio =
-                  selectedImage.width && selectedImage.height ? selectedImage.width / selectedImage.height : null;
-                const resetData = {
-                  ...initialAdjustmentsFor(!!selectedImage.isRaw),
-                  aspectRatio: originalAspectRatio,
-                  aiPatches: [],
-                };
-                resetHistory(resetData);
-                setEditor({ adjustments: resetData });
+                // The newest frame of the RAW, as every Reset (`resetRecipeFor`).
+                void resetRecipeFor(selectedImage, useEditorStore.getState().adjustments)
+                  .then((resetData) => {
+                    if (useEditorStore.getState().selectedImage?.path !== selectedImage.path) return;
+                    resetHistory(resetData);
+                    setEditor({ adjustments: resetData });
+                  })
+                  .catch((err) => toast.error(`Failed to reset adjustments: ${err}`));
               },
             },
           ],
