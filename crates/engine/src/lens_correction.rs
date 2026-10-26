@@ -180,6 +180,9 @@ pub struct LensDistortionParams {
     table: Vec<f64>,
     #[serde(default, skip_serializing_if = "is_zero")]
     table_end: f64,
+    /// Model 3 (`knot_table`): the radii of `table`'s knots.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    table_radii: Vec<f64>,
 }
 
 /// The warp's tabulated radial distortion (lens model 2): an output radius
@@ -191,11 +194,18 @@ pub struct LensDistortionParams {
 /// linearly beyond `end`. A camera's own knot table is applied as it is
 /// instead of a fitted formula, which cannot follow every table (Sony,
 /// `cameraGeometryVersion` 6; notes: parity-gaps/G71).
+///
+/// Lens model 3 (`RadialTable::knots`): T given at the knots' own radii,
+/// linear in r² between them and along the last segment beyond them, as
+/// Fujifilm's cameras read their table (knots at √(i / 8) on the nine-knot
+/// bodies; `cameraGeometryVersion` 7, notes: parity-gaps/G71).
 #[derive(Debug, Clone, PartialEq)]
 pub struct RadialTable {
     step: f64,
     values: Vec<f64>,
     slopes: Vec<f64>,
+    /// Model 3: the knots' radii, ascending (empty for uniform knots).
+    radii: Vec<f64>,
 }
 
 impl RadialTable {
@@ -237,6 +247,29 @@ impl RadialTable {
             step,
             values: values.to_vec(),
             slopes,
+            radii: Vec::new(),
+        })
+    }
+
+    /// The table of `values` at the knots `radii` (lens model 3), linear in
+    /// r² between them; `None` for fewer than two knots, unequal lengths,
+    /// radii that are negative, non-finite or not strictly ascending, or a
+    /// non-finite value.
+    pub fn knots(radii: &[f64], values: &[f64]) -> Option<Self> {
+        let n = values.len();
+        if n < 2
+            || radii.len() != n
+            || values.iter().any(|v| !v.is_finite())
+            || !radii.iter().all(|r| r.is_finite() && *r >= 0.0)
+            || radii.windows(2).any(|w| w[1] <= w[0])
+        {
+            return None;
+        }
+        Some(Self {
+            step: 0.0,
+            values: values.to_vec(),
+            slopes: Vec::new(),
+            radii: radii.to_vec(),
         })
     }
 
@@ -247,6 +280,9 @@ impl RadialTable {
 
     /// T(r) and its derivative dT/dr.
     pub fn with_slope(&self, r: f64) -> (f64, f64) {
+        if !self.radii.is_empty() {
+            return self.squared_with_slope(r);
+        }
         let last = self.values.len() - 1;
         let x = r.max(0.0) / self.step;
         if x >= last as f64 {
@@ -271,6 +307,18 @@ impl RadialTable {
             + (3.0 * t2 - 2.0 * t) * m1)
             / self.step;
         (value, slope)
+    }
+
+    /// Model 3's T(r) and dT/dr: linear in r² on the segment around r (the
+    /// first below the first knot, the last beyond the last).
+    fn squared_with_slope(&self, r: f64) -> (f64, f64) {
+        let r = r.max(0.0);
+        let last = self.radii.len() - 1;
+        let i = self.radii.partition_point(|&x| x <= r).clamp(1, last);
+        let (r0, r1) = (self.radii[i - 1], self.radii[i]);
+        let (y0, y1) = (self.values[i - 1], self.values[i]);
+        let per_square = (y1 - y0) / (r1 * r1 - r0 * r0);
+        (y0 + per_square * (r * r - r0 * r0), 2.0 * r * per_square)
     }
 }
 
@@ -306,6 +354,7 @@ impl LensDistortionParams {
             tca_vb2: 0.0,
             table: Vec::new(),
             table_end: 0.0,
+            table_radii: Vec::new(),
         }
     }
 
@@ -317,6 +366,19 @@ impl LensDistortionParams {
             model: 2,
             table: values,
             table_end: end,
+            ..Self::ptlens(0.0, 0.0, 0.0, vignetting)
+        }
+    }
+
+    /// A tabulated distortion at the knots' own radii (model 3,
+    /// `RadialTable::knots`): the factor `values` at `radii`, linear in r²
+    /// between them, with pa-model vignetting and no TCA (Fujifilm's knot
+    /// table, embedded_lens.rs).
+    pub fn knot_table(radii: Vec<f64>, values: Vec<f64>, vignetting: [f64; 3]) -> Self {
+        Self {
+            model: 3,
+            table: values,
+            table_radii: radii,
             ..Self::ptlens(0.0, 0.0, 0.0, vignetting)
         }
     }
@@ -771,6 +833,7 @@ impl Lens {
             tca_vb2,
             table: Vec::new(),
             table_end: 0.0,
+            table_radii: Vec::new(),
         })
     }
 }
@@ -1391,6 +1454,45 @@ mod tests {
         assert!((rx100m3.at(0.9) - (end + 0.1 * end_slope)).abs() < 1e-12);
         assert!(super::RadialTable::new(&[1.0], 1.0).is_none());
         assert!(super::RadialTable::new(&[1.0, 1.1], 0.0).is_none());
+    }
+
+    #[test]
+    fn knot_tables_run_linearly_in_the_squared_radius_through_their_knots() {
+        // X-T5 + XF18mm F2 R (Fujifilm, k = 1 + value / 100 at √(i / 8)),
+        // from k = 1 at the centre.
+        let values = [
+            0.0,
+            -0.772567749,
+            -1.670425415,
+            -2.579528809,
+            -3.496658325,
+            -4.48286438,
+            -5.54776001,
+            -6.70904541,
+            -8.008453369,
+            -9.307861328,
+        ];
+        let radii: Vec<f64> = (0..10).map(|i| (i as f64 / 8.0).sqrt()).collect();
+        let k: Vec<f64> = values.iter().map(|v| 1.0 + v / 100.0).collect();
+        let table = super::RadialTable::knots(&radii, &k).unwrap();
+        for (i, (&r, &value)) in radii.iter().zip(&k).enumerate() {
+            assert!((table.at(r) - value).abs() < 1e-15, "knot {i}");
+        }
+        // Halfway in r² between knots 4 and 5 lies halfway in value; the
+        // slope is 2 r times the segment's change per r².
+        let r = (4.5f64 / 8.0).sqrt();
+        let (value, slope) = table.with_slope(r);
+        assert!((value - (k[4] + k[5]) / 2.0).abs() < 1e-15);
+        assert!((slope - 2.0 * r * (k[5] - k[4]) * 8.0).abs() < 1e-12);
+        // Along the first segment inside it, the last beyond the last knot.
+        assert!((table.at(0.25) - (1.0 + (k[1] - 1.0) * 0.0625 * 8.0)).abs() < 1e-15);
+        let beyond = 1.1f64;
+        let expected = k[9] + (k[9] - k[8]) * (beyond * beyond - 9.0 / 8.0) * 8.0;
+        assert!((table.at(beyond) - expected).abs() < 1e-15);
+        assert!(super::RadialTable::knots(&[0.0], &[1.0]).is_none());
+        assert!(super::RadialTable::knots(&[0.0, 0.5], &[1.0]).is_none());
+        assert!(super::RadialTable::knots(&[0.5, 0.5], &[1.0, 1.0]).is_none());
+        assert!(super::RadialTable::knots(&[-0.1, 0.5], &[1.0, 1.0]).is_none());
     }
 
     #[test]

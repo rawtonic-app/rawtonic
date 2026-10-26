@@ -553,7 +553,8 @@ export interface Adjustments {
    * 2 = also Nikon Z framed as the camera frames it; 3 = also Canon's CTMD
    * distortion; 4 = also Samsung's distortion; 5 = also
    * Panasonic's and Fujifilm's framing as the cameras frame it; 6 = also
-   * Sony's knot table warped as it is (lens model 2); missing = as before (saving such recipes again keeps their parameters). */
+   * Sony's knot table warped as it is (lens model 2); 7 = also
+   * Fujifilm's (lens model 3); missing = as before (saving such recipes again keeps their parameters). */
   cameraGeometryVersion?: number;
   lensDistortionAmount: number;
   lensVignetteAmount: number;
@@ -582,6 +583,9 @@ export interface Adjustments {
      * centre to `table_end` (lens_correction.rs `RadialTable`). */
     table?: number[];
     table_end?: number;
+    /** Lens model 3: the radii of `table`'s knots, linear in r² between
+     * them (lens_correction.rs `RadialTable::knots`). */
+    table_radii?: number[];
   } | null;
   lensMaker: string | null;
   /** The lens choice `lensDistortionParams` were resolved for; written by
@@ -1327,7 +1331,7 @@ export const AI_DENOISE_VERSION = 3;
 /** The cameras' CA data new edits read in camera lens mode (notes: reference/lateral-ca.md). */
 export const CAMERA_CA_VERSION = 1;
 /** How new edits read the camera data's geometry in camera lens mode (notes: parity-gaps/G71). */
-export const CAMERA_GEOMETRY_VERSION = 6;
+export const CAMERA_GEOMETRY_VERSION = 7;
 /** The automatic lateral CA new RAW edits start with (notes: reference/lateral-ca.md). */
 export const AUTO_CA_VERSION = 3;
 
