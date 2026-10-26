@@ -45,19 +45,13 @@ Rawtonic is a one-person project that I work on in my spare time. Some weeks a l
 
 Get the latest build from the [**Releases**](https://github.com/rawtonic-app/rawtonic/releases) page.
 
-Rawtonic runs on **macOS** (Apple Silicon) and **Linux** (x86-64).
+Rawtonic runs on **macOS** (Apple Silicon; Intel experimental) and **Linux** (x86-64).
 
 ### macOS
 
-Download `Rawtonic_<version>_aarch64.dmg` for Apple Silicon (M1 and later), macOS 13 or later. Open it and drag **Rawtonic** to **Applications**.
+Download `Rawtonic_<version>_aarch64.dmg` for Apple Silicon (M1 and later), macOS 13 or later. Open it and drag **Rawtonic** to **Applications**. The app is signed with an Apple Developer ID and notarized by Apple, so it opens with a double-click.
 
-The app is not signed with an Apple Developer ID (yet), so macOS will refuse to open it at first, or claim it is "damaged". Clear the quarantine flag once in Terminal:
-
-```sh
-xattr -cr /Applications/Rawtonic.app
-```
-
-Or right-click (Control-click) the app → **Open** → **Open**; if macOS still refuses, go to **System Settings → Privacy & Security** and click **Open Anyway**.
+For Intel Macs there is an experimental `Rawtonic_<version>_x86_64.dmg`. So far it has run only under Rosetta 2 on Apple Silicon, not on an Intel Mac; please [report](https://github.com/rawtonic-app/rawtonic/issues) how it runs on yours.
 
 ### Linux
 
@@ -74,7 +68,7 @@ To update, use [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpd
 
 ### Other systems
 
-Intel Macs and Windows builds are not available yet; you can [build from source](docs/DEVELOPMENT.md) on them.
+Windows builds are not available yet; you can [build from source](docs/DEVELOPMENT.md) there.
 
 ## From card to client
 
@@ -192,7 +186,7 @@ On Linux, **Ctrl** takes the place of **⌘** (Ctrl+Z, Ctrl+Return …). The key
 
 Rawtonic's goal is simple to state and hard to reach: every tool should be at least as good as the better of the leading professional editors, measured on real photographs. Some tools are there, others are not yet. In this alpha:
 
-- **macOS on Apple Silicon and Linux (x86-64 AppImage).** Intel Macs and Windows builds come later. On Linux, Develop shows its preview through the web view rather than directly on the GPU, so it is not quite as immediate as on a Mac, and it has been tested on fewer systems (NVIDIA on KDE Wayland; exports also on Ubuntu, Debian and Fedora).
+- **macOS on Apple Silicon and Linux (x86-64 AppImage).** The Intel Mac build is experimental (not yet run on Intel hardware); Windows builds come later. On Linux, Develop shows its preview through the web view rather than directly on the GPU, so it is not quite as immediate as on a Mac, and it has been tested on fewer systems (NVIDIA on KDE Wayland; exports also on Ubuntu, Debian and Fedora).
 - **Cameras.** The focus is on professional and popular cameras and phones of the last ten years (Canon, Nikon, Sony, Fujifilm, Panasonic, OM System/Olympus, Leica, DJI, iPhone ProRAW and other DNGs). Older or rarer cameras may open with less accurate colour, or not at all. Nikon _High Efficiency_ NEFs are not supported yet; use lossless compressed RAW for now.
 - **Importing from Lightroom or Capture One** brings over metadata, albums and most edits, but not everything: some adjustments, virtual copies and smart collections don't transfer, and photos can look different.
 - **Relight is experimental.** The original light's own cast shadows stay in the photo, and the subject's shadow on the background does not touch the ground.
