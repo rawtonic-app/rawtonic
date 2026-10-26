@@ -381,7 +381,12 @@ fn run(
     let planes = cap_w * (cap_h + 2 * MAX_RADIUS);
     let blocks_width = cap_w.div_ceil(8);
     let blocks = blocks_width * (cap_h + 2 * MAX_RADIUS).div_ceil(8);
-    let buffer_bytes = ((planes + blocks) * 16) as u64;
+    let mut buffer_bytes = ((planes + blocks) * 16) as u64;
+    if matches!(target, Target::Texture { .. }) {
+        // A tile's texels in rows padded to the copy's alignment, which
+        // for narrow images is more than its planes.
+        buffer_bytes = buffer_bytes.max((texel_row_bytes(tile_w) * tile_h) as u64);
+    }
     let limits = device.limits();
     let max_binding = limits
         .max_storage_buffer_binding_size
@@ -601,9 +606,7 @@ fn run(
             }
             let (left, right) = (x0.saturating_sub(halo), (x1 + halo).min(w));
             let (in_w, in_h) = (right - left, bottom - top);
-            // Rows of texels padded to the copy's row alignment.
-            let half_stride =
-                ((ox1 - ox0) * 8).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize) / 4;
+            let half_stride = texel_row_bytes(ox1 - ox0) / 4;
             let params = Params {
                 width: in_w as u32,
                 rows: in_h as u32,
@@ -745,6 +748,12 @@ fn run(
         read_back(device, &readbacks, previous, data, w, stride)?;
     }
     Ok(())
+}
+
+/// Bytes of a row of `width` f16 RGBA texels in a buffer copied to a
+/// texture: padded to the copy's row alignment.
+fn texel_row_bytes(width: usize) -> usize {
+    (width * 8).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize)
 }
 
 /// Copies a tile's own pixels from readback buffer `slot` into `data` once

@@ -14122,6 +14122,35 @@ fn edge_fringe_into_the_input_texture_matches_uploading_its_result() {
         assert_eq!(differing, 0, "window {window:?}: {differing} bytes differ");
         assert_eq!(texels.len(), expected.len());
     }
+    // Narrow and small images: their padded texel rows exceed the tile's
+    // planes.
+    for (width, height) in [(8, 32), (3, 3), (1, 40), (40, 1), (31, 1100)] {
+        let image = DynamicImage::ImageRgb32F(edge_fringe_scene(width, height, 0.002));
+        let fringed = fringe_recipe_render(&image, 5, 1.0);
+        let window = [0, 0, width, height];
+        let uploaded = upload_fringed_render_source(&context, &image, &recipe, window, 0, None)
+            .unwrap()
+            .expect("runs into the texture");
+        let texels = read_texture_data_roi(
+            &context.device,
+            &context.queue,
+            &uploaded.0.texture,
+            wgpu::Origin3d::ZERO,
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            8,
+        )
+        .unwrap();
+        let expected = to_rgba_f16(&fringed);
+        assert_eq!(
+            texels,
+            bytemuck::cast_slice::<_, u8>(&expected),
+            "{width} x {height}"
+        );
+    }
 }
 
 /// Wide-gamut colours (negative channels) beside a two-colour edge: the
