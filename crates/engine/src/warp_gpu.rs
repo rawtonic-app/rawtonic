@@ -354,7 +354,7 @@ fn warp_with(
         return Ok(result);
     }
     scoped(&device, || {
-        let warp = Prepared::new(&device, u, source, out, flags)?;
+        let warp = Prepared::new(&device, &queue, u, source, out, flags)?;
         warp.read_back(&queue, &mut result)?;
         warp.check(&queue)
     })?;
@@ -387,7 +387,7 @@ pub fn warp_into_buffer(
     let source = SourceRows::whole(source.as_raw(), width, height);
     let out = OutputRows::whole(width, height);
     scoped(device, || {
-        let warp = Prepared::new(device, &u, &source, out, 0)?;
+        let warp = Prepared::new(device, queue, &u, &source, out, 0)?;
         let frame = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Warped frame"),
             size: u64::from(width) * u64::from(height) * 12,
@@ -484,6 +484,81 @@ fn map<T>(
     Ok(value)
 }
 
+/// Bytes of each staging buffer of an upload [`Ring`].
+const STAGING_BYTES: usize = 16 << 20;
+
+/// Two staging buffers ([`STAGING_BYTES`], `MAP_WRITE`) an upload fills in
+/// turn, kept for the next upload: a fresh staging copy of a 45 MP source
+/// (540 MB) cost ~45 ms per warp in first touch alone (notes:
+/// benchmark-results/gw-gpu-warp-2026-10-26). One ring per upload in
+/// flight; each holds 32 MB.
+struct Ring {
+    device: Arc<wgpu::Device>,
+    buffers: [wgpu::Buffer; 2],
+}
+
+static RINGS: Mutex<Vec<Ring>> = Mutex::new(Vec::new());
+
+/// `bytes` (a multiple of 4 long) in a new `STORAGE` buffer on `device`,
+/// copied there through a kept [`Ring`].
+fn upload(
+    device: &Arc<wgpu::Device>,
+    queue: &wgpu::Queue,
+    bytes: &[u8],
+) -> Result<wgpu::Buffer, String> {
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Warp source"),
+        size: bytes.len() as u64,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let kept = {
+        let mut rings = RINGS.lock().unwrap_or_else(PoisonError::into_inner);
+        rings.retain(|ring| Arc::strong_count(&ring.device) > 1);
+        let mine = rings
+            .iter()
+            .position(|ring| Arc::ptr_eq(&ring.device, device));
+        mine.map(|i| rings.swap_remove(i))
+    };
+    let ring = kept.unwrap_or_else(|| Ring {
+        device: device.clone(),
+        buffers: std::array::from_fn(|_| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Warp upload"),
+                size: STAGING_BYTES as u64,
+                usage: wgpu::BufferUsages::MAP_WRITE | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            })
+        }),
+    });
+    for (k, chunk) in bytes.chunks(STAGING_BYTES).enumerate() {
+        let staging = &ring.buffers[k % 2];
+        let size = chunk.len() as u64;
+        // Waits for this buffer's copy two chunks before.
+        let (sender, mapped) = std::sync::mpsc::channel();
+        staging
+            .slice(..size)
+            .map_async(wgpu::MapMode::Write, move |result| {
+                let _ = sender.send(result);
+            });
+        // A ring whose mapping failed is not kept.
+        wait_for(device, &mapped)?.map_err(|e| format!("Warp upload failed: {e}"))?;
+        staging
+            .slice(..size)
+            .get_mapped_range_mut()
+            .copy_from_slice(chunk);
+        staging.unmap();
+        let mut encoder = device.create_command_encoder(&Default::default());
+        encoder.copy_buffer_to_buffer(staging, 0, &buffer, (k * STAGING_BYTES) as u64, size);
+        queue.submit(Some(encoder.finish()));
+    }
+    RINGS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .push(ring);
+    Ok(buffer)
+}
+
 /// A warp with its source, table and uniforms on the GPU, dispatched in
 /// bands of output rows.
 struct Prepared<'a> {
@@ -499,6 +574,7 @@ struct Prepared<'a> {
 impl<'a> Prepared<'a> {
     fn new(
         device: &'a Arc<wgpu::Device>,
+        queue: &wgpu::Queue,
         u: &WarpUniforms,
         source: &SourceRows,
         out: OutputRows,
@@ -521,11 +597,7 @@ impl<'a> Prepared<'a> {
             pipeline: pipeline_for(device),
             base,
             out,
-            input: init(
-                "Warp source",
-                bytemuck::cast_slice(source.pixels),
-                wgpu::BufferUsages::STORAGE,
-            ),
+            input: upload(device, queue, bytemuck::cast_slice(source.pixels))?,
             table: init(
                 "Warp lens table",
                 bytemuck::cast_slice(&table_data),
