@@ -426,18 +426,20 @@ fn submit_and_wait(context: &GpuContext, encoder: wgpu::CommandEncoder) -> Resul
     context.queue.on_submitted_work_done(move || {
         let _ = tx.send(());
     });
-    wait_without_blocking(context, &done)
+    wait_without_blocking(&context.device, &done)
 }
 
-/// Polls the device until `done` receives, sleeping between polls.
+/// Polls the device until `done` receives, sleeping between polls. A
+/// blocking poll holds wgpu's fence lock while it waits and so stalls every
+/// other thread's submissions meanwhile (other export workers' passes,
+/// display frames).
 fn wait_without_blocking<T>(
-    context: &GpuContext,
+    device: &wgpu::Device,
     done: &std::sync::mpsc::Receiver<T>,
 ) -> Result<T, String> {
     let deadline = Instant::now() + std::time::Duration::from_secs(60);
     loop {
-        context
-            .device
+        device
             .poll(wgpu::PollType::Poll)
             .map_err(|e| format!("Failed while polling the GPU: {e}"))?;
         match done.try_recv() {
@@ -687,7 +689,7 @@ impl GpuPyramid {
             .map_async(wgpu::MapMode::Read, move |result| {
                 let _ = tx.send(result);
             });
-        wait_without_blocking(context, &mapped)?.map_err(|e| e.to_string())?;
+        wait_without_blocking(&context.device, &mapped)?.map_err(|e| e.to_string())?;
         let measured = {
             let data = readback.slice(..).get_mapped_range();
             let values: &[[f32; 4]] = bytemuck::cast_slice(&data);
@@ -2910,7 +2912,6 @@ impl ReadbackPool {
 /// requested; `finish_texture_readback` waits for it.
 struct PendingReadback {
     buffer: wgpu::Buffer,
-    submission: wgpu::SubmissionIndex,
     mapped: std::sync::mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
     padded_bytes_per_row: u32,
     unpadded_bytes_per_row: u32,
@@ -2964,7 +2965,7 @@ fn begin_texture_readback(
         size,
     );
 
-    let submission = queue.submit(Some(encoder.finish()));
+    queue.submit(Some(encoder.finish()));
     let (tx, mapped) = std::sync::mpsc::channel();
     buffer
         .slice(..)
@@ -2973,7 +2974,6 @@ fn begin_texture_readback(
         });
     PendingReadback {
         buffer,
-        submission,
         mapped,
         padded_bytes_per_row,
         unpadded_bytes_per_row,
@@ -3011,7 +3011,6 @@ fn finish_texture_readback_with<R>(
 ) -> Result<R, String> {
     let PendingReadback {
         buffer,
-        submission,
         mapped: rx,
         padded_bytes_per_row,
         unpadded_bytes_per_row,
@@ -3019,16 +3018,7 @@ fn finish_texture_readback_with<R>(
     } = pending;
     #[cfg(feature = "performance-profiling")]
     let wait_stage = crate::performance::PerformanceStage::new("gpu_readback_wait");
-    device
-        .poll(wgpu::PollType::Wait {
-            submission_index: Some(submission),
-            timeout: Some(std::time::Duration::from_secs(60)),
-        })
-        .map_err(|e| format!("Failed while polling mapped GPU buffer: {}", e))?;
-    let map_result = rx
-        .recv()
-        .map_err(|e| format!("Failed receiving GPU map result: {}", e))?;
-    map_result.map_err(|e| e.to_string())?;
+    wait_without_blocking(device, &rx)?.map_err(|e| e.to_string())?;
     #[cfg(feature = "performance-profiling")]
     drop(wait_stage);
     #[cfg(feature = "performance-profiling")]
@@ -3235,23 +3225,9 @@ fn create_input_texture(
     )
 }
 
-/// [`create_input_texture`] of `window` of `image` only.
-fn create_window_texture(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    image: &DynamicImage,
-    window: Roi,
-    band_rows: u32,
-) -> Result<wgpu::Texture, String> {
-    use rayon::prelude::*;
-
-    let Roi {
-        x: window_x,
-        y: window_y,
-        width,
-        height,
-    } = window;
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
+/// An empty input texture (f16 RGBA) of a render's source.
+fn input_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
         label: Some("Input Texture"),
         size: wgpu::Extent3d {
             width,
@@ -3271,7 +3247,26 @@ fn create_window_texture(
                 wgpu::TextureUsages::empty()
             },
         view_formats: &[],
-    });
+    })
+}
+
+/// [`create_input_texture`] of `window` of `image` only.
+fn create_window_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    image: &DynamicImage,
+    window: Roi,
+    band_rows: u32,
+) -> Result<wgpu::Texture, String> {
+    use rayon::prelude::*;
+
+    let Roi {
+        x: window_x,
+        y: window_y,
+        width,
+        height,
+    } = window;
+    let texture = input_texture(device, width, height);
     let row_texels = width as usize * 4;
     let mut band = vec![f16::ZERO; row_texels * band_rows.min(height) as usize];
     let mut in_flight = None;
@@ -3324,14 +3319,14 @@ fn create_window_texture(
         );
         // A write stays staged until a submission executes it. Keep one band
         // in flight while the next one converts.
-        let submitted = queue.submit(std::iter::empty());
-        if let Some(previous) = in_flight.replace(submitted) {
-            device
-                .poll(wgpu::PollType::Wait {
-                    submission_index: Some(previous),
-                    timeout: Some(std::time::Duration::from_secs(60)),
-                })
-                .map_err(|e| format!("Failed while uploading the input texture: {}", e))?;
+        queue.submit(std::iter::empty());
+        let (tx, done) = std::sync::mpsc::channel();
+        queue.on_submitted_work_done(move || {
+            let _ = tx.send(());
+        });
+        if let Some(previous) = in_flight.replace(done) {
+            wait_without_blocking(device, &previous)
+                .map_err(|e| format!("Failed while uploading the input texture: {e}"))?;
         }
     }
     Ok(texture)
@@ -8547,6 +8542,62 @@ pub fn upload_render_source(
     )))
 }
 
+/// [`upload_render_source`] of the result of the recipe's edge-fringe pass
+/// on `warped` (`adjustments`) cropped to `window` (x, y, width, height),
+/// with the pass writing its result straight into the input texture
+/// (`edge_fringe::apply_for_recipe_into_texture`): the same texels, without
+/// reading the pass's result back and converting it on the CPU. For
+/// recipes whose pass runs into a texture
+/// (`edge_fringe::runs_into_texture`), a window within the GPU's texture
+/// size, and no colour noise pyramid built on the CPU; `None` otherwise.
+pub fn upload_fringed_render_source(
+    context: &GpuContext,
+    warped: &DynamicImage,
+    adjustments: &serde_json::Value,
+    window: [u32; 4],
+    transform_hash: u64,
+    color_noise: Option<(bool, color_noise::Tuning)>,
+) -> Result<Option<UploadedImage>, String> {
+    let [_, _, width, height] = window;
+    let max_dim = context.limits.max_texture_dimension_2d;
+    if width > max_dim
+        || height > max_dim
+        || color_noise.is_some_and(|(_, tuning)| !tuning.gpu_pyramid)
+        || !rawtonic_engine::edge_fringe::runs_into_texture(warped, adjustments)
+    {
+        return Ok(None);
+    }
+    #[cfg(feature = "performance-profiling")]
+    let _stage = crate::performance::PerformanceStage::new("transform_fringe");
+    let texture = gpu_scoped(&context.device, || {
+        let texture = input_texture(&context.device, width, height);
+        rawtonic_engine::edge_fringe::apply_for_recipe_into_texture(
+            &context.device,
+            &context.queue,
+            warped,
+            adjustments,
+            window,
+            &texture,
+        )
+        .map(|()| texture)
+    })??;
+    let texture_view = texture.create_view(&Default::default());
+    Ok(Some(UploadedImage(
+        Box::new(GpuImageCache {
+            texture,
+            texture_view,
+            width,
+            height,
+            transform_hash,
+            chroma: None,
+            chroma_gpu: None,
+            chroma_levels: None,
+            spare: None,
+        }),
+        None,
+    )))
+}
+
 /// The error of a render this GPU cannot do because the photo exceeds its
 /// texture size limit. The app translates it (`src/utils/renderErrors.ts`
 /// matches this wording).
@@ -8971,6 +9022,8 @@ fn lock_processor<'a>(
     foreground: bool,
 ) -> Result<processor_turns::TurnGuard<'a, Option<GpuProcessorState>>, String> {
     let max_dim = context.limits.max_texture_dimension_2d;
+    #[cfg(feature = "performance-profiling")]
+    let wait_stage = crate::performance::PerformanceStage::new("gpu_processor_wait");
     let mut processor_lock = match processor_turns::TURNS.lock(processor_slot, foreground) {
         Ok(guard) => guard,
         Err(poisoned) => {
@@ -8980,6 +9033,8 @@ fn lock_processor<'a>(
             guard
         }
     };
+    #[cfg(feature = "performance-profiling")]
+    drop(wait_stage);
     let mut needs_new_processor = false;
     // Processing pipelines and scratch tiles do not depend on source size.
     // The constructor clamps scratch allocation to a 2304-pixel tile, while

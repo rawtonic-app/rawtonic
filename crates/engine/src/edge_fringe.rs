@@ -290,32 +290,87 @@ pub fn apply_for_recipe<'a>(
     }
     let mut image = image;
     let (w, h) = (image.width() as usize, image.height() as usize);
-    let draft = is_draft(adjustments);
-    // A reduced preview averages the noise down by about its scale.
-    let plan = |data: &[f32], stride| {
-        let noise = if version >= 2 {
-            luminance_noise(data, w, h, stride) / scale.min(1.0)
-        } else {
-            0.0
-        };
-        let plan = plan_for(version, noise, scale);
-        Plan {
-            axial: plan.axial.filter(|_| !draft),
-            ..plan
-        }
-    };
     match image.to_mut() {
         DynamicImage::ImageRgb32F(img) => {
-            let plan = plan(img.as_raw(), 3);
+            let plan = recipe_plan(adjustments, img.as_raw(), w, h, 3, scale);
             apply(img.as_mut(), w, h, 3, plan)?
         }
         DynamicImage::ImageRgba32F(img) => {
-            let plan = plan(img.as_raw(), 4);
+            let plan = recipe_plan(adjustments, img.as_raw(), w, h, 4, scale);
             apply(img.as_mut(), w, h, 4, plan)?
         }
         _ => {}
     }
     Ok(image)
+}
+
+/// The plan of a recipe's pass (version > 0) on `data`, at `scale`.
+fn recipe_plan(
+    adjustments: &serde_json::Value,
+    data: &[f32],
+    w: usize,
+    h: usize,
+    stride: usize,
+    scale: f32,
+) -> Plan {
+    let version = version_of(adjustments);
+    // A reduced preview averages the noise down by about its scale.
+    let noise = if version >= 2 {
+        luminance_noise(data, w, h, stride) / scale.min(1.0)
+    } else {
+        0.0
+    };
+    let plan = plan_for(version, noise, scale);
+    Plan {
+        axial: plan.axial.filter(|_| !is_draft(adjustments)),
+        ..plan
+    }
+}
+
+/// Whether [`apply_for_recipe_into_texture`] runs the recipe's pass on
+/// `image` at full resolution: version 5's GPU pass on RGB floats.
+pub fn runs_into_texture(image: &DynamicImage, adjustments: &serde_json::Value) -> bool {
+    plan_for(version_of(adjustments), 0.0, 1.0).gpu
+        && image.width() > 0
+        && image.height() > 0
+        && matches!(image, DynamicImage::ImageRgb32F(_))
+}
+
+/// [`apply_for_recipe`] at full resolution with the result written into
+/// `texture` instead of the image (an `Rgba16Float` texture of `window`'s
+/// size, x, y, width and height in the image, with `COPY_DST`), on `device`:
+/// the texels equal those of uploading the pass's result cropped to
+/// `window` (each channel `f16::from_f32`, alpha 1), but nothing is read
+/// back or converted on the CPU. Only where [`runs_into_texture`].
+pub fn apply_for_recipe_into_texture(
+    device: &std::sync::Arc<wgpu::Device>,
+    queue: &wgpu::Queue,
+    image: &DynamicImage,
+    adjustments: &serde_json::Value,
+    window: [u32; 4],
+    texture: &wgpu::Texture,
+) -> Result<(), String> {
+    let (w, h) = (image.width() as usize, image.height() as usize);
+    let [x, y, width, height] = window.map(|v| v as usize);
+    let Some(img) = image
+        .as_rgb32f()
+        .filter(|_| runs_into_texture(image, adjustments))
+    else {
+        return Err("The edge-fringe pass of this recipe does not run into a texture.".to_string());
+    };
+    if width == 0 || height == 0 || x + width > w || y + height > h {
+        return Err("The texture window lies outside the image.".to_string());
+    }
+    let plan = recipe_plan(adjustments, img.as_raw(), w, h, 3, 1.0);
+    gpu::apply_into_texture(
+        device,
+        queue,
+        img.as_raw(),
+        (w, h),
+        plan,
+        [x, y, width, height],
+        texture,
+    )
 }
 
 #[inline]
