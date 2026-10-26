@@ -584,7 +584,7 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
             adjustments.insert("grainStructure".into(), json!(structure));
             adjustments.insert(
                 rawtonic_engine::image_processing::GRAIN_VERSION_KEY.into(),
-                json!(rawtonic_engine::image_processing::GRAIN_VERSION),
+                json!(rawtonic_engine::image_processing::STRUCTURED_GRAIN_VERSION),
             );
         }
     }
@@ -1215,7 +1215,7 @@ mod tests {
         assert_eq!(a["grainStructure"], json!("even"));
         assert_eq!(
             a["grainVersion"],
-            json!(rawtonic_engine::image_processing::GRAIN_VERSION)
+            json!(rawtonic_engine::image_processing::STRUCTURED_GRAIN_VERSION)
         );
     }
 

@@ -453,7 +453,7 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         adjustments.insert("grainStructure".to_string(), json!("clumped"));
         adjustments.insert(
             rawtonic_engine::image_processing::GRAIN_VERSION_KEY.to_string(),
-            json!(rawtonic_engine::image_processing::GRAIN_VERSION),
+            json!(rawtonic_engine::image_processing::STRUCTURED_GRAIN_VERSION),
         );
     }
 
@@ -1803,7 +1803,7 @@ mod tests {
         assert_eq!(adjustments["grainStructure"], "clumped");
         assert_eq!(
             adjustments["grainVersion"],
-            rawtonic_engine::image_processing::GRAIN_VERSION
+            rawtonic_engine::image_processing::STRUCTURED_GRAIN_VERSION
         );
         let none =
             r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:GrainAmount="0"/></rdf:RDF></x:xmpmeta>"#;
