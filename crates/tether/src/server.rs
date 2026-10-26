@@ -127,10 +127,22 @@ struct Open {
     /// shot's. Once one is in the transfer folder, a later file of its name
     /// is a repeated report (same bytes, `published`) or a new photo.
     from_queue: std::collections::HashSet<CameraFile>,
+    /// Every photo the transfer queue held at the connect. A file of one of
+    /// these names that cannot be downloaded may be that photo reported
+    /// again or a new one: it takes no app shot's request.
+    listed: std::collections::HashSet<CameraFile>,
     /// Why the transfer queue could not be listed, told once after the
     /// connect (its photos stay on the camera).
     queue_unlisted: Option<TetherError>,
+    /// The transfer queue could not be listed: a file the camera reports
+    /// could be an old photo of it, so no shot is fired on this connection
+    /// (its photo could not be told from them).
+    queue_unknown: bool,
 }
+
+const QUEUE_UNKNOWN: &str = "The photos already waiting on the camera could not be listed, so a \
+     new shot could not be told from them: shots are not fired on this connection. Connect the \
+     camera again.";
 
 pub struct Server<W: Write> {
     driver: Box<dyn Driver>,
@@ -393,7 +405,9 @@ impl<W: Write> Server<W> {
                     held: false,
                     transferring: false,
                     from_queue: queue.iter().cloned().collect(),
+                    listed: queue.iter().cloned().collect(),
                     queue,
+                    queue_unknown: queue_unlisted.is_some(),
                     queue_unlisted,
                 });
                 Ok(Reply::Connected { status })
@@ -431,6 +445,9 @@ impl<W: Write> Server<W> {
                 if open.memory_only || open.camera.memory_only()? {
                     open.memory_only = true;
                     return Err(TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY));
+                }
+                if open.queue_unknown {
+                    return Err(TetherError::new(ErrorKind::Other, QUEUE_UNKNOWN));
                 }
                 let at = Instant::now();
                 let shot = open.camera.fire().inspect_err(|e| {
@@ -857,6 +874,34 @@ impl<W: Write> Server<W> {
         {
             log::info!("{} reported again; already downloaded", file.name);
             return Ok(());
+        }
+        // A file under the name of a photo the queue held at the connect
+        // that cannot be downloaded: it may be that photo reported again or
+        // a new one, so it answers no request (the request stays waiting).
+        if !queued
+            && open.listed.contains(&file)
+            && let Err(error) = &downloaded
+        {
+            if error.kind == ErrorKind::Disconnected {
+                return self.lost(error.clone());
+            }
+            log::warn!(
+                "{} not downloaded after {} ms ({:?}: {}); its name was in the transfer queue, \
+                 so it answers no request",
+                file.name,
+                ms(reported),
+                error.kind,
+                error.message
+            );
+            return self.event(Event::CaptureFailed {
+                error: TetherError::new(
+                    error.kind,
+                    format!("{} could not be downloaded: {}", file.name, error.message),
+                ),
+                request: None,
+                exposure: None,
+                ambiguous: Vec::new(),
+            });
         }
         let (stem, extension) = match file.name.rsplit_once('.') {
             Some((stem, extension)) => (stem.to_string(), extension.to_lowercase()),

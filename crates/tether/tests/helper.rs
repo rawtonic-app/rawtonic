@@ -1846,6 +1846,7 @@ fn a_transfer_queue_that_cannot_be_listed_is_reported() {
         queue_limit: Some(10),
         queued: vec!["Q1.RAF".into()],
         queue_list_fails: true,
+        queued_reported_ms: Some(100),
         ..MockSpec::default()
     };
     let helper = start(&spec, dir.path());
@@ -1859,9 +1860,17 @@ fn a_transfer_queue_that_cannot_be_listed_is_reported() {
         }) => assert!(error.message.contains("stay on the camera"), "{error:?}"),
         other => panic!("{other:?}"),
     }
-    helper.capture();
+    // A photo reported later could be one of the queue's: no shot is fired
+    // whose photo could not be told from them.
+    let refused = helper.client.request(Request::Capture, WAIT).unwrap_err();
+    assert!(
+        refused.message.contains("Connect the camera again"),
+        "{refused:?}"
+    );
+    // What the camera reports still comes in (here the queued photo).
+    std::thread::sleep(Duration::from_millis(300));
     let (photos, _) = helper.photos(1);
-    assert!(photos[0].requested);
+    assert!(!photos.is_empty() && !photos[0].requested, "{photos:?}");
 }
 
 /// A held camera fetches nothing more from its queue either.
@@ -1993,4 +2002,32 @@ fn a_new_shot_after_a_reconnect_is_not_taken_for_the_kept_photo_of_its_name() {
         std::fs::read(&new.path).unwrap(),
         std::fs::read(&fetched.path).unwrap()
     );
+}
+
+/// After a queued photo was fetched, a file of its name the camera reports
+/// again that cannot be downloaded (that photo again, or a new one) takes
+/// no request: the shot fired meanwhile keeps its own.
+#[test]
+fn a_failed_report_under_a_queued_photo_s_name_takes_no_shot_s_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        queue_limit: Some(10),
+        queued: vec!["Q1.RAF".into()],
+        queued_reported_ms: Some(400),
+        failed_downloads: vec![2],
+        event_delay_ms: 900,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let queued = helper.photos(1).0.remove(0);
+    assert_eq!(queued.camera_name, "Q1.RAF");
+    let request = helper.capture();
+    let (photos, other) = helper.photos(1);
+    match other.as_slice() {
+        [Some(Event::CaptureFailed { request: None, .. })] => {}
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(photos[0].camera_name, "DSC00001.ARW");
+    assert_eq!(photos[0].request, Some(request));
 }
