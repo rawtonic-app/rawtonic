@@ -14242,11 +14242,12 @@ fn gpu_warp_matches_the_cpu_f32_warp_within_rounding() {
     rawtonic_engine::edge_fringe::gpu::register(context.device.clone(), context.queue.clone());
     let image = gpu_warp_scene(2600, 1800);
     for recipe in gpu_warp_recipes() {
-        let gpu = rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe);
+        let gpu = rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe).unwrap();
         let cpu = rawtonic_engine::image_processing::apply_geometry_warp(
             &image,
             &at_render_version(&recipe, 6),
-        );
+        )
+        .unwrap();
         let (gpu, cpu) = (
             gpu.as_rgb32f().unwrap().as_raw(),
             cpu.as_rgb32f().unwrap().as_raw(),
@@ -14314,11 +14315,13 @@ fn gpu_warp_regions_are_the_whole_frames_pixels() {
     let rgb = image.as_rgb32f().unwrap();
     let raw = rgb.as_raw();
     for recipe in gpu_warp_recipes() {
-        let warped = rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe);
+        let warped =
+            rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe).unwrap();
         let on_cpu = rawtonic_engine::image_processing::apply_geometry_warp(
             &image,
             &at_render_version(&recipe, 6),
-        );
+        )
+        .unwrap();
         assert!(
             float_bits(&warped) != float_bits(&on_cpu),
             "warped on the GPU"
@@ -14332,7 +14335,7 @@ fn gpu_warp_regions_are_the_whole_frames_pixels() {
                 warped.as_rgb32f().unwrap().as_raw()[y * row..(y + 1) * row].to_vec()
             },
         );
-        let measures = RegionMeasures::of(rgb, &recipe);
+        let measures = RegionMeasures::of(rgb, &recipe).unwrap();
         assert_eq!(measures.fringe, plan_of_whole, "{recipe}");
         let fringed = rawtonic_engine::edge_fringe::apply_for_recipe(warped, &recipe, 1.0).unwrap();
         let (whole, _) =
@@ -14393,8 +14396,10 @@ fn gpu_warp_display_and_export_develop_the_same_input() {
     let (width, height) = (2600, 1800);
     let image = gpu_warp_scene(width, height);
     for recipe in gpu_warp_recipes() {
-        let first = rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe);
-        let again = rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe);
+        let first =
+            rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe).unwrap();
+        let again =
+            rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe).unwrap();
         assert!(float_bits(&first) == float_bits(&again), "{recipe}");
         let (display, _) = rawtonic_engine::adjustment_utils::apply_all_transformations(
             std::borrow::Cow::Borrowed(&image),
@@ -14411,7 +14416,8 @@ fn gpu_warp_display_and_export_develop_the_same_input() {
         let warped = rawtonic_engine::adjustment_utils::apply_warp(
             std::borrow::Cow::Borrowed(&image),
             &recipe,
-        );
+        )
+        .unwrap();
         let read_back = upload_fringed_render_source(&context, &warped, &recipe, window, 0, None)
             .unwrap()
             .expect("runs into the texture");
@@ -14437,6 +14443,63 @@ fn gpu_warp_display_and_export_develop_the_same_input() {
             assert_eq!(texels.len(), expected.len());
         }
     }
+}
+
+/// A failing GPU warp (`renderVersion` 7) fails the render instead of
+/// warping on the CPU, whose pixels differ: the display's frame, preview
+/// base and mask sources, a region's measures and the export's input all
+/// report it, and a region the GPU cannot warp is left to the whole frame.
+/// Recipes that warp on the CPU (`renderVersion` 6) are not affected.
+#[test]
+#[ignore = "requires a native GPU"]
+fn a_failing_gpu_warp_fails_the_render() {
+    use rawtonic_engine::image_processing::{
+        RegionMeasures, SourceRows, plan_transformed_region_with, transformed_region,
+    };
+    let context = context();
+    rawtonic_engine::edge_fringe::gpu::register(context.device.clone(), context.queue.clone());
+    let (w, h) = (900, 600);
+    let image = gpu_warp_scene(w, h);
+    let rgb = image.as_rgb32f().unwrap();
+    let recipe = gpu_warp_recipes().remove(0);
+    let measures = RegionMeasures::of(rgb, &recipe).unwrap();
+    let plan = plan_transformed_region_with(w, h, &recipe, [10, 10, 50, 40], Some(measures))
+        .expect("plannable");
+    rawtonic_engine::warp_gpu::fail_on_this_thread(true);
+    let failed = |e: String| assert!(e.contains("failed on the GPU"), "{e}");
+    failed(rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe).unwrap_err());
+    failed(
+        rawtonic_engine::image_processing::apply_geometry_warp_interim(&image, &recipe)
+            .unwrap_err(),
+    );
+    failed(
+        rawtonic_engine::adjustment_utils::apply_all_transformations(&image, &recipe)
+            .map(|_| ())
+            .unwrap_err(),
+    );
+    failed(
+        rawtonic_engine::mask_generation::prepare_shared_warped_mask_image(
+            &Arc::new(image.clone()),
+            false,
+            &recipe,
+        )
+        .map(|_| ())
+        .unwrap_err(),
+    );
+    failed(RegionMeasures::of(rgb, &recipe).map(|_| ()).unwrap_err());
+    assert!(transformed_region(&SourceRows::whole(rgb.as_raw(), w, h), &recipe, &plan).is_none());
+    let window = [0, 0, w, h];
+    failed(
+        upload_warped_render_source(&context, &image, &recipe, window, 0, None)
+            .map(|_| ())
+            .unwrap_err(),
+    );
+    // Warped on the CPU: unaffected.
+    let saved = at_render_version(&recipe, 6);
+    assert!(rawtonic_engine::image_processing::apply_geometry_warp(&image, &saved).is_ok());
+    assert!(RegionMeasures::of(rgb, &saved).is_ok());
+    rawtonic_engine::warp_gpu::fail_on_this_thread(false);
+    assert!(rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe).is_ok());
 }
 
 /// Wide-gamut colours (negative channels) beside a two-colour edge: the

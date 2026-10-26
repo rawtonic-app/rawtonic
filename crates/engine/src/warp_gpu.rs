@@ -320,12 +320,28 @@ pub(crate) fn positions(
     warp_with(u, &source, out, POSITIONS)
 }
 
+#[cfg(any(test, feature = "test-support"))]
+thread_local! {
+    static FAILING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Makes this thread's GPU warps fail as a failing GPU would (`true`), or
+/// run again (tests of the failure paths).
+#[cfg(any(test, feature = "test-support"))]
+pub fn fail_on_this_thread(failing: bool) {
+    FAILING.with(|f| f.set(failing));
+}
+
 fn warp_with(
     u: &WarpUniforms,
     source: &SourceRows,
     out: OutputRows,
     flags: u32,
 ) -> Result<Vec<f32>, String> {
+    #[cfg(any(test, feature = "test-support"))]
+    if FAILING.with(|f| f.get()) {
+        return Err("The warp failed on the GPU: failure injected by a test.".to_string());
+    }
     let (device, queue) = crate::edge_fringe::gpu::device()
         .ok_or_else(|| "No graphics device is registered for the warp.".to_string())?;
     let mut result = vec![0.0f32; out.width as usize * out.rows as usize * 3];
@@ -359,6 +375,10 @@ pub fn warp_into_buffer(
     let Some(u) = crate::image_processing::gpu_warp_uniforms(source, adjustments) else {
         return Ok(None);
     };
+    #[cfg(any(test, feature = "test-support"))]
+    if FAILING.with(|f| f.get()) {
+        return Err("The warp failed on the GPU: failure injected by a test.".to_string());
+    }
     let source = SourceRows::whole(source.as_raw(), width, height);
     let out = OutputRows::whole(width, height);
     scoped(device, || {

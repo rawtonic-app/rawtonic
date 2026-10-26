@@ -508,7 +508,7 @@ pub fn level_rotation(
         adjustments["flipVertical"].as_bool().unwrap_or(false),
     );
     let developed = apply_flip(
-        apply_coarse_rotation(apply_geometry_warp(&proxy, adjustments), steps),
+        apply_coarse_rotation(apply_geometry_warp(&proxy, adjustments).ok()?, steps),
         flip_h,
         flip_v,
     )
@@ -792,7 +792,7 @@ mod tests {
             for rotation in [-8.0f64, 3.3, 8.0] {
                 let mut recipe = recipe.clone();
                 recipe["rotation"] = serde_json::json!(rotation);
-                let warped = apply_geometry_warp(&white, &recipe).into_owned();
+                let warped = apply_geometry_warp(&white, &recipe).unwrap().into_owned();
                 let turned = apply_coarse_rotation(
                     warped,
                     recipe["orientationSteps"].as_u64().unwrap_or(0) as u8,

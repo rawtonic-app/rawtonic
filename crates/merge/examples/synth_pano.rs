@@ -53,6 +53,7 @@ fn main() -> Result<()> {
         image::DynamicImage::ImageRgb32F(std::mem::take(&mut frame.image)),
         &adjustments,
     )
+    .expect("the lens warp")
     .into_owned()
     .into_rgb32f();
     let to_camera = working_to_camera(frame.color.as_ref());

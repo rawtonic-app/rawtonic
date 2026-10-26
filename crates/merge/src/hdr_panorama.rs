@@ -134,6 +134,7 @@ pub fn hdr_panorama(
             image::DynamicImage::ImageRgb32F(merged.image),
             &adjustments,
         )
+        .map_err(|e| anyhow!(e))?
         .into_owned()
         .into_rgb32f();
         parked.push(park(
