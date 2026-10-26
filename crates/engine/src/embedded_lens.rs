@@ -20,7 +20,7 @@ use std::path::Path;
 use rawler::formats::tiff::IFD;
 use rawler::rawsource::RawSource;
 
-use crate::lens_correction::LensDistortionParams;
+use crate::lens_correction::{LensDistortionParams, RadialTable};
 
 /// Correction curves read from a RAW file.
 #[derive(Debug, Clone, PartialEq)]
@@ -43,6 +43,10 @@ pub struct EmbeddedLensData {
     /// `LensDistortionParams::polynomial`), which `to_params` takes as it is
     /// instead of fitting `distortion` (Samsung's model, `samsung_curve`).
     pub polynomial: Option<[f64; 3]>,
+    /// `distortion` is the warp's radial table itself, at uniform knots
+    /// from the centre (`LensDistortionParams::radial_table`), which
+    /// `to_params` takes as it is (Sony from `cameraGeometryVersion` 6).
+    pub tabulated: bool,
 }
 
 const FUJI_DISTORTION: u16 = 0xf00b;
@@ -115,6 +119,7 @@ pub fn fuji_curves_with_ca(
         zoom: 1.0,
         exact_zoom: false,
         polynomial: None,
+        tabulated: false,
         chromatic: chromatic
             .filter(|v| v.len() > 3 * n && v[1..=n] == *knots)
             .map(|v| {
@@ -243,6 +248,7 @@ pub fn sony_curves_with_ca(
         zoom: 1.0,
         exact_zoom: false,
         polynomial: None,
+        tabulated: false,
         chromatic: chromatic.and_then(sony_chromatic),
     })
 }
@@ -304,6 +310,17 @@ fn sony_sensor_frame(source: &RawSource) -> Option<SonyFrame> {
 /// edges, A = 1 / max k on its border (corners on the corners for pincushion
 /// data), before an aspect crop. The vignetting and CA data keep version 0's
 /// reading (not re-measured).
+///
+/// Version 6 (`SONY_TABLE_GEOMETRY`) warps through the knots themselves
+/// (`RadialTable`, shape-preserving cubic between them) instead of a
+/// three-term fit of their linear interpolation: that fit bulged past the
+/// binding edge of the RX100 III / IV / V and ZV-1 frames, so the warp
+/// zoomed in 0.084 % beyond the camera's framing (2.8 px at the corners;
+/// Camera Raw's mapping reconstructed through our warp on 12 compacts:
+/// A = 1.0000 ± 0.0001 at the framing the warp actually used), and it cannot
+/// follow wavy tables (RX0). Against Camera Raw the cubic fits closer than
+/// linear interpolation on 9 of those 12 files (largest error ZV-1
+/// 1.04 → 0.50 px, RX100 VI 1.17 → 0.67; notes: parity-gaps/G71).
 pub fn sony_lens(
     distortion: &[f64],
     vignetting: Option<&[f64]>,
@@ -325,16 +342,26 @@ pub fn sony_lens(
         .enumerate()
         .map(|(i, &(_, k))| (i as f64 / last / frame.reach, k))
         .collect();
+    let table = (geometry >= SONY_TABLE_GEOMETRY)
+        .then(|| {
+            let knots: Vec<f64> = curve.iter().map(|&(_, k)| k).collect();
+            RadialTable::new(&knots, 1.0 / frame.reach)
+        })
+        .flatten();
+    let k = |u: f64| match &table {
+        Some(table) => table.at(u),
+        None => interpolate(&curve, u),
+    };
     // The largest k on a frame's border, whose radii run from the shorter
-    // side's midpoint (`short`) to the corner; the curve is linear between
-    // its knots.
+    // side's midpoint (`short`) to the corner; the curve is linear or, as a
+    // table, monotone between its knots.
     let peak = |short: f64, corner: f64| {
         curve
             .iter()
             .map(|&(r, _)| r)
             .filter(|r| (short..corner).contains(r))
             .chain([short, corner])
-            .map(|r| interpolate(&curve, r))
+            .map(k)
             .fold(f64::MIN, f64::max)
     };
     let short_of = |aspect: f64| 1.0 / aspect.max(1.0 / aspect).hypot(1.0);
@@ -359,6 +386,21 @@ pub fn sony_lens(
     let needed = scale * peak(short_of(frame.aspect), 1.0);
     if needed > (scale * full_peak).max(1.0) + 1e-3 {
         return Some(data);
+    }
+    if table.is_some() {
+        // The warp's table T(q) = zoom A k(zoom q): the knots at r_i / zoom.
+        let zoom = framing_zoom(|u| scale * k(u))?;
+        let distortion = curve
+            .iter()
+            .map(|&(r, value)| (r / zoom, zoom * scale * value))
+            .collect();
+        return Some(EmbeddedLensData {
+            distortion,
+            zoom,
+            exact_zoom: true,
+            tabulated: true,
+            ..data
+        });
     }
     let (distortion, zoom) = framed_curve(|u| scale * interpolate(&curve, u))?;
     Some(EmbeddedLensData {
@@ -401,6 +443,19 @@ const FORMULA_KNOTS: usize = 32;
 /// corner (`zoom k(zoom) = 1`), so the corrected corners crop inside the
 /// sensor's (vignetted) corners as in the camera and Camera Raw.
 fn framed_curve(k: impl Fn(f64) -> f64) -> Option<(Vec<(f64, f64)>, f64)> {
+    let zoom = framing_zoom(&k)?;
+    let curve = (1..=FORMULA_KNOTS)
+        .map(|i| {
+            let u = i as f64 / FORMULA_KNOTS as f64;
+            (u, zoom * k(zoom * u))
+        })
+        .collect();
+    Some((curve, zoom))
+}
+
+/// The output radius whose sample is the sensor corner: `zoom k(zoom) = 1`
+/// (`framed_curve`).
+fn framing_zoom(k: impl Fn(f64) -> f64) -> Option<f64> {
     let mut zoom = 1.0f64;
     for _ in 0..40 {
         let f = zoom * k(zoom) - 1.0;
@@ -414,13 +469,7 @@ fn framed_curve(k: impl Fn(f64) -> f64) -> Option<(Vec<(f64, f64)>, f64)> {
             return None;
         }
     }
-    let curve = (1..=FORMULA_KNOTS)
-        .map(|i| {
-            let u = i as f64 / FORMULA_KNOTS as f64;
-            (u, zoom * k(zoom * u))
-        })
-        .collect();
-    Some((curve, zoom))
+    Some(zoom)
 }
 
 /// Panasonic's DistortionInfo (the model in ExifTool's PanasonicRaw notes
@@ -515,6 +564,7 @@ pub fn panasonic_curve(
         zoom: framing,
         exact_zoom: framed,
         polynomial: None,
+        tabulated: false,
         chromatic: None,
     })
 }
@@ -600,6 +650,7 @@ pub fn olympus_curve(d: &[f64], reach: f64) -> Option<EmbeddedLensData> {
         zoom,
         exact_zoom: false,
         polynomial: None,
+        tabulated: false,
         chromatic: None,
     })
 }
@@ -794,6 +845,7 @@ pub fn nikon_compact_curve(values: &[f64]) -> Option<EmbeddedLensData> {
         zoom: 1.0,
         exact_zoom: false,
         polynomial: None,
+        tabulated: false,
         chromatic: None,
     })
 }
@@ -861,6 +913,7 @@ pub fn nikon_curve(info: &NikonLensInfo, framed: bool) -> Option<EmbeddedLensDat
         zoom,
         exact_zoom: framing.is_some(),
         polynomial: None,
+        tabulated: false,
         chromatic: None,
     })
 }
@@ -942,6 +995,7 @@ pub fn samsung_curve(values: &[f64], half_diagonal: f64) -> Option<EmbeddedLensD
         exact_zoom: true,
         chromatic: None,
         polynomial: Some(k),
+        tabulated: false,
     })
 }
 
@@ -986,10 +1040,14 @@ pub const GEOMETRY_VERSION_KEY: &str = "cameraGeometryVersion";
 /// (`nikon_curve`); 3 (2026-10-26) reads Canon's distortion and the radius
 /// unit of its brightness table (`canon_curves`); 4 (2026-10-26) also
 /// Samsung's (`samsung_curve`); 5 (2026-10-26) frames Panasonic's and
-/// Fujifilm's data as the cameras do (`panasonic_curve`, `fuji_framed`).
-/// Recipes without the key keep their parameters; saving them again fills
-/// in the same as before.
-pub const GEOMETRY_VERSION: u64 = 5;
+/// Fujifilm's data as the cameras do (`panasonic_curve`, `fuji_framed`); 6
+/// (2026-10-26) warps Sony's knots themselves (`sony_lens`). Recipes
+/// without the key keep their parameters; saving them again fills in the
+/// same as before.
+pub const GEOMETRY_VERSION: u64 = 6;
+
+/// The camera geometry version that warps Sony's knot table itself.
+const SONY_TABLE_GEOMETRY: u64 = 6;
 
 /// The camera geometry version that frames Panasonic's and Fujifilm's data
 /// as the cameras do.
@@ -1153,6 +1211,7 @@ pub fn read_version(
                     zoom: 1.0,
                     exact_zoom: false,
                     polynomial: None,
+                    tabulated: false,
                     chromatic: Some(chromatic),
                 }),
             }
@@ -1387,6 +1446,10 @@ pub fn to_params(data: &EmbeddedLensData) -> Option<LensDistortionParams> {
     };
     let mut params = if let Some([k1, k2, k3]) = data.polynomial {
         LensDistortionParams::polynomial(k1, k2, k3, vignetting()).with_zoom(data.zoom)
+    } else if data.tabulated {
+        let end = data.distortion.last()?.0;
+        let values = data.distortion.iter().map(|&(_, k)| k).collect();
+        LensDistortionParams::radial_table(values, end, vignetting()).with_zoom(data.zoom)
     } else {
         let ([a, b, c], zoom) = if data.exact_zoom && data.zoom > 1.0 {
             fit_framed_distortion(&data.distortion, data.zoom)?
@@ -1428,19 +1491,20 @@ pub fn current_geometry_version(source: &Path) -> u64 {
 
 /// The `source_facts` versions from which `camera_lens` is read at camera
 /// geometry version 1, 2, … (older versions in `camera_lens_geometry`).
-const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7, 8, 9, 10, 11];
+const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7, 8, 9, 10, 11, 12];
 
 /// The file formats (extensions) whose data camera geometry version 1, 2, …
 /// reads differently from the version before: 1 Sony's (ARW, and Adobe DNG
 /// Converter's DNGs of Sony bodies), 2 Nikon's (NEF; NRW share its reader),
 /// 3 Canon's (CR3), 4 Samsung's (SRW), 5 Panasonic's and Fujifilm's (RW2,
-/// RWL, RAF).
+/// RWL, RAF), 6 Sony's again.
 const GEOMETRY_FORMATS: [&[&str]; GEOMETRY_VERSION as usize] = [
     &["arw", "dng"],
     &["nef", "nrw"],
     &["cr3"],
     &["srw"],
     &["rw2", "rwl", "raf"],
+    &["arw", "dng"],
 ];
 
 /// The camera geometry version facts of `facts_version` carry.
@@ -1843,6 +1907,7 @@ fn canon_curves(
         exact_zoom,
         chromatic: None,
         polynomial: None,
+        tabulated: false,
     })
 }
 
@@ -2085,6 +2150,7 @@ fn adobe_profile(source: &RawSource) -> Option<EmbeddedLensData> {
         zoom,
         exact_zoom: false,
         polynomial: None,
+        tabulated: false,
         chromatic: None,
     })
 }
@@ -2390,26 +2456,30 @@ mod tests {
         assert_eq!(facts_geometry_version(9), 3);
         assert_eq!(facts_geometry_version(10), 4);
         assert_eq!(facts_geometry_version(11), 5);
+        assert_eq!(facts_geometry_version(12), 6);
         assert_eq!(
             facts_geometry_version(crate::source_facts::VERSION),
             GEOMETRY_VERSION
         );
         // A NEF's version 7 facts predate Nikon's framing, a CR3's version
         // 8 facts Canon's distortion, an SRW's version 9 facts Samsung's
-        // data, an RW2's or RAF's version 10 facts their framing; an ARW's
-        // hold.
+        // data, an RW2's or RAF's version 10 facts their framing, an ARW's
+        // or DNG's version 7 to 11 facts Sony's knot table; an ORF's hold.
         assert_eq!(known_geometry_version(Path::new("a.nef"), 7), 1);
         assert_eq!(known_geometry_version(Path::new("a.NRW"), 7), 1);
         assert_eq!(known_geometry_version(Path::new("a.arw"), 7), 5);
-        assert_eq!(known_geometry_version(Path::new("a.nef"), 8), 5);
+        assert_eq!(known_geometry_version(Path::new("a.arw"), 11), 5);
+        assert_eq!(known_geometry_version(Path::new("a.DNG"), 11), 5);
+        assert_eq!(known_geometry_version(Path::new("a.arw"), 12), 6);
+        assert_eq!(known_geometry_version(Path::new("a.nef"), 8), 6);
         assert_eq!(known_geometry_version(Path::new("a.CR3"), 8), 2);
-        assert_eq!(known_geometry_version(Path::new("a.cr3"), 9), 5);
+        assert_eq!(known_geometry_version(Path::new("a.cr3"), 9), 6);
         assert_eq!(known_geometry_version(Path::new("a.srw"), 9), 3);
-        assert_eq!(known_geometry_version(Path::new("a.SRW"), 10), 5);
+        assert_eq!(known_geometry_version(Path::new("a.SRW"), 10), 6);
         assert_eq!(known_geometry_version(Path::new("a.RW2"), 10), 4);
         assert_eq!(known_geometry_version(Path::new("a.raf"), 10), 4);
-        assert_eq!(known_geometry_version(Path::new("a.rwl"), 11), 5);
-        assert_eq!(known_geometry_version(Path::new("a.orf"), 6), 5);
+        assert_eq!(known_geometry_version(Path::new("a.rwl"), 11), 6);
+        assert_eq!(known_geometry_version(Path::new("a.orf"), 6), 6);
     }
 
     #[test]
@@ -2556,6 +2626,7 @@ mod tests {
             zoom: 1.0,
             exact_zoom: false,
             polynomial: None,
+            tabulated: false,
             chromatic: Some(curve),
         })
         .unwrap();
@@ -2957,6 +3028,131 @@ mod tests {
         assert_eq!(old, sony_curve(&RX100M3_DISTORTION_VALUES, None).unwrap());
         assert_eq!(old.distortion[0].0, 0.5 / 11.0);
         assert_eq!(old.zoom, 1.0);
+    }
+
+    // RX0 at 7.7 mm (as stored): a wavy table.
+    const RX0_DISTORTION_VALUES: [f64; 17] = [
+        11.0, 89.0, 77.0, 85.0, 113.0, 109.0, 53.0, -59.0, -205.0, -333.0, -394.0, -383.0, 0.0,
+        0.0, 0.0, 0.0, 0.0,
+    ];
+
+    #[test]
+    fn sony_geometry_version_6_warps_the_knot_table_itself() {
+        // Version 1's three-term fit cannot follow the RX100 III's table or
+        // the RX0's wavy one (0.4–0.5 JPEG px against the cameras' own
+        // JPEGs; notes: parity-gaps/G71). Version 6 warps through the knots
+        // themselves: where an output radius lands on knot i, the warp
+        // samples A u k_i, whatever the interpolation between the knots.
+        // Strong barrel data reach the default crop's margins beyond the
+        // developed frame (RX100 III: 1.4 px at the top edge's middle);
+        // without those pixels the warp zooms in uniformly instead (as the
+        // camera's JPEG frames), keeping the shape.
+        let (w, h) = (5472u32, 3648u32);
+        let (cx, cy) = (w as f64 / 2.0, h as f64 / 2.0);
+        let hd = cx.hypot(cy);
+        let active = (w as f64).hypot(h as f64) / 5504f64.hypot(3672.0);
+        let short = 1.0 / 1.5f64.hypot(1.0);
+        for (values, interchangeable_lens, reach, zoom_in) in [
+            (&RX100M3_DISTORTION_VALUES, false, 1.0, 0.0),
+            (&RX100M3_DISTORTION_VALUES, false, active, 1.1e-3),
+            (&RX0_DISTORTION_VALUES, false, active, 2.5e-4),
+            (&SONY_DISTORTION_VALUES, false, active, 0.0),
+            (&RX100M3_DISTORTION_VALUES, true, active, 0.0),
+            (&SONY_DISTORTION_VALUES, true, active, 0.0),
+        ] {
+            let n = values[0] as usize;
+            let knots: Vec<f64> = values[1..=n].iter().map(|v| 1.0 + v / 16384.0).collect();
+            let k = crate::lens_correction::RadialTable::new(&knots, 1.0).unwrap();
+            let frame = SonyFrame {
+                reach,
+                interchangeable_lens,
+                ..SonyFrame::FULL
+            };
+            // Interchangeable-lens bodies: no blank edge on the frame's
+            // border (the interpolant is monotone between the knots).
+            let scale = if interchangeable_lens {
+                let border = (0..n)
+                    .map(|i| i as f64 / (n - 1) as f64)
+                    .filter(|r| (short * reach..reach).contains(r))
+                    .chain([short * reach, reach]);
+                1.0 / border.map(|r| k.at(r)).fold(f64::MIN, f64::max)
+            } else {
+                1.0
+            };
+            let data = sony_lens(values, None, None, frame, 6).unwrap();
+            assert!(data.tabulated);
+            // Data that would sample beyond the frame's corner keep the
+            // corners on the corners (as version 1).
+            let corner = data.zoom.min(1.0);
+            let recipe = serde_json::json!({
+                "lensCorrectionMode": CAMERA_MODE,
+                "lensDistortionParams": to_params(&data).unwrap(),
+            });
+            let warp = crate::image_processing::WarpPoints::new(
+                &crate::image_processing::get_geometry_params_from_json(&recipe),
+                w,
+                h,
+            );
+            // The camera's sample at the knots that lie inside the frame
+            // (along its long and short axes and its diagonal), and the
+            // warp's at output radius u z, z the uniform zoom.
+            let source = |u: f64, angle: f64| {
+                let (x, y) = (cx + u * hd * f64::cos(angle), cy - u * hd * f64::sin(angle));
+                let inside = (0.0..w as f64).contains(&x) && (0.0..h as f64).contains(&y);
+                let (sx, sy) = warp.to_source(x as f32, y as f32).unwrap();
+                inside.then(|| (sx as f64 - cx).hypot(sy as f64 - cy) / hd)
+            };
+            let knot_points: Vec<(f64, f64, f64)> = knots
+                .iter()
+                .enumerate()
+                .skip(1)
+                .flat_map(|(i, &knot)| {
+                    let r = i as f64 / (n - 1) as f64 / reach;
+                    [0.0, cy.atan2(cx), std::f64::consts::FRAC_PI_2]
+                        .map(|angle| (r / corner, angle, scale * r * knot))
+                })
+                .filter(|&(u, angle, _)| source(u * (1.0 + zoom_in), angle).is_some())
+                .collect();
+            assert!(knot_points.len() >= n, "{} points", knot_points.len());
+            // The zoom: where the warp samples the camera's outermost knot.
+            let &(u, angle, expected) = knot_points
+                .iter()
+                .max_by(|a, b| a.2.total_cmp(&b.2))
+                .unwrap();
+            let (mut lo, mut hi) = (1.0 - 1e-2, 1.0 + 1e-2);
+            for _ in 0..50 {
+                let mid = 0.5 * (lo + hi);
+                if source(u * mid, angle).unwrap_or(f64::MAX) < expected {
+                    lo = mid;
+                } else {
+                    hi = mid;
+                }
+            }
+            let zoom = 0.5 * (lo + hi);
+            assert!(
+                (zoom - 1.0 - zoom_in).abs() < 1.5e-4,
+                "n {n} ILC {interchangeable_lens} reach {reach}: zoom {zoom}"
+            );
+            for (u, angle, expected) in knot_points {
+                let got = source(u * zoom, angle).unwrap();
+                assert!(
+                    (got - expected).abs() * hd < 0.05,
+                    "n {n} ILC {interchangeable_lens} reach {reach} u {u} angle {angle}: {} px",
+                    (got - expected) * hd
+                );
+            }
+        }
+        // Versions 1 to 5 read Sony's data as before.
+        let frame = SonyFrame {
+            reach: active,
+            ..SonyFrame::FULL
+        };
+        let old = sony_lens(&RX100M3_DISTORTION_VALUES, None, None, frame, 5).unwrap();
+        assert_eq!(
+            old,
+            sony_lens(&RX100M3_DISTORTION_VALUES, None, None, frame, 1).unwrap()
+        );
+        assert!(!old.tabulated);
     }
 
     #[test]

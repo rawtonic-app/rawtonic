@@ -174,6 +174,104 @@ pub struct LensDistortionParams {
     tca_vr2: f64,
     #[serde(default, skip_serializing_if = "is_zero")]
     tca_vb2: f64,
+    /// Model 2 (`radial_table`): the distortion factor at uniform knots from
+    /// the centre to `table_end`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    table: Vec<f64>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    table_end: f64,
+}
+
+/// The warp's tabulated radial distortion (lens model 2): an output radius
+/// r (relative to the half diagonal, before the zoom) samples r T(r), with
+/// T given at uniform knots from the centre (r = 0) to `end` and
+/// interpolated piecewise-cubic and shape-preserving between them (PCHIP:
+/// Fritsch–Carlson slopes, the harmonic mean of the neighbouring secants
+/// inside, zero at a local extreme, the three-point formula at the ends),
+/// linearly beyond `end`. A camera's own knot table is applied as it is
+/// instead of a fitted formula, which cannot follow every table (Sony,
+/// `cameraGeometryVersion` 6; notes: parity-gaps/G71).
+#[derive(Debug, Clone, PartialEq)]
+pub struct RadialTable {
+    step: f64,
+    values: Vec<f64>,
+    slopes: Vec<f64>,
+}
+
+impl RadialTable {
+    /// The table of `values` at uniform knots from 0 to `end`; `None` for
+    /// fewer than two knots or a non-positive or non-finite end or value.
+    pub fn new(values: &[f64], end: f64) -> Option<Self> {
+        let n = values.len();
+        if n < 2 || !(end.is_finite() && end > 0.0) || values.iter().any(|v| !v.is_finite()) {
+            return None;
+        }
+        let step = end / (n - 1) as f64;
+        let secants: Vec<f64> = values.windows(2).map(|w| (w[1] - w[0]) / step).collect();
+        let mut slopes = vec![0.0; n];
+        for i in 1..n - 1 {
+            let (before, after) = (secants[i - 1], secants[i]);
+            if before * after > 0.0 {
+                slopes[i] = 2.0 / (1.0 / before + 1.0 / after);
+            }
+        }
+        // The ends: the three-point estimate, kept to the end secant's sign
+        // and at most three times it.
+        let edge = |first: f64, second: f64| {
+            let slope = (3.0 * first - second) / 2.0;
+            if slope.signum() != first.signum() {
+                0.0
+            } else if first.signum() != second.signum() && slope.abs() > 3.0 * first.abs() {
+                3.0 * first
+            } else {
+                slope
+            }
+        };
+        if n == 2 {
+            slopes = vec![secants[0]; 2];
+        } else {
+            slopes[0] = edge(secants[0], secants[1]);
+            slopes[n - 1] = edge(secants[n - 2], secants[n - 3]);
+        }
+        Some(Self {
+            step,
+            values: values.to_vec(),
+            slopes,
+        })
+    }
+
+    /// T(r).
+    pub fn at(&self, r: f64) -> f64 {
+        self.with_slope(r).0
+    }
+
+    /// T(r) and its derivative dT/dr.
+    pub fn with_slope(&self, r: f64) -> (f64, f64) {
+        let last = self.values.len() - 1;
+        let x = r.max(0.0) / self.step;
+        if x >= last as f64 {
+            let slope = self.slopes[last];
+            return (
+                self.values[last] + slope * (r - last as f64 * self.step),
+                slope,
+            );
+        }
+        let i = x as usize;
+        let t = x - i as f64;
+        let (y0, y1) = (self.values[i], self.values[i + 1]);
+        let (m0, m1) = (self.slopes[i] * self.step, self.slopes[i + 1] * self.step);
+        let (t2, t3) = (t * t, t * t * t);
+        let value = (2.0 * t3 - 3.0 * t2 + 1.0) * y0
+            + (t3 - 2.0 * t2 + t) * m0
+            + (-2.0 * t3 + 3.0 * t2) * y1
+            + (t3 - t2) * m1;
+        let slope = ((6.0 * t2 - 6.0 * t) * y0
+            + (3.0 * t2 - 4.0 * t + 1.0) * m0
+            + (-6.0 * t2 + 6.0 * t) * y1
+            + (3.0 * t2 - 2.0 * t) * m1)
+            / self.step;
+        (value, slope)
+    }
 }
 
 fn is_zero(value: &f64) -> bool {
@@ -206,6 +304,20 @@ impl LensDistortionParams {
             exact_zoom: false,
             tca_vr2: 0.0,
             tca_vb2: 0.0,
+            table: Vec::new(),
+            table_end: 0.0,
+        }
+    }
+
+    /// A tabulated distortion (model 2, `RadialTable`): the factor `values`
+    /// at uniform knots from the centre to `end`, with pa-model vignetting
+    /// and no TCA (a camera's own knot table, embedded_lens.rs).
+    pub fn radial_table(values: Vec<f64>, end: f64, vignetting: [f64; 3]) -> Self {
+        Self {
+            model: 2,
+            table: values,
+            table_end: end,
+            ..Self::ptlens(0.0, 0.0, 0.0, vignetting)
         }
     }
 
@@ -259,6 +371,7 @@ impl LensDistortionParams {
             && self.tca_vr2.abs() < 1e-12
             && self.tca_vb2.abs() < 1e-12
             && is_unit_zoom(&self.zoom)
+            && self.table.iter().all(|t| (t - 1.0).abs() < 1e-12)
     }
 
     /// The same parameters with a minimum zoom (at least 1).
@@ -656,6 +769,8 @@ impl Lens {
             exact_zoom: false,
             tca_vr2,
             tca_vb2,
+            table: Vec::new(),
+            table_end: 0.0,
         })
     }
 }
@@ -1232,6 +1347,52 @@ pub fn resolve_lens_params(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn radial_tables_interpolate_shape_preserving_through_their_knots() {
+        // RX100 III and RX0 distortion knots (1 + value / 2^14); expected
+        // values and slopes from SciPy 1.16's PchipInterpolator.
+        let table = |values: [f64; 11], end: f64| {
+            let k: Vec<f64> = values.iter().map(|v| 1.0 + v / 16384.0).collect();
+            super::RadialTable::new(&k, end).unwrap()
+        };
+        let rx100m3 = table(
+            [
+                1265.0, 1218.0, 1083.0, 860.0, 562.0, 209.0, -179.0, -580.0, -972.0, -1353.0,
+                -1725.0,
+            ],
+            0.8,
+        );
+        let rx0 = table(
+            [
+                89.0, 77.0, 85.0, 113.0, 109.0, 53.0, -59.0, -205.0, -333.0, -394.0, -383.0,
+            ],
+            1.0,
+        );
+        for (table, r, value, slope) in [
+            (&rx100m3, 0.03, 1.0766490265563293, -0.03279172457181489),
+            (&rx100m3, 0.29, 1.0415776575938227, -0.236594444120884),
+            (&rx100m3, 0.5, 0.9829996210696126, -0.30607862790198537),
+            (&rx100m3, 0.77, 0.9031646752737432, -0.28296863415326745),
+            (&rx0, 0.05, 1.0048980712890625, -0.007629394531249999),
+            (&rx0, 0.15, 1.0048489040798612, 0.005425347222222221),
+            (&rx0, 0.33, 1.00687294921875, -0.0015722656249999999),
+            (&rx0, 0.95, 0.9760360717773438, 0.00503540039062499),
+        ] {
+            let (got, got_slope) = table.with_slope(r);
+            assert!((got - value).abs() < 1e-12, "T({r}) {got} vs {value}");
+            assert!(
+                (got_slope - slope).abs() < 1e-9,
+                "T'({r}) {got_slope} vs {slope}"
+            );
+        }
+        // Through the knots; linear beyond the last.
+        assert_eq!(rx100m3.at(0.8), 1.0 - 1725.0 / 16384.0);
+        let (end, end_slope) = rx100m3.with_slope(0.8);
+        assert!((rx100m3.at(0.9) - (end + 0.1 * end_slope)).abs() < 1e-12);
+        assert!(super::RadialTable::new(&[1.0], 1.0).is_none());
+        assert!(super::RadialTable::new(&[1.0, 1.1], 0.0).is_none());
+    }
+
     #[test]
     fn version_1_lookups_answer_as_the_database_before_the_2026_10_18_update() {
         let db = super::embedded_lens_db();

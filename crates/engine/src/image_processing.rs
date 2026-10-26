@@ -1,4 +1,5 @@
 use crate::guided_perspective::{GuideLine, count_valid_lines, guided_homography};
+use crate::lens_correction::RadialTable;
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat3, Vec2, Vec3};
 use image::{DynamicImage, GenericImageView, Rgb32FImage};
@@ -108,6 +109,12 @@ pub struct GeometryParams {
     pub lens_dist_k2: f32,
     pub lens_dist_k3: f32,
     pub lens_model: u32,
+    /// Lens model 2: the distortion factor at uniform knots from the centre
+    /// to `lens_table_end` (`lens_correction::RadialTable`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lens_table: Vec<f32>,
+    #[serde(default)]
+    pub lens_table_end: f32,
     /// The profile is the camera's own measured data (lensCorrectionMode
     /// "camera"): applied exactly. Database profiles keep the inherited
     /// RapidRAW strengths (distortion ×2.5, vignetting ×0.8 at 100 %).
@@ -173,6 +180,8 @@ impl Default for GeometryParams {
             lens_dist_k2: 0.0,
             lens_dist_k3: 0.0,
             lens_model: 0,
+            lens_table: Vec::new(),
+            lens_table_end: 0.0,
             lens_profile_exact: false,
             lens_zoom: 1.0,
             lens_zoom_exact: false,
@@ -244,6 +253,17 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         lens_model: lens_params
             .and_then(|p| p.get("model").and_then(|m| m.as_u64()))
             .unwrap_or(0) as u32,
+        lens_table: lens_params
+            .and_then(|p| p.get("table").and_then(|t| t.as_array()))
+            .map(|t| {
+                t.iter()
+                    .map(|v| v.as_f64().unwrap_or(f64::NAN) as f32)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        lens_table_end: lens_params
+            .and_then(|p| p.get("table_end").and_then(|k| k.as_f64()))
+            .unwrap_or(0.0) as f32,
         lens_profile_exact: adjustments["lensCorrectionMode"].as_str() == Some("camera"),
         lens_zoom: lens_params
             .and_then(|p| p.get("zoom").and_then(|k| k.as_f64()))
@@ -1030,6 +1050,15 @@ fn lens_strength(params: &GeometryParams) -> (f64, f64) {
     }
 }
 
+/// The tabulated lens distortion of lens model 2, if `params` carry one.
+fn lens_table(params: &GeometryParams) -> Option<RadialTable> {
+    if params.lens_model != 2 {
+        return None;
+    }
+    let values: Vec<f64> = params.lens_table.iter().map(|&v| f64::from(v)).collect();
+    RadialTable::new(&values, f64::from(params.lens_table_end))
+}
+
 fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32) -> f64 {
     let cx = (width / 2.0) as f64;
     let cy = (height / 2.0) as f64;
@@ -1043,8 +1072,9 @@ fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32
 
     let k_distortion = params.distortion as f64;
 
+    let table = lens_table(params);
     let has_lens_correction = params.lens_distortion_enabled
-        && (lk1.abs() > 1e-6 || lk2.abs() > 1e-6 || lk3.abs() > 1e-6);
+        && (lk1.abs() > 1e-6 || lk2.abs() > 1e-6 || lk3.abs() > 1e-6 || table.is_some());
     let is_ptlens = params.lens_model == 1;
 
     let sample_points: [(f64, f64); 8] = [
@@ -1074,7 +1104,9 @@ fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32
             let ru_norm = ru / half_diagonal;
             let ru_norm2 = ru_norm * ru_norm;
 
-            let rd_norm = if is_ptlens {
+            let rd_norm = if let Some(table) = &table {
+                ru_norm * table.at(ru_norm)
+            } else if is_ptlens {
                 let a = lk1;
                 let b = lk2;
                 let c = lk3;
@@ -1127,7 +1159,7 @@ fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32
         // The scan costs a few thousand mappings: kept for the parameters
         // last asked about (a spot-removal stroke maps each of its points
         // through `inverse_transform_point` with the same recipe).
-        type Key = [u32; 10];
+        type Key = Vec<u32>;
         static LAST: std::sync::Mutex<Option<(Key, f64)>> = std::sync::Mutex::new(None);
         let key: Key = [
             width.to_bits(),
@@ -1140,11 +1172,15 @@ fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32
             u32::from(params.lens_profile_exact),
             params.distortion.to_bits(),
             params.lens_zoom.to_bits(),
-        ];
-        if let Some((last, scale)) = *LAST.lock().unwrap_or_else(|e| e.into_inner())
-            && last == key
+            params.lens_table_end.to_bits(),
+        ]
+        .into_iter()
+        .chain(params.lens_table.iter().map(|v| v.to_bits()))
+        .collect();
+        if let Some((last, scale)) = &*LAST.lock().unwrap_or_else(|e| e.into_inner())
+            && *last == key
         {
-            return scale;
+            return *scale;
         }
         let columns = (0..(width as u32).max(1)).map(f64::from);
         let rows = (0..(height as u32).max(1)).map(f64::from);
@@ -1235,6 +1271,7 @@ struct WarpKernel {
     lens_dist_amt: f64,
     has_lens_correction: bool,
     is_ptlens: bool,
+    lens_table: Option<RadialTable>,
     auto_crop_scale: f32,
     vr: f32,
     vb: f32,
@@ -1289,8 +1326,9 @@ impl WarpKernel {
         let lk3 = params.lens_dist_k3 as f64;
         let lens_dist_amt = (params.lens_distortion_amount as f64) * lens_strength(params).0;
 
+        let lens_table = lens_table(params);
         let has_lens_correction = params.lens_distortion_enabled
-            && (lk1.abs() > 1e-6 || lk2.abs() > 1e-6 || lk3.abs() > 1e-6);
+            && (lk1.abs() > 1e-6 || lk2.abs() > 1e-6 || lk3.abs() > 1e-6 || lens_table.is_some());
         let is_ptlens = params.lens_model == 1;
 
         let auto_crop_scale = if has_lens_correction || k_distortion.abs() > 1e-5 {
@@ -1349,6 +1387,7 @@ impl WarpKernel {
             lens_dist_amt,
             has_lens_correction,
             is_ptlens,
+            lens_table,
             auto_crop_scale,
             vr,
             vb,
@@ -1397,7 +1436,9 @@ impl WarpKernel {
                 let ru_norm = ru / hd;
                 let ru_norm2 = ru_norm * ru_norm;
 
-                let rd_norm = if self.is_ptlens {
+                let rd_norm = if let Some(table) = &self.lens_table {
+                    ru_norm * table.at(ru_norm)
+                } else if self.is_ptlens {
                     let a = self.lk1;
                     let b = self.lk2;
                     let c = self.lk3;
@@ -1717,8 +1758,9 @@ pub fn unwarp_image_geometry(warped_image: &DynamicImage, params: GeometryParams
     let lk3 = params.lens_dist_k3 as f64;
     let lens_dist_amt = (params.lens_distortion_amount as f64) * lens_strength(&params).0;
 
+    let table = lens_table(&params);
     let has_lens_correction = params.lens_distortion_enabled
-        && (lk1.abs() > 1e-6 || lk2.abs() > 1e-6 || lk3.abs() > 1e-6);
+        && (lk1.abs() > 1e-6 || lk2.abs() > 1e-6 || lk3.abs() > 1e-6 || table.is_some());
     let is_ptlens = params.lens_model == 1;
 
     let auto_crop_scale = if has_lens_correction || k_distortion.abs() > 1e-5 {
@@ -1771,7 +1813,10 @@ pub fn unwarp_image_geometry(warped_image: &DynamicImage, params: GeometryParams
                             let ru_norm = ru / hd;
                             let ru_norm2 = ru_norm * ru_norm;
 
-                            let (f_val, f_prime) = if is_ptlens {
+                            let (f_val, f_prime) = if let Some(table) = &table {
+                                let (t, slope) = table.with_slope(ru_norm);
+                                (ru * t, t + ru_norm * slope)
+                            } else if is_ptlens {
                                 let a = lk1;
                                 let b = lk2;
                                 let c = lk3;
@@ -1864,6 +1909,7 @@ pub struct WarpPoints {
     lens_dist_amt: f64,
     has_lens_correction: bool,
     is_ptlens: bool,
+    lens_table: Option<RadialTable>,
     auto_crop_scale: f32,
 }
 
@@ -1878,8 +1924,12 @@ impl WarpPoints {
             params.lens_dist_k2 as f64,
             params.lens_dist_k3 as f64,
         );
+        let lens_table = lens_table(params);
         let has_lens_correction = params.lens_distortion_enabled
-            && (lens_k.0.abs() > 1e-6 || lens_k.1.abs() > 1e-6 || lens_k.2.abs() > 1e-6);
+            && (lens_k.0.abs() > 1e-6
+                || lens_k.1.abs() > 1e-6
+                || lens_k.2.abs() > 1e-6
+                || lens_table.is_some());
         let auto_crop_scale = if has_lens_correction || k_distortion.abs() > 1e-5 {
             compute_lens_auto_crop_scale(params, width, height) as f32
         } else {
@@ -1897,6 +1947,7 @@ impl WarpPoints {
             lens_dist_amt: (params.lens_distortion_amount as f64) * lens_strength(params).0,
             has_lens_correction,
             is_ptlens: params.lens_model == 1,
+            lens_table,
             auto_crop_scale,
         }
     }
@@ -1923,7 +1974,9 @@ impl WarpPoints {
                 let ru_norm = ru / self.half_diagonal;
                 let ru_norm2 = ru_norm * ru_norm;
                 let (a, b, c) = self.lens_k;
-                let rd_norm = if self.is_ptlens {
+                let rd_norm = if let Some(table) = &self.lens_table {
+                    ru_norm * table.at(ru_norm)
+                } else if self.is_ptlens {
                     let d = 1.0 - a - b - c;
                     ru_norm * (a * ru_norm2 * ru_norm + b * ru_norm2 + c * ru_norm + d)
                 } else {
@@ -1979,7 +2032,10 @@ impl WarpPoints {
                 for _ in 0..8 {
                     let ru_norm = ru / hd;
                     let ru_norm2 = ru_norm * ru_norm;
-                    let (f_val, f_prime) = if self.is_ptlens {
+                    let (f_val, f_prime) = if let Some(table) = &self.lens_table {
+                        let (t, slope) = table.with_slope(ru_norm);
+                        (ru * t, t + ru_norm * slope)
+                    } else if self.is_ptlens {
                         let d = 1.0 - a - b - c;
                         let poly = a * ru_norm2 * ru_norm + b * ru_norm2 + c * ru_norm + d;
                         let prime = 4.0 * a * ru_norm2 * ru_norm
@@ -2135,8 +2191,9 @@ pub fn inverse_transform_point(
         let lk3 = params.lens_dist_k3 as f64;
         let lens_dist_amt = (params.lens_distortion_amount as f64) * lens_strength(&params).0;
 
+        let table = lens_table(&params);
         let has_lens_correction = params.lens_distortion_enabled
-            && (lk1.abs() > 1e-6 || lk2.abs() > 1e-6 || lk3.abs() > 1e-6);
+            && (lk1.abs() > 1e-6 || lk2.abs() > 1e-6 || lk3.abs() > 1e-6 || table.is_some());
         let is_ptlens = params.lens_model == 1;
 
         let auto_crop_scale = if has_lens_correction || k_distortion.abs() > 1e-5 {
@@ -2159,7 +2216,9 @@ pub fn inverse_transform_point(
                 let ru_norm = ru / hd;
                 let ru_norm2 = ru_norm * ru_norm;
 
-                let rd_norm = if is_ptlens {
+                let rd_norm = if let Some(table) = &table {
+                    ru_norm * table.at(ru_norm)
+                } else if is_ptlens {
                     let a = lk1;
                     let b = lk2;
                     let c = lk3;
@@ -3204,7 +3263,8 @@ pub fn is_geometry_identity(params: &GeometryParams) -> bool {
         || ((params.lens_distortion_amount - 1.0).abs() < 1e-4
             && params.lens_dist_k1.abs() < 1e-6
             && params.lens_dist_k2.abs() < 1e-6
-            && params.lens_dist_k3.abs() < 1e-6);
+            && params.lens_dist_k3.abs() < 1e-6
+            && lens_table(params).is_none());
 
     let tca_identity = !params.auto_ca
         && (!params.lens_tca_enabled
@@ -7769,6 +7829,95 @@ mod warp_points_tests {
                     "k2 {k2} k3 {k3} zoom {zoom}: ({x},{y}) = {value}"
                 );
             }
+        }
+    }
+
+    /// Lens model 2 (a camera's knot table, `RadialTable`) maps like the
+    /// formula models everywhere a warp is used: the image warp, its
+    /// inverse, point mapping both ways and the frame's zoom, which leaves
+    /// no black border.
+    #[test]
+    fn a_tabulated_lens_distortion_warps_like_its_table_everywhere() {
+        let (w, h) = (1500u32, 1000u32);
+        // RX100 III knots (strong barrel), as the warp's T(q) = z k(z q).
+        let knots = [
+            1265.0f64, 1218.0, 1083.0, 860.0, 562.0, 209.0, -179.0, -580.0, -972.0, -1353.0,
+            -1725.0,
+        ];
+        let zoom = 1.15f64;
+        let table: Vec<f32> = knots
+            .iter()
+            .map(|v| (zoom * (1.0 + v / 16384.0)) as f32)
+            .collect();
+        let end = (1.0 / zoom) as f32;
+        let recipe = json!({
+            "lensCorrectionMode": "camera",
+            "lensDistortionParams": {"k1": 0.0, "k2": 0.0, "k3": 0.0, "model": 2,
+                "tca_vr": 1.0, "tca_vb": 1.0, "vig_k1": 0.0, "vig_k2": 0.0, "vig_k3": 0.0,
+                "zoom": zoom, "exact_zoom": true, "table": table, "table_end": end},
+        });
+        let params = get_geometry_params_from_json(&recipe);
+        assert_eq!((params.lens_model, params.lens_table.len()), (2, 11));
+        assert!(!is_geometry_identity(&params));
+        let lens = RadialTable::new(
+            &table.iter().map(|&v| f64::from(v)).collect::<Vec<_>>(),
+            f64::from(end),
+        )
+        .unwrap();
+        let scale = compute_lens_auto_crop_scale(&params, w as f32, h as f32);
+        // The top edge's middle samples just beyond the frame at the
+        // table's own zoom: zoomed in a little further.
+        assert!((zoom..zoom * 1.001).contains(&scale), "{scale}");
+        let points = WarpPoints::new(&params, w, h);
+        let (cx, cy) = (w as f64 / 2.0, h as f64 / 2.0);
+        let hd = cx.hypot(cy);
+        for (x, y) in [
+            (10.0f32, 20.0f32),
+            (750.0, 3.0),
+            (1400.0, 900.0),
+            (900.0, 600.0),
+        ] {
+            let (sx, sy) = points.to_source(x, y).unwrap();
+            // The table's own mapping.
+            let r = (x as f64 - cx).hypot(y as f64 - cy) / hd / scale;
+            let expected = r * lens.at(r) * hd;
+            let got = (sx as f64 - cx).hypot(sy as f64 - cy);
+            assert!(
+                (got - expected).abs() < 1e-2,
+                "({x},{y}): {got} vs {expected}"
+            );
+            // Back again.
+            let (bx, by) = points.to_output(sx, sy).unwrap();
+            assert!(
+                (bx - x).abs() < 1e-2 && (by - y).abs() < 1e-2,
+                "({x},{y}) -> ({bx},{by})"
+            );
+            let (px, py) = inverse_transform_point(x as f64, y as f64, w as f64, h as f64, &recipe);
+            assert!((px - sx as f64).abs() < 1e-2 && (py - sy as f64).abs() < 1e-2);
+        }
+        // The image warp: no black border; unwarping returns the frame.
+        let flat = DynamicImage::ImageRgb32F(image::ImageBuffer::from_pixel(
+            w,
+            h,
+            image::Rgb([0.5f32; 3]),
+        ));
+        let out = warp_image_geometry(&flat, params.clone()).into_rgb32f();
+        for (x, y) in (0..w)
+            .flat_map(|x| [(x, 0), (x, h - 1)])
+            .chain((0..h).flat_map(|y| [(0, y), (w - 1, y)]))
+        {
+            assert!(out.get_pixel(x, y)[0] > 0.4, "({x},{y})");
+        }
+        let image = coordinates(w, h);
+        let back = unwarp_image_geometry(&warp_image_geometry(&image, params.clone()), params)
+            .into_rgb32f();
+        let source = image.to_rgb32f();
+        for (x, y) in [(400u32, 300u32), (750, 500), (1100, 700)] {
+            let (a, b) = (back.get_pixel(x, y), source.get_pixel(x, y));
+            assert!(
+                (a[0] - b[0]).abs() < 0.05 && (a[1] - b[1]).abs() < 0.05,
+                "({x},{y}): {a:?} vs {b:?}"
+            );
         }
     }
 
