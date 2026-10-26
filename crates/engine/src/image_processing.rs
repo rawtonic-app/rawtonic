@@ -7247,10 +7247,10 @@ mod warp_quad_tests {
 
     /// The f32 warp (`renderVersion` 6) samples within a few thousandths of
     /// a pixel of the exact positions on frames of a 45 MP camera's size,
-    /// never further than the f64 warp along the row's running sum, for every
-    /// lens model (polynomial, PTLens, uniform table, knot table), manual
-    /// distortion and a perspective transform, and its vignetting gain
-    /// within float rounding.
+    /// for every lens model (polynomial, PTLens, uniform table, knot
+    /// table), manual distortion and a perspective transform, where the f64
+    /// warp along the row's running sum drifts by more than a pixel; its
+    /// vignetting gain is within float rounding.
     #[test]
     fn the_f32_warp_samples_where_the_f64_warp_does() {
         let (w, h) = (8256u32, 5504u32);
@@ -7300,11 +7300,17 @@ mod warp_quad_tests {
             let p = warp_f32_displacement(params, w, h, 13);
             eprintln!("case {case}: {p:?}");
             assert!(p.pixels > 200_000, "case {case}: {p:?}");
-            // Within a few thousandths of a pixel of the exact positions,
-            // and never further than the f64 steps along the row are.
+            // Within a few thousandths of a pixel of the exact positions.
             assert!(p.new.0 < 0.005 && p.new.1 < 0.0005, "case {case}: {p:?}");
-            assert!(p.new.0 <= p.old.0.max(0.005), "case {case}: {p:?}");
         }
+        // With a perspective the running sum drifts: 1.31 px, the f32 warp
+        // 0.0024 px.
+        let perspective = warp_f32_displacement(&cases[4], w, h, 13);
+        assert!(perspective.old.0 > 0.5, "{perspective:?}");
+        assert!(
+            perspective.new.0 * 100.0 < perspective.old.0,
+            "{perspective:?}"
+        );
         let vignetting = GeometryParams {
             vig_k1: -0.4,
             vig_k2: 0.1,
