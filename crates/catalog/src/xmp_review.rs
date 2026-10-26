@@ -11,7 +11,7 @@
 use crate::{Library, search_text};
 use anyhow::{Result, bail, ensure};
 use rawtonic_metadata::{Metadata, XmpConflict};
-use rusqlite::params;
+use rusqlite::{TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, path::PathBuf};
 
@@ -140,17 +140,21 @@ impl Library {
             Err(e) => return Err(e.into()),
         };
         let (mut metadata, _) = rawtonic_metadata::read_xmp(&text)?;
+        let carries_flag = rawtonic_metadata::carries_flag(&text)?;
+        // Read and replaced under one write lock: an edit another
+        // connection commits meanwhile is either before (and kept in the
+        // undo) or after, never overwritten from a stale read.
+        let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         let (before, xmp_hash, xmp_status, from_camera): (String, Option<String>, String, bool) =
-            self.conn.query_row(
+            tx.query_row(
                 "SELECT data,xmp_hash,xmp_status,from_camera FROM metadata WHERE asset_id=?",
                 [asset],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )?;
-        if !rawtonic_metadata::carries_flag(&text)? {
+        if !carries_flag {
             metadata.flag = serde_json::from_str::<Metadata>(&before)?.flag;
         }
         metadata.validate()?;
-        let tx = self.conn.unchecked_transaction()?;
         crate::write_metadata(&tx, asset, &metadata)?;
         tx.execute(
             "UPDATE metadata SET xmp_hash=? WHERE asset_id=?",
@@ -237,7 +241,12 @@ impl Library {
         replace_iptc: bool,
     ) -> Result<()> {
         let recipe = self.recipe(&self.primary_version(asset)?)?;
-        let metadata = self.metadata(asset)?;
+        let data: String =
+            self.conn
+                .query_row("SELECT data FROM metadata WHERE asset_id=?", [asset], |r| {
+                    r.get(0)
+                })?;
+        let metadata: Metadata = serde_json::from_str(&data)?;
         let written = if replace_iptc {
             rawtonic_metadata::write_xmp_replacing_iptc(path, &metadata, recipe.as_ref(), expected)
         } else {
@@ -245,9 +254,13 @@ impl Library {
         };
         match written {
             Ok(hash) => {
+                // In sync only with the metadata written: an edit committed
+                // meanwhile (another connection) keeps the photograph pending.
                 self.conn.execute(
-                    "UPDATE metadata SET xmp_hash=?,xmp_status='synced' WHERE asset_id=?",
-                    params![hash, asset],
+                    "UPDATE metadata SET xmp_hash=?,
+                     xmp_status=CASE WHEN data=? THEN 'synced' ELSE xmp_status END
+                     WHERE asset_id=?",
+                    params![hash, data, asset],
                 )?;
                 Ok(())
             }

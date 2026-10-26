@@ -388,7 +388,9 @@ pub fn merge_xmp(
 /// `merge_xmp`; with `replace_iptc` the IPTC fields Rawtonic models are
 /// the library's only (one the library has empty is removed from the
 /// sidecar), for resolving a conflict in the library's favour. Without it,
-/// a field the library does not hold keeps the sidecar's value.
+/// a field the library does not hold keeps the sidecar's value. Either way
+/// a library with creator contact fields rewrites the whole contact
+/// structure, as before.
 fn merge_xmp_with(
     existing: Option<&str>,
     metadata: &Metadata,
@@ -416,13 +418,15 @@ fn merge_xmp_with(
     let has_contact = IPTC_FIELDS
         .iter()
         .any(|(k, _, _, kind)| *kind == IptcKind::Contact && metadata.iptc.contains_key(*k));
+    // With contact fields the structure is rewritten as a whole (below);
+    // replacing without any, only its modelled fields go, so properties of
+    // other applications inside it stay.
     let managed = |namespace: Option<&str>, name: &str| {
         managed(namespace, name)
             || iptc_key(namespace, name)
                 .is_some_and(|k| replace_iptc || metadata.iptc.contains_key(k))
-            || ((has_contact || replace_iptc)
-                && namespace == Some(IPTC_CORE)
-                && name == "CreatorContactInfo")
+            || (has_contact && namespace == Some(IPTC_CORE) && name == "CreatorContactInfo")
+            || (replace_iptc && !has_contact && contact_key(namespace, name).is_some())
     };
     let owned =
         |node: roxmltree::Node| managed(node.tag_name().namespace(), node.tag_name().name());
@@ -732,6 +736,23 @@ mod tests {
         assert!(carries_flag(&packet(r#"xmp:Rating="3" rawtonic:Flag="0""#)).unwrap());
         let written = merge_xmp(None, &Metadata::default(), None).unwrap();
         assert!(carries_flag(&written).unwrap());
+    }
+
+    #[test]
+    fn replacing_iptc_keeps_foreign_properties_inside_the_contact_structure() {
+        let packet = format!(
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="{RDF}"><rdf:Description rdf:about="" xmlns:Iptc4xmpCore="{IPTC_CORE}" xmlns:other="https://example.invalid/other/"><Iptc4xmpCore:CreatorContactInfo rdf:parseType="Resource"><Iptc4xmpCore:CiEmailWork>someone@example.invalid</Iptc4xmpCore:CiEmailWork><other:Pager>123</other:Pager></Iptc4xmpCore:CreatorContactInfo></rdf:Description></rdf:RDF></x:xmpmeta>"#
+        );
+        let replaced = merge_xmp_with(Some(&packet), &Metadata::default(), None, true).unwrap();
+        assert!(!replaced.contains("someone@"), "{replaced}");
+        assert!(
+            replaced.contains("<other:Pager>123</other:Pager>"),
+            "{replaced}"
+        );
+        assert!(read_xmp(&replaced).unwrap().0.iptc.is_empty());
+        // Without replacing, the sidecar's contact field stays.
+        let kept = merge_xmp(Some(&packet), &Metadata::default(), None).unwrap();
+        assert!(kept.contains("someone@"), "{kept}");
     }
 
     #[test]

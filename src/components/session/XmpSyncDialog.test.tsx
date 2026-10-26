@@ -94,3 +94,32 @@ describe("XMP review dialog", () => {
     expect(await within(dialog).findByText("All XMP sidecars are in sync.")).toBeTruthy();
   });
 });
+
+describe("XMP review dialog undo", () => {
+  it("keeps the Use XMP undo when Sync now retries a failed write-back", async () => {
+    const user = userEvent.setup();
+    let entries: XmpReviewEntry[] = [conflict("a.nef")];
+    const steps = [{ asset: "a" }];
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "session_xmp_review") return entries;
+      if (command === "session_xmp_resolve") {
+        entries = [{ ...conflict("a.nef"), state: "pending" }];
+        return { ...empty, failed: [{ path: "/jobs/Acme/Capture/a.nef", reason: "Read from the XMP sidecar; writing it back failed: The XMP sidecar is read-only" }], undo: steps };
+      }
+      if (command === "session_xmp_sync") {
+        entries = [];
+        return { ...empty, done: ["/jobs/Acme/Capture/a.nef"] };
+      }
+      if (command === "session_xmp_undo") return { ...empty, done: ["/jobs/Acme/Capture/a.nef"] };
+      throw new Error(`unexpected ${command}`);
+    });
+    const { dialog } = open();
+    await user.click(await within(dialog).findByRole("button", { name: "Use XMP for a.nef" }));
+    expect(await within(dialog).findByText(/writing it back failed/)).toBeTruthy();
+    await user.click(await within(dialog).findByRole("button", { name: "Sync now" }));
+    expect(await within(dialog).findByText("All XMP sidecars are in sync.")).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "Undo Use XMP" }));
+    expect(invoke).toHaveBeenCalledWith("session_xmp_undo", { directory: "/jobs/Acme", steps });
+    await waitFor(() => expect(within(dialog).queryByRole("button", { name: /Undo Use XMP/ })).toBeNull());
+  });
+});

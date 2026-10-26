@@ -34,7 +34,9 @@ export default function XmpSyncDialog({ directory, syncEnabled, onClose, onEntri
   const [entries, setEntries] = useState<XmpReviewEntry[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<XmpReport | null>(null);
-  const [undone, setUndone] = useState<XmpReport | null>(null);
+  // Every Use XMP of this dialog not undone yet: kept apart from the last
+  // report, so a later Sync now (retrying a failed write-back) keeps them.
+  const [undoSteps, setUndoSteps] = useState<XmpUndoStep[]>([]);
   const [error, setError] = useState("");
   const entriesRef = useRef(onEntries);
   entriesRef.current = onEntries;
@@ -75,11 +77,9 @@ export default function XmpSyncDialog({ directory, syncEnabled, onClose, onEntri
     try {
       const result = await work();
       if (!mounted.current) return;
-      if (undo) setUndone(result);
-      else {
-        setReport(result);
-        setUndone(null);
-      }
+      setReport(result);
+      if (undo) setUndoSteps([]);
+      else if (result.undo.length) setUndoSteps((steps) => [...steps, ...result.undo]);
       await load(false);
     } catch (e) {
       if (mounted.current) setError(String(e));
@@ -238,7 +238,6 @@ export default function XmpSyncDialog({ directory, syncEnabled, onClose, onEntri
           </section>
         )}
         {report && outcome(report)}
-        {undone && outcome(undone)}
         {error && (
           <p className="session-error" role="alert">
             <OperationError detail={error} />
@@ -248,10 +247,10 @@ export default function XmpSyncDialog({ directory, syncEnabled, onClose, onEntri
       <div className="session-dialog-footer">
         <span>{t("session.xmp.originalsUntouched")}</span>
         <span className="session-sync-buttons">
-          {report && report.undo.length > 0 && !undone && (
-            <button type="button" className="session-action" disabled={busy} onClick={() => void undo(report.undo)}>
+          {undoSteps.length > 0 && (
+            <button type="button" className="session-action" disabled={busy} onClick={() => void undo(undoSteps)}>
               <Undo2 size={14} />
-              <span>{t("session.xmp.undo", { count: report.undo.length })}</span>
+              <span>{t("session.xmp.undo", { count: undoSteps.length })}</span>
             </button>
           )}
           <button type="button" className="session-action" disabled={busy} onClick={onClose}>
