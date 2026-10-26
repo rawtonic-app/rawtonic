@@ -26,7 +26,8 @@ import {
   withGrainStructure,
   withLegacyGrainVersion,
 } from '../utils/adjustments';
-import { frameUpdateAvailable, requestedSourceFrame } from '../utils/sourceFrame';
+import { frameUpdateAvailable, requestedSourceFrame, withSourceFrameOf } from '../utils/sourceFrame';
+import { withFaceRetouchFollowing } from '../utils/faceRetouchGeometry';
 import { useUIStore } from '../store/useUIStore';
 import { calculateCenteredCrop, reframingInputs } from '../utils/cropUtils';
 import { cropGestures } from '../utils/cropGesture';
@@ -417,20 +418,24 @@ function noteHiddenPatches(count: number) {
  * frame and coordinates back. Resolves with the AI patches it hid, or null
  * when nothing changed (no newer frame, or the recipe changed meanwhile).
  */
-export async function updateOpenPhotoFrame(): Promise<number | null> {
+export async function updateOpenPhotoFrame(expected?: string): Promise<number | null> {
   flushSliderDraft();
   debouncedSetHistory.flush();
   const { selectedImage, adjustments } = useEditorStore.getState();
   if (!selectedImage?.isReady || !frameUpdateAvailable(selectedImage, adjustments)) return null;
   const path = selectedImage.path;
-  const moved = await invoke<MigratedRecipe>(Invokes.MigrateSourceFrame, { path, adjustments });
+  // Only the photograph it was asked for (a batch started before a step).
+  if (expected !== undefined && expected !== path) return null;
+  const answer = await invoke<MigratedRecipe>(Invokes.MigrateSourceFrame, { path, adjustments });
   const now = useEditorStore.getState();
-  // Edited meanwhile: the step would drop that edit; the note stays.
+  // Edited or left meanwhile: the step would drop that edit; the note stays.
   if (now.selectedImage?.path !== path || now.adjustments !== adjustments) return null;
-  now.pushHistory(moved.adjustments);
-  now.setEditor({ adjustments: moved.adjustments });
-  noteHiddenPatches(moved.hiddenPatches);
-  return moved.hiddenPatches;
+  // The face retouch panel's copy of the geometry follows the stamp.
+  const moved = withFaceRetouchFollowing(adjustments, answer.adjustments);
+  now.pushHistory(moved);
+  now.setEditor({ adjustments: moved });
+  noteHiddenPatches(answer.hiddenPatches);
+  return answer.hiddenPatches;
 }
 
 /**
@@ -441,11 +446,15 @@ export async function updateOpenPhotoFrame(): Promise<number | null> {
  * the same migration as "Update frame", so what it keeps follows the frame.
  */
 export async function resetRecipeFor(
-  image: Pick<SelectedImage, 'path' | 'isRaw' | 'width' | 'height' | 'offline' | 'sourceFrames'>,
+  image: Pick<SelectedImage, 'path' | 'isRaw' | 'width' | 'height' | 'offline' | 'sourceFrame' | 'sourceFrames'>,
   adjustments: Adjustments,
 ): Promise<Adjustments> {
   const aspect = image.width && image.height ? image.width / image.height : null;
   const reset = { ...initialAdjustmentsFor(!!image.isRaw), aspectRatio: aspect, aiPatches: [] };
+  // Offline the source cannot be developed in another frame: the new edit
+  // stays on the frame its previews show (the lens tool offers the update
+  // once the RAW is back).
+  if (image.offline) return withSourceFrameOf(reset, image.sourceFrame, image.sourceFrames);
   // Where the newest frame is the one shown (every file no frame version
   // changes) nothing moves.
   if (!frameUpdateAvailable(image, adjustments)) return reset;
@@ -503,7 +512,11 @@ export async function updateSourceFrameOf(paths?: string[]): Promise<void> {
       : i18next.t('studio.sourceFrame.confirmNoPatches'),
   ].join(' ');
   const run = async () => {
-    const closed = changing.filter((path) => path !== open);
+    // The photograph open now, which may not be the one open when asked: it
+    // is updated as a history step, every other one in its saved recipe.
+    const current = useEditorStore.getState().selectedImage;
+    const openNow = current?.isReady ? current.path : null;
+    const closed = changing.filter((path) => path !== openNow);
     closed.forEach((path) => globalImageCache.delete(path));
     let hidden = 0;
     if (closed.length > 0) {
@@ -533,10 +546,19 @@ export async function updateSourceFrameOf(paths?: string[]): Promise<void> {
         }
       }
     }
-    if (open && changing.includes(open)) {
+    if (openNow && changing.includes(openNow)) {
       try {
-        // Its own count is told by the step.
-        await updateOpenPhotoFrame();
+        // Its own count is told by the step; left meanwhile, it is updated
+        // as a closed photograph.
+        const step = await updateOpenPhotoFrame(openNow);
+        if (step === null && useEditorStore.getState().selectedImage?.path !== openNow) {
+          await afterRecipeSaves([openNow], () =>
+            invoke<number>(Invokes.UpdateSourceFrameForPaths, { paths: [openNow] }).then((count) => {
+              hidden += count;
+              unsavedRecipes.delete(openNow);
+            }),
+          );
+        }
       } catch (err) {
         toast.error(i18next.t('studio.sourceFrame.failed', { error: String(err) }));
       }

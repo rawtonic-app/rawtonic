@@ -20,6 +20,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { useUIStore } from '../store/useUIStore';
 import { sourceFrameToOpen } from '../utils/sourceFrame';
+import { faceRetouchIsCurrent, frameGeometry } from '../utils/faceRetouchGeometry';
 import { INITIAL_ADJUSTMENTS, PasteMode } from '../utils/adjustments';
 import { AppSettings, Invokes } from '../components/ui/AppProperties';
 import { COMMIT_INTERVAL_MS, registerSliderDraftRenderer } from '../utils/sliderDraft';
@@ -279,6 +280,59 @@ describe('Update frame and Reset adopt the newest frame of the RAW (ADR 0020)', 
     await finish(Invokes.ResetAdjustmentsForPaths, undefined);
     expect(useEditorStore.getState().adjustments).toMatchObject({ exposure: 0, sourceFrameVersion: 1 });
     expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).not.toContain(Invokes.MigrateSourceFrame);
+  });
+
+  it('keeps the previews\' frame when an offline photograph is reset', async () => {
+    openR5Crop();
+    useEditorStore.setState((s) => ({ selectedImage: { ...s.selectedImage!, offline: 'full' as const } }));
+    const { result } = renderHook(useEditorActions);
+    act(() => result.current.handleResetAdjustments(['/first.cr3']));
+    await finish(Invokes.ResetAdjustmentsForPaths, undefined);
+    expect(useEditorStore.getState().adjustments).toMatchObject({ exposure: 0, sourceFrameVersion: 0 });
+    expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).not.toContain(Invokes.MigrateSourceFrame);
+  });
+
+  it('updates the photograph open when asked as a closed one when another is open by the time it is confirmed', async () => {
+    openR5Crop();
+    useLibraryStore.setState({ multiSelectedPaths: ['/first.cr3', '/b.cr3'] });
+    let asked: Promise<void> | undefined;
+    act(() => {
+      asked = updateSourceFrameOf();
+    });
+    await finish(Invokes.SourceFrameStatus, [
+      { path: '/first.cr3', changes: true, from: [4970, 3392], to: [5088, 3392], hiddenPatches: 0 },
+      { path: '/b.cr3', changes: true, from: [4970, 3392], to: [5088, 3392], hiddenPatches: 0 },
+    ]);
+    await asked;
+    act(() => select('/second.dng'));
+    act(() => useUIStore.getState().confirmModalState.onConfirm?.());
+    await act(async () => {});
+    expect(vi.mocked(invoke).mock.calls.find(([command]) => command === Invokes.UpdateSourceFrameForPaths)?.[1]).toEqual({
+      paths: ['/first.cr3', '/b.cr3'],
+    });
+    await finish(Invokes.UpdateSourceFrameForPaths, 0);
+    expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).not.toContain(Invokes.MigrateSourceFrame);
+    expect(useEditorStore.getState().selectedImage?.path).toBe('/second.dng');
+  });
+
+  it('keeps current face retouch current in the panel when the update moves the geometry', async () => {
+    const lines = (x: number) => ({ enabled: true, autoCrop: false, lines: [
+      { id: 'a', type: 'vertical' as const, p1: { x, y: 0.1 }, p2: { x, y: 0.9 } }] });
+    const old = openR5Crop();
+    const before = { ...old, guidedPerspective: lines(0.5) };
+    const retouch = { settings: {}, faces: [], frame: '2:x', geometry: frameGeometry(before, '2:x') };
+    act(() => useEditorStore.setState({ adjustments: { ...before, faceRetouch: retouch } }));
+    const start = useEditorStore.getState().adjustments;
+    let done: Promise<number | null> | undefined;
+    act(() => {
+      done = updateOpenPhotoFrame();
+    });
+    const moved = { ...start, sourceFrameVersion: 1, guidedPerspective: lines(0.4884), faceRetouch: { ...retouch, frame: '2:y' } };
+    await finish(Invokes.MigrateSourceFrame, { adjustments: moved, hiddenPatches: 0 });
+    await done;
+    const shown = useEditorStore.getState().adjustments;
+    expect(shown.faceRetouch?.geometry).toBe(frameGeometry(moved, '2:y'));
+    expect(faceRetouchIsCurrent(shown.faceRetouch, shown)).toBe(true);
   });
 
   it('says first how many photographs and AI patches the batch changes, then updates closed and open ones', async () => {

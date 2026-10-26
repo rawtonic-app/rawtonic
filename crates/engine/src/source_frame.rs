@@ -129,22 +129,37 @@ pub fn change(path: &str, from: u32, to: u32) -> Option<FrameChange> {
 /// spaces a recipe keeps coordinates in.
 pub struct FrameMap {
     change: FrameChange,
-    /// The recipe's lens and transform warp on the old and the new frame.
+    /// The recipe's lens and transform warp on the old frame (its
+    /// parameters too) and the migrated recipe's on the new one.
+    then_params: crate::image_processing::GeometryParams,
     then: WarpPoints,
     now: WarpPoints,
 }
 
 impl FrameMap {
-    /// For a recipe whose warp (lens and transform corrections) is that of
-    /// `adjustments`: the migration does not change it, but on the new
-    /// frame it is centred and scaled anew.
-    pub fn new(change: FrameChange, adjustments: &Value) -> Self {
-        let params = get_geometry_params_from_json(adjustments);
+    /// From the warp (lens and transform corrections) of `before` on the old
+    /// frame to that of `after` on the new one: the same corrections, centred
+    /// and scaled anew on the new frame, and guide lines moved with it.
+    pub fn between(change: FrameChange, before: &Value, after: &Value) -> Self {
+        let then_params = get_geometry_params_from_json(before);
+        let now_params = get_geometry_params_from_json(after);
         Self {
-            then: WarpPoints::new(&params, change.from.0, change.from.1),
-            now: WarpPoints::new(&params, change.to.0, change.to.1),
+            then: WarpPoints::new(&then_params, change.from.0, change.from.1),
+            now: WarpPoints::new(&now_params, change.to.0, change.to.1),
+            then_params,
             change,
         }
+    }
+
+    /// `between` for a warp the migration leaves as it is.
+    pub fn new(change: FrameChange, adjustments: &Value) -> Self {
+        Self::between(change, adjustments, adjustments)
+    }
+
+    /// The old warp's parameters (bitmaps without a warp of their own were
+    /// made in it).
+    pub(crate) fn then_params(&self) -> &crate::image_processing::GeometryParams {
+        &self.then_params
     }
 
     pub fn change(&self) -> &FrameChange {
@@ -237,8 +252,16 @@ pub const HIDDEN_PATCH: &str = "frameHidden";
 /// else hidden), the guided perspective's lines, relight lights and its
 /// depth (kept where the shown frame stays, else left to be analysed again),
 /// the lens blur's depth map and Lightroom's items not yet placed. The one
-/// migration for "Update frame", Reset and importers.
-pub fn migrate(adjustments: &Value, map: Option<&FrameMap>, to: u32) -> Migrated {
+/// migration for "Update frame" and Reset. `warp` is the recipe as it is
+/// rendered (its lens correction filled in, `lens_recipe`): points are
+/// carried through its warp on the old frame and the migrated one's (guide
+/// lines moved) on the new frame.
+pub fn migrate(
+    adjustments: &Value,
+    change: Option<&FrameChange>,
+    warp: &Value,
+    to: u32,
+) -> Migrated {
     let mut out = if adjustments.is_object() {
         adjustments.clone()
     } else {
@@ -246,12 +269,21 @@ pub fn migrate(adjustments: &Value, map: Option<&FrameMap>, to: u32) -> Migrated
     };
     let from = requested(adjustments);
     out[KEY] = json!(to);
-    let Some(map) = map else {
+    let Some(change) = change else {
         return Migrated {
             adjustments: out,
             hidden_patches: 0,
         };
     };
+    // The guide lines first: they are part of the warp the rest moves
+    // through on the new frame.
+    move_guided_lines(&mut out, change);
+    let mut warp_after = warp.clone();
+    if warp_after.is_object() {
+        warp_after["guidedPerspective"] = out["guidedPerspective"].clone();
+    }
+    let map = &FrameMap::between(*change, warp, &warp_after);
+    let faces = face_retouch_applies(adjustments);
     let current = SourceGeometry::from_adjustments(adjustments);
     let shown = |p: (f64, f64)| map.shown(current, p);
 
@@ -265,14 +297,20 @@ pub fn migrate(adjustments: &Value, map: Option<&FrameMap>, to: u32) -> Migrated
         shown,
     );
     move_red_eyes(&mut out, map);
-    move_face_retouch(&mut out, map, current);
+    if faces {
+        move_face_retouch(&mut out, map, current);
+    }
     let hidden_patches = move_patches(&mut out, map);
-    move_guided_lines(&mut out, map);
     move_relight(&mut out, adjustments, map, current, from);
     move_lens_blur_depth(&mut out, map);
     crate::lightroom_retouch::move_pending(&mut out, &map.change);
     crate::lightroom_masks::move_pending(&mut out, &map.change);
     crate::mask_generation::move_masks(&mut out, adjustments, map);
+    // Faces that applied keep applying: their stamp follows the geometry
+    // the migration changed (guide lines), by their stamp's own rule.
+    if faces && let Some(frame) = out["faceRetouch"]["frame"].as_str().map(str::to_string) {
+        out["faceRetouch"]["frame"] = json!(crate::face_retouch::frame_key_like(&frame, &out));
+    }
     Migrated {
         adjustments: out,
         hidden_patches,
@@ -379,18 +417,19 @@ fn move_red_eyes(out: &mut Value, map: &FrameMap) {
     }
 }
 
+/// Whether the recipe's face retouch applies to its geometry, by the
+/// renderer's rule (`face_retouch::frame_matches`): faces of another
+/// geometry are not applied, so they are left as they are.
+fn face_retouch_applies(adjustments: &Value) -> bool {
+    adjustments["faceRetouch"]["frame"]
+        .as_str()
+        .is_none_or(|frame| crate::face_retouch::frame_matches(frame, adjustments))
+}
+
 /// Face retouch is kept in the mask frame shown in the photo's geometry:
 /// each face moves with its box's centre (its crop map, box and blemishes),
 /// faces of another geometry (not applied) are left as they are.
 fn move_face_retouch(out: &mut Value, map: &FrameMap, geometry: SourceGeometry) {
-    let applies = out
-        .get("faceRetouch")
-        .and_then(|r| r.get("frame"))
-        .and_then(Value::as_str)
-        .is_none_or(|frame| frame == crate::face_retouch::frame_key(out));
-    if !applies {
-        return;
-    }
     let Some(faces) = out
         .get_mut("faceRetouch")
         .and_then(|r| r.get_mut("faces"))
@@ -479,8 +518,10 @@ fn move_patches(out: &mut Value, map: &FrameMap) -> usize {
 }
 
 /// Guide lines are kept in units of the base image's width and height.
-fn move_guided_lines(out: &mut Value, map: &FrameMap) {
-    let ((ow, oh), (nw, nh)) = map.sizes();
+fn move_guided_lines(out: &mut Value, change: &FrameChange) {
+    let size = |(w, h): (u32, u32)| (f64::from(w), f64::from(h));
+    let ((ow, oh), (nw, nh)) = (size(change.from), size(change.to));
+    let (dx, dy) = change.offset;
     let Some(lines) = out
         .get_mut("guidedPerspective")
         .and_then(|g| g.get_mut("lines"))
@@ -492,8 +533,7 @@ fn move_guided_lines(out: &mut Value, map: &FrameMap) {
         for end in ["p1", "p2"] {
             if let Some(point) = line.get_mut(end) {
                 move_pair(point, "x", "y", &|(x, y)| {
-                    let (bx, by) = map.base((x * ow, y * oh));
-                    (bx / nw, by / nh)
+                    ((x * ow + dx) / nw, (y * oh + dy) / nh)
                 });
             }
         }
@@ -547,9 +587,8 @@ fn move_lens_blur_depth(out: &mut Value, map: &FrameMap) {
     else {
         return;
     };
-    let params = get_geometry_params_from_json(out);
     let (from, _) = map.sizes();
-    let then = WarpPoints::new(&params, from.0 as u32, from.1 as u32);
+    let then = WarpPoints::new(map.then_params(), from.0 as u32, from.1 as u32);
     if let Some(moved) = remap_bitmap(url, map, &then, Outside::Edge) {
         out["lensBlurDepthMap"] = json!(moved);
     }
@@ -700,7 +739,7 @@ mod tests {
             ])],
         });
         let map = FrameMap::new(change, &recipe);
-        let migrated = migrate(&recipe, Some(&map), 1).adjustments;
+        let migrated = migrate(&recipe, Some(&change), &recipe, 1).adjustments;
         assert_eq!(migrated[KEY], 1);
         let old = mask_of(&recipe, from);
         let new = mask_of(&migrated, change.to);
@@ -770,8 +809,7 @@ mod tests {
             "masks": [layer(vec![sub("lr", "radial", json!({PENDING_KEY: {"left": 0.5, "top": 0.2,
                 "right": 0.6, "bottom": 0.4, "orientation": 1}}))])],
         });
-        let map = FrameMap::new(change, &recipe);
-        let moved = migrate(&recipe, Some(&map), 1);
+        let moved = migrate(&recipe, Some(&change), &recipe, 1);
         assert_eq!(moved.hidden_patches, 0);
         let out = moved.adjustments;
         assert_eq!(out["crop"]["x"], 218.0);
@@ -779,7 +817,7 @@ mod tests {
         assert_eq!(out["crop"]["width"], 2000.0);
         // Uncropped, the photo's own aspect ratio follows the frame.
         let reset = json!({"aspectRatio": 4970.0 / 3392.0, KEY: 0});
-        let moved = migrate(&reset, Some(&FrameMap::new(change, &reset)), 1).adjustments;
+        let moved = migrate(&reset, Some(&change), &reset, 1).adjustments;
         assert_eq!(moved["aspectRatio"], 5088.0 / 3392.0);
         assert_eq!(out["spots"][0]["x"], 418.0);
         assert_eq!(out["spots"][0]["sourceX"], 478.0);
@@ -825,7 +863,7 @@ mod tests {
                 "patchData": {"color": "c", "mask": "m", "offsetX": 10, "offsetY": 10}},
             {"id": "q", "visible": false, "patchData": {"color": "c", "mask": "m"}}
         ]});
-        let moved = migrate(&recipe, Some(&FrameMap::new(change, &recipe)), 1);
+        let moved = migrate(&recipe, Some(&change), &recipe, 1);
         assert_eq!(moved.hidden_patches, 1);
         let patch = &moved.adjustments["aiPatches"][0];
         assert_eq!(patch["visible"], false);
@@ -845,7 +883,7 @@ mod tests {
     fn without_a_change_only_the_key_is_written() {
         let recipe = json!({"exposure": 1.0, "crop": {"x": 1.0, "y": 2.0, "width": 3.0, "height": 4.0},
             "spots": [{"x": 5.0, "y": 6.0}]});
-        let moved = migrate(&recipe, None, 1).adjustments;
+        let moved = migrate(&recipe, None, &recipe, 1).adjustments;
         let mut expected = recipe.clone();
         expected[KEY] = json!(1);
         assert_eq!(moved, expected);
@@ -888,7 +926,7 @@ mod tests {
             |recipe: &Value| json!({"data": "d", "geometry": crate::relight::geometry(recipe)});
         let mut uncropped = json!({"relightLights": [{"x": 50.0, "y": 50.0}]});
         uncropped["relightDepth"] = depth(&uncropped);
-        let out = migrate(&uncropped, Some(&FrameMap::new(change, &uncropped)), 1).adjustments;
+        let out = migrate(&uncropped, Some(&change), &uncropped, 1).adjustments;
         assert_ne!(
             out["relightDepth"]["geometry"],
             crate::relight::geometry(&out)
@@ -897,11 +935,51 @@ mod tests {
         assert!((light_x / 100.0 * 424.0 - 200.0).abs() < 1e-6);
         let mut cropped = json!({"crop": {"x": 10.0, "y": 10.0, "width": 100.0, "height": 100.0}});
         cropped["relightDepth"] = depth(&cropped);
-        let out = migrate(&cropped, Some(&FrameMap::new(change, &cropped)), 1).adjustments;
+        let out = migrate(&cropped, Some(&change), &cropped, 1).adjustments;
         assert_eq!(
             out["relightDepth"]["geometry"],
             crate::relight::geometry(&out)
         );
+    }
+
+    /// Guided perspective: its lines move with the frame and the rest moves
+    /// through the warp they give on the new frame, so a spot keeps the
+    /// source pixel it heals; faces that applied (any stamp rule) move and
+    /// keep applying.
+    #[test]
+    fn points_follow_the_migrated_warp_and_faces_keep_applying() {
+        let change = grows_right((400, 300), 24);
+        let mut recipe = json!({
+            "guidedPerspective": {"enabled": true, "autoCrop": false, "lines": [
+                {"id": "a", "type": "vertical", "p1": {"x": 0.2, "y": 0.1}, "p2": {"x": 0.25, "y": 0.9}},
+                {"id": "b", "type": "vertical", "p1": {"x": 0.8, "y": 0.1}, "p2": {"x": 0.74, "y": 0.9}}]},
+            "spots": [{"id": "s", "x": 300.0, "y": 60.0, "radius": 5.0, "sourceX": 320.0, "sourceY": 60.0}],
+            "faceRetouch": {"faces": [{"crop": [1.0, 0.0, 280.0, 0.0, 1.0, 40.0], "box": [280.0, 40.0, 40.0, 40.0],
+                "blemishes": [{"id": 1, "x": 300.0, "y": 60.0, "r": 2.0}]}]},
+        });
+        for stamp in [
+            crate::face_retouch::frame_key(&recipe),
+            crate::face_retouch::frame_key_like("old", &recipe),
+        ] {
+            recipe["faceRetouch"]["frame"] = json!(stamp);
+            let out = migrate(&recipe, Some(&change), &recipe, 1).adjustments;
+            let then = WarpPoints::new(&get_geometry_params_from_json(&recipe), 400, 300);
+            let now = WarpPoints::new(&get_geometry_params_from_json(&out), 424, 300);
+            let (x, y) = (
+                out["spots"][0]["x"].as_f64().unwrap(),
+                out["spots"][0]["y"].as_f64().unwrap(),
+            );
+            let a = then.to_source(300.0, 60.0).unwrap();
+            let b = now.to_source(x as f32, y as f32).unwrap();
+            assert!(
+                (a.0 - b.0).abs() < 0.05 && (a.1 - b.1).abs() < 0.05,
+                "{a:?} vs {b:?}"
+            );
+            // The faces moved and are still applied by the renderer.
+            let frame = out["faceRetouch"]["frame"].as_str().unwrap();
+            assert!(crate::face_retouch::frame_matches(frame, &out), "{stamp}");
+            assert_ne!(out["faceRetouch"]["faces"][0]["box"][0], 280.0);
+        }
     }
 
     #[test]

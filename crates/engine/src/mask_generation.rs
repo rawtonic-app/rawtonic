@@ -457,7 +457,7 @@ pub(crate) fn move_masks(out: &mut Value, before: &Value, map: &crate::source_fr
     let current = SourceGeometry::from_adjustments(before);
     let ((ow, oh), (nw, nh)) = map.sizes();
     let warp_now = mask_warp(out);
-    let recipe_params = get_geometry_params_from_json(before);
+    let recipe_params = map.then_params().clone();
     let framed = |geometry: SourceGeometry| -> Value {
         let mut frame = shape_frame(&Value::Null, Some((nw, nh)));
         frame["rotation"] = Value::from(f64::from(geometry.rotation));

@@ -217,8 +217,19 @@ fn keys_json<'a>(adjustments: &Value, geometry: impl Iterator<Item = &'a &'a str
     serde_json::to_string(&keys).unwrap_or_default()
 }
 
+/// The stamp for faces stamped `frame` in the geometry of `adjustments`, by
+/// that stamp's rule (the current one, or every geometry key for faces
+/// found before `FRAME_VERSION_2`).
+pub(crate) fn frame_key_like(frame: &str, adjustments: &Value) -> String {
+    if frame.starts_with(FRAME_VERSION_2) {
+        frame_key(adjustments)
+    } else {
+        first_frame_key(adjustments)
+    }
+}
+
 /// Whether faces found in `frame` belong to the geometry of `adjustments`.
-fn frame_matches(frame: &str, adjustments: &Value) -> bool {
+pub(crate) fn frame_matches(frame: &str, adjustments: &Value) -> bool {
     if frame.starts_with(FRAME_VERSION_2) {
         frame == frame_key(adjustments)
     } else {

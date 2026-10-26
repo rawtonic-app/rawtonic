@@ -22,12 +22,12 @@ pub fn migrated(source: &Path, adjustments: &Value, to: u32) -> Migrated {
         };
     }
     let source_str = source.to_string_lossy();
-    let map = change(&source_str, requested(adjustments), to).map(|change| {
-        let mut lens = adjustments.clone();
-        let _ = rawtonic_export::exif_processing::prepare_recipe_lens(&mut lens, source);
-        FrameMap::new(change, &lens)
-    });
-    migrate(adjustments, map.as_ref(), to)
+    let change = change(&source_str, requested(adjustments), to);
+    let mut warp = adjustments.clone();
+    if change.is_some() {
+        let _ = rawtonic_export::exif_processing::prepare_recipe_lens(&mut warp, source);
+    }
+    migrate(adjustments, change.as_ref(), &warp, to)
 }
 
 /// What "Update frame" would do to one photo.
