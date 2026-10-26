@@ -22,30 +22,38 @@
 #
 # Usage: scripts/tether/bundle_helper.sh   then
 #        tauri build --config target/tether-bundle/tauri.tether.conf.json …
-# Another macOS architecture (the Intel build on Apple Silicon):
+# An explicit target (the Intel build, also on an Intel Mac):
 #        RAWTONIC_TARGET=x86_64-apple-darwin scripts/tether/bundle_helper.sh
-# stages in target/x86_64-apple-darwin/tether-bundle instead.
+# stages in target/x86_64-apple-darwin/tether-bundle instead, as
+# `tauri build --target` expects. `--print-paths` prints the staging
+# folder and exits.
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 TARGET=${CARGO_TARGET_DIR:-$REPO/target}
 HOST=$(rustc -vV | sed -n 's/^host: //p')
 TRIPLE=${RAWTONIC_TARGET:-$HOST}
-if [ "$TRIPLE" = "$HOST" ]; then
+if [ -z "${RAWTONIC_TARGET:-}" ]; then
   PREFIX=$TARGET/gphoto2
   OUT=$TARGET/tether-bundle
   BUILT=$TARGET/release
   CARGO_TARGET=()
 else
-  case "$(uname -s)-$TRIPLE" in
-    Darwin-x86_64-apple-darwin) export GPHOTO2_ARCH=x86_64 ;;
-    Darwin-aarch64-apple-darwin) export GPHOTO2_ARCH=arm64 ;;
-    *) echo "bundle_helper: cannot build for $TRIPLE on $HOST" >&2; exit 1 ;;
-  esac
+  if [ "$TRIPLE" != "$HOST" ]; then
+    case "$(uname -s)-$TRIPLE" in
+      Darwin-x86_64-apple-darwin) export GPHOTO2_ARCH=x86_64 ;;
+      Darwin-aarch64-apple-darwin) export GPHOTO2_ARCH=arm64 ;;
+      *) echo "bundle_helper: cannot build for $TRIPLE on $HOST" >&2; exit 1 ;;
+    esac
+  fi
   PREFIX=$TARGET/$TRIPLE/gphoto2
   OUT=$TARGET/$TRIPLE/tether-bundle
   BUILT=$TARGET/$TRIPLE/release
   CARGO_TARGET=(--target "$TRIPLE")
+fi
+if [ "${1:-}" = --print-paths ]; then
+  echo "$OUT"
+  exit 0
 fi
 "$REPO/scripts/tether/build_libgphoto2.sh" "$PREFIX"
 

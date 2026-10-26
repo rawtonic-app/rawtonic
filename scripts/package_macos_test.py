@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Packaging control-flow tests; no Apple account or native commands required."""
+"""Packaging control-flow tests; no Apple account or build required (rustc for the host triple)."""
 
 import json
+import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -38,6 +40,26 @@ class PackagingTests(unittest.TestCase):
         self.assertTrue(built.name.endswith("_x64.dmg"))
         self.assertTrue(dmg.name.endswith("_x86_64.dmg"))
         self.assertEqual(built.parent, dmg.parent)
+
+    def test_explicit_target_stages_where_the_packager_looks_also_natively(self):
+        # On an Intel Mac the Intel target is the host: an explicit target
+        # must still stage in target/<triple>/ (the --target build's folder).
+        host = subprocess.run(["rustc", "-vV"], capture_output=True, text=True,
+                              check=True).stdout.split("host: ")[1].split()[0]
+        base = {key: value for key, value in os.environ.items() if key != "RAWTONIC_TARGET"}
+        with tempfile.TemporaryDirectory() as target:
+            def staged(**env):
+                return subprocess.run(
+                    [str(packaging.REPO / "scripts/tether/bundle_helper.sh"), "--print-paths"],
+                    env={**base, "CARGO_TARGET_DIR": target, **env},
+                    capture_output=True, text=True, check=True).stdout.strip()
+
+            self.assertEqual(staged(RAWTONIC_TARGET=host), f"{target}/{host}/tether-bundle")
+            self.assertEqual(staged(), f"{target}/tether-bundle")
+            with patch.object(packaging, "run") as run, patch.object(packaging, "finish"):
+                packaging.package({"CARGO_TARGET_DIR": target}, "x86_64")
+            self.assertEqual(run.call_args.args[0][-1],
+                             f"{Path(target).resolve()}/x86_64-apple-darwin/tether-bundle/tauri.tether.conf.json")
 
     def test_architecture_check_refuses_a_bundle_with_the_other_architecture(self):
         def macho(cpu):
