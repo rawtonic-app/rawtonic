@@ -210,6 +210,30 @@ fn managed(namespace: Option<&str>, name: &str) -> bool {
     }
 }
 
+/// Whether a packet says anything about the culling flag: Rawtonic's own
+/// `Flag` property, or a rejected rating (`xmp:Rating` -1). Other editors
+/// rewriting a sidecar may leave the flag out; reading such a packet back
+/// keeps the library's flag rather than taking the absent one as "unflagged".
+pub fn carries_flag(text: &str) -> Result<bool> {
+    ensure!(text.len() <= 16 * 1024 * 1024, "XMP exceeds 16 MiB limit");
+    let doc = roxmltree::Document::parse(text)?;
+    let flag = |namespace: Option<&str>, name: &str| {
+        matches!(namespace, Some(RT | FORMER_RT)) && name == "Flag"
+    };
+    let rejected = |namespace: Option<&str>, name: &str, value: &str| {
+        namespace == Some(XMP) && name == "Rating" && value.trim() == "-1"
+    };
+    Ok(doc.descendants().filter(|n| n.is_element()).any(|node| {
+        let tag = node.tag_name();
+        flag(tag.namespace(), tag.name())
+            || rejected(tag.namespace(), tag.name(), node.text().unwrap_or_default())
+            || node.attributes().any(|attr| {
+                flag(attr.namespace(), attr.name())
+                    || rejected(attr.namespace(), attr.name(), attr.value())
+            })
+    }))
+}
+
 pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
     ensure!(text.len() <= 16 * 1024 * 1024, "XMP exceeds 16 MiB limit");
     let doc = roxmltree::Document::parse(text)?;
@@ -580,7 +604,23 @@ pub fn export_xmp_with_source(
     Ok(out)
 }
 
-/// expected_hash is the DB's last observed digest. Conflicts never overwrite.
+/// The sidecar changed since the library last wrote or read it (another
+/// application edited, replaced or removed it): `write_xmp` refuses to
+/// replace it until the change is reviewed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct XmpConflict;
+
+impl std::fmt::Display for XmpConflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("XMP conflict: external changes must be reviewed")
+    }
+}
+
+impl std::error::Error for XmpConflict {}
+
+/// expected_hash is the DB's last observed digest. Conflicts never overwrite
+/// (`XmpConflict`), and neither is a read-only sidecar replaced: a locked
+/// file stays as it is and the write fails.
 pub fn write_xmp(
     path: &Path,
     metadata: &Metadata,
@@ -592,12 +632,17 @@ pub fn write_xmp(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => return Err(e.into()),
     };
-    if let Some(expected) = expected_hash {
+    if let Some(expected) = expected_hash
+        && !existing
+            .as_ref()
+            .is_some_and(|s| digest(s.as_bytes()) == expected)
+    {
+        return Err(XmpConflict.into());
+    }
+    if existing.is_some() {
         ensure!(
-            existing
-                .as_ref()
-                .is_some_and(|s| digest(s.as_bytes()) == expected),
-            "XMP conflict: external changes must be reviewed"
+            !fs::metadata(path)?.permissions().readonly(),
+            "The XMP sidecar is read-only"
         );
     }
     let merged = merge_xmp(existing.as_deref(), metadata, recipe)?;
@@ -622,6 +667,31 @@ mod tests {
     }
 
     use super::*;
+    #[test]
+    fn a_changed_sidecar_is_a_typed_conflict_and_stays_as_it_is() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.xmp");
+        let hash = write_xmp(&path, &Metadata::default(), None, None).unwrap();
+        std::fs::write(&path, "changed elsewhere").unwrap();
+        let error = write_xmp(&path, &Metadata::default(), None, Some(&hash)).unwrap_err();
+        assert!(error.is::<XmpConflict>(), "{error}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "changed elsewhere");
+    }
+
+    #[test]
+    fn a_packet_carries_a_flag_only_with_rawtonics_property_or_a_rejection() {
+        let packet = |attrs: &str| {
+            format!(
+                r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="{RDF}"><rdf:Description xmlns:xmp="{XMP}" xmlns:rawtonic="{RT}" {attrs}/></rdf:RDF></x:xmpmeta>"#
+            )
+        };
+        assert!(!carries_flag(&packet(r#"xmp:Rating="3""#)).unwrap());
+        assert!(carries_flag(&packet(r#"xmp:Rating="-1""#)).unwrap());
+        assert!(carries_flag(&packet(r#"xmp:Rating="3" rawtonic:Flag="0""#)).unwrap());
+        let written = merge_xmp(None, &Metadata::default(), None).unwrap();
+        assert!(carries_flag(&written).unwrap());
+    }
+
     #[test]
     fn export_packet_can_mark_generated_areas() {
         let packet = export_xmp_with_source(

@@ -1,0 +1,46 @@
+/**
+ * The session bar's XMP review (`src-tauri/src/xmp_review.rs`): photographs
+ * whose XMP sidecar is *pending* (the library is newer and the sidecar not
+ * written yet: offline, read-only, a failed write) or in *conflict* (the
+ * sidecar changed outside Rawtonic since the last sync).
+ */
+
+/** `activeAlbumId` of the grid view of the photographs to review. */
+export const XMP_VIEW_ID = 'session-xmp';
+
+export type XmpState = 'pending' | 'conflict';
+
+export interface XmpReviewEntry {
+  path: string;
+  state: XmpState;
+  /** The photograph's file or drive is not there: written when it is back. */
+  offline: boolean;
+  volume: string | null;
+  /** Its virtual copies (copy ids), listed in the grid with it. */
+  copies: string[];
+}
+
+/** Opaque to the webview: handed back to `session_xmp_undo`. */
+export type XmpUndoStep = Record<string, unknown>;
+
+export interface XmpReport {
+  done: string[];
+  offline: string[];
+  conflicts: string[];
+  failed: Array<{ path: string; reason: string }>;
+  undo: XmpUndoStep[];
+}
+
+/** The grid paths of the entries, with their virtual copies. */
+export function xmpViewPaths(entries: XmpReviewEntry[]): string[] {
+  return entries.flatMap((entry) => [entry.path, ...entry.copies.map((copy) => `${entry.path}?vc=${copy}`)]);
+}
+
+export function xmpCounts(entries: XmpReviewEntry[]) {
+  const pending = entries.filter((entry) => entry.state === 'pending');
+  return {
+    pending: pending.length,
+    offline: pending.filter((entry) => entry.offline).length,
+    conflicts: entries.filter((entry) => entry.state === 'conflict').length,
+  };
+}

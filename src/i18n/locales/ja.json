@@ -1049,7 +1049,7 @@
       "tetherConnected": "{{camera}} 接続中",
       "tetherTitle": "テザー撮影：USB 接続したカメラの写真がこのライブラリに直接入ります",
       "xmpPending_other": "XMP 保留 {{count}}",
-      "xmpPendingTitle": "補正はライブラリに保存されています。一部の XMP サイドカーファイルは同期または競合の解決が必要です。"
+      "xmpPendingAction_other": "{{count}} 枚の写真に XMP 同期が必要です – クリックして確認"
     },
     "create": {
       "catalog": "カタログ",
@@ -1414,6 +1414,33 @@
       "toolsLeft": "ツールを左に配置",
       "toolsRight": "ツールを右に配置",
       "toolsSide": "現像ツールをどちら側に配置しますか？"
+    },
+    "xmp": {
+      "conflictHeading_other": "競合 {{count}}",
+      "conflictHint": "前回の同期以降、XMP サイドカーが Rawtonic の外部で変更されました。どちらのメタデータを残すか選んでください。",
+      "inSync": "すべての XMP サイドカーは同期済みです。",
+      "keepLibrary": "ライブラリを保持",
+      "keepLibraryAll": "すべてライブラリを保持",
+      "keepLibraryFor": "{{name}} でライブラリを保持",
+      "keepLibraryTitle": "ライブラリのメタデータを XMP サイドカーに書き込みます",
+      "loading": "XMP サイドカーを確認しています…",
+      "more_other": "ほか {{count}} 件",
+      "offline": "オフライン",
+      "offlineNote_other": "{{count}} 枚の写真がオフラインです。ファイルまたはドライブが戻ると XMP が書き込まれます。",
+      "originalsUntouched": "書き込まれるのは XMP サイドカーのみで、写真は変更されません。",
+      "pendingHeading_other": "保留 {{count}}",
+      "pendingHint": "ライブラリの方が新しく、XMP サイドカーはまだ書き込まれていません(写真がオフライン、読み取り専用、または書き込み失敗)。",
+      "prefsOff": "環境設定で XMP 同期がオフになっています。この設定はライブラリなしで開いたフォルダーに適用されます。このライブラリの写真の XMP サイドカーは最新の状態に保たれます。",
+      "result": "完了: {{done}} · オフライン: {{offline}} · 競合: {{conflicts}} · 失敗: {{failed}}",
+      "subtitle": "他のアプリケーション向けに、各写真の横に保存されるレーティング、ラベル、キーワード、IPTC メタデータ。",
+      "syncNow": "今すぐ同期",
+      "title": "XMP サイドカー",
+      "undo_other": "「XMP を使用」を取り消す ({{count}})",
+      "useXmp": "XMP を使用",
+      "useXmpAll": "すべて XMP を使用",
+      "useXmpFor": "{{name}} で XMP を使用",
+      "useXmpTitle": "サイドカーのレーティング、ラベル、キーワード、IPTC メタデータをライブラリに読み込みます(取り消し可能)",
+      "view": "確認する XMP"
     }
   },
   "settings": {

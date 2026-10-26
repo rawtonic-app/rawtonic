@@ -130,7 +130,87 @@ describe("Session workspace keyboard flows", () => {
     await user.click(screen.getByRole("button", { name: "Location" }));
     await user.click(screen.getByRole("button", { name: "Create project" }));
     expect(await screen.findByRole("img", { name: "3 offline" })).toBeTruthy();
-    expect(screen.getByRole("img", { name: "2 XMP pending" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "2 photos need XMP sync – click to review" })).toBeTruthy();
+  });
+
+  it("opens the XMP review from the pending count and shows its photos in the grid", async () => {
+    const user = userEvent.setup();
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    let pending = 2;
+    const entries = [
+      { path: "/jobs/Acme/Capture/a.nef", state: "pending", offline: true, volume: "Card", copies: [] },
+      { path: "/jobs/Acme/Capture/b.nef", state: "conflict", offline: false, volume: null, copies: ["v1"] },
+    ];
+    vi.mocked(invoke).mockImplementation(async (command, args) =>
+      command === "session_create" || command === "session_summary"
+        ? { ...summary, xmp_pending: pending }
+        : command === "session_xmp_review"
+          ? entries.slice(0, pending)
+          : command === "session_xmp_resolve"
+            ? ((pending = 1), { done: ["/jobs/Acme/Capture/b.nef"], offline: [], conflicts: [], failed: [], undo: [] })
+            : base(command, args));
+    const selectView = vi.fn();
+    render(<SessionWorkspace onNavigate={vi.fn(async () => {})} onSelectView={selectView} />);
+    await user.click(screen.getByRole("button", { name: "Create a project" }));
+    await user.type(screen.getByLabelText("Project name"), "Acme");
+    await user.click(screen.getByRole("button", { name: "Location" }));
+    await user.click(screen.getByRole("button", { name: "Create project" }));
+    const count = await screen.findByRole("button", { name: "2 photos need XMP sync – click to review" });
+    expect(count.getAttribute("title")).toBe("2 photos need XMP sync – click to review");
+    await user.click(count);
+    const dialog = await screen.findByRole("dialog", { name: "XMP sidecars" });
+    await waitFor(() =>
+      expect(selectView).toHaveBeenCalledWith(
+        "session-xmp",
+        "XMP to review",
+        ["/jobs/Acme/Capture/a.nef", "/jobs/Acme/Capture/b.nef", "/jobs/Acme/Capture/b.nef?vc=v1"],
+        false,
+      ),
+    );
+    expect(within(dialog).getByRole("heading", { name: "1 pending" })).toBeTruthy();
+    expect(within(dialog).getByRole("heading", { name: "1 conflict" })).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "Keep library for b.nef" }));
+    await waitFor(() =>
+      expect(selectView).toHaveBeenLastCalledWith(
+        "session-xmp",
+        "XMP to review",
+        ["/jobs/Acme/Capture/a.nef", "/jobs/Acme/Capture/b.nef", "/jobs/Acme/Capture/b.nef?vc=v1"],
+        true,
+      ),
+    );
+    expect(await screen.findByRole("button", { name: "1 photo needs XMP sync – click to review" })).toBeTruthy();
+    // Only an offline photograph is left: nothing to write until it is back.
+    expect(within(dialog).getByText("1 photo is offline: its XMP is written when its file or drive is back.")).toBeTruthy();
+    expect((within(dialog).getByRole("button", { name: "Sync now" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(invoke).toHaveBeenCalledWith("session_xmp_resolve", {
+      directory: "/jobs/Acme",
+      paths: ["/jobs/Acme/Capture/b.nef"],
+      keep: "library",
+    });
+  });
+
+  it("hides the pending count once nothing is pending", async () => {
+    const user = userEvent.setup();
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    let pending = 1;
+    vi.mocked(invoke).mockImplementation(async (command, args) =>
+      command === "session_create" || command === "session_summary"
+        ? { ...summary, xmp_pending: pending }
+        : command === "session_xmp_review"
+          ? pending ? [{ path: "/jobs/Acme/Capture/a.nef", state: "pending", offline: false, volume: null, copies: [] }] : []
+          : command === "session_xmp_sync"
+            ? ((pending = 0), { done: ["/jobs/Acme/Capture/a.nef"], offline: [], conflicts: [], failed: [], undo: [] })
+            : base(command, args));
+    render(<SessionWorkspace onNavigate={vi.fn(async () => {})} onSelectView={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "Create a project" }));
+    await user.type(screen.getByLabelText("Project name"), "Acme");
+    await user.click(screen.getByRole("button", { name: "Location" }));
+    await user.click(screen.getByRole("button", { name: "Create project" }));
+    await user.click(await screen.findByRole("button", { name: "1 photo needs XMP sync – click to review" }));
+    const dialog = await screen.findByRole("dialog", { name: "XMP sidecars" });
+    await user.click(await within(dialog).findByRole("button", { name: "Sync now" }));
+    expect(await within(dialog).findByText("All XMP sidecars are in sync.")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("button", { name: /XMP sync/ })).toBeNull());
   });
 
   it("surfaces a failed create without navigating or dismissing the entered name", async () => {

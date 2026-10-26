@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- **XMP status in the session bar is a button.** The orange sync icon ("N photos need XMP sync") now opens a review: the grid shows the photographs concerned, and a dialog counts those *pending* (the library is newer and the XMP sidecar is not written yet — photo offline, sidecar read-only, a failed write) and those in *conflict* (the sidecar was changed by another application since the last sync). **Sync now** writes the pending sidecars (offline photos stay pending until they are back); a conflict is resolved per photo or for all with **Keep library** (the library's metadata is written into the sidecar) or **Use XMP** (rating, label, keywords and IPTC metadata are read into the library; the edit stays Rawtonic's; can be undone). Only sidecars are written, through the same atomic writer as before, keeping what other applications stored in them. A read-only XMP sidecar is no longer replaced, and no XMP is written beside a photo whose file is missing.
+
 ## 0.1.0-alpha.7 — 2026-10-26
 
 The seventh alpha, and the first one signed with an Apple Developer ID and notarized by Apple: on a Mac it now opens like any other app, without the Terminal step. Saturated colours keep their hue, the lens corrections Rawtonic reads from the camera's own data now frame and straighten the photo as the camera does on Sony, Nikon Z, Canon EOS R5 Mark II / R6 Mark III, Samsung NX, Panasonic and Fujifilm, and batch exports take about a third less time. There is also a first, experimental build for Intel Macs.

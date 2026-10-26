@@ -1061,7 +1061,8 @@
       "tetherTitle": "Shoot tethered: photos from a camera on USB come straight into this library",
       "xmpPending_one": "{{count}} XMP pending",
       "xmpPending_other": "{{count}} XMP pending",
-      "xmpPendingTitle": "Edits are saved in the library. Some XMP sidecars need synchronization or conflict resolution."
+      "xmpPendingAction_one": "{{count}} photo needs XMP sync – click to review",
+      "xmpPendingAction_other": "{{count}} photos need XMP sync – click to review"
     },
     "create": {
       "catalog": "Catalog",
@@ -1452,6 +1453,38 @@
       "toolsLeft": "Tools on the left",
       "toolsRight": "Tools on the right",
       "toolsSide": "Where would you like the Develop tools?"
+    },
+    "xmp": {
+      "conflictHeading_one": "{{count}} conflict",
+      "conflictHeading_other": "{{count}} conflicts",
+      "conflictHint": "The XMP sidecar was changed outside Rawtonic since the last sync. Choose whose metadata to keep.",
+      "inSync": "All XMP sidecars are in sync.",
+      "keepLibrary": "Keep library",
+      "keepLibraryAll": "Keep library for all",
+      "keepLibraryFor": "Keep library for {{name}}",
+      "keepLibraryTitle": "Write the library's metadata into the XMP sidecar",
+      "loading": "Checking XMP sidecars…",
+      "more_one": "and {{count}} more",
+      "more_other": "and {{count}} more",
+      "offline": "Offline",
+      "offlineNote_one": "{{count}} photo is offline: its XMP is written when its file or drive is back.",
+      "offlineNote_other": "{{count}} photos are offline: their XMP is written when their file or drive is back.",
+      "originalsUntouched": "Only XMP sidecars are written; photographs stay untouched.",
+      "pendingHeading_one": "{{count}} pending",
+      "pendingHeading_other": "{{count}} pending",
+      "pendingHint": "The library is newer: the XMP sidecar is not written yet (photograph offline, sidecar read-only or a write failed).",
+      "prefsOff": "XMP Sync is off in Preferences. That setting covers folders opened without a library; photographs in this library keep their XMP sidecars up to date.",
+      "result": "Done: {{done}} · offline: {{offline}} · conflicts: {{conflicts}} · failed: {{failed}}",
+      "subtitle": "Ratings, labels, keywords and IPTC metadata kept beside each photograph for other applications.",
+      "syncNow": "Sync now",
+      "title": "XMP sidecars",
+      "undo_one": "Undo Use XMP",
+      "undo_other": "Undo Use XMP ({{count}})",
+      "useXmp": "Use XMP",
+      "useXmpAll": "Use XMP for all",
+      "useXmpFor": "Use XMP for {{name}}",
+      "useXmpTitle": "Read the sidecar's rating, label, keywords and IPTC metadata into the library (can be undone)",
+      "view": "XMP to review"
     }
   },
   "settings": {

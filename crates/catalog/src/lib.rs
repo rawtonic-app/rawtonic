@@ -25,12 +25,14 @@ pub mod ingest_jobs;
 pub mod query;
 pub mod snapshots;
 pub mod volume;
+pub mod xmp_review;
 pub use add::{AddReport, Contents, ImportBatchInfo, ImportKind, PlannedAsset};
 pub use facts::{CaptureFacts, Rated};
 pub use hot_folder::{HotFolderConfig, HotFolderFile};
 pub use query::{Combine, Field, Op, Rule};
 pub use snapshots::Snapshot;
 pub use volume::Volume;
+pub use xmp_review::{XmpEntry, XmpOffline, XmpState, XmpUndo};
 
 /// Version of the session/catalog manifest (`session.json`).
 pub const SCHEMA_VERSION: u32 = 1;
@@ -1268,48 +1270,22 @@ impl Library {
         Ok(count)
     }
 
+    /// Brings the photograph's XMP sidecar up to date with the library. An
+    /// offline photograph (`XmpOffline`) or a failed write (read-only
+    /// sidecar, full disk) stays pending; a sidecar changed outside Rawtonic,
+    /// or one the library never adopted, is a conflict and is not replaced.
     pub fn sync_xmp(&self, asset: &str) -> Result<()> {
-        let a = self.asset(asset)?;
-        // RAW+JPEG siblings would share a stem; refuse ambiguity rather than clobber.
-        let same_stem = self.xmp_owners(&a.path)?;
-        ensure!(
-            same_stem == 1,
-            "RAW/JPEG sidecar ownership needs pair resolution"
-        );
+        let path = self.writable_sidecar(asset)?;
         let hash: Option<String> = self.conn.query_row(
             "SELECT xmp_hash FROM metadata WHERE asset_id=?",
             [asset],
             |r| r.get(0),
         )?;
-        let recipe = self.recipe(&self.primary_version(asset)?)?;
-        if hash.is_none() && a.path.with_extension("xmp").exists() {
-            self.conn.execute(
-                "UPDATE metadata SET xmp_status='conflict' WHERE asset_id=?",
-                [asset],
-            )?;
+        if hash.is_none() && path.exists() {
+            self.mark_xmp_conflict(asset)?;
             anyhow::bail!("Existing XMP has not been adopted; refusing to replace its metadata");
         }
-        match rawtonic_metadata::write_xmp(
-            &a.path.with_extension("xmp"),
-            &self.metadata(asset)?,
-            recipe.as_ref(),
-            hash.as_deref(),
-        ) {
-            Ok(hash) => {
-                self.conn.execute(
-                    "UPDATE metadata SET xmp_hash=?,xmp_status='synced' WHERE asset_id=?",
-                    params![hash, asset],
-                )?;
-                Ok(())
-            }
-            Err(e) => {
-                self.conn.execute(
-                    "UPDATE metadata SET xmp_status='conflict' WHERE asset_id=?",
-                    [asset],
-                )?;
-                Err(e)
-            }
-        }
+        self.write_sidecar(asset, &path, hash.as_deref())
     }
 
     pub fn undo(&self, version: &str) -> Result<bool> {

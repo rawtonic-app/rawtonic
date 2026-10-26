@@ -511,6 +511,7 @@ function App() {
         <PerfProfiler id="session">
           <SessionWorkspace
             onNavigate={handleSelectSubfolder}
+            onSelectView={(id, name, paths, preserveEditor) => void handleSelectAlbum(id, name, paths, preserveEditor)}
             nativeTitlebar={hasNativeMacTitlebar || showLinuxWindowControls}
             windowControls={showLinuxWindowControls ? <WindowControls /> : undefined}
           />

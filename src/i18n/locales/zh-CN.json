@@ -1049,7 +1049,7 @@
       "tetherConnected": "{{camera}} 已连接",
       "tetherTitle": "联机拍摄：USB 相机拍摄的照片直接进入此图库",
       "xmpPending_other": "{{count}} 个 XMP 待处理",
-      "xmpPendingTitle": "调整已保存在图库中。部分 XMP 附属文件需要同步或解决冲突。"
+      "xmpPendingAction_other": "{{count}} 张照片需要同步 XMP – 点击查看"
     },
     "create": {
       "catalog": "目录",
@@ -1414,6 +1414,33 @@
       "toolsLeft": "工具在左侧",
       "toolsRight": "工具在右侧",
       "toolsSide": "您希望将显影工具放在哪一侧？"
+    },
+    "xmp": {
+      "conflictHeading_other": "{{count}} 个冲突",
+      "conflictHint": "自上次同步以来,XMP 附属文件已在 Rawtonic 之外被修改。请选择保留哪一方的元数据。",
+      "inSync": "所有 XMP 附属文件均已同步。",
+      "keepLibrary": "保留图库",
+      "keepLibraryAll": "全部保留图库",
+      "keepLibraryFor": "为 {{name}} 保留图库",
+      "keepLibraryTitle": "将图库的元数据写入 XMP 附属文件",
+      "loading": "正在检查 XMP 附属文件…",
+      "more_other": "另有 {{count}} 个",
+      "offline": "离线",
+      "offlineNote_other": "{{count}} 张照片离线:文件或驱动器恢复后将写入其 XMP。",
+      "originalsUntouched": "只写入 XMP 附属文件;照片保持不变。",
+      "pendingHeading_other": "{{count}} 个待处理",
+      "pendingHint": "图库较新:XMP 附属文件尚未写入(照片离线、文件只读或写入失败)。",
+      "prefsOff": "偏好设置中的 XMP 同步已关闭。该设置适用于不经图库打开的文件夹;此图库中的照片会保持其 XMP 附属文件为最新。",
+      "result": "完成:{{done}} · 离线:{{offline}} · 冲突:{{conflicts}} · 失败:{{failed}}",
+      "subtitle": "保存在每张照片旁边的评级、标签、关键字和 IPTC 元数据,供其他应用程序使用。",
+      "syncNow": "立即同步",
+      "title": "XMP 附属文件",
+      "undo_other": "撤销“使用 XMP”({{count}})",
+      "useXmp": "使用 XMP",
+      "useXmpAll": "全部使用 XMP",
+      "useXmpFor": "为 {{name}} 使用 XMP",
+      "useXmpTitle": "将附属文件中的评级、标签、关键字和 IPTC 元数据读入图库(可撤销)",
+      "view": "待查看的 XMP"
     }
   },
   "settings": {

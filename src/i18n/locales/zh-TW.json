@@ -1049,7 +1049,7 @@
       "tetherConnected": "{{camera}} 已連線",
       "tetherTitle": "連線拍攝：USB 相機拍攝的照片直接進入此圖庫",
       "xmpPending_other": "{{count}} 個 XMP 待處理",
-      "xmpPendingTitle": "調整已儲存在圖庫中。部分 XMP 附屬檔案需要同步或解決衝突。"
+      "xmpPendingAction_other": "{{count}} 張照片需要同步 XMP – 按一下以檢視"
     },
     "create": {
       "catalog": "目錄",
@@ -1414,6 +1414,33 @@
       "toolsLeft": "工具在左側",
       "toolsRight": "工具在右側",
       "toolsSide": "您希望將顯影工具放在哪一側？"
+    },
+    "xmp": {
+      "conflictHeading_other": "{{count}} 個衝突",
+      "conflictHint": "自上次同步以來,XMP 附屬檔案已在 Rawtonic 之外被修改。請選擇要保留哪一方的中繼資料。",
+      "inSync": "所有 XMP 附屬檔案皆已同步。",
+      "keepLibrary": "保留圖庫",
+      "keepLibraryAll": "全部保留圖庫",
+      "keepLibraryFor": "為 {{name}} 保留圖庫",
+      "keepLibraryTitle": "將圖庫的中繼資料寫入 XMP 附屬檔案",
+      "loading": "正在檢查 XMP 附屬檔案…",
+      "more_other": "另有 {{count}} 個",
+      "offline": "離線",
+      "offlineNote_other": "{{count}} 張照片離線:檔案或磁碟回來後會寫入其 XMP。",
+      "originalsUntouched": "只寫入 XMP 附屬檔案;照片保持不變。",
+      "pendingHeading_other": "{{count}} 個待處理",
+      "pendingHint": "圖庫較新:XMP 附屬檔案尚未寫入(照片離線、檔案唯讀或寫入失敗)。",
+      "prefsOff": "偏好設定中的 XMP 同步已關閉。此設定適用於不經圖庫開啟的資料夾;此圖庫中的照片會讓其 XMP 附屬檔案保持最新。",
+      "result": "完成:{{done}} · 離線:{{offline}} · 衝突:{{conflicts}} · 失敗:{{failed}}",
+      "subtitle": "存放在每張照片旁的評等、標籤、關鍵字與 IPTC 中繼資料,供其他應用程式使用。",
+      "syncNow": "立即同步",
+      "title": "XMP 附屬檔案",
+      "undo_other": "復原「使用 XMP」({{count}})",
+      "useXmp": "使用 XMP",
+      "useXmpAll": "全部使用 XMP",
+      "useXmpFor": "為 {{name}} 使用 XMP",
+      "useXmpTitle": "將附屬檔案中的評等、標籤、關鍵字與 IPTC 中繼資料讀入圖庫(可復原)",
+      "view": "待檢視的 XMP"
     }
   },
   "settings": {

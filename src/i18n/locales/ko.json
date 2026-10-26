@@ -1049,7 +1049,7 @@
       "tetherConnected": "{{camera}} 연결됨",
       "tetherTitle": "테더 촬영: USB로 연결한 카메라의 사진이 이 라이브러리로 바로 들어옵니다",
       "xmpPending_other": "XMP 대기 {{count}}",
-      "xmpPendingTitle": "조정 내용은 라이브러리에 저장되어 있습니다. 일부 XMP 사이드카 파일은 동기화하거나 충돌을 해결해야 합니다."
+      "xmpPendingAction_other": "사진 {{count}}장의 XMP 동기화가 필요합니다 – 클릭하여 검토"
     },
     "create": {
       "catalog": "카탈로그",
@@ -1414,6 +1414,33 @@
       "toolsLeft": "왼쪽에 도구 배치",
       "toolsRight": "오른쪽에 도구 배치",
       "toolsSide": "현상 도구를 어느 쪽에 배치할까요?"
+    },
+    "xmp": {
+      "conflictHeading_other": "충돌 {{count}}",
+      "conflictHint": "마지막 동기화 이후 XMP 사이드카가 Rawtonic 외부에서 변경되었습니다. 유지할 메타데이터를 선택하세요.",
+      "inSync": "모든 XMP 사이드카가 동기화되었습니다.",
+      "keepLibrary": "라이브러리 유지",
+      "keepLibraryAll": "모두 라이브러리 유지",
+      "keepLibraryFor": "{{name}}: 라이브러리 유지",
+      "keepLibraryTitle": "라이브러리의 메타데이터를 XMP 사이드카에 기록합니다",
+      "loading": "XMP 사이드카 확인 중…",
+      "more_other": "외 {{count}}개",
+      "offline": "오프라인",
+      "offlineNote_other": "사진 {{count}}장이 오프라인입니다. 파일이나 드라이브가 돌아오면 XMP가 기록됩니다.",
+      "originalsUntouched": "XMP 사이드카만 기록되며 사진은 변경되지 않습니다.",
+      "pendingHeading_other": "대기 {{count}}",
+      "pendingHint": "라이브러리가 더 최신이며 XMP 사이드카는 아직 기록되지 않았습니다(사진 오프라인, 읽기 전용 파일 또는 쓰기 실패).",
+      "prefsOff": "환경설정에서 XMP 동기화가 꺼져 있습니다. 이 설정은 라이브러리 없이 연 폴더에 적용되며, 이 라이브러리의 사진은 XMP 사이드카를 최신 상태로 유지합니다.",
+      "result": "완료: {{done}} · 오프라인: {{offline}} · 충돌: {{conflicts}} · 실패: {{failed}}",
+      "subtitle": "다른 애플리케이션을 위해 각 사진 옆에 보관되는 별점, 레이블, 키워드 및 IPTC 메타데이터.",
+      "syncNow": "지금 동기화",
+      "title": "XMP 사이드카",
+      "undo_other": "XMP 사용 실행 취소 ({{count}})",
+      "useXmp": "XMP 사용",
+      "useXmpAll": "모두 XMP 사용",
+      "useXmpFor": "{{name}}: XMP 사용",
+      "useXmpTitle": "사이드카의 별점, 레이블, 키워드 및 IPTC 메타데이터를 라이브러리로 읽어 옵니다(실행 취소 가능)",
+      "view": "검토할 XMP"
     }
   },
   "settings": {

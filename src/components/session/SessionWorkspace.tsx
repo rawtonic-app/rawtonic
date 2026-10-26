@@ -4,6 +4,8 @@ import { validNamingTemplate, validSequenceStart, type NamePreview } from "../..
 import NamingEditor from "../ui/NamingEditor";
 import LibraryTransferDialog, { type TransferPurpose } from "./LibraryTransferDialog";
 import FolderSyncDialog from "./FolderSyncDialog";
+import XmpSyncDialog from "./XmpSyncDialog";
+import { XMP_VIEW_ID, xmpViewPaths } from "../../utils/xmpReview";
 import {
   useCallback,
   useEffect,
@@ -60,7 +62,8 @@ import {
 import { useContextMenu } from "../../context/ContextMenuContext";
 import { useSessionBar } from "./sessionBar";
 import { SESSION_ALBUMS_CHANGED } from "../studio/StudioAlbums";
-import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from "../../utils/offline";
+import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes, type SelectView } from "../../utils/offline";
+import { catalogChanged } from "../../utils/catalogEvents";
 import { requestAutoAdvance } from "../../utils/photoStepping";
 import { hotFolderCommand } from "../../utils/hotFolderCommands";
 import { FOLDER_SYNC_APPLIED, IMPORTS_CHANGED, OPEN_FOLDER_SYNC_EVENT, type OpenFolderSyncDetail } from "../../utils/folderSync";
@@ -267,6 +270,8 @@ interface ImportReport {
 
 interface Props {
   onNavigate: (path: string | null, newRoot?: boolean) => Promise<void>;
+  /** Shows a list of photographs in the grid (the XMP review's view). */
+  onSelectView?: SelectView;
   nativeTitlebar?: boolean;
   windowControls?: ReactNode;
 }
@@ -316,7 +321,7 @@ export function leavesTetheredLibrary(tetheredFor: string | null, openLibrary: s
   return tetheredFor.replace(/\/$/, "") !== openLibrary.replace(/\/$/, "");
 }
 
-export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, windowControls }: Props) {
+export default function SessionWorkspace({ onNavigate, onSelectView, nativeTitlebar = false, windowControls }: Props) {
   const { t } = useTranslation();
   const [session, setSession] = useState<SessionSummary | null>(null);
   const [form, setForm] = useState<"create" | "ingest" | "hotfolder" | "import" | null>(null);
@@ -338,6 +343,9 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const [transfer, setTransfer] = useState<TransferPurpose | null>(null);
   /** Synchronize Folder's review dialog, for a folder (null: the whole library). */
   const [syncing, setSyncing] = useState<{ folder: string | null } | null>(null);
+  const [xmpReview, setXmpReview] = useState(false);
+  const xmpViewShown = useRef<string[]>([]);
+  const xmpSyncEnabled = useSettingsStore((state) => state.appSettings?.enableXmpSync ?? true);
   // Coming from Lightroom or Capture One: a new catalog first, then the import.
   const [importAfterCreate, setImportAfterCreate] = useState(false);
   const [sources, setSources] = useState<IngestCandidate[]>([]);
@@ -1388,12 +1396,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 </span>
               )}
               {session.xmp_pending > 0 && (
-                <span className="session-count-pending" role="img"
-                  aria-label={t("session.bar.xmpPending", { count: session.xmp_pending })}
-                  title={t("session.bar.xmpPendingTitle")}>
+                <button type="button" className="session-count-pending"
+                  aria-label={t("session.bar.xmpPendingAction", { count: session.xmp_pending })}
+                  aria-haspopup="dialog"
+                  title={t("session.bar.xmpPendingAction", { count: session.xmp_pending })}
+                  onClick={() => setXmpReview(true)}>
                   <RefreshCw className="session-count-status-icon" size={13} aria-hidden />
                   <span className="session-count-status-text" aria-hidden>{` · ${t("session.bar.xmpPending", { count: session.xmp_pending })}`}</span>
-                </span>
+                </button>
               )}
             </span>
           )}
@@ -1567,6 +1577,24 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
             window.dispatchEvent(new Event(OFFLINE_CHANGED));
             window.dispatchEvent(new CustomEvent(FOLDER_SYNC_APPLIED, { detail: applied }));
             window.dispatchEvent(new Event(IMPORTS_CHANGED));
+          }}
+        />
+      )}
+      {xmpReview && session && (
+        <XmpSyncDialog
+          directory={session.directory}
+          syncEnabled={xmpSyncEnabled}
+          onClose={() => setXmpReview(false)}
+          onEntries={(entries, first) => {
+            // The grid shows the photographs to review; after a change it
+            // lists them again (resolved ones too, with their new metadata),
+            // so the view does not empty as they are resolved.
+            if (first) xmpViewShown.current = xmpViewPaths(entries);
+            onSelectView?.(XMP_VIEW_ID, t("session.xmp.view"), xmpViewShown.current, !first);
+            if (!first) {
+              void refresh().catch(() => {});
+              catalogChanged();
+            }
           }}
         />
       )}

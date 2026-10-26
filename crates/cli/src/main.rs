@@ -642,7 +642,10 @@ fn run() -> Result<()> {
                 }
             }
             print(l.summary()?)?;
-            anyhow::ensure!(failed == 0, "{failed} sidecars need conflict resolution");
+            anyhow::ensure!(
+                failed == 0,
+                "{failed} sidecars are not in sync (offline, not writable or in conflict)"
+            );
             Ok(())
         }
         Command::Bench { iterations } => {

@@ -1061,7 +1061,8 @@
       "tetherTitle": "Tethered fotografieren: Fotos einer Kamera am USB kommen direkt in diese Bibliothek",
       "xmpPending_one": "{{count}} XMP ausstehend",
       "xmpPending_other": "{{count}} XMP ausstehend",
-      "xmpPendingTitle": "Bearbeitungen sind in der Bibliothek gespeichert. Einige XMP-Filialdateien müssen synchronisiert oder Konflikte darin gelöst werden."
+      "xmpPendingAction_one": "{{count}} Foto braucht XMP-Abgleich – klicken zum Prüfen",
+      "xmpPendingAction_other": "{{count}} Fotos brauchen XMP-Abgleich – klicken zum Prüfen"
     },
     "create": {
       "catalog": "Katalog",
@@ -1452,6 +1453,38 @@
       "toolsLeft": "Werkzeuge links",
       "toolsRight": "Werkzeuge rechts",
       "toolsSide": "Wo möchtest du die Entwickeln-Werkzeuge?"
+    },
+    "xmp": {
+      "conflictHeading_one": "{{count}} Konflikt",
+      "conflictHeading_other": "{{count}} Konflikte",
+      "conflictHint": "Die XMP-Datei wurde seit dem letzten Abgleich außerhalb von Rawtonic geändert. Wählen Sie, welche Metadaten gelten.",
+      "inSync": "Alle XMP-Filialdateien sind abgeglichen.",
+      "keepLibrary": "Bibliothek behalten",
+      "keepLibraryAll": "Bibliothek für alle behalten",
+      "keepLibraryFor": "Bibliothek behalten für {{name}}",
+      "keepLibraryTitle": "Die Metadaten der Bibliothek in die XMP-Datei schreiben",
+      "loading": "XMP-Filialdateien werden geprüft…",
+      "more_one": "und {{count}} weiteres",
+      "more_other": "und {{count}} weitere",
+      "offline": "Offline",
+      "offlineNote_one": "{{count}} Foto ist offline: Sein XMP wird geschrieben, sobald Datei oder Laufwerk wieder da sind.",
+      "offlineNote_other": "{{count}} Fotos sind offline: Ihr XMP wird geschrieben, sobald Datei oder Laufwerk wieder da sind.",
+      "originalsUntouched": "Nur XMP-Dateien werden geschrieben; die Fotos bleiben unverändert.",
+      "pendingHeading_one": "{{count}} ausstehend",
+      "pendingHeading_other": "{{count}} ausstehend",
+      "pendingHint": "Die Bibliothek ist neuer: Die XMP-Datei ist noch nicht geschrieben (Foto offline, Datei schreibgeschützt oder Schreiben fehlgeschlagen).",
+      "prefsOff": "XMP-Sync ist in den Einstellungen aus. Diese Einstellung gilt für Ordner ohne Bibliothek; Fotos in dieser Bibliothek halten ihre XMP-Dateien aktuell.",
+      "result": "Erledigt: {{done}} · offline: {{offline}} · Konflikte: {{conflicts}} · fehlgeschlagen: {{failed}}",
+      "subtitle": "Bewertungen, Farbmarkierungen, Stichwörter und IPTC-Metadaten neben jedem Foto, für andere Programme.",
+      "syncNow": "Jetzt abgleichen",
+      "title": "XMP-Filialdateien",
+      "undo_one": "XMP übernehmen rückgängig",
+      "undo_other": "XMP übernehmen rückgängig ({{count}})",
+      "useXmp": "XMP übernehmen",
+      "useXmpAll": "XMP für alle übernehmen",
+      "useXmpFor": "XMP übernehmen für {{name}}",
+      "useXmpTitle": "Bewertung, Farbmarkierung, Stichwörter und IPTC-Metadaten der XMP-Datei in die Bibliothek übernehmen (rückgängig machbar)",
+      "view": "XMP zu prüfen"
     }
   },
   "settings": {
