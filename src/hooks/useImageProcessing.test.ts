@@ -388,16 +388,14 @@ describe("AI Denoise busy note", () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
-  it("sends the AI bitmaps again once the source is developed again", async () => {
+  it("keeps the AI bitmaps sent once the source is developed again", async () => {
     const before = new Set(["subject"]);
     useEditorStore.setState({ patchesSentToBackend: before });
     const request = startDenoise();
     await act(async () => request.resolve(50));
-    // The native side cleared its patch cache; requests still under way
-    // acknowledge into the old set.
-    const now = useEditorStore.getState().patchesSentToBackend;
-    expect(now).not.toBe(before);
-    expect(now.has("subject")).toBe(false);
+    // The native side's patch cache belongs to the photograph, not its decode.
+    expect(useEditorStore.getState().patchesSentToBackend).toBe(before);
+    expect(before.has("subject")).toBe(true);
   });
 
   it("stays while a newer request runs", async () => {

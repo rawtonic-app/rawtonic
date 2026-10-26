@@ -2022,10 +2022,7 @@ pub(crate) async fn activate_photo(
         );
         return Ok(Activation::None);
     }
-    *state
-        .current_source
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = path.clone();
+    crate::image_loader::open_source(&state, &path);
     release_still_for(&state, &path);
     let remembered = state
         .proxy_memory

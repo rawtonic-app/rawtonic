@@ -460,10 +460,7 @@ pub async fn load_image_proxy(
     if !is_raw_file(&source_path_str) {
         return Ok(None);
     }
-    *state
-        .current_source
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = path.clone();
+    open_source(&state, &path);
     crate::editor_preview::release_still_for(&state, &path);
     let settings = load_settings(app_handle).unwrap_or_default();
     let variant = stored_decode_variant(&path);
@@ -625,8 +622,29 @@ fn clear_source_caches(state: &AppState) {
     clear_derived_caches(state);
 }
 
+/// Makes `path` the open photograph (`current_source`). The bitmaps the
+/// editor sent for it (`patch_cache`: AI patches, AI mask and relight data,
+/// in the photograph's own frame) are dropped only for another photograph:
+/// they do not depend on its decode, and the editor sends each just once
+/// per photograph it opens (`patchesSentToBackend`), also when a stored
+/// proxy's frame carried them before `load_image` decodes it.
+pub(crate) fn open_source(state: &AppState, path: &str) {
+    let mut current = state
+        .current_source
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if *current != path {
+        state
+            .patch_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        *current = path.to_string();
+    }
+}
+
 /// Drops what was computed from the open photograph's source (previews,
-/// warps, masks, patches, tool results).
+/// warps, masks, tool results).
 fn clear_derived_caches(state: &AppState) {
     *state
         .cached_preview
@@ -656,11 +674,6 @@ fn clear_derived_caches(state: &AppState) {
         .clear();
     state
         .mask_thumbnail_cache
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clear();
-    state
-        .patch_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clear();
@@ -888,10 +901,7 @@ pub async fn load_image(
     let my_generation = state.load_image_generation.fetch_add(1, Ordering::SeqCst) + 1;
     let generation_tracker = state.load_image_generation.clone();
     let cancel_token = Some((generation_tracker.clone(), my_generation));
-    *state
-        .current_source
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = path.clone();
+    open_source(&state, &path);
     crate::editor_preview::release_still_for(&state, &path);
     *state
         .offline_source
@@ -1610,5 +1620,33 @@ mod decode_for_proxy_tests {
         // Evicted from memory meanwhile: the waiting writer held no copy.
         drop(decode);
         assert!(decode_for_proxy(&rendered, &weak, || true, Duration::ZERO).is_none());
+    }
+}
+
+#[cfg(test)]
+mod patch_cache_tests {
+    use super::*;
+
+    /// The editor sends each AI mask bitmap once per photograph it opens
+    /// (`patchesSentToBackend`); a stored proxy's frame carries them before
+    /// `load_image` decodes the same photograph.
+    #[test]
+    fn bitmaps_sent_with_the_proxy_frame_outlive_the_decode() {
+        let state = AppState::default();
+        let sent = |state: &AppState| state.patch_cache.lock().unwrap().contains_key("subject");
+        // load_image_proxy, then the proxy frame carrying the bitmap.
+        open_source(&state, "a.ARW");
+        state.patch_cache.lock().unwrap().insert(
+            "subject".into(),
+            serde_json::json!("data:image/png;base64,AA"),
+        );
+        // What load_image (and apply_ai_denoise) do on arrival.
+        open_source(&state, "a.ARW");
+        clear_source_caches(&state);
+        assert!(sent(&state));
+        // Another photograph: its masks may share ids (pasted layers).
+        open_source(&state, "b.ARW");
+        assert!(!sent(&state));
+        assert_eq!(*state.current_source.lock().unwrap(), "b.ARW");
     }
 }

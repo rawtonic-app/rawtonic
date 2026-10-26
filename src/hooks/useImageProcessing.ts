@@ -532,11 +532,9 @@ export function useImageProcessing(
         const editor = useEditorStore.getState();
         if (editor.selectedImage?.path !== path) return settleBusy();
         settleBusy();
+        // The native side keeps the bitmaps sent for this photograph (its
+        // patch cache does not depend on the source's development).
         editor.setEditor({
-          // The source developed again cleared the native side's bitmaps
-          // (patch cache): send them again. A new set, so requests still
-          // under way acknowledge theirs into the old one.
-          patchesSentToBackend: new Set<string>(),
           selectedImage: {
             ...editor.selectedImage,
             aiDenoise: Math.round(applied),
