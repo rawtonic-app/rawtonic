@@ -43,7 +43,9 @@ use crate::lens_correction::LensDistortionParams;
 /// framing).
 /// 12: `camera_lens` at camera geometry version 6 (Sony's knot table).
 /// 13: `camera_lens` at camera geometry version 7 (Fujifilm's knot table).
-pub const VERSION: u32 = 13;
+/// 14: `frames` (`source_frame::frames`), so that an offline photograph
+/// opens only on previews of its recipe's frame.
+pub const VERSION: u32 = 14;
 
 /// The file facts the rendering of one photograph uses.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]

@@ -51,6 +51,12 @@ pub fn calculate_geometry_hash(adjustments: &serde_json::Value) -> u64 {
             val.to_string().hash(&mut hasher);
         }
     }
+    // The frame of the RAW developed (ADR 0020): a base of another frame is
+    // another base (absent on edits from before it, whose hash stays).
+    if let Some(frame) = adjustments.get(crate::source_frame::KEY) {
+        crate::source_frame::KEY.hash(&mut hasher);
+        frame.to_string().hash(&mut hasher);
+    }
     hash_resampling(adjustments, &mut hasher);
 
     hasher.finish()

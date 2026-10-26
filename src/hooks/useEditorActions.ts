@@ -459,11 +459,18 @@ export async function resetRecipeFor(
   // changes) nothing moves.
   if (!frameUpdateAvailable(image, adjustments)) return reset;
   const shown = requestedSourceFrame(adjustments);
-  const moved = await invoke<MigratedRecipe>(Invokes.MigrateSourceFrame, {
-    path: image.path,
-    adjustments: { ...reset, sourceFrameVersion: shown },
-  });
-  return moved.adjustments;
+  try {
+    const moved = await invoke<MigratedRecipe>(Invokes.MigrateSourceFrame, {
+      path: image.path,
+      adjustments: { ...reset, sourceFrameVersion: shown },
+    });
+    return moved.adjustments;
+  } catch (err) {
+    // The RAW cannot be read now: the reset recipe keeps nothing the frame
+    // moves but the Original aspect ratio, which then shows the frame shown.
+    console.error('Moving the reset recipe to the newest frame failed:', err);
+    return { ...reset, sourceFrameVersion: shown };
+  }
 }
 
 /**
@@ -511,6 +518,28 @@ export async function updateSourceFrameOf(paths?: string[]): Promise<void> {
       ? i18next.t('studio.sourceFrame.confirmPatches', { count: patches })
       : i18next.t('studio.sourceFrame.confirmNoPatches'),
   ].join(' ');
+  /** Updates the closed photographs `paths` in their saved recipes. */
+  const updateClosed = async (paths: string[]) => {
+    let result: { updated: number; hiddenPatches: number } = { updated: 0, hiddenPatches: 0 };
+    const failed: string[] = [];
+    await afterRecipeSaves(paths, () =>
+      invoke<{ updated: number; hiddenPatches: number }>(Invokes.UpdateSourceFrameForPaths, { paths }).then(
+        (answer) => {
+          result = answer;
+        },
+        (err) => {
+          const { message: why, failed: notSaved } = saveFailure(err, paths);
+          failed.push(...notSaved);
+          // The others were written (`SaveFailure` names the failed ones).
+          result = { updated: paths.length - notSaved.length, hiddenPatches: 0 };
+          toast.error(i18next.t('studio.sourceFrame.failed', { error: why }));
+        },
+      ),
+    );
+    const written = paths.filter((path) => !failed.includes(path));
+    written.forEach((path) => unsavedRecipes.delete(path));
+    return { ...result, written };
+  };
   const run = async () => {
     // The photograph open now, which may not be the one open when asked: it
     // is updated as a history step, every other one in its saved recipe.
@@ -519,23 +548,12 @@ export async function updateSourceFrameOf(paths?: string[]): Promise<void> {
     const closed = changing.filter((path) => path !== openNow);
     closed.forEach((path) => globalImageCache.delete(path));
     let hidden = 0;
+    let updated = 0;
     if (closed.length > 0) {
-      const failed: string[] = [];
-      await afterRecipeSaves(closed, () =>
-        invoke<number>(Invokes.UpdateSourceFrameForPaths, { paths: closed }).then(
-          (count) => {
-            hidden += count;
-          },
-          (err) => {
-            const { message: why, failed: notSaved } = saveFailure(err, closed);
-            failed.push(...notSaved);
-            toast.error(i18next.t('studio.sourceFrame.failed', { error: why }));
-          },
-        ),
-      );
-      const updated = closed.filter((path) => !failed.includes(path));
-      updated.forEach((path) => unsavedRecipes.delete(path));
-      if (libraryActivePath && updated.includes(libraryActivePath)
+      const done = await updateClosed(closed);
+      hidden += done.hiddenPatches;
+      updated += done.updated;
+      if (libraryActivePath && done.written.includes(libraryActivePath)
         && useLibraryStore.getState().libraryActivePath === libraryActivePath) {
         const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: libraryActivePath });
         if (useLibraryStore.getState().libraryActivePath === libraryActivePath
@@ -548,23 +566,23 @@ export async function updateSourceFrameOf(paths?: string[]): Promise<void> {
     }
     if (openNow && changing.includes(openNow)) {
       try {
-        // Its own count is told by the step; left meanwhile, it is updated
-        // as a closed photograph.
+        // Its own patches are told by the step; left meanwhile, it is
+        // updated as a closed photograph.
         const step = await updateOpenPhotoFrame(openNow);
-        if (step === null && useEditorStore.getState().selectedImage?.path !== openNow) {
-          await afterRecipeSaves([openNow], () =>
-            invoke<number>(Invokes.UpdateSourceFrameForPaths, { paths: [openNow] }).then((count) => {
-              hidden += count;
-              unsavedRecipes.delete(openNow);
-            }),
-          );
+        if (step !== null) {
+          updated += 1;
+        } else if (useEditorStore.getState().selectedImage?.path !== openNow) {
+          globalImageCache.delete(openNow);
+          const done = await updateClosed([openNow]);
+          hidden += done.hiddenPatches;
+          updated += done.updated;
         }
       } catch (err) {
         toast.error(i18next.t('studio.sourceFrame.failed', { error: String(err) }));
       }
     }
     noteHiddenPatches(hidden);
-    toast.success(i18next.t('studio.sourceFrame.updated', { count: changing.length }));
+    if (updated > 0) toast.success(i18next.t('studio.sourceFrame.updated', { count: updated }));
   };
   useUIStore.getState().setUI({
     confirmModalState: {

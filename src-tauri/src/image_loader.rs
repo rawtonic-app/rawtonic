@@ -626,14 +626,15 @@ const OTHER_VARIANT_OFFLINE: &str = "This copy develops the RAW differently from
 const OTHER_FRAME_OFFLINE: &str = "This photograph's edit uses another frame of the RAW than its stored previews (its frame was updated since they were made); reconnect the RAW to open it";
 
 /// Whether previews made for frame `proxy_frame` can show an offline
-/// photograph whose recipe develops `wanted`: the same frame; any frame for
-/// a never-edited one (`new_recipe`: its new edit takes the previews'
-/// frame); and, when the previews' facts do not record the file's frames
-/// (`known` false: made before frames were recorded, when the file is
-/// framed alike by every version but for a few kinds of files), any frame,
-/// as before.
-fn offline_frame_fits(proxy_frame: u32, wanted: u32, known: bool, new_recipe: bool) -> bool {
-    proxy_frame == wanted || new_recipe || !known
+/// photograph whose recipe develops `wanted`: the same frame, or any frame
+/// for a never-edited one (`new_recipe`: its new edit takes the previews'
+/// frame). Where neither the file nor the previews' facts tell the file's
+/// frames (previews from before they were recorded, of a kind of file a
+/// frame version can change), `wanted` is the recipe's version itself, so
+/// an edit of a newer frame waits for the RAW rather than show its
+/// coordinates on another frame.
+fn offline_frame_fits(proxy_frame: u32, wanted: u32, new_recipe: bool) -> bool {
+    proxy_frame == wanted || new_recipe
 }
 
 const NOT_BAYER: &str = "AI Denoise works on Bayer sensors only; this photograph's sensor (X-Trans, Foveon or a linear DNG) is not supported";
@@ -1390,7 +1391,6 @@ async fn open_offline(
         offline_frame_fits(
             proxy_frame,
             variant.frame,
-            frames.is_some(),
             rawtonic_engine::image_processing::is_new_recipe(&metadata.adjustments),
         )
         .then_some(())
@@ -1509,6 +1509,22 @@ async fn open_offline(
         developed_from_preview: false,
         camera_help: false,
     }))
+}
+
+#[cfg(test)]
+mod offline_frame_tests {
+    use super::offline_frame_fits;
+
+    #[test]
+    fn offline_previews_show_only_their_own_frame_but_to_a_new_edit() {
+        assert!(offline_frame_fits(0, 0, false));
+        assert!(offline_frame_fits(1, 1, false));
+        // An updated edit on previews of the old frame waits for the RAW.
+        assert!(!offline_frame_fits(0, 1, false));
+        assert!(!offline_frame_fits(1, 0, false));
+        // A never-edited photograph takes the previews' frame.
+        assert!(offline_frame_fits(0, 1, true));
+    }
 }
 
 #[cfg(test)]

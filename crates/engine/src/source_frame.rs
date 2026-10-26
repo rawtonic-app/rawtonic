@@ -426,9 +426,12 @@ fn face_retouch_applies(adjustments: &Value) -> bool {
         .is_none_or(|frame| crate::face_retouch::frame_matches(frame, adjustments))
 }
 
-/// Face retouch is kept in the mask frame shown in the photo's geometry:
-/// each face moves with its box's centre (its crop map, box and blemishes),
-/// faces of another geometry (not applied) are left as they are.
+/// Face retouch is kept in the mask frame shown in the photo's geometry
+/// (faces of another geometry, not applied, are left as they are): each
+/// blemish moves on its own; the crop map (weights' pixels to the mask
+/// frame, affine) is fitted again through three points of the weights
+/// carried over (the warp's change is smooth at the scale of a face), and
+/// the box, the eye distance with it.
 fn move_face_retouch(out: &mut Value, map: &FrameMap, geometry: SourceGeometry) {
     let Some(faces) = out
         .get_mut("faceRetouch")
@@ -437,38 +440,59 @@ fn move_face_retouch(out: &mut Value, map: &FrameMap, geometry: SourceGeometry) 
     else {
         return;
     };
+    let shown = |p: (f64, f64)| map.shown(geometry, p);
+    let num = |v: &Value| v.as_f64();
     for face in faces {
-        let b: Vec<f64> = face["box"]
+        let crop: Option<Vec<f64>> = face["crop"]
             .as_array()
-            .map(|b| b.iter().filter_map(Value::as_f64).collect())
-            .unwrap_or_default();
-        let centre = match b.as_slice() {
-            [x, y, w, h, ..] => (x + w / 2.0, y + h / 2.0),
-            _ => match face["crop"]
-                .as_array()
-                .map(|c| c.iter().filter_map(Value::as_f64).collect::<Vec<_>>())
-            {
-                Some(c) if c.len() == 6 => (c[2], c[5]),
-                _ => continue,
-            },
-        };
-        let moved = map.shown(geometry, centre);
-        let (dx, dy) = (moved.0 - centre.0, moved.1 - centre.1);
-        if let Some(c) = face.get_mut("crop").and_then(Value::as_array_mut)
-            && c.len() == 6
-        {
-            c[2] = json!(c[2].as_f64().unwrap_or(0.0) + dx);
-            c[5] = json!(c[5].as_f64().unwrap_or(0.0) + dy);
+            .and_then(|c| c.iter().map(num).collect::<Option<Vec<f64>>>())
+            .filter(|c| c.len() == 6);
+        let size = face["size"].as_f64().filter(|s| *s > 0.0).unwrap_or(1.0);
+        if let Some(c) = crop {
+            let at = |u: f64, v: f64| (c[0] * u + c[1] * v + c[2], c[3] * u + c[4] * v + c[5]);
+            let o = shown(at(0.0, 0.0));
+            let pu = shown(at(size, 0.0));
+            let pv = shown(at(0.0, size));
+            let fitted = [
+                (pu.0 - o.0) / size,
+                (pv.0 - o.0) / size,
+                o.0,
+                (pu.1 - o.1) / size,
+                (pv.1 - o.1) / size,
+                o.1,
+            ];
+            if fitted.iter().all(|v| v.is_finite()) {
+                let scale = ((fitted[0] * fitted[4] - fitted[1] * fitted[3]).abs()
+                    / (c[0] * c[4] - c[1] * c[3]).abs().max(1e-12))
+                .sqrt();
+                face["crop"] = json!(fitted);
+                if let Some(d) = face["eyeDistance"].as_f64() {
+                    face["eyeDistance"] = json!(d * scale);
+                }
+            }
         }
-        if let Some(bx) = face.get_mut("box").and_then(Value::as_array_mut)
-            && bx.len() >= 2
-        {
-            bx[0] = json!(bx[0].as_f64().unwrap_or(0.0) + dx);
-            bx[1] = json!(bx[1].as_f64().unwrap_or(0.0) + dy);
+        let b: Option<Vec<f64>> = face["box"]
+            .as_array()
+            .and_then(|b| b.iter().map(num).collect::<Option<Vec<f64>>>())
+            .filter(|b| b.len() == 4);
+        if let Some(b) = b {
+            let corners = [
+                shown((b[0], b[1])),
+                shown((b[0] + b[2], b[1])),
+                shown((b[0], b[1] + b[3])),
+                shown((b[0] + b[2], b[1] + b[3])),
+            ];
+            let (x0, x1) = corners
+                .iter()
+                .fold((f64::MAX, f64::MIN), |(a, z), p| (a.min(p.0), z.max(p.0)));
+            let (y0, y1) = corners
+                .iter()
+                .fold((f64::MAX, f64::MIN), |(a, z), p| (a.min(p.1), z.max(p.1)));
+            face["box"] = json!([x0, y0, x1 - x0, y1 - y0]);
         }
         if let Some(blemishes) = face.get_mut("blemishes").and_then(Value::as_array_mut) {
             for blemish in blemishes {
-                move_pair(blemish, "x", "y", &|(x, y)| (x + dx, y + dy));
+                move_pair(blemish, "x", "y", &shown);
             }
         }
     }
@@ -979,6 +1003,20 @@ mod tests {
             let frame = out["faceRetouch"]["frame"].as_str().unwrap();
             assert!(crate::face_retouch::frame_matches(frame, &out), "{stamp}");
             assert_ne!(out["faceRetouch"]["faces"][0]["box"][0], 280.0);
+            // Each blemish moves on its own, as a spot at its place does.
+            assert_eq!(
+                out["faceRetouch"]["faces"][0]["blemishes"][0]["x"],
+                out["spots"][0]["x"]
+            );
+            assert_eq!(
+                out["faceRetouch"]["faces"][0]["blemishes"][0]["y"],
+                out["spots"][0]["y"]
+            );
+            // The crop map carries the weights' corner where the warp puts it.
+            let crop = &out["faceRetouch"]["faces"][0]["crop"];
+            let mapped = FrameMap::between(change, &recipe, &out)
+                .shown(SourceGeometry::default(), (280.0, 40.0));
+            assert!((crop[2].as_f64().unwrap() - mapped.0).abs() < 1e-9);
         }
     }
 

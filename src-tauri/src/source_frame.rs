@@ -13,21 +13,47 @@ use crate::file_management::parse_virtual_path;
 /// `to`, its coordinates carried over (`migrate`); the warp the coordinates
 /// are shown through is the recipe's with its lens correction filled in, as
 /// renders fill it in. A new recipe (never edited) is left as it is: it
-/// already develops the newest frame.
-pub fn migrated(source: &Path, adjustments: &Value, to: u32) -> Migrated {
+/// already develops the newest frame. Fails, changing nothing, when the
+/// RAW's frames or lens correction cannot be read (never a new key over
+/// coordinates that were not moved).
+pub fn migrated(source: &Path, adjustments: &Value, to: u32) -> Result<Migrated, String> {
     if rawtonic_engine::image_processing::is_new_recipe(adjustments) {
-        return Migrated {
+        return Ok(Migrated {
             adjustments: adjustments.clone(),
             hidden_patches: 0,
-        };
+        });
     }
     let source_str = source.to_string_lossy();
-    let change = change(&source_str, requested(adjustments), to);
-    let mut warp = adjustments.clone();
-    if change.is_some() {
-        let _ = rawtonic_export::exif_processing::prepare_recipe_lens(&mut warp, source);
+    let unreadable = || format!("The frames of {source_str} cannot be read");
+    let from = requested(adjustments);
+    let frames = rawtonic_engine::source_frame::frames(&source_str).ok_or_else(unreadable)?;
+    let frame_of = |v: u32| frames.get(v as usize).or(frames.last()).copied();
+    if frame_of(from) == frame_of(to) {
+        return Ok(migrate(adjustments, None, adjustments, to));
     }
-    migrate(adjustments, change.as_ref(), &warp, to)
+    let change = change(&source_str, from, to).ok_or_else(unreadable)?;
+    let mut warp = adjustments.clone();
+    rawtonic_export::exif_processing::prepare_recipe_lens(&mut warp, source)?;
+    Ok(migrate(adjustments, Some(&change), &warp, to))
+}
+
+/// After the frame of the photo at `path` changed: the stored previews of
+/// its RAW stand for its master recipe's decode, so when that is the one
+/// updated they show the old frame and go (the photo shows the new one once
+/// it is decoded; offline it is not shown on the wrong frame). A virtual
+/// copy's update leaves its master's previews.
+pub fn forget_previews_of(path: &str) {
+    if path.contains("?vc=") {
+        return;
+    }
+    let (source, _) = parse_virtual_path(path);
+    crate::preview_proxy::discard_source(
+        &source,
+        &[
+            crate::preview_proxy::ProxyKind::Standard,
+            crate::preview_proxy::ProxyKind::Full,
+        ],
+    );
 }
 
 /// What "Update frame" would do to one photo.
@@ -123,12 +149,38 @@ pub async fn migrate_source_frame(
 ) -> Result<MigratedRecipe, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let (source, _) = parse_virtual_path(&path);
-        let moved = migrated(&source, &adjustments, to.unwrap_or(VERSION).min(VERSION));
-        MigratedRecipe {
+        let moved = migrated(&source, &adjustments, to.unwrap_or(VERSION).min(VERSION))?;
+        Ok(MigratedRecipe {
             adjustments: moved.adjustments,
             hidden_patches: moved.hidden_patches,
-        }
+        })
     })
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A frame that cannot be read is never taken for an unchanged one: the
+    /// recipe is not moved and keeps its key.
+    #[test]
+    fn an_unreadable_raw_is_not_migrated() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("A.CR3");
+        assert!(migrated(&missing, &json!({"exposure": 1}), VERSION).is_err());
+        let garbage = dir.path().join("B.CR3");
+        std::fs::write(&garbage, b"not a raw").unwrap();
+        assert!(migrated(&garbage, &json!({"exposure": 1}), VERSION).is_err());
+        // Files no frame version changes need not be read: only the key.
+        let moved = migrated(&dir.path().join("C.NEF"), &json!({"exposure": 1}), VERSION).unwrap();
+        assert_eq!(moved.adjustments, json!({"exposure": 1, KEY: VERSION}));
+        // A never-edited recipe already develops the newest frame.
+        assert_eq!(
+            migrated(&missing, &json!({}), VERSION).unwrap().adjustments,
+            json!({})
+        );
+    }
 }

@@ -561,17 +561,29 @@ pub async fn reset_adjustments_for_paths(
     .await
 }
 
+/// What "Update frame" did to the closed photos it was asked for.
+#[derive(serde::Serialize, Debug, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+pub struct FrameUpdate {
+    /// Recipes moved to the newest frame.
+    pub updated: usize,
+    /// AI patches hidden for regeneration.
+    pub hidden_patches: usize,
+}
+
 /// "Update frame" for closed photos (ADR 0020): each recipe whose frame
 /// the newest frame version changes is moved to it, its coordinates carried
-/// over (`source_frame::migrated`); the others are left as they are. The
-/// open photo is updated by the editor instead (one history step).
-/// Returns how many AI patches were hidden for regeneration.
+/// over (`source_frame::migrated`; a photo whose RAW or lens data cannot be
+/// read is not written and counts as failed); the others are left as they
+/// are. Their stored previews of the old frame go. The open photo is
+/// updated by the editor instead (one history step).
 #[tauri::command]
 pub async fn update_source_frame_for_paths(
     paths: Vec<String>,
     app_handle: AppHandle,
-) -> Result<usize, SaveFailure> {
-    let hidden = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+) -> Result<FrameUpdate, SaveFailure> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let hidden = std::sync::Arc::new(AtomicUsize::new(0));
     let counted = hidden.clone();
     let changing: Vec<String> = paths
         .into_iter()
@@ -584,11 +596,17 @@ pub async fn update_source_frame_for_paths(
             .changes
         })
         .collect();
-    if changing.is_empty() {
-        return Ok(0);
+    let total = changing.len();
+    if total == 0 {
+        return Ok(FrameUpdate {
+            updated: 0,
+            hidden_patches: 0,
+        });
     }
-    save_then_regenerate(app_handle, changing, move |app_handle, paths| {
-        edit_sidecars(
+    let written = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let done = written.clone();
+    let result = save_then_regenerate(app_handle, changing, move |app_handle, paths| {
+        let failed = edit_sidecars(
             paths,
             xmp_sync(app_handle),
             |_, source_path, sidecar_path| {
@@ -597,15 +615,27 @@ pub async fn update_source_frame_for_paths(
                     source_path,
                     &metadata.adjustments,
                     crate::source_frame::VERSION,
-                );
-                counted.fetch_add(moved.hidden_patches, std::sync::atomic::Ordering::SeqCst);
+                )?;
+                counted.fetch_add(moved.hidden_patches, Ordering::SeqCst);
                 metadata.adjustments = moved.adjustments;
                 Ok(metadata)
             },
-        )
+        );
+        let mut done = done.lock().unwrap_or_else(|e| e.into_inner());
+        for path in paths
+            .iter()
+            .filter(|p| !failed.iter().any(|(f, _)| f == *p))
+        {
+            crate::source_frame::forget_previews_of(path);
+            done.push(path.clone());
+        }
+        failed
     })
-    .await?;
-    Ok(hidden.load(std::sync::atomic::Ordering::SeqCst))
+    .await;
+    result.map(|()| FrameUpdate {
+        updated: written.lock().unwrap_or_else(|e| e.into_inner()).len(),
+        hidden_patches: hidden.load(Ordering::SeqCst),
+    })
 }
 
 #[tauri::command]

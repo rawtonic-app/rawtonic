@@ -31,7 +31,7 @@ import i18next from 'i18next';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), info: vi.fn(), success: vi.fn(), warn: vi.fn() } }));
 
-type Pending = { command: string; resolve(value: unknown): void; settled?: boolean };
+type Pending = { command: string; resolve(value: unknown): void; reject?(reason: unknown): void; settled?: boolean };
 let pending: Pending[];
 const photo = (path: string, isReady = true) => ({
   path, isReady, isRaw: true, width: 4000, height: 3000, exif: {}, thumbnailUrl: '',
@@ -50,7 +50,7 @@ const finish = async (command: string, value: unknown) => {
 
 beforeEach(() => {
   pending = [];
-  vi.mocked(invoke).mockImplementation((command) => new Promise((resolve) => pending.push({ command, resolve })));
+  vi.mocked(invoke).mockImplementation((command) => new Promise((resolve, reject) => pending.push({ command, resolve, reject })));
   select('/first.dng');
   useEditorStore.setState({ copiedAdjustments: { ...INITIAL_ADJUSTMENTS, exposure: 3 } });
   useSettingsStore.setState({ appSettings: {
@@ -294,6 +294,7 @@ describe('Update frame and Reset adopt the newest frame of the RAW (ADR 0020)', 
 
   it('updates the photograph open when asked as a closed one when another is open by the time it is confirmed', async () => {
     openR5Crop();
+    const said = vi.spyOn(i18next, 't');
     useLibraryStore.setState({ multiSelectedPaths: ['/first.cr3', '/b.cr3'] });
     let asked: Promise<void> | undefined;
     act(() => {
@@ -310,7 +311,8 @@ describe('Update frame and Reset adopt the newest frame of the RAW (ADR 0020)', 
     expect(vi.mocked(invoke).mock.calls.find(([command]) => command === Invokes.UpdateSourceFrameForPaths)?.[1]).toEqual({
       paths: ['/first.cr3', '/b.cr3'],
     });
-    await finish(Invokes.UpdateSourceFrameForPaths, 0);
+    await finish(Invokes.UpdateSourceFrameForPaths, { updated: 2, hiddenPatches: 0 });
+    expect(said).toHaveBeenCalledWith('studio.sourceFrame.updated', { count: 2 });
     expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).not.toContain(Invokes.MigrateSourceFrame);
     expect(useEditorStore.getState().selectedImage?.path).toBe('/second.dng');
   });
@@ -364,13 +366,35 @@ describe('Update frame and Reset adopt the newest frame of the RAW (ADR 0020)', 
     expect(vi.mocked(invoke).mock.calls.find(([command]) => command === Invokes.UpdateSourceFrameForPaths)?.[1]).toEqual({
       paths: ['/b.cr3'],
     });
-    await finish(Invokes.UpdateSourceFrameForPaths, 2);
+    await finish(Invokes.UpdateSourceFrameForPaths, { updated: 1, hiddenPatches: 2 });
     expect(vi.mocked(invoke).mock.calls.at(-1)?.[0]).toBe(Invokes.MigrateSourceFrame);
     const moved = { ...open, sourceFrameVersion: 1 };
     await finish(Invokes.MigrateSourceFrame, { adjustments: moved, hiddenPatches: 0 });
     expect(useEditorStore.getState().adjustments).toBe(moved);
     expect(useEditorStore.getState().history).toEqual([open, moved]);
     expect(toast.warn).toHaveBeenCalled();
+    expect(said).toHaveBeenCalledWith('studio.sourceFrame.updated', { count: 2 });
+  });
+
+  it('announces no update when every photograph of the batch failed', async () => {
+    openR5Crop();
+    const said = vi.spyOn(i18next, 't');
+    useLibraryStore.setState({ multiSelectedPaths: ['/b.cr3'] });
+    let asked: Promise<void> | undefined;
+    act(() => {
+      asked = updateSourceFrameOf();
+    });
+    await finish(Invokes.SourceFrameStatus, [
+      { path: '/b.cr3', changes: true, from: [4970, 3392], to: [5088, 3392], hiddenPatches: 0 },
+    ]);
+    await asked;
+    act(() => useUIStore.getState().confirmModalState.onConfirm?.());
+    await act(async () => {});
+    const request = pending.find((r) => !r.settled && r.command === Invokes.UpdateSourceFrameForPaths)!;
+    request.settled = true;
+    vi.mocked(invoke).mockClear();
+    await act(async () => request.reject?.({ message: 'cannot read', failed: ['/b.cr3'] }));
+    expect(said).not.toHaveBeenCalledWith('studio.sourceFrame.updated', expect.anything());
   });
 });
 
