@@ -3530,13 +3530,13 @@ pub struct GpuProcessor {
     high_precision_shader: wgpu::ShaderModule,
     high_precision_layout: wgpu::PipelineLayout,
     high_precision_bgl: wgpu::BindGroupLayout,
-    high_precision_pipeline: BackgroundPipeline,
+    high_precision_pipeline: std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>,
     high_precision_tile: std::sync::OnceLock<HighPrecisionTile>,
     /// [`MainOutput::Deferred`]: specialized variants by features, the
     /// general pipeline, and the tile the main pass writes.
     deferred_export_pipelines:
         [std::sync::OnceLock<Option<wgpu::ComputePipeline>>; PREVIEW_PIPELINE_COUNT],
-    deferred_pipeline: std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>,
+    deferred_pipeline: BackgroundPipeline,
     deferred_tile: std::sync::OnceLock<HighPrecisionTile>,
     /// `encode_deferred` into an 8-bit and a high-precision output tile.
     encode_bgls: [wgpu::BindGroupLayout; 2],
@@ -5522,20 +5522,22 @@ impl GpuProcessor {
                 "override HIGH_PRECISION_OUTPUT: u32 = 1u;",
             ),
         )?;
-        let high_precision_pipeline = BackgroundPipeline::compile(device, &start_gate, {
+        // CPU-readback exports encode in their own pass (`render_window`).
+        let deferred_pipeline = BackgroundPipeline::compile(device, &start_gate, {
             let module = high_precision_shader.clone();
             let layout = high_precision_pipeline_layout.clone();
             move |device| {
                 create_compute_pipeline(
                     device,
                     &wgpu::ComputePipelineDescriptor {
-                        label: Some("High Precision Compute Pipeline"),
+                        label: Some("Compute Pipeline (deferred output)"),
                         layout: Some(&layout),
                         module: &module,
                         entry_point: Some("main"),
                         compilation_options: wgpu::PipelineCompilationOptions {
                             constants: &[
                                 ("HIGH_PRECISION_OUTPUT", 1.0),
+                                ("DEFER_OUTPUT", 1.0),
                                 ("EDGE_NR", 0.0),
                                 ("LUMA_PROFILE", 0.0),
                             ],
@@ -5703,10 +5705,10 @@ impl GpuProcessor {
             high_precision_shader,
             high_precision_layout: high_precision_pipeline_layout,
             high_precision_bgl,
-            high_precision_pipeline,
+            high_precision_pipeline: std::sync::OnceLock::new(),
             high_precision_tile: std::sync::OnceLock::new(),
             deferred_export_pipelines: std::array::from_fn(|_| std::sync::OnceLock::new()),
-            deferred_pipeline: std::sync::OnceLock::new(),
+            deferred_pipeline,
             deferred_tile: std::sync::OnceLock::new(),
             encode_bgls: [encode_bgl, high_precision_encode_bgl],
             encode_pipelines: Default::default(),
@@ -6908,18 +6910,18 @@ impl GpuProcessor {
     fn plain_pipeline(&self, output: MainOutput) -> Result<&wgpu::ComputePipeline, String> {
         match output {
             MainOutput::EightBit => self.main_pipeline.wait(),
-            MainOutput::SixteenBit => self.high_precision_pipeline.wait(),
-            MainOutput::Deferred => self
-                .deferred_pipeline
+            MainOutput::SixteenBit => self
+                .high_precision_pipeline
                 .get_or_init(|| {
                     self.compile_general(
-                        "Compute Pipeline (deferred output)",
+                        "High Precision Compute Pipeline",
                         output,
                         &[("EDGE_NR", 0.0), ("LUMA_PROFILE", 0.0)],
                     )
                 })
                 .as_ref()
                 .map_err(Clone::clone),
+            MainOutput::Deferred => self.deferred_pipeline.wait(),
         }
     }
 
@@ -7245,6 +7247,24 @@ impl GpuProcessor {
             );
         }
 
+        // A CPU-readback export encodes its output in its own pass, as the
+        // outputs of one render for several do, so both give the same bytes
+        // on every backend (NVIDIA compiled the gamut mapping inside `main`
+        // differently from `encode_deferred`).
+        let own_output;
+        let outputs = if outputs.is_empty()
+            && !output_to_display
+            && readback_shader == ReadbackShader::Export
+        {
+            own_output = [RenderOutput {
+                precision: output_precision,
+                output_space: request.adjustments.global.output_space,
+                output_matrix: request.adjustments.global.output_matrix,
+            }];
+            &own_output[..]
+        } else {
+            outputs
+        };
         let deferred = !outputs.is_empty();
         if deferred && (output_to_display || readback_shader != ReadbackShader::Export) {
             return Err("Several outputs of one render are only made for exports.".to_string());

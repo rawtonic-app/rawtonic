@@ -581,7 +581,7 @@ fn failed_export_variant_uses_the_general_pipeline() {
         processor
             .export_pipeline(&adjustments, MainOutput::SixteenBit)
             .unwrap(),
-        processor.high_precision_pipeline.wait().unwrap()
+        processor.plain_pipeline(MainOutput::SixteenBit).unwrap()
     ));
 }
 
