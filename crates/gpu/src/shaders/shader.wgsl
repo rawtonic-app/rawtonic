@@ -1017,6 +1017,7 @@ const FILM_LEVELS: u32 = 12u;
 const FILM_WORDS: u32 = 6u;
 const FILM_U_MAX: f32 = 0.95;
 const FILM_MIPS: u32 = 10u;
+const FILM_MIP_BIAS: f32 = 0.5;
 // Tile texels per pixel = this (12-bit fixed point) times the portable
 // grain's lattice cells per pixel, so the grain keeps its size relative to
 // the image (Size).
@@ -1035,7 +1036,7 @@ const FILM_PRINT_SLOPE: f32 = 6.4;
 const FILM_FOG_MID: f32 = 0.9;
 const FILM_DMAX: f32 = 2.4;
 // Amount (grain_amount = slider / 200) to the density scale of the grain.
-const FILM_GAIN: f32 = 0.314;
+const FILM_GAIN: f32 = 0.26;
 
 // Words before mip `j` of the tile.
 fn film_mip_offset(j: u32) -> u32 {
@@ -1084,7 +1085,9 @@ fn film_sample_mip(pi: vec2<u32>, pf: vec2<u32>, j: u32, k0: i32, w: f32) -> f32
 // The tile read over a pixel's footprint: `s_q` texels per pixel (12-bit
 // fixed point) picks the mips, trilinear between them.
 fn film_sample(pi: vec2<u32>, pf: vec2<u32>, s_q: u32, k0: i32, w: f32) -> f32 {
-    let m = max(log2(f32(s_q) * (1.0 / 4096.0)), 0.0);
+    // Bilinear reads of a box-filtered mip blur about half a level more
+    // than the footprint: half a level finer matches a box over the pixel.
+    let m = max(log2(f32(s_q) * (1.0 / 4096.0)) - FILM_MIP_BIAS, 0.0);
     let j = min(u32(floor(m)), FILM_MIPS - 1u);
     let wm = select(m - floor(m), 0.0, j >= FILM_MIPS - 1u);
     var v = film_sample_mip(pi, pf, j, k0, w);
@@ -1098,8 +1101,10 @@ fn film_sample(pi: vec2<u32>, pf: vec2<u32>, s_q: u32, k0: i32, w: f32) -> f32 {
 // three randomly shifted copies blended on a triangle grid with their
 // variance kept (`seed` keeps the fields independent).
 fn film_field(coord: vec2<u32>, s_q: u32, seed: u32, k0: i32, w: f32) -> f32 {
-    let pi = coord * (s_q >> 12u) + ((coord * (s_q & 4095u)) >> vec2<u32>(12u));
-    let pf = (coord * (s_q & 4095u)) & vec2<u32>(4095u);
+    // The pixel's centre, (coord + 0.5) × s, in 12-bit fixed point.
+    let low = coord * (s_q & 4095u) + vec2<u32>((s_q >> 1u) & 4095u);
+    let pi = coord * (s_q >> 12u) + vec2<u32>(s_q >> 13u) + (low >> vec2<u32>(12u));
+    let pf = low & vec2<u32>(4095u);
     let q = (vec2<f32>(pi) + vec2<f32>(pf) * (1.0 / 4096.0)) / FILM_BLEND_CELL;
     let sk = vec2<f32>(q.x - q.y * 0.57735027, q.y * 1.15470054);
     let cell = floor(sk);

@@ -13751,6 +13751,87 @@ mod portable_grain_reference {
 }
 
 #[test]
+#[ignore = "requires a native GPU adapter"]
+fn film_grain_at_half_size_is_the_full_size_grain_scaled_down() {
+    // A flat mid-grey at full and at half size: film grain (`grainVersion`
+    // 3) reads the tile over each pixel's footprint, so the half-size
+    // render's grain has the strength and the pattern of the full-size
+    // grain averaged over 2 × 2 pixels (what a preview shows of an export).
+    let render = |width: u32, height: u32, profile: serde_json::Value| {
+        let grey = f16::from_f32(0.18);
+        let data: Vec<f16> = (0..width * height)
+            .flat_map(|_| [grey, grey, grey, f16::ONE])
+            .collect();
+        let context = context();
+        let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+        let view = input_from(&context, width, height, &data);
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments: get_all_adjustments_from_json(&profile, true, Some(1)),
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels,
+            _ => unreachable!(),
+        }
+    };
+    let (width, height) = (1024u32, 768u32);
+    for (size, roughness, colour) in [(25.0, 50.0, 0.0), (60.0, 75.0, 40.0), (10.0, 0.0, 0.0)] {
+        let recipe = json!({"grainAmount": 50, "grainSize": size, "grainRoughness": roughness,
+            "grainColor": colour, "grainVersion": 3});
+        let grain = |w: u32, h: u32| -> Vec<f64> {
+            let flat = render(w, h, json!({}));
+            let pixels = render(w, h, recipe.clone());
+            (0..(w * h) as usize)
+                .map(|i| pixels[i * 4 + 1] as f64 - flat[i * 4 + 1] as f64)
+                .collect()
+        };
+        let full = grain(width, height);
+        let half = grain(width / 2, height / 2);
+        let (w2, h2) = ((width / 2) as usize, (height / 2) as usize);
+        let scaled: Vec<f64> = (0..w2 * h2)
+            .map(|i| {
+                let (x, y) = (i % w2 * 2, i / w2 * 2);
+                let at = |x: usize, y: usize| full[y * width as usize + x];
+                (at(x, y) + at(x + 1, y) + at(x, y + 1) + at(x + 1, y + 1)) / 4.0
+            })
+            .collect();
+        let sd = |v: &[f64]| {
+            let m = v.iter().sum::<f64>() / v.len() as f64;
+            (v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / v.len() as f64).sqrt()
+        };
+        let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+        let (a, b) = (sd(&scaled), sd(&half));
+        let correlation = scaled
+            .iter()
+            .zip(&half)
+            .map(|(x, y)| (x - mean(&scaled)) * (y - mean(&half)))
+            .sum::<f64>()
+            / (a * b * half.len() as f64);
+        println!(
+            "size {size} roughness {roughness} colour {colour}: full {:.0}, full scaled down {a:.0}, half {b:.0}, correlation {correlation:.2}",
+            sd(&full)
+        );
+        assert!(sd(&full) > 500.0, "no grain");
+        assert!((b / a - 1.0).abs() < 0.15, "half {b:.0} vs scaled {a:.0}");
+        // The pattern too (Metal 2026-10-26: 0.81 / 0.93 / 0.51); grain far
+        // below a pixel (Size 10 here, ~70 texels per pixel) keeps less of
+        // its pattern across mips, its strength matches all the same.
+        assert!(correlation > 0.45, "correlation {correlation:.2}");
+    }
+}
+
+#[test]
 #[ignore = "requires a native GPU; compares the portable grain with its CPU evaluation"]
 fn portable_grain_is_the_same_on_every_gpu() {
     // A flat mid-grey: the grain is the only change, with one strength
