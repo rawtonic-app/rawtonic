@@ -1810,6 +1810,7 @@ pub fn build_single_mask_adjustments(
         relight_surface: all.relight_surface.clone(),
         relight_patterns: all.relight_patterns.clone(),
         whole_blur_radius: all.whole_blur_radius,
+        specialized_export: all.specialized_export,
         curve_table: all.curve_table.clone(),
     }
 }

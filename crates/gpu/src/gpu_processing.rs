@@ -221,6 +221,9 @@ impl ChromaPipelines {
             "Colour Noise Pyramid Shader",
             include_str!("shaders/color_noise_pyramid.wgsl"),
         )?;
+        // The workgroup tiles are filled whole before they are read; naga's
+        // zero fill of them (one invocation writes every element while the
+        // others wait at a barrier) only cost time.
         let pipeline_of = |module: &wgpu::ShaderModule, entry: &str| {
             create_compute_pipeline(
                 device,
@@ -229,7 +232,10 @@ impl ChromaPipelines {
                     layout: None,
                     module,
                     entry_point: Some(entry),
-                    compilation_options: Default::default(),
+                    compilation_options: wgpu::PipelineCompilationOptions {
+                        zero_initialize_workgroup_memory: false,
+                        ..Default::default()
+                    },
                     cache: None,
                 },
             )
@@ -6852,19 +6858,28 @@ impl GpuProcessor {
     /// this result.
     fn export_pipeline(
         &self,
-        adjustments: &AllAdjustments,
+        adjustments: &crate::image_processing::PreparedAdjustments,
         output: MainOutput,
     ) -> Result<&wgpu::ComputePipeline, String> {
-        let features = export_features(adjustments);
-        // Metal may reassociate active neighbourhood operations when unrelated
-        // branches are removed. Their full general pipeline preserves exact
-        // 8/16-bit exports; specialize only recipes without those operations.
         // Curve tables have no specialized export variant.
-        if features & ((1 << 0) | (1 << 1) | (1 << 4)) != 0
-            || adjustments.global.region_curve_active[1] != 0
-        {
+        if adjustments.global.region_curve_active[1] != 0 {
             return self.general_pipeline(adjustments, output);
         }
+        // From `renderVersion` 5 the variant of the recipe's own features,
+        // as display frames take (`SPECIALIZED_EXPORT_RENDER_VERSION`).
+        let features = if adjustments.specialized_export {
+            preview_features(adjustments)
+        } else {
+            // Metal may reassociate active neighbourhood operations when
+            // unrelated branches are removed. Their full general pipeline
+            // keeps older recipes' exports exact; specialize only those
+            // without these operations.
+            let features = export_features(adjustments);
+            if features & ((1 << 0) | (1 << 1) | (1 << 4)) != 0 {
+                return self.general_pipeline(adjustments, output);
+            }
+            features
+        };
         let pipelines = match output {
             MainOutput::EightBit => &self.export_pipelines,
             MainOutput::SixteenBit => &self.high_precision_export_pipelines,
@@ -6893,6 +6908,8 @@ impl GpuProcessor {
             .as_ref()
         {
             Some(pipeline) => Ok(pipeline),
+            // The general pipeline with the noise passes the recipe needs.
+            None if adjustments.specialized_export => self.general_pipeline(adjustments, output),
             None => self.plain_pipeline(output),
         }
     }

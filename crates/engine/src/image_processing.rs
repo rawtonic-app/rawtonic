@@ -3748,6 +3748,10 @@ pub struct PreparedAdjustments {
     /// The blurs read their whole radius at tile edges (`renderVersion` 2);
     /// before, the large blur stopped at the tiles' 128-pixel overlap.
     pub whole_blur_radius: bool,
+    /// Exports render with the main shader specialized for the recipe's
+    /// features (`SPECIALIZED_EXPORT_RENDER_VERSION`); before, recipes with
+    /// sharpening, highlights or noise reduction used the general shader.
+    pub specialized_export: bool,
     /// The global point curves sampled (point_curve.rs) when a channel has
     /// more than 16 points; `global.region_curve_active[1]` is 1 then.
     pub curve_table: Option<std::sync::Arc<Vec<[f32; 4]>>>,
@@ -3773,6 +3777,7 @@ impl From<AllAdjustments> for PreparedAdjustments {
             relight_surface,
             relight_patterns,
             whole_blur_radius: false,
+            specialized_export: false,
             curve_table: None,
         }
     }
@@ -5103,14 +5108,26 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// than its adjacent samples of the other colours, so thin dark lines keep
 /// their colour (`image_loader::DecodeVariant`, hot_pixels.rs). 4
 /// (2026-10-25) turns colours outside the output space back to their own
-/// hue after clipping them (`GAMUT_MAPPING_RENDER_VERSION`).
+/// hue after clipping them (`GAMUT_MAPPING_RENDER_VERSION`). 5 (2026-10-26)
+/// exports with the shader variant specialized for the recipe's features
+/// (`SPECIALIZED_EXPORT_RENDER_VERSION`).
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 4;
+pub const RENDER_VERSION: u64 = 5;
 
 /// The render version from which colours outside the output space keep
 /// their hue (`GlobalAdjustments::gamut_mapping`; notes:
 /// parity-gaps/G01-base-profiles.md).
 pub const GAMUT_MAPPING_RENDER_VERSION: u64 = 4;
+
+/// The render version from which exports render with the main shader
+/// specialized for the recipe's features, as display frames do, also with
+/// sharpening, highlights or noise reduction
+/// (`PreparedAdjustments::specialized_export`). Before, those recipes
+/// exported with the general shader: the same develop, but without the
+/// specialization's dead-code removal the compiler rounds a few values
+/// differently (16-bit: at most 104 of 65535 on 2.3 % of samples) and
+/// renders it 2.3 × slower (notes: parity-gaps/G43-export-recipes.md).
+pub const SPECIALIZED_EXPORT_RENDER_VERSION: u64 = 5;
 
 /// The recipe's render pipeline version, 1 when missing, never newer than
 /// this renderer knows.
@@ -5470,6 +5487,7 @@ pub fn get_all_adjustments_with_masks(
         relight_surface,
         relight_patterns,
         whole_blur_radius: version >= 2,
+        specialized_export: version >= SPECIALIZED_EXPORT_RENDER_VERSION,
         curve_table,
         uniforms: AllAdjustments {
             global,

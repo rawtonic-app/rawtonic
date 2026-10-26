@@ -4563,6 +4563,8 @@ fn export_specialization_preserves_general_pixels() {
         json!({}),
         json!({"exposure":0.75,"brightness":0.1,"contrast":20}),
         json!({"sharpness":45,"shadows":35}),
+        // The last render version with general-shader exports.
+        json!({"sharpness":45,"lumaNoiseReduction":20,"highlights":-30,"renderVersion":4}),
         // The tone-order guards' extra gains: Shadows/Blacks lowering and
         // raising together, Whites lowering, Contrast both ways.
         json!({"shadows":-60,"blacks":-40}),
@@ -4665,6 +4667,124 @@ fn export_specialization_preserves_general_pixels() {
         "CPU output must not allocate full-image display targets"
     );
     println!("{comparisons} exact 8/16-bit specialized export comparisons passed");
+}
+
+/// From `renderVersion` 5 exports render with the variant specialized for
+/// the recipe's features (the display's), also with sharpening, highlights
+/// and noise reduction: the general shader's develop within rounding.
+#[test]
+#[ignore = "requires a native GPU; renderVersion 5 exports against the general shader"]
+fn version_5_exports_render_their_specialized_variant_within_rounding() {
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), 2304, 256).unwrap();
+    let profiles = [
+        json!({}),
+        json!({"sharpness":40,"lumaNoiseReduction":15,"colorNoiseReduction":25}),
+        json!({"sharpness":60,"sharpnessThreshold":20,"highlights":-60,"shadows":40}),
+        json!({"lumaNoiseReduction":40,"colorNoiseReduction":50,"exposure":0.5}),
+        json!({"highlights":-80,"whites":30,"contrast":25,"curves":custom_curve()}),
+        local_profile(json!({"sharpness":30,"highlights":-20,"lumaNoiseReduction":15})),
+    ];
+    let mut worst = [(0u32, 0usize, 0usize); 2];
+    for (width, height) in [(127, 93), (2176, 64)] {
+        let view = input(&context, width, height, 17);
+        let mask = masked(ImageBuffer::from_fn(width, height, |x, y| {
+            Luma([((x * 3 + y * 7) % 256) as u8])
+        }));
+        for (raw, tonemapper) in [(true, 3), (true, 1), (false, 0)] {
+            for profile in &profiles {
+                let mut recipe = profile.clone();
+                recipe["renderVersion"] = json!(5);
+                let mut adjustments = get_all_adjustments_from_json(&recipe, raw, Some(tonemapper));
+                assert!(adjustments.specialized_export);
+                if raw && tonemapper == 3 {
+                    adjustments.global.profile_curve[15][3] = 2.0;
+                }
+                let features = preview_features(&adjustments);
+                assert!(std::ptr::eq(
+                    processor
+                        .export_pipeline(&adjustments, MainOutput::Deferred)
+                        .unwrap(),
+                    processor.deferred_export_pipelines[features]
+                        .get()
+                        .unwrap()
+                        .as_ref()
+                        .unwrap()
+                ));
+                let masks = if adjustments.mask_count > 0 {
+                    std::slice::from_ref(&mask)
+                } else {
+                    &[]
+                };
+                for (slot, precision) in [
+                    RenderOutputPrecision::EightBit,
+                    RenderOutputPrecision::SixteenBit,
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    let render = |general| {
+                        processor
+                            .force_general_pipeline
+                            .store(general, Ordering::Relaxed);
+                        let (pixels, ..) = processor
+                            .run(
+                                &view,
+                                width,
+                                height,
+                                RenderRequest {
+                                    adjustments: adjustments.clone(),
+                                    mask_bitmaps: masks,
+                                    lut: None,
+                                    roi: None,
+                                },
+                                false,
+                                precision,
+                            )
+                            .unwrap();
+                        match pixels {
+                            RenderedPixels::U8(bytes) => {
+                                bytes.into_iter().map(u32::from).collect::<Vec<_>>()
+                            }
+                            RenderedPixels::U16(words) => {
+                                words.into_iter().map(u32::from).collect::<Vec<_>>()
+                            }
+                        }
+                    };
+                    let (general, specialized) = (render(true), render(false));
+                    let differences: Vec<u32> = general
+                        .iter()
+                        .zip(&specialized)
+                        .map(|(a, b)| a.abs_diff(*b))
+                        .collect();
+                    let max = differences.iter().copied().max().unwrap_or(0);
+                    let beyond_one = differences.iter().filter(|&&d| d > 1).count();
+                    let entry = &mut worst[slot];
+                    if max > entry.0 {
+                        entry.0 = max;
+                    }
+                    if beyond_one * entry.2.max(1) > entry.1 * differences.len() {
+                        (entry.1, entry.2) = (beyond_one, differences.len());
+                    }
+                    // 8-bit: one level; 16-bit: under one 8-bit level, on a
+                    // few samples (rounding where the variant drops code).
+                    let limit = [1, 256][slot];
+                    assert!(
+                        max <= limit && beyond_one * 100 <= differences.len(),
+                        "raw={raw}, mapper={tonemapper}, precision={precision:?}, profile={profile}: max {max}, {beyond_one} of {} more than one code apart",
+                        differences.len()
+                    );
+                }
+            }
+        }
+    }
+    processor
+        .force_general_pipeline
+        .store(false, Ordering::Relaxed);
+    println!(
+        "renderVersion 5 vs general: 8-bit max {} ({} of {} more than one level), 16-bit max {} ({} of {} more than one code)",
+        worst[0].0, worst[0].1, worst[0].2, worst[1].0, worst[1].1, worst[1].2
+    );
 }
 
 #[test]
