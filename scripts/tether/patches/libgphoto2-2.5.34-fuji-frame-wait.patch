@@ -1,0 +1,15 @@
+--- a/camlibs/ptp2/library.c
++++ b/camlibs/ptp2/library.c
+@@ -3956,7 +3956,11 @@
+ 			C_PTP_REP (ret);
+ 		}
+ 
+-		tries = 5;
++		/* The next frame is there at the camera's frame rate, the first one
++		 * after InitiateOpenCapture later: wait for it up to 0.5 seconds
++		 * (5 tries, 25 ms, failed whenever a frame was asked for sooner
++		 * than that after the last one). */
++		tries = 100;
+ 		while (tries--) {
+ 			ret = ptp_getobjectinfo (params, preview_object, &oi);
+ 			if (ret == PTP_RC_OK) {

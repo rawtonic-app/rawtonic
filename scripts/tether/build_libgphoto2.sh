@@ -18,6 +18,10 @@
 # Usage: scripts/tether/build_libgphoto2.sh [PREFIX]   (default target/gphoto2)
 # GPHOTO2_ARCH=x86_64 (macOS only) builds for that architecture instead of
 # the machine's (the Intel app on Apple Silicon).
+# GPHOTO2_PATCHES="FILE …" applies those patches to libgphoto2's sources
+# first (scripts/tether/patches/: drafts tested only on the virtual camera,
+# for A/B runs on a body; no release build uses them until a body confirmed
+# them — and a release that does attaches them to its LGPL sources).
 # Sources are cached in target/gphoto2-src. The build is skipped when PREFIX
 # already holds this exact build (its stamp file).
 set -euo pipefail
@@ -58,6 +62,14 @@ case "$(uname -s)" in
     sha256() { sha256sum "$1" | cut -d' ' -f1; }
     ;;
 esac
+
+read -r -a GIVEN <<< "${GPHOTO2_PATCHES:-}"
+PATCHES=()
+for patch in ${GIVEN[@]+"${GIVEN[@]}"}; do
+  patch=$(cd "$(dirname "$patch")" && pwd)/$(basename "$patch")
+  PATCHES+=("$patch")
+  STAMP="$STAMP patch-$(sha256 "$patch" | cut -c1-16)"
+done
 
 if [ -f "$PREFIX/.rawtonic-build" ] && [ "$(cat "$PREFIX/.rawtonic-build")" = "$STAMP" ]; then
   echo "libgphoto2: $PREFIX is up to date"
@@ -101,6 +113,9 @@ tar -xJf "$SRC/$LIBTOOL.tar.xz" -C "$BUILD"
   make -j"$JOBS" >/dev/null && make install >/dev/null)
 
 tar -xjf "$SRC/$GPHOTO.tar.bz2" -C "$BUILD"
+for patch in ${PATCHES[@]+"${PATCHES[@]}"}; do
+  (cd "$BUILD/$GPHOTO" && patch -s -p1 < "$patch")
+done
 (cd "$BUILD/$GPHOTO" && ./configure --prefix="$PREFIX" --disable-static --disable-nls \
   --with-camlibs=ptp2 --without-libexif --without-jpeg --with-libxml-2.0=no --with-libcurl=no \
   --with-gdlib=no --with-libtiff-4=no --without-libusb "${USB[@]}" --disable-serial --disable-disk --disable-ptpip \

@@ -1,0 +1,18 @@
+--- a/camlibs/ptp2/library.c
++++ b/camlibs/ptp2/library.c
+@@ -7248,7 +7248,14 @@
+ 				goto handleregular;
+ 			}
+ 			free_array (&handles);
+-			C_PTP_REP (ptp_check_event(params));
++			/* As in the generic and Sony paths: with less than 0.1 seconds
++			 * left only look at the queued events. ptp_check_event reads
++			 * the interrupt endpoint with the fast timeout, twice, so a
++			 * short wait (e.g. between live view frames) took up to 300 ms. */
++			if (time_since(event_start) > timeout-100)
++				C_PTP_REP (ptp_check_event_queue(params));
++			else
++				C_PTP_REP (ptp_check_event(params));
+ 		} while (waiting_for_timeout (&back_off_wait, event_start, timeout));
+ 		*eventtype = GP_EVENT_TIMEOUT;
+ 		return GP_OK;

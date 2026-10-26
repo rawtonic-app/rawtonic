@@ -1,0 +1,377 @@
+--- a/libgphoto2_port/vusb/vcamera.c
++++ b/libgphoto2_port/vusb/vcamera.c
+@@ -255,6 +255,8 @@
+ static int ptp_initiatecapture_write(vcamera *cam, ptpcontainer *ptp);
+ static int ptp_vusb_write(vcamera *cam, ptpcontainer *ptp);
+ static int ptp_nikon_setcontrolmode_write(vcamera *cam, ptpcontainer *ptp);
++static int ptp_fuji_initiateopencapture_write(vcamera *cam, ptpcontainer *ptp);
++static int ptp_fuji_terminateopencapture_write(vcamera *cam, ptpcontainer *ptp);
+ 
+ static struct ptp_function {
+ 	int	code;
+@@ -283,6 +285,11 @@
+ 	{0x90c2,	ptp_nikon_setcontrolmode_write, NULL			},
+ };
+ 
++static struct ptp_function ptp_functions_fuji[] = {
++	{0x101c,	ptp_fuji_initiateopencapture_write, NULL		},
++	{0x1018,	ptp_fuji_terminateopencapture_write, NULL		},
++};
++
+ static struct ptp_map_functions {
+ 	vcameratype		type;
+ 	struct ptp_function	*functions;
+@@ -290,6 +297,7 @@
+ } ptp_functions[] = {
+ 	{GENERIC_PTP,	ptp_functions_generic,		sizeof(ptp_functions_generic)/sizeof(ptp_functions_generic[0])},
+ 	{NIKON_D750,	ptp_functions_nikon_dslr,	sizeof(ptp_functions_nikon_dslr)/sizeof(ptp_functions_nikon_dslr[0])},
++	{FUJI_XH2S,	ptp_functions_fuji,		sizeof(ptp_functions_fuji)/sizeof(ptp_functions_fuji[0])},
+ };
+ 
+ typedef union _PTPPropValue {
+@@ -392,6 +400,14 @@
+ static int ptp_exposurebias_getvalue(vcamera*,PTPPropValue*);
+ static int ptp_exposurebias_setvalue(vcamera*,PTPPropValue*);
+ 
++static int ptp_fuji_priority_getdesc(vcamera*,PTPDevicePropDesc*);
++static int ptp_fuji_priority_getvalue(vcamera*,PTPPropValue*);
++static int ptp_fuji_priority_setvalue(vcamera*,PTPPropValue*);
++static int ptp_fuji_currentstate_getdesc(vcamera*,PTPDevicePropDesc*);
++static int ptp_fuji_currentstate_getvalue(vcamera*,PTPPropValue*);
++static int ptp_fuji_pcmode_getdesc(vcamera*,PTPDevicePropDesc*);
++static int ptp_fuji_pcmode_getvalue(vcamera*,PTPPropValue*);
++static int ptp_fuji_pcmode_setvalue(vcamera*,PTPPropValue*);
+ static struct ptp_property {
+ 	int	code;
+ 	int	(*getdesc )(vcamera *cam, PTPDevicePropDesc*);
+@@ -404,6 +420,10 @@
+ 	{0x5010,	ptp_exposurebias_getdesc, ptp_exposurebias_getvalue, ptp_exposurebias_setvalue },
+ 	{0x500d,	ptp_shutterspeed_getdesc, ptp_shutterspeed_getvalue, ptp_shutterspeed_setvalue },
+ 	{0x5011,	ptp_datetime_getdesc, ptp_datetime_getvalue, ptp_datetime_setvalue },
++	/* FUJI_XH2S only (not listed for the others) */
++	{0xd207,	ptp_fuji_priority_getdesc, ptp_fuji_priority_getvalue, ptp_fuji_priority_setvalue },
++	{0xd212,	ptp_fuji_currentstate_getdesc, ptp_fuji_currentstate_getvalue, NULL },
++	{0xd38c,	ptp_fuji_pcmode_getdesc, ptp_fuji_pcmode_getvalue, ptp_fuji_pcmode_setvalue },
+ };
+ 
+ struct ptp_dirent {
+@@ -582,6 +602,10 @@
+ 		x += put_32bit_le(data+x,0xa);		/* VendorExtensionID */
+ 		x += put_16bit_le(data+x,100);		/* VendorExtensionVersion */
+ 		break;
++	case FUJI_XH2S:
++		x += put_32bit_le(data+x,0xe);		/* VendorExtensionID */
++		x += put_16bit_le(data+x,100);		/* VendorExtensionVersion */
++		break;
+ 	default:
+ 		x += put_32bit_le(data+x,0);		/* VendorExtensionID */
+ 		x += put_16bit_le(data+x,0);		/* VendorExtensionVersion */
+@@ -622,9 +646,11 @@
+ 	x += put_16bit_le_array(data+x,events,sizeof(events)/sizeof(events[0]));	/* Events */
+ 
+ 	devprops = malloc(sizeof(ptp_properties)/sizeof(ptp_properties[0])*sizeof(uint16_t));
++	cnt = 0;
+ 	for (i=0;i<sizeof(ptp_properties)/sizeof(ptp_properties[0]);i++)
+-		devprops[i] = ptp_properties[i].code;
+-	x += put_16bit_le_array(data+x,devprops,sizeof(ptp_properties)/sizeof(ptp_properties[0]));/* DeviceProps */
++		if ((cam->type == FUJI_XH2S) || (ptp_properties[i].code < 0xd000))
++			devprops[cnt++] = ptp_properties[i].code;
++	x += put_16bit_le_array(data+x,devprops,cnt);/* DeviceProps */
+ 	free (devprops);
+ 
+ 	imageformats[0] = 0x3801;
+@@ -633,8 +659,8 @@
+ 	imageformats[0] = 0x3801;
+ 	x += put_16bit_le_array(data+x,imageformats,1);	/* ImageFormats */
+ 
+-	x += put_string(data+x,"GP");	/* Manufacturer */
+-	x += put_string(data+x,"VC");	/* Model */
++	x += put_string(data+x,cam->type == FUJI_XH2S ? "FUJIFILM" : "GP");	/* Manufacturer */
++	x += put_string(data+x,cam->type == FUJI_XH2S ? "X-H2S" : "VC");	/* Model */
+ 	x += put_string(data+x,"2.5.11");/* DeviceVersion */
+ 	x += put_string(data+x,"0.1");	/* DeviceVersion */
+ 	x += put_string(data+x,"1");	/* SerialNumber */
+@@ -863,6 +889,198 @@
+ 	return 1;
+ }
+ 
++
++/**************************  Fujifilm USB tether live view ********************************/
++/* A Fujifilm body in USB tether mode serves live view as object 0x80000001
++ * once InitiateOpenCapture opened it: GetObjectInfo answers InvalidObjectHandle
++ * until the next frame is ready, GetObject hands it over, DeleteObject frees it.
++ * VCAMERA_FUJI_FRAME_MS sets the camera's frame interval (default 33 ms). */
++static int
++fuji_frame_ms(void) {
++	const char *ms = getenv("VCAMERA_FUJI_FRAME_MS");
++	return ms ? atoi(ms) : 33;
++}
++
++static void
++fuji_next_frame(vcamera *cam) {
++	struct timeval now;
++	int ms = fuji_frame_ms();
++
++	gettimeofday (&now, NULL);
++	now.tv_usec += (ms % 1000) * 1000;
++	now.tv_sec += ms / 1000 + now.tv_usec / 1000000;
++	now.tv_usec %= 1000000;
++	cam->fuji_frame_ready = now;
++}
++
++static int
++fuji_frame_is_ready(vcamera *cam) {
++	struct timeval now;
++
++	gettimeofday (&now, NULL);
++	return cam->fuji_liveview &&
++		((now.tv_sec > cam->fuji_frame_ready.tv_sec) ||
++		 ((now.tv_sec == cam->fuji_frame_ready.tv_sec) && (now.tv_usec >= cam->fuji_frame_ready.tv_usec)));
++}
++
++static int
++ptp_fuji_initiateopencapture_write(vcamera *cam, ptpcontainer *ptp) {
++	CHECK_SEQUENCE_NUMBER();
++	CHECK_SESSION();
++	if (cam->fuji_liveview) {
++		ptp_response(cam,0x2019,0);	/* DeviceBusy */
++		return 1;
++	}
++	cam->fuji_liveview = 1;
++	fuji_next_frame(cam);
++	ptp_response(cam,PTP_RC_OK,0);
++	return 1;
++}
++
++static int
++ptp_fuji_terminateopencapture_write(vcamera *cam, ptpcontainer *ptp) {
++	CHECK_SEQUENCE_NUMBER();
++	CHECK_SESSION();
++	cam->fuji_liveview = 0;
++	ptp_response(cam,PTP_RC_OK,0);
++	return 1;
++}
++
++#define FUJI_FRAME_BYTES 40000
++
++static int
++ptp_fuji_liveview_objectinfo(vcamera *cam, ptpcontainer *ptp) {
++	unsigned char	*data;
++	int		x = 0;
++
++	if (!fuji_frame_is_ready(cam)) {
++		ptp_response(cam,PTP_RC_InvalidObjectHandle,0);
++		return 1;
++	}
++	data = malloc(2000);
++	x += put_32bit_le (data+x, 0x00010001);	/* StorageID */
++	x += put_16bit_le (data+x, 0x3801);	/* ObjectFormat: JPEG */
++	x += put_16bit_le (data+x, 0);		/* ProtectionStatus */
++	x += put_32bit_le (data+x, FUJI_FRAME_BYTES); /* ObjectSize */
++	x += put_16bit_le (data+x, 0);		/* ThumbFormat */
++	x += put_32bit_le (data+x, 0);		/* ThumbSize */
++	x += put_32bit_le (data+x, 0);		/* ThumbPixWidth */
++	x += put_32bit_le (data+x, 0);		/* ThumbPixHeight */
++	x += put_32bit_le (data+x, 640);	/* ImagePixWidth */
++	x += put_32bit_le (data+x, 480);	/* ImagePixHeight */
++	x += put_32bit_le (data+x, 0);		/* ImageBitDepth */
++	x += put_32bit_le (data+x, 0);		/* ParentObject */
++	x += put_16bit_le (data+x, 0);		/* AssociationType */
++	x += put_32bit_le (data+x, 0);		/* AssociationDesc */
++	x += put_32bit_le (data+x, 0);		/* SequenceNumber */
++	x += put_string (data+x, "LIVEVIEW.JPG");
++	x += put_string (data+x, "20261026T120000");
++	x += put_string (data+x, "20261026T120000");
++	x += put_string (data+x, "");
++	ptp_senddata (cam, 0x1008, data, x);
++	free (data);
++	ptp_response(cam,PTP_RC_OK,0);
++	return 1;
++}
++
++static int
++ptp_fuji_liveview_getobject(vcamera *cam, ptpcontainer *ptp) {
++	unsigned char	*data;
++
++	if (!fuji_frame_is_ready(cam)) {
++		ptp_response(cam,PTP_RC_InvalidObjectHandle,0);
++		return 1;
++	}
++	data = calloc(1, FUJI_FRAME_BYTES);
++	data[0] = 0xff; data[1] = 0xd8;
++	data[FUJI_FRAME_BYTES-2] = 0xff; data[FUJI_FRAME_BYTES-1] = 0xd9;
++	ptp_senddata (cam, 0x1009, data, FUJI_FRAME_BYTES);
++	free (data);
++	ptp_response(cam,PTP_RC_OK,0);
++	return 1;
++}
++
++static int
++ptp_fuji_liveview_delete(vcamera *cam, ptpcontainer *ptp) {
++	if (!cam->fuji_liveview) {
++		ptp_response(cam,PTP_RC_InvalidObjectHandle,0);
++		return 1;
++	}
++	fuji_next_frame(cam);
++	ptp_response(cam,PTP_RC_OK,0);
++	return 1;
++}
++
++static int
++ptp_fuji_priority_getdesc (vcamera* cam, PTPDevicePropDesc *desc) {
++	desc->DevicePropCode		= 0xd207;
++	desc->DataType			= 4;	/* uint16 */
++	desc->GetSet			= 1;
++	desc->DefaultValue.u16		= 1;
++	desc->CurrentValue.u16		= cam->fuji_priority ? cam->fuji_priority : 1;
++	desc->FormFlag			= 0x02; /* enum */
++	desc->FORM.Enum.NumberOfValues	= 2;
++	desc->FORM.Enum.SupportedValue	= malloc(2*sizeof(desc->FORM.Enum.SupportedValue[0]));
++	desc->FORM.Enum.SupportedValue[0].u16 = 1;	/* Camera */
++	desc->FORM.Enum.SupportedValue[1].u16 = 2;	/* USB */
++	return 1;
++}
++
++static int
++ptp_fuji_priority_getvalue (vcamera* cam, PTPPropValue *val) {
++	val->u16 = cam->fuji_priority ? cam->fuji_priority : 1;
++	return 1;
++}
++
++static int
++ptp_fuji_priority_setvalue (vcamera* cam, PTPPropValue *val) {
++	cam->fuji_priority = val->u16;
++	return 1;
++}
++
++static int
++ptp_fuji_currentstate_getdesc (vcamera* cam, PTPDevicePropDesc *desc) {
++	desc->DevicePropCode		= 0xd212;
++	desc->DataType			= 4;	/* uint16 */
++	desc->GetSet			= 0;
++	desc->DefaultValue.u16		= 0;
++	desc->CurrentValue.u16		= 0;
++	desc->FormFlag			= 0;
++	return 1;
++}
++
++static int
++ptp_fuji_currentstate_getvalue (vcamera* cam, PTPPropValue *val) {
++	val->u16 = 0;
++	return 1;
++}
++
++/* PC mode (0xd38c), set by libgphoto2 when it prepares capturing */
++static uint16_t fuji_pcmode = 0;
++
++static int
++ptp_fuji_pcmode_getdesc (vcamera* cam, PTPDevicePropDesc *desc) {
++	desc->DevicePropCode		= 0xd38c;
++	desc->DataType			= 4;	/* uint16 */
++	desc->GetSet			= 1;
++	desc->DefaultValue.u16		= 0;
++	desc->CurrentValue.u16		= fuji_pcmode;
++	desc->FormFlag			= 0;
++	return 1;
++}
++
++static int
++ptp_fuji_pcmode_getvalue (vcamera* cam, PTPPropValue *val) {
++	val->u16 = fuji_pcmode;
++	return 1;
++}
++
++static int
++ptp_fuji_pcmode_setvalue (vcamera* cam, PTPPropValue *val) {
++	fuji_pcmode = val->u16;
++	return 1;
++}
++
+ static int
+ ptp_getobjectinfo_write(vcamera *cam, ptpcontainer *ptp) {
+ 	struct ptp_dirent	*cur;
+@@ -879,6 +1097,9 @@
+ 	CHECK_SESSION();
+ 	CHECK_PARAM_COUNT(1);
+ 
++	if ((cam->type == FUJI_XH2S) && (ptp->params[0] == 0x80000001))
++		return ptp_fuji_liveview_objectinfo(cam, ptp);
++
+ 	cur = first_dirent;
+ 	while (cur) {
+ 		if (cur->id == ptp->params[0])
+@@ -1006,6 +1227,9 @@
+ 	CHECK_SESSION();
+ 	CHECK_PARAM_COUNT(1);
+ 
++	if ((cam->type == FUJI_XH2S) && (ptp->params[0] == 0x80000001))
++		return ptp_fuji_liveview_getobject(cam, ptp);
++
+ 	cur = first_dirent;
+ 	while (cur) {
+ 		if (cur->id == ptp->params[0]) break;
+@@ -1188,6 +1412,8 @@
+ 		ptp_response (cam, PTP_RC_InvalidParameter, 0);
+ 		return 1;
+ 	}
++	if ((cam->type == FUJI_XH2S) && (ptp->params[0] == 0x80000001))
++		return ptp_fuji_liveview_delete(cam, ptp);
+ 	if (ptp->params[0] == 0xffffffff) { /* delete all mode */
+ 		gp_log (GP_LOG_DEBUG, __FUNCTION__, "delete all");
+ 		cur = first_dirent;
+--- a/libgphoto2_port/vusb/vcamera.h
++++ b/libgphoto2_port/vusb/vcamera.h
+@@ -26,6 +26,7 @@
+ #define FUZZ_PTP
+ 
+ #include <stdio.h>
++#include <sys/time.h>
+ 
+ typedef struct ptpcontainer {
+ 	unsigned int size;
+@@ -38,7 +39,8 @@
+ 
+ typedef enum vcameratype {
+ 	GENERIC_PTP,
+-	NIKON_D750
++	NIKON_D750,
++	FUJI_XH2S	/* Fujifilm USB tether live view, for Rawtonic's tests */
+ } vcameratype;
+ 
+ typedef struct vcamera {
+@@ -68,6 +70,12 @@
+ 	unsigned int	shutterspeed;
+ 	unsigned int	fnumber;
+ 
++	/* FUJI_XH2S: priority mode (0xd207), open capture (live view) and when
++	 * its next frame (object 0x80000001) is ready */
++	unsigned int	fuji_priority;
++	int		fuji_liveview;
++	struct timeval	fuji_frame_ready;
++
+ #ifdef FUZZING
+ 	int		fuzzmode;
+ #define FUZZMODE_PROTOCOL	0
+--- a/libgphoto2_port/vusb/vusb.c
++++ b/libgphoto2_port/vusb/vusb.c
+@@ -99,7 +99,7 @@
+ 	gp_log(GP_LOG_DEBUG,__FUNCTION__,"()");
+ 	C_MEM (dev->pl = calloc (1, sizeof (GPPortPrivateLibrary)));
+ 
+-	dev->pl->vcamera = vcamera_new(NIKON_D750);
++	dev->pl->vcamera = vcamera_new((getenv("VCAMERA_TYPE") && !strcmp(getenv("VCAMERA_TYPE"), "fuji")) ? FUJI_XH2S : NIKON_D750);
+ 	dev->pl->vcamera->init(dev->pl->vcamera);
+ 
+ 	return GP_OK;
+@@ -287,7 +287,10 @@
+ gp_port_vusb_find_device_lib(GPPort *port, int idvendor, int idproduct)
+ {
+ #ifdef FUZZ_PTP
+-	if ((idvendor == 0x04b0) && (idproduct == 0x0437)) { /* Nikon D750 */
++	if (	(getenv("VCAMERA_TYPE") && !strcmp(getenv("VCAMERA_TYPE"), "fuji"))
++		? ((idvendor == 0x04cb) && (idproduct == 0x02f0)) /* Fujifilm X-H2S */
++		: ((idvendor == 0x04b0) && (idproduct == 0x0437)) /* Nikon D750 */
++	) {
+ #else
+ 	GPPortInfo info;
+ 	char	*path, *s;
