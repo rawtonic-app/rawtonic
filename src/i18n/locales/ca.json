@@ -2222,6 +2222,7 @@
         "output": "Sortida"
       },
       "effects": {
+        "grainColor": "Color del gra",
         "grainStructure": "Estructura del gra",
         "grainStructures": {
           "clumped": "Agrupat",

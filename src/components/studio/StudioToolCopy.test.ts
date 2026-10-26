@@ -45,7 +45,7 @@ describe('Tool copy of LUT', () => {
 describe('Detail copy groups', () => {
   it('keeps grain settings in the Detail copy, sync and preset group', () => {
     const grain = ADJUSTMENT_GROUPS.details.find(group => group.label === 'modals.copyPaste.groups.grain');
-    expect(grain?.keys).toEqual(['grainAmount', 'grainRoughness', 'grainSize', 'grainStructure', 'grainVersion']);
+    expect(grain?.keys).toEqual(['grainAmount', 'grainRoughness', 'grainSize', 'grainStructure', 'grainColor', 'grainVersion']);
     expect(ADJUSTMENT_GROUPS.effects.some(group => group.label === 'modals.copyPaste.groups.grain')).toBe(false);
   });
 });

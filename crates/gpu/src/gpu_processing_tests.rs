@@ -2443,6 +2443,81 @@ fn luma_noise_version_timing_probe() {
 }
 
 #[test]
+#[ignore = "native GPU timing probe; compares no grain, portable grain and film grain"]
+fn grain_version_timing_probe() {
+    let context = context();
+    // Warm display frames at preview size and full-resolution 16-bit
+    // readbacks; the variants alternate within one process and Amount moves
+    // a little every frame.
+    let variants = [
+        ("none", json!({})),
+        (
+            "v2_clumped",
+            json!({"grainStructure": "clumped", "grainVersion": 2}),
+        ),
+        (
+            "v2_gritty",
+            json!({"grainStructure": "gritty", "grainVersion": 2, "grainSize": 60, "grainRoughness": 75}),
+        ),
+        ("v3_mono", json!({"grainVersion": 3})),
+        ("v3_colour", json!({"grainVersion": 3, "grainColor": 40})),
+        (
+            "v3_mono_r0",
+            json!({"grainVersion": 3, "grainRoughness": 0}),
+        ),
+    ];
+    for (width, height, display, frames) in [(2304, 1728, true, 24), (6000, 4000, false, 6)] {
+        let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+        let view = input(&context, width, height, 3);
+        let mut times = vec![Vec::new(); variants.len()];
+        for frame in 0..frames + 2 {
+            for (i, (name, extra)) in variants.iter().enumerate() {
+                let mut profile = extra.clone();
+                if *name != "none" {
+                    profile["grainAmount"] = json!(50.0 + 0.01 * frame as f64);
+                }
+                let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+                let start = Instant::now();
+                processor
+                    .run(
+                        &view,
+                        width,
+                        height,
+                        RenderRequest {
+                            adjustments,
+                            mask_bitmaps: &[],
+                            lut: None,
+                            roi: None,
+                        },
+                        display,
+                        if display {
+                            RenderOutputPrecision::EightBit
+                        } else {
+                            RenderOutputPrecision::SixteenBit
+                        },
+                    )
+                    .unwrap();
+                context
+                    .device
+                    .poll(wgpu::PollType::wait_indefinitely())
+                    .unwrap();
+                if frame >= 2 {
+                    times[i].push(start.elapsed().as_secs_f64() * 1000.0);
+                }
+            }
+        }
+        for (i, (name, _)) in variants.iter().enumerate() {
+            let t = &mut times[i];
+            t.sort_by(f64::total_cmp);
+            println!(
+                "{}",
+                json!({"size":format!("{width}x{height}"),"variant":name,"median_ms":t[t.len() / 2],"min_ms":t[0],"frames":frames})
+            );
+        }
+    }
+}
+
+#[test]
 #[ignore = "native GPU timing probe; compares sharpening responses 1 and 2"]
 fn sharpen_version_timing_probe() {
     let context = context();

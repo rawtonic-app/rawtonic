@@ -2282,6 +2282,7 @@
         "output": "Wyjście"
       },
       "effects": {
+        "grainColor": "Kolor ziarna",
         "grainStructure": "Struktura ziarna",
         "grainStructures": {
           "clumped": "Zbita",

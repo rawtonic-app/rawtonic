@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER, withGrainStructure, type Adjustments, type MaskContainer } from './adjustments';
+import { GRAIN_VERSION, INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER, withGrainStructure, type Adjustments, type MaskContainer } from './adjustments';
 import { Mask } from '../components/panel/right/Masks';
 import {
   RESPONSE_KEYS,
@@ -146,7 +146,7 @@ describe('Copy/Sync of grain', () => {
     expect(chosenSettings(source, [...grain.keys, 'grainVersion'], []).grainVersion).toBe(2);
     // A never-edited destination gets a new edit's grain; an edited one keeps its own.
     const fresh = pasteInto(null, applied, { samePhoto: false, replaceLayers: false, newEdit: newEditResponses().raw })!;
-    expect(fresh.grainVersion).toBe(2);
+    expect(fresh.grainVersion).toBe(GRAIN_VERSION);
     const old = { ...INITIAL_ADJUSTMENTS, grainAmount: 10, grainVersion: 1 } as Adjustments;
     expect(pasteInto(old, applied, { samePhoto: false, replaceLayers: false })!.grainVersion).toBe(1);
   });

@@ -2162,6 +2162,7 @@
         "output": "Ausgabe"
       },
       "effects": {
+        "grainColor": "Kornfarbe",
         "grainStructure": "Kornstruktur",
         "grainStructures": {
           "clumped": "Klumpig",

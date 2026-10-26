@@ -2124,6 +2124,7 @@
         "output": "출력"
       },
       "effects": {
+        "grainColor": "그레인 색상",
         "grainStructure": "그레인 구조",
         "grainStructures": {
           "clumped": "뭉침",

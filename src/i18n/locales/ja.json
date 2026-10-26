@@ -2124,6 +2124,7 @@
         "output": "出力"
       },
       "effects": {
+        "grainColor": "粒子の色",
         "grainStructure": "粒子の構造",
         "grainStructures": {
           "clumped": "凝集",

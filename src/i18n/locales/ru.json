@@ -2282,6 +2282,7 @@
         "output": "Выход"
       },
       "effects": {
+        "grainColor": "Цвет зерна",
         "grainStructure": "Структура зерна",
         "grainStructures": {
           "clumped": "Комковатая",

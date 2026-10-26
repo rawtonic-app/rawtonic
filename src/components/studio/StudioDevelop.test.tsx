@@ -15,7 +15,7 @@ import { useEditorStore } from "../../store/useEditorStore";
 import { useUIStore } from "../../store/useUIStore";
 import { useProcessStore } from "../../store/useProcessStore";
 import { debouncedSetHistory, useEditorActions } from "../../hooks/useEditorActions";
-import { COLOR_NOISE_VERSION, INITIAL_ADJUSTMENTS, normalizeLoadedAdjustments } from "../../utils/adjustments";
+import { COLOR_NOISE_VERSION, GRAIN_VERSION, INITIAL_ADJUSTMENTS, normalizeLoadedAdjustments } from "../../utils/adjustments";
 import { Panel, type AppSettings, type SelectedImage } from "../ui/AppProperties";
 import { Mask, SubMaskMode } from "../panel/right/Masks";
 import { useSettingsStore } from "../../store/useSettingsStore";
@@ -264,12 +264,11 @@ describe("Develop tool contracts", () => {
     openGroups();
     edit("Size", 70);
     edit("Grain", 40);
-    const structure = screen.getByRole("combobox", { name: "Grain structure" }) as HTMLSelectElement;
-    // Grain turned on in a new edit starts as Clumped.
-    expect(structure.value).toBe("clumped");
-    expect(useEditorStore.getState().adjustments.grainStructure).toBe("clumped");
-    fireEvent.change(structure, { target: { value: "gritty" } });
-    expect(useEditorStore.getState().adjustments.grainStructure).toBe("gritty");
+    // A new edit's grain is film grain: Colour instead of a structure.
+    expect(useEditorStore.getState().adjustments.grainVersion).toBe(GRAIN_VERSION);
+    expect(screen.queryByRole("combobox", { name: "Grain structure" })).toBeNull();
+    edit("Grain colour", 30);
+    expect(useEditorStore.getState().adjustments.grainColor).toBe(30);
     fireEvent.click(screen.getByRole("button", { name: "Reset Grain" }));
     const a = useEditorStore.getState().adjustments;
     expect([
@@ -278,11 +277,23 @@ describe("Develop tool contracts", () => {
       a.vignetteFeather,
       a.grainAmount,
       a.grainSize,
-      a.grainStructure,
+      a.grainColor,
     ]).toEqual([0, 50, 50, 0, 25, undefined]);
-    // After a reset, grain turned on again starts as a new edit's.
-    edit("Grain", 30);
-    expect(useEditorStore.getState().adjustments.grainStructure).toBe("clumped");
+  });
+
+  it("keeps the structure choice for grain made before film grain", () => {
+    useEditorStore.setState({ adjustments: {
+      ...structuredClone(INITIAL_ADJUSTMENTS), grainAmount: 30, grainStructure: "clumped", grainVersion: 2,
+    } });
+    mount();
+    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "Detail" }));
+    openGroups();
+    expect(screen.queryByRole("slider", { name: "Grain colour" })).toBeNull();
+    const structure = screen.getByRole("combobox", { name: "Grain structure" }) as HTMLSelectElement;
+    expect(structure.value).toBe("clumped");
+    fireEvent.change(structure, { target: { value: "gritty" } });
+    expect(useEditorStore.getState().adjustments.grainStructure).toBe("gritty");
+    expect(useEditorStore.getState().adjustments.grainVersion).toBe(2);
   });
 
   it("copies and resets each effect tool independently and exposes the saved master bypass", () => {

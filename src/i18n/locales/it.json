@@ -2222,6 +2222,7 @@
         "output": "Output"
       },
       "effects": {
+        "grainColor": "Colore della grana",
         "grainStructure": "Struttura della grana",
         "grainStructures": {
           "clumped": "Aggregata",

@@ -3608,6 +3608,10 @@ pub struct GpuProcessor {
     dummy_lut_sampler: wgpu::Sampler,
     /// The shaper stage's buffer for LUTs without one (no curve).
     no_lut_shaper: wgpu::Buffer,
+    /// Film grain's tile (`grainVersion` 3, rawtonic_engine::film_grain),
+    /// made the first time a recipe needs it; `no_film_grain` stands in.
+    film_grain_tile: std::sync::OnceLock<wgpu::Buffer>,
+    no_film_grain: wgpu::Buffer,
     ping_pong_view: wgpu::TextureView,
 
     pub tile_output_texture: wgpu::Texture,
@@ -5431,6 +5435,7 @@ impl GpuProcessor {
 
         bind_group_layout_entries.push(storage_entry(24, true));
         bind_group_layout_entries.push(storage_entry(26, true));
+        bind_group_layout_entries.push(storage_entry(27, true));
 
         let main_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Main BGL"),
@@ -5626,6 +5631,12 @@ impl GpuProcessor {
             usage: wgpu::BufferUsages::STORAGE,
         });
 
+        let no_film_grain = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Film grain tile (none)"),
+            contents: bytemuck::cast_slice(&[0u32; 4]),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
+
         let clamped_tile_width = max_width.min(TILE_SIZE + TILE_OVERLAP * 2);
         let clamped_tile_height = max_height.min(TILE_SIZE + TILE_OVERLAP * 2);
 
@@ -5766,6 +5777,8 @@ impl GpuProcessor {
             dummy_lut_view,
             dummy_lut_sampler,
             no_lut_shaper,
+            film_grain_tile: std::sync::OnceLock::new(),
+            no_film_grain,
             ping_pong_view,
             tile_output_texture,
             tile_output_texture_view,
@@ -7512,6 +7525,19 @@ impl GpuProcessor {
                 })
             });
         let lut_shaper = lut_shaper.as_ref().unwrap_or(&self.no_lut_shaper);
+        let film_grain = if request.adjustments.uniforms.global.grain_version >= 3
+            && request.adjustments.uniforms.global.grain_amount > 0.0
+        {
+            self.film_grain_tile.get_or_init(|| {
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Film grain tile"),
+                    contents: bytemuck::cast_slice(&rawtonic_engine::film_grain::grain_tile()),
+                    usage: wgpu::BufferUsages::STORAGE,
+                })
+            })
+        } else {
+            &self.no_film_grain
+        };
 
         let adjustments = request.adjustments.uniforms;
         self.update_camera_profile_tables(&adjustments.global);
@@ -8187,6 +8213,10 @@ impl GpuProcessor {
                 bind_group_entries.push(wgpu::BindGroupEntry {
                     binding: 26,
                     resource: lut_shaper.as_entire_binding(),
+                });
+                bind_group_entries.push(wgpu::BindGroupEntry {
+                    binding: 27,
+                    resource: film_grain.as_entire_binding(),
                 });
                 let crop_x_start = x_start - input_x_start;
                 let crop_y_start = y_start - input_y_start;

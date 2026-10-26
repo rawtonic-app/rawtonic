@@ -2124,6 +2124,7 @@
         "output": "輸出"
       },
       "effects": {
+        "grainColor": "顆粒顏色",
         "grainStructure": "顆粒結構",
         "grainStructures": {
           "clumped": "團簇",
