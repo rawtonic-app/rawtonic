@@ -465,3 +465,25 @@ pub(super) fn estimate_versus(image: &Rgb32FImage, own: CaModel) -> Option<CaMod
     }
     replaced.then_some(best.1)
 }
+
+/// The shift in ±`MAX_SHIFT` with the lowest score: a coarse search in
+/// quarter pixels, then a parabola through the best three.
+pub(super) fn parabolic_minimum(score: &dyn Fn(f32) -> f32) -> Option<f32> {
+    let mut best = (0.0f32, f32::MAX);
+    let mut s = -MAX_SHIFT;
+    while s <= MAX_SHIFT + 1e-6 {
+        let v = score(s);
+        if v < best.1 {
+            best = (s, v);
+        }
+        s += 0.25;
+    }
+    if best.0.abs() >= MAX_SHIFT || best.1 == f32::MAX {
+        return None;
+    }
+    let h = 0.25;
+    let (l, c, r) = (score(best.0 - h), best.1, score(best.0 + h));
+    let d = l - 2.0 * c + r;
+    let offset = if d > 1e-9 { 0.5 * (l - r) / d * h } else { 0.0 };
+    Some(best.0 + offset)
+}

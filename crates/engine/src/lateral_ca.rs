@@ -493,7 +493,8 @@ fn downscale(image: &Rgb32FImage, long_edge: u32) -> Rgb32FImage {
     let (w, f) = (w as usize, factor as usize);
     let raw = image.as_raw();
     let mut out = Rgb32FImage::new(sw, sh);
-    out.par_chunks_mut(sw as usize * 3)
+    // At least 1: a copy 0 pixels wide has no rows to fill.
+    out.par_chunks_mut((sw as usize * 3).max(1))
         .enumerate()
         .for_each(|(y, row)| {
             for (x, p) in row.as_chunks_mut::<3>().0.iter_mut().enumerate() {
@@ -558,7 +559,7 @@ impl<'a> Reduced<'a> {
         };
         let mut green = vec![0.0; sw as usize * sh as usize];
         green
-            .par_chunks_mut(sw as usize)
+            .par_chunks_mut((sw as usize).max(1))
             .enumerate()
             .for_each(|(y, row)| {
                 for (x, v) in row.iter_mut().enumerate() {
@@ -1490,6 +1491,51 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn the_shift_search_matches_the_reference_bit_for_bit() {
+        let noise = |s: f32| ((s * 977.0).sin() * 43_758.547).fract();
+        let scores: Vec<Box<dyn Fn(f32) -> f32>> = vec![
+            Box::new(|s| (s - 0.37).powi(2)),
+            Box::new(|s| (s + 2.9).powi(2)),
+            Box::new(|s| (s - 3.4).powi(2)),
+            Box::new(|s| (s - 1.1).abs()),
+            Box::new(|s| if s.abs() < 1.0 { 1.0 } else { 2.0 }),
+            Box::new(|_| f32::MAX),
+            Box::new(|s| if s > 0.0 { f32::NAN } else { -s }),
+            Box::new(move |s| noise(s) + 0.1 * s * s),
+        ];
+        for score in &scores {
+            assert_eq!(
+                parabolic_minimum(score.as_ref()).map(f32::to_bits),
+                reference::parabolic_minimum(score.as_ref()).map(f32::to_bits)
+            );
+        }
+    }
+
+    #[test]
+    fn a_photo_whose_reduced_copy_is_empty_gives_no_estimate() {
+        // 1 × 4800 reduces by 2 to 0 × 2400, 4800 × 1 to 2400 × 0.
+        for (w, h) in [(1, 4800), (4800, 1)] {
+            let image = Rgb32FImage::from_pixel(w, h, image::Rgb([0.2, 0.3, 0.4]));
+            assert_eq!(
+                downscale(&image, WORK_EDGE).dimensions(),
+                reference::downscale(&image, WORK_EDGE).dimensions()
+            );
+            assert_eq!(estimate(&image), None);
+            assert_eq!(estimate_v2(&image), None);
+            assert_eq!(
+                estimate_versus(
+                    &image,
+                    CaModel {
+                        red: (0.0004, 0.0),
+                        blue: (0.0, 0.0)
+                    }
+                ),
+                None
+            );
         }
     }
 
