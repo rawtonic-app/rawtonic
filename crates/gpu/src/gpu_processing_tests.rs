@@ -14153,6 +14153,292 @@ fn edge_fringe_into_the_input_texture_matches_uploading_its_result() {
     }
 }
 
+/// Recipes of the GPU warp (`renderVersion` 7) covering every lens model,
+/// lateral CA (constant and growing with the radius), vignetting, a
+/// perspective with manual distortion and rotation, and a crop, each with
+/// the edge-fringe pass that runs on the GPU.
+fn gpu_warp_recipes() -> Vec<serde_json::Value> {
+    let table: Vec<f64> = (0..9)
+        .map(|i| 1.0 - 0.004 * f64::from(i * i) / 64.0)
+        .collect();
+    let radii: Vec<f64> = (0..9).map(|i| (f64::from(i) / 8.0).sqrt()).collect();
+    let tca = json!({"tca_vr": 1.0012, "tca_vb": 0.9991, "tca_vr2": 0.0004, "tca_vb2": -0.0003,
+        "vig_k1": -0.4, "vig_k2": 0.1});
+    let with = |lens: serde_json::Value| {
+        let mut lens = lens;
+        for (k, v) in tca.as_object().unwrap() {
+            lens[k] = v.clone();
+        }
+        json!({"renderVersion": 7, "lensCorrectionMode": "camera", "lensDistortionParams": lens,
+            (rawtonic_engine::edge_fringe::VERSION_KEY): 5})
+    };
+    vec![
+        with(json!({"k1": -0.08, "k2": 0.02, "k3": -0.004, "model": 0})),
+        with(json!({"k1": 0.012, "k2": -0.03, "k3": 0.01, "model": 1})),
+        with(json!({"model": 2, "table": table, "table_end": 1.0})),
+        with(json!({"model": 3, "table": table, "table_radii": radii})),
+        json!({"renderVersion": 7, "transformDistortion": -40.0, "transformVertical": 20.0,
+            "transformRotate": 2.5, (rawtonic_engine::edge_fringe::VERSION_KEY): 5}),
+        json!({"renderVersion": 7, "lensDistortionParams": {"k1": -0.05, "model": 0,
+            "vig_k1": -0.3}, "crop": {"x": 31.0, "y": 17.4, "width": 1800.0, "height": 1200.0},
+            (rawtonic_engine::edge_fringe::VERSION_KEY): 5}),
+    ]
+}
+
+/// The recipe at another render version.
+fn at_render_version(recipe: &serde_json::Value, version: u64) -> serde_json::Value {
+    let mut recipe = recipe.clone();
+    recipe["renderVersion"] = json!(version);
+    recipe
+}
+
+/// A scene of edges, noise and some negative channels (`keep_negative`).
+fn gpu_warp_scene(width: u32, height: u32) -> DynamicImage {
+    let mut scene = edge_fringe_scene(width, height, 0.01);
+    for (k, pixel) in scene.pixels_mut().enumerate().filter(|(k, _)| k % 101 == 0) {
+        pixel.0[k % 3] = -0.2;
+    }
+    DynamicImage::ImageRgb32F(scene)
+}
+
+/// The GPU warp's source positions (`renderVersion` 7) against the exact
+/// positions, on a 45 MP frame: within the f32 warp's gate (0.0024 px on
+/// 351 photos for `renderVersion` 6), for each recipe of
+/// [`gpu_warp_recipes`].
+#[test]
+#[ignore = "requires a native GPU"]
+fn gpu_warp_positions_stay_within_the_f32_gate() {
+    let context = context();
+    rawtonic_engine::edge_fringe::gpu::register(context.device.clone(), context.queue.clone());
+    let (width, height) = (8256, 5504);
+    for recipe in gpu_warp_recipes() {
+        let params = rawtonic_engine::image_processing::get_geometry_params_from_json(&recipe);
+        let precision =
+            rawtonic_engine::image_processing::warp_gpu_displacement(&params, width, height, 37)
+                .expect("warps on the GPU");
+        eprintln!(
+            "{recipe}: cpu f32 max {:.5} mean {:.6}, gpu max {:.5} mean {:.6}, apart {:.5}, {} px",
+            precision.old.0,
+            precision.old.1,
+            precision.new.0,
+            precision.new.1,
+            precision.apart,
+            precision.pixels
+        );
+        assert!(precision.pixels > 10_000, "{recipe}");
+        assert!(precision.new.0 <= 0.0024, "{recipe}: {precision:?}");
+    }
+}
+
+/// The GPU warp (`renderVersion` 7) samples what the CPU's f32 warp
+/// (`renderVersion` 6) samples: Metal compiles with fast math, so the
+/// positions differ by float rounding (see
+/// [`gpu_warp_positions_stay_within_the_f32_gate`]) and the values by that
+/// distance times the scene's gradient, never more.
+#[test]
+#[ignore = "requires a native GPU"]
+fn gpu_warp_matches_the_cpu_f32_warp_within_rounding() {
+    let context = context();
+    rawtonic_engine::edge_fringe::gpu::register(context.device.clone(), context.queue.clone());
+    let image = gpu_warp_scene(2600, 1800);
+    for recipe in gpu_warp_recipes() {
+        let gpu = rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe);
+        let cpu = rawtonic_engine::image_processing::apply_geometry_warp(
+            &image,
+            &at_render_version(&recipe, 6),
+        );
+        let (gpu, cpu) = (
+            gpu.as_rgb32f().unwrap().as_raw(),
+            cpu.as_rgb32f().unwrap().as_raw(),
+        );
+        assert_eq!(gpu.len(), cpu.len());
+        let (mut max, mut sum) = (0.0f32, 0.0f64);
+        for (c, g) in cpu.iter().zip(gpu) {
+            let d = (c - g).abs();
+            max = max.max(d);
+            sum += f64::from(d);
+        }
+        let mean = sum / cpu.len() as f64;
+        let identical = cpu
+            .iter()
+            .zip(gpu)
+            .filter(|(c, g)| c.to_bits() == g.to_bits())
+            .count();
+        eprintln!(
+            "{recipe}: max {max:.2e} mean {mean:.2e} identical {:.2} %",
+            100.0 * identical as f64 / cpu.len() as f64
+        );
+        assert!(max < 2e-3, "{recipe}: largest difference {max:e}");
+        assert!(mean < 1e-5, "{recipe}: mean difference {mean:e}");
+    }
+}
+
+/// Columns `cols` of rows `rows` of an RGB frame `width` wide.
+fn crop_rows(raw: &[f32], width: u32, cols: (u32, u32), rows: (u32, u32)) -> Vec<f32> {
+    let stride = width as usize * 3;
+    (rows.0..rows.1)
+        .flat_map(|y| {
+            let start = y as usize * stride;
+            raw[start + cols.0 as usize * 3..start + cols.1 as usize * 3].to_vec()
+        })
+        .collect()
+}
+
+fn float_bits(image: &DynamicImage) -> Vec<u32> {
+    image
+        .as_rgb32f()
+        .expect("RGB floats")
+        .as_raw()
+        .iter()
+        .map(|v| v.to_bits())
+        .collect()
+}
+
+/// With the GPU warp, the display's 1:1 regions (`transformed_region` of
+/// the rows they read, as the multi view makes them) are the same pixels
+/// as the whole frame warped, edge-fringe corrected and cropped (from the
+/// planned rows or the whole decode), and the
+/// edge-fringe plan a region takes from every fourth row warped on the GPU
+/// (`RegionMeasures::of`) is the whole frame's: each output pixel of the
+/// warp depends on its frame position alone.
+#[test]
+#[ignore = "requires a native GPU"]
+fn gpu_warp_regions_are_the_whole_frames_pixels() {
+    use rawtonic_engine::image_processing::{
+        RegionMeasures, SourceRows, plan_transformed_region_with, transformed_region,
+    };
+    let context = context();
+    rawtonic_engine::edge_fringe::gpu::register(context.device.clone(), context.queue.clone());
+    let (w, h) = (2600, 1800);
+    let image = gpu_warp_scene(w, h);
+    let rgb = image.as_rgb32f().unwrap();
+    let raw = rgb.as_raw();
+    for recipe in gpu_warp_recipes() {
+        let warped = rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe);
+        let on_cpu = rawtonic_engine::image_processing::apply_geometry_warp(
+            &image,
+            &at_render_version(&recipe, 6),
+        );
+        assert!(
+            float_bits(&warped) != float_bits(&on_cpu),
+            "warped on the GPU"
+        );
+        let plan_of_whole = rawtonic_engine::edge_fringe::full_resolution_plan(
+            &recipe,
+            w as usize,
+            h as usize,
+            |y| {
+                let row = w as usize * 3;
+                warped.as_rgb32f().unwrap().as_raw()[y * row..(y + 1) * row].to_vec()
+            },
+        );
+        let measures = RegionMeasures::of(rgb, &recipe);
+        assert_eq!(measures.fringe, plan_of_whole, "{recipe}");
+        let fringed = rawtonic_engine::edge_fringe::apply_for_recipe(warped, &recipe, 1.0).unwrap();
+        let (whole, _) =
+            rawtonic_engine::adjustment_utils::apply_spatial_transformations(fringed, &recipe);
+        let (fw, fh) = whole.dimensions();
+        for rect in [
+            [0, 0, fw, fh],
+            [5, 7, 400, 300],
+            [fw / 3, fh / 2, 500, 410],
+            [fw - 20, fh - 9, 60, 60],
+            [fw / 2, 0, 1, 1],
+        ] {
+            let plan = plan_transformed_region_with(w, h, &recipe, rect, Some(measures))
+                .expect("plannable");
+            let [x, y, rw, rh] = plan.rect;
+            let expected = whole.crop_imm(x, y, rw, rh);
+            let ((c0, c1), (r0, r1)) = (plan.cols, plan.rows);
+            let part = crop_rows(raw, w, (c0, c1), (r0, r1));
+            let source = SourceRows {
+                pixels: &part,
+                width: w,
+                height: h,
+                row0: r0,
+                col0: c0,
+                cols: c1 - c0,
+            };
+            let region = transformed_region(&source, &recipe, &plan)
+                .unwrap_or_else(|| panic!("{recipe} {rect:?}"));
+            assert_eq!(region.dimensions(), expected.dimensions());
+            assert!(
+                float_bits(&region) == float_bits(&expected),
+                "{recipe} {rect:?}: the region differs"
+            );
+            // From the whole decode (the multi view's decoded rows) too.
+            let all = SourceRows::whole(raw, w, h);
+            let again = transformed_region(&all, &recipe, &plan).unwrap();
+            assert!(
+                float_bits(&again) == float_bits(&expected),
+                "{recipe} {rect:?}: the region from the whole frame differs"
+            );
+        }
+    }
+}
+
+/// With the GPU warp, the display and the export develop the same input:
+/// the display's full-resolution frame (`apply_all_transformations`: warp,
+/// edge-fringe pass, crop; as `editor_preview::compute_full_transformed_res`
+/// makes it and uploads it as f16) and the export's input texture
+/// (`prepare_export_render`: the warp left on the GPU and the edge-fringe
+/// pass reading its bands there, `upload_warped_render_source`; or the warp
+/// read back and the pass's tiles uploaded, `upload_fringed_render_source`)
+/// are bit-identical. Twice the same warp is too.
+#[test]
+#[ignore = "requires a native GPU"]
+fn gpu_warp_display_and_export_develop_the_same_input() {
+    let context = context();
+    rawtonic_engine::edge_fringe::gpu::register(context.device.clone(), context.queue.clone());
+    let (width, height) = (2600, 1800);
+    let image = gpu_warp_scene(width, height);
+    for recipe in gpu_warp_recipes() {
+        let first = rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe);
+        let again = rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe);
+        assert!(float_bits(&first) == float_bits(&again), "{recipe}");
+        let (display, _) = rawtonic_engine::adjustment_utils::apply_all_transformations(
+            std::borrow::Cow::Borrowed(&image),
+            &recipe,
+        )
+        .unwrap();
+        let expected = to_rgba_f16(&display);
+        let expected: &[u8] = bytemuck::cast_slice(&expected);
+        let (window, _) =
+            rawtonic_engine::adjustment_utils::crop_after_fringe(&recipe, width, height)
+                .expect("only a crop after the pass");
+        let [_, _, w, h] = window;
+        assert_eq!((w, h), display.dimensions());
+        let warped = rawtonic_engine::adjustment_utils::apply_warp(
+            std::borrow::Cow::Borrowed(&image),
+            &recipe,
+        );
+        let read_back = upload_fringed_render_source(&context, &warped, &recipe, window, 0, None)
+            .unwrap()
+            .expect("runs into the texture");
+        let on_gpu = upload_warped_render_source(&context, &image, &recipe, window, 0, None)
+            .unwrap()
+            .expect("warps on the GPU");
+        for (path, uploaded) in [("read back", read_back), ("on the GPU", on_gpu)] {
+            let texels = read_texture_data_roi(
+                &context.device,
+                &context.queue,
+                &uploaded.0.texture,
+                wgpu::Origin3d::ZERO,
+                wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                8,
+            )
+            .unwrap();
+            let differing = texels.iter().zip(expected).filter(|(a, b)| a != b).count();
+            assert_eq!(differing, 0, "{recipe} {path}: {differing} bytes differ");
+            assert_eq!(texels.len(), expected.len());
+        }
+    }
+}
+
 /// Wide-gamut colours (negative channels) beside a two-colour edge: the
 /// colour-line stage fits and measures its line on the clamped values on
 /// both processors, so third-colour pixels on the edge keep the same share

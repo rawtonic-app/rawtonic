@@ -313,10 +313,19 @@ fn recipe_plan(
     stride: usize,
     scale: f32,
 ) -> Plan {
+    recipe_plan_with_noise(adjustments, scale, || luminance_noise(data, w, h, stride))
+}
+
+/// [`recipe_plan`] with the image's luminance noise from `noise`.
+fn recipe_plan_with_noise(
+    adjustments: &serde_json::Value,
+    scale: f32,
+    noise: impl FnOnce() -> f32,
+) -> Plan {
     let version = version_of(adjustments);
     // A reduced preview averages the noise down by about its scale.
     let noise = if version >= 2 {
-        luminance_noise(data, w, h, stride) / scale.min(1.0)
+        noise() / scale.min(1.0)
     } else {
         0.0
     };
@@ -365,7 +374,46 @@ pub fn apply_for_recipe_into_texture(
     gpu::apply_into_texture(
         device,
         queue,
-        img.as_raw(),
+        gpu::Pixels::Cpu(img.as_raw()),
+        (w, h),
+        plan,
+        [x, y, width, height],
+        texture,
+    )
+}
+
+/// [`apply_for_recipe_into_texture`] of a warped frame in a GPU buffer
+/// (`warp_gpu::warp_into_buffer`, `w × h` RGB f32): the plan's noise is
+/// measured on every fourth row read back (`warp_gpu::read_every_fourth_row`),
+/// the rows the CPU image's plan measures, and the bands are copied on the
+/// GPU. The texels equal those of [`apply_for_recipe_into_texture`] of the
+/// frame read back. For recipes whose pass runs on the GPU (`fringeVersion`
+/// 5).
+pub fn apply_for_recipe_into_texture_from_buffer(
+    device: &std::sync::Arc<wgpu::Device>,
+    queue: &wgpu::Queue,
+    warped: &wgpu::Buffer,
+    (w, h): (u32, u32),
+    adjustments: &serde_json::Value,
+    window: [u32; 4],
+    texture: &wgpu::Texture,
+) -> Result<(), String> {
+    let [x, y, width, height] = window.map(|v| v as usize);
+    let (w, h) = (w as usize, h as usize);
+    if !plan_for(version_of(adjustments), 0.0, 1.0).gpu || w == 0 || h == 0 {
+        return Err("The edge-fringe pass of this recipe does not run into a texture.".to_string());
+    }
+    if width == 0 || height == 0 || x + width > w || y + height > h {
+        return Err("The texture window lies outside the image.".to_string());
+    }
+    let rows = crate::warp_gpu::read_every_fourth_row(device, queue, warped, (w as u32, h as u32))?;
+    let plan = recipe_plan_with_noise(adjustments, 1.0, || {
+        noise_of_rows(rows.par_chunks(w * 3), w, 3)
+    });
+    gpu::apply_into_texture(
+        device,
+        queue,
+        gpu::Pixels::Gpu(warped),
         (w, h),
         plan,
         [x, y, width, height],
@@ -479,15 +527,29 @@ fn sum_rows<const N: usize>(rows: &[f32], out: &mut [f32]) {
 /// from the median absolute difference of horizontal neighbours on every
 /// fourth row and second column, which edges and texture barely move.
 fn luminance_noise(data: &[f32], w: usize, h: usize, stride: usize) -> f32 {
+    noise_of_rows(
+        (0..h)
+            .into_par_iter()
+            .step_by(4)
+            .map(|y| &data[y * w * stride..(y + 1) * w * stride]),
+        w,
+        stride,
+    )
+}
+
+/// [`luminance_noise`] of its rows (every fourth of the image).
+fn noise_of_rows<'a>(
+    rows: impl IndexedParallelIterator<Item = &'a [f32]>,
+    w: usize,
+    stride: usize,
+) -> f32 {
     if w < 2 {
         return 0.0;
     }
-    let diffs = (0..h)
-        .into_par_iter()
-        .step_by(4)
-        .flat_map_iter(|y| row_differences(&data[y * w * stride..(y + 1) * w * stride], w, stride))
-        .collect();
-    median_noise(diffs)
+    median_noise(
+        rows.flat_map_iter(|row| row_differences(row, w, stride))
+            .collect(),
+    )
 }
 
 /// The sampled neighbour differences of one row of `w` pixels.

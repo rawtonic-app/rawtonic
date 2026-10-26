@@ -25,10 +25,16 @@ struct Device {
 static DEVICE: Mutex<Option<Device>> = Mutex::new(None);
 static PIPELINES: Mutex<Option<Arc<Pipelines>>> = Mutex::new(None);
 
-/// Makes the processing device available to the pass (called when the
-/// app's or a headless GPU context is created).
+/// Makes the processing device available to the pass and to the warp
+/// (`warp_gpu`; called when the app's or a headless GPU context is created).
 pub fn register(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) {
     *DEVICE.lock().unwrap_or_else(PoisonError::into_inner) = Some(Device { device, queue });
+}
+
+/// The registered device, if any.
+pub(crate) fn device() -> Option<(Arc<wgpu::Device>, Arc<wgpu::Queue>)> {
+    let guard = DEVICE.lock().unwrap_or_else(PoisonError::into_inner);
+    guard.as_ref().map(|d| (d.device.clone(), d.queue.clone()))
 }
 
 /// Side of a tile's own pixels. With its halo (about 30 pixels at full
@@ -184,12 +190,10 @@ fn packed(weights: &[f32]) -> Result<[[f32; 4]; 3], String> {
 }
 
 fn registered() -> Result<(Arc<wgpu::Device>, Arc<wgpu::Queue>), String> {
-    let guard = DEVICE.lock().unwrap_or_else(PoisonError::into_inner);
-    let d = guard.as_ref().ok_or_else(|| {
+    device().ok_or_else(|| {
         "The edge-fringe correction of this edit needs the graphics card, which is not available."
             .to_string()
-    })?;
-    Ok((d.device.clone(), d.queue.clone()))
+    })
 }
 
 /// The pipelines for `device`, made on first use.
@@ -273,12 +277,13 @@ pub(super) fn apply_on_device(
     )
 }
 
-/// [`apply`] on `w × h` RGB pixels with the result written into `texture`
-/// instead of `data` (see [`Target::Texture`]).
+/// [`apply`] on `w × h` RGB pixels (`data`, on the CPU or in a GPU
+/// buffer) with the result written into `texture` (see
+/// [`Target::Texture`]).
 pub(super) fn apply_into_texture(
     device: &Arc<wgpu::Device>,
     queue: &wgpu::Queue,
-    data: &[f32],
+    data: Pixels,
     (w, h): (usize, usize),
     plan: Plan,
     window: [usize; 4],
@@ -298,6 +303,14 @@ pub(super) fn apply_into_texture(
     )
 }
 
+/// RGB pixels a run reads, rows of the image's width.
+pub(super) enum Pixels<'a> {
+    Cpu(&'a [f32]),
+    /// In a GPU buffer with `COPY_SRC` (a warped frame,
+    /// `warp_gpu::warp_into_buffer`): bands are copied on the GPU.
+    Gpu(&'a wgpu::Buffer),
+}
+
 /// Where a run's results go.
 enum Target<'a> {
     /// Back into the pixels, in place.
@@ -309,17 +322,26 @@ enum Target<'a> {
     /// pass's result cropped to `window` would. `data` is not changed, and
     /// nothing is read back or waited for beyond the tile before.
     Texture {
-        data: &'a [f32],
+        data: Pixels<'a>,
         window: [usize; 4],
         texture: &'a wgpu::Texture,
     },
 }
 
 impl Target<'_> {
+    /// The pixels on the CPU (always those of `Data`; none for pixels in a
+    /// GPU buffer).
     fn data(&self) -> &[f32] {
         match self {
             Target::Data(data) => data,
-            Target::Texture { data, .. } => data,
+            Target::Texture {
+                data: Pixels::Cpu(data),
+                ..
+            } => data,
+            Target::Texture {
+                data: Pixels::Gpu(_),
+                ..
+            } => &[],
         }
     }
 }
@@ -544,14 +566,45 @@ fn run(
             if y1 <= wy0 || y0 >= wy1 {
                 continue;
             }
-            let data = target.data();
-            for (band_buffer, &(_, _, c0, c1)) in band_buffers.iter().zip(&groups) {
-                let rows = if c0 == 0 && c1 == w {
-                    std::borrow::Cow::Borrowed(&data[top * w * 3..bottom * w * 3])
-                } else {
-                    std::borrow::Cow::Owned(packed(data, 3, top..bottom, (c0, c1)))
-                };
-                queue.write_buffer(band_buffer, 0, bytemuck::cast_slice(&rows));
+            if let Target::Texture {
+                data: Pixels::Gpu(frame),
+                ..
+            } = &target
+            {
+                // Rows top..bottom of each column group, copied on the GPU.
+                let mut encoder = device.create_command_encoder(&Default::default());
+                for (band_buffer, &(_, _, c0, c1)) in band_buffers.iter().zip(&groups) {
+                    if c0 == 0 && c1 == w {
+                        encoder.copy_buffer_to_buffer(
+                            frame,
+                            (top * w * 12) as u64,
+                            band_buffer,
+                            0,
+                            ((bottom - top) * w * 12) as u64,
+                        );
+                    } else {
+                        for row in top..bottom {
+                            encoder.copy_buffer_to_buffer(
+                                frame,
+                                ((row * w + c0) * 12) as u64,
+                                band_buffer,
+                                ((row - top) * (c1 - c0) * 12) as u64,
+                                ((c1 - c0) * 12) as u64,
+                            );
+                        }
+                    }
+                }
+                queue.submit(Some(encoder.finish()));
+            } else {
+                let data = target.data();
+                for (band_buffer, &(_, _, c0, c1)) in band_buffers.iter().zip(&groups) {
+                    let rows = if c0 == 0 && c1 == w {
+                        std::borrow::Cow::Borrowed(&data[top * w * 3..bottom * w * 3])
+                    } else {
+                        std::borrow::Cow::Owned(packed(data, 3, top..bottom, (c0, c1)))
+                    };
+                    queue.write_buffer(band_buffer, 0, bytemuck::cast_slice(&rows));
+                }
             }
         } else {
             let data = target.data();
