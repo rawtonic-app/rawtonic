@@ -161,6 +161,11 @@ pub struct GeometryParams {
     /// them (`renderVersion` 2, `bicubic_floor`).
     #[serde(default)]
     pub keep_negative: bool,
+    /// The warp's arithmetic in f32 with each pixel placed directly
+    /// (`renderVersion` 6, [`F32_WARP_RENDER_VERSION`]): the arithmetic the
+    /// GPU warp does.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub f32_warp: bool,
 }
 
 impl Default for GeometryParams {
@@ -204,6 +209,7 @@ impl Default for GeometryParams {
             auto_ca_version: 0,
             auto_ca_versus_own: false,
             keep_negative: false,
+            f32_warp: false,
         }
     }
 }
@@ -320,6 +326,7 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         auto_ca_version: crate::lateral_ca::version_of(adjustments),
         auto_ca_versus_own: false,
         keep_negative: render_version(adjustments) >= 2,
+        f32_warp: render_version(adjustments) >= F32_WARP_RENDER_VERSION,
     };
     let own = has_own_tca(&params);
     params.auto_ca = crate::lateral_ca::applies(adjustments, own);
@@ -1295,6 +1302,8 @@ struct WarpKernel {
     has_lens_correction: bool,
     is_ptlens: bool,
     lens_table: Option<RadialTable>,
+    /// `lens_table` in f32, for `f32_warp`.
+    lens_table32: Option<crate::lens_correction::RadialTable32>,
     auto_crop_scale: f32,
     vr: f32,
     vb: f32,
@@ -1307,6 +1316,8 @@ struct WarpKernel {
     lens_vig_amt: f64,
     has_vignetting: bool,
     keep_negative: bool,
+    /// `GeometryParams::f32_warp`.
+    f32_warp: bool,
 }
 
 impl WarpKernel {
@@ -1410,6 +1421,10 @@ impl WarpKernel {
             lens_dist_amt,
             has_lens_correction,
             is_ptlens,
+            lens_table32: lens_table
+                .as_ref()
+                .filter(|_| params.f32_warp)
+                .map(RadialTable::single),
             lens_table,
             auto_crop_scale,
             vr,
@@ -1423,6 +1438,7 @@ impl WarpKernel {
             lens_vig_amt,
             has_vignetting,
             keep_negative: params.keep_negative,
+            f32_warp: params.f32_warp,
         }
     }
 
@@ -1433,10 +1449,33 @@ impl WarpKernel {
         self.origin_vec + (self.step_vec_y * y_f)
     }
 
+    /// The projective positions of output row `y`'s pixels from `x0` on.
+    #[inline(always)]
+    fn positions(&self, y: u32, x0: u32) -> RowPositions<'_> {
+        let start = self.row_start(y);
+        let mut running = start;
+        if !self.f32_warp {
+            // The same steps as the whole row takes, so a region is
+            // bit-identical.
+            for _ in 0..x0 {
+                running += self.step_vec_x;
+            }
+        }
+        RowPositions {
+            kernel: self,
+            start,
+            x: x0,
+            running,
+        }
+    }
+
     /// Where the output pixel at projective position `current_vec` samples
     /// the source; None leaves it black.
     #[inline(always)]
     fn source_point(&self, current_vec: &NaVector3<f32>) -> Option<(f32, f32)> {
+        if self.f32_warp {
+            return self.source_point_f32(current_vec);
+        }
         if current_vec.z.abs() <= 1e-6 {
             return None;
         }
@@ -1495,6 +1534,57 @@ impl WarpKernel {
         Some((src_x, src_y))
     }
 
+    /// [`WarpKernel::source_point`] with every step in f32: the warp of
+    /// `f32_warp`, and the arithmetic of the GPU warp.
+    #[inline(always)]
+    fn source_point_f32(&self, current_vec: &NaVector3<f32>) -> Option<(f32, f32)> {
+        if current_vec.z.abs() <= 1e-6 {
+            return None;
+        }
+        let (cx, cy, hd) = (self.cx, self.cy, self.hd as f32);
+        let inv_z = 1.0 / current_vec.z;
+        let mut src_x = current_vec.x * inv_z;
+        let mut src_y = current_vec.y * inv_z;
+        if self.auto_crop_scale > 1.0 {
+            src_x = cx + (src_x - cx) / self.auto_crop_scale;
+            src_y = cy + (src_y - cy) / self.auto_crop_scale;
+        }
+        if self.has_lens_correction {
+            let (dx, dy) = (src_x - cx, src_y - cy);
+            let ru = (dx * dx + dy * dy).sqrt();
+            if ru > 1e-6 {
+                let ru_norm = ru / hd;
+                let ru_norm2 = ru_norm * ru_norm;
+                let (k1, k2, k3) = (self.lk1 as f32, self.lk2 as f32, self.lk3 as f32);
+                let rd_norm = if let Some(table) = &self.lens_table32 {
+                    ru_norm * table.at(ru_norm)
+                } else if self.is_ptlens {
+                    let d = 1.0 - k1 - k2 - k3;
+                    ru_norm * (k1 * ru_norm2 * ru_norm + k2 * ru_norm2 + k3 * ru_norm + d)
+                } else {
+                    ru_norm
+                        * (1.0
+                            + k1 * ru_norm2
+                            + k2 * (ru_norm2 * ru_norm2)
+                            + k3 * (ru_norm2 * ru_norm2 * ru_norm2))
+                };
+                let effective = ru_norm + (rd_norm - ru_norm) * self.lens_dist_amt as f32;
+                let scale = effective / ru_norm;
+                src_x = cx + dx * scale;
+                src_y = cy + dy * scale;
+            }
+        }
+        if self.k_distortion.abs() > 1e-5 {
+            let (dx, dy) = (src_x - cx, src_y - cy);
+            let r2_norm = (dx * dx + dy * dy) * self.max_radius_sq_inv as f32;
+            let c = manual_distortion_c(self.k_distortion) as f32;
+            let f = 1.0 + c * (1.0 - r2_norm);
+            src_x = cx + dx * f;
+            src_y = cy + dy * f;
+        }
+        Some((src_x, src_y))
+    }
+
     /// The leftmost, rightmost, lowest and highest source position (x0, x1,
     /// y0, y1) the sample at (`src_x`, `src_y`) reads in a `width` ×
     /// `height` frame, None when it reads nothing: `interpolate_pixel` leaves
@@ -1544,6 +1634,22 @@ impl WarpKernel {
         if !self.has_vignetting {
             return;
         }
+        if self.f32_warp {
+            let (dx, dy) = (src_x - self.cx, src_y - self.cy);
+            let ru_norm = (dx * dx + dy * dy).sqrt() / self.hd as f32;
+            let ru_norm2 = ru_norm * ru_norm;
+            let v_factor = 1.0
+                + self.vk1 as f32 * ru_norm2
+                + self.vk2 as f32 * (ru_norm2 * ru_norm2)
+                + self.vk3 as f32 * (ru_norm2 * ru_norm2 * ru_norm2);
+            if v_factor > 1e-6 {
+                let gain = 1.0 + (1.0 / v_factor - 1.0) * self.lens_vig_amt as f32;
+                pixel[0] *= gain;
+                pixel[1] *= gain;
+                pixel[2] *= gain;
+            }
+            return;
+        }
         let dx = (src_x - self.cx) as f64;
         let dy = (src_y - self.cy) as f64;
         let ru = (dx * dx + dy * dy).sqrt();
@@ -1576,11 +1682,7 @@ impl WarpKernel {
             source.col0 as f32,
         );
         let source = source.pixels;
-        let mut current_vec = self.row_start(y);
-        // The same steps as the whole row takes, so a region is bit-identical.
-        for _ in 0..x0 {
-            current_vec += self.step_vec_x;
-        }
+        let mut positions = self.positions(y, x0);
         let tca_ctx = TcaContext {
             src_raw: source,
             src_width: stride,
@@ -1614,11 +1716,8 @@ impl WarpKernel {
         };
         let (quads, rest) = row.as_chunks_mut::<3>().0.as_chunks_mut::<4>();
         for quad in quads {
-            let points: [Option<(f32, f32)>; 4] = std::array::from_fn(|_| {
-                let point = self.source_point(&current_vec);
-                current_vec += self.step_vec_x;
-                point
-            });
+            let points: [Option<(f32, f32)>; 4] =
+                std::array::from_fn(|_| self.source_point(&positions.step()));
             // With lateral CA, four pixels sampled side by side where every
             // sample is inside the frame (the same arithmetic per pixel).
             if self.has_tca
@@ -1635,8 +1734,7 @@ impl WarpKernel {
             }
         }
         for pixel in rest {
-            pixel_at(self.source_point(&current_vec), pixel);
-            current_vec += self.step_vec_x;
+            pixel_at(self.source_point(&positions.step()), pixel);
         }
     }
 
@@ -1658,9 +1756,9 @@ impl WarpKernel {
             col0: source.col0 as f32,
             keep_negative: self.keep_negative,
         };
-        let mut current_vec = self.row_start(y);
+        let mut positions = self.positions(y, 0);
         for pixel in row.as_chunks_mut::<3>().0.iter_mut() {
-            if let Some((src_x, src_y)) = self.source_point(&current_vec) {
+            if let Some((src_x, src_y)) = self.source_point(&positions.step()) {
                 if self.has_tca {
                     interpolate_pixel_with_tca(&tca_ctx, src_x, src_y, self.vr, self.vb, pixel);
                 } else {
@@ -1676,9 +1774,166 @@ impl WarpKernel {
                 }
                 self.shade(src_x, src_y, pixel);
             }
-            current_vec += self.step_vec_x;
         }
     }
+}
+
+impl WarpKernel {
+    /// [`WarpKernel::source_point`] of output pixel (`x`, `y`) with every
+    /// step in f64 from the kernel's own (f32) matrix and constants: the
+    /// reference both arithmetics approximate (tests of the f32 warp).
+    #[cfg(any(test, feature = "test-support"))]
+    fn source_point_exact(&self, x: u32, y: u32) -> Option<(f64, f64)> {
+        let v = |c: NaVector3<f32>| [f64::from(c.x), f64::from(c.y), f64::from(c.z)];
+        let (o, sx, sy) = (v(self.origin_vec), v(self.step_vec_x), v(self.step_vec_y));
+        let p: [f64; 3] =
+            std::array::from_fn(|i| o[i] + sy[i] * f64::from(y) + sx[i] * f64::from(x));
+        if p[2].abs() <= 1e-6 {
+            return None;
+        }
+        let (cx, cy) = (f64::from(self.cx), f64::from(self.cy));
+        let (mut src_x, mut src_y) = (p[0] / p[2], p[1] / p[2]);
+        let crop = f64::from(self.auto_crop_scale);
+        if crop > 1.0 {
+            src_x = cx + (src_x - cx) / crop;
+            src_y = cy + (src_y - cy) / crop;
+        }
+        if self.has_lens_correction {
+            let (dx, dy) = (src_x - cx, src_y - cy);
+            let ru = dx.hypot(dy);
+            if ru > 1e-6 {
+                let r = ru / self.hd;
+                let r2 = r * r;
+                let rd = if let Some(table) = &self.lens_table {
+                    r * table.at(r)
+                } else if self.is_ptlens {
+                    let d = 1.0 - self.lk1 - self.lk2 - self.lk3;
+                    r * (self.lk1 * r2 * r + self.lk2 * r2 + self.lk3 * r + d)
+                } else {
+                    r * (1.0 + self.lk1 * r2 + self.lk2 * r2 * r2 + self.lk3 * r2 * r2 * r2)
+                };
+                let scale = (r + (rd - r) * self.lens_dist_amt) / r;
+                src_x = cx + dx * scale;
+                src_y = cy + dy * scale;
+            }
+        }
+        if self.k_distortion.abs() > 1e-5 {
+            let (dx, dy) = (src_x - cx, src_y - cy);
+            let f = manual_distortion_factor(
+                (dx * dx + dy * dy) * self.max_radius_sq_inv,
+                self.k_distortion,
+            );
+            src_x = cx + dx * f;
+            src_y = cy + dy * f;
+        }
+        Some((src_x, src_y))
+    }
+}
+
+/// The projective positions of an output row's pixels, in order
+/// ([`WarpKernel::positions`]): along the row's running sum, or with
+/// `f32_warp` each placed directly (row start + x steps), as a GPU thread
+/// places its pixel.
+struct RowPositions<'a> {
+    kernel: &'a WarpKernel,
+    start: NaVector3<f32>,
+    x: u32,
+    running: NaVector3<f32>,
+}
+
+impl RowPositions<'_> {
+    /// The next pixel's position.
+    #[inline(always)]
+    fn step(&mut self) -> NaVector3<f32> {
+        let step = self.kernel.step_vec_x;
+        let position = if self.kernel.f32_warp {
+            self.start + step * self.x as f32
+        } else {
+            self.running
+        };
+        self.running += step;
+        self.x += 1;
+        position
+    }
+}
+
+/// How far the warp of `params` on a `width × height` frame samples from
+/// the exact positions (every step in f64, [`WarpKernel::source_point_exact`]),
+/// without `f32_warp` (f64 radial steps along the row's running sum, as
+/// recipes before `renderVersion` 6) and with it (all in f32, each pixel
+/// placed directly; the GPU warp's arithmetic): per output pixel on a
+/// `step` grid (and the last row and column) that all three place inside
+/// the frame. Returns (largest error, mean error) without and with
+/// `f32_warp` in pixels, the largest distance between the two, and the
+/// pixels compared (task BX7).
+#[cfg(any(test, feature = "test-support"))]
+pub fn warp_f32_displacement(
+    params: &GeometryParams,
+    width: u32,
+    height: u32,
+    step: u32,
+) -> WarpPrecision {
+    let [old, new] = [false, true].map(|f32_warp| {
+        WarpKernel::new(
+            &GeometryParams {
+                f32_warp,
+                ..params.clone()
+            },
+            width,
+            height,
+            None,
+        )
+    });
+    let (last_x, last_y) = (f64::from(width) - 1.0, f64::from(height) - 1.0);
+    let inside = |(x, y): (f64, f64)| x >= 0.0 && y >= 0.0 && x <= last_x && y <= last_y;
+    let wide = |(x, y): (f32, f32)| (f64::from(x), f64::from(y));
+    let distance = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).hypot(a.1 - b.1);
+    let rows: Vec<u32> = (0..height)
+        .step_by(step as usize)
+        .chain([height - 1])
+        .collect();
+    let errors: Vec<[f64; 3]> = rows
+        .par_iter()
+        .flat_map_iter(|&y| {
+            let (mut along_old, mut along_new) = (old.positions(y, 0), new.positions(y, 0));
+            let mut out = Vec::new();
+            for x in 0..width {
+                let (a, b) = (along_old.step(), along_new.step());
+                if (x % step == 0 || x == width - 1)
+                    && let (Some(a), Some(b), Some(exact)) = (
+                        old.source_point(&a).map(wide),
+                        new.source_point(&b).map(wide),
+                        old.source_point_exact(x, y),
+                    )
+                    && inside(a)
+                    && inside(b)
+                    && inside(exact)
+                {
+                    out.push([distance(a, exact), distance(b, exact), distance(a, b)]);
+                }
+            }
+            out
+        })
+        .collect();
+    let n = errors.len().max(1) as f64;
+    let max = |k: usize| errors.iter().map(|e| e[k]).fold(0.0, f64::max);
+    let mean = |k: usize| errors.iter().map(|e| e[k]).sum::<f64>() / n;
+    WarpPrecision {
+        old: (max(0), mean(0)),
+        new: (max(1), mean(1)),
+        apart: max(2),
+        pixels: errors.len(),
+    }
+}
+
+/// [`warp_f32_displacement`]'s result: (largest, mean) error in pixels.
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Debug, Clone, Copy)]
+pub struct WarpPrecision {
+    pub old: (f64, f64),
+    pub new: (f64, f64),
+    pub apart: f64,
+    pub pixels: usize,
 }
 
 /// Which pixels of [`warp_image_geometry`]'s output for a `width` × `height`
@@ -1696,12 +1951,18 @@ pub fn geometry_valid_pixels(params: &GeometryParams, width: u32, height: u32) -
     mask.par_chunks_mut(width as usize)
         .enumerate()
         .for_each(|(y, row)| {
-            let mut current_vec = kernel.row_start(y as u32);
+            let mut positions = kernel.positions(y as u32, 0);
             for valid in row.iter_mut() {
-                *valid = kernel.source_point(&current_vec).is_some_and(|(x, y)| {
-                    !(x.is_nan() || y.is_nan() || x < 0.0 || y < 0.0 || x > last_x || y > last_y)
-                }) as u8;
-                current_vec += kernel.step_vec_x;
+                *valid = kernel
+                    .source_point(&positions.step())
+                    .is_some_and(|(x, y)| {
+                        !(x.is_nan()
+                            || y.is_nan()
+                            || x < 0.0
+                            || y < 0.0
+                            || x > last_x
+                            || y > last_y)
+                    }) as u8;
             }
         });
     Some(mask)
@@ -3073,9 +3334,10 @@ pub fn plan_transformed_region_with(
         let area = (warped[1]..warped[1] + warped[3])
             .into_par_iter()
             .map(|y| {
-                let mut current_vec = kernel.row_start(y);
+                let mut positions = kernel.positions(y, 0);
                 let mut area = none;
                 for x in 0..warped[0] + warped[2] {
+                    let current_vec = positions.step();
                     if x >= warped[0]
                         && let Some((sx, sy)) = kernel.source_point(&current_vec)
                         && let Some(a) = kernel.sampled_area(sx, sy, width, height)
@@ -3087,7 +3349,6 @@ pub fn plan_transformed_region_with(
                             area[3].max(a[3]),
                         ];
                     }
-                    current_vec += kernel.step_vec_x;
                 }
                 area
             })
@@ -5110,9 +5371,19 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// (2026-10-25) turns colours outside the output space back to their own
 /// hue after clipping them (`GAMUT_MAPPING_RENDER_VERSION`). 5 (2026-10-26)
 /// exports with the shader variant specialized for the recipe's features
-/// (`SPECIALIZED_EXPORT_RENDER_VERSION`).
+/// (`SPECIALIZED_EXPORT_RENDER_VERSION`). 6 (2026-10-26) computes the lens
+/// and geometry warp in f32 (`F32_WARP_RENDER_VERSION`).
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 5;
+pub const RENDER_VERSION: u64 = 6;
+
+/// The render version from which the geometry warp places each pixel
+/// directly and computes the lens model, the manual distortion and the
+/// vignetting in f32 (`GeometryParams::f32_warp`): the arithmetic a GPU
+/// warp does, so the display's and the exports' warps can compute the same
+/// positions on either processor. Positions move by at most 0.0022 px
+/// from the f64 steps before (351 photos with camera or lensfun data,
+/// mean 0.00007 px; notes: benchmark-results/bx7-export-latency-2026-10-26).
+pub const F32_WARP_RENDER_VERSION: u64 = 6;
 
 /// The render version from which colours outside the output space keep
 /// their hue (`GlobalAdjustments::gamut_mapping`; notes:
@@ -6931,8 +7202,18 @@ mod warp_quad_tests {
                 ..base.clone()
             },
         ];
-        for (case, params) in cases.iter().enumerate() {
-            let kernel = WarpKernel::new(params, w, h, None);
+        // Each also with the f32 warp (`F32_WARP_RENDER_VERSION`).
+        let cases = cases.iter().flat_map(|params| {
+            [
+                params.clone(),
+                GeometryParams {
+                    f32_warp: true,
+                    ..params.clone()
+                },
+            ]
+        });
+        for (case, params) in cases.enumerate() {
+            let kernel = WarpKernel::new(&params, w, h, None);
             assert!(kernel.has_tca, "case {case}");
             let whole = SourceRows::whole(&source, w, h);
             // A region's source: rows 30.. and columns 20.. of the frame.
@@ -6961,6 +7242,106 @@ mod warp_quad_tests {
                     assert_eq!(bits(&quad), bits(&single), "case {case} row {y}");
                 }
             }
+        }
+    }
+
+    /// The f32 warp (`renderVersion` 6) samples within a few thousandths of
+    /// a pixel of the exact positions on frames of a 45 MP camera's size,
+    /// for every lens model (polynomial, PTLens, uniform table, knot
+    /// table), manual distortion and a perspective transform, where the f64
+    /// warp along the row's running sum drifts by more than a pixel; its
+    /// vignetting gain is within float rounding.
+    #[test]
+    fn the_f32_warp_samples_where_the_f64_warp_does() {
+        let (w, h) = (8256u32, 5504u32);
+        let table: Vec<f32> = (0..9)
+            .map(|i| 1.0 - 0.004 * (i * i) as f32 / 64.0)
+            .collect();
+        let radii: Vec<f32> = (0..9).map(|i| (i as f32 / 8.0).sqrt()).collect();
+        let base = GeometryParams {
+            lens_distortion_amount: 1.0,
+            lens_profile_exact: true,
+            ..GeometryParams::default()
+        };
+        let cases = [
+            GeometryParams {
+                lens_dist_k1: -0.08,
+                lens_dist_k2: 0.02,
+                lens_dist_k3: -0.004,
+                ..base.clone()
+            },
+            GeometryParams {
+                lens_model: 1,
+                lens_dist_k1: 0.012,
+                lens_dist_k2: -0.03,
+                lens_dist_k3: 0.01,
+                ..base.clone()
+            },
+            GeometryParams {
+                lens_model: 2,
+                lens_table: table.clone(),
+                lens_table_end: 1.0,
+                ..base.clone()
+            },
+            GeometryParams {
+                lens_model: 3,
+                lens_table: table,
+                lens_table_radii: radii,
+                ..base.clone()
+            },
+            GeometryParams {
+                distortion: -40.0,
+                vertical: 20.0,
+                rotate: 2.5,
+                ..base.clone()
+            },
+        ];
+        for (case, params) in cases.iter().enumerate() {
+            let p = warp_f32_displacement(params, w, h, 13);
+            eprintln!("case {case}: {p:?}");
+            assert!(p.pixels > 200_000, "case {case}: {p:?}");
+            // Within a few thousandths of a pixel of the exact positions.
+            assert!(p.new.0 < 0.005 && p.new.1 < 0.0005, "case {case}: {p:?}");
+        }
+        // With a perspective the running sum drifts: 1.31 px, the f32 warp
+        // 0.0024 px.
+        let perspective = warp_f32_displacement(&cases[4], w, h, 13);
+        assert!(perspective.old.0 > 0.5, "{perspective:?}");
+        assert!(
+            perspective.new.0 * 100.0 < perspective.old.0,
+            "{perspective:?}"
+        );
+        let vignetting = GeometryParams {
+            vig_k1: -0.4,
+            vig_k2: 0.1,
+            vig_k3: -0.02,
+            lens_vignette_amount: 1.0,
+            ..base
+        };
+        let [double, single] = [false, true].map(|f32_warp| {
+            WarpKernel::new(
+                &GeometryParams {
+                    f32_warp,
+                    ..vignetting.clone()
+                },
+                w,
+                h,
+                None,
+            )
+        });
+        for (x, y) in [
+            (0.0, 0.0),
+            (1000.5, 4000.25),
+            (4128.0, 2752.0),
+            (8255.0, 5503.0),
+        ] {
+            let (mut a, mut b) = ([1.0f32; 3], [1.0f32; 3]);
+            double.shade(x, y, &mut a);
+            single.shade(x, y, &mut b);
+            assert!(
+                (a[0] - b[0]).abs() <= 4.0 * f32::EPSILON * a[0],
+                "{a:?} {b:?}"
+            );
         }
     }
 }
@@ -8222,6 +8603,14 @@ mod region_tests {
             json!({"transformHorizontal": -20.0, "transformScale": 90.0, "transformXOffset": 5.0,
                 "lensDistortionParams": lens, "rotation": 1.0}),
         ]
+        .into_iter()
+        // Each also with the f32 warp (`F32_WARP_RENDER_VERSION`).
+        .flat_map(|recipe| {
+            let mut single = recipe.clone();
+            single[RENDER_VERSION_KEY] = json!(F32_WARP_RENDER_VERSION);
+            [recipe, single]
+        })
+        .collect()
     }
 
     #[test]

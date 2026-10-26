@@ -322,6 +322,69 @@ impl RadialTable {
     }
 }
 
+/// [`RadialTable`] in f32 for the warp of `renderVersion` 6
+/// (`image_processing::F32_WARP_RENDER_VERSION`): the same knots, values
+/// and slopes (each slope times the knot step, as the curve uses it)
+/// rounded to f32, the curve evaluated in f32 throughout, as the GPU warp
+/// evaluates it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RadialTable32 {
+    pub step: f32,
+    pub values: Vec<f32>,
+    /// Slopes times `step` (uniform knots).
+    pub tangents: Vec<f32>,
+    /// The last knot's slope, which continues the curve beyond it.
+    pub end_slope: f32,
+    /// Model 3's knot radii (empty for uniform knots).
+    pub radii: Vec<f32>,
+}
+
+impl RadialTable {
+    /// The table in f32 ([`RadialTable32`]).
+    pub fn single(&self) -> RadialTable32 {
+        RadialTable32 {
+            step: self.step as f32,
+            values: self.values.iter().map(|&v| v as f32).collect(),
+            tangents: self
+                .slopes
+                .iter()
+                .map(|&m| (m * self.step) as f32)
+                .collect(),
+            end_slope: self.slopes.last().copied().unwrap_or(0.0) as f32,
+            radii: self.radii.iter().map(|&r| r as f32).collect(),
+        }
+    }
+}
+
+impl RadialTable32 {
+    /// T(r) as [`RadialTable::at`] computes it, in f32: beyond the last
+    /// uniform knot along its tangent, model 3 linear in r² between knots.
+    pub fn at(&self, r: f32) -> f32 {
+        let r = r.max(0.0);
+        let last = self.values.len() - 1;
+        if !self.radii.is_empty() {
+            let i = self.radii.partition_point(|&x| x <= r).clamp(1, last);
+            let (r0, r1) = (self.radii[i - 1], self.radii[i]);
+            let (y0, y1) = (self.values[i - 1], self.values[i]);
+            let per_square = (y1 - y0) / (r1 * r1 - r0 * r0);
+            return y0 + per_square * (r * r - r0 * r0);
+        }
+        let x = r / self.step;
+        if x >= last as f32 {
+            return self.values[last] + self.end_slope * (r - last as f32 * self.step);
+        }
+        let i = x as usize;
+        let t = x - i as f32;
+        let (y0, y1) = (self.values[i], self.values[i + 1]);
+        let (m0, m1) = (self.tangents[i], self.tangents[i + 1]);
+        let (t2, t3) = (t * t, t * t * t);
+        (2.0 * t3 - 3.0 * t2 + 1.0) * y0
+            + (t3 - 2.0 * t2 + t) * m0
+            + (-2.0 * t3 + 3.0 * t2) * y1
+            + (t3 - t2) * m1
+    }
+}
+
 fn is_zero(value: &f64) -> bool {
     value.abs() < 1e-12
 }
