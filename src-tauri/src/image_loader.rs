@@ -1410,9 +1410,13 @@ async fn open_offline(
     })
     .await
     .map_err(|e| e.to_string())?;
+    // A 1:1 preview of another frame gives way to the Standard one, which
+    // may already show the recipe's frame.
+    let full = full.filter(|full| {
+        frame_fits(crate::preview_proxy::variant_of_key(&full.key.decoder).frame).is_ok()
+    });
     if let Some(full) = full {
         let proxy_frame = crate::preview_proxy::variant_of_key(&full.key.decoder).frame;
-        frame_fits(proxy_frame)?;
         let (width, height) = full.image.dimensions();
         *state.proxy_image.lock().unwrap_or_else(|e| e.into_inner()) = None;
         // Marks the source as preview data (exports never reuse it).

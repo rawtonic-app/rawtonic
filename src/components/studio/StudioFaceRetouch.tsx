@@ -27,8 +27,10 @@ const MODELS_MISSING = 'face-models-missing';
 
 /** `download`: the user asked for the face models (PRIVACY.md: nothing is
  * downloaded just because the tab opened). */
-function analyse(path: string, geometry: string, download = false): Promise<Analysis> {
-  const key = `${path}\n${geometry}`;
+function analyse(path: string, geometry: string, download = false, frame = ""): Promise<Analysis> {
+  // The frame of the RAW the source shows is part of what the faces are
+  // found on (ADR 0020: an updated frame is another photo to analyse).
+  const key = `${path}\n${frame}\n${geometry}`;
   let pending = analyses.get(key);
   if (!pending) {
     pending = invoke<Analysis>(Invokes.AnalyzeFaceRetouch, { jsAdjustments: JSON.parse(geometry), download });
@@ -112,6 +114,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
   const adjustments = useEditorStore((s) => s.adjustments);
   const { setAdjustments } = useEditorActions();
   const geometry = JSON.stringify(faceRetouchGeometry(adjustments));
+  const sourceFrame = String(useEditorStore((s) => s.selectedImage?.sourceFrame) ?? "");
   const stored = adjustments.faceRetouch ?? null;
   const current = faceRetouchIsCurrent(stored, adjustments) ? stored : null;
   const [found, setFound] = useState<{ key: string; analysis?: Analysis; error?: string } | null>(null);
@@ -146,16 +149,16 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
   const setEditor = useEditorStore((s) => s.setEditor);
   // The overlay belongs to this tool.
   useEffect(() => () => setEditor({ showFaceBlemishes: false }), [setEditor]);
-  const key = `${path}\n${geometry}`;
+  const key = `${path}\n${sourceFrame}\n${geometry}`;
 
   const [download, setDownload] = useState(0);
   useEffect(() => {
     if (!path || !ready || current) return;
     let live = true;
-    analyse(path, geometry, download > 0)
+    analyse(path, geometry, download > 0, sourceFrame)
       .then((analysis) => {
         if (!live) return;
-        setFound({ key: `${path}\n${geometry}`, analysis });
+        setFound({ key: `${path}\n${sourceFrame}\n${geometry}`, analysis });
         // Retouch made in another geometry follows the faces.
         setAdjustments((prev: Adjustments) => {
           const old = prev.faceRetouch;
@@ -171,12 +174,12 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
           };
         });
       })
-      .catch((error) => live && setFound({ key: `${path}\n${geometry}`, error: aiErrorMessage(error) }));
+      .catch((error) => live && setFound({ key: `${path}\n${sourceFrame}\n${geometry}`, error: aiErrorMessage(error) }));
     return () => {
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, ready, geometry, Boolean(current), download]);
+  }, [path, ready, geometry, sourceFrame, Boolean(current), download]);
 
   const analysis = found?.key === key ? found.analysis : undefined;
   const faces = current?.faces ?? analysis?.faces ?? [];

@@ -43,7 +43,26 @@ export function faceRetouchGeometry(
 /** Whether `retouch`'s faces belong to the geometry of `adjustments`, by the
  * rule of its frame (as the engine's `face_retouch::frame_matches`). */
 export function faceRetouchIsCurrent(retouch: FaceRetouch | null | undefined, adjustments: Adjustments) {
-  return Boolean(retouch) && retouch!.geometry === frameGeometry(adjustments, retouch!.frame);
+  if (!retouch) return false;
+  if (retouch.geometry === frameGeometry(adjustments, retouch.frame)) return true;
+  // The same keys and values in another key order (a frame update writes
+  // the geometry in the engine's order, `source_frame::migrate`).
+  try {
+    return canonical(JSON.parse(retouch.geometry)) === canonical(JSON.parse(frameGeometry(adjustments, retouch.frame)));
+  } catch {
+    return false;
+  }
+}
+
+/** JSON with every object's keys sorted. */
+function canonical(value: unknown): string {
+  const sorted = (v: unknown): unknown =>
+    Array.isArray(v)
+      ? v.map(sorted)
+      : v !== null && typeof v === "object"
+        ? Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, sorted((v as Record<string, unknown>)[k])]))
+        : v;
+  return JSON.stringify(sorted(value));
 }
 
 /** The panel's `geometry` for faces of `frame`, by that frame's rule. */

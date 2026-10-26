@@ -309,7 +309,13 @@ pub fn migrate(
     // Faces that applied keep applying: their stamp follows the geometry
     // the migration changed (guide lines), by their stamp's own rule.
     if faces && let Some(frame) = out["faceRetouch"]["frame"].as_str().map(str::to_string) {
-        out["faceRetouch"]["frame"] = json!(crate::face_retouch::frame_key_like(&frame, &out));
+        let stamp = crate::face_retouch::frame_key_like(&frame, &out);
+        // The panel's copy of the same keys (compared with sorted keys).
+        let geometry = stamp.strip_prefix("2:").unwrap_or(&stamp).to_string();
+        out["faceRetouch"]["frame"] = json!(stamp);
+        if out["faceRetouch"].get("geometry").is_some() {
+            out["faceRetouch"]["geometry"] = json!(geometry);
+        }
     }
     Migrated {
         adjustments: out,
@@ -986,6 +992,7 @@ mod tests {
             crate::face_retouch::frame_key_like("old", &recipe),
         ] {
             recipe["faceRetouch"]["frame"] = json!(stamp);
+            recipe["faceRetouch"]["geometry"] = json!("panel");
             let out = migrate(&recipe, Some(&change), &recipe, 1).adjustments;
             let then = WarpPoints::new(&get_geometry_params_from_json(&recipe), 400, 300);
             let now = WarpPoints::new(&get_geometry_params_from_json(&out), 424, 300);
@@ -1002,6 +1009,10 @@ mod tests {
             // The faces moved and are still applied by the renderer.
             let frame = out["faceRetouch"]["frame"].as_str().unwrap();
             assert!(crate::face_retouch::frame_matches(frame, &out), "{stamp}");
+            // The panel's copy follows: the same keys, in the engine's order.
+            let panel: Value =
+                serde_json::from_str(out["faceRetouch"]["geometry"].as_str().unwrap()).unwrap();
+            assert_eq!(panel["guidedPerspective"], out["guidedPerspective"]);
             assert_ne!(out["faceRetouch"]["faces"][0]["box"][0], 280.0);
             // Each blemish moves on its own, as a spot at its place does.
             assert_eq!(
