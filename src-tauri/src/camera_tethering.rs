@@ -2294,10 +2294,13 @@ mod tests {
             .unwrap()
         };
         let on_camera =
-            || serde_json::from_slice::<Vec<String>>(&fs::read(&queue).unwrap()).unwrap();
-        // Freeing off: in the library, and still on the camera.
+            || serde_json::from_slice::<Vec<(String, u64)>>(&fs::read(&queue).unwrap()).unwrap();
+        // Freeing off: in the library, and still on the camera, with a shot
+        // fired meanwhile.
         open(false);
-        let first = captured(&seen, 3);
+        let mut first = captured(&seen, 3);
+        client.request(Request::Capture, CAPTURE).unwrap();
+        first.extend(captured(&seen, 1));
         assert!(
             first
                 .iter()
@@ -2305,22 +2308,22 @@ mod tests {
             "{first:?}"
         );
         finish_ingest(&state);
-        assert_eq!(photos_in_capture(&session), 3);
-        assert_eq!(on_camera().len(), 3);
+        assert_eq!(photos_in_capture(&session), 4);
+        assert_eq!(on_camera().len(), 4);
         // Connected again: fetched again, recognised as in the library.
         open(false);
-        let again = captured(&seen, 3);
+        let again = captured(&seen, 4);
         assert!(
             again.iter().all(|c| c.skipped && c.error.is_none()),
             "{again:?}"
         );
         finish_ingest(&state);
-        assert_eq!(photos_in_capture(&session), 3, "each once");
-        assert_eq!(on_camera().len(), 3, "nothing freed with freeing off");
+        assert_eq!(photos_in_capture(&session), 4, "each once");
+        assert_eq!(on_camera().len(), 4, "nothing freed with freeing off");
         // Freeing on: each is freed once it is known to be in the library.
         open(true);
         let (mut photos, mut freed) = (0, 0);
-        while freed < 3 {
+        while freed < 4 {
             let (name, value) = seen
                 .recv_timeout(Duration::from_secs(30))
                 .expect("an event");
@@ -2339,7 +2342,7 @@ mod tests {
             }
         }
         finish_ingest(&state);
-        assert_eq!(photos_in_capture(&session), 3);
+        assert_eq!(photos_in_capture(&session), 4);
         assert!(on_camera().is_empty());
         assert_eq!(incoming_left(&session), 0);
     }

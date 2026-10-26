@@ -1716,7 +1716,11 @@ fn release(p: &Captured) -> Request {
 
 /// The photos of a transfer queue (`MockSpec::queue_state`).
 fn queue_now(state: &Path) -> Vec<String> {
-    serde_json::from_slice(&std::fs::read(state).unwrap()).unwrap()
+    serde_json::from_slice::<Vec<(String, u64)>>(&std::fs::read(state).unwrap())
+        .unwrap()
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect()
 }
 
 /// Photos left in the camera's transfer queue (taken while no computer took
@@ -1880,4 +1884,54 @@ fn a_held_camera_fetches_nothing_more_from_its_queue() {
     std::thread::sleep(Duration::from_millis(500));
     let (photos, _) = helper.photos(40);
     assert!(photos.len() < 40, "{}", photos.len());
+}
+
+/// A queued photo and a new shot under one file name are different
+/// exposures: the new shot's file keeps its request.
+#[test]
+fn a_new_shot_never_pairs_with_a_queued_photo_of_its_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        queue_limit: Some(10),
+        queued: vec!["DSC00001.JPG".into()],
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let queued = helper.photos(1).0.remove(0);
+    assert_eq!(queued.camera_name, "DSC00001.JPG");
+    let request = helper.capture();
+    let shot = helper.photos(1).0.remove(0);
+    assert_eq!(shot.camera_name, "DSC00001.ARW");
+    assert_eq!(shot.request, Some(request));
+    assert!(shot.requested && shot.ambiguous.is_empty());
+    assert_ne!(shot.exposure, queued.exposure);
+}
+
+/// A photo left on the camera (freeing off) is the same photo when the next
+/// connection fetches it from the queue: byte for byte, so the library
+/// recognises it.
+#[test]
+fn a_photo_kept_on_the_camera_is_fetched_again_unchanged_after_a_reconnect() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("queue.json");
+    let spec = MockSpec {
+        queue_limit: Some(10),
+        queue_state: Some(state.clone()),
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    helper.capture();
+    let first = helper.photos(1).0.remove(0);
+    let bytes = std::fs::read(&first.path).unwrap();
+    assert_eq!(queue_now(&state), ["DSC00001.ARW"]);
+    // The next helper (an app restart) finds it in the queue.
+    drop(helper);
+    let again = start(&spec, dir.path());
+    again.connect().unwrap();
+    let fetched = again.photos(1).0.remove(0);
+    assert_eq!(fetched.camera_name, "DSC00001.ARW");
+    assert!(!fetched.requested);
+    assert_eq!(std::fs::read(&fetched.path).unwrap(), bytes);
 }

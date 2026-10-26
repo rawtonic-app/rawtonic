@@ -32,6 +32,9 @@ struct Exposure {
     request: Option<Asked>,
     /// `Captured::exposure`.
     number: u64,
+    /// It was in the camera's transfer queue at the connect: its files pair
+    /// only with each other, never with a new shot's under the same name.
+    queued: bool,
 }
 
 /// An app shot request: when it fired, and its number (`Reply::Fired`).
@@ -861,18 +864,23 @@ impl<W: Write> Server<W> {
         // JPEG-only ones (likewise A.RAW; A.RAW+A.JPG; A.JPG). Such a file
         // names the exposures it may belong to (`ambiguous`) (the camera test then reports its step as
         // inconclusive). notes: reference/tether.md
+        // A queued photo's file and a new shot's file under one name belong
+        // to different exposures (the queued one was taken before the
+        // connect): each looks only among its own kind.
         let ambiguous: Vec<u64> = match (&shot_of, open.exposures_by_stem.get(&stem)) {
             (Shot::Waiting | Shot::Queued, Some(exposures)) => {
                 let candidates: Vec<u64> = exposures
                     .iter()
-                    .filter(|e| !e.kinds.contains(&extension))
+                    .filter(|e| e.queued == queued && !e.kinds.contains(&extension))
                     .map(|e| e.number)
                     .collect();
                 // Another exposure of the name could have taken it (more
                 // than one open), or it may be a new exposure (the one open
                 // is not the newest: a newer one already has this kind).
                 let newest_has_it = exposures
-                    .back()
+                    .iter()
+                    .rev()
+                    .find(|e| e.queued == queued)
                     .is_some_and(|e| e.kinds.contains(&extension));
                 if candidates.len() > 1 || (candidates.len() == 1 && newest_has_it) {
                     candidates
@@ -888,7 +896,7 @@ impl<W: Write> Server<W> {
                     exposures
                         .iter_mut()
                         .rev()
-                        .find(|e| !e.kinds.contains(&extension))
+                        .find(|e| e.queued == queued && !e.kinds.contains(&extension))
                 })
             }
             Shot::At(_) => None,
@@ -910,6 +918,7 @@ impl<W: Write> Server<W> {
                     kinds: vec![extension],
                     request,
                     number: open.exposures,
+                    queued,
                 };
                 open.exposures_by_stem
                     .entry(stem)

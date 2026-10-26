@@ -52,10 +52,11 @@ pub struct MockSpec {
     /// With `queue_limit`: the photos (file names) in the transfer queue
     /// when the camera is opened, taken while no computer took them.
     pub queued: Vec<String>,
-    /// With `queue_limit`: a file that keeps the transfer queue (its file
-    /// names) between connections and helper processes, as the camera's
-    /// memory outlives both; read when the camera is opened (`queued` when
-    /// there is none yet), written on every change.
+    /// With `queue_limit`: a file that keeps the transfer queue (each
+    /// photo's file name and shot, which its bytes come from) between
+    /// connections and helper processes, as the camera's memory outlives
+    /// both; read when the camera is opened (`queued` when there is none
+    /// yet), written on every change.
     pub queue_state: Option<std::path::PathBuf>,
     /// The camera also reports the photos of its transfer queue as new ones
     /// right after the connect (libgphoto2's Fujifilm event wait reports
@@ -206,39 +207,50 @@ impl Driver for MockDriver {
             .iter()
             .map(|&ms| now + Duration::from_millis(ms))
             .collect();
-        let queue: Vec<CameraFile> = if self.spec.queue_limit.is_none() {
+        // Each queued photo with its shot: its bytes are the same at every
+        // download, also after a reconnect or in another helper.
+        let queue: Vec<(CameraFile, u64)> = if self.spec.queue_limit.is_none() {
             Vec::new()
         } else {
-            let names = match &self.spec.queue_state {
+            let entries: Vec<(String, u64)> = match &self.spec.queue_state {
                 Some(state) if state.exists() => std::fs::read(state)
                     .ok()
                     .and_then(|data| serde_json::from_slice(&data).ok())
                     .ok_or_else(|| {
                         TetherError::new(ErrorKind::Other, "The mock queue state is unreadable.")
                     })?,
-                _ => self.spec.queued.clone(),
+                // Shots taken before: a hash of the name stands for each.
+                _ => self
+                    .spec
+                    .queued
+                    .iter()
+                    .map(|name| {
+                        use std::hash::{Hash, Hasher};
+                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                        name.hash(&mut hasher);
+                        (name.clone(), hasher.finish() | 1 << 63)
+                    })
+                    .collect(),
             };
-            names
+            entries
                 .into_iter()
-                .map(|name| CameraFile {
-                    folder: FOLDER.into(),
-                    name,
+                .map(|(name, shot)| {
+                    (
+                        CameraFile {
+                            folder: FOLDER.into(),
+                            name,
+                        },
+                        shot,
+                    )
                 })
                 .collect()
         };
-        // A queued photo has the same bytes at every download (a hash of its
-        // name stands for its shot).
         let shots = queue
             .iter()
-            .map(|file| {
-                use std::hash::{Hash, Hasher};
-                let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                file.name.hash(&mut hasher);
-                (file.name.clone(), hasher.finish() | 1 << 63)
-            })
+            .map(|(file, shot)| (file.name.clone(), *shot))
             .collect();
         let due = if self.spec.queued_reported {
-            queue.iter().map(|file| (now, file.clone())).collect()
+            queue.iter().map(|(file, _)| (now, file.clone())).collect()
         } else {
             VecDeque::new()
         };
@@ -324,8 +336,9 @@ pub struct MockCamera {
     settings: Vec<Setting>,
     /// A file to report once more (`report_twice`).
     repeat: Option<CameraFile>,
-    /// The photos in the transfer queue (`queue_limit`), oldest first.
-    queue: Vec<CameraFile>,
+    /// The photos in the transfer queue (`queue_limit`), oldest first, each
+    /// with its shot.
+    queue: Vec<(CameraFile, u64)>,
     /// Shots fired under each file name, not yet reported (oldest first).
     named: std::collections::HashMap<String, VecDeque<u64>>,
     /// The shot each file name was last reported for: a repeated report of
@@ -350,10 +363,11 @@ impl MockCamera {
         TetherError::new(ErrorKind::Disconnected, "The camera was disconnected.")
     }
 
-    /// Puts a new photo into the transfer queue, on a camera that keeps one.
+    /// Puts the current shot's photo into the transfer queue, on a camera
+    /// that keeps one.
     fn enqueue(&mut self, file: &CameraFile) {
         if self.spec.queue_limit.is_some() {
-            self.queue.push(file.clone());
+            self.queue.push((file.clone(), self.fired));
             self.save_queue();
         }
     }
@@ -361,8 +375,12 @@ impl MockCamera {
     /// Writes the transfer queue to `queue_state`, if the script names one.
     fn save_queue(&self) {
         if let Some(state) = &self.spec.queue_state {
-            let names: Vec<&str> = self.queue.iter().map(|f| f.name.as_str()).collect();
-            std::fs::write(state, serde_json::to_vec(&names).unwrap())
+            let entries: Vec<(&str, u64)> = self
+                .queue
+                .iter()
+                .map(|(f, shot)| (f.name.as_str(), *shot))
+                .collect();
+            std::fs::write(state, serde_json::to_vec(&entries).unwrap())
                 .expect("the mock queue state is written");
         }
     }
@@ -613,12 +631,16 @@ impl Camera for MockCamera {
         if self.spec.queue_limit.is_none() {
             return Ok(false);
         }
-        let at = self.queue.iter().position(|f| f == file).ok_or_else(|| {
-            TetherError::new(
-                ErrorKind::Other,
-                format!("{} is not in the transfer queue.", file.name),
-            )
-        })?;
+        let at = self
+            .queue
+            .iter()
+            .position(|(f, _)| f == file)
+            .ok_or_else(|| {
+                TetherError::new(
+                    ErrorKind::Other,
+                    format!("{} is not in the transfer queue.", file.name),
+                )
+            })?;
         self.queue.remove(at);
         self.save_queue();
         Ok(true)
@@ -637,10 +659,7 @@ impl Camera for MockCamera {
         Ok(self
             .queue
             .iter()
-            .map(|file| {
-                let shot = self.shots.get(&file.name).copied().unwrap_or(0);
-                (file.clone(), Some(self.bytes(file, shot).len() as u64))
-            })
+            .map(|(file, shot)| (file.clone(), Some(self.bytes(file, *shot).len() as u64)))
             .collect())
     }
 
