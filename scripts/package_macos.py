@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import struct
 import subprocess
@@ -27,6 +28,7 @@ ARCHES = {"aarch64": (0x0100000C, "aarch64", "aarch64"),
 MACHO = (b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf",
          b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca",
          b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca")
+SHA1 = re.compile(r"[0-9a-fA-F]{40}")
 
 
 def run(args, *, capture=False, env=None):
@@ -44,8 +46,9 @@ def configuration(env):
     certificate = bool(env.get("APPLE_CERTIFICATE"))
     if certificate != bool(env.get("APPLE_CERTIFICATE_PASSWORD")):
         raise ValueError("Set both APPLE_CERTIFICATE and APPLE_CERTIFICATE_PASSWORD")
-    if identity and identity != "-" and not identity.startswith("Developer ID Application:"):
-        raise ValueError("APPLE_SIGNING_IDENTITY must be a Developer ID Application identity")
+    if (identity and identity != "-" and not identity.startswith("Developer ID Application:")
+            and not SHA1.fullmatch(identity)):
+        raise ValueError("APPLE_SIGNING_IDENTITY must be a Developer ID Application name or 40-hex SHA-1 hash")
     if certificate and identity == "-":
         raise ValueError("An Apple certificate cannot be combined with the ad-hoc identity")
     signed = certificate or bool(identity and identity != "-")
@@ -62,7 +65,37 @@ def configuration(env):
         raise ValueError("Notarization requires Developer ID signing credentials")
     if auth and env.get("APPLE_API_KEY_PATH") and not Path(env["APPLE_API_KEY_PATH"]).is_file():
         raise ValueError("APPLE_API_KEY_PATH must name the downloaded private .p8 key")
+    if signed and not certificate:
+        identities = signing_identities()
+        resolve_identity(identity, identities)
+        if SHA1.fullmatch(identity):
+            identity = identity.upper()
     return signed, identity, auth
+
+
+def signing_identities(keychain=None):
+    """Only valid Developer ID Application identities, without logging keychain output."""
+    command = ["security", "find-identity", "-v", "-p", "codesigning"]
+    if keychain:
+        command.append(str(keychain))
+    output = run(command, capture=True)
+    return [(match[1].upper(), match[2]) for line in output.splitlines()
+            if (match := re.fullmatch(
+                r'\s*\d+\)\s+([0-9a-fA-F]{40})\s+"(Developer ID Application:[^"]+)"\s*', line))]
+
+
+def resolve_identity(identity, identities):
+    """Require one exact name/hash match; never include user input in errors."""
+    is_hash = bool(SHA1.fullmatch(identity))
+    matches = [item for item in identities
+               if (item[0] == identity.upper() if is_hash else item[1] == identity)]
+    if len(matches) > 1:
+        raise ValueError("APPLE_SIGNING_IDENTITY matches multiple valid identities; "
+                         "use the 40-hex SHA-1 hash from security find-identity -v -p codesigning")
+    if not matches:
+        raise ValueError("APPLE_SIGNING_IDENTITY must match exactly one valid Developer ID Application "
+                         "identity from security find-identity -v -p codesigning")
+    return matches[0][1]
 
 
 def import_certificate(env, directory):
@@ -78,13 +111,15 @@ def import_certificate(env, directory):
              env["APPLE_CERTIFICATE_PASSWORD"], "-T", "/usr/bin/codesign"], capture=True)
         run(["security", "set-key-partition-list", "-S", "apple-tool:,apple:,codesign:",
              "-s", "-k", password, str(keychain)], capture=True)
-        identities = run(["security", "find-identity", "-v", "-p", "codesigning",
-                          str(keychain)], capture=True)
-        identities = [line.split('"')[1] for line in identities.splitlines()
-                      if '"Developer ID Application:' in line]
+        identities = signing_identities(keychain)
         if len(identities) != 1:
             raise ValueError("APPLE_CERTIFICATE must contain one Developer ID Application identity")
-        return keychain, identities[0]
+        identity = env.get("APPLE_SIGNING_IDENTITY")
+        if identity:
+            resolve_identity(identity, identities)
+        # Tauri 2.12.1 compares APPLE_SIGNING_IDENTITY to the imported name.
+        # Its own isolated keychain has only this identity, so the name is safe.
+        return keychain, identities[0][1]
     except BaseException:
         run(["security", "delete-keychain", str(keychain)], capture=True)
         raise
@@ -189,10 +224,7 @@ def package(env, arch=None):
         keychain = None
         try:
             if env.get("APPLE_CERTIFICATE"):
-                keychain, certificate_identity = import_certificate(env, Path(temporary))
-                if identity and identity != certificate_identity:
-                    raise ValueError("APPLE_SIGNING_IDENTITY does not match APPLE_CERTIFICATE")
-                identity = certificate_identity
+                keychain, identity = import_certificate(env, Path(temporary))
             overlay = stage_resources(target, identity, keychain, tether_dir)
             config = json.loads(tether.read_text())
             signing = json.loads(overlay.read_text())["bundle"]
@@ -202,6 +234,8 @@ def package(env, arch=None):
             # Tauri imports APPLE_CERTIFICATE into its own temporary keychain
             # to sign frameworks, helper, main executable, app and DMG. It also
             # notarizes/staples the app when authentication is configured.
+            # For local identities Tauri forwards the name/hash verbatim to
+            # codesign (no team-id extraction); keep hashes to avoid ambiguity.
             run(["tauri", "bundle", *cross, "--bundles", "app,dmg", "--config", str(overlay)],
                 env={**build_env, "APPLE_SIGNING_IDENTITY": identity})
             finish(bundle / "macos/Rawtonic.app", arch, built_dmg, dmg)
