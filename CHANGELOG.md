@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.7.1 — 2026-10-26
+
+A fix release for alpha.7 with one fix; edits and libraries are unchanged.
+
+- **AI masks show on the first open of a photo.** When a photo with a stored preview was opened for the first time in a session, its AI masks (Subject, Sky, Depth, People, Object), AI patches and Relight rendered empty: a black mask overlay and layer thumbnail, and the layer had no effect until the photo was opened again. They now show and work right away.
+
 ## 0.1.0-alpha.7 — 2026-10-26
 
 The seventh alpha, and the first one signed with an Apple Developer ID and notarized by Apple: on a Mac it now opens like any other app, without the Terminal step. Saturated colours keep their hue, the lens corrections Rawtonic reads from the camera's own data now frame and straighten the photo as the camera does on Sony, Nikon Z, Canon EOS R5 Mark II / R6 Mark III, Samsung NX, Panasonic and Fujifilm, and batch exports take about a third less time. There is also a first, experimental build for Intel Macs.
