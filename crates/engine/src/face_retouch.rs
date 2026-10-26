@@ -181,10 +181,11 @@ const COLOUR_ONLY_KEYS: [&str; 7] = [
 /// The `frame` written since faces became stale only when they move.
 const FRAME_VERSION_2: &str = "2:";
 
-/// Identifies the mask frame the faces are found in: orientation, flips,
-/// straightening and the geometry corrections that move pixels (cache_utils'
-/// geometry keys without `COLOUR_ONLY_KEYS`), as canonical JSON after
-/// `FRAME_VERSION_2`.
+/// Identifies the mask frame the faces are found in: the source frame
+/// (`sourceFrameVersion`, ADR 0020), orientation, flips, straightening and
+/// the geometry corrections that move pixels (cache_utils' geometry keys
+/// without `COLOUR_ONLY_KEYS`), as canonical JSON after `FRAME_VERSION_2`.
+/// Recipes from before the source frame key have none in their stamp.
 pub fn frame_key(adjustments: &Value) -> String {
     let placement = crate::cache_utils::GEOMETRY_KEYS
         .iter()
@@ -202,6 +203,9 @@ fn first_frame_key(adjustments: &Value) -> String {
 fn keys_json<'a>(adjustments: &Value, geometry: impl Iterator<Item = &'a &'a str>) -> String {
     let mut keys: std::collections::BTreeMap<&str, &Value> = std::collections::BTreeMap::new();
     for key in [
+        // `source_frame::KEY`, spelled out for the panel's key test
+        // (StudioFaceRetouch.test.ts).
+        "sourceFrameVersion",
         "orientationSteps",
         "flipHorizontal",
         "flipVertical",
@@ -1437,6 +1441,33 @@ mod tests {
         }
         r["lensDistortionAmount"] = json!(60);
         assert!(!is_active(&r));
+    }
+
+    /// Faces belong to the source frame they were found in (ADR 0020): an
+    /// updated frame is another photo, whatever the rest of the geometry.
+    #[test]
+    fn faces_of_another_source_frame_are_not_applied() {
+        let mut r = recipe(
+            vec![face(vec![], Settings::default())],
+            json!({"evenSkin": 30}),
+        );
+        r["sourceFrameVersion"] = json!(0);
+        for stamp in [frame_key(&r), first_frame_key(&r)] {
+            let mut r = r.clone();
+            r["faceRetouch"]["frame"] = json!(stamp);
+            assert!(is_active(&r));
+            r["sourceFrameVersion"] = json!(1);
+            assert!(!is_active(&r), "{stamp}");
+        }
+        // A stamp from before the key does not match a recipe with it.
+        let mut legacy = recipe(
+            vec![face(vec![], Settings::default())],
+            json!({"evenSkin": 30}),
+        );
+        legacy["faceRetouch"]["frame"] = json!(frame_key(&legacy));
+        assert!(is_active(&legacy));
+        legacy["sourceFrameVersion"] = json!(1);
+        assert!(!is_active(&legacy));
     }
 
     #[test]

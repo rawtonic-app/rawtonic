@@ -13,19 +13,24 @@ const COLOUR_ONLY_KEYS: ReadonlySet<string> = new Set([
   'fringeVersion',
 ]);
 
-/** What decides the mask frame the faces are found in: orientation,
- * flips, straightening and the geometry keys of
+/** The source frame the faces are found in (ADR 0020); stamps from before
+ * the key have none. */
+const SOURCE_FRAME_KEY = ['sourceFrameVersion'] as const satisfies ReadonlyArray<keyof Adjustments>;
+
+/** What decides the mask frame the faces are found in: the source frame,
+ * orientation, flips, straightening and the geometry keys of
  * crates/engine/src/cache_utils.rs (`GEOMETRY_KEYS`) that move pixels; the
  * same set as the engine's `face_retouch::frame_key`, so both agree when a
  * geometry change makes the stored faces stale. */
 export const FACE_FRAME_KEYS = [
+  ...SOURCE_FRAME_KEY,
   ...ORIENTATION_KEYS,
   ...GEOMETRY_KEYS.filter((key) => !COLOUR_ONLY_KEYS.has(key)),
 ] as const;
 
 /** The keys of a frame without the engine's `2:` prefix (faces found
  * before 2026-10-20): every geometry key, colour corrections included. */
-const FIRST_FACE_FRAME_KEYS = [...ORIENTATION_KEYS, ...GEOMETRY_KEYS] as const;
+const FIRST_FACE_FRAME_KEYS = [...SOURCE_FRAME_KEY, ...ORIENTATION_KEYS, ...GEOMETRY_KEYS] as const;
 
 /** The geometry the faces are found in (the mask frame, without the crop). */
 export function faceRetouchGeometry(

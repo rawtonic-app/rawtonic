@@ -270,6 +270,9 @@ pub fn migrate(
     let from = requested(adjustments);
     out[KEY] = json!(to);
     let Some(change) = change else {
+        // The same pixels: every face stamp (current or not) names the new
+        // version, so faces keep their place.
+        restamp_faces(&mut out, to);
         return Migrated {
             adjustments: out,
             hidden_patches: 0,
@@ -320,6 +323,25 @@ pub fn migrate(
     Migrated {
         adjustments: out,
         hidden_patches,
+    }
+}
+
+/// `out`'s face stamp and the panel's copy of it with the source frame
+/// version `to` (for a frame change that moves no pixel).
+fn restamp_faces(out: &mut Value, to: u32) {
+    let with_version = |stamp: &str| -> Option<String> {
+        let (prefix, body) = stamp
+            .strip_prefix("2:")
+            .map_or(("", stamp), |body| ("2:", body));
+        let mut keys: std::collections::BTreeMap<String, Value> =
+            serde_json::from_str(body).ok()?;
+        keys.insert(KEY.to_string(), json!(to));
+        Some(format!("{prefix}{}", serde_json::to_string(&keys).ok()?))
+    };
+    for field in ["frame", "geometry"] {
+        if let Some(stamp) = out["faceRetouch"][field].as_str().and_then(with_version) {
+            out["faceRetouch"][field] = json!(stamp);
+        }
     }
 }
 
@@ -1029,6 +1051,31 @@ mod tests {
                 .shown(SourceGeometry::default(), (280.0, 40.0));
             assert!((crop[2].as_f64().unwrap() - mapped.0).abs() < 1e-9);
         }
+    }
+
+    /// Faces left stale by the old frame (another orientation) never apply
+    /// on the new one, even when the rest of their geometry comes back; on
+    /// an unchanged frame they keep their place.
+    #[test]
+    fn stale_faces_stay_on_their_frame() {
+        let change = grows_right((400, 300), 24);
+        let mut recipe = json!({
+            "orientationSteps": 2,
+            "faceRetouch": {"settings": {"evenSkin": 30}, "faces": [{"crop": [1.0, 0.0, 280.0, 0.0, 1.0, 40.0],
+                "box": [280.0, 40.0, 40.0, 40.0], "blemishes": []}]},
+        });
+        recipe["faceRetouch"]["frame"] = json!(crate::face_retouch::frame_key(&recipe));
+        assert!(face_retouch_applies(&recipe));
+        recipe["orientationSteps"] = json!(0);
+        assert!(!face_retouch_applies(&recipe));
+        let mut out = migrate(&recipe, Some(&change), &recipe, 1).adjustments;
+        out["orientationSteps"] = json!(2);
+        assert!(!face_retouch_applies(&out));
+        // Without a frame change the stamp follows the key: restoring the
+        // geometry applies them again, as before the update.
+        let mut out = migrate(&recipe, None, &recipe, 1).adjustments;
+        out["orientationSteps"] = json!(2);
+        assert!(face_retouch_applies(&out));
     }
 
     #[test]

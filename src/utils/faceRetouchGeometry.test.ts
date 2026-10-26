@@ -20,4 +20,13 @@ describe('the face retouch panel geometry', () => {
     expect(faceRetouchIsCurrent(retouch, { ...adjustments, rotation: 3 })).toBe(false);
     expect(faceRetouchIsCurrent({ ...retouch, geometry: 'not json' }, adjustments)).toBe(false);
   });
+
+  it('takes faces of another source frame as stale, by either stamp rule (ADR 0020)', () => {
+    const adjustments = { ...INITIAL_ADJUSTMENTS, sourceFrameVersion: 0 } as Adjustments;
+    for (const frame of ['2:x', 'x']) {
+      const retouch = { settings: {}, faces: [], frame, geometry: frameGeometry(adjustments, frame) };
+      expect(faceRetouchIsCurrent(retouch, adjustments)).toBe(true);
+      expect(faceRetouchIsCurrent(retouch, { ...adjustments, sourceFrameVersion: 1 })).toBe(false);
+    }
+  });
 });
