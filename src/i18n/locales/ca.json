@@ -1043,7 +1043,7 @@
       "standardLimit": "Límit de mida de les previsualitzacions estàndard",
       "standardLimitDesc": "Per carpeta de previsualitzacions (un projecte, o les fotos fora de projectes). Per sobre, es descarten les previsualitzacions estàndard usades fa més temps i es tornen a crear en obrir la foto. Les de fotos fora de línia es conserven.",
       "standardSize": "Mida de la previsualització estàndard",
-      "standardSizeDesc": "Costat llarg de les previsualitzacions amb què s'obre Revelat mentre es descodifica un fitxer RAW, i que mostren les fotos fora de línia. Auto segueix la mida de la vista Revelatge.",
+      "standardSizeDesc": "Costat llarg de les previsualitzacions amb què s'obre Revelat mentre es descodifica un fitxer RAW, i que mostren les fotos fora de línia. Auto segueix la mida de la vista Revelat.",
       "title": "Previsualitzacions",
       "usage": "Estàndard: {{standardFiles}} fitxers, {{standardSize}} · 1:1: {{fullFiles}} fitxers, {{fullSize}}"
     },
@@ -1434,9 +1434,9 @@
       "flagsSavedRefreshFailed": "Marques desades; no s’ha pogut actualitzar el resum del projecte: {{error}}",
       "hotFolderFailed": "Carpeta vigilada: {{file}}: {{error}}",
       "hotFolderResumeFailed": "No s’ha pogut reprendre la carpeta vigilada: {{error}}",
-      "importAiMasksOnOpen_one": "Les màscares d'IA de {{count}} foto es calculen quan s'obre a Revelatgege",
-      "importAiMasksOnOpen_many": "Les màscares d'IA de {{count}} fotos es calculen quan s'obren a Revelatgege",
-      "importAiMasksOnOpen_other": "Les màscares d'IA de {{count}} fotos es calculen quan s'obren a Revelatgege",
+      "importAiMasksOnOpen_one": "Les màscares d'IA de {{count}} foto es calculen quan s'obre a Revelatge",
+      "importAiMasksOnOpen_many": "Les màscares d'IA de {{count}} fotos es calculen quan s'obren a Revelatge",
+      "importAiMasksOnOpen_other": "Les màscares d'IA de {{count}} fotos es calculen quan s'obren a Revelatge",
       "importCopiesSkipped_one": "{{count}} còpia virtual no importada",
       "importCopiesSkipped_many": "{{count}} còpies virtuals no importades",
       "importCopiesSkipped_other": "{{count}} còpies virtuals no importades",
@@ -2426,7 +2426,7 @@
         "lumaContrastAria": "Contrast del soroll de luminància",
         "lumaDetailAria": "Detall del soroll de luminància"
       },
-      "noPhoto": "Obre una foto a Revelatgege per ajustar-la.",
+      "noPhoto": "Obre una foto a Revelatge per ajustar-la.",
       "params": {
         "blackAndWhite": "Blanc i negre",
         "bwMix": "Mescla B/N",
@@ -4130,7 +4130,7 @@
       },
       "loupe": {
         "adjust": "Revelatge",
-        "adjustTitle": "Ajusta a Revelatgege",
+        "adjustTitle": "Ajusta a Revelatge",
         "backToGrid": "Torna a la graella",
         "fullScreen": "Només la foto (pantalla completa)",
         "grid": "Graella"

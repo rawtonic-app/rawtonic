@@ -141,6 +141,10 @@ impl Library {
         };
         let (mut metadata, _) = rawtonic_metadata::read_xmp(&text)?;
         let carries_flag = rawtonic_metadata::carries_flag(&text)?;
+        // Only a packet the sidecar writer can take back (an XMP packet with
+        // an RDF root) replaces the library's metadata: well-formed XML that
+        // is no XMP would read as "everything empty".
+        rawtonic_metadata::merge_xmp(Some(&text), &metadata, None)?;
         // Read and replaced under one write lock: an edit another
         // connection commits meanwhile is either before (and kept in the
         // undo) or after, never overwritten from a stale read.

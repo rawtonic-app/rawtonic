@@ -1383,7 +1383,7 @@
           "settings": "Lê os ajustes da câmera.",
           "shots": "Dispara o número escolhido de fotos, cada uma quando a anterior chegou."
         },
-        "intro": "Execute cada etapa com a sua câmera; o Rawtonic a mede. Abra antes uma foto em Revelação: as fotos novas aparecem lá, o que mede o tempo até a foto na tela. Nada é enviado a menos que você escolha: no final você pode enviar o relatório abaixo, copiá-lo ou abri-lo no GitHub.",
+        "intro": "Execute cada etapa com a sua câmera; o Rawtonic a mede. Abra antes uma foto em Revelar: as fotos novas aparecem lá, o que mede o tempo até a foto na tela. Nada é enviado a menos que você escolha: no final você pode enviar o relatório abaixo, copiá-lo ou abri-lo no GitHub.",
         "plugBack": "Conecte o cabo de novo (ligue a câmera outra vez se ela desligou).",
         "pressShutter": "Pressione agora o botão do obturador da câmera.",
         "pullCable": "Desconecte agora o cabo USB.",
@@ -1652,7 +1652,7 @@
       "uiScale": "Tamanho da interface",
       "uiScaleDesc": "Amplia os painéis de ferramentas e as barras do visualizador para sessões longas. A área da foto mantém o próprio zoom.",
       "viewerBackground": "Fundo do visualizador",
-      "viewerBackgroundDesc": "Cor em volta da foto em Revelação. Também com clique direito ao lado da foto. Médio é um cinza médio neutro para avaliar os tons.",
+      "viewerBackgroundDesc": "Cor em volta da foto em Revelar. Também com clique direito ao lado da foto. Médio é um cinza médio neutro para avaliar os tons.",
       "xmpSync": "Sincronização de Metadados XMP",
       "xmpSyncDesc": "Sincronize avaliações, rótulos de cores e etiquetas em arquivos sidecar XMP padrão para compatibilidade com outros editores de fotos."
     },

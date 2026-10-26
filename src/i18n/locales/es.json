@@ -1383,7 +1383,7 @@
           "settings": "Lee los ajustes de la cámara.",
           "shots": "Dispara el número elegido de fotos, cada una cuando ha llegado la anterior."
         },
-        "intro": "Realiza cada paso con tu cámara; Rawtonic lo mide. Abre antes una foto en Revelado: las fotos nuevas aparecen allí, lo que mide el tiempo hasta la foto en pantalla. No se envía nada a menos que tú lo elijas: al final puedes enviar el informe de abajo, copiarlo o abrirlo en GitHub.",
+        "intro": "Realiza cada paso con tu cámara; Rawtonic lo mide. Abre antes una foto en Revelar: las fotos nuevas aparecen allí, lo que mide el tiempo hasta la foto en pantalla. No se envía nada a menos que tú lo elijas: al final puedes enviar el informe de abajo, copiarlo o abrirlo en GitHub.",
         "plugBack": "Vuelve a conectar el cable (enciende la cámara de nuevo si se apagó).",
         "pressShutter": "Pulsa ahora el disparador de la cámara.",
         "pullCable": "Desconecta ahora el cable USB.",
@@ -1652,7 +1652,7 @@
       "uiScale": "Tamaño de la interfaz",
       "uiScaleDesc": "Amplía los paneles de herramientas y las barras del visor para sesiones largas. La zona de la foto conserva su propio zoom.",
       "viewerBackground": "Fondo del visor",
-      "viewerBackgroundDesc": "Color alrededor de la foto en Revelado. También con clic derecho junto a la foto. Medio es un gris medio neutro para juzgar los tonos.",
+      "viewerBackgroundDesc": "Color alrededor de la foto en Revelar. También con clic derecho junto a la foto. Medio es un gris medio neutro para juzgar los tonos.",
       "xmpSync": "Sincronización de metadatos XMP",
       "xmpSyncDesc": "Sincroniza puntuaciones, etiquetas de color y etiquetas a archivos sidecar XMP estándar para compatibilidad con otros editores de fotos."
     },

@@ -1427,7 +1427,7 @@
           "settings": "Odczytuje ustawienia aparatu.",
           "shots": "Wykonuje wybraną liczbę zdjęć, każde, gdy poprzednie dotarło."
         },
-        "intro": "Wykonaj każdy krok z aparatem; Rawtonic go zmierzy. Najpierw otwórz zdjęcie w module Wywoływanie: nowe zdjęcia pojawiają się tam, co mierzy czas do zdjęcia na ekranie. Nic nie jest wysyłane, chyba że tak wybierzesz: na końcu możesz wysłać poniższy raport, skopiować go lub otworzyć w GitHub.",
+        "intro": "Wykonaj każdy krok z aparatem; Rawtonic go zmierzy. Najpierw otwórz zdjęcie w Wywoływaniu: nowe zdjęcia pojawiają się tam, co mierzy czas do zdjęcia na ekranie. Nic nie jest wysyłane, chyba że tak wybierzesz: na końcu możesz wysłać poniższy raport, skopiować go lub otworzyć w GitHub.",
         "plugBack": "Podłącz kabel ponownie (włącz aparat, jeśli się wyłączył).",
         "pressShutter": "Naciśnij teraz spust migawki aparatu.",
         "pullCable": "Odłącz teraz kabel USB.",
@@ -4246,7 +4246,7 @@
       },
       "loupe": {
         "adjust": "Wywoływanie",
-        "adjustTitle": "Dostosuj w module Wywoływanie",
+        "adjustTitle": "Dostosuj w Wywoływaniu",
         "backToGrid": "Wróć do siatki",
         "fullScreen": "Samo zdjęcie (pełny ekran)",
         "grid": "Siatka"

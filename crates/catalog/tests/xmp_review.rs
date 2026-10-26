@@ -298,3 +298,18 @@ fn use_xmp_takes_an_outside_rejection_of_a_rawtonic_packet() {
             .contains(r#"rawtonic:Flag="-1""#)
     );
 }
+
+#[test]
+fn use_xmp_refuses_a_sidecar_that_is_no_xmp_packet() {
+    let f = synced();
+    fs::write(&f.xmp, "<oops/>").unwrap();
+    set_rating(&f, 3);
+    assert!(f.lib.sync_xmp(&f.id).is_err());
+    let before = f.lib.metadata(&f.id).unwrap();
+    let listed = f.lib.xmp_unsynced().unwrap();
+    assert!(f.lib.use_xmp(&f.id).is_err());
+    assert_eq!(f.lib.metadata(&f.id).unwrap(), before, "metadata unchanged");
+    assert_eq!(state(&f), Some((XmpState::Conflict, false)));
+    assert_eq!(f.lib.xmp_unsynced().unwrap().len(), listed.len());
+    assert_eq!(fs::read_to_string(&f.xmp).unwrap(), "<oops/>");
+}
