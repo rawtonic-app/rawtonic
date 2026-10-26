@@ -587,7 +587,7 @@ pub fn full_resolution_plan(
     if version == 0 {
         return None;
     }
-    let noise = if version >= 2 && w >= 2 {
+    let noise = if full_resolution_plan_reads_rows(adjustments, w) {
         let rows: Vec<usize> = (0..h).step_by(4).collect();
         let diffs = rows
             .into_par_iter()
@@ -598,6 +598,12 @@ pub fn full_resolution_plan(
         0.0
     };
     Some(plan_for(version, noise, 1.0))
+}
+
+/// Whether [`full_resolution_plan`] of `adjustments` on an image `w`
+/// wide asks for rows (to measure the noise).
+pub fn full_resolution_plan_reads_rows(adjustments: &serde_json::Value, w: usize) -> bool {
+    version_of(adjustments) >= 2 && w >= 2
 }
 
 /// How far [`apply`] reads around a pixel (rows and columns): the

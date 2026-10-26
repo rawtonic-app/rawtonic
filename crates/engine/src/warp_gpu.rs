@@ -444,14 +444,17 @@ pub fn read_every_fourth_row(
     })
 }
 
-/// `run` with the device's out-of-memory and validation errors caught.
+/// `run` with the device's out-of-memory, validation and internal errors
+/// (a failed submission among them) caught.
 fn scoped<T>(device: &wgpu::Device, run: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
     let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let internal = device.push_error_scope(wgpu::ErrorFilter::Internal);
     let result = run();
+    let internal = pollster::block_on(internal.pop());
     let validation = pollster::block_on(validation.pop());
     let memory = pollster::block_on(memory.pop());
-    if let Some(error) = memory.or(validation) {
+    if let Some(error) = memory.or(validation).or(internal) {
         return Err(format!("The warp failed on the GPU: {error}"));
     }
     result

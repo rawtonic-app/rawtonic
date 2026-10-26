@@ -3352,18 +3352,22 @@ impl RegionMeasures {
         } else {
             let kernel = WarpKernel::with_estimate(&params, width, height, ca);
             let source = SourceRows::whole(raw, width, height);
-            // The plan reads every fourth row: warped at once on the GPU.
-            let fourth_rows = kernel
-                .on_gpu(&source)
-                .then(|| {
-                    let out = crate::warp_gpu::OutputRows {
-                        step: 4,
-                        rows: height.div_ceil(4),
-                        ..crate::warp_gpu::OutputRows::whole(width, height)
-                    };
-                    kernel.warp_on_gpu(&source, out)
-                })
-                .transpose()?;
+            // The plan reads every fourth row, if any: warped at once on the
+            // GPU.
+            let fourth_rows = (kernel.on_gpu(&source)
+                && crate::edge_fringe::full_resolution_plan_reads_rows(
+                    adjustments,
+                    width as usize,
+                ))
+            .then(|| {
+                let out = crate::warp_gpu::OutputRows {
+                    step: 4,
+                    rows: height.div_ceil(4),
+                    ..crate::warp_gpu::OutputRows::whole(width, height)
+                };
+                kernel.warp_on_gpu(&source, out)
+            })
+            .transpose()?;
             crate::edge_fringe::full_resolution_plan(
                 adjustments,
                 width as usize,
