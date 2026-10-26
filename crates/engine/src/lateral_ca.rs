@@ -33,6 +33,8 @@ type Sample = (f32, f32, f32, f32);
 /// Half the side of a measured patch, and the largest shift searched.
 const HALF: i64 = 10;
 const MAX_SHIFT: f32 = 3.0;
+/// The quarter-pixel shifts from −`MAX_SHIFT` to `MAX_SHIFT` searched.
+const STEPS: usize = 25;
 
 /// Lateral CA of a photo: red and blue are sampled at `r · scale(r)` about
 /// the centre to line up with green, `scale = 1 + a + b·(r / half-diagonal)²`
@@ -512,6 +514,96 @@ fn downscale(image: &Rgb32FImage, long_edge: u32) -> Rgb32FImage {
     out
 }
 
+/// Square-root values of a photo as `measure_patches` reads them.
+trait SqrtPlanes: Sync {
+    fn size(&self) -> (u32, u32);
+    /// `√max(v, 0)` of channel `c` at `(x, y)`.
+    fn sqrt_value(&self, c: usize, x: usize, y: usize) -> f32;
+}
+
+impl SqrtPlanes for Rgb32FImage {
+    fn size(&self) -> (u32, u32) {
+        self.dimensions()
+    }
+
+    #[inline]
+    fn sqrt_value(&self, c: usize, x: usize, y: usize) -> f32 {
+        self.as_raw()[(y * self.width() as usize + x) * 3 + c]
+            .max(0.0)
+            .sqrt()
+    }
+}
+
+/// The reduced working copy (`downscale`) as `measure_patches` reads it:
+/// green kept as square roots, red and blue averaged from the photo where
+/// they are read, since most patches stop at the edge check, which needs
+/// green only. The same numbers as `downscale`'s copy.
+struct Reduced<'a> {
+    image: &'a Rgb32FImage,
+    factor: usize,
+    size: (u32, u32),
+    green: Vec<f32>,
+}
+
+impl<'a> Reduced<'a> {
+    fn new(image: &'a Rgb32FImage, long_edge: u32) -> Self {
+        let (w, h) = image.dimensions();
+        let factor = (w.max(h) as f32 / long_edge as f32).floor().max(1.0) as u32;
+        let (sw, sh) = (w / factor, h / factor);
+        let mut reduced = Reduced {
+            image,
+            factor: factor as usize,
+            size: (sw, sh),
+            green: vec![0.0; sw as usize * sh as usize],
+        };
+        let mut green = std::mem::take(&mut reduced.green);
+        green
+            .par_chunks_mut(sw as usize)
+            .enumerate()
+            .for_each(|(y, row)| {
+                for (x, v) in row.iter_mut().enumerate() {
+                    *v = reduced.average(1, x, y).max(0.0).sqrt();
+                }
+            });
+        reduced.green = green;
+        reduced
+    }
+
+    /// `downscale`'s value of channel `c` at `(x, y)`: the photo's
+    /// `factor` × `factor` box, added up row by row.
+    #[inline]
+    fn average(&self, c: usize, x: usize, y: usize) -> f32 {
+        let (w, f) = (self.image.width() as usize, self.factor);
+        let raw = self.image.as_raw();
+        if f == 1 {
+            return raw[(y * w + x) * 3 + c];
+        }
+        let mut acc = 0.0f32;
+        for j in 0..f {
+            let start = ((y * f + j) * w + x * f) * 3 + c;
+            for i in 0..f {
+                acc += raw[start + i * 3];
+            }
+        }
+        acc / (f * f) as f32
+    }
+}
+
+impl SqrtPlanes for Reduced<'_> {
+    fn size(&self) -> (u32, u32) {
+        self.size
+    }
+
+    #[inline]
+    fn sqrt_value(&self, c: usize, x: usize, y: usize) -> f32 {
+        if c == 1 {
+            self.green[y * self.size.0 as usize + x]
+        } else {
+            self.average(c, x, y).max(0.0).sqrt()
+        }
+    }
+}
+
 // ---- Version 2 ----------------------------------------------------------
 
 /// One patch measured by `measure_patches`: centre (pixels of the image it
@@ -540,15 +632,14 @@ fn modelled(m: (f32, f32), x: f32, y: f32, cx: f32, cy: f32, inv_hd2: f32) -> (f
 /// own resolution on square-root values. With `check_edges` a patch is
 /// kept only when green's edges run across the radius.
 fn measure_patches(
-    image: &Rgb32FImage,
+    image: &(impl SqrtPlanes + ?Sized),
     centres: &[(f32, f32)],
     model: CaModel,
     check_edges: bool,
 ) -> Vec<Patch> {
-    let (w, h) = image.dimensions();
+    let (w, h) = image.size();
     let (cx, cy) = ((w as f32 - 1.0) / 2.0, (h as f32 - 1.0) / 2.0);
     let inv_hd2 = 1.0 / (cx * cx + cy * cy);
-    let raw = image.as_raw();
     centres
         .par_iter()
         .filter_map(|&(px, py)| {
@@ -578,9 +669,8 @@ fn measure_patches(
             let plane = |c: usize| -> Vec<f32> {
                 let mut plane = vec![0.0f32; lw * lh];
                 for j in 0..lh {
-                    let row = (y0 as usize + j) * w as usize + x0 as usize;
                     for (i, v) in plane[j * lw..(j + 1) * lw].iter_mut().enumerate() {
-                        *v = raw[(row + i) * 3 + c].max(0.0).sqrt();
+                        *v = image.sqrt_value(c, x0 as usize + i, y0 as usize + j);
                     }
                 }
                 plane
@@ -588,7 +678,8 @@ fn measure_patches(
             let at = |plane: &[f32], x: f32, y: f32| -> f32 {
                 let x = (x - x0 as f32).clamp(0.0, lw as f32 - 1.001);
                 let y = (y - y0 as f32).clamp(0.0, lh as f32 - 1.001);
-                let (xi, yi) = (x.floor() as usize, y.floor() as usize);
+                // Not negative after the clamp: truncating is the floor.
+                let (xi, yi) = (x as usize, y as usize);
                 let (fx, fy) = (x - xi as f32, y - yi as f32);
                 let i = yi * lw + xi;
                 (plane[i] * (1.0 - fx) + plane[i + 1] * fx) * (1.0 - fy)
@@ -704,12 +795,15 @@ fn normalise(v: &mut [f32]) -> bool {
 /// The shift in ±`MAX_SHIFT` with the lowest score: a coarse search in
 /// quarter pixels, then a parabola through the best three.
 fn parabolic_minimum(score: &dyn Fn(f32) -> f32) -> Option<f32> {
-    let mut best = (0.0f32, f32::MAX);
+    // The quarter-pixel steps are exact, so the best one's neighbours are
+    // searched shifts whose scores are kept.
+    let mut scores = [0.0f32; STEPS];
+    let mut best = (0.0f32, f32::MAX, 0);
     let mut s = -MAX_SHIFT;
-    while s <= MAX_SHIFT + 1e-6 {
-        let v = score(s);
-        if v < best.1 {
-            best = (s, v);
+    for (k, v) in scores.iter_mut().enumerate() {
+        *v = score(s);
+        if *v < best.1 {
+            best = (s, *v, k);
         }
         s += 0.25;
     }
@@ -717,7 +811,7 @@ fn parabolic_minimum(score: &dyn Fn(f32) -> f32) -> Option<f32> {
         return None;
     }
     let h = 0.25;
-    let (l, c, r) = (score(best.0 - h), best.1, score(best.0 + h));
+    let (l, c, r) = (scores[best.2 - 1], best.1, scores[best.2 + 1]);
     let d = l - 2.0 * c + r;
     let offset = if d > 1e-9 { 0.5 * (l - r) / d * h } else { 0.0 };
     Some(best.0 + offset)
@@ -779,6 +873,8 @@ fn add(m: CaModel, rest: CaModel) -> CaModel {
 const CHECK_HALF: i64 = 16;
 const CHECK_RADIUS: i64 = 2;
 const CHECK_SIDE: usize = (2 * CHECK_HALF + 1) as usize;
+/// Windows whose guided-fit sums `window_costs` adds up together.
+const LANES: usize = 8;
 
 /// The colour that the local luminance does not explain at the edges in
 /// windows around `centres` of `image` when red and blue are sampled with
@@ -856,24 +952,39 @@ fn window_costs(
             let sample = |c: usize, x: f32, y: f32| -> f32 {
                 let x = x.clamp(0.0, w as f32 - 1.001);
                 let y = y.clamp(0.0, h as f32 - 1.001);
-                let (xi, yi) = (x.floor() as i64, y.floor() as i64);
+                // Not negative after the clamp, so truncating is the floor
+                // (which baseline x86-64 calls libm for).
+                let (xi, yi) = (x as i64, y as i64);
                 let (fx, fy) = (x - xi as f32, y - yi as f32);
-                (value(c, xi, yi) * (1.0 - fx) + value(c, xi + 1, yi) * fx) * (1.0 - fy)
-                    + (value(c, xi, yi + 1) * (1.0 - fx) + value(c, xi + 1, yi + 1) * fx) * fy
+                let (p00, p10, p01, p11) = if xi >= x0 && xi < x1 && yi >= y0 && yi < y1 {
+                    let plane = &planes[c];
+                    let k = (yi - y0) as usize * bw + (xi - x0) as usize;
+                    (plane[k], plane[k + 1], plane[k + bw], plane[k + bw + 1])
+                } else {
+                    (
+                        value(c, xi, yi),
+                        value(c, xi + 1, yi),
+                        value(c, xi, yi + 1),
+                        value(c, xi + 1, yi + 1),
+                    )
+                };
+                (p00 * (1.0 - fx) + p10 * fx) * (1.0 - fy) + (p01 * (1.0 - fx) + p11 * fx) * fy
             };
             models
                 .iter()
                 .map(|&model| {
-                    let n = CHECK_SIDE * CHECK_SIDE;
+                    // `LANES` more values than the window, read by the last
+                    // windows' unused lanes.
                     let (mut y_, mut u, mut v) = (
-                        [0.0f32; CHECK_SIDE * CHECK_SIDE],
-                        [0.0f32; CHECK_SIDE * CHECK_SIDE],
-                        [0.0f32; CHECK_SIDE * CHECK_SIDE],
+                        [0.0f32; CHECK_SIDE * CHECK_SIDE + LANES],
+                        [0.0f32; CHECK_SIDE * CHECK_SIDE + LANES],
+                        [0.0f32; CHECK_SIDE * CHECK_SIDE + LANES],
                     );
                     for j in 0..CHECK_SIDE {
                         for i in 0..CHECK_SIDE {
                             let (x, y) = (px - CHECK_HALF + i as i64, py - CHECK_HALF + j as i64);
-                            let g = value(1, x, y);
+                            // The window lies in the image and the box.
+                            let g = planes[1][(y - y0) as usize * bw + (x - x0) as usize];
                             let (rx, ry) = modelled(model.red, x as f32, y as f32, cx, cy, inv_hd2);
                             let (bx, by) =
                                 modelled(model.blue, x as f32, y as f32, cx, cy, inv_hd2);
@@ -884,48 +995,45 @@ fn window_costs(
                             v[k] = b - g;
                         }
                     }
-                    let products = |a: &[f32; CHECK_SIDE * CHECK_SIDE]| {
-                        let mut p = [0.0f32; CHECK_SIDE * CHECK_SIDE];
-                        for k in 0..n {
-                            p[k] = y_[k] * a[k];
-                        }
-                        p
-                    };
-                    let (yy, yu, yv) = (products(&y_), products(&u), products(&v));
                     let (mut sum, mut count) = (0.0f64, 0usize);
                     let r = CHECK_RADIUS as usize;
                     let cells = ((2 * r + 1) * (2 * r + 1)) as f32;
                     for j in r..CHECK_SIDE - r {
-                        // The 5 × 5 sums of a row of windows, each added up
-                        // in the same order as one window at a time
-                        // (row by row, left to right), all windows at once.
-                        let mut sums = [[0.0f32; CHECK_SIDE]; 6];
-                        for jj in j - r..=j + r {
-                            let row = jj * CHECK_SIDE;
-                            for di in 0..=2 * r {
-                                for (s, a) in sums.iter_mut().zip([&y_, &yy, &u, &v, &yu, &yv]) {
-                                    let a = &a[row + di..row + di + CHECK_SIDE - 2 * r];
-                                    for (s, a) in s[r..CHECK_SIDE - r].iter_mut().zip(a) {
-                                        *s += a;
+                        // The 5 × 5 sums of `LANES` windows side by side at
+                        // once, each added up in the same order as alone
+                        // (row by row, left to right).
+                        for i0 in (r..CHECK_SIDE - r).step_by(LANES) {
+                            let mut sums = [[0.0f32; LANES]; 6];
+                            for jj in j - r..=j + r {
+                                for di in 0..=2 * r {
+                                    let k = jj * CHECK_SIDE + i0 - r + di;
+                                    for l in 0..LANES {
+                                        let (y, u, v) = (y_[k + l], u[k + l], v[k + l]);
+                                        sums[0][l] += y;
+                                        sums[1][l] += y * y;
+                                        sums[2][l] += u;
+                                        sums[3][l] += v;
+                                        sums[4][l] += y * u;
+                                        sums[5][l] += y * v;
                                     }
                                 }
                             }
-                        }
-                        let [sy, syy, su, sv, syu, syv] = sums;
-                        for i in r..CHECK_SIDE - r {
-                            let my = sy[i] / cells;
-                            let var = (syy[i] / cells - my * my).max(0.0);
-                            if var.sqrt() < EDGE_STD {
-                                continue;
+                            for l in 0..LANES.min(CHECK_SIDE - r - i0) {
+                                let [sy, syy, su, sv, syu, syv] = sums.map(|s| s[l]);
+                                let my = sy / cells;
+                                let var = (syy / cells - my * my).max(0.0);
+                                if var.sqrt() < EDGE_STD {
+                                    continue;
+                                }
+                                let k = j * CHECK_SIDE + i0 + l;
+                                let (mu, mv) = (su / cells, sv / cells);
+                                let bu = (syu / cells - my * mu) / (var + 4e-4);
+                                let bv = (syv / cells - my * mv) / (var + 4e-4);
+                                let du = u[k] - (mu + bu * (y_[k] - my));
+                                let dv = v[k] - (mv + bv * (y_[k] - my));
+                                sum += (du * du + dv * dv) as f64;
+                                count += 1;
                             }
-                            let k = j * CHECK_SIDE + i;
-                            let (mu, mv) = (su[i] / cells, sv[i] / cells);
-                            let bu = (syu[i] / cells - my * mu) / (var + 4e-4);
-                            let bv = (syv[i] / cells - my * mv) / (var + 4e-4);
-                            let du = u[k] - (mu + bu * (y_[k] - my));
-                            let dv = v[k] - (mv + bv * (y_[k] - my));
-                            sum += (du * du + dv * dv) as f64;
-                            count += 1;
                         }
                     }
                     (sum, count)
@@ -982,8 +1090,8 @@ fn fit(patches: &[Patch], half_diagonal: f32) -> CaModel {
 /// full resolution on the same patches; `None` with too few usable edges.
 fn analyse(image: &Rgb32FImage, report: bool) -> Option<Analysis> {
     let (w, h) = image.dimensions();
-    let small = downscale(image, WORK_EDGE);
-    let (sw, sh) = small.dimensions();
+    let small = Reduced::new(image, WORK_EDGE);
+    let (sw, sh) = small.size();
     let factor = (w as f32 / sw as f32).round().max(1.0);
     let (scx, scy) = ((sw as f32 - 1.0) / 2.0, (sh as f32 - 1.0) / 2.0);
     let small_hd = (scx * scx + scy * scy).sqrt();
@@ -1371,6 +1479,17 @@ mod tests {
                     .zip(b.as_raw())
                     .all(|(a, b)| a.to_bits() == b.to_bits())
             );
+            // As `measure_patches` reads it: square roots, green kept.
+            let reduced = Reduced::new(&image, long_edge);
+            assert_eq!(reduced.size(), b.dimensions());
+            for (x, y, p) in b.enumerate_pixels() {
+                for c in 0..3 {
+                    assert_eq!(
+                        reduced.sqrt_value(c, x as usize, y as usize).to_bits(),
+                        p[c].max(0.0).sqrt().to_bits()
+                    );
+                }
+            }
         }
     }
 
