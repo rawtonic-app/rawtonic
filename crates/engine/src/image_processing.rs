@@ -7801,6 +7801,55 @@ mod warp_points_tests {
         assert_eq!(a.as_raw(), b.as_raw());
     }
 
+    /// Samsung's model in camera mode: an output pixel at r pixels from the
+    /// centre samples the frame at r (c0 + c1 r² + c2 r⁴), r in the frame's
+    /// own pixels, without any further zoom (barrel data stay inside).
+    #[test]
+    fn samsung_camera_data_sample_the_cameras_pixel_radius_polynomial() {
+        let (w, h) = (1200u32, 800u32);
+        let half_diagonal = (w as f64).hypot(h as f64) / 2.0;
+        // NX200 + 16 mm's coefficients, scaled to this frame's radius.
+        let s = 3288.0 / half_diagonal;
+        let c1 = -8576e-12 * s * s;
+        let c2 = 1672e-19 * s.powi(4);
+        let data = crate::embedded_lens::samsung_curve(
+            &[1.0, 0.0, -8576.0, -12.0, 1672.0, -19.0, 0.0, 0.0],
+            half_diagonal * s,
+        )
+        .expect("Samsung model");
+        let params = crate::embedded_lens::to_params(&data).expect("parameters");
+        let adjustments = serde_json::json!({
+            "lensCorrectionMode": "camera",
+            "lensDistortionParams": params,
+        });
+        let geometry = get_geometry_params_from_json(&adjustments);
+        assert_eq!(
+            compute_lens_auto_crop_scale(&geometry, w as f32, h as f32),
+            1.0
+        );
+        let out = warp_image_geometry(&coordinates(w, h), geometry).into_rgb32f();
+        let (cx, cy) = (w as f64 / 2.0, h as f64 / 2.0);
+        for (x, y) in [
+            (1100u32, 700u32),
+            (100, 100),
+            (600, 50),
+            (900, 400),
+            (1199, 799),
+        ] {
+            let (dx, dy) = (x as f64 - cx, y as f64 - cy);
+            let r2 = dx * dx + dy * dy;
+            let k = 1.0 + c1 * r2 + c2 * r2 * r2;
+            let pixel = out.get_pixel(x, y);
+            let (sx, sy) = (pixel[0] as f64, pixel[1] as f64);
+            assert!(
+                (sx - (cx + dx * k)).abs() < 0.02 && (sy - (cy + dy * k)).abs() < 0.02,
+                "({x},{y}) samples ({sx},{sy}), expected ({},{})",
+                cx + dx * k,
+                cy + dy * k
+            );
+        }
+    }
+
     #[test]
     fn warp_points_land_where_the_image_warp_samples() {
         let (w, h) = (240u32, 160u32);
