@@ -314,11 +314,13 @@ pub fn grain_tile() -> Vec<u32> {
     }
     let mut out = Vec::new();
     for mip in &mips {
-        let texels = mip[0].len();
-        for t in 0..texels {
-            for w in 0..LEVELS / 2 {
-                out.push(f16_bits(mip[2 * w][t]) | (f16_bits(mip[2 * w + 1][t]) << 16));
-            }
+        for t in 0..mip[0].len() {
+            out.extend(
+                mip.as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|pair| f16_bits(pair[0][t]) | (f16_bits(pair[1][t]) << 16)),
+            );
         }
     }
     out
@@ -332,7 +334,7 @@ mod tests {
         texels
             .map(|t| {
                 let word = tile[t * (LEVELS / 2) + level / 2];
-                let bits = if level % 2 == 0 {
+                let bits = if level.is_multiple_of(2) {
                     word & 0xffff
                 } else {
                     word >> 16
