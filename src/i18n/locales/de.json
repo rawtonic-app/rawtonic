@@ -3483,6 +3483,7 @@
     },
     "presets": {
       "amount": "Stärke der Vorgabe",
+      "appliedStyle": "Angewendeter Stil: klicken, um ihn zurückzunehmen",
       "appliesAll": "Wendet alle Einstellungen an, mit denen sie gespeichert wurde",
       "appliesBuiltin": "Rawtonics eigene Vorgabe: wendet die enthaltenen Einstellungen an",
       "appliesSaved": "Wendet die Einstellungen an, mit denen sie gespeichert wurde",

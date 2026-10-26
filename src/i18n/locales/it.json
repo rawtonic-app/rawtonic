@@ -3583,6 +3583,7 @@
     },
     "presets": {
       "amount": "Quantità del predefinito",
+      "appliedStyle": "Stile applicato: fai clic per rimuoverlo",
       "appliesAll": "Applica tutte le impostazioni con cui è stato salvato",
       "appliesBuiltin": "Preset di Rawtonic: applica le impostazioni che contiene",
       "appliesSaved": "Applica le impostazioni con cui è stato salvato",

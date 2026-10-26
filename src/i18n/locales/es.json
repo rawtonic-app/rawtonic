@@ -3583,6 +3583,7 @@
     },
     "presets": {
       "amount": "Cantidad del ajuste preestablecido",
+      "appliedStyle": "Estilo aplicado: haz clic para quitarlo",
       "appliesAll": "Aplica todos los ajustes con los que se guardó",
       "appliesBuiltin": "Ajuste propio de Rawtonic: aplica los ajustes que contiene",
       "appliesSaved": "Aplica los ajustes con los que se guardó",

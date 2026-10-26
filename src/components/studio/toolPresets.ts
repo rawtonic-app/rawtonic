@@ -12,6 +12,7 @@ import {
 import { DETECTED_TYPES, withPendingDetections } from "../../utils/settingsClipboard";
 import { developmentSignature } from "../../utils/aiDenoise";
 import { COPIED_ALONG, pick } from "./StudioToolCopy";
+import { withStyleValues } from "../../utils/appliedStyle";
 
 /** Tools with Capture One's per-tool preset menu in their header, by tool
  * id (`ToolGroup`'s `title`). A tool opts in by its id; its presets are
@@ -38,15 +39,23 @@ export function presetFitsTool(preset: Preset, toolKeys: readonly string[]) {
   return keys.some((key) => toolKeys.includes(key)) && keys.every((key) => allowed.has(key));
 }
 
-/** The photo with a preset for the hover preview, or null when the preset
+/** The photo with a preset for the hover preview (`style`: a style, shown on
+ * `base`, the photo without its last applied one, its groups joined to the
+ * photo's as applying it does), or null when the preset
  * changes how the RAW is developed before any adjustment (AI Denoise, the
  * colour noise filter): the preview re-renders the open source only, so it
  * would show something else than applying the preset does. */
-export function presetPreview(current: Adjustments, adjustments: Partial<Adjustments>, isRaw: boolean): Adjustments | null {
+export function presetPreview(
+  current: Adjustments,
+  adjustments: Partial<Adjustments>,
+  isRaw: boolean,
+  style?: { base: Adjustments; style: true },
+): Adjustments | null {
   // Detection needs the target photo, can be expensive and commits a bitmap.
   // A hover override cannot run that edit safely.
   if (adjustments.masks?.some((layer) => layer.subMasks.some((sub) => DETECTED_TYPES.has(sub.type)))) return null;
-  const previewed = { ...current, ...presetValues(adjustments) } as Adjustments;
+  const values = presetValues(adjustments);
+  const previewed = (style ? withStyleValues(style.base, values) : { ...current, ...values }) as Adjustments;
   return developmentSignature(previewed, isRaw) === developmentSignature(current, isRaw) ? previewed : null;
 }
 

@@ -3406,6 +3406,7 @@
     },
     "presets": {
       "amount": "预设强度",
+      "appliedStyle": "已应用的样式：点击即可撤除",
       "appliesAll": "应用存储时的全部设置",
       "appliesBuiltin": "Rawtonic 自有预设：应用其包含的设置",
       "appliesSaved": "应用存储时包含的设置",

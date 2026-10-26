@@ -95,6 +95,8 @@ it('applies a preset to the selection from the Library', async () => {
     expect(invoke).toHaveBeenCalledWith('apply_adjustments_to_paths', {
       paths: ['/s/Capture/DSCF0147.RAF'],
       adjustments: { saturation: -100 },
+      // A style replaces each photo's last applied one, as in the styles list.
+      style: { id: 'bw' },
     }),
   );
 });
