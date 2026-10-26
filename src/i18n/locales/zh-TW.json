@@ -3406,6 +3406,7 @@
     },
     "presets": {
       "amount": "預設強度",
+      "appliedStyle": "已套用的樣式：按一下即可移除",
       "appliesAll": "套用儲存時的全部設定",
       "appliesBuiltin": "Rawtonic 自有預設：套用其包含的設定",
       "appliesSaved": "套用儲存時包含的設定",

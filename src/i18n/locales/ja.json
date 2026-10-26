@@ -3406,6 +3406,7 @@
     },
     "presets": {
       "amount": "プリセットの適用量",
+      "appliedStyle": "適用中のスタイル：クリックすると元に戻します",
       "appliesAll": "保存時のすべての設定を適用します",
       "appliesBuiltin": "Rawtonic 独自のプリセット：含まれる設定を適用します",
       "appliesSaved": "保存時に含めた設定を適用します",

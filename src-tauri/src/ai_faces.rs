@@ -420,6 +420,7 @@ pub async fn apply_face_retouch_to_paths(
                     vec![path.clone()],
                     serde_json::json!({ "faceRetouch": value }),
                     None,
+                    None,
                     app_handle.clone(),
                 )
                 .await

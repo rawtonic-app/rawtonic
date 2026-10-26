@@ -7,6 +7,7 @@ import {
   endBeforePeek,
   flushRecipeSaves,
   registerScheduledRecipe,
+  rememberOpenedRecipe,
   startBeforePeek,
   updateAdjustments,
   useEditorActions,
@@ -670,5 +671,77 @@ describe('AI preset layers', () => {
     expect(invoke).toHaveBeenCalledWith(Invokes.ApplyAdjustmentsToPaths, expect.objectContaining({
       paths: ['/second.dng'], adjustments: expect.objectContaining({ lutPath: null, lutData: null, crop: null }),
     }));
+  });
+});
+
+describe('styles', () => {
+  const recipe = () => useEditorStore.getState().adjustments as unknown as Record<string, unknown>;
+  const applyStyle = (result: { current: ReturnType<typeof useEditorActions> }, values: object, id: string, remove = false) =>
+    act(() => {
+      void result.current.applyAdjustmentsToPaths(values as never, ['/first.dng', '/second.dng'], { style: { id, remove } });
+    });
+
+  it('replaces the last applied style, keeping the user\'s own changes, one undo step per click', async () => {
+    const { result } = renderHook(useEditorActions);
+    applyStyle(result, { exposure: 1, saturation: 20 }, 'a');
+    expect(recipe()).toMatchObject({ exposure: 1, saturation: 20, appliedStyle: { id: 'a', amount: 100 } });
+    // The open photo is taken back by its editor; the others by the backend.
+    expect(invoke).toHaveBeenCalledWith(Invokes.ApplyAdjustmentsToPaths, expect.objectContaining({
+      paths: ['/second.dng'], adjustments: expect.objectContaining({ exposure: 1, saturation: 20 }), style: { id: 'a', remove: false },
+    }));
+    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    // The user changes saturation (a setting of A) and contrast after A.
+    act(() => result.current.setAdjustments((current) => ({ ...current, saturation: 35, contrast: 12 })));
+    act(() => debouncedSetHistory.flush());
+    const steps = useEditorStore.getState().history.length;
+    applyStyle(result, { contrast: 30 }, 'b');
+    expect(recipe()).toMatchObject({ exposure: -2, saturation: 35, contrast: 30, appliedStyle: { id: 'b' } });
+    expect(useEditorStore.getState().history).toHaveLength(steps + 1);
+    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    // Clicking B again removes it: back to the photo without it.
+    applyStyle(result, {}, 'b', true);
+    expect(recipe()).toMatchObject({ exposure: -2, saturation: 35, contrast: 12 });
+    expect(recipe().appliedStyle).toBeUndefined();
+    expect(useEditorStore.getState().history).toHaveLength(steps + 2);
+    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    act(() => useEditorStore.getState().undo());
+    expect(recipe()).toMatchObject({ contrast: 30, appliedStyle: { id: 'b' } });
+  });
+
+  it('applies a style to a never-edited open photo on its editor recipe, with a new edit\'s versions', async () => {
+    const { result } = renderHook(useEditorActions);
+    const shown = { ...useEditorStore.getState().adjustments, sharpenVersion: 6 };
+    useEditorStore.setState({ adjustments: shown, history: [shown], historyIndex: 0 });
+    rememberOpenedRecipe('/first.dng', { saved: null, camera: {} as never, width: 4000, height: 3000, shown });
+    applyStyle(result, { exposure: 1 }, 'a');
+    expect(recipe()).toMatchObject({ exposure: 1, sharpenVersion: 6, appliedStyle: { id: 'a' } });
+    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+  });
+
+  it('leaves the lens a style set when it is taken back (the photo\'s own), without looking it up again', async () => {
+    const { result } = renderHook(useEditorActions);
+    const own = { ...useEditorStore.getState().adjustments, lensCorrectionMode: 'manual', lensMaker: 'Mine', lensModel: 'Own lens' };
+    useEditorStore.setState({ adjustments: own as never, history: [own as never], historyIndex: 0 });
+    applyStyle(result, { lensCorrectionMode: 'auto', exposure: 1 }, 'lens');
+    expect(recipe()).toMatchObject({ lensCorrectionMode: 'auto', exposure: 1, lensProfileFor: 'unresolved' });
+    await finish(Invokes.ResolvePastedLens, { lensMaker: 'Detected', lensModel: 'Its lens', lensDistortionParams: { k1: 0.1 }, lensProfileFor: 'stamp' });
+    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    applyStyle(result, {}, 'lens', true);
+    expect(recipe()).toMatchObject({ exposure: -2, lensCorrectionMode: 'auto', lensMaker: 'Detected', lensProfileFor: 'stamp' });
+    await act(async () => {});
+    expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === Invokes.ResolvePastedLens)).toHaveLength(1);
+    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+  });
+
+  it('leaves the open photo alone when the style taken back is not its own', async () => {
+    const { result } = renderHook(useEditorActions);
+    const before = useEditorStore.getState().adjustments;
+    applyStyle(result, {}, 'a', true);
+    expect(useEditorStore.getState().adjustments).toBe(before);
+    await act(async () => {});
+    expect(invoke).toHaveBeenCalledWith(Invokes.ApplyAdjustmentsToPaths, expect.objectContaining({
+      paths: ['/second.dng'], style: { id: 'a', remove: true },
+    }));
+    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
   });
 });

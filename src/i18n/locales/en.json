@@ -3483,6 +3483,7 @@
     },
     "presets": {
       "amount": "Preset amount",
+      "appliedStyle": "Applied style: click to take it back",
       "appliesAll": "Applies all settings it was saved with",
       "appliesBuiltin": "Rawtonic's own preset: applies the settings it holds",
       "appliesSaved": "Applies the settings it was saved with",

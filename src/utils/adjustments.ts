@@ -2070,8 +2070,11 @@ export const COPYABLE_ADJUSTMENT_KEYS: string[] = Object.values(ADJUSTMENT_GROUP
 
 /** Adjustments that belong to one photograph or to the view and are never
  * copied: retouching, the depth-based lens blur, derived lens data, the
- * render pipeline version, tool visibility and the clipping display. Every other key must be copyable. */
+ * render pipeline version, tool visibility, the clipping display and the
+ * style last applied (with this photograph's settings before it,
+ * src/utils/appliedStyle.ts). Every other key must be copyable. */
 export const NON_COPYABLE_ADJUSTMENT_KEYS: string[] = [
+  'appliedStyle',
   'relightDepth',
   'aiPatches',
   'spots',

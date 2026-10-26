@@ -45,6 +45,7 @@ import { MAX_RENDERED_LAYERS } from '../utils/layerLimit';
 import { useCopySettingsDialog, type SettingsChoice, type SettingsSource } from '../components/studio/CopySettingsDialog';
 import { editorRecipe, withNeverEditedDefaults, type CameraLens } from '../utils/neverEdited';
 import { withOwnBitmapIds } from '../utils/bitmapIds';
+import { appliedStyleOf, recordStyle, revertStyle, withStyleValues } from '../utils/appliedStyle';
 import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { registerQuitFlush } from '../utils/quit';
@@ -180,28 +181,58 @@ function pastedOpen(
   current: Adjustments,
   pasted: Partial<Adjustments>,
   paste: { source: string; replaceLayers: boolean; newEdit?: ReturnType<typeof newEditResponses> } | null,
+  style: StyleOp | null = null,
 ): Adjustments | null {
   const { history, historyPending } = useEditorStore.getState();
   // Not edited since loading: its only step is the recipe loading made (a
   // Reset or Auto starts a history of their own).
+  // A style goes onto the editor's recipe (a new edit's processing versions
+  // included), as presets always did.
   const opened =
-    history.length === 1 && !historyPending && openedRecipe?.path === open.path && history[0] === openedRecipe.shown
+    !style && history.length === 1 && !historyPending && openedRecipe?.path === open.path && history[0] === openedRecipe.shown
       ? openedRecipe
       : null;
-  const base = opened ? (opened.saved as Adjustments | null) : current;
-  const merged = pasteInto(base && !(base as { is_null?: boolean }).is_null ? base : null, pasted, {
-    samePhoto: Boolean(paste && samePhotograph(paste.source, open.path)),
-    replaceLayers: paste?.replaceLayers ?? true,
-    keepNulls: !paste,
-    newEdit: paste?.newEdit ? (open.isRaw ? paste.newEdit.raw : paste.newEdit.other) : undefined,
-  });
+  const saved = opened ? (opened.saved as Adjustments | null) : current;
+  let base = saved && !(saved as { is_null?: boolean }).is_null ? saved : null;
+  // A style replaces the last applied one (`appliedStyle`): onto the photo
+  // with that one taken back, as the backend applies it to the others.
+  const reverted = style && base ? revertStyle(base) : null;
+  if (reverted) base = reverted.recipe;
+  const merged = style?.remove
+    ? base
+    : pasteInto(base, styleGroupsJoined(base, pasted, style), {
+        samePhoto: Boolean(paste && samePhotograph(paste.source, open.path)),
+        replaceLayers: paste?.replaceLayers ?? true,
+        keepNulls: !paste,
+        newEdit: paste?.newEdit ? (open.isRaw ? paste.newEdit.raw : paste.newEdit.other) : undefined,
+      });
   if (!merged) {
     toast.error(i18next.t('studio.develop.layers.limitReached', { limit: MAX_RENDERED_LAYERS }));
     return null;
   }
-  const shown = opened ? editorRecipe(merged, open.isRaw, opened.width, opened.height, opened.camera) : merged;
+  // A setting the style added goes back to not being there: the editor's
+  // recipe fills it in again as loading does (the version a recipe without
+  // it renders with).
+  const shown = opened
+    ? editorRecipe(merged, open.isRaw, opened.width, opened.height, opened.camera)
+    : reverted?.removed
+      ? normalizeLoadedAdjustments(merged, open.isRaw)
+      : merged;
   return withOwnBitmapIds(shown, current);
 }
+
+/** `pasted` with a style's groups of settings joined to the photo's own
+ * (`withStyleValues`), as the backend applies a style. */
+function styleGroupsJoined(base: Adjustments | null, pasted: Partial<Adjustments>, style: StyleOp | null) {
+  if (!style || !base) return pasted;
+  const joined = withStyleValues(base, pasted) as Record<string, unknown>;
+  return Object.fromEntries(Object.keys(pasted).map((key) => [key, joined[key]])) as Partial<Adjustments>;
+}
+
+/** A style clicked in the styles list (`StudioPresets`): it replaces the
+ * photos' last applied style, or with `remove` takes `id` back from the
+ * photos it is the last applied style of (src/utils/appliedStyle.ts). */
+export type StyleOp = { id: string; remove?: boolean };
 
 /** The settings that choose a lens correction; its data
  * (`lensDistortionParams`) is each photograph's own (its camera, lens,
@@ -782,7 +813,14 @@ export function useEditorActions() {
         pasteFrom,
         replaceLayers = false,
         asChosen = false,
-      }: { openingNow?: boolean; pasteFrom?: string | null; replaceLayers?: boolean; asChosen?: boolean } = {},
+        style = null,
+      }: {
+        openingNow?: boolean;
+        pasteFrom?: string | null;
+        replaceLayers?: boolean;
+        asChosen?: boolean;
+        style?: StyleOp | null;
+      } = {},
     ) => {
       // Grain from before the structure choice (old presets, other photos)
       // keeps rendering Even on the photos it is applied to. The processing
@@ -812,25 +850,34 @@ export function useEditorActions() {
       const presetWithAiMasks = adjustmentsToApply.masks?.some((layer) =>
         layer.subMasks.some((sub) => DETECTED_TYPES.has(sub.type)),
       );
-      const pastedOntoOpen = Boolean(open && (paste || presetWithAiMasks));
+      // A style is taken back from the open photo by its editor's recipe
+      // (the saved one may be behind it).
+      const pastedOntoOpen = Boolean(open && (paste || presetWithAiMasks || style));
       if (open && pastedOntoOpen) {
         // At once, as one step: a drag's moves since the last commit are
         // part of the edit it is pasted onto.
         flushSliderDraft();
         const current = useEditorStore.getState().adjustments;
+        const styleHere = style?.remove && appliedStyleOf(current)?.id !== style.id ? null : style;
         // Preset layers replace the photo's layers, with the same fresh
         // detections as paste. Save the open photo through its editor only:
         // a parallel batch write could replace a newly completed detection.
-        const merged = pastedOpen(open, current, adjustmentsToApply, paste);
+        const merged = style && !styleHere ? null : pastedOpen(open, current, adjustmentsToApply, paste, styleHere);
         if (merged) {
-          const next = withPastedLensUnresolved(merged, current, adjustmentsToApply);
+          // (Taking a style back leaves the lens: it is the photo's own.)
+          const unresolved = withPastedLensUnresolved(merged, current, adjustmentsToApply);
+          // The style's record, of the recipe as shown (its lens data waiting).
+          const next =
+            styleHere && !styleHere.remove
+              ? recordStyle(revertStyle(current).recipe, unresolved, adjustmentsToApply, styleHere.id)
+              : unresolved;
           debouncedSetHistory.flush();
           setAdjustments(() => next);
           // Its own step also during a drag (not one of its moves).
           flushSliderDraft();
           debouncedSetHistory.flush();
           const pastedStep = useEditorStore.getState().adjustments;
-          if (next !== merged) void resolvePastedLens(open.path, pastedStep);
+          if (unresolved !== merged) void resolvePastedLens(open.path, pastedStep);
         }
       } else if (open) {
         setAdjustments({ ...adjustments, ...adjustmentsToApply });
@@ -843,6 +890,7 @@ export function useEditorActions() {
             paths: others,
             adjustments: adjustmentsToApply,
             ...(paste ? { paste } : {}),
+            ...(style ? { style } : {}),
           }),
           others,
           'paste adjustments',
