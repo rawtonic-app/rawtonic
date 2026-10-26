@@ -130,6 +130,64 @@ pub fn fuji_curves_with_ca(
     })
 }
 
+/// Fujifilm's distortion k(r) as camera geometry version 5 reads its knots:
+/// from k = 1 at the centre, linear in r² between knots (the nine-knot
+/// bodies store them at √(i / 8)), along the last segment beyond the last.
+/// Version 0 kept k at the first knot's value inside it, which on the
+/// nine-knot bodies (first knot 0.354) bent the centre third: X-T5 + XF18
+/// against its camera JPEG 1.5–2.2 px shape error, 0.50–0.54 px read this
+/// way (notes: parity-gaps/G71).
+fn fuji_k(curve: &[(f64, f64)], r: f64) -> f64 {
+    let last = curve[curve.len() - 1];
+    if r >= last.0 {
+        return interpolate(curve, r);
+    }
+    let i = curve.partition_point(|&(x, _)| x <= r);
+    let (a, b) = if i == 0 {
+        ((0.0, 1.0), curve[0])
+    } else {
+        (curve[i - 1], curve[i])
+    };
+    a.1 + (b.1 - a.1) * (r * r - a.0 * a.0) / (b.0 * b.0 - a.0 * a.0)
+}
+
+/// Fujifilm's distortion framed as the cameras' JPEGs show it (camera
+/// geometry version 5): an output radius u samples the sensor at A u k(u)
+/// (`fuji_k`) with A = 1 / max k on the border of the frame (width over
+/// height `aspect`), the largest frame that samples nothing beyond its
+/// edges: corners on the corners for pincushion data, the shorter sides'
+/// midpoints on the edges for barrel data. Fitted against the camera's own
+/// JPEG on the raw.pixls.us RAFs, A came out within 0.0013 of that on 34
+/// bodies whose data correct anything (X-E4 + XF27 1.00354 vs 1.00352,
+/// X-T5 + XF18 1.0212 vs 1.0213, GFX 50S + GF63 1.01059 vs 1.01059), the
+/// strongly pincushioned HS20EXR–HS33EXR and X-S1 zoom 0.0013–0.0023
+/// further; version 0 framed barrel data the
+/// same way plus the warp's 0.2 % margin (X-E4: the 0.18 % Camera Raw
+/// showed more). Some bodies (XF1, XQ1, XQ2, F770EXR, F900EXR, HS50EXR,
+/// S1, X-A3, X-A5, X-A10, X-T100) frame barrel data at A = 1 instead; their
+/// data do not tell them apart (the X-A1 and X-A10 store the same table and
+/// frame differently; notes: parity-gaps/G71). Vignetting and CA keep
+/// version 0's reading.
+pub fn fuji_framed(data: EmbeddedLensData, aspect: f64) -> Option<EmbeddedLensData> {
+    let curve = data.distortion.clone();
+    let k = |r: f64| fuji_k(&curve, r);
+    let short = 1.0 / aspect.max(1.0 / aspect).hypot(1.0);
+    let peak = curve
+        .iter()
+        .map(|&(r, _)| r)
+        .filter(|r| (short..1.0).contains(r))
+        .chain([short, 1.0])
+        .map(k)
+        .fold(f64::MIN, f64::max);
+    let (distortion, zoom) = framed_curve(|u| k(u) / peak)?;
+    plausible(&distortion).then_some(EmbeddedLensData {
+        distortion,
+        zoom,
+        exact_zoom: true,
+        ..data
+    })
+}
+
 fn curve_values(knots: &[f64], values: &[f64], f: impl Fn(f64) -> f64) -> Vec<(f64, f64)> {
     knots.iter().zip(values).map(|(&r, &v)| (r, f(v))).collect()
 }
@@ -373,7 +431,22 @@ fn framed_curve(k: impl Fn(f64) -> f64) -> Option<(Vec<(f64, f64)>, f64)> {
 /// (TZ71 4000 × 3000: 2500, LX15 5472 × 3648: 3288), so frames stored in a
 /// cropped aspect ratio (TZ71 1:1: 2992 × 2992) scale their radii by their
 /// own half-diagonal over N. Off unless the flag nibble (v7) is 1.
-pub fn panasonic_curve(v: &[i16; 16], half_diagonal: Option<f64>) -> Option<EmbeddedLensData> {
+///
+/// Framing: before `cameraGeometryVersion` 5 the output corner shows
+/// `Ru = reach` (N units) as a minimum zoom. `framed` reads the camera's own
+/// framing: the corner shows `Ru = reach (1 + v5 / 32768)`, exactly. Bodies
+/// with the newer layout (v3 ≠ 0; G9, GH5, S5, GX9 II …) store v5 < 0 and
+/// zoom in by that much, the older ones v5 = 0. Fitted against the camera's
+/// own JPEG (124 raw.pixls.us RW2 frames of 53 bodies), the corner's
+/// `Ru / reach` came out 1 + v5 / 32768 − 0.0006 … − 0.0001 on the 15 bodies
+/// with v5 < 0 (G9 28 mm v5 = −80: 0.99750 vs 0.99756; GH5S v5 = −359:
+/// 0.98888 vs 0.98904), the same offset as 1 − 0.0009 … + 0.0005 on those
+/// with v5 = 0 (notes: parity-gaps/G71).
+pub fn panasonic_curve(
+    v: &[i16; 16],
+    half_diagonal: Option<f64>,
+    framed: bool,
+) -> Option<EmbeddedLensData> {
     if v[7] & 0x0f != 1 {
         return None;
     }
@@ -421,8 +494,13 @@ pub fn panasonic_curve(v: &[i16; 16], half_diagonal: Option<f64>) -> Option<Embe
         0.5 * (lo + hi)
     };
     // Output radius u (frame corner = 1) at the zoom that maps the corner to
-    // the sensor corner; the camera's framing is ru = reach.
+    // the sensor corner; the camera's framing is ru = reach (1 + v5 / 32768).
     let zoom = ru_corner / reach;
+    let framing = if framed {
+        zoom / (1.0 + v[5] as f64 / 32768.0)
+    } else {
+        zoom
+    };
     let curve: Vec<(f64, f64)> = (1..=FORMULA_KNOTS)
         .map(|i| {
             let u = i as f64 / FORMULA_KNOTS as f64;
@@ -434,8 +512,8 @@ pub fn panasonic_curve(v: &[i16; 16], half_diagonal: Option<f64>) -> Option<Embe
         maker: "Panasonic",
         distortion: curve,
         vignetting: None,
-        zoom,
-        exact_zoom: false,
+        zoom: framing,
+        exact_zoom: framed,
         polynomial: None,
         chromatic: None,
     })
@@ -907,9 +985,15 @@ pub const GEOMETRY_VERSION_KEY: &str = "cameraGeometryVersion";
 /// (`sony_lens`); 2 (2026-10-26) frames Nikon Z data as the camera does
 /// (`nikon_curve`); 3 (2026-10-26) reads Canon's distortion and the radius
 /// unit of its brightness table (`canon_curves`); 4 (2026-10-26) also
-/// Samsung's (`samsung_curve`). Recipes without the key keep their
-/// parameters; saving them again fills in the same as before.
-pub const GEOMETRY_VERSION: u64 = 4;
+/// Samsung's (`samsung_curve`); 5 (2026-10-26) frames Panasonic's and
+/// Fujifilm's data as the cameras do (`panasonic_curve`, `fuji_framed`).
+/// Recipes without the key keep their parameters; saving them again fills
+/// in the same as before.
+pub const GEOMETRY_VERSION: u64 = 5;
+
+/// The camera geometry version that frames Panasonic's and Fujifilm's data
+/// as the cameras do.
+const PANASONIC_FUJIFILM_GEOMETRY: u64 = 5;
 
 /// The recipe's camera geometry version: `cameraGeometryVersion`, 0 when
 /// missing.
@@ -968,7 +1052,16 @@ pub fn read_version(
             let distortion = values(&ifd, FUJI_DISTORTION)?;
             let vignetting = values(&ifd, FUJI_VIGNETTING);
             let chromatic = values(&ifd, FUJI_CHROMATIC);
-            fuji_curves_with_ca(&distortion, vignetting.as_deref(), chromatic.as_deref())
+            let data =
+                fuji_curves_with_ca(&distortion, vignetting.as_deref(), chromatic.as_deref())?;
+            if geometry_version < PANASONIC_FUJIFILM_GEOMETRY {
+                return Some(data);
+            }
+            let aspect = crate::raw_processing::sensor_and_frame(&source)
+                .map(|(_, [w, h])| w as f64 / h as f64)
+                .filter(|aspect| aspect.is_finite() && *aspect > 0.0)
+                .unwrap_or(1.5);
+            fuji_framed(data, aspect)
         }
         "arw" => {
             let settings = crate::capture_info::sony_lens_settings(path.to_str()?);
@@ -1037,8 +1130,19 @@ pub fn read_version(
             let chromatic = crate::capture_info::panasonic_ca_info(path)
                 .filter(|_| ca_version >= 1)
                 .and_then(|(values, half_diagonal)| panasonic_chromatic(&values, half_diagonal));
-            let distortion = crate::capture_info::panasonic_distortion_info(path)
-                .and_then(|(values, half_diagonal)| panasonic_curve(&values, half_diagonal));
+            // Version 5 also finds the frame of the bodies that write their
+            // aspect crop as zeros (G7, G70: version 0 read their 3:2, 16:9
+            // and 1:1 frames at the 4:3 frame's radius, 0.3–1.2 % off).
+            let framed = geometry_version >= PANASONIC_FUJIFILM_GEOMETRY;
+            let distortion =
+                crate::capture_info::panasonic_distortion_info(path).and_then(|info| {
+                    let half_diagonal = if framed {
+                        info.frame_half_diagonal
+                    } else {
+                        info.recorded_half_diagonal
+                    };
+                    panasonic_curve(&info.values, half_diagonal, framed)
+                });
             match distortion {
                 Some(data) => Some(EmbeddedLensData { chromatic, ..data }),
                 // Some bodies store CA data without distortion data (TZ81).
@@ -1324,14 +1428,20 @@ pub fn current_geometry_version(source: &Path) -> u64 {
 
 /// The `source_facts` versions from which `camera_lens` is read at camera
 /// geometry version 1, 2, … (older versions in `camera_lens_geometry`).
-const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7, 8, 9, 10];
+const GEOMETRY_FACTS: [u32; GEOMETRY_VERSION as usize] = [7, 8, 9, 10, 11];
 
 /// The file formats (extensions) whose data camera geometry version 1, 2, …
 /// reads differently from the version before: 1 Sony's (ARW, and Adobe DNG
 /// Converter's DNGs of Sony bodies), 2 Nikon's (NEF; NRW share its reader),
-/// 3 Canon's (CR3), 4 Samsung's (SRW).
-const GEOMETRY_FORMATS: [&[&str]; GEOMETRY_VERSION as usize] =
-    [&["arw", "dng"], &["nef", "nrw"], &["cr3"], &["srw"]];
+/// 3 Canon's (CR3), 4 Samsung's (SRW), 5 Panasonic's and Fujifilm's (RW2,
+/// RWL, RAF).
+const GEOMETRY_FORMATS: [&[&str]; GEOMETRY_VERSION as usize] = [
+    &["arw", "dng"],
+    &["nef", "nrw"],
+    &["cr3"],
+    &["srw"],
+    &["rw2", "rwl", "raf"],
+];
 
 /// The camera geometry version facts of `facts_version` carry.
 pub fn facts_geometry_version(facts_version: u32) -> u64 {
@@ -2272,27 +2382,34 @@ mod tests {
     fn offline_facts_carry_the_geometry_version_they_were_read_at() {
         // Previews from before Sony's knots read neither; facts version 7
         // has Sony's (1), 8 also Nikon's framing (2), 9 Canon's
-        // distortion (3), 10 Samsung's data (4).
+        // distortion (3), 10 Samsung's data (4), 11 Panasonic's and Fujifilm's
+        // framing (5).
         assert_eq!(facts_geometry_version(6), 0);
         assert_eq!(facts_geometry_version(7), 1);
         assert_eq!(facts_geometry_version(8), 2);
         assert_eq!(facts_geometry_version(9), 3);
         assert_eq!(facts_geometry_version(10), 4);
+        assert_eq!(facts_geometry_version(11), 5);
         assert_eq!(
             facts_geometry_version(crate::source_facts::VERSION),
             GEOMETRY_VERSION
         );
         // A NEF's version 7 facts predate Nikon's framing, a CR3's version
         // 8 facts Canon's distortion, an SRW's version 9 facts Samsung's
-        // data; an ARW's hold.
+        // data, an RW2's or RAF's version 10 facts their framing; an ARW's
+        // hold.
         assert_eq!(known_geometry_version(Path::new("a.nef"), 7), 1);
         assert_eq!(known_geometry_version(Path::new("a.NRW"), 7), 1);
-        assert_eq!(known_geometry_version(Path::new("a.arw"), 7), 4);
-        assert_eq!(known_geometry_version(Path::new("a.nef"), 8), 4);
+        assert_eq!(known_geometry_version(Path::new("a.arw"), 7), 5);
+        assert_eq!(known_geometry_version(Path::new("a.nef"), 8), 5);
         assert_eq!(known_geometry_version(Path::new("a.CR3"), 8), 2);
-        assert_eq!(known_geometry_version(Path::new("a.cr3"), 9), 4);
+        assert_eq!(known_geometry_version(Path::new("a.cr3"), 9), 5);
         assert_eq!(known_geometry_version(Path::new("a.srw"), 9), 3);
-        assert_eq!(known_geometry_version(Path::new("a.SRW"), 10), 4);
+        assert_eq!(known_geometry_version(Path::new("a.SRW"), 10), 5);
+        assert_eq!(known_geometry_version(Path::new("a.RW2"), 10), 4);
+        assert_eq!(known_geometry_version(Path::new("a.raf"), 10), 4);
+        assert_eq!(known_geometry_version(Path::new("a.rwl"), 11), 5);
+        assert_eq!(known_geometry_version(Path::new("a.orf"), 6), 5);
     }
 
     #[test]
@@ -2350,7 +2467,7 @@ mod tests {
 
     #[test]
     fn panasonic_framing_samples_the_sensor_corner_at_the_zoomed_corner() {
-        let data = panasonic_curve(&FZ330, Some(2500.0)).unwrap();
+        let data = panasonic_curve(&FZ330, Some(2500.0), false).unwrap();
         // Ru(Rd = 1) = 1 + a + b + c with s = 1.
         let expected = 1.0 + (8820.0 - 2282.0 - 663.0) / 32768.0;
         assert!((data.zoom - expected).abs() < 1e-6, "zoom {}", data.zoom);
@@ -2360,16 +2477,46 @@ mod tests {
         // Off when the flag nibble is not 1.
         let mut off = FZ330;
         off[7] = 0;
-        assert!(panasonic_curve(&off, Some(2500.0)).is_none());
+        assert!(panasonic_curve(&off, Some(2500.0), false).is_none());
     }
 
     #[test]
     fn panasonic_radius_follows_distortion_n_for_cropped_aspect_frames() {
         // A 1:1 frame of a 4000 × 3000 sensor reaches only 2115.6 / 2500 of
         // the model's radius: less correction and less zoom.
-        let full = panasonic_curve(&FZ330, Some(2500.0)).unwrap();
-        let square = panasonic_curve(&FZ330, Some(2115.6)).unwrap();
+        let full = panasonic_curve(&FZ330, Some(2500.0), false).unwrap();
+        let square = panasonic_curve(&FZ330, Some(2115.6), false).unwrap();
         assert!(square.zoom < full.zoom && square.zoom > 1.0);
+    }
+
+    /// DC-G9 + 12-60 at 28 mm (raw.pixls.us): the newer layout (v3 ≠ 0)
+    /// with DistortionScale v5 = −80.
+    const G9: [i16; 16] = [
+        20764, -10328, 198, 566, -303, -80, 252, -10239, 163, 175, 434, 122, 3240, 675, -25326,
+        16235,
+    ];
+
+    #[test]
+    fn panasonic_geometry_version_5_frames_at_the_stored_scale() {
+        let ru_corner = 1.0 + (163.0 - 303.0 + 122.0) / 32768.0 / (1.0 - 80.0 / 32768.0);
+        // Version 0: the output corner shows Ru = reach (here 1), as a
+        // minimum zoom.
+        let old = panasonic_curve(&G9, Some(3240.0), false).unwrap();
+        assert!((old.zoom - ru_corner).abs() < 1e-9 && !old.exact_zoom);
+        // Version 5: Ru = reach (1 + v5 / 32768) at the corner, exactly.
+        let framed = panasonic_curve(&G9, Some(3240.0), true).unwrap();
+        let expected = ru_corner / (1.0 - 80.0 / 32768.0);
+        assert!(
+            (framed.zoom - expected).abs() < 1e-9,
+            "zoom {}",
+            framed.zoom
+        );
+        assert!(framed.exact_zoom);
+        assert_eq!(framed.distortion, old.distortion);
+        // The older layout stores v5 = 0: the same framing, exact.
+        let fz = panasonic_curve(&FZ330, Some(2500.0), true).unwrap();
+        let fz_old = panasonic_curve(&FZ330, Some(2500.0), false).unwrap();
+        assert!((fz.zoom - fz_old.zoom).abs() < 1e-12 && fz.exact_zoom);
     }
 
     // Panasonic DMC-GX80 lateral CA data (RW2 tag 0x011b) of a raw.pixls.us
@@ -2431,12 +2578,29 @@ mod tests {
     /// A minimal RW2 header: IFD0 with the sensor borders, DistortionInfo
     /// and the CA data.
     fn rw2_header(distortion: &[i16; 16], ca: &[i16; 32]) -> Vec<u8> {
-        let mut entries: Vec<(u16, u16, u32, Vec<u8>)> = vec![
-            (0x0004, 3, 1, 8u32.to_le_bytes().to_vec()),
-            (0x0005, 3, 1, 8u32.to_le_bytes().to_vec()),
-            (0x0006, 3, 1, 3456u32.to_le_bytes().to_vec()),
-            (0x0007, 3, 1, 4600u32.to_le_bytes().to_vec()),
-        ];
+        rw2_header_framed(distortion, ca, [8, 8, 3456, 4600], None)
+    }
+
+    /// An RW2 header with sensor borders `sensor` and, if given, aspect-crop
+    /// borders `crop` (top, left, bottom, right).
+    fn rw2_header_framed(
+        distortion: &[i16; 16],
+        ca: &[i16; 32],
+        sensor: [u32; 4],
+        crop: Option<[u32; 4]>,
+    ) -> Vec<u8> {
+        let border = |tag: u16, value: u32| (tag, 3u16, 1u32, value.to_le_bytes().to_vec());
+        let mut entries: Vec<(u16, u16, u32, Vec<u8>)> = (0x0004..=0x0007)
+            .zip(sensor)
+            .map(|(tag, value)| border(tag, value))
+            .collect();
+        if let Some(crop) = crop {
+            entries.extend(
+                (0x002f..=0x0032)
+                    .zip(crop)
+                    .map(|(tag, value)| border(tag, value)),
+            );
+        }
         let words = |v: &[i16]| v.iter().flat_map(|w| w.to_le_bytes()).collect::<Vec<u8>>();
         entries.push((0x0119, 7, 32, words(distortion)));
         entries.push((0x011b, 7, 64, words(ca)));
@@ -2462,6 +2626,27 @@ mod tests {
         out.extend(0u32.to_le_bytes());
         out.extend(data);
         out
+    }
+
+    #[test]
+    fn panasonic_geometry_version_5_finds_frames_whose_crop_tags_are_zeros() {
+        // DMC-G7 at 14 mm in 3:2 (raw.pixls.us): crop tags written as zeros,
+        // the sensor tags hold the 4592 × 3064 frame; DistortionN 2870 is
+        // the 4:3 frame's half-diagonal.
+        const G7: [i16; 16] = [
+            29259, 10554, 390, 0, 208, 0, 276, 1, 3543, 304, 516, -699, 2870, 804, -30387, 15950,
+        ];
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("g7.RW2");
+        let header = rw2_header_framed(&G7, &[0; 32], [8, 8, 3072, 4600], Some([0; 4]));
+        std::fs::write(&path, header).unwrap();
+        let reach = 0.5 * 4592f64.hypot(3064.0) / 2870.0;
+        let at = |half_diagonal| panasonic_curve(&G7, half_diagonal, true).unwrap().zoom;
+        let old = read_version(&path, 1, 0).unwrap();
+        assert_eq!(old.zoom, panasonic_curve(&G7, None, false).unwrap().zoom);
+        let new = read_version(&path, 1, 5).unwrap();
+        assert!((new.zoom - at(Some(reach * 2870.0))).abs() < 1e-12);
+        assert!((new.zoom - old.zoom).abs() > 1e-3);
     }
 
     #[test]
@@ -2513,7 +2698,14 @@ mod tests {
         .unwrap();
         assert_eq!(old, new.clone().without_tca());
         assert_ne!(old, new);
-        assert_eq!(params_for(&with_distortion), Some(new));
+        let current = serde_json::json!({
+            CA_VERSION_KEY: CA_VERSION,
+            GEOMETRY_VERSION_KEY: GEOMETRY_VERSION,
+        });
+        assert_eq!(
+            params_for(&with_distortion),
+            params_for_recipe(&with_distortion, &current)
+        );
         // CA data without distortion data (TZ81): camera mode only with
         // version 1.
         let ca_only = temp.path().join("b.RW2");
@@ -3003,8 +3195,10 @@ mod tests {
         assert_eq!(never["lensCorrectionMode"], CAMERA_MODE);
         assert!(never.get(GEOMETRY_VERSION_KEY).is_none());
         forget(&path);
-        // Formats the geometry versions read as before: the old facts answer.
-        for name in ["DSCF0001.RAF", "P1000001.RW2"] {
+        // Formats the geometry versions read as before: the old facts answer
+        // them (Panasonic's and Fujifilm's up to version 4, which read them
+        // as version 0).
+        for name in ["P1000001.RW2", "DSCF0001.RAF"] {
             let other = Path::new("/offline/volume/Job/Capture").join(name);
             register(
                 &other.to_string_lossy(),
@@ -3014,11 +3208,27 @@ mod tests {
                     ..Default::default()
                 },
             );
-            assert_eq!(current_geometry_version(&other), GEOMETRY_VERSION);
-            assert!(recipe_params_known(&other, &new), "{name}");
-            assert_eq!(params_for_recipe(&other, &new), Some(v0.clone()));
+            assert_eq!(current_geometry_version(&other), 4, "{name}");
+            let v4_recipe = serde_json::json!({GEOMETRY_VERSION_KEY: 4});
+            assert!(recipe_params_known(&other, &v4_recipe), "{name}");
+            assert_eq!(params_for_recipe(&other, &v4_recipe), Some(v0.clone()));
+            assert!(!recipe_params_known(&other, &new), "{name}");
             forget(&other.to_string_lossy());
         }
+        // An ORF's facts answer every version: none reads it differently.
+        let orf = Path::new("/offline/volume/Job/Capture/P0000001.ORF");
+        register(
+            &orf.to_string_lossy(),
+            SourceFacts {
+                version: 6,
+                camera_lens: Some(v0.clone()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(current_geometry_version(orf), GEOMETRY_VERSION);
+        assert!(recipe_params_known(orf, &new));
+        assert_eq!(params_for_recipe(orf, &new), Some(v0.clone()));
+        forget(&orf.to_string_lossy());
         // A NEF's facts from before version 2 answer up to version 1 only.
         let nef = Path::new("/offline/volume/Job/Capture/_DSC0001.NEF");
         register(
@@ -3036,6 +3246,61 @@ mod tests {
         ));
         assert!(!recipe_params_known(nef, &new));
         forget(&nef.to_string_lossy());
+    }
+
+    // Fujifilm X-T5 with XF18mmF2 R (raw.pixls.us; values as stored): nine
+    // knots from √(1/8), barrel.
+    const X_T5_XF18: [f64; 19] = [
+        515.8888889,
+        0.3535211268,
+        0.5,
+        0.6126760563,
+        0.7070422535,
+        0.7908450704,
+        0.8661971831,
+        0.9352112676,
+        1.0,
+        1.06056338,
+        -0.772567749,
+        -1.670425415,
+        -2.579528809,
+        -3.496658325,
+        -4.48286438,
+        -5.54776001,
+        -6.70904541,
+        -8.008453369,
+        -9.307861328,
+    ];
+
+    #[test]
+    fn fuji_geometry_version_5_runs_from_the_centre_and_frames_the_border() {
+        let old = fuji_curves(&X_T5_XF18, None).unwrap();
+        let framed = fuji_framed(old.clone(), 1.5).unwrap();
+        assert!(framed.exact_zoom && !old.exact_zoom);
+        // k(r) = 1 + (−0.7726 %) (r / 0.35352)² inside the first knot,
+        // linear in r² between knots.
+        let k = |r: f64| fuji_k(&old.distortion, r);
+        assert!((k(0.0) - 1.0).abs() < 1e-12);
+        assert!((k(0.25) - (1.0 - 0.00772567749 * (0.25f64 / 0.3535211268).powi(2))).abs() < 1e-12);
+        let (r0, r1) = (0.5f64, 0.6126760563f64);
+        let mid = ((r0 * r0 + r1 * r1) / 2.0).sqrt();
+        assert!((k(mid) - (1.0 - 0.01 * (1.670425415 + 2.579528809) / 2.0)).abs() < 1e-12);
+        // Barrel data: the 3:2 frame's short-side midpoint (radius 1 / √3.25)
+        // samples the sensor's edge, the rest of the border lies inside.
+        let short = 1.0 / 3.25f64.sqrt();
+        let sample = |u: f64| interpolate(&framed.distortion, u / framed.zoom) / framed.zoom;
+        let scale = 1.0 / k(short);
+        for u in [short, 0.7, 0.9, 1.0] {
+            let expected = u * scale * k(u);
+            assert!((u * sample(u) - expected).abs() < 2e-4, "u {u}");
+            assert!(u * sample(u) <= u.max(short) + 2e-4);
+        }
+        assert!((short * sample(short) - short).abs() < 2e-4);
+        // Data without distortion stay without it.
+        let mut none = X_T5_XF18;
+        none[10..].fill(0.0);
+        let flat = fuji_framed(fuji_curves(&none, None).unwrap(), 1.5).unwrap();
+        assert!((flat.zoom - 1.0).abs() < 1e-9);
     }
 
     // Fujifilm GFX 50R with GF63mmF2.8 R WR: eight knots (values as stored).

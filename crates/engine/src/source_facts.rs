@@ -39,7 +39,9 @@ use crate::lens_correction::LensDistortionParams;
 /// 8: `camera_lens` at camera geometry version 2 (Nikon Z framing).
 /// 9: `camera_lens` at camera geometry version 3 (Canon distortion).
 /// 10: `camera_lens` at camera geometry version 4 (Samsung's distortion).
-pub const VERSION: u32 = 10;
+/// 11: `camera_lens` at camera geometry version 5 (Panasonic and Fujifilm
+/// framing).
+pub const VERSION: u32 = 11;
 
 /// The file facts the rendering of one photograph uses.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]

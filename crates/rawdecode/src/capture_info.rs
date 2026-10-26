@@ -262,11 +262,23 @@ fn fujifilm_standard_white_balance_inner(bytes: &[u8]) -> Option<Vec<(u32, [u32;
     )
 }
 
-/// Panasonic's DistortionInfo (RW2/RWL IFD0 tag 0x0119): sixteen signed
-/// 16-bit little-endian values, and the half-diagonal in pixels of the frame
-/// the raw data covers (from the sensor border tags 0x0004-0x0007), if
-/// readable.
-pub fn panasonic_distortion_info(path: &str) -> Option<([i16; 16], Option<f64>)> {
+/// Panasonic's DistortionInfo (RW2/RWL IFD0 tag 0x0119).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PanasonicDistortion {
+    /// Sixteen signed 16-bit little-endian values.
+    pub values: [i16; 16],
+    /// The half-diagonal in pixels of the frame as camera geometry version
+    /// 0 read it: the aspect-ratio crop tags (0x002f-0x0032) when present,
+    /// else the sensor border tags (0x0004-0x0007); `None` when they hold no
+    /// frame (the G7 and G70 write the crop tags as zeros).
+    pub recorded_half_diagonal: Option<f64>,
+    /// The half-diagonal of the frame the raw data cover: the aspect-ratio
+    /// crop when it holds a frame, else the sensor area.
+    pub frame_half_diagonal: Option<f64>,
+}
+
+/// Panasonic's DistortionInfo and the frame it applies to, if readable.
+pub fn panasonic_distortion_info(path: &str) -> Option<PanasonicDistortion> {
     let mut file = File::open(path).ok()?;
     let mut data = Vec::new();
     file.by_ref().take(1 << 20).read_to_end(&mut data).ok()?;
@@ -285,27 +297,41 @@ pub fn panasonic_distortion_info(path: &str) -> Option<([i16; 16], Option<f64>)>
     for (i, value) in values.iter_mut().enumerate() {
         *value = i16::from_le_bytes([bytes[2 * i], bytes[2 * i + 1]]);
     }
-    let border = |tag: u16| root.shorts(tag).and_then(|v| v.first().copied());
-    // The frame the photo shows: the aspect-ratio crop when the camera
-    // recorded one, else the sensor area.
-    let tags = if border(0x002f).is_some() {
-        [0x002f, 0x0030, 0x0031, 0x0032]
+    let recorded = if root.shorts(PANASONIC_CROP_TAGS[0]).is_some() {
+        PANASONIC_CROP_TAGS
     } else {
-        [0x0004, 0x0005, 0x0006, 0x0007]
+        PANASONIC_SENSOR_TAGS
     };
-    let half_diagonal = match (
-        border(tags[0]),
-        border(tags[1]),
-        border(tags[2]),
-        border(tags[3]),
-    ) {
-        (Some(top), Some(left), Some(bottom), Some(right)) if bottom > top && right > left => {
+    Some(PanasonicDistortion {
+        values,
+        recorded_half_diagonal: panasonic_half_diagonal(&root, recorded),
+        frame_half_diagonal: panasonic_frame_half_diagonal(&root),
+    })
+}
+
+/// The aspect-ratio crop's borders (top, left, bottom, right).
+const PANASONIC_CROP_TAGS: [u16; 4] = [0x002f, 0x0030, 0x0031, 0x0032];
+/// The sensor area's borders (top, left, bottom, right).
+const PANASONIC_SENSOR_TAGS: [u16; 4] = [0x0004, 0x0005, 0x0006, 0x0007];
+
+/// The half-diagonal of the rectangle the border tags `tags` hold, if any.
+fn panasonic_half_diagonal(root: &SliceIfd, tags: [u16; 4]) -> Option<f64> {
+    let border = |tag: u16| root.shorts(tag).and_then(|v| v.first().copied());
+    match tags.map(border) {
+        [Some(top), Some(left), Some(bottom), Some(right)] if bottom > top && right > left => {
             let (w, h) = ((right - left) as f64, (bottom - top) as f64);
             Some(0.5 * (w * w + h * h).sqrt())
         }
         _ => None,
-    };
-    Some((values, half_diagonal))
+    }
+}
+
+/// The half-diagonal of the frame the raw data cover: the aspect-ratio
+/// crop when it holds a frame, else the sensor area (some bodies, G7 and
+/// G70, write the crop tags as zeros).
+fn panasonic_frame_half_diagonal(root: &SliceIfd) -> Option<f64> {
+    panasonic_half_diagonal(root, PANASONIC_CROP_TAGS)
+        .or_else(|| panasonic_half_diagonal(root, PANASONIC_SENSOR_TAGS))
 }
 
 /// Panasonic's lateral CA data (RW2/RWL IFD0 tag 0x011b, undocumented):
@@ -332,28 +358,7 @@ pub fn panasonic_ca_info(path: &str) -> Option<([i16; 32], f64)> {
     for (i, value) in values.iter_mut().enumerate() {
         *value = i16::from_le_bytes([bytes[2 * i], bytes[2 * i + 1]]);
     }
-    let border = |tag: u16| root.shorts(tag).and_then(|v| v.first().copied());
-    // Some bodies (G7, G70) write the crop tags as zeros.
-    let half_diagonal = [
-        [0x002f, 0x0030, 0x0031, 0x0032],
-        [0x0004, 0x0005, 0x0006, 0x0007],
-    ]
-    .iter()
-    .find_map(|tags| {
-        match (
-            border(tags[0]),
-            border(tags[1]),
-            border(tags[2]),
-            border(tags[3]),
-        ) {
-            (Some(top), Some(left), Some(bottom), Some(right)) if bottom > top && right > left => {
-                let (w, h) = ((right - left) as f64, (bottom - top) as f64);
-                Some(0.5 * (w * w + h * h).sqrt())
-            }
-            _ => None,
-        }
-    })?;
-    Some((values, half_diagonal))
+    Some((values, panasonic_frame_half_diagonal(&root)?))
 }
 
 /// Whether the camera wrote its JPEGs (and the embedded previews of a RAW)

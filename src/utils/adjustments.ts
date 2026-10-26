@@ -551,7 +551,8 @@ export interface Adjustments {
   /** How camera mode reads the camera data's geometry (embedded_lens.rs
    * `GEOMETRY_VERSION`): 1 = Sony's distortion as Camera Raw reads it;
    * 2 = also Nikon Z framed as the camera frames it; 3 = also Canon's CTMD
-   * distortion; 4 = also Samsung's distortion; missing = as before (saving such recipes again keeps their parameters). */
+   * distortion; 4 = also Samsung's distortion; 5 = also
+   * Panasonic's and Fujifilm's framing as the cameras frame it; missing = as before (saving such recipes again keeps their parameters). */
   cameraGeometryVersion?: number;
   lensDistortionAmount: number;
   lensVignetteAmount: number;
@@ -1321,7 +1322,7 @@ export const AI_DENOISE_VERSION = 3;
 /** The cameras' CA data new edits read in camera lens mode (notes: reference/lateral-ca.md). */
 export const CAMERA_CA_VERSION = 1;
 /** How new edits read the camera data's geometry in camera lens mode (notes: parity-gaps/G71). */
-export const CAMERA_GEOMETRY_VERSION = 4;
+export const CAMERA_GEOMETRY_VERSION = 5;
 /** The automatic lateral CA new RAW edits start with (notes: reference/lateral-ca.md). */
 export const AUTO_CA_VERSION = 3;
 
