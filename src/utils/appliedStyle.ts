@@ -7,8 +7,8 @@
  *
  * `changes` are the settings the style sets (also those it leaves as they
  * were), at the deepest level of nested settings (one HSL or grading
- * slider, also inside a group the recipe did not have yet); lists (curve
- * points) count as one setting. `from` is the value before the style, `to`
+ * slider, also inside a group the recipe did not have yet); lists and the
+ * curves (points with their `version`) count as one setting. `from` is the value before the style, `to`
  * the value it set, `full` its value at full strength once the Amount
  * changed; a missing one means the recipe did not have the setting. Taking
  * the style back sets each to `from`, but only where the recipe still holds
@@ -120,8 +120,9 @@ export function revertStyle<T extends object>(recipe: T): { recipe: T; kept: str
 /** Whether a style's `value` for the setting at `path` is a group of
  * settings that goes setting by setting (into `own`, the photo's value):
  * not the layers, and not over a setting that is no group. */
+// Curves go whole: their points with the version that says how they render.
 const goesBySetting = (path: string[], value: unknown, own: unknown) =>
-  isGroup(value) && !(path.length === 1 && path[0] === 'masks') && (own === undefined || isGroup(own));
+  isGroup(value) && !(path.length === 1 && path[0] === 'curves') && (own === undefined || isGroup(own));
 
 /** `recipe` with a style's settings (`values`) applied: groups of settings
  * join the photo's (a style that sets one HSL slider leaves the others as

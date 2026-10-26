@@ -121,10 +121,12 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
 
   /** Capture One's Styles / Lightroom's Saved Preset for the selection, in the Library. */
   const presetMenu = (items: UserPreset[], paths: string[]): Option => {
-    const entry = (preset: { id: string; name: string; adjustments: unknown }): Option => ({
+    const entry = (preset: { id: string; name: string; adjustments: unknown; presetType?: string }): Option => ({
       label: preset.name,
       onClick: () => {
-        applyAdjustmentsToPaths(withPresetClarityVersion(structuredClone(preset.adjustments) as never), paths);
+        // A style replaces each photo's last applied one, as in the styles list.
+        const style = preset.presetType !== 'tool' ? { style: { id: preset.id } } : undefined;
+        applyAdjustmentsToPaths(withPresetClarityVersion(structuredClone(preset.adjustments) as never), paths, style);
         noteTool('presets');
       },
     });

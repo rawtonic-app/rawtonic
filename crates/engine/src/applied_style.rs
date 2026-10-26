@@ -11,7 +11,8 @@
 //!
 //! `changes` are the settings the style sets, at the deepest level of
 //! nested settings (one slider of HSL or grading, also inside a group the
-//! recipe did not have yet); lists (curve points) count as one setting.
+//! recipe did not have yet); lists and the curves (points with their
+//! `version`) count as one setting.
 //! `from` is the value before the style, `to` the value it set (the editor
 //! adds `full`, its value at full strength, when the Amount changes); a
 //! missing one means the setting was not in the recipe. Taking the style
@@ -154,10 +155,11 @@ pub fn revert(recipe: &mut Value) -> Vec<Vec<String>> {
 
 /// Whether a style's `value` for the setting at `path` is a group of
 /// settings that goes setting by setting (into `own`, the photo's value):
-/// not the layers, and not over a setting that is no group.
+/// not the curves, and not over a setting that is no group.
 fn goes_by_setting(path: &[String], value: &Value, own: Option<&Value>) -> bool {
+    // Curves go whole: their points with the version that says how they render.
     value.is_object()
-        && !(path.len() == 1 && path[0] == "masks")
+        && !(path.len() == 1 && path[0] == "curves")
         && own.is_none_or(Value::is_object)
 }
 
@@ -352,6 +354,27 @@ mod tests {
             after,
             json!({"exposure": 0, "masks": [{"id": "sky"}], "relightLights": [{"x": 1}], "lensCorrectionMode": "auto"})
         );
+    }
+
+    /// Curves go whole, with the version that says how their points render.
+    #[test]
+    fn curves_go_whole_with_their_version() {
+        let own = json!({"curves": {"version": 3, "luma": [[0, 0], [255, 255]]}});
+        let values = json!({"curves": {"luma": [[0, 0], [128, 150], [255, 255]]}});
+        let after = merged(
+            &mut vec!["curves".into()],
+            own.get("curves"),
+            &values["curves"],
+        );
+        assert_eq!(after, values["curves"]);
+        let mut recipe = json!({"curves": after});
+        record(&own, &mut recipe, &values, "c", 100.0);
+        assert_eq!(
+            recipe[APPLIED_STYLE]["changes"][0]["path"],
+            json!(["curves"])
+        );
+        revert(&mut recipe);
+        assert_eq!(recipe, own);
     }
 
     /// The renderer does not read the key: a recipe renders the same with it.

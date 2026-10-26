@@ -104,4 +104,16 @@ describe('applied style', () => {
     expect(at0).toEqual({ highlights: -50, appliedStyle: expect.anything() });
     expect('toneVersion' in at0).toBe(false);
   });
+
+  it('applies, records and blends curves whole, with their version', () => {
+    const own = { curves: { version: 3, luma: [{ x: 0, y: 0 }] } };
+    const values = { curves: { luma: [{ x: 0, y: 0 }, { x: 128, y: 150 }] } };
+    const after = withStyleValues(own, values);
+    expect(after.curves).toEqual(values.curves);
+    const recipe = recordStyle(own, after, values, 'c');
+    expect(appliedStyleOf(recipe)!.changes.map((c) => c.path)).toEqual([['curves']]);
+    const defaults = { curves: { version: 3, luma: [] } };
+    expect(withStyleAmount(recipe, own, values, 0, defaults).curves).toEqual(own.curves);
+    expect(revertStyle(recipe).recipe).toEqual(own);
+  });
 });
