@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
-"""Opt-in Developer ID packaging; no credentials retains the ad-hoc path."""
+"""Opt-in Developer ID packaging; no credentials retains the ad-hoc path.
 
+`--arch x86_64` builds the separate Intel app and DMG (also on Apple Silicon,
+as a cross build): target/x86_64-apple-darwin/release/bundle/, DMG
+Rawtonic_<version>_x86_64.dmg. Without --arch the machine's own build.
+"""
+
+import argparse
 import base64
 import json
 import os
 from pathlib import Path
+import platform
 import shutil
+import struct
 import subprocess
 import tempfile
 
@@ -13,6 +21,12 @@ import tempfile
 REPO = Path(__file__).resolve().parent.parent
 API = ("APPLE_API_ISSUER", "APPLE_API_KEY", "APPLE_API_KEY_PATH")
 APPLE_ID = ("APPLE_ID", "APPLE_PASSWORD", "APPLE_TEAM_ID")
+# Rust architecture -> (Mach-O CPU type, Tauri's DMG suffix, our DMG suffix).
+ARCHES = {"aarch64": (0x0100000C, "aarch64", "aarch64"),
+          "x86_64": (0x01000007, "x64", "x86_64")}
+MACHO = (b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf",
+         b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca",
+         b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca")
 
 
 def run(args, *, capture=False, env=None):
@@ -78,7 +92,33 @@ def import_certificate(env, directory):
         certificate.unlink()
 
 
-def stage_resources(target, identity, keychain):
+def cpu_types(path):
+    """Mach-O CPU types of a file (several for a universal one), or None."""
+    data = path.read_bytes()[:4096]
+    if data[:4] not in MACHO:
+        return None
+    if data[:4] in (b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf"):
+        size = 20 if data[3] == 0xBE else 32
+        count = struct.unpack(">I", data[4:8])[0]
+        if count > 16:  # 0xcafebabe also starts Java class files
+            return None
+        return {struct.unpack(">I", data[8 + i * size:12 + i * size])[0] for i in range(count)}
+    return {struct.unpack("<I" if data[0] in (0xCE, 0xCF) else ">I", data[4:8])[0]}
+
+
+def check_architectures(app, arch):
+    """Every native file in the bundle runs on `arch` alone: a cross build
+    must not pick up the other architecture's ONNX Runtime or helper."""
+    if not app.is_dir():
+        raise RuntimeError(f"{app} was not built")
+    wrong = [f"{path.relative_to(app)}: {sorted(hex(t) for t in types)}"
+             for path in sorted(app.rglob("*")) if path.is_file() and not path.is_symlink()
+             for types in [cpu_types(path)] if types is not None and types != {ARCHES[arch][0]}]
+    if wrong:
+        raise RuntimeError(f"not {arch}-only: " + "; ".join(wrong))
+
+
+def stage_resources(target, identity, keychain, tether_dir):
     # Tauri signs externalBin and frameworks, but not Mach-O resources (.so
     # camera drivers and ONNX Runtime). Sign copies: build.rs verifies the
     # upstream runtime's pinned hash, so signing the source would break it.
@@ -87,7 +127,7 @@ def stage_resources(target, identity, keychain):
     resources = {}
     for source, destination in ((REPO / "src-tauri/resources", "resources/"),
                                 (REPO / "src-tauri/lensfun_db", "lensfun_db/"),
-                                (target / "tether-bundle/gphoto2", "gphoto2/")):
+                                (tether_dir / "gphoto2", "gphoto2/")):
         copy = stage / source.name
         if copy.exists():
             shutil.rmtree(copy)
@@ -99,9 +139,7 @@ def stage_resources(target, identity, keychain):
             with path.open("rb") as binary:
                 magic = binary.read(4)
             # Mach-O 32/64-bit and universal, in either byte order.
-            if magic in (b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf",
-                         b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca",
-                         b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca"):
+            if magic in MACHO:
                 command = ["codesign", "--force", "--sign", identity, "--timestamp",
                            "--options", "runtime"]
                 if keychain:
@@ -117,19 +155,36 @@ def stage_resources(target, identity, keychain):
     return overlay
 
 
-def package(env):
+def package(env, arch=None):
     signed, identity, auth = configuration(env)
     target = Path(env.get("CARGO_TARGET_DIR", REPO / "target")).resolve()
-    tether = target / "tether-bundle/tauri.tether.conf.json"
+    if arch:
+        # An explicit architecture always builds with --target, so its
+        # artifacts never mix with the machine's own build.
+        triple = f"{arch}-apple-darwin"
+        tether_dir, bundle = target / triple / "tether-bundle", target / triple / "release/bundle"
+        cross, helper_env = ["--target", triple], {**env, "RAWTONIC_TARGET": triple}
+    else:
+        arch = {"arm64": "aarch64"}.get(platform.machine(), platform.machine())
+        tether_dir, bundle = target / "tether-bundle", target / "release/bundle"
+        cross, helper_env = [], env
+    if arch not in ARCHES:
+        raise ValueError(f"Unsupported macOS architecture {arch}")
+    version = json.loads((REPO / "src-tauri/tauri.conf.json").read_text())["version"]
+    built_dmg = bundle / f"dmg/Rawtonic_{version}_{ARCHES[arch][1]}.dmg"
+    dmg = bundle / f"dmg/Rawtonic_{version}_{ARCHES[arch][2]}.dmg"
+    tether = tether_dir / "tauri.tether.conf.json"
     run(["cargo", "deny", "check", "advisories"], env=env)
-    run([str(REPO / "scripts/tether/bundle_helper.sh")], env=env)
+    run([str(REPO / "scripts/tether/bundle_helper.sh")], env=helper_env)
     build_env = {**env, "CI": "true"}
     if not signed:
-        run(["tauri", "build", "--bundles", "app,dmg", "--config", str(tether)], env=build_env)
+        run(["tauri", "build", *cross, "--bundles", "app,dmg", "--config", str(tether)],
+            env=build_env)
+        finish(bundle / "macos/Rawtonic.app", arch, built_dmg, dmg)
         return
 
     # Build first so the optional ONNX download and generated licenses exist.
-    run(["tauri", "build", "--no-bundle", "--config", str(tether)], env=build_env)
+    run(["tauri", "build", *cross, "--no-bundle", "--config", str(tether)], env=build_env)
     with tempfile.TemporaryDirectory(prefix="rawtonic-signing-") as temporary:
         keychain = None
         try:
@@ -138,7 +193,7 @@ def package(env):
                 if identity and identity != certificate_identity:
                     raise ValueError("APPLE_SIGNING_IDENTITY does not match APPLE_CERTIFICATE")
                 identity = certificate_identity
-            overlay = stage_resources(target, identity, keychain)
+            overlay = stage_resources(target, identity, keychain, tether_dir)
             config = json.loads(tether.read_text())
             signing = json.loads(overlay.read_text())["bundle"]
             config["bundle"]["resources"] = signing["resources"]
@@ -147,13 +202,10 @@ def package(env):
             # Tauri imports APPLE_CERTIFICATE into its own temporary keychain
             # to sign frameworks, helper, main executable, app and DMG. It also
             # notarizes/staples the app when authentication is configured.
-            run(["tauri", "bundle", "--bundles", "app,dmg", "--config", str(overlay)],
+            run(["tauri", "bundle", *cross, "--bundles", "app,dmg", "--config", str(overlay)],
                 env={**build_env, "APPLE_SIGNING_IDENTITY": identity})
+            finish(bundle / "macos/Rawtonic.app", arch, built_dmg, dmg)
             if auth:
-                version = json.loads((REPO / "src-tauri/tauri.conf.json").read_text())["version"]
-                arch = run(["uname", "-m"], capture=True).strip()
-                arch = {"arm64": "aarch64", "x86_64": "x64"}[arch]
-                dmg = target / f"release/bundle/dmg/Rawtonic_{version}_{arch}.dmg"
                 # Tauri 2.12.1 only notarizes the app; submit and staple the
                 # final signed container too. A rejected submission exits 0.
                 result = json.loads(run(["xcrun", "notarytool", "submit", str(dmg),
@@ -162,14 +214,22 @@ def package(env):
                     raise RuntimeError("DMG notarization was not Accepted; inspect Apple's notary log")
                 run(["xcrun", "stapler", "staple", str(dmg)])
                 run([str(REPO / "scripts/verify_macos_release.sh"),
-                     str(target / "release/bundle/macos/Rawtonic.app"), str(dmg)])
+                     str(bundle / "macos/Rawtonic.app"), str(dmg)])
         finally:
             if keychain:
                 run(["security", "delete-keychain", str(keychain)], capture=True)
 
 
+def finish(app, arch, built_dmg, dmg):
+    check_architectures(app, arch)
+    if built_dmg != dmg:
+        built_dmg.replace(dmg)
+
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--arch", choices=sorted(ARCHES))
     try:
-        package(dict(os.environ))
+        package(dict(os.environ), parser.parse_args().arch)
     except (ValueError, RuntimeError, OSError) as error:
         raise SystemExit(f"package:mac: {error}") from None

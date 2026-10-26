@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Packaging control-flow tests; no Apple account or native commands required."""
+"""Packaging control-flow tests; no Apple account or build required (rustc for the host triple)."""
 
 import json
+import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -12,7 +14,7 @@ import package_macos as packaging
 
 class PackagingTests(unittest.TestCase):
     def test_default_keeps_existing_commands(self):
-        with patch.object(packaging, "run") as run:
+        with patch.object(packaging, "run") as run, patch.object(packaging, "finish") as finish:
             packaging.package({})
         self.assertEqual([call.args[0] for call in run.call_args_list], [
             ["cargo", "deny", "check", "advisories"],
@@ -21,6 +23,73 @@ class PackagingTests(unittest.TestCase):
              str(packaging.REPO / "target/tether-bundle/tauri.tether.conf.json")],
         ])
         self.assertEqual(run.call_args.kwargs["env"], {"CI": "true"})
+        app = finish.call_args.args[0]
+        self.assertEqual(app, packaging.REPO / "target/release/bundle/macos/Rawtonic.app")
+
+    def test_intel_build_has_its_own_target_folder_and_dmg_name(self):
+        with patch.object(packaging, "run") as run, patch.object(packaging, "finish") as finish:
+            packaging.package({}, "x86_64")
+        target = packaging.REPO / "target/x86_64-apple-darwin"
+        self.assertEqual(run.call_args_list[1].kwargs["env"],
+                         {"RAWTONIC_TARGET": "x86_64-apple-darwin"})
+        self.assertEqual(run.call_args.args[0], [
+            "tauri", "build", "--target", "x86_64-apple-darwin", "--bundles", "app,dmg",
+            "--config", str(target / "tether-bundle/tauri.tether.conf.json")])
+        app, arch, built, dmg = finish.call_args.args
+        self.assertEqual((app, arch), (target / "release/bundle/macos/Rawtonic.app", "x86_64"))
+        self.assertTrue(built.name.endswith("_x64.dmg"))
+        self.assertTrue(dmg.name.endswith("_x86_64.dmg"))
+        self.assertEqual(built.parent, dmg.parent)
+
+    def test_explicit_target_stages_where_the_packager_looks_also_natively(self):
+        # On an Intel Mac the Intel target is the host: an explicit target
+        # must still stage in target/<triple>/ (the --target build's folder).
+        host = subprocess.run(["rustc", "-vV"], capture_output=True, text=True,
+                              check=True).stdout.split("host: ")[1].split()[0]
+        base = {key: value for key, value in os.environ.items() if key != "RAWTONIC_TARGET"}
+        with tempfile.TemporaryDirectory() as target:
+            def staged(**env):
+                return subprocess.run(
+                    [str(packaging.REPO / "scripts/tether/bundle_helper.sh"), "--print-paths"],
+                    env={**base, "CARGO_TARGET_DIR": target, **env},
+                    capture_output=True, text=True, check=True).stdout.strip()
+
+            self.assertEqual(staged(RAWTONIC_TARGET=host), f"{target}/{host}/tether-bundle")
+            self.assertEqual(staged(), f"{target}/tether-bundle")
+            with patch.object(packaging, "run") as run, patch.object(packaging, "finish"):
+                packaging.package({"CARGO_TARGET_DIR": target}, "x86_64")
+            self.assertEqual(run.call_args.args[0][-1],
+                             f"{Path(target).resolve()}/x86_64-apple-darwin/tether-bundle/tauri.tether.conf.json")
+
+    def test_architecture_check_refuses_a_bundle_with_the_other_architecture(self):
+        def macho(cpu):
+            return b"\xcf\xfa\xed\xfe" + cpu.to_bytes(4, "little") + bytes(24)
+
+        def fat(*cpus):
+            arches = b"".join(cpu.to_bytes(4, "big") + bytes(16) for cpu in cpus)
+            return b"\xca\xfe\xba\xbe" + len(cpus).to_bytes(4, "big") + arches
+
+        intel, arm = packaging.ARCHES["x86_64"][0], packaging.ARCHES["aarch64"][0]
+        with tempfile.TemporaryDirectory() as temporary:
+            app = Path(temporary) / "Rawtonic.app"
+            (app / "Contents/Resources/resources").mkdir(parents=True)
+            (app / "Contents/MacOS").mkdir()
+            (app / "Contents/MacOS/rawtonic-app").write_bytes(macho(intel))
+            (app / "Contents/Resources/lens.xml").write_bytes(b"<xml/>")
+            (app / "Contents/Resources/Example.class").write_bytes(b"\xca\xfe\xba\xbe\x00\x00\x00\x41")
+            runtime = app / "Contents/Resources/resources/libonnxruntime.dylib"
+            runtime.write_bytes(macho(intel))
+            packaging.check_architectures(app, "x86_64")
+            for wrong in (macho(arm), fat(intel, arm)):
+                runtime.write_bytes(wrong)
+                with self.subTest(wrong=wrong[:4]), self.assertRaises(RuntimeError) as error:
+                    packaging.check_architectures(app, "x86_64")
+                self.assertIn("libonnxruntime.dylib", str(error.exception))
+            runtime.write_bytes(fat(arm))
+            (app / "Contents/MacOS/rawtonic-app").write_bytes(macho(arm))
+            packaging.check_architectures(app, "aarch64")
+            with self.assertRaises(RuntimeError):
+                packaging.check_architectures(Path(temporary) / "missing.app", "x86_64")
 
     def test_incomplete_or_ambiguous_credentials_fail_before_build(self):
         for env in ({"APPLE_CERTIFICATE": "certificate"},
@@ -83,7 +152,8 @@ class PackagingTests(unittest.TestCase):
             (sources[0] / "license.txt").write_text("plain data")
             before = runtime.read_bytes(), driver.read_bytes()
             with patch.object(packaging, "REPO", repo), patch.object(packaging, "run") as run:
-                overlay = packaging.stage_resources(target, "Developer ID Application: Example", None)
+                overlay = packaging.stage_resources(target, "Developer ID Application: Example", None,
+                                                    target / "tether-bundle")
             calls = [call.args[0] for call in run.call_args_list]
             self.assertEqual(len(calls), 2)
             self.assertTrue(all(call[:2] == ["codesign", "--force"] for call in calls))
@@ -113,14 +183,13 @@ class PackagingTests(unittest.TestCase):
             env.update(APPLE_CERTIFICATE="certificate", APPLE_CERTIFICATE_PASSWORD="password")
 
         def command(args, **_kwargs):
-            if args[0] == "uname":
-                return "arm64\n"
             if args[:3] == ["xcrun", "notarytool", "submit"]:
                 return json.dumps({"status": status})
             return None
 
         with patch.object(packaging, "run", side_effect=command) as run, \
                 patch.object(packaging, "stage_resources", return_value=overlay), \
+                patch.object(packaging, "finish"), \
                 patch.object(packaging, "import_certificate", return_value=(target / "keychain", env["APPLE_SIGNING_IDENTITY"])):
             error = None
             try:
