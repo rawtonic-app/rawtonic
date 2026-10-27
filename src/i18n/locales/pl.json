@@ -1934,6 +1934,7 @@
     "feather": "Wtapianie",
     "featherAria": "Wtapianie plamy",
     "filling": "Usuwanie… krok {{done}} z {{total}}",
+    "largeHoleTooSlow": "Ten procesor graficzny jest zbyt wolny do usuwania dużych obszarów; Usuń używa szybkiej metody do końca sesji.",
     "mode": "Tryb usuwania plam",
     "modes": {
       "clone": "Klonuj",

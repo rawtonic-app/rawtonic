@@ -134,10 +134,16 @@ pub enum ModelKind {
     FaceMesh,
     /// MediaPipe multiclass selfie segmentation.
     FaceParser,
+    /// Moebius's UNet (large-hole removal).
+    MoebiusUnet,
+    /// The SDXL VAE's encoder (Moebius).
+    MoebiusEncoder,
+    /// The SDXL VAE's decoder (Moebius).
+    MoebiusDecoder,
 }
 
 impl ModelKind {
-    pub const ALL: [ModelKind; 14] = [
+    pub const ALL: [ModelKind; 17] = [
         ModelKind::Subject,
         ModelKind::SamEncoder,
         ModelKind::SamDecoder,
@@ -152,6 +158,9 @@ impl ModelKind {
         ModelKind::FaceDetector,
         ModelKind::FaceMesh,
         ModelKind::FaceParser,
+        ModelKind::MoebiusUnet,
+        ModelKind::MoebiusEncoder,
+        ModelKind::MoebiusDecoder,
     ];
 
     pub fn name(self) -> &'static str {
@@ -170,6 +179,9 @@ impl ModelKind {
             ModelKind::FaceDetector => "face-detector",
             ModelKind::FaceMesh => "face-mesh",
             ModelKind::FaceParser => "face-parser",
+            ModelKind::MoebiusUnet => "moebius-unet",
+            ModelKind::MoebiusEncoder => "moebius-encoder",
+            ModelKind::MoebiusDecoder => "moebius-decoder",
         }
     }
 
@@ -181,7 +193,7 @@ impl ModelKind {
 
     /// The model a file of the model pack holds, by its name.
     pub fn from_file_name(name: &str) -> Option<Self> {
-        const PREFIXES: [(&str, ModelKind); 14] = [
+        const PREFIXES: [(&str, ModelKind); 17] = [
             ("birefnet", ModelKind::Subject),
             ("sam2.1_tiny_encoder", ModelKind::SamEncoder),
             ("sam2.1_tiny_decoder", ModelKind::SamDecoder),
@@ -196,6 +208,9 @@ impl ModelKind {
             ("face_detection", ModelKind::FaceDetector),
             ("face_mesh", ModelKind::FaceMesh),
             ("selfie_multiclass", ModelKind::FaceParser),
+            ("moebius_unet", ModelKind::MoebiusUnet),
+            ("sdxl_vae_encoder", ModelKind::MoebiusEncoder),
+            ("sdxl_vae_decoder", ModelKind::MoebiusDecoder),
         ];
         PREFIXES
             .into_iter()

@@ -9,6 +9,7 @@ import { Invokes } from '../../ui/AppProperties';
 import { Mask, SubMaskMode, ToolType } from '../right/Masks';
 import { useProcessStore } from '../../../store/useProcessStore';
 import { toastAiError } from '../../../utils/aiErrors';
+import { toast } from 'react-toastify';
 import { getTransformAdjustments } from '../../../hooks/useAiMasking';
 import { createSubMask } from '../../../utils/maskUtils';
 import { shapeAsShown, shapeFrame, type SizedFrame } from '../../../utils/maskGeometry';
@@ -598,6 +599,11 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         if (payload.taskId && filling.current.includes(payload.taskId))
           report({ taskId: payload.taskId, done: payload.done, total: payload.total });
       }),
+      // The GPU took too long per network run: large holes use the fast
+      // method for the rest of the session (inpainting::MOEBIUS_TOO_SLOW).
+      listen<string>('ai-fill-notice', ({ payload }) => {
+        if (payload === 'moebiusTooSlow') toast.info(t('spotRemoval.largeHoleTooSlow'));
+      }),
       listen<{ received: number; total: number }>('ai-model-download-progress', ({ payload }) => {
         // A download serves the newest removal waiting for it.
         const id = filling.current.at(-1);
@@ -606,7 +612,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
       }),
     ].map((p) => p.catch(() => null));
     return () => unlisten.forEach((p) => p.then((stop) => stop?.()));
-  }, []);
+  }, [t]);
 
   // Delete removes the selected spot; [ and ] resize it (or the next one);
   // Escape cancels the removals being filled, else deselects.

@@ -1816,6 +1816,7 @@
     "feather": "Feather",
     "featherAria": "Spot feather",
     "filling": "Removing… step {{done}} of {{total}}",
+    "largeHoleTooSlow": "This GPU is too slow for large-hole removal; Remove uses the fast method for the rest of the session.",
     "mode": "Spot mode",
     "modes": {
       "clone": "Clone",

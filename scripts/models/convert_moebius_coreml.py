@@ -37,12 +37,22 @@ Usage (macOS, uv):
     --with diffusers==0.38.0 --with numpy==2.2.6 --with einops==0.8.1 \\
     --with timm==1.0.30 --with pyyaml==6.0.3 --with safetensors==0.8.0 --with pillow==12.0.0 \\
     python scripts/models/convert_moebius_coreml.py OUT_DIR [--cache DIR] [--check IMAGE MASK ...]
-  --onnx also writes the three networks as ONNX (opset 17, fp32, same inputs
-  and outputs; moebius_unet.onnx, sdxl_vae_encoder.onnx, sdxl_vae_decoder.onnx)
-  and checks one run of each on ONNX Runtime's CPU against PyTorch (needs
-  onnx and onnxruntime): the route for Windows and Linux on the WebGPU or
-  CUDA provider (docs/MODELS.md, "Moebius on other platforms"); the app does
-  not use them yet.
+  --onnx also writes the three networks as ONNX for Windows and Linux, where
+  Remove runs them on the WebGPU or CUDA provider (src-tauri/src/moebius/onnx.rs):
+  opset 17, the same inputs and outputs, the weights stored as fp16 and cast
+  to fp32 when the model loads, so the networks compute in fp32 (fp16
+  compute on WebGPU disagreed with the CPU by up to 1.7 in the encoder's
+  latent; notes: benchmark-results/moebius-onnx-2026-10-27). Files
+  moebius_unet_fp16w.onnx, sdxl_vae_encoder_fp16w.onnx,
+  sdxl_vae_decoder_fp16w.onnx and moebius_embeddings.bin; each is checked on
+  ONNX Runtime's CPU against PyTorch (needs onnx and onnxruntime). With
+  --no-coreml only these are written (any platform, no coremltools):
+  uv run --python 3.12 --index-url https://download.pytorch.org/whl/cpu \\
+    --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match \\
+    --with torch==2.7.0+cpu --with torchvision==0.22.0+cpu --with onnx==1.23.2 --with onnxruntime==1.30.0 \\
+    --with diffusers==0.38.0 --with numpy==2.2.6 --with einops==0.8.1 --with timm==1.0.30 \\
+    --with pyyaml==6.0.3 --with safetensors==0.8.0 --with pillow==12.0.0 \\
+    python scripts/models/convert_moebius_coreml.py OUT_DIR --onnx --no-coreml
   --check runs the app's removal (moebius_pipeline below, the same steps as
   src-tauri/src/moebius.rs) on each image and mask (any size; scaled to
   512 x 512) with the Core ML programs on the GPU and with the PyTorch fp32
@@ -84,6 +94,12 @@ PACKAGES = {
     "sdxl_vae_decoder": "sdxl_vae_decoder_fp16_coreml_",
 }
 CONVERSION_DATE = "2026-10-27"
+# The ONNX files (--onnx): network name -> file.
+ONNX_FILES = {
+    "moebius_unet": "moebius_unet_fp16w.onnx",
+    "sdxl_vae_encoder": "sdxl_vae_encoder_fp16w.onnx",
+    "sdxl_vae_decoder": "sdxl_vae_decoder_fp16w.onnx",
+}
 
 
 def fetch(url: str, dest: Path, sha256: str | None = None) -> Path:
@@ -249,22 +265,61 @@ def convert(out: Path, cache: Path) -> dict[str, Path]:
     return packages
 
 
+def fp16_weights(model):
+    """Stores every float initializer of more than 16 values as fp16 and
+    casts it back to fp32 in the graph: half the download, fp32 compute.
+    Tensors beyond fp16's range stay fp32: a batch norm's running variance in
+    the first cross-λ layer reaches 1.03e5, which fp16 would make infinite
+    (the fill then differed from PyTorch's by 22 codes on average)."""
+    import onnx
+    from onnx import TensorProto, helper, numpy_helper
+
+    graph = model.graph
+    initializers, casts = [], []
+    for tensor in graph.initializer:
+        values = numpy_helper.to_array(tensor) if tensor.data_type == TensorProto.FLOAT else None
+        if values is not None and values.size > 16 and np.abs(values).max() <= np.finfo(np.float16).max:
+            half = numpy_helper.from_array(values.astype(np.float16), tensor.name + "_fp16")
+            initializers.append(half)
+            casts.append(helper.make_node("Cast", [half.name], [tensor.name], to=TensorProto.FLOAT,
+                                          name=tensor.name + "_cast"))
+        else:
+            initializers.append(tensor)
+    nodes = list(graph.node)
+    del graph.initializer[:], graph.node[:]
+    graph.initializer.extend(initializers)
+    graph.node.extend(casts + nodes)
+    onnx.checker.check_model(model)
+    return model
+
+
 def export_onnx(out: Path, cache: Path) -> None:
+    import onnx
     import onnxruntime as ort
 
-    nets, _ = networks(cache)
+    out.mkdir(parents=True, exist_ok=True)
+    nets, embeddings = networks(cache)
+    (out / EMBEDDINGS).write_bytes(embeddings.numpy().astype("<f4").tobytes())
     for name, (net, inputs, output) in nets.items():
-        path = out / f"{name}.onnx"
+        path = out / ONNX_FILES[name]
+        fp32 = out / f"{name}.fp32.onnx"
         args = tuple(x for _, x in inputs)
         with torch.no_grad():
             ref = net(*args).numpy()
-            torch.onnx.export(net, args, str(path), input_names=[n for n, _ in inputs], output_names=[output],
+            torch.onnx.export(net, args, str(fp32), input_names=[n for n, _ in inputs], output_names=[output],
                               opset_version=17, dynamo=False)
-        session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
-        got = session.run(None, {n: x.numpy() for n, x in inputs})[0]
+        feeds = {n: x.numpy() for n, x in inputs}
+        got = ort.InferenceSession(str(fp32), providers=["CPUExecutionProvider"]).run(None, feeds)[0]
         rel = float(np.linalg.norm(got - ref) / np.linalg.norm(ref))
-        print(f"{path.name}: ONNX Runtime CPU vs PyTorch, relative error {rel:.1e}", flush=True)
+        print(f"{name}: ONNX fp32 on ONNX Runtime's CPU vs PyTorch, relative error {rel:.1e}", flush=True)
         if rel > 1e-4:
+            raise SystemExit(f"{name} differs from PyTorch")
+        onnx.save(fp16_weights(onnx.load(str(fp32))), str(path))
+        fp32.unlink()
+        got = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"]).run(None, feeds)[0]
+        rel = float(np.linalg.norm(got - ref) / np.linalg.norm(ref))
+        print(f"{path.name}: fp16 weights on ONNX Runtime's CPU vs PyTorch, relative error {rel:.1e}", flush=True)
+        if rel > 1e-2:
             raise SystemExit(f"{path.name} differs from PyTorch")
 
 
@@ -356,10 +411,13 @@ def main() -> None:
     parser.add_argument("--cache", type=Path, default=Path("model-pack-cache") / "moebius")
     parser.add_argument("--check", type=Path, nargs="+", metavar="IMAGE MASK")
     parser.add_argument("--onnx", action="store_true")
+    parser.add_argument("--no-coreml", action="store_true")
     args = parser.parse_args()
     if args.check and len(args.check) % 2:
         parser.error("--check takes pairs of IMAGE MASK")
-    packages = convert(args.out, args.cache)
+    if args.no_coreml and (args.check or not args.onnx):
+        parser.error("--no-coreml writes only the ONNX files: with --onnx, without --check")
+    packages = {} if args.no_coreml else convert(args.out, args.cache)
     if args.onnx:
         export_onnx(args.out, args.cache)
     if args.check:

@@ -1778,6 +1778,7 @@
     "feather": "페더",
     "featherAria": "스팟 페더",
     "filling": "제거 중… {{total}}단계 중 {{done}}단계",
+    "largeHoleTooSlow": "이 GPU는 큰 영역을 제거하기에 너무 느립니다. 이 세션 동안 제거는 빠른 방법을 사용합니다.",
     "mode": "스팟 모드",
     "modes": {
       "clone": "복제",

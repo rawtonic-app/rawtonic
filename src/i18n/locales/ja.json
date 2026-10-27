@@ -1778,6 +1778,7 @@
     "feather": "ぼかし",
     "featherAria": "スポットのぼかし",
     "filling": "削除中… ステップ {{done}}/{{total}}",
+    "largeHoleTooSlow": "このGPUは大きな領域の削除には遅すぎます。このセッションの間、削除は高速な方法を使います。",
     "mode": "スポットモード",
     "modes": {
       "clone": "コピー",

@@ -30,8 +30,9 @@ in percent of the photo; PHOTOS/<photo>.png are 8- or 16-bit sRGB renders.
     patch      patch_fill without a guide on the same crop
     hybrid     patch_fill guided by the MI-GAN fill
     mhybrid    patch_fill guided by Moebius's fill, as Remove does for large
-               holes on macOS (src-tauri/src/moebius.rs `guide`; MOEBIUS: the
-               output folder of convert_moebius_coreml.py; needs coremltools)
+               holes (src-tauri/src/moebius.rs `guide`; MOEBIUS: the output
+               folder of convert_moebius_coreml.py, its Core ML programs with
+               coremltools or its ONNX models, see moebius_networks)
     moebius    Moebius's fill alone (same crop, blended by the mask)
     hybrid:K=V,... the same with patch_fill parameters; harness options:
                ctx=F widens the pipeline's own crop to F x the hole (the
@@ -340,21 +341,43 @@ _moebius = None
 
 
 def moebius_networks():
-    """The Core ML programs of convert_moebius_coreml.py (folder MOEBIUS) on the GPU."""
+    """The networks of convert_moebius_coreml.py (folder MOEBIUS): the Core ML
+    programs on the GPU, or where they are absent the ONNX models (--onnx) on
+    ONNX Runtime, on WebGPU when MOEBIUS_WEBGPU names its plugin library."""
     global _moebius
     if _moebius is None:
-        import coremltools as ct
-
         folder = Path(os.environ["MOEBIUS"])
-        load = lambda name: ct.models.MLModel(  # noqa: E731
-            str(folder / f"{name}.mlpackage"), compute_units=ct.ComputeUnit.CPU_AND_GPU)
-        unet, enc, dec = load("moebius_unet"), load("sdxl_vae_encoder"), load("sdxl_vae_decoder")
         emb = np.fromfile(folder / "moebius_embeddings.bin", "<f4").reshape(2, 10, 3072)
-        _moebius = (
-            lambda x, t: unet.predict({"latent_in": x, "t": t, "embeddings": emb})["noise"],
-            lambda images: enc.predict({"image": images})["latent"],
-            lambda z: dec.predict({"latent": z})["image"],
-        )
+        if (folder / "moebius_unet.mlpackage").exists():
+            import coremltools as ct
+
+            load = lambda name: ct.models.MLModel(  # noqa: E731
+                str(folder / f"{name}.mlpackage"), compute_units=ct.ComputeUnit.CPU_AND_GPU)
+            unet, enc, dec = load("moebius_unet"), load("sdxl_vae_encoder"), load("sdxl_vae_decoder")
+            _moebius = (
+                lambda x, t: unet.predict({"latent_in": x, "t": t, "embeddings": emb})["noise"],
+                lambda images: enc.predict({"image": images})["latent"],
+                lambda z: dec.predict({"latent": z})["image"],
+            )
+        else:
+            import onnxruntime as ort
+            from convert_moebius_coreml import ONNX_FILES
+
+            options = ort.SessionOptions()
+            providers = ["CPUExecutionProvider"]
+            if os.environ.get("MOEBIUS_WEBGPU"):
+                ort.register_execution_provider_library("WebGpuExecutionProvider", os.environ["MOEBIUS_WEBGPU"])
+                options.add_provider_for_devices(
+                    [d for d in ort.get_ep_devices() if d.ep_name == "WebGpuExecutionProvider"], {})
+                providers = None
+            load = lambda name: ort.InferenceSession(  # noqa: E731
+                str(folder / ONNX_FILES[name]), sess_options=options, providers=providers)
+            unet, enc, dec = load("moebius_unet"), load("sdxl_vae_encoder"), load("sdxl_vae_decoder")
+            _moebius = (
+                lambda x, t: unet.run(None, {"latent_in": x, "t": t, "embeddings": emb})[0],
+                lambda images: enc.run(None, {"image": images})[0],
+                lambda z: dec.run(None, {"latent": z})[0],
+            )
     return _moebius
 
 

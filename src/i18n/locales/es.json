@@ -1875,6 +1875,7 @@
     "feather": "Difuminado",
     "featherAria": "Difuminado de la mancha",
     "filling": "Eliminando… paso {{done}} de {{total}}",
+    "largeHoleTooSlow": "Esta GPU es demasiado lenta para eliminar zonas grandes; Eliminar usará el método rápido durante el resto de la sesión.",
     "mode": "Modo de manchas",
     "modes": {
       "clone": "Clonar",

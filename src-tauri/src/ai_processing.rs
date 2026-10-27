@@ -28,7 +28,7 @@ use tokio::sync::Mutex as TokioMutex;
 /// licenses (docs/MODELS.md, scripts/models/build_model_pack.py);
 /// `scripts/models/install_models.sh` installs them ahead with `gh`.
 const MODEL_PACK_URL: &str =
-    "https://github.com/rawtonic-app/models/releases/download/pack-2026-10-27";
+    "https://github.com/rawtonic-app/models/releases/download/pack-2026-10-27b";
 
 // SAM 2.1 Hiera-T (Meta, Apache-2.0 weights), exported by
 // scripts/models/export_sam2.py: the photo stretched to 1024 x 1024 in,
@@ -297,9 +297,8 @@ pub struct AiState {
     pub sam_models: Option<Arc<SamModels>>,
     pub tag_models: Option<Arc<TagModels>>,
     pub inpaint_model: Option<Arc<rawtonic_onnx::Model>>,
-    /// Moebius, the guide of Remove's large holes (macOS, `moebius`).
-    #[cfg(target_os = "macos")]
-    pub moebius: Option<Arc<crate::moebius::coreml::Moebius>>,
+    /// Moebius, the guide of Remove's large holes (`moebius`).
+    pub moebius: Option<Arc<crate::moebius::Moebius>>,
     pub embeddings: Option<ImageEmbeddings>,
     pub depth_map: Option<CachedDepthMap>,
     pub subject_model: Option<Arc<SubjectModel>>,
@@ -1657,15 +1656,13 @@ pub async fn get_or_init_inpaint_model(
 
 /// Serialises loading Moebius, apart from `ai_init_lock`: its first use
 /// downloads about 620 MB, which must not hold up the masking models.
-#[cfg(target_os = "macos")]
 static MOEBIUS_INIT_LOCK: TokioMutex<()> = TokioMutex::const_new(());
 
 /// Moebius (`moebius`), downloaded on first use.
-#[cfg(target_os = "macos")]
 pub async fn get_or_init_moebius(
     app_handle: &tauri::AppHandle,
     ai_state_mutex: &Mutex<Option<AiState>>,
-) -> Result<Arc<crate::moebius::coreml::Moebius>> {
+) -> Result<Arc<crate::moebius::Moebius>> {
     let loaded = || {
         ai_state_mutex
             .lock()
@@ -1683,11 +1680,7 @@ pub async fn get_or_init_moebius(
     let generation = crate::ai_lifecycle::LIFECYCLE.generation();
     let models_dir = get_models_dir(app_handle)?;
     let start = std::time::Instant::now();
-    let model = Arc::new(
-        crate::moebius::coreml::load(app_handle, &models_dir, true)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("Moebius files missing"))?,
-    );
+    let model = Arc::new(crate::moebius::load(app_handle, &models_dir).await?);
     log::info!(
         "AI fill: Moebius loaded in {} ms",
         start.elapsed().as_millis()
@@ -3225,7 +3218,7 @@ pub fn run_depth_anything_model16(
 /// build), loaded once: an error starting with
 /// `rawtonic_onnx::RUNTIME_UNAVAILABLE` when it is missing or cannot be
 /// loaded (the frontend shows its own text for it), never `ort`'s panic.
-fn ensure_local_runtime() -> anyhow::Result<()> {
+pub(crate) fn ensure_local_runtime() -> anyhow::Result<()> {
     rawtonic_onnx::ensure_runtime().map_err(anyhow::Error::new)
 }
 

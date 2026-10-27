@@ -1875,6 +1875,7 @@
     "feather": "Suavização",
     "featherAria": "Suavização da mancha",
     "filling": "Removendo… etapa {{done}} de {{total}}",
+    "largeHoleTooSlow": "Esta GPU é lenta demais para remover áreas grandes; Remover usa o método rápido pelo resto da sessão.",
     "mode": "Modo de manchas",
     "modes": {
       "clone": "Clonar",
