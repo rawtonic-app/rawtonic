@@ -2078,6 +2078,7 @@
       },
       "grading": {
         "hueAria": "Matiz ({{range}})",
+        "link": "Ligar rodas tonais",
         "luminanceArcTitle": "Luminância ({{range}}) {{value}} · arraste ou setas · Shift: fino · clique duplo redefine",
         "luminanceAria": "Luminância ({{range}})",
         "ranges": "Faixas",

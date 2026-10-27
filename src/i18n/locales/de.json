@@ -2018,6 +2018,7 @@
       },
       "grading": {
         "hueAria": "Farbton ({{range}})",
+        "link": "Tonwerträder verknüpfen",
         "luminanceArcTitle": "Luminanz ({{range}}) {{value}} · ziehen oder Pfeiltasten · Umschalt fein · Doppelklick setzt zurück",
         "luminanceAria": "Luminanz ({{range}})",
         "ranges": "Bereiche",
