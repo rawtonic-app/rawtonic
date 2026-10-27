@@ -122,3 +122,15 @@ it("proposal values write exposure and a custom white balance only when they cha
   });
   expect(proposalValues(proposal("/x", {}))).toEqual({});
 });
+
+it("when nothing could be written the dialog stays open without a success notice", async () => {
+  registerRecipeWriter(async (values) => {
+    writes.push(values);
+    return [];
+  });
+  await open();
+  fireEvent.click(screen.getByRole("button", { name: "Apply to 1 photo" }));
+  await waitFor(() => expect(writes).toHaveLength(1));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Apply to 1 photo" }).hasAttribute("disabled")).toBe(false));
+  expect(screen.getByRole("dialog")).toBeTruthy();
+});
