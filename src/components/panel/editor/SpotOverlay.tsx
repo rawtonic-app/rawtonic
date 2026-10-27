@@ -1016,7 +1016,8 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
             color: '#eee',
             fontSize: 12,
             cursor: 'default',
-            whiteSpace: 'nowrap',
+            maxWidth: 'calc(100% - 32px)',
+            whiteSpace: 'normal',
           }}
         >
           <span>
@@ -1030,6 +1031,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
             type="button"
             onClick={() => cancelFill(progress.taskId)}
             style={{
+              flexShrink: 0,
               padding: '2px 8px',
               borderRadius: 4,
               border: '1px solid rgba(255,255,255,0.3)',
