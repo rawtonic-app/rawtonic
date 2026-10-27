@@ -307,6 +307,7 @@ fn export_avif(
     let metadata = rawtonic_export::exif_processing::export_metadata_with(
         source.to_str().unwrap(),
         "avif",
+        export_settings(keep_metadata, space).color_space,
         keep_metadata,
         false,
         false,
@@ -402,6 +403,7 @@ fn avif_export_carries_the_ai_marking_and_kept_metadata() {
         let none = rawtonic_export::exif_processing::export_metadata_with(
             source.to_str().unwrap(),
             "avif",
+            rawtonic_engine::output_color_space::OutputColorSpace::Srgb,
             false,
             false,
             false,

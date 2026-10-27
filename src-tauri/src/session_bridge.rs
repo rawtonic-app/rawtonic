@@ -2304,6 +2304,7 @@ mod tests {
             crate::exif_processing::export_metadata_with(
                 path,
                 "jpeg",
+                rawtonic_engine::output_color_space::OutputColorSpace::Srgb,
                 true,
                 false,
                 false,

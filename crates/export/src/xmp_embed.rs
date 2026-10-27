@@ -58,23 +58,32 @@ pub fn jpeg_insert_xmp(jpeg: &mut Vec<u8>, packet: &[u8]) -> Result<(), String> 
 /// Inserts the packet as an uncompressed `iTXt` chunk before the image data,
 /// replacing an XMP chunk that is already there.
 pub fn png_insert_xmp(png: &mut Vec<u8>, packet: &[u8]) -> Result<(), String> {
-    if png.get(0..8) != Some(b"\x89PNG\r\n\x1a\n") {
-        return Err("not a PNG file".to_string());
-    }
     let mut data = Vec::with_capacity(PNG_XMP_KEYWORD.len() + 5 + packet.len());
     data.extend_from_slice(PNG_XMP_KEYWORD);
     // NUL, compression flag, compression method, empty language and
     // translated keyword.
     data.extend_from_slice(&[0, 0, 0, 0, 0]);
     data.extend_from_slice(packet);
-    let length = u32::try_from(data.len()).map_err(|_| "XMP packet too large".to_string())?;
+    png_insert_chunk(png, b"iTXt", &data)
+}
+
+/// Writes TIFF-structured EXIF in the standard PNG eXIf chunk.
+pub fn png_insert_exif(png: &mut Vec<u8>, exif: &[u8]) -> Result<(), String> {
+    png_insert_chunk(png, b"eXIf", exif)
+}
+
+fn png_insert_chunk(png: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) -> Result<(), String> {
+    if png.get(0..8) != Some(b"\x89PNG\r\n\x1a\n") {
+        return Err("not a PNG file".to_string());
+    }
+    let length = u32::try_from(data.len()).map_err(|_| "PNG metadata too large".to_string())?;
     let mut chunk = Vec::with_capacity(data.len() + 12);
     chunk.extend_from_slice(&length.to_be_bytes());
-    chunk.extend_from_slice(b"iTXt");
-    chunk.extend_from_slice(&data);
+    chunk.extend_from_slice(kind);
+    chunk.extend_from_slice(data);
     let mut crc = crc32fast::Hasher::new();
-    crc.update(b"iTXt");
-    crc.update(&data);
+    crc.update(kind);
+    crc.update(data);
     chunk.extend_from_slice(&crc.finalize().to_be_bytes());
 
     let mut at = 8;
@@ -90,7 +99,10 @@ pub fn png_insert_xmp(png: &mut Vec<u8>, packet: &[u8]) -> Result<(), String> {
                 png.splice(at..at, chunk);
                 return Ok(());
             }
-            b"iTXt" if png[at + 8..end - 4].starts_with(PNG_XMP_KEYWORD) => {
+            existing
+                if existing == kind
+                    && (kind == b"eXIf" || png[at + 8..end - 4].starts_with(PNG_XMP_KEYWORD)) =>
+            {
                 png.splice(at..end, chunk);
                 return Ok(());
             }
