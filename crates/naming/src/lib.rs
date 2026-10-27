@@ -104,6 +104,9 @@ pub struct Capture {
     pub rating: Option<u8>,
     /// Colour label (`Red`, …).
     pub label: Option<String>,
+    /// The IPTC Digital Source Type of the file's own XMP packet (the
+    /// library's search; no naming token).
+    pub source_type: Option<String>,
 }
 
 fn trim_number(value: f64) -> String {
@@ -447,6 +450,7 @@ mod tests {
             title: Some("Harbour".into()),
             rating: Some(4),
             label: Some("Red".into()),
+            source_type: None,
         }
     }
 

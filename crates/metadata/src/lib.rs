@@ -1,5 +1,6 @@
 //! Atomic sidecar IO. Original image files are never passed to this API.
 pub mod no_clobber;
+pub mod provenance;
 pub mod resources;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};

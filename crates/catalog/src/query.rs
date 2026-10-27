@@ -1,7 +1,8 @@
 //! Library search: one rule model for the Library's filter and for smart
 //! albums (G36/G37). A rule is a condition on one field of a photograph
 //! (text, keywords, rating, flag, label, file type, camera, lens, exposure,
-//! capture or import date, album, folder, offline) or a group of rules that
+//! capture or import date, album, folder, offline, AI edits, imported
+//! provenance) or a group of rules that
 //! must all, any or none hold, nested as deep as needed: Lightroom's smart
 //! collection rules and Capture One's smart album and filter criteria by
 //! their documented capability, as one tool. Rules are compiled to one SQL
@@ -9,6 +10,7 @@
 //! current: it is evaluated whenever it is shown or counted.
 use crate::Library;
 use anyhow::{Context, Result, bail, ensure};
+use rawtonic_metadata::provenance::{AI_FACTS, RAW_ONLY};
 use rusqlite::{
     ToSql,
     types::{Value as Sql, ValueRef},
@@ -93,6 +95,15 @@ pub enum Field {
     Offline,
     /// In the newest import batch (Lightroom's Previous Import).
     PreviousImport,
+    /// What the recipe does with AI (`rawtonic_metadata::provenance::
+    /// AI_FACTS` by name: generated areas and the model that filled them,
+    /// AI selections, AI Denoise, AI results still missing; `none` for
+    /// none). A photograph has the facts of its own recipe and its virtual
+    /// copies' (copies are found as their photograph).
+    Ai,
+    /// The IPTC Digital Source Type the file states (its IPTC code,
+    /// `trainedAlgorithmicMedia`; `none` for none).
+    SourceType,
 }
 
 /// How a condition compares.
@@ -307,6 +318,52 @@ fn names(value: &Value) -> Result<Vec<String>> {
     };
     ensure!(!list.is_empty(), "Expected at least one name");
     Ok(list.into_iter().map(str::to_lowercase).collect())
+}
+
+/// `names` as given (IPTC codes are camel case).
+fn names_verbatim(value: &Value) -> Result<Vec<String>> {
+    let list = match value {
+        Value::String(one) => vec![one.as_str()],
+        Value::Array(many) => many
+            .iter()
+            .map(|v| v.as_str().context("Expected names"))
+            .collect::<Result<_>>()?,
+        _ => bail!("Expected a name or a list of names"),
+    };
+    ensure!(!list.is_empty(), "Expected at least one name");
+    Ok(list
+        .into_iter()
+        .map(|name| name.trim().to_string())
+        .collect())
+}
+
+/// The bit of an AI fact by its rule name (`AI_FACTS`), any case.
+fn ai_fact(name: &str) -> Result<u32> {
+    AI_FACTS
+        .iter()
+        .find(|fact| fact.name.eq_ignore_ascii_case(name))
+        .map(|fact| fact.bit)
+        .with_context(|| format!("Unknown AI edit {name}"))
+}
+
+/// Every AI fact.
+const AI_ANY: u32 = {
+    let mut bits = 0;
+    let mut i = 0;
+    while i < AI_FACTS.len() {
+        bits |= AI_FACTS[i].bit;
+        i += 1;
+    }
+    bits
+};
+
+/// The photographs one of whose versions (its recipe, a virtual copy) has
+/// any of `bits`. A constant in the text: it selects the partial index of
+/// versions with facts (`versions_ai_facts`).
+fn ai_test(bits: u32) -> String {
+    format!(
+        "a.id IN (SELECT asset_id FROM versions WHERE ai_facts != 0 AND (ai_facts & {bits}) != 0)"
+    )
 }
 
 fn day(value: &Value) -> Result<chrono::NaiveDate> {
@@ -650,6 +707,35 @@ impl<'a> Compiler<'a> {
         })
     }
 
+    /// The photograph has one of the AI facts `bits` (`ai_test`); those
+    /// only RAW files have (`RAW_ONLY`) on a RAW file only.
+    fn ai_has(&mut self, bits: u32) -> String {
+        let mut parts = Vec::new();
+        if bits & !RAW_ONLY != 0 {
+            parts.push(ai_test(bits & !RAW_ONLY));
+        }
+        if bits & RAW_ONLY != 0 {
+            parts.push(format!(
+                "({} AND {})",
+                ai_test(bits & RAW_ONLY),
+                self.raw_test()
+            ));
+        }
+        format!("({})", parts.join(" OR "))
+    }
+
+    /// The photograph is a RAW file (file type `raw` or `dng`).
+    fn raw_test(&mut self) -> String {
+        let others: Vec<Sql> = FILE_TYPES
+            .iter()
+            .filter(|(kind, _)| *kind != "dng")
+            .flat_map(|(_, list)| list.iter().map(|e| Sql::Text((*e).into())))
+            .collect();
+        let marks = vec!["?"; others.len()].join(",");
+        self.params.extend(others);
+        format!("a.kind NOT IN ({marks})")
+    }
+
     fn condition(&mut self, field: Field, op: Op, value: &Value) -> Result<String> {
         match field {
             Field::Text => match op {
@@ -880,6 +966,53 @@ impl<'a> Compiler<'a> {
                     _ => bail!("Use is / is not for previous import"),
                 }
             }
+            Field::Ai => {
+                let test = match op {
+                    Op::Is | Op::IsNot => {
+                        let mut bits = 0;
+                        let mut none = false;
+                        for name in names(value)? {
+                            if name == "none" {
+                                none = true;
+                            } else {
+                                bits |= ai_fact(&name)?;
+                            }
+                        }
+                        let mut parts = Vec::new();
+                        if none {
+                            parts.push(format!("NOT {}", self.ai_has(AI_ANY)));
+                        }
+                        if bits != 0 {
+                            parts.push(self.ai_has(bits));
+                        }
+                        format!("({})", parts.join(" OR "))
+                    }
+                    Op::Empty => format!("NOT {}", self.ai_has(AI_ANY)),
+                    Op::NotEmpty => self.ai_has(AI_ANY),
+                    _ => bail!("Use is / is not for AI edits"),
+                };
+                Ok(if op == Op::IsNot {
+                    format!("NOT {test}")
+                } else {
+                    test
+                })
+            }
+            Field::SourceType => match op {
+                Op::Is | Op::IsNot => {
+                    let codes = names_verbatim(value)?
+                        .into_iter()
+                        .map(|code| {
+                            Sql::Text(if code.eq_ignore_ascii_case("none") {
+                                String::new()
+                            } else {
+                                rawtonic_metadata::provenance::source_type_code(&code)
+                            })
+                        })
+                        .collect();
+                    self.one_of("a.source_type", op, codes)
+                }
+                _ => self.text_column("a.source_type", op, value),
+            },
             Field::Album => {
                 let id = text_value(value)?;
                 let test = self.album(&id)?;
@@ -1090,6 +1223,8 @@ pub const FACETS: &[Field] = &[
     Field::Iso,
     Field::FocalLength,
     Field::Aperture,
+    Field::Ai,
+    Field::SourceType,
 ];
 
 /// A compiled rule: its condition and parameters, and the tables it needs
@@ -1133,6 +1268,7 @@ fn facet_column(field: Field) -> Option<usize> {
         Field::Rating => 7,
         Field::Flag => 8,
         Field::Label => 9,
+        Field::SourceType => 10,
         _ => return None,
     })
 }
@@ -1367,7 +1503,8 @@ impl Library {
             .any(|f| matches!(f, Field::Rating | Field::Flag | Field::Label));
         if !tallies.is_empty() {
             let mut query = self.conn.prepare(&format!(
-                "SELECT substr(a.capture_time,1,7), a.camera, a.lens, a.kind, a.iso, a.focal_length, a.aperture, {}
+                "SELECT substr(a.capture_time,1,7), a.camera, a.lens, a.kind, a.iso, a.focal_length, a.aperture, {},
+                        a.source_type
                  FROM {} WHERE {}",
                 if culling { "m.rating, m.flag, m.label" } else { "0, 0, ''" },
                 compiled.from(culling, false),
@@ -1422,7 +1559,73 @@ impl Library {
             }
             result.insert(Field::Keyword, values);
         }
+        if fields.contains(&Field::Ai) {
+            result.insert(Field::Ai, self.ai_facet(&compiled)?);
+        }
         Ok(result)
+    }
+
+    /// The AI facts of asset `id`'s versions (its recipe and its virtual
+    /// copies'), together, as indexed (`Field::Ai`).
+    pub fn ai_facts(&self, id: &str) -> Result<u32> {
+        let mut query = self
+            .conn
+            .prepare_cached("SELECT ai_facts FROM versions WHERE asset_id=? AND ai_facts != 0")?;
+        let mut facts = 0;
+        for bits in query.query_map([id], |r| r.get::<_, i64>(0))? {
+            facts |= bits? as u32;
+        }
+        Ok(facts)
+    }
+
+    /// The AI facts among the matches of `compiled` (`Field::Ai`), in the
+    /// order of `AI_FACTS`, each with how many photographs have it (their
+    /// recipe or a virtual copy's; `RAW_ONLY` facts on RAW files only, as
+    /// the rule), and `""` for those without any.
+    fn ai_facet(&self, compiled: &Compiled) -> Result<Vec<FacetValue>> {
+        let mut query = self.conn.prepare(&format!(
+            "SELECT a.id, v.ai_facts, a.kind FROM {} JOIN versions v ON v.asset_id=a.id AND v.ai_facts != 0
+             WHERE {}",
+            compiled.from(false, false),
+            compiled.condition
+        ))?;
+        let mut facts: HashMap<String, u32> = HashMap::new();
+        let mut rows = query.query(compiled.params().as_slice())?;
+        while let Some(row) = rows.next()? {
+            let mut bits = row.get::<_, i64>(1)? as u32;
+            let kind: String = row.get(2)?;
+            if !matches!(file_type(&kind), "raw" | "dng") {
+                bits &= !RAW_ONLY;
+            }
+            if bits != 0 {
+                *facts.entry(row.get(0)?).or_default() |= bits;
+            }
+        }
+        let mut values: Vec<FacetValue> = AI_FACTS
+            .iter()
+            .map(|fact| FacetValue {
+                value: fact.name.to_string(),
+                count: facts.values().filter(|bits| *bits & fact.bit != 0).count(),
+            })
+            .filter(|value| value.count > 0)
+            .collect();
+        let all: i64 = self.conn.query_row(
+            &format!(
+                "SELECT count(*) FROM {} WHERE {}",
+                compiled.from(false, false),
+                compiled.condition
+            ),
+            compiled.params().as_slice(),
+            |r| r.get(0),
+        )?;
+        let without = (all as usize).saturating_sub(facts.len());
+        if without > 0 {
+            values.push(FacetValue {
+                value: String::new(),
+                count: without,
+            });
+        }
+        Ok(values)
     }
 }
 

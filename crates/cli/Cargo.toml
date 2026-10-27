@@ -23,6 +23,8 @@ rawtonic-onnx = { path = "../onnx", version = "0.1.0" }
 image = "0.25.10"
 rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
 rawtonic-merge = { path = "../merge", version = "0.1.0" }
+# search-bench: a library as an older Rawtonic left it.
+rusqlite = "0.40"
 
 [dev-dependencies]
 tempfile.workspace = true

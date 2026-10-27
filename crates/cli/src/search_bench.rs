@@ -1,9 +1,12 @@
 //! `rawtonic search-bench`: the library search on a synthetic library
 //! (G37's 50k-photograph budget). Builds a session of tiny files in a
-//! temporary folder with varied capture facts, ratings, labels, flags and
-//! keywords, registers them as the app does (planned, then inserted in
-//! batches), then times typical searches, value lists and smart album
-//! counts. Measures the catalog only: no IPC, no grid rendering.
+//! temporary folder with varied capture facts, ratings, labels, flags,
+//! keywords and edits (AI Denoise, AI selections, removals and the model
+//! that filled them, a file's digital source type: N5), registers them as
+//! the app does (planned, then inserted in batches), then times typical
+//! searches, value lists, smart album counts and indexing the AI facts of a
+//! library made before they were indexed. Measures the catalog only: no
+//! IPC, no grid rendering.
 use anyhow::{Context, Result};
 use rawtonic_catalog::{CaptureFacts, Contents, Library, Mode, Rule, query::FACETS};
 use rawtonic_metadata::Metadata;
@@ -113,6 +116,42 @@ fn vocabulary() -> Vec<String> {
     words
 }
 
+/// An editor state as the app saves it: the adjustments every edit carries
+/// (~3 KB) and, for some photographs, AI Denoise (30 %), an AI selection
+/// (10 %, 1 % pasted and not detected yet) and a removal (5 %, its model:
+/// Moebius, MI-GAN or not recorded).
+fn edit(numbers: &mut Numbers) -> Value {
+    let mut adjustments = serde_json::Map::new();
+    for (i, key) in (0..120).map(|i| (i, format!("adjustment{i:03}"))) {
+        adjustments.insert(key, json!(f64::from(i) * 0.25));
+    }
+    if numbers.below(10) < 3 {
+        adjustments.insert("aiDenoise".into(), json!(50));
+        adjustments.insert("aiDenoiseVersion".into(), json!(1 + numbers.below(3)));
+    }
+    if numbers.below(10) == 0 {
+        let pending = numbers.below(10) == 0;
+        let parameters = if pending {
+            json!({"detectPending": true})
+        } else {
+            json!({"maskDataBase64": "rawtonic-blob:sha256:0"})
+        };
+        adjustments.insert(
+            "masks".into(),
+            json!([{"name": "Sky", "visible": true, "subMasks": [{"type": "ai-sky", "visible": true, "parameters": parameters}]}]),
+        );
+    }
+    if numbers.below(20) == 0 {
+        let model = ["moebius", "mi-gan", ""][numbers.below(3)];
+        adjustments.insert(
+            "aiPatches".into(),
+            json!([{"id": "p", "visible": true, "subMasks": [{"type": "brush"}],
+                "patchData": {"color": "rawtonic-blob:sha256:1", "model": model}}]),
+        );
+    }
+    json!({"version": 1, "rating": 0, "tags": [], "adjustments": adjustments})
+}
+
 /// A synthetic photograph `i`: its folder and file name, facts, metadata.
 fn photograph(i: u32, numbers: &mut Numbers, words: &[String]) -> (String, CaptureFacts, Metadata) {
     let day = i / 100; // 100 photographs a day, one folder a day
@@ -144,6 +183,10 @@ fn photograph(i: u32, numbers: &mut Numbers, words: &[String]) -> (String, Captu
         aperture: Some(APERTURES[numbers.below(APERTURES.len())]),
         iso: Some(ISOS[numbers.below(ISOS.len())]),
         exposure: Some(f64::from(n) / f64::from(d)),
+        // One JPEG in ten states it was generated.
+        source_type: (jpeg && numbers.below(10) == 0).then(|| {
+            "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia".into()
+        }),
         camera_rating: None,
     };
     let metadata = Metadata {
@@ -207,6 +250,7 @@ pub fn run(photos: u32, iterations: u32) -> Result<()> {
         std::fs::write(&path, i.to_le_bytes())?;
         let contents = Contents {
             metadata: Some(metadata),
+            editor_state: Some(edit(&mut numbers)),
             ..Contents::default()
         };
         batch.push(lib.plan_add(&path, contents)?.with_facts(facts));
@@ -217,7 +261,7 @@ pub fn run(photos: u32, iterations: u32) -> Result<()> {
     lib.insert_planned(batch)?;
     let build_s = started.elapsed().as_secs_f64();
 
-    // Ten smart albums of the kinds photographers keep.
+    // Eleven smart albums of the kinds photographers keep.
     let smart_rules = [
         json!({"field":"rating","op":"ge","value":4}),
         json!({"field":"flag","op":"is","value":"picked"}),
@@ -229,6 +273,7 @@ pub fn run(photos: u32, iterations: u32) -> Result<()> {
         json!({"combine":"any","rules":[{"field":"keyword","op":"is","value":"bride"},{"field":"keyword","op":"is","value":"groom"}]}),
         json!({"field":"fileType","op":"is","value":"jpeg"}),
         json!({"combine":"all","rules":[{"field":"captureDate","op":"between","value":["2023-06-01","2023-08-31"]},{"combine":"none","rules":[{"field":"flag","op":"is","value":"rejected"}]}]}),
+        json!({"combine":"any","rules":[{"field":"ai","op":"is","value":"generated"},{"field":"sourceType","op":"is","value":["trainedAlgorithmicMedia","compositeWithTrainedAlgorithmicMedia"]}]}),
     ];
     for (i, rules) in smart_rules.iter().enumerate() {
         lib.create_smart_collection(&format!("Smart {i}"), None, &rule(rules.clone()))?;
@@ -236,6 +281,25 @@ pub fn run(photos: u32, iterations: u32) -> Result<()> {
     drop(lib);
 
     let mut results = serde_json::Map::new();
+    // A library made before AI facts were indexed (schema 16), opened: its
+    // versions are indexed from their recipes, once.
+    let index_old = {
+        let db = rusqlite::Connection::open(directory.join("session.sqlite"))?;
+        db.execute_batch(
+            "DROP TRIGGER versions_ai_facts_ai; DROP TRIGGER versions_ai_facts_au;
+             DROP TRIGGER recipes_ai_facts_au; DROP INDEX versions_ai_facts;
+             ALTER TABLE versions DROP COLUMN ai_facts; ALTER TABLE assets DROP COLUMN source_type;
+             PRAGMA user_version=16;",
+        )?;
+        drop(db);
+        let now = Instant::now();
+        drop(Library::open(&directory)?);
+        now.elapsed().as_secs_f64() * 1000.0
+    };
+    results.insert(
+        "index_ai_facts_of_schema_16_library".into(),
+        json!((index_old * 100.0).round() / 100.0),
+    );
     let (open, lib) = time(iterations, || Library::open(&directory))?;
     results.insert("open_library".into(), open);
     let folder = capture.join("2023-03-15");
@@ -276,6 +340,27 @@ pub fn run(photos: u32, iterations: u32) -> Result<()> {
             "folder_scope_text",
             json!({"combine":"all","rules":[{"field":"folder","op":"contains","value":folder.to_string_lossy()},{"field":"text","op":"contains","value":"DSC"}]}),
         ),
+        (
+            "ai_generated",
+            json!({"field":"ai","op":"is","value":"generated"}),
+        ),
+        (
+            "ai_moebius_or_migan",
+            json!({"field":"ai","op":"is","value":["fillMoebius","fillMiGan"]}),
+        ),
+        (
+            "ai_waiting_or_older",
+            json!({"field":"ai","op":"is","value":["pendingDetection","missingFill","olderDenoise"]}),
+        ),
+        ("ai_none", json!({"field":"ai","op":"empty"})),
+        (
+            "ai_denoise_and_camera",
+            json!({"combine":"all","rules":[{"field":"ai","op":"is","value":"aiDenoise"},{"field":"camera","op":"is","value":"ILCE-7RM4"}]}),
+        ),
+        (
+            "source_type_generated",
+            json!({"field":"sourceType","op":"is","value":"trainedAlgorithmicMedia"}),
+        ),
     ];
     let mut matched = serde_json::Map::new();
     for (name, value) in searches {
@@ -290,8 +375,12 @@ pub fn run(photos: u32, iterations: u32) -> Result<()> {
     let one_camera = rule(json!({"field":"camera","op":"is","value":"ILCE-7RM4"}));
     let (scoped, _) = time(iterations, || lib.facets(&one_camera, FACETS))?;
     results.insert("facets_within_camera".into(), scoped);
+    let (ai_list, _) = time(iterations, || {
+        lib.facets(&everything, &[rawtonic_catalog::Field::Ai])
+    })?;
+    results.insert("facets_ai_only".into(), ai_list);
     let (albums, listed) = time(iterations, || lib.collections())?;
-    results.insert("albums_with_10_smart_counts".into(), albums);
+    results.insert("albums_with_11_smart_counts".into(), albums);
     // One metadata write with the keyword index kept by its triggers.
     let first = lib
         .search_ids(&everything)?
@@ -304,6 +393,19 @@ pub fn run(photos: u32, iterations: u32) -> Result<()> {
         lib.set_metadata(&first, &meta)
     })?;
     results.insert("metadata_write_with_keywords".into(), write);
+    // An edit saved: its recipe and the version's AI facts (the trigger
+    // parses it), alternating with and without a removal.
+    let mut with_removal = false;
+    let (save, _) = time(iterations, || {
+        with_removal = !with_removal;
+        let mut state = edit(&mut Numbers(7));
+        if with_removal {
+            state["adjustments"]["aiPatches"] = json!([{"visible": true,
+                "patchData": {"color": "x", "model": "moebius"}}]);
+        }
+        lib.save_editor_state(&first, &state)
+    })?;
+    results.insert("edit_save_with_ai_index".into(), save);
 
     crate::print(json!({
         "platform": std::env::consts::OS,

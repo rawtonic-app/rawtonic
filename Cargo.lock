@@ -5387,6 +5387,7 @@ dependencies = [
  "rawtonic-metadata",
  "rawtonic-onnx",
  "rawtonic-rawdecode",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",

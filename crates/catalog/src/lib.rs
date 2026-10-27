@@ -39,7 +39,7 @@ pub const SCHEMA_VERSION: u32 = 1;
 const VISIBLE_ASSETS: &str = "a.trashed=0 AND NOT (a.root_id='session' AND (a.rel_path='Trash' OR substr(replace(a.rel_path,char(92),'/'),1,6)='Trash/'))";
 
 /// Version of the SQLite schema; older databases are migrated when opened.
-pub const DB_SCHEMA_VERSION: u32 = 16;
+pub const DB_SCHEMA_VERSION: u32 = 17;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -291,6 +291,7 @@ impl Library {
         conn.execute_batch(include_str!("../migrations/0014.sql"))?;
         conn.execute_batch(include_str!("../migrations/0015.sql"))?;
         conn.execute_batch(include_str!("../migrations/0016.sql"))?;
+        conn.execute_batch(include_str!("../migrations/0017.sql"))?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],
@@ -418,6 +419,9 @@ impl Library {
         if version < 16 {
             tx.execute_batch(include_str!("../migrations/0016.sql"))?;
         }
+        if version < 17 {
+            tx.execute_batch(include_str!("../migrations/0017.sql"))?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -459,6 +463,24 @@ impl Library {
                         Some(String::from_utf8_lossy(text).trim().to_string())
                     }
                     _ => None,
+                })
+            },
+        )?;
+        // A recipe's (or a copy's editor state's) AI facts, kept per version
+        // by the triggers of schema 17 (`query::Field::Ai`).
+        conn.create_scalar_function(
+            "rawtonic_ai_facts",
+            1,
+            rusqlite::functions::FunctionFlags::SQLITE_UTF8
+                | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| {
+                Ok(match ctx.get_raw(0) {
+                    rusqlite::types::ValueRef::Text(text) => {
+                        i64::from(rawtonic_metadata::provenance::ai_facts_of_text(
+                            &String::from_utf8_lossy(text),
+                        ))
+                    }
+                    _ => 0,
                 })
             },
         )?;

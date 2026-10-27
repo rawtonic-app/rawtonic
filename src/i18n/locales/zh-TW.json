@@ -2969,10 +2969,23 @@
         }
       },
       "metadataFilter": {
+        "aiFacts": {
+          "aiDenoise": "AI 降噪",
+          "aiMask": "AI 選取範圍",
+          "fillExternal": "填滿：外部服務",
+          "fillMiGan": "移除：MI-GAN",
+          "fillMoebius": "移除：Moebius",
+          "fillUnrecorded": "移除：未記錄模型",
+          "generated": "生成的區域",
+          "missingFill": "缺少像素的填滿",
+          "olderDenoise": "舊版 AI 降噪",
+          "pendingDetection": "尚未偵測的 AI 選取範圍"
+        },
         "all_other": "全部（{{count}} 個值）",
         "apertureValue": "f/{{value}}",
         "button": "後設資料",
         "fields": {
+          "ai": "AI 編輯",
           "aperture": "光圈",
           "camera": "相機",
           "captureDate": "拍攝日期",
@@ -2980,7 +2993,8 @@
           "focalLength": "焦距",
           "iso": "ISO",
           "keyword": "關鍵字",
-          "lens": "鏡頭"
+          "lens": "鏡頭",
+          "sourceType": "數位來源類型"
         },
         "fileTypes": {
           "dng": "DNG",
@@ -2996,6 +3010,7 @@
         "isoValue": "ISO {{value}}",
         "label": "後設資料篩選",
         "none": {
+          "ai": "無 AI 編輯",
           "aperture": "未知光圈",
           "camera": "未知相機",
           "captureDate": "無日期",
@@ -3003,11 +3018,30 @@
           "focalLength": "未知焦距",
           "iso": "未知 ISO",
           "keyword": "無關鍵字",
-          "lens": "未知鏡頭"
+          "lens": "未知鏡頭",
+          "sourceType": "未註明"
         },
         "rangeHint": "按一下選擇一個值，Shift 按一下選擇從上次按下的值起的所有值",
         "showMonths": "顯示 {{year}} 年的月份",
-        "toggle": "顯示或隱藏後設資料清單（拍攝日期、相機、鏡頭、關鍵字、檔案類型、ISO、焦距、光圈）"
+        "sourceTypes": {
+          "algorithmicallyEnhanced": "經演算法增強",
+          "algorithmicMedia": "由演算法建立",
+          "compositeCapture": "多張照片合成",
+          "compositeSynthetic": "合成元素的合成",
+          "compositeWithTrainedAlgorithmicMedia": "含 AI 生成部分的合成",
+          "computationalCapture": "運算攝影",
+          "dataDrivenMedia": "資料驅動媒體",
+          "digitalArt": "數位藝術",
+          "digitalCapture": "數位拍攝",
+          "humanEdits": "由人工編輯",
+          "negativeFilm": "底片負片",
+          "positiveFilm": "底片正片",
+          "print": "印刷品",
+          "screenCapture": "螢幕擷取",
+          "trainedAlgorithmicMedia": "AI 生成",
+          "virtualRecording": "虛擬錄製"
+        },
+        "toggle": "顯示或隱藏後設資料清單（拍攝日期、相機、鏡頭、關鍵字、檔案類型、ISO、焦距、光圈、AI 編輯、數位來源類型）"
       },
       "navigator": {
         "empty": "請選擇一張照片",
@@ -3055,6 +3089,7 @@
         "editTitle": "編輯智慧型相簿",
         "fieldLabel": "欄位",
         "fields": {
+          "ai": "AI 編輯",
           "album": "相簿",
           "aperture": "光圈（f 值）",
           "camera": "相機",
@@ -3075,6 +3110,7 @@
           "offline": "遺失的照片",
           "previousImport": "在上次匯入中",
           "rating": "星級",
+          "sourceType": "數位來源類型（檔案中）",
           "text": "任何可搜尋的文字"
         },
         "folderPlaceholder": "資料夾路徑",

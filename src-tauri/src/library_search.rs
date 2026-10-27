@@ -154,6 +154,28 @@ pub const FACTS_RECORDED: &str = "library-facts-recorded";
 /// took their camera's rating, paths as the catalog holds them.
 pub const CAMERA_RATINGS: &str = "library-camera-ratings";
 
+/// Emitted with the library's directory after an edit changed what a
+/// photograph's recipe says about AI (`rawtonic_catalog::Field::Ai`), so the
+/// Library searches, counts its lists and smart albums again.
+pub const AI_FACTS_CHANGED: &str = "library-ai-facts-changed";
+
+/// Runs `save` (a recipe write of asset `id` in `lib`) and announces when
+/// it changed the photograph's AI facts (`AI_FACTS_CHANGED`).
+pub(crate) fn announcing_ai_facts<T>(
+    lib: &Library,
+    id: &str,
+    save: impl FnOnce() -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    let before = lib.ai_facts(id).ok();
+    let saved = save()?;
+    if before != lib.ai_facts(id).ok()
+        && let Some(app) = FACTS_ANNOUNCED.get()
+    {
+        let _ = app.emit(AI_FACTS_CHANGED, &lib.directory);
+    }
+    Ok(saved)
+}
+
 /// The app hears of facts the background pass records from now on.
 pub fn announce_facts_to(app: tauri::AppHandle) {
     let _ = FACTS_ANNOUNCED.set(app);

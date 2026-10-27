@@ -192,19 +192,23 @@ fn read_header(
     // wherever in the file that is), over the EXIF Rating tag; packets of
     // embedded previews do not count. Formats this does not know: the
     // first packet with a rating in what was read.
+    // Its IPTC Digital Source Type likewise (the file's own packet only).
     match container_xmp(&mut file, len, &buffer) {
         Err(error) => return (capture, Some(error)),
         Ok(Container::Packet(packet)) => {
             // Located by the container: parsed as XML whatever its prefixes,
             // without the NUL bytes cameras end or pad it with (RW2).
-            let rating = std::str::from_utf8(&packet)
+            let doc = std::str::from_utf8(&packet)
                 .ok()
-                .map(|text| text.trim_end_matches(['\0', ' ', '\t', '\r', '\n']))
-                .and_then(packet_rating);
-            capture.rating = rating.or(capture.rating);
+                .map(|text| text.trim_end_matches(['\0', ' ', '\t', '\r', '\n']));
+            capture.rating = doc.and_then(packet_rating).or(capture.rating);
+            capture.source_type = doc.and_then(packet_source_type);
         }
         Ok(Container::NoPacket) => {}
-        Ok(Container::Unknown) => capture.rating = xmp_rating(&buffer).or(capture.rating),
+        Ok(Container::Unknown) => {
+            capture.rating = xmp_rating(&buffer).or(capture.rating);
+            capture.source_type = first_packet(&buffer, packet_source_type);
+        }
     }
     (capture, None)
 }
@@ -615,6 +619,7 @@ fn facts_of(capture: Capture) -> Option<rawtonic_catalog::CaptureFacts> {
         aperture: capture.aperture,
         iso: capture.iso,
         exposure: capture.exposure.map(|(n, d)| f64::from(n) / f64::from(d)),
+        source_type: capture.source_type,
         camera_rating: capture.rating.filter(|rating| (1..=5).contains(rating)),
     })
 }
@@ -706,21 +711,44 @@ pub fn from_bytes(bytes: &[u8]) -> Capture {
 /// 0 for one cleared or rejected (0, -1), which no other rating replaces.
 /// `None` when no packet has a rating.
 fn xmp_rating(bytes: &[u8]) -> Option<u8> {
+    first_packet(bytes, packet_rating)
+}
+
+/// What `read` finds in the first XMP packet in `bytes` it finds anything
+/// in (packets found by scanning, `xmp_rating`).
+fn first_packet<T>(bytes: &[u8], read: impl Fn(&str) -> Option<T>) -> Option<T> {
     const START: &[u8] = b"<x:xmpmeta";
     const END: &[u8] = b"</x:xmpmeta>";
     let mut rest = bytes;
     while let Some(start) = memchr::memmem::find(rest, START) {
         rest = &rest[start..];
         let end = memchr::memmem::find(rest, END)? + END.len();
-        if let Some(rating) = std::str::from_utf8(&rest[..end])
-            .ok()
-            .and_then(packet_rating)
-        {
-            return Some(rating);
+        if let Some(found) = std::str::from_utf8(&rest[..end]).ok().and_then(&read) {
+            return Some(found);
         }
         rest = &rest[end..];
     }
     None
+}
+
+/// The `Iptc4xmpExt:DigitalSourceType` of one XMP packet (an attribute, an
+/// element, or an element's `rdf:resource`); `None` without one or for a
+/// packet that is no XML.
+fn packet_source_type(text: &str) -> Option<String> {
+    use rawtonic_metadata::{IPTC_EXT, RDF};
+    let doc = roxmltree::Document::parse(text).ok()?;
+    doc.descendants()
+        .filter(|n| n.is_element())
+        .find_map(|node| {
+            node.attribute((IPTC_EXT, "DigitalSourceType")).or_else(|| {
+                node.has_tag_name((IPTC_EXT, "DigitalSourceType"))
+                    .then(|| node.attribute((RDF, "resource")).or(node.text()))
+                    .flatten()
+            })
+        })
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(String::from)
 }
 
 /// The `xmp:Rating` of one XMP packet (an attribute or an element), 0 for
@@ -1263,6 +1291,60 @@ pub(crate) mod tests {
     /// The rating a camera writes into its file's XMP packet (as an element
     /// or an attribute) is read, over the EXIF Rating tag; none (0, a
     /// reject) is no rating.
+    /// A file's own IPTC Digital Source Type (a generator or another
+    /// editor marked it) is read with its facts, as an attribute, an
+    /// element or a resource; a packet without one gives none.
+    #[test]
+    fn reads_the_digital_source_type_from_the_files_xmp() {
+        const AI: &str = "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia";
+        let ext = |inner: &str, attribute: &str| {
+            camera_xmp(inner).replace(
+                r#"rdf:about="""#,
+                &format!(
+                    r#"rdf:about="" xmlns:Iptc4xmpExt="{}"{attribute}"#,
+                    rawtonic_metadata::IPTC_EXT
+                ),
+            )
+        };
+        let exif = tiff_exif("2025:12:24 18:30:15");
+        let d = tempfile::tempdir().unwrap();
+        for (name, xmp, expected) in [
+            (
+                "attribute.jpg",
+                ext("", &format!(r#" Iptc4xmpExt:DigitalSourceType="{AI}""#)),
+                Some(AI),
+            ),
+            (
+                "element.jpg",
+                ext(
+                    &format!("<Iptc4xmpExt:DigitalSourceType>{AI}</Iptc4xmpExt:DigitalSourceType>"),
+                    "",
+                ),
+                Some(AI),
+            ),
+            (
+                "resource.jpg",
+                ext(
+                    &format!(r#"<Iptc4xmpExt:DigitalSourceType rdf:resource="{AI}"/>"#),
+                    "",
+                ),
+                Some(AI),
+            ),
+            ("none.jpg", camera_xmp("<xmp:Rating>3</xmp:Rating>"), None),
+        ] {
+            let photo = d.path().join(name);
+            fs::write(&photo, jpeg_with_xmp(&exif, &xmp)).unwrap();
+            let facts = capture_facts(&photo).unwrap();
+            assert_eq!(facts.source_type.as_deref(), expected, "{name}");
+            assert_eq!(
+                facts.captured.as_deref(),
+                Some("2025-12-24 18:30:15"),
+                "{name}"
+            );
+        }
+        assert_eq!(packet_source_type("not xml"), None);
+    }
+
     #[test]
     fn reads_the_camera_rating_from_the_files_xmp() {
         let exif = tiff_exif("2025:12:24 18:30:15");

@@ -3121,12 +3121,25 @@
         }
       },
       "metadataFilter": {
+        "aiFacts": {
+          "aiDenoise": "Riduzione rumore IA",
+          "aiMask": "Selezioni IA",
+          "fillExternal": "Riempimento: servizio esterno",
+          "fillMiGan": "Rimozione: MI-GAN",
+          "fillMoebius": "Rimozione: Moebius",
+          "fillUnrecorded": "Rimozione: modello non registrato",
+          "generated": "Aree generate",
+          "missingFill": "Riempimento senza i suoi pixel",
+          "olderDenoise": "Versione precedente della riduzione rumore IA",
+          "pendingDetection": "Selezione IA non ancora rilevata"
+        },
         "all_one": "Tutti ({{count}} valore)",
         "all_many": "Tutti ({{count}} valori)",
         "all_other": "Tutti ({{count}} valori)",
         "apertureValue": "f/{{value}}",
         "button": "Metadati",
         "fields": {
+          "ai": "Modifiche IA",
           "aperture": "Diaframma",
           "camera": "Fotocamera",
           "captureDate": "Data di scatto",
@@ -3134,7 +3147,8 @@
           "focalLength": "Lunghezza focale",
           "iso": "ISO",
           "keyword": "Parola chiave",
-          "lens": "Obiettivo"
+          "lens": "Obiettivo",
+          "sourceType": "Origine digitale"
         },
         "fileTypes": {
           "dng": "DNG",
@@ -3150,6 +3164,7 @@
         "isoValue": "ISO {{value}}",
         "label": "Filtro metadati",
         "none": {
+          "ai": "Nessuna modifica IA",
           "aperture": "Diaframma sconosciuto",
           "camera": "Fotocamera sconosciuta",
           "captureDate": "Nessuna data",
@@ -3157,11 +3172,30 @@
           "focalLength": "Lunghezza focale sconosciuta",
           "iso": "ISO sconosciuto",
           "keyword": "Nessuna parola chiave",
-          "lens": "Obiettivo sconosciuto"
+          "lens": "Obiettivo sconosciuto",
+          "sourceType": "Non indicata"
         },
         "rangeHint": "Clic sceglie un valore, Maiusc-clic sceglie ogni valore dall'ultimo cliccato",
         "showMonths": "Mostra i mesi del {{year}}",
-        "toggle": "Mostra o nascondi gli elenchi dei metadati (data di scatto, fotocamera, obiettivo, parola chiave, tipo di file, ISO, lunghezza focale, diaframma)"
+        "sourceTypes": {
+          "algorithmicallyEnhanced": "Migliorato da un algoritmo",
+          "algorithmicMedia": "Creato da un algoritmo",
+          "compositeCapture": "Composito di scatti",
+          "compositeSynthetic": "Composito di elementi sintetici",
+          "compositeWithTrainedAlgorithmicMedia": "Composito con parti generate dall’IA",
+          "computationalCapture": "Acquisizione computazionale",
+          "dataDrivenMedia": "Media basati sui dati",
+          "digitalArt": "Arte digitale",
+          "digitalCapture": "Acquisizione digitale",
+          "humanEdits": "Modificato da una persona",
+          "negativeFilm": "Negativo pellicola",
+          "positiveFilm": "Positivo pellicola",
+          "print": "Stampa",
+          "screenCapture": "Schermata",
+          "trainedAlgorithmicMedia": "Generato dall’IA",
+          "virtualRecording": "Registrazione virtuale"
+        },
+        "toggle": "Mostra o nascondi gli elenchi dei metadati (data di scatto, fotocamera, obiettivo, parola chiave, tipo di file, ISO, lunghezza focale, diaframma, modifiche IA, origine digitale)"
       },
       "navigator": {
         "empty": "Seleziona una foto",
@@ -3209,6 +3243,7 @@
         "editTitle": "Modifica album smart",
         "fieldLabel": "Campo",
         "fields": {
+          "ai": "Modifica IA",
           "album": "Album",
           "aperture": "Diaframma (numero f)",
           "camera": "Fotocamera",
@@ -3229,6 +3264,7 @@
           "offline": "Foto mancante",
           "previousImport": "Nell’importazione precedente",
           "rating": "Valutazione",
+          "sourceType": "Origine digitale (nel file)",
           "text": "Qualsiasi testo ricercabile"
         },
         "folderPlaceholder": "Percorso della cartella",

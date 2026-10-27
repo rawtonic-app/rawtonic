@@ -2969,10 +2969,23 @@
         }
       },
       "metadataFilter": {
+        "aiFacts": {
+          "aiDenoise": "AI ノイズ除去",
+          "aiMask": "AI 選択範囲",
+          "fillExternal": "塗りつぶし: 外部サービス",
+          "fillMiGan": "削除: MI-GAN",
+          "fillMoebius": "削除: Moebius",
+          "fillUnrecorded": "削除: モデル未記録",
+          "generated": "生成された領域",
+          "missingFill": "ピクセルのない塗りつぶし",
+          "olderDenoise": "旧バージョンの AI ノイズ除去",
+          "pendingDetection": "AI 選択範囲が未検出"
+        },
         "all_other": "すべて（{{count}} 件の値）",
         "apertureValue": "f/{{value}}",
         "button": "メタデータ",
         "fields": {
+          "ai": "AI 編集",
           "aperture": "絞り",
           "camera": "カメラ",
           "captureDate": "撮影日",
@@ -2980,7 +2993,8 @@
           "focalLength": "焦点距離",
           "iso": "ISO",
           "keyword": "キーワード",
-          "lens": "レンズ"
+          "lens": "レンズ",
+          "sourceType": "デジタルソースの種類"
         },
         "fileTypes": {
           "dng": "DNG",
@@ -2996,6 +3010,7 @@
         "isoValue": "ISO {{value}}",
         "label": "メタデータフィルター",
         "none": {
+          "ai": "AI 編集なし",
           "aperture": "絞り不明",
           "camera": "カメラ不明",
           "captureDate": "日付なし",
@@ -3003,11 +3018,30 @@
           "focalLength": "焦点距離不明",
           "iso": "ISO 不明",
           "keyword": "キーワードなし",
-          "lens": "レンズ不明"
+          "lens": "レンズ不明",
+          "sourceType": "記載なし"
         },
         "rangeHint": "クリックで値を選択、Shift クリックで最後にクリックした値からすべて選択",
         "showMonths": "{{year}} 年の月を表示",
-        "toggle": "メタデータの一覧を表示/非表示（撮影日、カメラ、レンズ、キーワード、ファイルの種類、ISO、焦点距離、絞り）"
+        "sourceTypes": {
+          "algorithmicallyEnhanced": "アルゴリズムにより補正",
+          "algorithmicMedia": "アルゴリズムにより作成",
+          "compositeCapture": "撮影画像の合成",
+          "compositeSynthetic": "合成要素の合成",
+          "compositeWithTrainedAlgorithmicMedia": "AI 生成部分を含む合成",
+          "computationalCapture": "コンピュテーショナル撮影",
+          "dataDrivenMedia": "データ駆動型メディア",
+          "digitalArt": "デジタルアート",
+          "digitalCapture": "デジタル撮影",
+          "humanEdits": "人による編集",
+          "negativeFilm": "フィルムネガ",
+          "positiveFilm": "フィルムポジ",
+          "print": "プリント",
+          "screenCapture": "スクリーンショット",
+          "trainedAlgorithmicMedia": "AI により生成",
+          "virtualRecording": "仮想記録"
+        },
+        "toggle": "メタデータの一覧を表示/非表示（撮影日、カメラ、レンズ、キーワード、ファイルの種類、ISO、焦点距離、絞り、AI 編集、デジタルソースの種類）"
       },
       "navigator": {
         "empty": "写真を選択してください",
@@ -3055,6 +3089,7 @@
         "editTitle": "スマートアルバムを編集",
         "fieldLabel": "項目",
         "fields": {
+          "ai": "AI 編集",
           "album": "アルバム",
           "aperture": "絞り（F 値）",
           "camera": "カメラ",
@@ -3075,6 +3110,7 @@
           "offline": "見つからない写真",
           "previousImport": "前回の読み込みに含まれる",
           "rating": "レーティング",
+          "sourceType": "デジタルソースの種類（ファイル内）",
           "text": "検索可能なすべてのテキスト"
         },
         "folderPlaceholder": "フォルダのパス",

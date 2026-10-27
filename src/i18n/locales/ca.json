@@ -3121,12 +3121,25 @@
         }
       },
       "metadataFilter": {
+        "aiFacts": {
+          "aiDenoise": "Reducció de soroll amb IA",
+          "aiMask": "Seleccions amb IA",
+          "fillExternal": "Emplenament: servei extern",
+          "fillMiGan": "Eliminació: MI-GAN",
+          "fillMoebius": "Eliminació: Moebius",
+          "fillUnrecorded": "Eliminació: model no registrat",
+          "generated": "Àrees generades",
+          "missingFill": "Emplenament sense els seus píxels",
+          "olderDenoise": "Versió anterior de la reducció de soroll amb IA",
+          "pendingDetection": "Selecció amb IA encara no detectada"
+        },
         "all_one": "Tots ({{count}} valor)",
         "all_many": "Tots ({{count}} valors)",
         "all_other": "Tots ({{count}} valors)",
         "apertureValue": "f/{{value}}",
         "button": "Metadades",
         "fields": {
+          "ai": "Edicions amb IA",
           "aperture": "Obertura",
           "camera": "Càmera",
           "captureDate": "Data de captura",
@@ -3134,7 +3147,8 @@
           "focalLength": "Distància focal",
           "iso": "ISO",
           "keyword": "Paraula clau",
-          "lens": "Objectiu"
+          "lens": "Objectiu",
+          "sourceType": "Origen digital"
         },
         "fileTypes": {
           "dng": "DNG",
@@ -3150,6 +3164,7 @@
         "isoValue": "ISO {{value}}",
         "label": "Filtre de metadades",
         "none": {
+          "ai": "Sense edicions amb IA",
           "aperture": "Obertura desconeguda",
           "camera": "Càmera desconeguda",
           "captureDate": "Sense data",
@@ -3157,11 +3172,30 @@
           "focalLength": "Distància focal desconeguda",
           "iso": "ISO desconeguda",
           "keyword": "Sense paraula clau",
-          "lens": "Objectiu desconegut"
+          "lens": "Objectiu desconegut",
+          "sourceType": "No indicat"
         },
         "rangeHint": "Un clic tria un valor, Maj-clic tria tots els valors des de l'últim clicat",
         "showMonths": "Mostra els mesos de {{year}}",
-        "toggle": "Mostra o amaga les llistes de metadades (data de captura, càmera, objectiu, paraula clau, tipus de fitxer, ISO, distància focal, obertura)"
+        "sourceTypes": {
+          "algorithmicallyEnhanced": "Millorat per un algorisme",
+          "algorithmicMedia": "Creat per un algorisme",
+          "compositeCapture": "Composició de captures",
+          "compositeSynthetic": "Composició d’elements sintètics",
+          "compositeWithTrainedAlgorithmicMedia": "Composició amb parts generades per IA",
+          "computationalCapture": "Captura computacional",
+          "dataDrivenMedia": "Mitjans basats en dades",
+          "digitalArt": "Art digital",
+          "digitalCapture": "Captura digital",
+          "humanEdits": "Editat per una persona",
+          "negativeFilm": "Negatiu de pel·lícula",
+          "positiveFilm": "Positiu de pel·lícula",
+          "print": "Còpia impresa",
+          "screenCapture": "Captura de pantalla",
+          "trainedAlgorithmicMedia": "Generat per IA",
+          "virtualRecording": "Enregistrament virtual"
+        },
+        "toggle": "Mostra o amaga les llistes de metadades (data de captura, càmera, objectiu, paraula clau, tipus de fitxer, ISO, distància focal, obertura, edicions amb IA, origen digital)"
       },
       "navigator": {
         "empty": "Selecciona una foto",
@@ -3209,6 +3243,7 @@
         "editTitle": "Edita l'àlbum intel·ligent",
         "fieldLabel": "Camp",
         "fields": {
+          "ai": "Edició amb IA",
           "album": "Àlbum",
           "aperture": "Obertura (nombre f)",
           "camera": "Càmera",
@@ -3229,6 +3264,7 @@
           "offline": "Foto que falta",
           "previousImport": "A la importació anterior",
           "rating": "Valoració",
+          "sourceType": "Origen digital (al fitxer)",
           "text": "Qualsevol text cercable"
         },
         "folderPlaceholder": "Camí de la carpeta",

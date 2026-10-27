@@ -17,6 +17,8 @@ import {
 export const SEARCH_DELAY_MS = 80;
 /** The background pass recorded capture facts (`library_search::FACTS_RECORDED`). */
 export const FACTS_RECORDED = 'library-facts-recorded';
+/** An edit changed what a recipe says about AI (`library_search::AI_FACTS_CHANGED`). */
+export const AI_FACTS_CHANGED = 'library-ai-facts-changed';
 
 /**
  * Keeps `catalogMatches` to what the library's catalog finds for the search
@@ -35,18 +37,20 @@ export function useCatalogSearch() {
   const imageList = useLibraryStore((s) => s.imageList);
 
   // Facts the background pass recorded (a library opened after an update,
-  // photographs added by an edit) are catalog changes too: searches, lists
-  // and smart albums follow them.
+  // photographs added by an edit) and edits that changed a recipe's AI
+  // facts are catalog changes too: searches, lists and smart albums follow
+  // them.
   useEffect(() => {
     if (!directory) return;
-    let stop: (() => void) | undefined;
+    const stops: (() => void)[] = [];
     let gone = false;
-    listen(FACTS_RECORDED, () => catalogChanged())
-      .then((unlisten) => (gone ? unlisten() : (stop = unlisten)))
-      .catch(() => {});
+    for (const event of [FACTS_RECORDED, AI_FACTS_CHANGED])
+      listen(event, () => catalogChanged())
+        .then((unlisten) => (gone ? unlisten() : stops.push(unlisten)))
+        .catch(() => {});
     return () => {
       gone = true;
-      stop?.();
+      for (const stop of stops) stop();
     };
   }, [directory]);
 
