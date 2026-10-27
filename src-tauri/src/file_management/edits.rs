@@ -638,6 +638,81 @@ pub async fn apply_auto_lens_correction_to_paths(
     .await
 }
 
+/// Top-level recipe values of one photo (`set_recipe_values`): a value of
+/// `null` removes the key.
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RecipeValues {
+    pub path: String,
+    pub values: serde_json::Map<String, Value>,
+}
+
+/// What `set_recipe_values` wrote: each written photo's values before
+/// (`null` for keys it did not have), and the photos not written with the
+/// first errors.
+#[derive(serde::Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RecipeWrite {
+    pub before: Vec<RecipeValues>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure: Option<SaveFailure>,
+}
+
+/// Sets per photo its own top-level recipe values (series match, and the
+/// undo and redo of it). Writing the same values again is harmless, so a
+/// partly failed undo can be retried.
+#[tauri::command]
+pub async fn set_recipe_values(
+    changes: Vec<RecipeValues>,
+    app_handle: AppHandle,
+) -> Result<RecipeWrite, String> {
+    let paths: Vec<String> = changes.iter().map(|c| c.path.clone()).collect();
+    let by_path: HashMap<String, serde_json::Map<String, Value>> =
+        changes.into_iter().map(|c| (c.path, c.values)).collect();
+    let before = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let written = before.clone();
+    let result = save_then_regenerate(app_handle, paths, move |app_handle, paths| {
+        edit_sidecars(paths, xmp_sync(app_handle), |path, _, sidecar_path| {
+            let values = by_path.get(path).ok_or("no values")?;
+            let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
+            crate::image_processing::apply_render_default(&mut metadata.adjustments);
+            let old = set_values(&mut metadata.adjustments, values)?;
+            written.lock().unwrap().push(RecipeValues {
+                path: path.to_string(),
+                values: old,
+            });
+            Ok(metadata)
+        })
+    })
+    .await;
+    let mut before = std::mem::take(&mut *before.lock().unwrap());
+    let failure = result.err();
+    // A photo whose edit succeeded but whose save failed was not written.
+    if let Some(failure) = &failure {
+        before.retain(|b| !failure.failed.contains(&b.path));
+    }
+    Ok(RecipeWrite { before, failure })
+}
+
+/// Sets `values` in `recipe` (`null` removes a key) and returns the values
+/// they replaced (`null` for keys it did not have).
+fn set_values(
+    recipe: &mut Value,
+    values: &serde_json::Map<String, Value>,
+) -> Result<serde_json::Map<String, Value>, String> {
+    let recipe = recipe.as_object_mut().ok_or("recipe is not an object")?;
+    let mut old = serde_json::Map::new();
+    for (key, value) in values {
+        old.insert(key.clone(), recipe.get(key).cloned().unwrap_or(Value::Null));
+        if value.is_null() {
+            recipe.remove(key);
+        } else {
+            recipe.insert(key.clone(), value.clone());
+        }
+    }
+    Ok(old)
+}
+
 /// Decodes each photo for its auto adjustments, so it waits until every
 /// recipe is written (or failed) and makes the thumbnails from the decoded
 /// photos meanwhile.
@@ -1226,6 +1301,24 @@ pub(crate) fn load_metadata_blocking(
 mod tests {
     use super::*;
     use rawtonic_engine::lens_recipe::{LENS_PROFILE_FOR, LENS_UNRESOLVED, lens_profile_stamp};
+
+    #[test]
+    fn set_values_returns_what_it_replaced_and_null_removes() {
+        let mut recipe = serde_json::json!({"exposure": 0.5, "contrast": 10});
+        let values = serde_json::json!({"exposure": 1.25, "wbTemperature": 4200, "contrast": null});
+        let old = set_values(&mut recipe, values.as_object().unwrap()).unwrap();
+        assert_eq!(
+            recipe,
+            serde_json::json!({"exposure": 1.25, "wbTemperature": 4200})
+        );
+        assert_eq!(
+            Value::Object(old.clone()),
+            serde_json::json!({"exposure": 0.5, "wbTemperature": null, "contrast": 10})
+        );
+        // Writing the old values back restores the recipe exactly.
+        set_values(&mut recipe, &old).unwrap();
+        assert_eq!(recipe, serde_json::json!({"exposure": 0.5, "contrast": 10}));
+    }
 
     fn successful_targets(
         (values, failures): (Vec<CullingWrite>, Vec<(String, String)>),
