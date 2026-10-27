@@ -23,6 +23,7 @@ import ImageCanvas, { type LiveMaskDefinition } from './editor/ImageCanvas';
 import { Mask, SubMask } from './right/Masks';
 import { Panel, TransformState, Invokes, canRenderSource } from '../ui/AppProperties';
 import { useEditorStore } from '../../store/useEditorStore';
+import { faceRetouchGeometry } from '../studio/StudioFaceRetouch';
 import { updateAdjustments } from '../../hooks/useEditorActions';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useUIStore } from '../../store/useUIStore';
@@ -773,7 +774,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     (isMasking && lumaPickerLayer !== null && lumaPickerLayer === activeMaskContainerId) ||
     isWbPickerActive ||
     isSpotToolActive ||
-    isFaceProtectPainting;
+    (isFaceProtectPainting && !isMasking && !showOriginal &&
+      adjustments.faceRetouch?.geometry === JSON.stringify(faceRetouchGeometry(adjustments)));
 
   useEffect(() => {
     const container = imageContainerRef.current;

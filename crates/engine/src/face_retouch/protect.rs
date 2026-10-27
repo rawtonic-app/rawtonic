@@ -1,4 +1,4 @@
-//! The protection brush (Capture One's blemish protection brush): areas the
+//! The protection brush: areas the
 //! user paints — freckles, moles, beauty marks — that the face retouch
 //! leaves as they were. The retouch of every face is computed as before,
 //! then the protected pixels are put back from the image before it, by the
@@ -32,6 +32,26 @@ pub struct ProtectStroke {
     /// Takes protection away instead of adding it.
     #[serde(default)]
     pub erase: bool,
+}
+
+/// A damaged stroke must not make the entire face retouch disappear.
+pub(super) fn deserialize_strokes<'de, D>(deserializer: D) -> Result<Vec<ProtectStroke>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Value::deserialize(deserializer)?;
+    Ok(value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|v| match serde_json::from_value(v.clone()) {
+            Ok(stroke) => Some(stroke),
+            Err(error) => {
+                log::warn!("Skipping invalid face protection stroke: {error}");
+                None
+            }
+        })
+        .collect())
 }
 
 fn default_feather() -> f64 {

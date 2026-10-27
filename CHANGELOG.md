@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **Protect freckles from the face retouch.** The Retouch tab has a protection brush: paint over freckles, moles and beauty marks the retouch should leave as they are (Protect / Erase, size and soft edge; Alt erases; [ and ] change the size; "Show protected areas" tints them). Protected pixels keep their values from before the retouch exactly, with a soft edge into the retouched skin, on every face the strokes touch; the rest of the face is retouched as before. Edits without protection render as before.
+- **Protect freckles from the face retouch.** The Retouch tab has a protection brush: paint over freckles, moles and beauty marks the retouch should leave as they are (Protect / Erase, size and soft edge; Alt erases; [ and ] change the size; "Show protected areas" tints them). Protected pixels keep their values from before the retouch exactly, with a soft edge into the retouched skin, on every face the strokes touch; the rest of the face is retouched as before. Edits without protection render as before. This is manual protection; automatic freckle classification, long-stroke latency and comparison with other professional editors remain open.
 
 ## 0.1.0-alpha.8 — 2026-10-27
 

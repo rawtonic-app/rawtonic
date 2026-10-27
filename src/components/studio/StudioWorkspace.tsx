@@ -358,6 +358,7 @@ export default function StudioWorkspace(props: Props) {
     spot: boolean;
     faces: boolean;
     protecting: boolean;
+    protection: boolean;
     relightHandles: boolean;
   } | null>(null);
   // A ⌘/Ctrl held down, followed from the start, so the wheel guard below
@@ -392,6 +393,7 @@ export default function StudioWorkspace(props: Props) {
         spot: editor.isSpotToolActive,
         faces: editor.showFaceBlemishes,
         protecting: editor.faceProtect.painting,
+        protection: editor.showFaceProtection,
         relightHandles: relight.showHandles,
       };
       if (ui.activePanel === Panel.Crop || ui.activePanel === Panel.Masks) ui.setPanel(Panel.Adjustments);
@@ -408,6 +410,7 @@ export default function StudioWorkspace(props: Props) {
         isGuidedPerspectiveActive: false,
         isSpotToolActive: false,
         showFaceBlemishes: false,
+        showFaceProtection: false,
         faceProtect: { ...editor.faceProtect, painting: false },
       });
       useRelightStore.setState({ showHandles: false });
@@ -438,6 +441,7 @@ export default function StudioWorkspace(props: Props) {
       ...(component ? { activeMaskId: component } : {}),
       isSpotToolActive: saved.spot,
       showFaceBlemishes: saved.faces,
+      showFaceProtection: saved.protection,
       faceProtect: { ...editor.faceProtect, painting: saved.protecting },
     });
   }, [viewOnly, develop]);

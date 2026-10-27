@@ -171,6 +171,7 @@ pub struct FaceRetouch {
     /// crowded blemishes are healed once, not three times. Never stored.
     pub draft: bool,
     /// The protection brush's strokes (mask-frame pixels), for every face.
+    #[serde(deserialize_with = "protect::deserialize_strokes")]
     pub protect: Vec<ProtectStroke>,
 }
 
@@ -226,7 +227,7 @@ fn keys_json<'a>(adjustments: &Value, geometry: impl Iterator<Item = &'a &'a str
 }
 
 /// Whether faces found in `frame` belong to the geometry of `adjustments`.
-fn frame_matches(frame: &str, adjustments: &Value) -> bool {
+pub fn frame_matches(frame: &str, adjustments: &Value) -> bool {
     if frame.starts_with(FRAME_VERSION_2) {
         frame == frame_key(adjustments)
     } else {
@@ -1608,6 +1609,23 @@ mod tests {
         let mut image = original.clone();
         apply_face_retouch(&mut image, &empty);
         assert_eq!(image, unprotected);
+    }
+
+    #[test]
+    fn malformed_protection_does_not_disable_the_retouch_or_valid_strokes() {
+        let (original, mut r) = two_spots_and_recipe();
+        let valid = json!({"points": [{"x": 60, "y": 100}], "radius": 12, "feather": 0});
+        r["faceRetouch"]["protect"] = json!([valid]);
+        let mut expected = original.clone();
+        assert!(apply_face_retouch(&mut expected, &r));
+        r["faceRetouch"]["protect"] = json!([
+            {"points": [{"x": null, "y": 100}], "radius": 12},
+            valid,
+            {"points": [{"x": 140, "y": 100}]}
+        ]);
+        let mut actual = original;
+        assert!(apply_face_retouch(&mut actual, &r));
+        assert_eq!(actual, expected);
     }
 
     #[test]

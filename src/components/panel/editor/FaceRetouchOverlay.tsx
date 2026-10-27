@@ -24,8 +24,8 @@ const PROTECT_TINT = '#5fc4a8';
  * The face retouch on the photograph. Its blemishes (Show blemishes):
  * healed ones as circles, kept ones dashed, the finder's other candidates
  * faint; a click keeps a healed blemish, heals a kept one again, or heals a
- * candidate the slider does not reach. Its protection brush (Capture One's
- * blemish protection brush): while it is on, a drag paints an area the
+ * candidate the slider does not reach. While its protection brush is on,
+ * a drag paints an area the
  * retouch leaves as it was (Alt or Erase takes it away again; [ and ]
  * change the size), and the protected areas are tinted.
  */

@@ -407,7 +407,13 @@ pub async fn apply_face_retouch_to_paths(
                 // geometry they were painted in).
                 let protect = recipe
                     .get("faceRetouch")
-                    .filter(|r| r.get("frame").and_then(serde_json::Value::as_str) == Some(&frame))
+                    .filter(|r| {
+                        r.get("frame")
+                            .and_then(serde_json::Value::as_str)
+                            .is_some_and(|stored| {
+                                rawtonic_engine::face_retouch::frame_matches(stored, &recipe)
+                            })
+                    })
                     .and_then(|r| r.get("protect"))
                     .cloned();
                 let mut value = serde_json::json!({
