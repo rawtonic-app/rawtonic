@@ -130,15 +130,30 @@ export default function FaceRetouchOverlay({ rect, cropX, cropY, scale, zoom }: 
   // A stroke in box pixels: a round-capped line of the brush's width (a dot
   // for a dab), its soft edge as a blur of the feathered share.
   const strokePath = (s: FaceProtectStroke, i: number) => {
-    const pts = s.points.map((p) => `${(p.x - cropX) * scale},${(p.y - cropY) * scale}`);
+    if (s.points.length === 0) return null;
+    const points = s.points.map((p) => ({ x: (p.x - cropX) * scale, y: (p.y - cropY) * scale }));
+    const pts = points.map((p) => `${p.x},${p.y}`);
     const d = pts.length === 1 ? `M${pts[0]} l0.01,0` : `M${pts.join(' L')}`;
     const r = s.radius * scale;
     const soft = (s.feather / 100) * r;
     const blur = soft > 0.5 ? `${maskId}-soft-${i}` : undefined;
+    // Object-bounding-box filters disappear on horizontal/vertical paths
+    // and clip the cap of short strokes. Include the brush and blur reach.
+    const bounds = points.reduce((b, p) => ({
+      x0: Math.min(b.x0, p.x), y0: Math.min(b.y0, p.y),
+      x1: Math.max(b.x1, p.x), y1: Math.max(b.y1, p.y),
+    }), { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity });
     return (
       <g key={i}>
         {blur && (
-          <filter id={blur} x="-50%" y="-50%" width="200%" height="200%">
+          <filter
+            id={blur}
+            filterUnits="userSpaceOnUse"
+            x={bounds.x0 - 2 * r}
+            y={bounds.y0 - 2 * r}
+            width={bounds.x1 - bounds.x0 + 4 * r}
+            height={bounds.y1 - bounds.y0 + 4 * r}
+          >
             <feGaussianBlur stdDeviation={soft / 3} />
           </filter>
         )}
