@@ -2789,6 +2789,21 @@
       "includeNeck": "Inclou el coll",
       "modelsMissing": "El retoc facial necessita els seus models de cara. Es baixen una sola vegada del paquet de models de Rawtonic a GitHub i s'executen en aquest ordinador.",
       "noFaces": "No s'ha trobat cap cara en aquesta foto.",
+      "protect": {
+        "brush": "Pinzell de protecció",
+        "clear": "Treu la protecció",
+        "feather": "Difuminat",
+        "featherAria": "Difuminat del pinzell de protecció",
+        "hint": "Pinta sobre pigues, pigues grosses i marques de bellesa que el retoc ha de deixar com són. Mantén Alt (Opció) per esborrar; [ i ] canvien la mida.",
+        "modes": {
+          "erase": "Esborra",
+          "off": "Desactivat",
+          "paint": "Protegeix"
+        },
+        "show": "Mostra les zones protegides",
+        "size": "Mida",
+        "sizeAria": "Mida del pinzell de protecció"
+      },
       "showBlemishes": "Mostra les imperfeccions (fes clic en una per conservar-la o corregir-la)",
       "sliders": {
         "blemishes": "Imperfeccions",

@@ -156,6 +156,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   const tatTarget = useEditorStore((s) => s.tatTarget);
   // Spot removal places and drags spots with the primary button.
   const isSpotToolActive = useEditorStore((s) => s.isSpotToolActive);
+  const isFaceProtectPainting = useEditorStore((s) => s.faceProtect.painting);
   const liveRotation = useEditorStore((s) => s.liveRotation);
   const holdingNativeFrame = useEditorStore((s) => s.holdingNativeFrame);
   const brushSettings = useEditorStore((s) => s.brushSettings);
@@ -771,7 +772,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     // The luma range eyedropper takes clicks and (Shift+) drags as samples.
     (isMasking && lumaPickerLayer !== null && lumaPickerLayer === activeMaskContainerId) ||
     isWbPickerActive ||
-    isSpotToolActive;
+    isSpotToolActive ||
+    isFaceProtectPainting;
 
   useEffect(() => {
     const container = imageContainerRef.current;

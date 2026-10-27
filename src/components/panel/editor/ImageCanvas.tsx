@@ -1327,7 +1327,9 @@ const ImageCanvas = memo(
     const relightHandles = useRelightStore((s) => s.panelOpen && s.showHandles);
     const isSpotToolActive = useEditorStore((state) => state.isSpotToolActive);
     const redEyeMode = useEditorStore((state) => state.spotSettings.mode === 'redEye');
-    const showFaceBlemishes = useEditorStore((state) => state.showFaceBlemishes);
+    const showFaceOverlay = useEditorStore(
+      (state) => state.showFaceBlemishes || state.showFaceProtection || state.faceProtect.painting,
+    );
     const [draftGuideLine, setDraftGuideLine] = useState<{ p1: Coord; p2: Coord } | null>(null);
     const [localDragLines, setLocalDragLines] = useState<GuideLine[] | null>(null);
     const [selectedGuideId, setSelectedGuideId] = useState<string | null>(null);
@@ -3369,7 +3371,7 @@ const ImageCanvas = memo(
               zoom={effectiveZoomScale}
             />
           )}
-          {showFaceBlemishes &&
+          {showFaceOverlay &&
             !isSpotToolActive &&
             !isCropping &&
             !isMasking &&
@@ -3389,7 +3391,7 @@ const ImageCanvas = memo(
               />
             )}
           {relightHandles && selectedImage.isReady && !holdingNativeFrame && adjustments.sectionVisibility?.relight !== false
-            && !isCropping && !isMasking && !isWbPickerActive && !isShowingOriginal && !isSpotToolActive && !tatTarget && !showFaceBlemishes && (
+            && !isCropping && !isMasking && !isWbPickerActive && !isShowingOriginal && !isSpotToolActive && !tatTarget && !showFaceOverlay && (
             <RelightOverlay key={selectedImage.path} rect={{ left: imageRenderSize.offsetX, top: imageRenderSize.offsetY,
               width: imageRenderSize.width, height: imageRenderSize.height }} zoom={effectiveZoomScale} />
           )}

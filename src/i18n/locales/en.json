@@ -2720,6 +2720,21 @@
       "includeNeck": "Include neck",
       "modelsMissing": "The face retouch needs its face models. They are downloaded once from Rawtonic's model pack on GitHub and run on this computer.",
       "noFaces": "No faces found in this photograph.",
+      "protect": {
+        "brush": "Protection brush",
+        "clear": "Clear protection",
+        "feather": "Feather",
+        "featherAria": "Protection brush feather",
+        "hint": "Paint over freckles, moles and beauty marks the retouch should leave as they are. Hold Alt (Option) to erase; [ and ] change the size.",
+        "modes": {
+          "erase": "Erase",
+          "off": "Off",
+          "paint": "Protect"
+        },
+        "show": "Show protected areas",
+        "size": "Size",
+        "sizeAria": "Protection brush size"
+      },
       "showBlemishes": "Show blemishes (click one to keep or heal it)",
       "sliders": {
         "blemishes": "Blemishes",

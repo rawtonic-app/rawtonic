@@ -2858,6 +2858,21 @@
       "includeNeck": "Uwzględnij szyję",
       "modelsMissing": "Retusz twarzy wymaga modeli twarzy. Są pobierane jednorazowo z pakietu modeli Rawtonic na GitHubie i działają na tym komputerze.",
       "noFaces": "Nie znaleziono twarzy na tym zdjęciu.",
+      "protect": {
+        "brush": "Pędzel ochronny",
+        "clear": "Usuń ochronę",
+        "feather": "Wtapianie",
+        "featherAria": "Wtapianie pędzla ochronnego",
+        "hint": "Zamaluj piegi, znamiona i pieprzyki, które retusz ma pozostawić bez zmian. Przytrzymaj Alt (Option), aby wymazać; [ i ] zmieniają rozmiar.",
+        "modes": {
+          "erase": "Wymaż",
+          "off": "Wyłączony",
+          "paint": "Chroń"
+        },
+        "show": "Pokaż chronione obszary",
+        "size": "Rozmiar",
+        "sizeAria": "Rozmiar pędzla ochronnego"
+      },
       "showBlemishes": "Pokaż niedoskonałości (kliknij jedną, aby ją zachować lub usunąć)",
       "sliders": {
         "blemishes": "Niedoskonałości",

@@ -2789,6 +2789,21 @@
       "includeNeck": "Inclure le cou",
       "modelsMissing": "La retouche du visage a besoin de ses modèles de visage. Ils sont téléchargés une seule fois depuis le pack de modèles de Rawtonic sur GitHub et s'exécutent sur cet ordinateur.",
       "noFaces": "Aucun visage trouvé dans cette photo.",
+      "protect": {
+        "brush": "Pinceau de protection",
+        "clear": "Effacer la protection",
+        "feather": "Contour progressif",
+        "featherAria": "Contour progressif du pinceau de protection",
+        "hint": "Peignez sur les taches de rousseur, grains de beauté et mouches que la retouche doit laisser intacts. Maintenez Alt (Option) pour effacer ; [ et ] changent la taille.",
+        "modes": {
+          "erase": "Effacer",
+          "off": "Désactivé",
+          "paint": "Protéger"
+        },
+        "show": "Afficher les zones protégées",
+        "size": "Taille",
+        "sizeAria": "Taille du pinceau de protection"
+      },
       "showBlemishes": "Afficher les imperfections (cliquez sur l'une d'elles pour la garder ou la corriger)",
       "sliders": {
         "blemishes": "Imperfections",
