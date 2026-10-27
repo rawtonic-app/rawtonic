@@ -292,6 +292,98 @@ fn area_resample(side: usize, sample: impl Fn(usize, usize) -> [f32; 4] + Sync) 
     out
 }
 
+/// `filled` (the network's 512 px result) with its colour drift taken out
+/// of the hole: the difference photo − result on the known pixels, spread
+/// smoothly into the hole by push-pull (each pyramid level the weighted
+/// mean of the finer one; a hole pixel takes the coarser level's value, so
+/// the nearest known pixels count most), is added to the hole.
+fn without_drift(image: &[[f32; 3]], filled: &[[f32; 3]], hole: &[bool]) -> Vec<[f32; 3]> {
+    // Level 0: the difference and its weight (1 known, 0 hole).
+    let mut levels: Vec<(usize, Vec<[f32; 4]>)> = vec![(
+        SIZE,
+        image
+            .iter()
+            .zip(filled)
+            .zip(hole)
+            .map(|((a, b), &h)| {
+                if h {
+                    [0.0; 4]
+                } else {
+                    [a[0] - b[0], a[1] - b[1], a[2] - b[2], 1.0]
+                }
+            })
+            .collect(),
+    )];
+    // Push: weighted 2 × 2 sums down to one pixel.
+    while levels.last().is_some_and(|(n, _)| *n > 1) {
+        let (n, fine) = levels.last().unwrap();
+        let m = n / 2;
+        let coarse = (0..m * m)
+            .map(|i| {
+                let (y, x) = (i / m * 2, i % m * 2);
+                let mut acc = [0.0f32; 4];
+                for (dy, dx) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
+                    let p = fine[(y + dy) * n + x + dx];
+                    for c in 0..4 {
+                        acc[c] += p[c];
+                    }
+                }
+                acc
+            })
+            .collect();
+        levels.push((m, coarse));
+    }
+    // Pull: each level's mean, with the coarser level's where it is short
+    // of weight.
+    let mut coarser: Vec<[f32; 3]> = Vec::new();
+    for (n, level) in levels.iter().rev() {
+        coarser = (0..n * n)
+            .map(|i| {
+                let p = level[i];
+                let w = p[3].min(1.0);
+                let mean = if p[3] > 0.0 {
+                    [p[0] / p[3], p[1] / p[3], p[2] / p[3]]
+                } else {
+                    [0.0; 3]
+                };
+                if coarser.is_empty() {
+                    return mean;
+                }
+                let up = bilinear_half(&coarser, n / 2, i % n, i / n);
+                std::array::from_fn(|c| mean[c] * w + up[c] * (1.0 - w))
+            })
+            .collect();
+    }
+    filled
+        .iter()
+        .zip(&coarser)
+        .zip(hole)
+        .map(|((f, d), &h)| {
+            if h {
+                std::array::from_fn(|c| (f[c] + d[c]).clamp(0.0, 1.0))
+            } else {
+                *f
+            }
+        })
+        .collect()
+}
+
+/// The `m` × `m` level `coarse` at pixel (`x`, `y`) of the level twice its
+/// size, bilinear with pixel centres aligned (no blocks of 2 × 2).
+fn bilinear_half(coarse: &[[f32; 3]], m: usize, x: usize, y: usize) -> [f32; 3] {
+    let tap = |v: usize| {
+        let u = ((v as f32 + 0.5) / 2.0 - 0.5).clamp(0.0, (m - 1) as f32);
+        let lo = u.floor() as usize;
+        (lo, (lo + 1).min(m - 1), u - lo as f32)
+    };
+    let ((x0, x1, fx), (y0, y1, fy)) = (tap(x), tap(y));
+    std::array::from_fn(|c| {
+        let top = coarse[y0 * m + x0][c] * (1.0 - fx) + coarse[y0 * m + x1][c] * fx;
+        let bottom = coarse[y1 * m + x0][c] * (1.0 - fx) + coarse[y1 * m + x1][c] * fx;
+        top * (1.0 - fy) + bottom * fy
+    })
+}
+
 /// Catmull-Rom weights of the four taps around `t` in 0..1.
 fn cubic_weights(t: f32) -> [f32; 4] {
     let (t2, t3) = (t * t, t * t * t);
@@ -360,6 +452,10 @@ pub fn guide<N: Networks>(
     let Some(filled) = fill(nets, &image, &hole, &start_noise(), progress, cancelled)? else {
         return Ok(None);
     };
+    // The network's colours drift a little from the photo's (the VAE): its
+    // fill would show as a lighter or darker patch. The drift measured on
+    // the known pixels is carried into the hole and taken out.
+    let filled = without_drift(&image, &filled, &hole);
     // The fill rounded to 8 bits as the network's image, then scaled back
     // only where the hole is.
     let filled: Vec<[f32; 3]> = filled
@@ -396,6 +492,41 @@ pub fn guide<N: Networks>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A network result 0.1 brighter than the photo everywhere: its fill
+    /// comes back 0.1 darker in the hole, the rest stays as it was.
+    #[test]
+    fn takes_the_networks_colour_drift_out_of_the_hole() {
+        let n = SIZE * SIZE;
+        let image: Vec<[f32; 3]> = (0..n)
+            .map(|i| [0.3 + 0.2 * (i % SIZE) as f32 / SIZE as f32, 0.4, 0.2])
+            .collect();
+        let hole: Vec<bool> = (0..n)
+            .map(|i| (100..300).contains(&(i % SIZE)) && (150..400).contains(&(i / SIZE)))
+            .collect();
+        let filled: Vec<[f32; 3]> = image
+            .iter()
+            .zip(&hole)
+            .map(|(p, &h)| {
+                if h {
+                    [0.6, 0.5, 0.3]
+                } else {
+                    p.map(|v| v + 0.1)
+                }
+            })
+            .collect();
+        let out = without_drift(&image, &filled, &hole);
+        for i in [(250 * SIZE + 200), (150 * SIZE + 100), (399 * SIZE + 299)] {
+            for c in 0..3 {
+                assert!(
+                    (out[i][c] - (filled[i][c] - 0.1)).abs() < 1e-4,
+                    "{i}: {:?}",
+                    out[i]
+                );
+            }
+        }
+        assert_eq!(out[5], filled[5]);
+    }
 
     /// A network that predicts zero noise, an encoder that averages the
     /// photo into the first latent channel and a decoder that spreads it

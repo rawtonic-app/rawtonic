@@ -1775,6 +1775,8 @@
     "detectObjectsHint": "オブジェクトの上を大まかにブラシでなぞるか、クリックして削除します。",
     "detectObjectsRefineHint": "Shift で選択中の削除に追加、Alt (⌥) で除外します。",
     "downloadingModel": "オブジェクト削除モデルをダウンロード中… {{percent}} %",
+    "fallbackDownload": "オブジェクト削除モデルをダウンロードできませんでした（オフライン？）。この領域は小さいモデル（MI-GAN）で塗りつぶしました。オンライン時に取り消してもう一度削除すると、よりきれいに仕上がります。",
+    "fallbackUnavailable": "オブジェクト削除モデルを実行できませんでした。この領域は小さいモデル（MI-GAN）で塗りつぶしました。",
     "feather": "ぼかし",
     "featherAria": "スポットのぼかし",
     "filling": "削除中… ステップ {{done}}/{{total}}",
@@ -1811,6 +1813,7 @@
     },
     "sensitivity": "感度",
     "sensitivityAria": "スポット視覚化の感度",
+    "showRemovals": "削除箇所を表示",
     "size": "サイズ",
     "sizeAria": "スポットのサイズ",
     "visualize": "スポットを視覚化"
@@ -2184,6 +2187,7 @@
         "opened": "画像を開いた",
         "other": "補正",
         "redEyes": "赤目",
+        "remove": "削除",
         "spots": "スポット除去",
         "title": "履歴"
       },

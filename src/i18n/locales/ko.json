@@ -1775,6 +1775,8 @@
     "detectObjectsHint": "개체 위를 대략 브러시로 칠하거나 클릭하여 제거합니다.",
     "detectObjectsRefineHint": "Shift는 선택한 제거에 추가하고 Alt(⌥)는 제외합니다.",
     "downloadingModel": "개체 제거 모델 다운로드 중… {{percent}} %",
+    "fallbackDownload": "개체 제거 모델을 다운로드할 수 없어(오프라인?) 더 작은 모델(MI-GAN)로 이 영역을 채웠습니다. 온라인일 때 실행 취소 후 다시 제거하면 더 잘 채워집니다.",
+    "fallbackUnavailable": "개체 제거 모델을 실행할 수 없어 더 작은 모델(MI-GAN)로 이 영역을 채웠습니다.",
     "feather": "페더",
     "featherAria": "스팟 페더",
     "filling": "제거 중… {{total}}단계 중 {{done}}단계",
@@ -1811,6 +1813,7 @@
     },
     "sensitivity": "감도",
     "sensitivityAria": "스팟 시각화 감도",
+    "showRemovals": "제거 항목 표시",
     "size": "크기",
     "sizeAria": "스팟 크기",
     "visualize": "스팟 시각화"
@@ -2184,6 +2187,7 @@
         "opened": "이미지 열기",
         "other": "조정",
         "redEyes": "적목",
+        "remove": "제거",
         "spots": "잡티 제거",
         "title": "작업 내역"
       },

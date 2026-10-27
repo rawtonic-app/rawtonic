@@ -1813,6 +1813,8 @@
     "detectObjectsHint": "Brush loosely over an object or click it to remove it.",
     "detectObjectsRefineHint": "Shift adds to the selected removal, Alt (⌥) subtracts from it.",
     "downloadingModel": "Downloading the object removal model… {{percent}} %",
+    "fallbackDownload": "The object removal model could not be downloaded (offline?), so the smaller model (MI-GAN) filled this area. Undo and remove it again when you are online for a better fill.",
+    "fallbackUnavailable": "The object removal model could not be run, so the smaller model (MI-GAN) filled this area.",
     "feather": "Feather",
     "featherAria": "Spot feather",
     "filling": "Removing… step {{done}} of {{total}}",
@@ -1849,6 +1851,7 @@
     },
     "sensitivity": "Sensitivity",
     "sensitivityAria": "Visualize spots sensitivity",
+    "showRemovals": "Show removals",
     "size": "Size",
     "sizeAria": "Spot size",
     "visualize": "Visualize spots"
@@ -2222,6 +2225,7 @@
         "opened": "Opened image",
         "other": "Adjustment",
         "redEyes": "Red eye",
+        "remove": "Remove",
         "spots": "Spot removal",
         "title": "History"
       },

@@ -1931,6 +1931,8 @@
     "detectObjectsHint": "Zamaluj z grubsza obiekt lub kliknij go, aby go usunąć.",
     "detectObjectsRefineHint": "Shift dodaje do zaznaczonego usunięcia, Alt (⌥) odejmuje.",
     "downloadingModel": "Pobieranie modelu do usuwania obiektów… {{percent}} %",
+    "fallbackDownload": "Nie udało się pobrać modelu usuwania obiektów (brak sieci?), więc ten obszar wypełnił mniejszy model (MI-GAN). Cofnij i usuń ponownie po połączeniu z siecią, aby uzyskać lepsze wypełnienie.",
+    "fallbackUnavailable": "Nie udało się uruchomić modelu usuwania obiektów, więc ten obszar wypełnił mniejszy model (MI-GAN).",
     "feather": "Wtapianie",
     "featherAria": "Wtapianie plamy",
     "filling": "Usuwanie… krok {{done}} z {{total}}",
@@ -1967,6 +1969,7 @@
     },
     "sensitivity": "Czułość",
     "sensitivityAria": "Czułość pokazywania plam",
+    "showRemovals": "Pokaż usunięcia",
     "size": "Rozmiar",
     "sizeAria": "Rozmiar plamy",
     "visualize": "Pokaż plamy"
@@ -2342,6 +2345,7 @@
         "opened": "Otwarto obraz",
         "other": "Korekta",
         "redEyes": "Czerwone oczy",
+        "remove": "Usuń",
         "spots": "Usuwanie plam",
         "title": "Historia"
       },
