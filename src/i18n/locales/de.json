@@ -943,6 +943,10 @@
       "yearShort": "Jahr · 2 Ziffern"
     }
   },
+  "notifications": {
+    "close": "Mitteilung schließen",
+    "region": "Mitteilungen"
+  },
   "offline": {
     "badge": "Offline",
     "badgeTitleMissing": "Die Datei fehlt. Das Foto öffnet sich mit seiner Vorschau; Rechtsklick › Foto suchen…, um die Datei wiederzufinden.",
@@ -4081,12 +4085,21 @@
     "available": "Rawtonic {{version}} ist verfügbar",
     "checking": "Wird geprüft…",
     "checkNow": "Jetzt prüfen",
+    "close": "Schließen",
+    "dontShowAgain": "Nach Updates nicht mehr zeigen",
     "download": "Herunterladen",
     "failed": "Updates konnten nicht geprüft werden. Versuche es später erneut.",
+    "fileWithSize": "{{file}} ({{size}} MB)",
+    "noFile": "Für diesen Computer gibt es in dieser Version keinen Download; die Release-Seite listet alle Dateien.",
+    "noNotes": "Keine Versionshinweise. Die Release-Seite hat vielleicht mehr.",
+    "notesTitle": "Neu in Rawtonic {{version}}",
     "notNow": "Nicht jetzt",
     "noUpdate": "Keine neuere Version gefunden.",
     "prereleases": "Vorabversionen einschließen",
     "privacy": "Fragt GitHub einmal täglich ab. Übermittelt IP-Adresse und App-Version; keine Fotos oder Kennungen.",
-    "startup": "Beim Start nach Updates suchen"
+    "releasePage": "Release-Seite",
+    "showWhatsNew": "Nach einem Update zeigen, was neu ist",
+    "startup": "Beim Start nach Updates suchen",
+    "whatsNew": "Was ist neu"
   }
 }

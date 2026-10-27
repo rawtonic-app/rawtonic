@@ -387,6 +387,10 @@ export interface AppSettings {
   usageStats?: boolean;
   updatePrereleases?: boolean;
   dismissedUpdateVersion?: string;
+  /** The version that ran last; a newer one shows its CHANGELOG section once. */
+  lastRunVersion?: string;
+  /** Show "What's new" after an update (missing: yes). */
+  showWhatsNew?: boolean;
   aiConnectorAddress?: string;
   aiProvider?: string;
   decorations?: boolean;

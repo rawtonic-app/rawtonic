@@ -23,9 +23,10 @@ export function tabStops(root: HTMLElement): HTMLElement[] {
   );
 }
 
-// Layers that stay usable above a modal: notifications and dialogs opened
+// Layers that stay usable above a modal: notifications (the update notice
+// too, which a manual check in Preferences brings up) and dialogs opened
 // from inside it (a confirmation portalled to <body>).
-const KEEP_LIVE = '.Toastify, [aria-modal="true"], dialog[open]';
+const KEEP_LIVE = '.app-notices, .Toastify, [aria-modal="true"], dialog[open]';
 
 /**
  * Makes `ref` a real modal while `open` (WAI-ARIA dialog pattern): the

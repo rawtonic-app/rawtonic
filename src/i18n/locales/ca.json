@@ -963,6 +963,10 @@
       "yearShort": "Any · 2 xifres"
     }
   },
+  "notifications": {
+    "close": "Tanca la notificació",
+    "region": "Notificacions"
+  },
   "offline": {
     "badge": "Fora de línia",
     "badgeTitleMissing": "Falta el fitxer. La foto s’obre amb la seva previsualització; clic dret › Localitza la foto… per tornar a trobar el fitxer.",
@@ -4190,12 +4194,21 @@
     "available": "Rawtonic {{version}} està disponible",
     "checking": "S’està comprovant…",
     "checkNow": "Comprova ara",
+    "close": "Tanca",
+    "dontShowAgain": "No ho mostris després de les actualitzacions",
     "download": "Baixa",
     "failed": "No s’han pogut comprovar les actualitzacions. Torna-ho a provar més tard.",
+    "fileWithSize": "{{file}} ({{size}} MB)",
+    "noFile": "Aquesta versió no té descàrrega per a aquest ordinador; la pàgina de la versió llista tots els fitxers.",
+    "noNotes": "Sense notes de la versió. La pàgina de la versió en pot tenir més.",
+    "notesTitle": "Novetats del Rawtonic {{version}}",
     "notNow": "Ara no",
     "noUpdate": "No s’ha trobat cap versió més nova.",
     "prereleases": "Inclou versions preliminars",
     "privacy": "Consulta GitHub un cop al dia. Envia la teva adreça IP i la versió de l’aplicació; cap foto ni identificador.",
-    "startup": "Cerca actualitzacions en iniciar"
+    "releasePage": "Pàgina de la versió",
+    "showWhatsNew": "Mostra les novetats després d'una actualització",
+    "startup": "Cerca actualitzacions en iniciar",
+    "whatsNew": "Novetats"
   }
 }

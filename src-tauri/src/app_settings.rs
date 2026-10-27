@@ -582,6 +582,12 @@ pub struct AppSettings {
     pub last_update_check: Option<u64>,
     #[serde(default)]
     pub dismissed_update_version: Option<String>,
+    /// The version that ran last; a newer one shows its CHANGELOG section once.
+    #[serde(default)]
+    pub last_run_version: Option<String>,
+    /// Show "What's new" after an update (missing: yes).
+    #[serde(default)]
+    pub show_whats_new: Option<bool>,
     /// Offer to send a crash report after Rawtonic quit unexpectedly
     /// (missing: yes; false: Never, and no crash records are kept).
     #[serde(default)]
@@ -815,6 +821,8 @@ impl Default for AppSettings {
             update_prereleases: None,
             last_update_check: None,
             dismissed_update_version: None,
+            last_run_version: None,
+            show_whats_new: None,
             crash_reports: None,
             show_builtin_presets: None,
             auto_advance: None,

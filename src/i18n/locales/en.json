@@ -943,6 +943,10 @@
       "yearShort": "Year · 2 digits"
     }
   },
+  "notifications": {
+    "close": "Close notification",
+    "region": "Notifications"
+  },
   "offline": {
     "badge": "Offline",
     "badgeTitleMissing": "The file is missing. The photograph opens on its preview; right-click › Locate Photo… to find its file again.",
@@ -4081,12 +4085,21 @@
     "available": "Rawtonic {{version}} is available",
     "checking": "Checking…",
     "checkNow": "Check now",
+    "close": "Close",
+    "dontShowAgain": "Don't show after updates",
     "download": "Download",
     "failed": "Could not check for updates. Try again later.",
+    "fileWithSize": "{{file}} ({{size}} MB)",
+    "noFile": "This release has no download for this computer; the release page lists every file.",
+    "noNotes": "No release notes. The release page may have more.",
+    "notesTitle": "What's new in Rawtonic {{version}}",
     "notNow": "Not now",
     "noUpdate": "No newer release found.",
     "prereleases": "Include pre-releases",
     "privacy": "Checks GitHub once per day. Sends your IP address and app version; no photos or identifiers.",
-    "startup": "Check for updates at startup"
+    "releasePage": "Release page",
+    "showWhatsNew": "Show what's new after an update",
+    "startup": "Check for updates at startup",
+    "whatsNew": "What's new"
   }
 }

@@ -941,6 +941,10 @@
       "yearShort": "年 · 2桁"
     }
   },
+  "notifications": {
+    "close": "通知を閉じる",
+    "region": "通知"
+  },
   "offline": {
     "badge": "オフライン",
     "badgeTitleMissing": "ファイルが見つかりません。写真はプレビューで開きます。右クリック › 写真を探す… でファイルを再指定します。",
@@ -3995,12 +3999,21 @@
     "available": "Rawtonic {{version}} が利用可能です",
     "checking": "確認中…",
     "checkNow": "今すぐ確認",
+    "close": "閉じる",
+    "dontShowAgain": "アップデート後に表示しない",
     "download": "ダウンロード",
     "failed": "更新を確認できませんでした。後でもう一度お試しください。",
+    "fileWithSize": "{{file}}（{{size}} MB）",
+    "noFile": "このリリースにはこのコンピュータ用のダウンロードがありません。リリースページにすべてのファイルがあります。",
+    "noNotes": "リリースノートはありません。リリースページに詳細があるかもしれません。",
+    "notesTitle": "Rawtonic {{version}} の新機能",
     "notNow": "後で",
     "noUpdate": "新しいリリースは見つかりませんでした。",
     "prereleases": "プレリリースを含める",
     "privacy": "1日1回 GitHub に確認します。IP アドレスとアプリのバージョンを送信します。写真や識別子は送信しません。",
-    "startup": "起動時に更新を確認"
+    "releasePage": "リリースページ",
+    "showWhatsNew": "アップデート後に新機能を表示",
+    "startup": "起動時に更新を確認",
+    "whatsNew": "新機能"
   }
 }

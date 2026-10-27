@@ -941,6 +941,10 @@
       "yearShort": "연도 · 2자리"
     }
   },
+  "notifications": {
+    "close": "알림 닫기",
+    "region": "알림"
+  },
   "offline": {
     "badge": "오프라인",
     "badgeTitleMissing": "파일이 없습니다. 사진은 미리보기로 열립니다. 오른쪽 클릭 › 사진 찾기…로 파일을 다시 찾으세요.",
@@ -3995,12 +3999,21 @@
     "available": "Rawtonic {{version}} 업데이트가 있습니다",
     "checking": "확인 중…",
     "checkNow": "지금 확인",
+    "close": "닫기",
+    "dontShowAgain": "업데이트 후 표시하지 않기",
     "download": "다운로드",
     "failed": "업데이트를 확인할 수 없습니다. 나중에 다시 시도하세요.",
+    "fileWithSize": "{{file}} ({{size}} MB)",
+    "noFile": "이 릴리스에는 이 컴퓨터용 다운로드가 없습니다. 릴리스 페이지에 모든 파일이 있습니다.",
+    "noNotes": "릴리스 노트가 없습니다. 릴리스 페이지에 더 있을 수 있습니다.",
+    "notesTitle": "Rawtonic {{version}}의 새로운 기능",
     "notNow": "나중에",
     "noUpdate": "더 최신 릴리스를 찾지 못했습니다.",
     "prereleases": "사전 릴리스 포함",
     "privacy": "하루에 한 번 GitHub를 확인합니다. IP 주소와 앱 버전을 전송하며 사진이나 식별자는 전송하지 않습니다.",
-    "startup": "시작 시 업데이트 확인"
+    "releasePage": "릴리스 페이지",
+    "showWhatsNew": "업데이트 후 새로운 기능 표시",
+    "startup": "시작 시 업데이트 확인",
+    "whatsNew": "새로운 기능"
   }
 }

@@ -963,6 +963,10 @@
       "yearShort": "Année · 2 chiffres"
     }
   },
+  "notifications": {
+    "close": "Fermer la notification",
+    "region": "Notifications"
+  },
   "offline": {
     "badge": "Hors ligne",
     "badgeTitleMissing": "Le fichier est introuvable. La photo s’ouvre sur son aperçu ; clic droit › Localiser la photo… pour retrouver son fichier.",
@@ -4190,12 +4194,21 @@
     "available": "Rawtonic {{version}} est disponible",
     "checking": "Vérification…",
     "checkNow": "Vérifier maintenant",
+    "close": "Fermer",
+    "dontShowAgain": "Ne plus afficher après les mises à jour",
     "download": "Télécharger",
     "failed": "Impossible de vérifier les mises à jour. Réessayez plus tard.",
+    "fileWithSize": "{{file}} ({{size}} Mo)",
+    "noFile": "Cette version n'a pas de téléchargement pour cet ordinateur ; la page de la version liste tous les fichiers.",
+    "noNotes": "Pas de notes de version. La page de la version en dit peut-être plus.",
+    "notesTitle": "Nouveautés de Rawtonic {{version}}",
     "notNow": "Pas maintenant",
     "noUpdate": "Aucune version plus récente trouvée.",
     "prereleases": "Inclure les préversions",
     "privacy": "Interroge GitHub une fois par jour. Transmet votre adresse IP et la version de l’application ; aucune photo ni aucun identifiant.",
-    "startup": "Rechercher les mises à jour au démarrage"
+    "releasePage": "Page de la version",
+    "showWhatsNew": "Afficher les nouveautés après une mise à jour",
+    "startup": "Rechercher les mises à jour au démarrage",
+    "whatsNew": "Nouveautés"
   }
 }

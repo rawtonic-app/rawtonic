@@ -983,6 +983,10 @@
       "yearShort": "Rok · 2 cyfry"
     }
   },
+  "notifications": {
+    "close": "Zamknij powiadomienie",
+    "region": "Powiadomienia"
+  },
   "offline": {
     "badge": "Offline",
     "badgeTitleMissing": "Brak pliku. Zdjęcie otwiera się na swoim podglądzie; prawy przycisk › Znajdź zdjęcie…, aby odnaleźć plik.",
@@ -4299,12 +4303,21 @@
     "available": "Dostępny jest Rawtonic {{version}}",
     "checking": "Sprawdzanie…",
     "checkNow": "Sprawdź teraz",
+    "close": "Zamknij",
+    "dontShowAgain": "Nie pokazuj po aktualizacjach",
     "download": "Pobierz",
     "failed": "Nie udało się sprawdzić aktualizacji. Spróbuj ponownie później.",
+    "fileWithSize": "{{file}} ({{size}} MB)",
+    "noFile": "To wydanie nie ma pliku do pobrania dla tego komputera; strona wydania zawiera wszystkie pliki.",
+    "noNotes": "Brak informacji o wydaniu. Strona wydania może zawierać więcej.",
+    "notesTitle": "Co nowego w Rawtonic {{version}}",
     "notNow": "Nie teraz",
     "noUpdate": "Nie znaleziono nowszej wersji.",
     "prereleases": "Uwzględniaj wersje wstępne",
     "privacy": "Sprawdza GitHub raz dziennie. Wysyła adres IP i wersję aplikacji; bez zdjęć i identyfikatorów.",
-    "startup": "Sprawdzaj aktualizacje przy uruchamianiu"
+    "releasePage": "Strona wydania",
+    "showWhatsNew": "Pokazuj nowości po aktualizacji",
+    "startup": "Sprawdzaj aktualizacje przy uruchamianiu",
+    "whatsNew": "Co nowego"
   }
 }
