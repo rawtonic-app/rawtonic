@@ -59,7 +59,6 @@ mod lut_processing;
 mod mask_generation;
 mod memory_pressure;
 mod merges;
-#[cfg(target_os = "macos")]
 mod moebius;
 mod multi_view;
 mod multi_view_prefetch;

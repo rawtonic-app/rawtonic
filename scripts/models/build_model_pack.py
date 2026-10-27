@@ -252,6 +252,25 @@ MOEBIUS_EXPORT = [
     "python", str(Path(__file__).resolve().parent / "convert_moebius_coreml.py"),
 ]
 
+# The same networks as ONNX models for Windows and Linux (WebGPU or CUDA
+# provider; fp16 weights, fp32 compute), from convert_moebius_coreml.py
+# --onnx --no-coreml in an environment of its own (the bytes repeat). They
+# share moebius_embeddings.bin with the Core ML programs.
+MOEBIUS_ONNX_SHA256 = {
+    "moebius_unet_fp16w.onnx": "a93b4880344c252a30bf39fcb2f29e6d5a68e8ea3c5a00e1aadeb4d63f18851d",
+    "sdxl_vae_encoder_fp16w.onnx": "866b0df3037855cb3464dd7aab9a0b8c8f7326df1e93c856adc7dc8517866961",
+    "sdxl_vae_decoder_fp16w.onnx": "307bf01ebd3105b99f0742eae74ecbaaaf5aa6be84d1ddd17318473e83130150",
+}
+MOEBIUS_ONNX_EXPORT = [
+    "uv", "run", "--python", "3.12", "--index-url", "https://download.pytorch.org/whl/cpu",
+    "--extra-index-url", "https://pypi.org/simple", "--index-strategy", "unsafe-best-match",
+    "--with", "torch==2.7.0+cpu", "--with", "torchvision==0.22.0+cpu", "--with", "onnx==1.23.2",
+    "--with", "onnxruntime==1.30.0", "--with", "diffusers==0.38.0", "--with", "numpy==2.2.6",
+    "--with", "einops==0.8.1", "--with", "timm==1.0.30", "--with", "pyyaml==6.0.3",
+    "--with", "safetensors==0.8.0", "--with", "pillow==12.0.0",
+    "python", str(Path(__file__).resolve().parent / "convert_moebius_coreml.py"),
+]
+
 SAM_ENTRY = {
     "used_by": "Subject mask (point/box prompts; builds before 2026-10-09)",
     "source": "Segment Anything ViT-B checkpoint sam_vit_b_01ec64.pth (Meta), exported by scripts/models/export_sam.py",
@@ -549,6 +568,18 @@ def main() -> None:
                 continue
             entry = SDXL_VAE_ENTRY if name.startswith("sdxl_vae_") else MOEBIUS_ENTRY
             entries.append(place(moebius / name, args.out, name, expected) | entry)
+    if todo(MOEBIUS_ONNX_SHA256):
+        moebius_onnx = args.cache / "moebius-onnx"
+        subprocess.run(MOEBIUS_ONNX_EXPORT + [str(moebius_onnx), "--cache", str(args.cache / "moebius"), "--onnx",
+                                              "--no-coreml"], check=True)
+        for name, expected in MOEBIUS_ONNX_SHA256.items():
+            if name in carried:  # a group step builds all its files; carried ones stay
+                continue
+            entry = SDXL_VAE_ENTRY if name.startswith("sdxl_vae_") else MOEBIUS_ENTRY
+            entries.append(place(moebius_onnx / name, args.out, name, expected) | entry | {
+                "used_by": entry["used_by"].replace("(Core ML, macOS)", "(ONNX on a GPU, Windows and Linux)"),
+                "source": entry["source"].replace("(Core ML, fp16)", "--onnx (ONNX, fp16 weights, fp32 compute)"),
+            })
 
     if todo(FACES_SHA256):
         faces = args.cache / "faces-out"

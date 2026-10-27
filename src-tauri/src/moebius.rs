@@ -1,8 +1,9 @@
 //! Moebius (hustvl, Apache-2.0), the guide of Remove's fill for large holes
-//! on macOS (docs/MODELS.md, "Object removal"): a 0.23 B distilled latent
-//! diffusion inpainter at 512 × 512 with the SDXL VAE (fp16-fix, MIT), run
-//! as three Core ML programs on the GPU
-//! (scripts/models/convert_moebius_coreml.py). MI-GAN paints objects back
+//! (docs/MODELS.md, "Object removal"): a 0.23 B distilled latent diffusion
+//! inpainter at 512 × 512 with the SDXL VAE (fp16-fix, MIT), run as three
+//! networks on the GPU (scripts/models/convert_moebius_coreml.py): Core ML
+//! programs on macOS (`coreml`), ONNX models on a GPU provider of ONNX
+//! Runtime on Windows and Linux (`onnx`). MI-GAN paints objects back
 //! into holes that fill most of its view (a lemon's brown smear, a kitten's
 //! ghost); Moebius fills them with background.
 //!
@@ -14,9 +15,6 @@
 //! scaled back and guides the patch-based completion as MI-GAN's does
 //! (`inpainting::fill_removal`).
 
-// Only the macOS backend uses the sampler so far (`Networks`).
-#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
-
 use std::path::Path;
 
 use anyhow::{Context, Result, ensure};
@@ -25,6 +23,13 @@ use rayon::prelude::*;
 
 #[cfg(target_os = "macos")]
 pub mod coreml;
+#[cfg(not(target_os = "macos"))]
+pub mod onnx;
+
+#[cfg(target_os = "macos")]
+pub use coreml::Moebius;
+#[cfg(not(target_os = "macos"))]
+pub use onnx::Moebius;
 
 /// The networks' working size.
 pub const SIZE: usize = 512;
@@ -63,12 +68,24 @@ pub fn read_embeddings(path: &Path) -> Result<Vec<f32>> {
         .collect())
 }
 
-/// The networks the sampler runs: Core ML on macOS (`coreml`), a stand-in
-/// in tests. This is the hook for other platforms: an implementation on
-/// `rawtonic_onnx::Model` (an ONNX export of the same three networks with
-/// the embeddings as an input, on the WebGPU or CUDA provider) would let
-/// Remove use Moebius on Windows and Linux; until one is measured there
-/// (docs/MODELS.md, "Moebius on other platforms"), they keep MI-GAN.
+/// Loads Moebius from `models_dir`, downloading what is missing (about
+/// 620 MB on first use). An error when it cannot run here (no GPU provider
+/// on Windows and Linux, Core ML failed): MI-GAN fills then.
+pub async fn load(app_handle: &tauri::AppHandle, models_dir: &Path) -> Result<Moebius> {
+    #[cfg(target_os = "macos")]
+    {
+        coreml::load(app_handle, models_dir, true)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Moebius files missing"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        onnx::load(app_handle, models_dir).await
+    }
+}
+
+/// The networks the sampler runs: Core ML on macOS (`coreml`), ONNX
+/// Runtime on a GPU elsewhere (`onnx`), a stand-in in tests.
 pub trait Networks {
     /// Photos [n, 3, 512, 512] in -1..1 → latents [n, 4, 64, 64].
     fn encode(&self, images: &[f32], n: usize) -> Result<Vec<f32>>;

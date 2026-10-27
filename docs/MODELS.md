@@ -53,6 +53,7 @@ weights tensor by tensor.
 | `migan_pipeline_v2.onnx` | Object removal | MI-GAN 512 Places2 (Picsart AI Research), the ONNX pipeline its first author published (`andraniksargsyan/migan`, revision 406830d; linked from the official repository), unchanged. | MIT (weights, `LICENSE-WEIGHTS`) | In the pack since 2026-10-09 |
 | `moebius_unet_fp16_coreml_*` (Core ML package), `moebius_embeddings.bin` | Remove, holes thicker than 205 px (macOS) | Moebius `ft_places2` (Kangsheng Duan, Ziyang Xu et al., Huazhong University of Science and Technology and vivo AI Lab; checkpoint of huggingface.co/hustvl/Moebius at revision cd01f47, SHA-256 6525afb8…; network code github.com/hustvl/Moebius at b88d462) converted by `scripts/models/convert_moebius_coreml.py` (ML program, fp16, macOS 13; reproducible: same SHA-256 in two conversions). Its 20 learned conditioning embeddings are the file beside it, an input of the program (see "Moebius on Core ML" under Object removal). | Apache-2.0 (repository LICENSE and README: "Both the code and the pretrained model weights … Apache License 2.0 … Commercial use of the weights and the images produced with them is permitted"; the Hugging Face card's front matter says MIT; both permissive, shipped under Apache-2.0) | In the pack since 2026-10-27 |
 | `sdxl_vae_encoder_fp16_coreml_*`, `sdxl_vae_decoder_fp16_coreml_*` (Core ML packages) | Moebius's image encoder and decoder | SDXL-VAE-FP16-Fix (huggingface.co/madebyollin/sdxl-vae-fp16-fix, revision 207b116, `diffusion_pytorch_model.safetensors` SHA-256 1b909373…), the SDXL VAE (Stability AI, `stabilityai/sdxl-vae`, card `license: mit`) fine-tuned to run in fp16; the Moebius authors ship its fp16 cast as PixelHacker's VAE (all 248 tensors equal). Converted by `convert_moebius_coreml.py` (fp16, macOS 13). Not the SD 1.x VAE (CreativeML OpenRAIL-M): scaling factor 0.13025 checked. | MIT (model cards) | In the pack since 2026-10-27 |
+| `moebius_unet_fp16w.onnx`, `sdxl_vae_encoder_fp16w.onnx`, `sdxl_vae_decoder_fp16w.onnx` | Remove, holes thicker than 205 px (Windows and Linux, on a GPU provider) | The same Moebius checkpoint and SDXL VAE fp16-fix as the Core ML rows, exported by `convert_moebius_coreml.py --onnx --no-coreml` (opset 17; weights stored as fp16 and cast to fp32 in the graph, so the networks compute in fp32; tensors beyond fp16's range stay fp32; reproducible: same SHA-256 in two exports). Share `moebius_embeddings.bin` with the Core ML programs. | Apache-2.0 (Moebius), MIT (VAE), as above | In the pack since 2026-10-27 (`pack-2026-10-27b`) |
 | `face_detection_yunet_2023mar.onnx` | People masks (faces) | YuNet 2023mar (Wu, Peng and Yu), OpenCV Zoo `models/face_detection_yunet` at commit f12e127 (Git LFS object), unchanged; `LICENSE` in that folder: MIT, © 2020 Shiqi Yu. Trained on WIDER FACE (residual risk under Training data). | MIT | In the pack since 2026-10-09 |
 | `face_mesh_v2.onnx` | People masks (eyes, brows, lips, teeth) | MediaPipe Face Mesh V2 (Google), the `face_landmarks_detector.tflite` of `face_landmarker.task` (float16, version 1, storage.googleapis.com/mediapipe-models), converted by `scripts/models/export_faces.py` (tf2onnx, checked against the TFLite interpreter, reproducible: same SHA-256 in two exports). Model card: "Licensed under Apache License, Version 2.0". | Apache-2.0 (Google) | In the pack since 2026-10-09 |
 | `selfie_multiclass_256.onnx` | People masks (hair, face and body skin, clothes, accessories) | MediaPipe multiclass selfie segmentation (Google; `selfie_multiclass_256x256.tflite`, float32, version 1), converted by `scripts/models/export_faces.py` (as above). Model card: "Licensed under Apache License, Version 2.0". | Apache-2.0 (Google) | In the pack since 2026-10-09 |
@@ -801,7 +802,7 @@ other load). Two builds produced the same encoder bytes.
 
 ## Hosting
 
-The pack is the release `pack-2026-10-27` of
+The pack is the release `pack-2026-10-27b` of
 [github.com/rawtonic-app/models](https://github.com/rawtonic-app/models)
 (README, `models.json`, `licenses/`), public together with Rawtonic. The app
 downloads `MODEL_PACK_URL/<file>`
@@ -818,7 +819,9 @@ A new pack is a new release (new tag): build it with
 commit. `build_model_pack.py --previous DIR` carries an earlier pack's
 files (downloaded with `gh release download`) over unchanged, checked
 against its `models.json`, and builds only what it lacks; that keeps the
-files older builds load. `pack-2026-10-27` is `pack-2026-10-18` plus
+files older builds load. `pack-2026-10-27b` is `pack-2026-10-27` plus
+Moebius and the SDXL VAE fp16-fix as ONNX models for Windows and Linux
+(built that way). `pack-2026-10-27` is `pack-2026-10-18` plus
 Moebius and the SDXL VAE fp16-fix as Core ML programs and the Moebius
 embeddings file (built that way, with their license texts as assets too).
 `pack-2026-10-18` is `pack-2026-10-08` plus
@@ -1138,7 +1141,8 @@ updated `models.json` (BiRefNet, sky, SAM 2.1). Check SAM with the ignored tests
   stronger model under the license rules (the generative fill above, or a
   distilled diffusion inpainter with Apache-2.0 weights once each weight
   file's license, ONNX/Core ML export, speed and memory are checked).
-  **Moebius for large holes (macOS, 2026-10-27).** Moebius (hustvl,
+  **Moebius for large holes (macOS 2026-10-27, Windows and Linux the same
+  day).** Moebius (hustvl,
   0.23 B distilled latent-diffusion inpainter, `ft_places2`; licenses in
   the inventory) now guides the completion instead of MI-GAN when the hole
   is at least 512 / 2.5 ≈ 205 px thick (the diameter of the largest disc
@@ -1154,8 +1158,8 @@ updated `models.json` (BiRefNet, sky, SAM 2.1). Check SAM with the ignored tests
   pixel the hole touches in the network's hole; the authors' DDIM sampler
   at 10 steps from strength 0.99 (9 network runs), guidance 2.0, their noise
   offset, VAE mean, a fixed seed; the fill scaled back (Catmull-Rom) and
-  completed at full resolution as before. Windows and Linux keep MI-GAN
-  (below).
+  completed at full resolution as before. Windows and Linux run the same
+  sampler on ONNX Runtime's GPU providers (below).
 
   *Core ML.* The first conversion (embeddings baked in) filled holes with
   white or grey blobs on the GPU in fp16 and fp32, while every submodule
@@ -1210,16 +1214,44 @@ updated `models.json` (BiRefNet, sky, SAM 2.1). Check SAM with the ignored tests
   three programs are 620 MB, downloaded on the first large removal with
   progress and Cancel in the overlay; if they cannot be had, MI-GAN fills.
 
-  *Moebius on other platforms.* `moebius::Networks` is the hook: an ONNX
-  implementation on `rawtonic_onnx::Model` would run the same sampler on
-  Windows and Linux. `convert_moebius_coreml.py --onnx` writes the three
-  networks as ONNX (opset 17, fp32, embeddings as an input; ONNX Runtime
-  CPU equals PyTorch to ≤ 7e-5). Still to do there: fp16 storage, model
-  pack entries and `ModelKind`s with their provider check, and measurements
-  on the Linux PC (RTX 3080): WebGPU and CUDA time per removal (target
-  ≈ 3 s), the share of nodes on the GPU, memory, and agreement with the
-  CPU. Only with a GPU provider: on the CPU it takes about 70 s, so without
-  one MI-GAN stays.
+  *Windows and Linux (ONNX, 2026-10-27; notes:
+  benchmark-results/moebius-onnx-2026-10-27).* The same three networks as
+  ONNX models (`moebius::onnx`, `convert_moebius_coreml.py --onnx`) on
+  `rawtonic_onnx`'s GPU providers: CUDA when its plugin and the user's CUDA
+  are installed, else WebGPU (Vulkan on Linux, Direct3D 12 on Windows),
+  each model accepted only after its output matched the CPU's on that
+  device (the usual check, once per device). Moebius runs only on a GPU: on
+  the CPU a removal takes about a minute, so without a usable GPU provider
+  (or with "Use the GPU for AI" off) nothing is downloaded and MI-GAN
+  fills; a failed GPU run also falls back to MI-GAN. Weights are stored as
+  fp16 and computed in fp32 (620 MB, as on macOS): fp16 compute on WebGPU
+  disagreed with the CPU (encoder latent off by up to 1.7), and one batch
+  norm variance (1.03e5) does not fit fp16 at all, so it stays fp32
+  (stored as fp16 it became infinite and the fills differed from
+  PyTorch's by 22 codes on average). The encoder's GPU check uses the
+  synthetic picture with ±2 levels of grain: on the flat picture alone
+  ONNX Runtime's CPU and PyTorch differ by 0.17 (range 5.5), with the grain
+  by 0.013, like the GPU.
+  Measured on the Linux PC (Ryzen 5 3600X, RTX 3080 10 GB, NVIDIA 615,
+  ONNX Runtime 1.30.0 with the WebGPU plugin 0.4.0):
+  - all nodes of the three networks run on WebGPU (a session with the
+    CPU fallback forbidden loads);
+  - against the same pipeline in PyTorch fp32 on all 27 objects of both
+    sets: 0.24 codes on average in the hole (dev; max 0.80, p99 ≤ 13) and
+    0.16 (held-out; max 0.26, p99 ≤ 2), 0.10-0.11 over the crop (Core ML
+    fp16: 0.03-0.14); fp32 weights on WebGPU 0.02;
+  - in the app's code (`moebius_fill_times`, 27 photos of 18-45 MP):
+    Moebius 4.4-9.5 s per removal (median 4.9; 0.40-0.45 s per UNet run
+    when the machine is quiet, the encoder and first run ≈ 1 s), completion
+    0.15-3.6 s, whole fill median 6.6 s; the first load 24 s once per
+    device (the GPU check runs each network on the CPU), then about 2 s;
+  - GPU memory 5.6 GB while the three networks are loaded; peak resident
+    memory of the test process 7.4 GB (45 MP photos and copies included).
+  Not measured: CUDA (the PC has no CUDA 13 and cuDNN 9), Windows, AMD and
+  Intel GPUs. A removal that measured more than 1.5 s per network run
+  (`inpainting::MOEBIUS_MAX_SECONDS_PER_RUN`, about three times the 5 s
+  budget; integrated GPUs may be that slow) finishes, and later large holes
+  use MI-GAN for the rest of the session with a notice.
 - **Sky.** UperNet + ConvNeXt-T against the inherited sky model on 34 RAW
   samples (22 with sky): solid masks on overcast and cloud-textured skies
   where the old one had holes, a missed sky found (bare trees in snow), no

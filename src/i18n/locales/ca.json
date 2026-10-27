@@ -1875,6 +1875,7 @@
     "feather": "Difuminat",
     "featherAria": "Difuminat de la taca",
     "filling": "S'està eliminant… pas {{done}} de {{total}}",
+    "largeHoleTooSlow": "Aquesta GPU és massa lenta per eliminar zones grans; Elimina fa servir el mètode ràpid la resta de la sessió.",
     "mode": "Mode de taques",
     "modes": {
       "clone": "Clona",

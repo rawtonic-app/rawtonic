@@ -1875,6 +1875,7 @@
     "feather": "Contour progressif",
     "featherAria": "Contour progressif de la zone",
     "filling": "Suppression… étape {{done}} sur {{total}}",
+    "largeHoleTooSlow": "Ce GPU est trop lent pour supprimer de grandes zones ; Supprimer utilise la méthode rapide jusqu'à la fin de la session.",
     "mode": "Mode de correction",
     "modes": {
       "clone": "Cloner",
