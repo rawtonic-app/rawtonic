@@ -19,6 +19,7 @@ pub mod edge_fringe;
 pub mod embedded_lens;
 pub mod face_retouch;
 pub mod file_io;
+pub mod film_grain;
 pub mod formats;
 pub mod guided_perspective;
 pub mod icc_profile;

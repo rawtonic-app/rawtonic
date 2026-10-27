@@ -2222,6 +2222,7 @@
         "output": "Sortida"
       },
       "effects": {
+        "grainColor": "Color del gra",
         "grainStructure": "Estructura del gra",
         "grainStructures": {
           "clumped": "Agrupat",
@@ -3612,11 +3613,10 @@
         "grading-warm-shadows-cool-highlights": "Ombres càlides, llums fredes",
         "grading-warm-tone": "To càlid",
         "grading-warm-up": "Més càlid",
-        "grain-coarse": "Gruixut",
-        "grain-fine": "Fi",
-        "grain-heavy": "Intens",
-        "grain-medium": "Mitjà",
-        "grain-speckled": "Clapejat",
+        "grain-bw-100": "B/N 100 fi",
+        "grain-bw-400": "B/N 400 clàssic",
+        "grain-colour-100": "Negatiu color 100 subtil",
+        "grain-colour-400": "Negatiu color 400",
         "muted-colour": "Colors apagats",
         "noise-light": "Lleuger",
         "noise-medium": "Mitjà",

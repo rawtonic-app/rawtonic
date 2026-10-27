@@ -2443,6 +2443,81 @@ fn luma_noise_version_timing_probe() {
 }
 
 #[test]
+#[ignore = "native GPU timing probe; compares no grain, portable grain and film grain"]
+fn grain_version_timing_probe() {
+    let context = context();
+    // Warm display frames at preview size and full-resolution 16-bit
+    // readbacks; the variants alternate within one process and Amount moves
+    // a little every frame.
+    let variants = [
+        ("none", json!({})),
+        (
+            "v2_clumped",
+            json!({"grainStructure": "clumped", "grainVersion": 2}),
+        ),
+        (
+            "v2_gritty",
+            json!({"grainStructure": "gritty", "grainVersion": 2, "grainSize": 60, "grainRoughness": 75}),
+        ),
+        ("v3_mono", json!({"grainVersion": 3})),
+        ("v3_colour", json!({"grainVersion": 3, "grainColor": 40})),
+        (
+            "v3_mono_r0",
+            json!({"grainVersion": 3, "grainRoughness": 0}),
+        ),
+    ];
+    for (width, height, display, frames) in [(2304, 1728, true, 24), (6000, 4000, false, 6)] {
+        let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+        let view = input(&context, width, height, 3);
+        let mut times = vec![Vec::new(); variants.len()];
+        for frame in 0..frames + 2 {
+            for (i, (name, extra)) in variants.iter().enumerate() {
+                let mut profile = extra.clone();
+                if *name != "none" {
+                    profile["grainAmount"] = json!(50.0 + 0.01 * frame as f64);
+                }
+                let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+                let start = Instant::now();
+                processor
+                    .run(
+                        &view,
+                        width,
+                        height,
+                        RenderRequest {
+                            adjustments,
+                            mask_bitmaps: &[],
+                            lut: None,
+                            roi: None,
+                        },
+                        display,
+                        if display {
+                            RenderOutputPrecision::EightBit
+                        } else {
+                            RenderOutputPrecision::SixteenBit
+                        },
+                    )
+                    .unwrap();
+                context
+                    .device
+                    .poll(wgpu::PollType::wait_indefinitely())
+                    .unwrap();
+                if frame >= 2 {
+                    times[i].push(start.elapsed().as_secs_f64() * 1000.0);
+                }
+            }
+        }
+        for (i, (name, _)) in variants.iter().enumerate() {
+            let t = &mut times[i];
+            t.sort_by(f64::total_cmp);
+            println!(
+                "{}",
+                json!({"size":format!("{width}x{height}"),"variant":name,"median_ms":t[t.len() / 2],"min_ms":t[0],"frames":frames})
+            );
+        }
+    }
+}
+
+#[test]
 #[ignore = "native GPU timing probe; compares sharpening responses 1 and 2"]
 fn sharpen_version_timing_probe() {
     let context = context();
@@ -13672,6 +13747,88 @@ mod portable_grain_reference {
                 base + (n(2458, 21299, 5325, 1) - base) * roughness
             }
         }
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU adapter"]
+fn film_grain_at_half_size_is_the_full_size_grain_scaled_down() {
+    // A flat mid-grey at full and at half size: film grain (`grainVersion`
+    // 3) reads the tile over each pixel's footprint, so the half-size
+    // render's grain has the strength and the pattern of the full-size
+    // grain averaged over 2 × 2 pixels (what a preview shows of an export).
+    let render = |width: u32, height: u32, profile: serde_json::Value| {
+        let grey = f16::from_f32(0.18);
+        let data: Vec<f16> = (0..width * height)
+            .flat_map(|_| [grey, grey, grey, f16::ONE])
+            .collect();
+        let context = context();
+        let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+        let view = input_from(&context, width, height, &data);
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments: get_all_adjustments_from_json(&profile, true, Some(1)),
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels,
+            _ => unreachable!(),
+        }
+    };
+    let (width, height) = (1024u32, 768u32);
+    for (size, roughness, colour) in [(25.0, 50.0, 0.0), (60.0, 75.0, 40.0), (10.0, 0.0, 0.0)] {
+        let recipe = json!({"grainAmount": 50, "grainSize": size, "grainRoughness": roughness,
+            "grainColor": colour, "grainVersion": 3});
+        let grain = |w: u32, h: u32| -> Vec<f64> {
+            let flat = render(w, h, json!({}));
+            let pixels = render(w, h, recipe.clone());
+            (0..(w * h) as usize)
+                .map(|i| pixels[i * 4 + 1] as f64 - flat[i * 4 + 1] as f64)
+                .collect()
+        };
+        let full = grain(width, height);
+        let half = grain(width / 2, height / 2);
+        let (w2, h2) = ((width / 2) as usize, (height / 2) as usize);
+        let scaled: Vec<f64> = (0..w2 * h2)
+            .map(|i| {
+                let (x, y) = (i % w2 * 2, i / w2 * 2);
+                let at = |x: usize, y: usize| full[y * width as usize + x];
+                (at(x, y) + at(x + 1, y) + at(x, y + 1) + at(x + 1, y + 1)) / 4.0
+            })
+            .collect();
+        let sd = |v: &[f64]| {
+            let m = v.iter().sum::<f64>() / v.len() as f64;
+            (v.iter().map(|x| (x - m).powi(2)).sum::<f64>() / v.len() as f64).sqrt()
+        };
+        let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+        let (a, b) = (sd(&scaled), sd(&half));
+        let (mean_scaled, mean_half) = (mean(&scaled), mean(&half));
+        let correlation = scaled
+            .iter()
+            .zip(&half)
+            .map(|(x, y)| (x - mean_scaled) * (y - mean_half))
+            .sum::<f64>()
+            / (a * b * half.len() as f64);
+        println!(
+            "size {size} roughness {roughness} colour {colour}: full {:.0}, full scaled down {a:.0}, half {b:.0}, correlation {correlation:.2}",
+            sd(&full)
+        );
+        assert!(sd(&full) > 500.0, "no grain");
+        assert!((b / a - 1.0).abs() < 0.15, "half {b:.0} vs scaled {a:.0}");
+        // The pattern too (Metal 2026-10-26: 0.81 / 0.93 / 0.51); grain far
+        // below a pixel (Size 10 here, ~70 texels per pixel) keeps less of
+        // its pattern across mips, its strength matches all the same.
+        assert!(correlation > 0.45, "correlation {correlation:.2}");
     }
 }
 

@@ -4199,7 +4199,10 @@ pub struct GlobalAdjustments {
     /// `GAMUT_MAPPING_RENDER_VERSION`): 1 = clipped to it and turned back to
     /// their own hue (shader.wgsl `restore_hue`), 0 = clipped per channel.
     pub gamut_mapping: u32,
-    pub gamut_mapping_padding: [u32; 3],
+    /// Film grain colour (`grainColor` / 100, grain version 3): 0 one
+    /// neutral layer like black-and-white film, 1 independent dye layers.
+    pub grain_color: f32,
+    pub gamut_mapping_padding: [u32; 2],
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -5259,7 +5262,9 @@ fn get_global_adjustments_from_json(
         clarity_version: clarity_version(js_adjustments) as u32,
         image_key_median: 0.0,
         gamut_mapping: u32::from(render_version(js_adjustments) >= GAMUT_MAPPING_RENDER_VERSION),
-        gamut_mapping_padding: [0; 3],
+        grain_color: (js_adjustments["grainColor"].as_f64().unwrap_or(0.0) / 100.0).clamp(0.0, 1.0)
+            as f32,
+        gamut_mapping_padding: [0; 2],
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()
@@ -7339,9 +7344,12 @@ pub const GRAIN_VERSION_KEY: &str = "grainVersion";
 /// lattice, so the grain pattern is the same on every GPU (version 1's float
 /// hash turned one-ulp differences between GPUs into a different pattern on
 /// about 90 % of the pixels); statistically the same grain (notes:
-/// reference/grain.md "Portable grain"). Recipes without the key keep
-/// version 1.
-pub const GRAIN_VERSION: u64 = 2;
+/// reference/grain.md "Portable grain"). 3 (2026-10-26) is film grain:
+/// Boolean-model grains per dye layer in the negative's density, printed
+/// through a logistic print response (film_grain.rs, shader
+/// `apply_film_grain`); structures do not apply to it, `grainColor` sets the
+/// dye layers' independence. Recipes without the key keep version 1.
+pub const GRAIN_VERSION: u64 = 3;
 
 /// The recipe's grain version, 1 when missing, never newer than this
 /// renderer knows.

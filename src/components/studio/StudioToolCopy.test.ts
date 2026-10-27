@@ -8,6 +8,7 @@ import {
   type Adjustments,
 } from '../../utils/adjustments';
 import { pick } from './StudioToolCopy';
+import { presetValues, toolPresetToSave } from './toolPresets';
 
 describe('Tool copy of grain', () => {
   it('copies the source grain version, never downgrades it', () => {
@@ -19,6 +20,21 @@ describe('Tool copy of grain', () => {
     const v2 = { ...INITIAL_ADJUSTMENTS, grainAmount: 30, grainVersion: 2 } as Adjustments;
     expect(pick(v2, ['grainAmount', 'grainSize']).grainVersion).toBe(2);
     expect('grainVersion' in pick(v2, ['exposure'])).toBe(false);
+  });
+
+  it("states film grain's default Colour, so a saved preset or copy sets it", () => {
+    // New neutral grain whose Colour was never touched (missing = 0).
+    const neutral = { ...INITIAL_ADJUSTMENTS, grainAmount: 40, grainVersion: 3 } as Adjustments;
+    const keys = ['grainAmount', 'grainSize', 'grainRoughness', 'grainStructure', 'grainColor'];
+    const saved = JSON.parse(JSON.stringify(toolPresetToSave(neutral, keys)));
+    expect(saved.grainColor).toBe(0);
+    const coloured = { ...INITIAL_ADJUSTMENTS, grainAmount: 40, grainVersion: 3, grainColor: 74 } as Adjustments;
+    expect({ ...coloured, ...presetValues(saved) }.grainColor).toBe(0);
+    expect(JSON.parse(JSON.stringify(pick(neutral, keys))).grainColor).toBe(0);
+    // Older grain has no Colour, and a copy without it leaves the destination's.
+    const v2 = { ...INITIAL_ADJUSTMENTS, grainAmount: 30, grainVersion: 2 } as Adjustments;
+    expect(JSON.parse(JSON.stringify(pick(v2, keys))).grainColor).toBeUndefined();
+    expect(pick(neutral, ['grainAmount'])).not.toHaveProperty('grainColor');
   });
 });
 
@@ -45,7 +61,7 @@ describe('Tool copy of LUT', () => {
 describe('Detail copy groups', () => {
   it('keeps grain settings in the Detail copy, sync and preset group', () => {
     const grain = ADJUSTMENT_GROUPS.details.find(group => group.label === 'modals.copyPaste.groups.grain');
-    expect(grain?.keys).toEqual(['grainAmount', 'grainRoughness', 'grainSize', 'grainStructure', 'grainVersion']);
+    expect(grain?.keys).toEqual(['grainAmount', 'grainRoughness', 'grainSize', 'grainStructure', 'grainColor', 'grainVersion']);
     expect(ADJUSTMENT_GROUPS.effects.some(group => group.label === 'modals.copyPaste.groups.grain')).toBe(false);
   });
 });

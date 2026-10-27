@@ -2124,6 +2124,7 @@
         "output": "輸出"
       },
       "effects": {
+        "grainColor": "顆粒顏色",
         "grainStructure": "顆粒結構",
         "grainStructures": {
           "clumped": "團簇",
@@ -3433,11 +3434,10 @@
         "grading-warm-shadows-cool-highlights": "暖陰影，冷亮部",
         "grading-warm-tone": "暖調",
         "grading-warm-up": "變暖",
-        "grain-coarse": "粗糙",
-        "grain-fine": "細緻",
-        "grain-heavy": "濃重",
-        "grain-medium": "中等",
-        "grain-speckled": "斑點",
+        "grain-bw-100": "黑白 100 細緻",
+        "grain-bw-400": "黑白 400 經典",
+        "grain-colour-100": "彩色負片 100 柔和",
+        "grain-colour-400": "彩色負片 400",
         "muted-colour": "柔和色彩",
         "noise-light": "輕度",
         "noise-medium": "中度",

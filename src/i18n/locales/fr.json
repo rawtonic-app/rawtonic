@@ -2222,6 +2222,7 @@
         "output": "Sortie"
       },
       "effects": {
+        "grainColor": "Couleur du grain",
         "grainStructure": "Structure du grain",
         "grainStructures": {
           "clumped": "Aggloméré",
@@ -3612,11 +3613,10 @@
         "grading-warm-shadows-cool-highlights": "Ombres chaudes, hautes lumières froides",
         "grading-warm-tone": "Ton chaud",
         "grading-warm-up": "Réchauffer",
-        "grain-coarse": "Gros",
-        "grain-fine": "Fin",
-        "grain-heavy": "Fort",
-        "grain-medium": "Moyen",
-        "grain-speckled": "Moucheté",
+        "grain-bw-100": "N&B 100 fin",
+        "grain-bw-400": "N&B 400 classique",
+        "grain-colour-100": "Négatif couleur 100 discret",
+        "grain-colour-400": "Négatif couleur 400",
         "muted-colour": "Couleurs atténuées",
         "noise-light": "Léger",
         "noise-medium": "Moyen",

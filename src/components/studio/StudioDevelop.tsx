@@ -36,6 +36,7 @@ import {
   type Curves,
   type GrainStructure,
   effectiveGrainStructure,
+  isFilmGrain,
   withNewGrainStructure,
   type RegionCurve,
 } from "../../utils/adjustments";
@@ -1617,15 +1618,21 @@ export default function StudioDevelop() {
                 ["grainSize", t("studio.develop.params.grainSize")],
                 ["grainRoughness", t("adjustments.effects.roughness")],
                 ["grainStructure", t("studio.develop.effects.grainStructure")],
+                ["grainColor", t("studio.develop.effects.grainColor")],
               ])}
-              onReset={() => reset(["grainAmount", "grainSize", "grainRoughness", "grainStructure", "grainVersion"])}
+              onReset={() => reset(["grainAmount", "grainSize", "grainRoughness", "grainStructure", "grainColor", "grainVersion"])}
             >
               {control(t("adjustments.effects.grain"), "grainAmount", 0)}
               {control(t("adjustments.effects.size"), "grainSize", 0)}
               {control(t("adjustments.effects.roughness"), "grainRoughness", 0)}
+              {/* Film grain (version 3, notes: reference/grain.md): Colour
+                  sets how independent the dye layers' grain is. */}
+              {isFilmGrain(values as Partial<Adjustments>) &&
+                control(t("studio.develop.effects.grainColor"), "grainColor", 0, 100)}
               {/* Grain structures (notes: reference/grain.md): Even is the
                   original grain; the others are own procedural grains that
                   cover characters Lightroom's sliders cannot reach. */}
+              {!isFilmGrain(values as Partial<Adjustments>) && (
               <label className="studio-inline">
                 <span>{t("studio.develop.effects.grainStructure")}</span>
                 <select
@@ -1655,6 +1662,7 @@ export default function StudioDevelop() {
                   </option>
                 </select>
               </label>
+              )}
             </ToolGroup>
           )}
           {inTab("detail") && !layer && (

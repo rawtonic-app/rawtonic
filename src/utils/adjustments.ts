@@ -403,9 +403,16 @@ export const NEW_GRAIN_STRUCTURE: GrainStructure = 'clumped';
 export const effectiveGrainStructure = (adjustments: Partial<Adjustments>): GrainStructure =>
   adjustments.grainStructure ?? ((adjustments.grainAmount ?? 0) > 0 ? 'even' : NEW_GRAIN_STRUCTURE);
 
-/** The grain new edits get (`image_processing::GRAIN_VERSION`): 2 is the
- * portable grain, the same on every GPU; 1 (missing key) the earlier one. */
-export const GRAIN_VERSION = 2;
+/** The grain new edits get (`image_processing::GRAIN_VERSION`): 3 is film
+ * grain (grains per dye layer in the negative's density, printed; Colour
+ * instead of a structure), 2 the portable grain, the same on every GPU; 1
+ * (missing key) the earlier one. */
+export const GRAIN_VERSION = 3;
+
+/** Film grain (version 3) has no structures; its Colour sets how independent
+ * the dye layers are. */
+export const isFilmGrain = (adjustments: Partial<Adjustments>): boolean =>
+  (adjustments.grainVersion ?? ((adjustments.grainAmount ?? 0) > 0 ? 1 : GRAIN_VERSION)) >= 3;
 
 /** Writes Even into grain that has none (recipes and presets from before the
  * structure choice), so it keeps rendering Even when copied, pasted, saved as
@@ -757,6 +764,9 @@ export interface Adjustments {
   grainStructure?: GrainStructure;
   /** The grain a recipe renders (`GRAIN_VERSION`); missing = 1. */
   grainVersion?: number;
+  /** Film grain's colour (grain version 3): 0 one neutral layer like
+   * black-and-white film, 100 independent dye layers; missing = 0. */
+  grainColor?: number;
   relightLights?: RelightLight[];
   relightDepth?: RelightDepth;
   relightDepthAmount?: number;
@@ -1584,7 +1594,7 @@ export const withPresetClarityVersion = <T extends Partial<Adjustments>>(preset:
   withClarityVersion(preset, preset);
 
 /** Keys whose values render the pattern of the recipe's grain version. */
-const GRAIN_KEYS = ['grainAmount', 'grainSize', 'grainRoughness', 'grainStructure'] as const;
+const GRAIN_KEYS = ['grainAmount', 'grainSize', 'grainRoughness', 'grainStructure', 'grainColor'] as const;
 
 /** As `withSharpenVersion` for the grain: wherever grain values are copied
  * (paste, tool copy, Edit all selected, presets) its version goes along
@@ -1600,11 +1610,21 @@ export const withGrainVersion = <T extends Partial<Adjustments>>(
   if (Object.prototype.hasOwnProperty.call(picked, 'grainVersion') && picked.grainVersion == null) {
     return { ...picked, grainVersion: 1 };
   }
-  if (!GRAIN_KEYS.some((key) => picked[key] !== undefined) || picked.grainVersion != null) {
-    return picked;
+  let versioned: T & Pick<Partial<Adjustments>, 'grainVersion'> = picked;
+  if (GRAIN_KEYS.some((key) => picked[key] !== undefined) && picked.grainVersion == null) {
+    const version = source?.grainVersion ?? ((source?.grainAmount ?? 0) > 0 ? 1 : GRAIN_VERSION);
+    versioned = { ...picked, grainVersion: version };
   }
-  const version = source?.grainVersion ?? ((source?.grainAmount ?? 0) > 0 ? 1 : GRAIN_VERSION);
-  return { ...picked, grainVersion: version };
+  // Film grain's Colour picked while it is still the missing default (0)
+  // would vanish in JSON, and the copy would keep the destination's Colour.
+  if (
+    Object.prototype.hasOwnProperty.call(picked, 'grainColor') &&
+    picked.grainColor == null &&
+    (versioned.grainVersion ?? 0) >= 3
+  ) {
+    versioned = { ...versioned, grainColor: 0 };
+  }
+  return versioned;
 };
 
 /** The AI Denoise version of a saved recipe: its own; else the current one
@@ -1975,7 +1995,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
     },
     {
       label: 'modals.copyPaste.groups.grain',
-      keys: [Effect.GrainAmount, Effect.GrainRoughness, Effect.GrainSize, 'grainStructure', 'grainVersion'],
+      keys: [Effect.GrainAmount, Effect.GrainRoughness, Effect.GrainSize, 'grainStructure', 'grainColor', 'grainVersion'],
     },
     {
       label: 'modals.copyPaste.groups.chromaticAberration',
@@ -2166,6 +2186,7 @@ export const ADJUSTMENT_SECTIONS: Sections = {
     Effect.GrainRoughness,
     Effect.GrainSize,
     'grainStructure',
+    'grainColor',
     Effect.LutIntensity,
     Effect.LutName,
     Effect.LutPath,

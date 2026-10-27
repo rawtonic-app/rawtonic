@@ -2222,6 +2222,7 @@
         "output": "Output"
       },
       "effects": {
+        "grainColor": "Colore della grana",
         "grainStructure": "Struttura della grana",
         "grainStructures": {
           "clumped": "Aggregata",
@@ -3612,11 +3613,10 @@
         "grading-warm-shadows-cool-highlights": "Ombre calde, luci fredde",
         "grading-warm-tone": "Tono caldo",
         "grading-warm-up": "Più caldo",
-        "grain-coarse": "Grosso",
-        "grain-fine": "Fine",
-        "grain-heavy": "Forte",
-        "grain-medium": "Medio",
-        "grain-speckled": "Puntinato",
+        "grain-bw-100": "B/N 100 fine",
+        "grain-bw-400": "B/N 400 classico",
+        "grain-colour-100": "Negativo colore 100 discreto",
+        "grain-colour-400": "Negativo colore 400",
         "muted-colour": "Colori smorzati",
         "noise-light": "Leggera",
         "noise-medium": "Media",

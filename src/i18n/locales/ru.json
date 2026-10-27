@@ -2282,6 +2282,7 @@
         "output": "Выход"
       },
       "effects": {
+        "grainColor": "Цвет зерна",
         "grainStructure": "Структура зерна",
         "grainStructures": {
           "clumped": "Комковатая",
@@ -3713,11 +3714,10 @@
         "grading-warm-shadows-cool-highlights": "Тёплые тени, холодные света",
         "grading-warm-tone": "Тёплый тон",
         "grading-warm-up": "Теплее",
-        "grain-coarse": "Крупное",
-        "grain-fine": "Мелкое",
-        "grain-heavy": "Сильное",
-        "grain-medium": "Среднее",
-        "grain-speckled": "Крапчатое",
+        "grain-bw-100": "Ч/б 100 мелкое",
+        "grain-bw-400": "Ч/б 400 классика",
+        "grain-colour-100": "Цветной негатив 100 мягкое",
+        "grain-colour-400": "Цветной негатив 400",
         "muted-colour": "Приглушённые цвета",
         "noise-light": "Лёгкое",
         "noise-medium": "Среднее",
