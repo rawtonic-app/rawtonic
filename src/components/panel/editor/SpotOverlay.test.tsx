@@ -265,6 +265,39 @@ describe("spot removal overlay", () => {
     expect(invoke).toHaveBeenCalledWith("cancel_ai_task", { taskId: slow });
   });
 
+  it("shows the newest of two running removals and keeps it when the older one finishes", async () => {
+    const patchData = { color: "c", mask: "m", offsetX: 0, offsetY: 0, width: 4, height: 4, isSrgbEncoded: true };
+    const finish: Array<(value: unknown) => void> = [];
+    invoke.mockImplementation((command: string) =>
+      command === "invoke_generative_replace_with_mask_def"
+        ? new Promise((resolve) => finish.push(resolve))
+        : Promise.resolve(),
+    );
+    useEditorStore.setState({ spotSettings: { mode: "remove", size: 20, feather: 0, opacity: 100 } });
+    const el = overlay();
+    for (const [x, id] of [[50, 1], [150, 2]]) {
+      await act(async () => {
+        fireEvent.pointerDown(el, { button: 0, clientX: x, clientY: 50, pointerId: id });
+        fireEvent.pointerUp(el, { clientX: x, clientY: 50, pointerId: id });
+      });
+    }
+    const [a, b] = invoke.mock.calls
+      .filter(([name]) => name === "invoke_generative_replace_with_mask_def")
+      .map(([, args]) => (args as { taskId: string }).taskId);
+    act(() => listeners.get("ai-fill-progress")!({ payload: { taskId: a, done: 2, total: 9 } }));
+    act(() => listeners.get("ai-fill-progress")!({ payload: { taskId: b, done: 4, total: 9 } }));
+    expect(screen.getByTestId("remove-progress").textContent).toMatch(/4\D+9/);
+    // The older one reports its last step and finishes: the newer one stays shown.
+    act(() => listeners.get("ai-fill-progress")!({ payload: { taskId: a, done: 9, total: 9 } }));
+    expect(screen.getByTestId("remove-progress").textContent).toMatch(/4\D+9/);
+    await act(async () => finish[0](JSON.stringify(patchData)));
+    expect(screen.getByTestId("remove-progress").textContent).toMatch(/4\D+9/);
+    fireEvent.click(screen.getByRole("button"));
+    expect(invoke).toHaveBeenCalledWith("cancel_ai_task", { taskId: b });
+    await act(async () => finish[1](JSON.stringify(patchData)));
+    expect(screen.queryByTestId("remove-progress")).toBeNull();
+  });
+
   it("removes an object selected by a click: object mask, then fill, as one AI patch", async () => {
     const patchData = { color: "c", mask: "m", offsetX: 0, offsetY: 0, width: 4, height: 4, isSrgbEncoded: true };
     let releaseMask: (value: unknown) => void = () => {};

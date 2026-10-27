@@ -170,9 +170,16 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   const drag = useRef<Drag | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   // The removals being filled (task ids, newest last) and what the backend
-  // reports of the one shown.
+  // reported of each; the newest one with a report is shown.
   const filling = useRef<string[]>([]);
-  const [progress, setProgress] = useState<FillProgress | null>(null);
+  const [reports, setReports] = useState<FillProgress[]>([]);
+  const report = (next: FillProgress) =>
+    setReports((all) => [...all.filter((r) => r.taskId !== next.taskId), next]);
+  const progress =
+    filling.current
+      .toReversed()
+      .map((id) => reports.find((r) => r.taskId === id))
+      .find((r) => r !== undefined) ?? null;
   const cancelFill = (taskId: string) => {
     invoke(Invokes.CancelAiTask, { taskId }).catch(() => {});
   };
@@ -247,7 +254,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     } finally {
       unregisterAiTask(patch.id);
       filling.current = filling.current.filter((id) => id !== patch.id);
-      setProgress((shown) => (shown?.taskId === patch.id ? null : shown));
+      setReports((all) => all.filter((r) => r.taskId !== patch.id));
     }
   };
 
@@ -589,13 +596,13 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     const unlisten = [
       listen<{ taskId: string | null; done: number; total: number }>('ai-fill-progress', ({ payload }) => {
         if (payload.taskId && filling.current.includes(payload.taskId))
-          setProgress({ taskId: payload.taskId, done: payload.done, total: payload.total });
+          report({ taskId: payload.taskId, done: payload.done, total: payload.total });
       }),
       listen<{ received: number; total: number }>('ai-model-download-progress', ({ payload }) => {
         // A download serves the newest removal waiting for it.
         const id = filling.current.at(-1);
         if (id && payload.total > 0)
-          setProgress({ taskId: id, download: Math.floor((payload.received / payload.total) * 100) });
+          report({ taskId: id, download: Math.floor((payload.received / payload.total) * 100) });
       }),
     ].map((p) => p.catch(() => null));
     return () => unlisten.forEach((p) => p.then((stop) => stop?.()));
