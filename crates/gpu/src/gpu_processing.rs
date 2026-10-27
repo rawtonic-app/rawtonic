@@ -3198,6 +3198,13 @@ fn off_global_pool<R: Send>(work: impl FnOnce() -> R + Send) -> R {
     }
 }
 
+/// The film grain tile's data, built in parallel off the global pool: the
+/// first film grain render builds it while holding the processor, and global
+/// pool workers may be waiting for that processor (thumbnail regeneration).
+fn film_grain_tile_data() -> Vec<u32> {
+    off_global_pool(rawtonic_engine::film_grain::grain_tile)
+}
+
 /// Creates the Rgba16Float input texture of `image` band by band.
 ///
 /// Uploading in one call needs a full f16 copy and an equally large staging
@@ -7531,7 +7538,7 @@ impl GpuProcessor {
             self.film_grain_tile.get_or_init(|| {
                 device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Film grain tile"),
-                    contents: bytemuck::cast_slice(&rawtonic_engine::film_grain::grain_tile()),
+                    contents: bytemuck::cast_slice(&film_grain_tile_data()),
                     usage: wgpu::BufferUsages::STORAGE,
                 })
             })
@@ -9908,6 +9915,42 @@ mod display_geometry_tests {
         assert_eq!(
             fit_placement([10.0, 20.0, 400.0, 200.0], 300.0, 300.0),
             [110.0, 20.0, 200.0, 200.0]
+        );
+    }
+}
+
+#[cfg(test)]
+mod film_grain_tile_pool_tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex, mpsc};
+    use std::time::Duration;
+
+    #[test]
+    fn the_film_grain_tile_builds_while_the_global_pool_waits_for_the_processor() {
+        // Every global pool worker waits for a lock the caller holds, as
+        // thumbnail regeneration waits for the processor during the first
+        // film grain render.
+        let processor = Arc::new(Mutex::new(()));
+        let held = processor.lock().unwrap();
+        let waiting = Arc::new(AtomicUsize::new(0));
+        let workers = rayon::current_num_threads();
+        for _ in 0..workers {
+            let (processor, waiting) = (processor.clone(), waiting.clone());
+            rayon::spawn(move || {
+                waiting.fetch_add(1, Ordering::SeqCst);
+                drop(processor.lock().unwrap());
+            });
+        }
+        while waiting.load(Ordering::SeqCst) < workers {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let (done, built) = mpsc::channel();
+        std::thread::spawn(move || done.send(super::film_grain_tile_data().len()).unwrap());
+        let len = built.recv_timeout(Duration::from_secs(300));
+        drop(held);
+        assert!(
+            len.is_ok_and(|len| len > 0),
+            "the tile waited for the global pool"
         );
     }
 }
