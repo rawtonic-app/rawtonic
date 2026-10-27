@@ -724,7 +724,16 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
           const id = filling.current.at(-1);
           const received = payload.batchReceived ?? payload.received;
           const total = payload.batchTotal ?? payload.total;
-          if (id && total > 0) report({ taskId: id, download: Math.min(100, Math.floor((received / total) * 100)) });
+          if (id && total > 0) {
+            const percent = Math.min(100, Math.floor((received / total) * 100));
+            setReports((all) => {
+              const previous = all.find((r) => r.taskId === id);
+              // A second removal may be waiting for the same initialization.
+              // Keep its preparation phase through downloads too.
+              const download = percent >= 100 && previous?.phase === 'preparing' ? undefined : percent;
+              return [...all.filter((r) => r.taskId !== id), { ...previous, taskId: id, download }];
+            });
+          }
         },
       ),
       // Moebius could not be used for a large hole: MI-GAN filled it, and

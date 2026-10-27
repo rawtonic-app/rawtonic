@@ -390,6 +390,9 @@ describe("spot removal overlay", () => {
     expect(screen.getByTestId("remove-progress").textContent).toContain("Preparing large-area removal");
     act(() => listeners.get("ai-model-download-progress")!({ payload: { received: 50, total: 200 } }));
     expect(screen.getByTestId("remove-progress").textContent).toContain("25");
+    // Even a task queued behind the loader returns to preparation at 100%.
+    act(() => listeners.get("ai-model-download-progress")!({ payload: { received: 200, total: 200 } }));
+    expect(screen.getByTestId("remove-progress").textContent).toContain("Preparing large-area removal");
     // The GPU check follows the last download.
     act(() => listeners.get("ai-fill-progress")!({ payload: { taskId, phase: "preparing", done: 0, total: 0 } }));
     expect(screen.getByTestId("remove-progress").textContent).toContain("Preparing large-area removal");
