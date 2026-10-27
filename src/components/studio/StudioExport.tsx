@@ -115,7 +115,22 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
     setDraft((current) => ({ ...current, ...patch }));
   const [choosing, setChoosing] = useState(false);
   const target = draft.where === "output" && !session ? "choose" : draft.where;
-  const form: RecipeDraft = { ...draft, where: target, folder: undefined };
+  // A folder chosen in the form is used for this export (and remembered by a
+  // recipe saved from it); "choose" without one still asks on Export.
+  const form: RecipeDraft = {
+    ...draft,
+    where: target,
+    folder: target === "choose" ? draft.folder : undefined,
+  };
+  const chooseFolder = async () => {
+    const chosen = await open({
+      title: t("studio.export.destination.choose"),
+      directory: true,
+      multiple: false,
+      defaultPath: draft.folder,
+    });
+    if (typeof chosen === "string") set({ where: "choose", folder: chosen });
+  };
   const busy =
     state.status === Status.Exporting || state.status === Status.Cancelling;
   const appSettings = useSettingsStore((s) => s.appSettings);
@@ -441,9 +456,12 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
           <select
             aria-label={t("studio.export.destination.aria")}
             value={target}
-            onChange={(e) =>
-              set({ where: e.target.value as RecipeDraft["where"] })
-            }
+            onChange={(e) => {
+              const where = e.target.value as RecipeDraft["where"];
+              // Choosing a folder asks for it now, not only on Export.
+              if (where === "choose") void chooseFolder();
+              else set({ where });
+            }}
           >
             {session && (
               <option value="output">
@@ -454,9 +472,21 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
               {t("studio.export.destination.original")}
             </option>
             <option value="choose">
-              {t("studio.export.destination.choose")}
+              {target === "choose" && draft.folder
+                ? fileName(draft.folder)
+                : t("studio.export.destination.choose")}
             </option>
           </select>
+          {target === "choose" && draft.folder && (
+            <button
+              type="button"
+              title={draft.folder}
+              aria-label={t("studio.export.destination.choose")}
+              onClick={() => void chooseFolder()}
+            >
+              …
+            </button>
+          )}
         </label>
         <label>
           {t("studio.export.destination.subfolder")}
