@@ -1736,6 +1736,7 @@ static MOEBIUS_INIT_LOCK: TokioMutex<()> = TokioMutex::const_new(());
 pub async fn get_or_init_moebius(
     app_handle: &tauri::AppHandle,
     ai_state_mutex: &Mutex<Option<AiState>>,
+    preparing: &(dyn Fn() + Send + Sync),
 ) -> Result<Arc<crate::moebius::Moebius>> {
     let loaded = || {
         ai_state_mutex
@@ -1747,6 +1748,7 @@ pub async fn get_or_init_moebius(
     if let Some(model) = loaded() {
         return Ok(model);
     }
+    preparing();
     let _guard = MOEBIUS_INIT_LOCK.lock().await;
     if let Some(model) = loaded() {
         return Ok(model);
@@ -1754,7 +1756,7 @@ pub async fn get_or_init_moebius(
     let generation = crate::ai_lifecycle::LIFECYCLE.generation();
     let models_dir = get_models_dir(app_handle)?;
     let start = std::time::Instant::now();
-    let model = Arc::new(crate::moebius::load(app_handle, &models_dir).await?);
+    let model = Arc::new(crate::moebius::load(app_handle, &models_dir, preparing).await?);
     log::info!(
         "AI fill: Moebius loaded in {} ms",
         start.elapsed().as_millis()

@@ -2088,6 +2088,7 @@
     },
     "opacity": "불투명도",
     "opacityAria": "스팟 불투명도",
+    "preparingGpu": "이 GPU에서 넓은 영역 제거 준비 중(최초 1회)…",
     "redEye": {
       "catchlight": "캐치라이트 추가",
       "darken": "어둡게",

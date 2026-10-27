@@ -71,7 +71,12 @@ pub fn read_embeddings(path: &Path) -> Result<Vec<f32>> {
 /// Loads Moebius from `models_dir`, downloading what is missing (about
 /// 620 MB on first use). An error when it cannot run here (no GPU provider
 /// on Windows and Linux, Core ML failed): MI-GAN fills then.
-pub async fn load(app_handle: &tauri::AppHandle, models_dir: &Path) -> Result<Moebius> {
+pub async fn load(
+    app_handle: &tauri::AppHandle,
+    models_dir: &Path,
+    preparing: &(dyn Fn() + Send + Sync),
+) -> Result<Moebius> {
+    preparing();
     #[cfg(target_os = "macos")]
     {
         coreml::load(app_handle, models_dir, true)
@@ -80,7 +85,7 @@ pub async fn load(app_handle: &tauri::AppHandle, models_dir: &Path) -> Result<Mo
     }
     #[cfg(not(target_os = "macos"))]
     {
-        onnx::load(app_handle, models_dir).await
+        onnx::load(app_handle, models_dir, preparing).await
     }
 }
 

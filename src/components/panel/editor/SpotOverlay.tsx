@@ -180,7 +180,7 @@ function distanceToSpot(x: number, y: number, spot: Spot, dx = 0, dy = 0) {
  * the first time): the overlay shows its progress with Cancel (or Escape).
  */
 /** A running removal's progress: its model's download, then the network's runs. */
-type FillProgress = { taskId: string; download?: number; done?: number; total?: number };
+type FillProgress = { taskId: string; download?: number; phase?: 'preparing'; done?: number; total?: number };
 
 export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) {
   const { t } = useTranslation();
@@ -712,9 +712,9 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   // while the removal waits) and the network's runs.
   useEffect(() => {
     const unlisten = [
-      listen<{ taskId: string | null; done: number; total: number }>('ai-fill-progress', ({ payload }) => {
+      listen<{ taskId: string | null; done: number; total: number; phase?: 'preparing' }>('ai-fill-progress', ({ payload }) => {
         if (payload.taskId && filling.current.includes(payload.taskId))
-          report({ taskId: payload.taskId, done: payload.done, total: payload.total });
+          report({ taskId: payload.taskId, done: payload.done, total: payload.total, phase: payload.phase });
       }),
       listen<{ received: number; total: number; batchReceived?: number; batchTotal?: number }>(
         'ai-model-download-progress',
@@ -1013,7 +1013,9 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
           <span>
             {progress.download !== undefined
               ? t('spotRemoval.downloadingModel', { percent: progress.download })
-              : t('spotRemoval.filling', { done: progress.done ?? 0, total: progress.total ?? 0 })}
+              : progress.phase === 'preparing'
+                ? t('spotRemoval.preparingGpu')
+                : t('spotRemoval.filling', { done: progress.done ?? 0, total: progress.total ?? 0 })}
           </span>
           <button
             type="button"

@@ -2228,6 +2228,7 @@
     },
     "opacity": "Opacidad",
     "opacityAria": "Opacidad de la mancha",
+    "preparingGpu": "Preparando la eliminación de áreas grandes para esta GPU (una sola vez)…",
     "redEye": {
       "catchlight": "Añadir reflejo",
       "darken": "Oscurecer",
