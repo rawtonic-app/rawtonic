@@ -13812,10 +13812,11 @@ fn film_grain_at_half_size_is_the_full_size_grain_scaled_down() {
         };
         let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
         let (a, b) = (sd(&scaled), sd(&half));
+        let (mean_scaled, mean_half) = (mean(&scaled), mean(&half));
         let correlation = scaled
             .iter()
             .zip(&half)
-            .map(|(x, y)| (x - mean(&scaled)) * (y - mean(&half)))
+            .map(|(x, y)| (x - mean_scaled) * (y - mean_half))
             .sum::<f64>()
             / (a * b * half.len() as f64);
         println!(

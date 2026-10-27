@@ -1610,11 +1610,21 @@ export const withGrainVersion = <T extends Partial<Adjustments>>(
   if (Object.prototype.hasOwnProperty.call(picked, 'grainVersion') && picked.grainVersion == null) {
     return { ...picked, grainVersion: 1 };
   }
-  if (!GRAIN_KEYS.some((key) => picked[key] !== undefined) || picked.grainVersion != null) {
-    return picked;
+  let versioned: T & Pick<Partial<Adjustments>, 'grainVersion'> = picked;
+  if (GRAIN_KEYS.some((key) => picked[key] !== undefined) && picked.grainVersion == null) {
+    const version = source?.grainVersion ?? ((source?.grainAmount ?? 0) > 0 ? 1 : GRAIN_VERSION);
+    versioned = { ...picked, grainVersion: version };
   }
-  const version = source?.grainVersion ?? ((source?.grainAmount ?? 0) > 0 ? 1 : GRAIN_VERSION);
-  return { ...picked, grainVersion: version };
+  // Film grain's Colour picked while it is still the missing default (0)
+  // would vanish in JSON, and the copy would keep the destination's Colour.
+  if (
+    Object.prototype.hasOwnProperty.call(picked, 'grainColor') &&
+    picked.grainColor == null &&
+    (versioned.grainVersion ?? 0) >= 3
+  ) {
+    versioned = { ...versioned, grainColor: 0 };
+  }
+  return versioned;
 };
 
 /** The AI Denoise version of a saved recipe: its own; else the current one
