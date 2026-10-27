@@ -5339,6 +5339,34 @@ mod linear_tests {
     }
 
     #[test]
+    fn band_matches_two_existing_gradient_ramps() {
+        let (sx, sy, vx, vy) = (100.0f64, 60.0f64, 100.0f64, 40.0f64);
+        let length = vx.hypot(vy);
+        let (nx, ny) = (-vy / length, vx / length);
+        let band = serde_json::json!({"startX": sx, "startY": sy,
+            "endX": sx + vx, "endY": sy + vy, "band": {"width": 20.0, "feather": 14.0}});
+        // Each ordinary ramp has its midpoint halfway through one feather.
+        let ramp = |side: f64| {
+            serde_json::json!({
+            "startX": sx + nx * 17.0 * side, "startY": sy + ny * 17.0 * side,
+            "endX": sx + nx * 17.0 * side + vx * side,
+            "endY": sy + ny * 17.0 * side + vy * side, "range": 7.0})
+        };
+        for scale in [0.71, 1.0, 1.3] {
+            let render =
+                |params: &Value| generate_linear_bitmap(params, 231, 141, scale, (7.0, 11.0));
+            let strip = render(&band);
+            let left = render(&ramp(-1.0));
+            let right = render(&ramp(1.0));
+            for ((band, left), right) in strip.iter().zip(left.iter()).zip(right.iter()) {
+                let intersection = (*left as u16 * *right as u16 / 255) as u8;
+                // Rearranging the same ramps in f32 can cross one u8 boundary.
+                assert!(band.abs_diff(intersection) <= 1);
+            }
+        }
+    }
+
+    #[test]
     fn band_with_zero_feather_has_hard_edges_and_zero_width_is_supported() {
         let mut params = serde_json::json!({"startX": 0.0, "startY": 50.0,
             "endX": 100.0, "endY": 50.0, "band": {"width": 20.0, "feather": 0.0}});
