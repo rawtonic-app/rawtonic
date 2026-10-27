@@ -4952,3 +4952,296 @@ img.relight-pattern-preview { object-fit: cover; }
 .studio-app .session-bar:has(.is-in-header) .session-identity {
   flex-shrink: 1;
 }
+
+/* Notices: toasts and the update notice share one look and one bottom-right
+   column (AppNotices), toasts above, persistent notices nearest the corner. */
+.app-notices {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: calc(100vw - 32px);
+  pointer-events: none;
+  --toastify-icon-color-info: var(--studio-accent);
+  --toastify-icon-color-success: #9fc7a4;
+  --toastify-icon-color-warning: #e3c27d;
+  --toastify-icon-color-error: #f1abab;
+}
+.app-notices .Toastify__toast-container {
+  position: static;
+  transform: none;
+  width: auto;
+  padding: 0;
+  gap: 8px;
+}
+.app-notices > *,
+.app-notices .Toastify__toast {
+  pointer-events: auto;
+}
+.app-notices .Toastify__toast.app-notice,
+.app-notice {
+  position: relative;
+  display: block;
+  width: 360px;
+  max-width: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #45484c;
+  border-radius: 4px;
+  background: var(--studio-raised);
+  box-shadow: 0 8px 28px #0007;
+  color: var(--studio-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  cursor: default;
+}
+/* A toast's message may be several elements (OperationError): it flows as a
+   block between the icon and the close button. */
+.app-notices .Toastify__toast.app-notice {
+  padding: 10px 36px 10px 36px;
+}
+.app-notices .Toastify__toast-icon {
+  position: absolute;
+  top: 11px;
+  left: 12px;
+  width: 16px;
+  margin: 0;
+}
+.app-notices .Toastify__toast-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.app-notices .Toastify__toast .app-notice-close {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  margin: 0;
+}
+.app-notices .app-notice.app-notice--error {
+  border-left: 3px solid #b35b5b;
+}
+.app-notices .app-notice.app-notice--warning {
+  border-left: 3px solid #a58a4f;
+}
+.app-notice button {
+  font: inherit;
+}
+.app-notice-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 2px;
+  color: var(--studio-muted);
+}
+.app-notice-close:hover {
+  background: #ffffff10;
+  color: #fff;
+}
+.app-notice-body {
+  flex: 1;
+  min-width: 0;
+  padding-right: 4px;
+}
+.app-notice-title {
+  font-weight: 600;
+}
+.app-notice-detail {
+  margin-top: 3px;
+  color: var(--studio-muted);
+}
+.app-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.app-notice-actions button,
+.app-notes-dialog footer button {
+  padding: 4px 10px;
+  border: 1px solid #46484c;
+  border-radius: 3px;
+  color: #e6e7e9;
+}
+.app-notice-actions button:hover,
+.app-notes-dialog footer button:hover {
+  background: #ffffff10;
+}
+.app-notice-actions button.is-primary,
+.app-notes-dialog footer button.is-primary {
+  border-color: transparent;
+  background: #a9bdcc;
+  color: #18232a;
+}
+.app-notice-actions button.is-primary:hover,
+.app-notes-dialog footer button.is-primary:hover {
+  background: #bfd0dc;
+}
+.app-notice-actions .app-notice-later {
+  margin-left: auto;
+  border-color: transparent;
+  color: var(--studio-muted);
+}
+.app-notice:focus-visible,
+:is(.app-notice, .app-notes-dialog) :focus-visible {
+  outline: 2px solid #a9c9e1;
+  outline-offset: -2px;
+}
+.app-notice-enter {
+  animation: app-notice-in 120ms ease-out both;
+}
+.app-notice-exit {
+  animation: app-notice-out 120ms ease-in both;
+}
+@keyframes app-notice-in {
+  from { opacity: 0; }
+}
+@keyframes app-notice-out {
+  to { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Not "none": the toast is removed when its animation ends. */
+  .app-notice-enter,
+  .app-notice-exit {
+    animation-duration: 1ms;
+  }
+}
+
+/* Release notes and "What's new": a tool dialog (DESIGN.md). */
+.app-notes-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(560px, calc(100vw - 50px));
+  max-height: min(750px, calc(100vh - 60px));
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #45484c;
+  border-radius: 4px;
+  background: var(--studio-bg, #292a2c);
+  color: var(--studio-text, #e0e1e3);
+  box-shadow: 0 18px 80px #0008;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.app-notes-dialog:not([open]) {
+  display: none;
+}
+.app-notes-dialog::backdrop {
+  background: #10111488;
+}
+.app-notes-dialog header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 10px 10px 16px;
+  border-bottom: 1px solid var(--studio-line, #17181a);
+}
+.app-notes-dialog h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.app-notes-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 16px 14px;
+  user-select: text;
+}
+.app-notes-body:focus-visible {
+  outline-offset: -4px;
+}
+.app-notes-empty {
+  margin-top: 10px;
+  color: var(--studio-muted, #a5a7aa);
+}
+.app-notes-dialog footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--studio-line, #17181a);
+}
+.app-notes-optout {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  color: var(--studio-muted, #a5a7aa);
+}
+.app-markdown :is(h3, h4, h5, h6) {
+  margin: 14px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.app-markdown h3 {
+  font-size: 13px;
+}
+.app-markdown :is(p, ul, ol, pre, blockquote) {
+  margin: 8px 0 0;
+}
+.app-markdown :is(ul, ol) {
+  padding-left: 18px;
+}
+.app-markdown ul {
+  list-style: disc;
+}
+.app-markdown ol {
+  list-style: decimal;
+}
+.app-markdown li + li {
+  margin-top: 4px;
+}
+.app-markdown li > :first-child {
+  margin-top: 0;
+}
+.app-markdown code {
+  padding: 0 3px;
+  border-radius: 2px;
+  background: #202123;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+.app-markdown pre {
+  padding: 6px 8px;
+  border-radius: 3px;
+  background: #202123;
+  overflow-x: auto;
+}
+.app-markdown pre code {
+  padding: 0;
+}
+.app-markdown blockquote {
+  padding: 6px 10px;
+  border-left: 2px solid #4a5058;
+  background: #2e2f31;
+}
+.app-markdown blockquote > :first-child {
+  margin-top: 0;
+}
+.app-markdown hr {
+  margin: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--studio-line, #17181a);
+}
+.app-markdown a {
+  color: var(--studio-accent, #9cb8d0);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.app-notes-dialog header .app-notice-close {
+  margin-left: auto;
+}

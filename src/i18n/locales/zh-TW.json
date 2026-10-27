@@ -941,6 +941,10 @@
       "yearShort": "年 · 2 位"
     }
   },
+  "notifications": {
+    "close": "關閉通知",
+    "region": "通知"
+  },
   "offline": {
     "badge": "離線",
     "badgeTitleMissing": "檔案遺失。照片以其預覽開啟；按右鍵 › 尋找照片… 可重新找到檔案。",
@@ -3995,12 +3999,21 @@
     "available": "Rawtonic {{version}} 已可使用",
     "checking": "正在檢查…",
     "checkNow": "立即檢查",
+    "close": "關閉",
+    "dontShowAgain": "更新後不再顯示",
     "download": "下載",
     "failed": "無法檢查更新。請稍後再試。",
+    "fileWithSize": "{{file}}（{{size}} MB）",
+    "noFile": "此版本沒有適用於這台電腦的下載；發布頁面列出了所有檔案。",
+    "noNotes": "沒有發布說明。發布頁面可能有更多資訊。",
+    "notesTitle": "Rawtonic {{version}} 的新功能",
     "notNow": "暫時不要",
     "noUpdate": "未找到較新的版本。",
     "prereleases": "包含預先發行版本",
     "privacy": "每天向 GitHub 查詢一次。傳送 IP 位址和應用程式版本，不傳送照片或識別碼。",
-    "startup": "啟動時檢查更新"
+    "releasePage": "發布頁面",
+    "showWhatsNew": "更新後顯示新功能",
+    "startup": "啟動時檢查更新",
+    "whatsNew": "新功能"
   }
 }

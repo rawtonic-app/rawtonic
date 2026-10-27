@@ -34,6 +34,11 @@ export default function UpdateSettings({ appSettings, onSettingsChange }: {
         label={t('updates.prereleases')}
         onChange={(checked) => { void onSettingsChange({ ...appSettings, updatePrereleases: checked }); }}
       />
+      <Switch
+        checked={appSettings.showWhatsNew ?? true}
+        label={t('updates.showWhatsNew')}
+        onChange={(checked) => { void onSettingsChange({ ...appSettings, showWhatsNew: checked }); }}
+      />
       <p className="text-sm text-text-secondary">{t('updates.privacy')}</p>
       <button
         type="button"

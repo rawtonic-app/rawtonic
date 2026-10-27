@@ -1,4 +1,6 @@
 import UpdateNotice from './components/UpdateNotice';
+import WhatsNewAfterUpdate from './components/WhatsNewAfterUpdate';
+import AppNotices from './components/ui/AppNotices';
 import ContributionHost from './components/contribute/ContributionHost';
 import StudioWorkspace from './components/studio/StudioWorkspace';
 import { FOLDER_SYNC_APPLIED, PREVIOUS_IMPORT_VIEW_ID, openPreviousImport, type SyncApplied } from './utils/folderSync';
@@ -17,7 +19,7 @@ import { epochOf, PerfProfiler, reportForcedLayout, reportPerformance, usePerfor
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { refocusWebview } from './utils/photoFullScreen';
-import { ToastContainer, toast, Slide } from 'react-toastify';
+import { toast } from 'react-toastify';
 import clsx from 'clsx';
 
 import TitleBar from './window/TitleBar';
@@ -474,7 +476,6 @@ function App() {
   return (
     <>
       <CommandPalette />
-      <UpdateNotice />
       <ContributionHost />
       <ImageProcessingManager
         transformWrapperRef={transformWrapperRef}
@@ -582,27 +583,10 @@ function App() {
           handleSaveCollage={handleSaveCollage}
         />
         </PerfProfiler>
-        <ToastContainer
-          position="bottom-right"
-          autoClose={5000}
-          hideProgressBar={false}
-          newestOnTop
-          closeOnClick
-          rtl={false}
-          pauseOnFocusLoss
-          draggable={false}
-          pauseOnHover
-          theme="dark"
-          transition={Slide}
-          toastClassName={() =>
-            clsx(
-              'relative flex min-h-16 p-4 rounded-lg justify-between overflow-hidden cursor-pointer mb-4',
-              'bg-surface! text-text-primary! border! border-border-color! shadow-2xl! max-w-[420px]!',
-              // Long paths in a notice break instead of running off its edge.
-              'wrap-anywhere',
-            )
-          }
-        />
+        <AppNotices>
+          <UpdateNotice />
+        </AppNotices>
+        <WhatsNewAfterUpdate />
       </div>
     </>
   );

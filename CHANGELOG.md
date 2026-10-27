@@ -3,6 +3,9 @@
 ## Unreleased
 
 - **Tethering fetches the photos waiting on the camera.** A camera that keeps tethered photos until the computer takes them (Fujifilm in USB tether mode) may hold photos taken while Rawtonic was not connected; on a GFX 50R that is their only copy. They are now downloaded and added to the library when the camera is connected or reconnected, as Capture One does when it starts, while you can keep shooting. Each is freed on the camera only once it is safely in the library, and only with "Free photos on the camera once they are in the library" on; one that cannot be downloaded stays on the camera and is reported. Photos already in the library are recognised and not added twice. Tested with a simulated camera; not yet with a body holding waiting photos.
+- **The update notice downloads the right file.** "Download" now opens the installer for your computer in the browser (the Apple Silicon or Intel DMG on a Mac, the AppImage on Linux) instead of the release page with all its files; when a release has no file for your computer, it opens the release page. "What's new" shows the release's notes in the app. Both come from the same once-a-day check as before; Rawtonic still downloads nothing itself.
+- **What's new after an update.** The first start of a new version shows what changed in it, from the notes that come with the app (no network access); not after a first install. "Don't show after updates" or Preferences › General turns it off.
+- **Notifications look like the rest of Rawtonic** and no longer cover the update notice: they stack above it in the lower right corner, use the app's type, colours and buttons, fade instead of sliding in, close only with their close button (a click elsewhere on one used to close it, also on one with a button to act on) and are announced politely to screen readers.
 
 ## 0.1.0-alpha.7.1 — 2026-10-26
 

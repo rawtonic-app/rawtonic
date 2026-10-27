@@ -47,12 +47,62 @@ async fn check(app: AppHandle, manual: bool) -> Result<Option<UpdateInfo>, Strin
         .error_for_status()
         .map_err(|e| e.to_string())?;
     let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+    let app_image = cfg!(target_os = "linux") && std::env::var_os("APPIMAGE").is_some();
     let update = core::select_release(
         &bytes,
         &version,
         prereleases,
-        cfg!(target_os = "linux") && std::env::var_os("APPIMAGE").is_some(),
+        this_platform(app_image),
+        app_image,
     )?;
     Ok(update
         .filter(|u| manual || settings.dismissed_update_version.as_deref() != Some(&u.version)))
+}
+
+/// Read locally only: the build's target, Rosetta on an Intel build and, on
+/// Linux, `/etc/os-release`.
+fn this_platform(app_image: bool) -> core::Platform {
+    let os = if cfg!(target_os = "macos") {
+        core::Os::Mac
+    } else if cfg!(target_os = "windows") {
+        core::Os::Windows
+    } else {
+        core::Os::Linux
+    };
+    let arch = if cfg!(target_arch = "aarch64") || runs_under_rosetta() {
+        core::Arch::Arm64
+    } else {
+        core::Arch::X64
+    };
+    let os_release = cfg!(target_os = "linux")
+        .then(|| std::fs::read_to_string("/etc/os-release").ok())
+        .flatten();
+    core::Platform {
+        os,
+        arch,
+        linux: core::linux_package(app_image, os_release.as_deref()),
+    }
+}
+
+/// An Intel build on an Apple Silicon Mac is offered the Apple Silicon DMG.
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn runs_under_rosetta() -> bool {
+    let mut translated: libc::c_int = 0;
+    let mut size = std::mem::size_of::<libc::c_int>();
+    // SAFETY: a NUL-terminated name and an int-sized output buffer with its size.
+    let result = unsafe {
+        libc::sysctlbyname(
+            c"sysctl.proc_translated".as_ptr(),
+            (&raw mut translated).cast(),
+            &raw mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    result == 0 && translated == 1
+}
+
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+fn runs_under_rosetta() -> bool {
+    false
 }

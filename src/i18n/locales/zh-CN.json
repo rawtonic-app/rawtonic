@@ -941,6 +941,10 @@
       "yearShort": "年 · 2 位"
     }
   },
+  "notifications": {
+    "close": "关闭通知",
+    "region": "通知"
+  },
   "offline": {
     "badge": "离线",
     "badgeTitleMissing": "文件缺失。照片以其预览打开；右键 › 查找照片… 可重新找到文件。",
@@ -3995,12 +3999,21 @@
     "available": "Rawtonic {{version}} 已可用",
     "checking": "正在检查…",
     "checkNow": "立即检查",
+    "close": "关闭",
+    "dontShowAgain": "更新后不再显示",
     "download": "下载",
     "failed": "无法检查更新。请稍后重试。",
+    "fileWithSize": "{{file}}（{{size}} MB）",
+    "noFile": "此版本没有适用于这台电脑的下载；发布页面列出了所有文件。",
+    "noNotes": "没有发布说明。发布页面可能有更多信息。",
+    "notesTitle": "Rawtonic {{version}} 的新功能",
     "notNow": "暂不更新",
     "noUpdate": "未找到更新的版本。",
     "prereleases": "包含预发布版本",
     "privacy": "每天向 GitHub 查询一次。发送 IP 地址和应用版本，不发送照片或标识符。",
-    "startup": "启动时检查更新"
+    "releasePage": "发布页面",
+    "showWhatsNew": "更新后显示新功能",
+    "startup": "启动时检查更新",
+    "whatsNew": "新功能"
   }
 }
