@@ -234,6 +234,37 @@ describe("spot removal overlay", () => {
     expect(useEditorStore.getState().adjustments.aiPatches ?? []).toHaveLength(0);
   });
 
+  it("keeps a slow removal's progress and Cancel when a quicker one finishes meanwhile", async () => {
+    const patchData = { color: "c", mask: "m", offsetX: 0, offsetY: 0, width: 4, height: 4, isSrgbEncoded: true };
+    let fills = 0;
+    invoke.mockImplementation((command: string) => {
+      if (command !== "invoke_generative_replace_with_mask_def") return Promise.resolve();
+      fills += 1;
+      // The first fill is slow (pending), the second finishes at once.
+      return fills === 1 ? new Promise(() => {}) : Promise.resolve(JSON.stringify(patchData));
+    });
+    useEditorStore.setState({ spotSettings: { mode: "remove", size: 20, feather: 0, opacity: 100 } });
+    const el = overlay();
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 50, clientY: 50, pointerId: 1 });
+      fireEvent.pointerUp(el, { clientX: 50, clientY: 50, pointerId: 1 });
+    });
+    const slow = (invoke.mock.calls.find(([name]) => name === "invoke_generative_replace_with_mask_def")![1] as {
+      taskId: string;
+    }).taskId;
+    act(() => listeners.get("ai-fill-progress")!({ payload: { taskId: slow, done: 2, total: 9 } }));
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 150, clientY: 100, pointerId: 2 });
+      fireEvent.pointerUp(el, { clientX: 150, clientY: 100, pointerId: 2 });
+    });
+    expect(useEditorStore.getState().adjustments.aiPatches).toHaveLength(1);
+    expect(screen.getByTestId("remove-progress").textContent).toMatch(/2\D+9/);
+    act(() => listeners.get("ai-fill-progress")!({ payload: { taskId: slow, done: 3, total: 9 } }));
+    expect(screen.getByTestId("remove-progress").textContent).toMatch(/3\D+9/);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(invoke).toHaveBeenCalledWith("cancel_ai_task", { taskId: slow });
+  });
+
   it("removes an object selected by a click: object mask, then fill, as one AI patch", async () => {
     const patchData = { color: "c", mask: "m", offsetX: 0, offsetY: 0, width: 4, height: 4, isSrgbEncoded: true };
     let releaseMask: (value: unknown) => void = () => {};

@@ -305,6 +305,14 @@ async fn fill_large_hole(
 ) -> Result<Option<RgbaImage>, String> {
     use tauri::Emitter;
 
+    let (x0, x1, y0, y1) = bounds;
+    // A hole longer than the photo's shorter side does not fit the
+    // network's square: MI-GAN, without downloading or loading Moebius.
+    let (w, h) = source.dimensions();
+    if crate::moebius::crop_square((x0 as u32, y0 as u32, x1 as u32, y1 as u32), w, h).is_none() {
+        log::info!("AI fill: the hole does not fit Moebius's square crop; MI-GAN guides the fill");
+        return Ok(None);
+    }
     let start = std::time::Instant::now();
     // The first use downloads the model: Cancel stops waiting for it.
     let loading = ai_processing::get_or_init_moebius(app_handle, &state.ai_state);
@@ -328,7 +336,6 @@ async fn fill_large_hole(
     }
     let hole_mask = binary_hole(mask);
     let rgb = source.to_rgb8();
-    let (x0, x1, y0, y1) = bounds;
     let app = app_handle.clone();
     let task = task_id.map(str::to_string);
     let cancel = token.clone();
