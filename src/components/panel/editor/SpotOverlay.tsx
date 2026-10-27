@@ -169,11 +169,19 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   const objectBrush = detectObjects && (settings.objectSelect ?? 'brush') === 'brush';
   const drag = useRef<Drag | null>(null);
   const ref = useRef<HTMLDivElement>(null);
-  // The removal being filled (its task id) and what the backend reports of it.
-  const filling = useRef<string | null>(null);
-  const [progress, setProgress] = useState<FillProgress | null>(null);
-  const cancelFill = () => {
-    if (filling.current) invoke(Invokes.CancelAiTask, { taskId: filling.current }).catch(() => {});
+  // The removals being filled (task ids, newest last) and what the backend
+  // reported of each; the newest one with a report is shown.
+  const filling = useRef<string[]>([]);
+  const [reports, setReports] = useState<FillProgress[]>([]);
+  const report = (next: FillProgress) =>
+    setReports((all) => [...all.filter((r) => r.taskId !== next.taskId), next]);
+  const progress =
+    filling.current
+      .toReversed()
+      .map((id) => reports.find((r) => r.taskId === id))
+      .find((r) => r !== undefined) ?? null;
+  const cancelFill = (taskId: string) => {
+    invoke(Invokes.CancelAiTask, { taskId }).catch(() => {});
   };
 
   const toBox = (x: number, y: number) => [(x - cropX) * scale, (y - cropY) * scale] as const;
@@ -216,7 +224,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     const path = selectedImage.path;
     const { registerAiTask, unregisterAiTask } = useProcessStore.getState();
     registerAiTask(patch.id, 'inpaint');
-    filling.current = patch.id;
+    filling.current = [...filling.current, patch.id];
     try {
       const definition = select ? await select(patch) : patch;
       if (useEditorStore.getState().selectedImage?.path !== path) return;
@@ -245,10 +253,8 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
       toastAiError(error, `Remove failed: ${error}`);
     } finally {
       unregisterAiTask(patch.id);
-      if (filling.current === patch.id) {
-        filling.current = null;
-        setProgress(null);
-      }
+      filling.current = filling.current.filter((id) => id !== patch.id);
+      setReports((all) => all.filter((r) => r.taskId !== patch.id));
     }
   };
 
@@ -589,20 +595,21 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   useEffect(() => {
     const unlisten = [
       listen<{ taskId: string | null; done: number; total: number }>('ai-fill-progress', ({ payload }) => {
-        if (payload.taskId && payload.taskId === filling.current)
-          setProgress({ taskId: payload.taskId, done: payload.done, total: payload.total });
+        if (payload.taskId && filling.current.includes(payload.taskId))
+          report({ taskId: payload.taskId, done: payload.done, total: payload.total });
       }),
       listen<{ received: number; total: number }>('ai-model-download-progress', ({ payload }) => {
-        const id = filling.current;
+        // A download serves the newest removal waiting for it.
+        const id = filling.current.at(-1);
         if (id && payload.total > 0)
-          setProgress({ taskId: id, download: Math.floor((payload.received / payload.total) * 100) });
+          report({ taskId: id, download: Math.floor((payload.received / payload.total) * 100) });
       }),
     ].map((p) => p.catch(() => null));
     return () => unlisten.forEach((p) => p.then((stop) => stop?.()));
   }, []);
 
   // Delete removes the selected spot; [ and ] resize it (or the next one);
-  // Escape cancels a removal being filled, else deselects.
+  // Escape cancels the removals being filled, else deselects.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -624,10 +631,10 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         const spot = adjustments.spots?.find((s) => s.id === id);
         if (spot) commit({ ...spot, radius: Math.max(2, spot.radius * factor) });
         else setEditor({ spotSettings: { ...spotSettings, size: Math.max(2, Math.round(spotSettings.size * factor)) } });
-      } else if (e.key === 'Escape' && filling.current) {
+      } else if (e.key === 'Escape' && filling.current.length) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        cancelFill();
+        filling.current.forEach(cancelFill);
       } else if (e.key === 'Escape' && id) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -864,7 +871,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
           </span>
           <button
             type="button"
-            onClick={cancelFill}
+            onClick={() => cancelFill(progress.taskId)}
             style={{
               padding: '2px 8px',
               borderRadius: 4,
