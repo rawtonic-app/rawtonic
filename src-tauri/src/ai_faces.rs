@@ -672,6 +672,7 @@ mod tests {
             }
             DynamicImage::ImageRgb32F(img).into_rgb8()
         };
+        let mut measured = 0;
         for file in files {
             let image = image::open(&file).unwrap().into_rgb8();
             let analysis = rawtonic_faces::analyze(&image, &models).unwrap();
@@ -679,6 +680,7 @@ mod tests {
             if faces.is_empty() {
                 continue;
             }
+            measured += 1;
             let name = file.file_stem().unwrap().to_string_lossy().to_string();
             // One stroke per face across the viewer-left cheek, a fifth of
             // the face wide, feathered over its outer half.
@@ -798,11 +800,25 @@ mod tests {
                 ("unprotected", &unprotected),
                 ("protected", &protected),
             ] {
-                image::imageops::crop_imm(&to_srgb8(img), x0, y0, cw, ch)
-                    .to_image()
-                    .save(out.join(format!("{name}_{suffix}.jpg")))
-                    .unwrap();
+                let crop = image::imageops::crop_imm(&to_srgb8(img), x0, y0, cw, ch).to_image();
+                let mut bytes = std::io::Cursor::new(Vec::new());
+                crop.write_to(&mut bytes, image::ImageFormat::Jpeg).unwrap();
+                rawtonic_export::output::write_new_output(
+                    out.join(format!("{name}_{suffix}.jpg")),
+                    bytes.into_inner(),
+                )
+                .unwrap();
             }
+            assert!(core > 0, "{name}: empty protection core");
+            assert_eq!(core_changed, 0, "{name}: protected pixels changed");
+            assert_eq!(
+                outside_changed, 0,
+                "{name}: protection leaked outside strokes"
+            );
+            assert!(
+                rest_change > 0.0,
+                "{name}: unprotected face was not retouched"
+            );
             println!(
                 "{name}: {} faces; core {core} px: {core_changed} values changed vs unretouched (retouch there without protection: mean |d| {:.5}); \
                  outside: {outside_changed} values differ from the unprotected render; rest of the faces: mean |d| {:.5} over {rest_n} px; \
@@ -816,6 +832,7 @@ mod tests {
                 diff / change.max(1e-9),
             );
         }
+        assert!(measured > 0, "no photos with detected faces were measured");
         std::mem::forget(models);
     }
 }
