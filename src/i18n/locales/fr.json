@@ -2078,6 +2078,7 @@
       },
       "grading": {
         "hueAria": "Teinte ({{range}})",
+        "link": "Lier les roues tonales",
         "luminanceArcTitle": "Luminance ({{range}}) {{value}} · faites glisser ou flèches · Maj : précis · double-clic réinitialise",
         "luminanceAria": "Luminance ({{range}})",
         "ranges": "Plages",

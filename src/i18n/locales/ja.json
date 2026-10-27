@@ -1980,6 +1980,7 @@
       },
       "grading": {
         "hueAria": "{{range}}の色相",
+        "link": "階調ホイールを連動",
         "luminanceArcTitle": "{{range}}の輝度 {{value}} · ドラッグまたは矢印キー · Shift で微調整 · ダブルクリックでリセット",
         "luminanceAria": "{{range}}の輝度",
         "ranges": "範囲",

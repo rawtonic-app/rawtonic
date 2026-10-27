@@ -2018,6 +2018,7 @@
       },
       "grading": {
         "hueAria": "{{range}} hue",
+        "link": "Link tonal wheels",
         "luminanceArcTitle": "{{range}} luminance {{value}} · drag or arrow keys · Shift fine · double-click resets",
         "luminanceAria": "{{range}} luminance",
         "ranges": "Ranges",
