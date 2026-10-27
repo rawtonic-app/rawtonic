@@ -5,5 +5,14 @@
 	<!-- Tethered shooting: macOS treats a camera on USB as removable media. -->
 	<key>NSRemovableVolumesUsageDescription</key>
 	<string>Rawtonic reads photos from a camera connected over USB for tethered shooting.</string>
+	<!-- Freed large blocks go back to macOS at once: its allocator otherwise
+	     keeps them, dirty, for reuse (Core ML and ONNX Runtime free 1-2 GB
+	     that stayed in the footprint; notes: benchmark-results/
+	     mem-ai-footprint-2026-10-27). Applies when macOS launches the app. -->
+	<key>LSEnvironment</key>
+	<dict>
+		<key>MallocLargeCache</key>
+		<string>0</string>
+	</dict>
 </dict>
 </plist>

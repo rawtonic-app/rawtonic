@@ -567,6 +567,11 @@ fn ort_path(path: &Path) -> Vec<c_char> {
 /// CPU).
 pub(crate) fn session(path: &Path, kind: ModelKind, device: Option<&Device>) -> Result<Session> {
     let mut builder = Session::builder()?;
+    // No CPU memory arena: it keeps a session's largest intermediate
+    // tensors (SAM's encoder about 1 GB, Relight's models about 1 GB more)
+    // for as long as the model stays loaded; without it they are freed
+    // after each run (notes: benchmark-results/mem-ai-footprint-2026-10-27).
+    unsafe { check((ort::api().DisableCpuMemArena)(builder.ptr_mut()))? };
     if let Some(device) = device {
         append(&mut builder, device, kind)?;
     } else {
@@ -580,7 +585,7 @@ pub(crate) fn session(path: &Path, kind: ModelKind, device: Option<&Device>) -> 
                     i32,
                 ) -> ort::sys::OrtStatusPtr,
             > = library.get(b"OrtSessionOptionsAppendExecutionProvider_CPU\0")?;
-            check(append_cpu(builder.ptr_mut(), 1))?;
+            check(append_cpu(builder.ptr_mut(), 0))?;
         }
     }
     Ok(builder.commit_from_file(path)?)
