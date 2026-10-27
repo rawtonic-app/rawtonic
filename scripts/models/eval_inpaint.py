@@ -25,11 +25,15 @@ in percent of the photo; PHOTOS/<photo>.png are 8- or 16-bit sRGB renders.
 - fill: runs the methods on the real cases (OUT/real/<method>/<id>.png)
   and on the synthetic holes (OUT/synthfill/<method>/<id>.png), crops only.
   Methods:
-    migan      the app before (run_inpainting: crop 1.5 x the hole around
+    migan      MI-GAN alone (run_inpainting's crop 1.5 x the hole around
                it, the authors' MI-GAN pipeline, blended by the mask)
     patch      patch_fill without a guide on the same crop
     hybrid     patch_fill guided by the MI-GAN fill
-    hybrid:K=V,... the same with patch_fill parameters
+    hybrid:K=V,... the same with patch_fill parameters; harness options:
+               ctx=F widens the pipeline's own crop to F x the hole (the
+               app uses 2.5), share=S to the hole's longer side / S where
+               that is more than the pipeline's max(512, side + 256),
+               pad, th, tile, grain
 - score: LPIPS (AlexNet), PSNR and mean Lab difference in the hole of the
   synthetic cases against the photo, and the hole's detail (high-pass
   energy) against the photo's, per method; time per fill.
@@ -161,12 +165,35 @@ def session(path):
     return _sessions[path]
 
 
-def migan_raw(img, hole):
-    """The MI-GAN pipeline's output on a crop (uint8 RGB), hole = bool."""
+def migan_raw(img, hole, ctx=0.0, share=0.0):
+    """The MI-GAN pipeline's output on a crop (uint8 RGB), hole = bool.
+    The pipeline crops tightly around the hole by itself; with `ctx` its
+    crop is widened to `ctx` x the hole by four 2 x 2 px marks at that
+    box's corners (filled by the model, then put back)."""
     s = session(os.environ["MIGAN"])
     x = img.transpose(2, 0, 1)[None].copy()
-    m = np.where(hole, 0, 255).astype(np.uint8)[None, None]
+    hole_in = hole.copy()
+    if share > 0:
+        # The pipeline's crop is a square of max(512, L + 256) around the
+        # hole (L its longer side); marks widen it to L / share when that is
+        # more: a box of L / share - 256 on the longer side.
+        ys, xs = np.nonzero(hole)
+        side = max(xs.max() - xs.min() + 1, ys.max() - ys.min() + 1)
+        if side / share > max(512, side + 256):
+            ctx = (side / share - 256) / side
+    if ctx > 0:
+        h, w = hole.shape
+        ys, xs = np.nonzero(hole)
+        cx, cy = (xs.min() + xs.max()) / 2, (ys.min() + ys.max()) / 2
+        hw, hh = (xs.max() - xs.min() + 1) * ctx / 2, (ys.max() - ys.min() + 1) * ctx / 2
+        bx0, bx1 = int(max(0, cx - hw)), int(min(w - 2, cx + hw))
+        by0, by1 = int(max(0, cy - hh)), int(min(h - 2, cy + hh))
+        for bx, by in ((bx0, by0), (bx1, by0), (bx0, by1), (bx1, by1)):
+            hole_in[by:by + 2, bx:bx + 2] = True
+    m = np.where(hole_in, 0, 255).astype(np.uint8)[None, None]
     out = s.run(None, {"image": x, "mask": m})[0][0].transpose(1, 2, 0)
+    if ctx > 0 or share > 0:
+        out = np.where(hole[..., None], out, img)
     return out
 
 
@@ -311,7 +338,7 @@ def run_method(method, photo, mask, tmp):
     name, _, opts = method.partition(":")
     params = [kv for kv in opts.split(",") if kv]
     # Options of the harness itself (the rest go to patch_fill).
-    keys = ("pad", "th", "size", "tile", "grain")
+    keys = ("pad", "th", "size", "tile", "grain", "ctx", "share")
     own = {k: float(v) for k, v in (kv.split("=") for kv in params if kv.split("=")[0] in keys)}
     params = [kv for kv in params if kv.split("=")[0] not in keys]
     if name == "gen":
@@ -330,13 +357,13 @@ def run_method(method, photo, mask, tmp):
     t = time.perf_counter()
     if name == "migan":
         tile = int(own.get("tile", 0))
-        filled = migan_tiled(img, hole, tile) if tile else migan_raw(img, hole)
+        filled = migan_tiled(img, hole, tile) if tile else migan_raw(img, hole, own.get("ctx", 0), own.get("share", 0))
     elif name == "hifill":
         filled = hifill_raw(img, hole)
     elif name == "patch":
         filled = patch_raw(img, hole, None, params, tmp)
     elif name == "hybrid":
-        filled = patch_raw(img, hole, migan_raw(img, hole), params, tmp)
+        filled = patch_raw(img, hole, migan_raw(img, hole, own.get("ctx", 0), own.get("share", 0)), params, tmp)
     else:
         raise SystemExit(f"unknown method {method}")
     if own.get("grain"):
