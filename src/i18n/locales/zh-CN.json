@@ -2675,6 +2675,21 @@
       "includeNeck": "包括颈部",
       "modelsMissing": "面部修饰需要面部模型。模型只会从 GitHub 上的 Rawtonic 模型包下载一次，并在这台电脑上运行。",
       "noFaces": "此照片中未找到人脸。",
+      "protect": {
+        "brush": "保护画笔",
+        "clear": "清除保护",
+        "feather": "羽化",
+        "featherAria": "保护画笔羽化",
+        "hint": "涂抹修饰时应保持原样的雀斑、痣和美人痣。按住 Alt（Option）擦除；[ 和 ] 调整大小。",
+        "modes": {
+          "erase": "擦除",
+          "off": "关闭",
+          "paint": "保护"
+        },
+        "show": "显示受保护区域",
+        "size": "大小",
+        "sizeAria": "保护画笔大小"
+      },
       "showBlemishes": "显示瑕疵（点击可保留或修复）",
       "sliders": {
         "blemishes": "瑕疵",

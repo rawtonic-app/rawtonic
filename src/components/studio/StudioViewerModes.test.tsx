@@ -306,15 +306,15 @@ it("shows a virtual copy with its source's flag in the info overlay", () => {
   expect(info.querySelector('[aria-label="Picked"]')).not.toBeNull();
 });
 
-it("puts the spot tool aside in the full screen and brings it back after it", () => {
+it("suspends spot and face overlays in full screen and restores them afterward", () => {
   useUIStore.setState({ activeView: "editor" });
-  useEditorStore.setState({ isSpotToolActive: true, showFaceBlemishes: true });
+  useEditorStore.setState({ isSpotToolActive: true, showFaceBlemishes: true, showFaceProtection: true });
   workspace();
   act(() => useUIStore.getState().toggleFullScreen());
-  expect(useEditorStore.getState()).toMatchObject({ isSpotToolActive: false, showFaceBlemishes: false });
+  expect(useEditorStore.getState()).toMatchObject({ isSpotToolActive: false, showFaceBlemishes: false, showFaceProtection: false });
   act(() => useUIStore.getState().toggleFullScreen());
-  expect(useEditorStore.getState()).toMatchObject({ isSpotToolActive: true, showFaceBlemishes: true });
-  useEditorStore.setState({ isSpotToolActive: false, showFaceBlemishes: false });
+  expect(useEditorStore.getState()).toMatchObject({ isSpotToolActive: true, showFaceBlemishes: true, showFaceProtection: true });
+  useEditorStore.setState({ isSpotToolActive: false, showFaceBlemishes: false, showFaceProtection: false });
 });
 
 it("keeps Shift-drag and Cmd/Ctrl clicks (straighten, crop reset) from the viewer while it only shows", () => {

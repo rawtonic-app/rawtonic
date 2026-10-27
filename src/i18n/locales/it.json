@@ -2791,6 +2791,21 @@
       "includeNeck": "Includi il collo",
       "modelsMissing": "Il ritocco del viso richiede i suoi modelli del viso. Vengono scaricati una sola volta dal pacchetto di modelli di Rawtonic su GitHub e funzionano su questo computer.",
       "noFaces": "Nessun volto trovato in questa foto.",
+      "protect": {
+        "brush": "Pennello di protezione",
+        "clear": "Rimuovi protezione",
+        "feather": "Sfumatura",
+        "featherAria": "Sfumatura del pennello di protezione",
+        "hint": "Dipingi su lentiggini, nei e segni di bellezza che il ritocco deve lasciare come sono. Tieni premuto Alt (Opzione) per cancellare; [ e ] cambiano la dimensione.",
+        "modes": {
+          "erase": "Cancella",
+          "off": "Disattivato",
+          "paint": "Proteggi"
+        },
+        "show": "Mostra aree protette",
+        "size": "Dimensione",
+        "sizeAria": "Dimensione del pennello di protezione"
+      },
       "showBlemishes": "Mostra imperfezioni (fai clic su una per mantenerla o correggerla)",
       "sliders": {
         "blemishes": "Imperfezioni",

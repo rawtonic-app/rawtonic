@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Protect freckles from the face retouch.** The Retouch tab has a protection brush: paint over freckles, moles and beauty marks the retouch should leave as they are (Protect / Erase, size and soft edge; Alt erases; [ and ] change the size; "Show protected areas" tints them). Protected pixels keep their values from before the retouch exactly, with a soft edge into the retouched skin, on every face the strokes touch; the rest of the face is retouched as before. Edits without protection render as before. This is manual protection; automatic freckle classification, long-stroke latency and comparison with other professional editors remain open.
+
 ## 0.1.0-alpha.8 — 2026-10-27
 
 The eighth alpha. Film grain is new: built like the grain of photographic film, with four presets measured on film scans, and the Develop view now shows it as the export will look. The lens correction warp runs on the graphics card, so the Develop view and the export develop exactly the same pixels. Tethering fetches the photos a Fujifilm camera kept while Rawtonic was not connected, styles replace each other instead of piling up, AI tools need about 3 GB less memory, and object removal no longer paints new objects into large holes. The update notice now downloads the right installer, and after an update Rawtonic shows what changed.

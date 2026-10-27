@@ -2675,6 +2675,21 @@
       "includeNeck": "목 포함",
       "modelsMissing": "얼굴 리터치에는 얼굴 모델이 필요합니다. GitHub의 Rawtonic 모델 팩에서 한 번만 다운로드되며 이 컴퓨터에서 실행됩니다.",
       "noFaces": "이 사진에서 얼굴을 찾지 못했습니다.",
+      "protect": {
+        "brush": "보호 브러시",
+        "clear": "보호 지우기",
+        "feather": "페더",
+        "featherAria": "보호 브러시 페더",
+        "hint": "리터치가 그대로 두어야 할 주근깨, 점, 애교점 위를 칠하세요. Alt(Option)를 누르면 지우고, [ 와 ] 로 크기를 바꿉니다.",
+        "modes": {
+          "erase": "지우기",
+          "off": "끄기",
+          "paint": "보호"
+        },
+        "show": "보호 영역 표시",
+        "size": "크기",
+        "sizeAria": "보호 브러시 크기"
+      },
       "showBlemishes": "잡티 표시(클릭하여 유지하거나 보정)",
       "sliders": {
         "blemishes": "잡티",

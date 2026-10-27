@@ -2791,6 +2791,21 @@
       "includeNeck": "Incluir pescoço",
       "modelsMissing": "O retoque facial precisa dos seus modelos de rosto. São transferidos uma vez do pacote de modelos do Rawtonic no GitHub e são executados neste computador.",
       "noFaces": "Nenhum rosto encontrado nesta foto.",
+      "protect": {
+        "brush": "Pincel de proteção",
+        "clear": "Remover proteção",
+        "feather": "Suavização",
+        "featherAria": "Suavização do pincel de proteção",
+        "hint": "Pinte sobre sardas, sinais e pintas que o retoque deve deixar como estão. Mantenha Alt (Option) para apagar; [ e ] alteram o tamanho.",
+        "modes": {
+          "erase": "Apagar",
+          "off": "Desligado",
+          "paint": "Proteger"
+        },
+        "show": "Mostrar áreas protegidas",
+        "size": "Tamanho",
+        "sizeAria": "Tamanho do pincel de proteção"
+      },
       "showBlemishes": "Mostrar imperfeições (clique em uma para mantê-la ou corrigi-la)",
       "sliders": {
         "blemishes": "Imperfeições",

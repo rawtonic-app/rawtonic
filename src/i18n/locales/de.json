@@ -2722,6 +2722,21 @@
       "includeNeck": "Hals einbeziehen",
       "modelsMissing": "Die Gesichtsretusche braucht ihre Gesichtsmodelle. Sie werden einmal aus Rawtonics Modellpaket auf GitHub geladen und laufen auf diesem Computer.",
       "noFaces": "Keine Gesichter in diesem Foto gefunden.",
+      "protect": {
+        "brush": "Schutzpinsel",
+        "clear": "Schutz entfernen",
+        "feather": "Weiche Kante",
+        "featherAria": "Weiche Kante des Schutzpinsels",
+        "hint": "Male über Sommersprossen, Leberflecke und Schönheitsflecke, die die Retusche unverändert lassen soll. Alt (Wahl) gedrückt halten zum Radieren; [ und ] ändern die Größe.",
+        "modes": {
+          "erase": "Radieren",
+          "off": "Aus",
+          "paint": "Schützen"
+        },
+        "show": "Geschützte Bereiche zeigen",
+        "size": "Größe",
+        "sizeAria": "Größe des Schutzpinsels"
+      },
       "showBlemishes": "Hautunreinheiten zeigen (zum Behalten oder Heilen anklicken)",
       "sliders": {
         "blemishes": "Hautunreinheiten",
