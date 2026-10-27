@@ -1875,6 +1875,7 @@
     "feather": "Sfumatura",
     "featherAria": "Sfumatura della macchia",
     "filling": "Rimozione… passo {{done}} di {{total}}",
+    "largeHoleTooSlow": "Questa GPU è troppo lenta per rimuovere aree grandi; Rimuovi usa il metodo rapido per il resto della sessione.",
     "mode": "Modalità macchie",
     "modes": {
       "clone": "Clona",

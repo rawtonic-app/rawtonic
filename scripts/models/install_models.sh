@@ -18,7 +18,7 @@
 set -eu
 
 REPO=rawtonic-app/models
-TAG=pack-2026-10-27
+TAG=pack-2026-10-27b
 RUNTIME=0
 CUDA=0
 while [ $# -gt 0 ]; do

@@ -163,7 +163,7 @@ pub fn has_generated_areas(adjustments: &Value) -> bool {
 /// The model that filled a patch, as Remove records it in the patch's
 /// `patchData.model` (since 2026-10-27; earlier fills do not say).
 pub mod fill_model {
-    /// Moebius guided the completion (large holes, macOS).
+    /// Moebius guided the completion (large holes).
     pub const MOEBIUS: &str = "moebius";
     /// MI-GAN guided the completion.
     pub const MI_GAN: &str = "mi-gan";

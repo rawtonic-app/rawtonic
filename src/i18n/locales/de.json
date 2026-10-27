@@ -1816,6 +1816,7 @@
     "feather": "Weiche Kante",
     "featherAria": "Weiche Kante des Bereichs",
     "filling": "Wird entfernt… Schritt {{done}} von {{total}}",
+    "largeHoleTooSlow": "Diese GPU ist für das Entfernen großer Bereiche zu langsam; Entfernen nutzt bis zum Neustart die schnelle Methode.",
     "mode": "Reparaturmodus",
     "modes": {
       "clone": "Kopieren",

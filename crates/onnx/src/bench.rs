@@ -310,6 +310,27 @@ pub(crate) fn inputs_for(
                     }
                     Input::F32(dims, data)
                 }
+                (ModelKind::MoebiusUnet, "t", _) => Input::F32(dims, vec![500.0]),
+                (ModelKind::MoebiusUnet | ModelKind::MoebiusDecoder, _, _) => {
+                    Input::F32(dims, (0..count).map(|_| (noise() - 0.5) * 2.0).collect())
+                }
+                (ModelKind::MoebiusEncoder, _, _) => {
+                    // The photo in -1..1, once per batch item, with a
+                    // photo's grain (±2 levels): on the flat synthetic
+                    // picture the encoder's latent depends on rounding (ONNX
+                    // Runtime's CPU and PyTorch differ by 0.17 of a range of
+                    // 5.5; with the grain by 0.013, as the GPU does).
+                    let planes = image_planes(&dims, picture, false);
+                    Input::F32(
+                        dims,
+                        planes
+                            .iter()
+                            .cycle()
+                            .take(count)
+                            .map(|v| v * 2.0 - 1.0 + (noise() - 0.5) * 4.0 / 127.5)
+                            .collect(),
+                    )
+                }
                 (ModelKind::TagText, _, _) => Input::I64(
                     dims,
                     (0..count).map(|_| 1 + (noise() * 1000.0) as i64).collect(),

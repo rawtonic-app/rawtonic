@@ -1778,6 +1778,7 @@
     "feather": "羽化",
     "featherAria": "污点羽化",
     "filling": "正在移除… 第 {{done}}/{{total}} 步",
+    "largeHoleTooSlow": "此 GPU 处理大面积移除太慢；本次会话中移除将使用快速方法。",
     "mode": "污点模式",
     "modes": {
       "clone": "仿制",

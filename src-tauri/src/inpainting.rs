@@ -187,21 +187,45 @@ fn binary_hole(mask: &image::GrayImage) -> image::GrayImage {
     })
 }
 
-#[cfg(target_os = "macos")]
 /// Holes at least this thick (the diameter of the largest disc inside,
 /// in photo pixels) are large: MI-GAN would see them at full resolution
 /// with `moebius::CONTEXT` × their size around them only up to its 512 px
 /// view / 2.5. Thicker, the hole fills more than 40 % of its view's side
 /// (where it painted objects back, docs/MODELS.md) or the view is scaled
-/// down, and Moebius guides the fill instead (macOS). The thickness rather
+/// down, and Moebius guides the fill instead. The thickness rather
 /// than the longer side: a thin line is filled from its two sides, however
 /// long it is.
 const LARGE_HOLE_THICKNESS: f32 = crate::moebius::SIZE as f32 / crate::moebius::CONTEXT;
 
+/// The slowest network run (one UNet step of the CFG batch) at which
+/// Moebius stays on: 1.5 s, so about 15 s per removal, three times our 5 s
+/// budget for a large hole. Not fitted: the GPUs measured take 0.2 s (Apple
+/// M4 Pro, Core ML) and 0.4 s (RTX 3080, WebGPU); an integrated GPU may take
+/// many times that (notes: benchmark-results/moebius-onnx-2026-10-27).
+const MOEBIUS_MAX_SECONDS_PER_RUN: f64 = 1.5;
+
+/// Set for the rest of the session when a removal measured Moebius slower
+/// than `MOEBIUS_MAX_SECONDS_PER_RUN`: large holes go to MI-GAN.
+static MOEBIUS_TOO_SLOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Moebius fills (running now, started so far). Overlapping removals wait
+/// for each other's network runs (one session per model), so a fill's time
+/// per run counts for `MOEBIUS_TOO_SLOW` only when it ran alone: none was
+/// running when it started and none started before it ended.
+static MOEBIUS_FILLS: std::sync::Mutex<(usize, u64)> = std::sync::Mutex::new((0, 0));
+
+/// Seconds per network run from the instants each run finished: the mean
+/// gap after the first run (which also holds the encoder and, on the first
+/// use, shader compilation). `None` with fewer than two runs.
+fn seconds_per_run(finished: &[std::time::Instant]) -> Option<f64> {
+    let (first, last) = (finished.first()?, finished.last()?);
+    (finished.len() >= 2)
+        .then(|| last.duration_since(*first).as_secs_f64() / (finished.len() - 1) as f64)
+}
+
 /// The hole's thickness (`LARGE_HOLE_THICKNESS`), within `bounds`
 /// (x0, x1, y0, y1 inclusive), measured on a grid of at most 1024 cells
 /// across (a cell holds the hole when any of its pixels does).
-#[cfg(any(target_os = "macos", test))]
 fn hole_thickness(mask: &image::GrayImage, bounds: (usize, usize, usize, usize)) -> f32 {
     let (x0, x1, y0, y1) = bounds;
     let (bw, bh) = (x1 - x0 + 1, y1 - y0 + 1);
@@ -294,12 +318,12 @@ fn removal_fill_params(hole_pixels: usize) -> rawtonic_engine::patch_fill::Patch
     }
 }
 
-/// Remove's fill of a large hole on macOS: Moebius's fill guides the
-/// completion instead of MI-GAN's (`moebius`). Downloads the model on first
-/// use. `Ok(None)` when Moebius is not available (no download possible,
-/// Core ML failed) or the hole does not fit its square crop: MI-GAN fills
-/// then. Emits `ai-fill-progress` ({taskId, done, total} network runs).
-#[cfg(target_os = "macos")]
+/// Remove's fill of a large hole: Moebius's fill guides the completion
+/// instead of MI-GAN's (`moebius`). Downloads the model on first use.
+/// `Ok(None)` when Moebius is not available (no download possible, Core ML
+/// failed, no GPU provider on Windows and Linux, a failed run) or the hole
+/// does not fit its square crop: MI-GAN fills then. Emits
+/// `ai-fill-progress` ({taskId, done, total} network runs).
 async fn fill_large_hole(
     app_handle: &tauri::AppHandle,
     state: &tauri::State<'_, AppState>,
@@ -312,6 +336,9 @@ async fn fill_large_hole(
     use tauri::Emitter;
 
     let (x0, x1, y0, y1) = bounds;
+    if MOEBIUS_TOO_SLOW.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok(None);
+    }
     // A hole longer than the photo's shorter side does not fit the
     // network's square: MI-GAN, without downloading or loading Moebius.
     let (w, h) = source.dimensions();
@@ -345,15 +372,25 @@ async fn fill_large_hole(
     let app = app_handle.clone();
     let task = task_id.map(str::to_string);
     let cancel = token.clone();
-    let guided = tokio::task::spawn_blocking(move || {
+    let (guided, per_run) = tokio::task::spawn_blocking(move || {
+        let (alone, started) = {
+            let mut fills = MOEBIUS_FILLS.lock().unwrap_or_else(|e| e.into_inner());
+            fills.0 += 1;
+            fills.1 += 1;
+            (fills.0 == 1, fills.1)
+        };
+        let mut finished = Vec::new();
         let mut progress = |done: usize, total: usize| {
+            if done > 0 {
+                finished.push(std::time::Instant::now());
+            }
             let _ = app.emit(
                 "ai-fill-progress",
                 serde_json::json!({ "taskId": task, "done": done, "total": total }),
             );
         };
         let cancelled = || cancel.as_ref().is_some_and(|t| t.is_cancelled());
-        crate::moebius::guide(
+        let guided = crate::moebius::guide(
             &*model,
             &rgb,
             &hole_mask,
@@ -361,10 +398,28 @@ async fn fill_large_hole(
             &mut progress,
             &cancelled,
         )
-        .map(|guided| guided.map(|g| (g, hole_mask)))
+        .map(|guided| guided.map(|g| (g, hole_mask)));
+        let alone = {
+            let mut fills = MOEBIUS_FILLS.lock().unwrap_or_else(|e| e.into_inner());
+            fills.0 -= 1;
+            // Another fill started meanwhile: this one may have waited for it.
+            alone && fills.1 == started
+        };
+        (guided, seconds_per_run(&finished).filter(|_| alone))
     })
     .await
     .map_err(|e| e.to_string())?;
+    // A GPU too slow for Moebius: this removal finishes, later ones use
+    // MI-GAN for the rest of the session, and the user is told once.
+    if let Some(per_run) = per_run
+        && per_run > MOEBIUS_MAX_SECONDS_PER_RUN
+        && !MOEBIUS_TOO_SLOW.swap(true, std::sync::atomic::Ordering::Relaxed)
+    {
+        log::warn!(
+            "AI fill: Moebius took {per_run:.2} s per network run (limit {MOEBIUS_MAX_SECONDS_PER_RUN} s); MI-GAN guides large holes for the rest of the session"
+        );
+        let _ = app_handle.emit("ai-fill-notice", "moebiusTooSlow");
+    }
     let guide_ms = start.elapsed().as_millis() - load_ms;
     let (guided, hole_mask) = match guided {
         Ok(Some(done)) => done,
@@ -475,7 +530,6 @@ pub async fn invoke_generative_replace_with_mask_def(
     }
 
     let fill_start = std::time::Instant::now();
-    #[cfg(target_os = "macos")]
     let large_fill = if use_fast_inpaint
         && hole_thickness(&mask_bitmap, (min_x, max_x, min_y, max_y)) >= LARGE_HOLE_THICKNESS
     {
@@ -492,8 +546,6 @@ pub async fn invoke_generative_replace_with_mask_def(
     } else {
         None
     };
-    #[cfg(not(target_os = "macos"))]
-    let large_fill: Option<RgbaImage> = None;
     use rawtonic_metadata::provenance::fill_model;
     let (patch_rgba, model) = if let Some(filled) = large_fill {
         (filled, fill_model::MOEBIUS)
@@ -822,8 +874,10 @@ mod removal_timing {
     /// `out`-guide.png (the network's square) and `out`-fill.png (the crop
     /// `eval_inpaint.py` scores, 1.5 × the hole around it), never over a
     /// file; prints the hole's thickness, the times and the process's
-    /// physical footprint (current / peak, as Activity Monitor shows it).
-    #[cfg(target_os = "macos")]
+    /// memory (current / peak: the physical footprint as Activity Monitor
+    /// shows it on macOS, the resident set elsewhere). Windows and Linux
+    /// also need ONNX Runtime in `ORT_DYLIB_PATH` with a GPU plugin beside
+    /// it.
     #[test]
     #[ignore]
     fn moebius_fill_times() {
@@ -833,6 +887,8 @@ mod removal_timing {
         ) else {
             return;
         };
+        let models = std::path::Path::new(&models);
+        #[cfg(target_os = "macos")]
         let footprint = || {
             // SAFETY: plain data the kernel fills for this process.
             let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
@@ -849,24 +905,46 @@ mod removal_timing {
                 info.ri_lifetime_max_phys_footprint as f64 / 1e9
             )
         };
+        #[cfg(not(target_os = "macos"))]
+        let footprint = || {
+            let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+            let kb = |key: &str| {
+                status
+                    .lines()
+                    .find_map(|l| l.strip_prefix(key))
+                    .and_then(|v| v.split_whitespace().next()?.parse::<f64>().ok())
+                    .map_or("?".to_string(), |v| format!("{:.2}", v * 1024.0 / 1e9))
+            };
+            format!("{} / {} GB", kb("VmRSS:"), kb("VmHWM:"))
+        };
         // The packages put together from the pack's flat files, as the app does.
-        let dir = tempfile::tempdir().unwrap();
-        let models = std::path::Path::new(&models);
-        std::fs::copy(
-            models.join(crate::moebius::EMBEDDINGS_FILE.0),
-            dir.path().join(crate::moebius::EMBEDDINGS_FILE.0),
-        )
-        .unwrap();
-        for (package, files) in &crate::moebius::coreml::PACKAGES {
-            for (file, inner, _) in files {
-                let to = dir.path().join(package).join(inner);
-                std::fs::create_dir_all(to.parent().unwrap()).unwrap();
-                std::fs::hard_link(models.join(file), &to).unwrap();
+        #[cfg(target_os = "macos")]
+        let dir = {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::copy(
+                models.join(crate::moebius::EMBEDDINGS_FILE.0),
+                dir.path().join(crate::moebius::EMBEDDINGS_FILE.0),
+            )
+            .unwrap();
+            for (package, files) in &crate::moebius::coreml::PACKAGES {
+                for (file, inner, _) in files {
+                    let to = dir.path().join(package).join(inner);
+                    std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+                    std::fs::hard_link(models.join(file), &to).unwrap();
+                }
             }
-        }
+            dir
+        };
         println!("before load: footprint {}", footprint());
         let started = std::time::Instant::now();
+        #[cfg(target_os = "macos")]
         let model = crate::moebius::coreml::Moebius::load(dir.path()).unwrap();
+        #[cfg(not(target_os = "macos"))]
+        let model =
+            crate::moebius::onnx::Moebius::load(models, &crate::moebius::onnx::gpu_providers())
+                .unwrap();
+        #[cfg(not(target_os = "macos"))]
+        println!("on {}", model.provider());
         println!(
             "load (compile): {} ms, footprint {}",
             started.elapsed().as_millis(),
@@ -892,13 +970,17 @@ mod removal_timing {
             let hole_mask = super::binary_hole(&mask);
             let rgb = photo.to_rgb8();
             let measured = started.elapsed();
-            let mut runs = 0;
+            let mut finished = Vec::new();
             let guided = crate::moebius::guide(
                 &model,
                 &rgb,
                 &hole_mask,
                 (min_x as u32, min_y as u32, max_x as u32, max_y as u32),
-                &mut |done, _| runs = done,
+                &mut |done, _| {
+                    if done > 0 {
+                        finished.push(std::time::Instant::now());
+                    }
+                },
                 &|| false,
             )
             .unwrap()
@@ -938,15 +1020,29 @@ mod removal_timing {
                 format!("{}-fill.png", f[2]),
             );
             println!(
-                "{}: {w}x{h}, hole {mw}x{mh}, thickness {thickness:.0} px: mask {} ms, Moebius {} ms ({runs} runs), completion {} ms, total {} ms; footprint {}",
+                "{}: {w}x{h}, hole {mw}x{mh}, thickness {thickness:.0} px: mask {} ms, Moebius {} ms ({} runs; to the first run's end {} ms, then {:.0} ms per run), completion {} ms, total {} ms; footprint {}",
                 f[2],
                 measured.as_millis(),
                 (guide_done - measured).as_millis(),
+                finished.len(),
+                (finished[0] - started - measured).as_millis(),
+                super::seconds_per_run(&finished).unwrap_or(0.0) * 1000.0,
                 (total - guide_done).as_millis(),
                 total.as_millis(),
                 footprint()
             );
         }
+    }
+
+    #[test]
+    fn seconds_per_run_leaves_out_the_first_run() {
+        let start = std::time::Instant::now();
+        let at = |ms: u64| start + std::time::Duration::from_millis(ms);
+        assert_eq!(super::seconds_per_run(&[]), None);
+        assert_eq!(super::seconds_per_run(&[at(900)]), None);
+        // The first run ends at 0.9 s (encoder, compilation); then 0.4 s each.
+        let per_run = super::seconds_per_run(&[at(900), at(1300), at(1700), at(2100)]).unwrap();
+        assert!((per_run - 0.4).abs() < 1e-9, "{per_run}");
     }
 
     #[test]

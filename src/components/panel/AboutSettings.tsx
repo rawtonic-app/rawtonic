@@ -129,7 +129,7 @@ export const CREDITS: Credit[] = [
   {
     name: "Moebius",
     url: "https://github.com/hustvl/Moebius",
-    what: "Removal of large objects on macOS (Huazhong University of Science and Technology, vivo AI Lab).",
+    what: "Removal of large objects (Huazhong University of Science and Technology, vivo AI Lab).",
     license: "Apache-2.0",
   },
   {
