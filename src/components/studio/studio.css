@@ -3323,6 +3323,14 @@ body.is-dragging.is-drop-refused * {
 .studio-tool-group > summary:hover > .studio-tool-grip {
   opacity: 0.6;
 }
+/* The grip sits where a header's eye is: with an eye the header itself
+   shows that it can be dragged, the grip would cover the eye. */
+.studio-tool-group > summary > .studio-tool-eye ~ .studio-tool-grip {
+  display: none;
+}
+.studio-tool-group > summary:has(> .studio-tool-eye ~ .studio-tool-grip) {
+  cursor: grab;
+}
 /* Context menus: compact rows like the platform's menus. */
 .rawtonic-menu {
   background: #2b2c2f;
