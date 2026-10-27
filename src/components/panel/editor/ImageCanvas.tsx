@@ -1065,6 +1065,30 @@ const MaskOverlay = memo(
         />
       );
 
+      // Separate handles along the axis remain reachable even with zero
+      // feather, when the inner and outer lines coincide.
+      const bandHandle = (line: LinearLine, offset: number, axis: number) => (
+        <Circle
+          key={line}
+          x={midX + normal.x * offset * scale + along.x * axis / stageScale}
+          y={midY + normal.y * offset * scale + along.y * axis / stageScale}
+          radius={5 / stageScale}
+          fill={axis < 0 ? 'white' : '#252627'}
+          stroke="white"
+          strokeWidth={1.5 / stageScale}
+          hitStrokeWidth={8 / stageScale}
+          draggable
+          dragBoundFunc={lockDragBoundFunc}
+          onDragStart={handleLinearEditStart}
+          onDragMove={(e) => handleLinearEditMove(e, line)}
+          onDragEnd={handleShapeEditEnd}
+          onTouchEnd={handleMaskTouchEnd}
+          onTouchStart={handleMaskTouchStart}
+          onMouseEnter={(e) => { onMaskMouseEnter(); setCursor(e, 'row-resize'); }}
+          onMouseLeave={(e) => { onMaskMouseLeave(); setCursor(e, ''); }}
+        />
+      );
+
       return (
         <Group>
           {editable && (
@@ -1133,6 +1157,12 @@ const MaskOverlay = memo(
               </>}
             </>
           )}
+          {editable && params.band && <>
+            {bandHandle('start', offsets.start, -24)}
+            {bandHandle('end', offsets.end, -24)}
+            {bandHandle('featherStart', offsets.start - params.band.feather, 24)}
+            {bandHandle('featherEnd', offsets.end + params.band.feather, 24)}
+          </>}
           {isSelected && (
             // Capture One's centre point: the axis the central line rotates
             // around; dragging it moves the whole mask.
