@@ -477,14 +477,16 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
                 : t("studio.export.destination.choose")}
             </option>
           </select>
-          {target === "choose" && draft.folder && (
+          {target === "choose" && (
+            // Also before a folder is set: the select already shows
+            // "Choose a folder…" then, so picking it again would not fire.
             <button
               type="button"
-              title={draft.folder}
+              title={draft.folder ?? t("studio.export.destination.choose")}
               aria-label={t("studio.export.destination.choose")}
               onClick={() => void chooseFolder()}
             >
-              …
+              {draft.folder ? "…" : t("studio.export.watermark.choose")}
             </button>
           )}
         </label>
