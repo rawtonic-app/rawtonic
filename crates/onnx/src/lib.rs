@@ -242,6 +242,14 @@ impl ModelKind {
     /// Options for `provider` when it runs this model, each a measurement.
     pub fn provider_options(self, provider: Provider) -> &'static [(&'static str, &'static str)] {
         match (self, provider) {
+            // TF32 makes Moebius's encoder differ from the CPU by 15% of
+            // its output range on an RTX 3080. Keep the exported networks'
+            // fp32 compute; CUDA still saves about 40% of network pipeline time there
+            // (notes: benchmark-results/moebius-cuda-2026-10-27/REPORT.md).
+            (
+                ModelKind::MoebiusUnet | ModelKind::MoebiusEncoder | ModelKind::MoebiusDecoder,
+                Provider::Cuda,
+            ) => &[("use_tf32", "0")],
             // BiRefNet at 1024 × 1024 with WebGPU's default bucket cache of
             // freed buffers ran out of memory on a 10 GB RTX 3080 (Vulkan:
             // VK_ERROR_OUT_OF_DEVICE_MEMORY, then an invalid buffer); without
@@ -846,14 +854,21 @@ mod tests {
     }
 
     #[test]
-    fn only_subject_on_webgpu_runs_without_the_buffer_cache() {
+    fn measured_provider_options_stay_scoped_to_their_models() {
         for kind in ModelKind::ALL {
             for provider in [Provider::Cpu, Provider::WebGpu, Provider::Cuda] {
                 let options = kind.provider_options(provider);
-                if (kind, provider) == (ModelKind::Subject, Provider::WebGpu) {
-                    assert_eq!(options, &[("storageBufferCacheMode", "disabled")]);
-                } else {
-                    assert!(options.is_empty(), "{kind:?} {provider}");
+                match (kind, provider) {
+                    (ModelKind::Subject, Provider::WebGpu) => {
+                        assert_eq!(options, &[("storageBufferCacheMode", "disabled")]);
+                    }
+                    (
+                        ModelKind::MoebiusUnet
+                        | ModelKind::MoebiusEncoder
+                        | ModelKind::MoebiusDecoder,
+                        Provider::Cuda,
+                    ) => assert_eq!(options, &[("use_tf32", "0")]),
+                    _ => assert!(options.is_empty(), "{kind:?} {provider}"),
                 }
             }
         }
