@@ -202,12 +202,11 @@ const MOEBIUS_MAX_SECONDS_PER_RUN: f64 = 1.5;
 /// than `MOEBIUS_MAX_SECONDS_PER_RUN`: large holes go to MI-GAN.
 static MOEBIUS_TOO_SLOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Moebius fills running now. Overlapping removals wait for each other's
-/// network runs (one session per model), so a fill's time per run counts
-/// for `MOEBIUS_TOO_SLOW` only when it ran alone.
-static MOEBIUS_RUNNING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-/// Moebius fills started so far (`MOEBIUS_RUNNING`).
-static MOEBIUS_STARTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+/// Moebius fills (running now, started so far). Overlapping removals wait
+/// for each other's network runs (one session per model), so a fill's time
+/// per run counts for `MOEBIUS_TOO_SLOW` only when it ran alone: none was
+/// running when it started and none started before it ended.
+static MOEBIUS_FILLS: std::sync::Mutex<(usize, u64)> = std::sync::Mutex::new((0, 0));
 
 /// Seconds per network run from the instants each run finished: the mean
 /// gap after the first run (which also holds the encoder and, on the first
@@ -368,9 +367,12 @@ async fn fill_large_hole(
     let task = task_id.map(str::to_string);
     let cancel = token.clone();
     let (guided, per_run) = tokio::task::spawn_blocking(move || {
-        use std::sync::atomic::Ordering;
-        let started = MOEBIUS_STARTED.fetch_add(1, Ordering::SeqCst) + 1;
-        let alone = MOEBIUS_RUNNING.fetch_add(1, Ordering::SeqCst) == 0;
+        let (alone, started) = {
+            let mut fills = MOEBIUS_FILLS.lock().unwrap_or_else(|e| e.into_inner());
+            fills.0 += 1;
+            fills.1 += 1;
+            (fills.0 == 1, fills.1)
+        };
         let mut finished = Vec::new();
         let mut progress = |done: usize, total: usize| {
             if done > 0 {
@@ -391,9 +393,12 @@ async fn fill_large_hole(
             &cancelled,
         )
         .map(|guided| guided.map(|g| (g, hole_mask)));
-        MOEBIUS_RUNNING.fetch_sub(1, Ordering::SeqCst);
-        // Another fill started meanwhile: this one may have waited for it.
-        let alone = alone && MOEBIUS_STARTED.load(Ordering::SeqCst) == started;
+        let alone = {
+            let mut fills = MOEBIUS_FILLS.lock().unwrap_or_else(|e| e.into_inner());
+            fills.0 -= 1;
+            // Another fill started meanwhile: this one may have waited for it.
+            alone && fills.1 == started
+        };
         (guided, seconds_per_run(&finished).filter(|_| alone))
     })
     .await
