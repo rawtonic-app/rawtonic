@@ -418,7 +418,8 @@ pub(crate) fn develop_thumbnail(
             // imported form, as for exports (`lightroom_masks`).
             let decoded_size = (raw_scale_factor == 1.0).then(|| pristine_source.dimensions());
 
-            let warped_image = apply_geometry_warp(composite_image, &meta.adjustments);
+            let warped_image = apply_geometry_warp(composite_image, &meta.adjustments)
+                .map_err(anyhow::Error::msg)?;
 
             let blurred_image = crate::lens_blur::apply_lens_blur(warped_image, &meta.adjustments);
 

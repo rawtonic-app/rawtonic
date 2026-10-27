@@ -6,6 +6,9 @@
 //!   rawtonic-tether list              the cameras on USB
 //!   rawtonic-tether version           libgphoto2's version and how many
 //!                                     camera models its drivers know
+//!   rawtonic-tether queue [--port P] [--mock]
+//!       the photos in the camera's USB transfer queue (name, folder, size),
+//!       read only: nothing is downloaded, freed or set. One JSON report.
 //!   rawtonic-tether probe --out DIR [--port P] [--shots N] [--interval-ms MS]
 //!                         [--body-seconds S] [--live-view-frames N] [--mock]
 //!       what a body does, through the same helper process the app uses:
@@ -353,6 +356,7 @@ fn run(args: &[String]) -> i32 {
         Some("probe") => probe(args, mock),
         Some("liveview") => live_view_sequence(args, mock),
         Some("version") => version(),
+        Some("queue") => queue(args, mock),
         _ => {
             let experiment = LiveViewExperiment::from_env();
             serve(mock, experiment)
@@ -397,6 +401,38 @@ fn serve(mock: bool, experiment: LiveViewExperiment) -> Result<(), String> {
             .run(std::io::stdin())
             .map_err(|e| e.to_string())
     })
+}
+
+/// `queue`: lists the camera's transfer queue without touching it.
+fn queue(args: &[String], mock: bool) -> Result<(), String> {
+    let mut driver = driver(mock, LiveViewExperiment::default())?;
+    let mut camera = driver
+        .open(arg(args, "--port").as_deref())
+        .map_err(|e| e.to_string())?;
+    let status = camera.status();
+    let queued = camera.queued().map_err(|e| e.to_string())?;
+    let bytes: u64 = queued.iter().filter_map(|(_, size)| *size).sum();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "model": status.model,
+            "serial": status.serial,
+            "firmware": status.firmware,
+            "transferQueue": status.transfer_queue,
+            "count": queued.len(),
+            "bytes": bytes,
+            "files": queued
+                .iter()
+                .map(|(file, size)| json!({
+                    "folder": file.folder,
+                    "name": file.name,
+                    "size": size,
+                }))
+                .collect::<Vec<_>>(),
+        }))
+        .unwrap()
+    );
+    Ok(())
 }
 
 fn version() -> Result<(), String> {

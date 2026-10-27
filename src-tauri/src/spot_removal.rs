@@ -67,7 +67,7 @@ pub async fn visualize_spots(
                 &source,
                 is_raw,
                 &js_adjustments,
-            );
+            )?;
             let adjustments = js_adjustments.clone();
             let band = tokio::task::spawn_blocking(move || {
                 let (transformed, _) = crate::adjustment_utils::apply_spatial_transformations(

@@ -78,7 +78,7 @@ pub async fn sample_luma_range(
         crate::adjustment_utils::hydrate_adjustments(&state, &mut js_adjustments);
         let (source, is_raw) = crate::editor_preview::get_original_image(&state)?;
         let mask_source = ParametricMaskSource::new(
-            get_cached_full_warped_image(&state, &source, is_raw, &js_adjustments),
+            get_cached_full_warped_image(&state, &source, is_raw, &js_adjustments)?,
             (source.width() as f64, source.height() as f64),
         )?
         .with_geometry(&js_adjustments)
@@ -325,7 +325,7 @@ pub fn resolve_warped_image_for_masks(
         validate_source_scale(source_scale)?;
         Ok(Some(
             ParametricMaskSource::new(
-                get_cached_full_warped_image(state, source, is_raw, adjustments),
+                get_cached_full_warped_image(state, source, is_raw, adjustments)?,
                 (
                     source.width() as f64 / source_scale as f64,
                     source.height() as f64 / source_scale as f64,

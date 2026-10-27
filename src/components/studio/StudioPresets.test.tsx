@@ -13,6 +13,7 @@ import i18n from "i18next";
 import { resetBuiltinPresets } from "../../utils/builtinPresets";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import type { AppSettings } from "../ui/AppProperties";
+import { recordStyle } from "../../utils/appliedStyle";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 const openDialog = vi.fn();
@@ -101,7 +102,9 @@ describe("Styles & presets tool", () => {
     expect(apply).toHaveBeenLastCalledWith({ temperature: 12 }, ["/job/a.arw"]);
     useLibraryStore.setState({ multiSelectedPaths: ["/job/a.arw", "/job/b.arw"] });
     fireEvent.click(screen.getByText("High contrast"));
-    expect(apply).toHaveBeenLastCalledWith({ contrast: 40, saturation: -100 }, ["/job/a.arw", "/job/b.arw"]);
+    expect(apply).toHaveBeenLastCalledWith({ contrast: 40, saturation: -100 }, ["/job/a.arw", "/job/b.arw"], {
+      style: { id: "hc", remove: false },
+    });
   });
 
   it("does nothing while the photo is still loading", async () => {
@@ -231,13 +234,13 @@ describe("importing presets and styles", () => {
 });
 
 describe("preset amount", () => {
-  it("keeps the target detection while changing Amount and recomputes after restoring the base masks", async () => {
+  it("keeps the target detection while changing a tool preset's Amount and recomputes after restoring the base masks", async () => {
     await renderTool();
     const sky = (id: string, bitmap: string | null) => [{ id: "sky", subMasks: [
       { id, type: "ai-sky", parameters: { maskDataBase64: bitmap, grow: 10 } },
     ] }] as never;
     act(() => usePresetStore.setState({ presets: [{ preset: {
-      id: "sky-preset", name: "Sky preset", adjustments: { masks: sky("source", "data:source") },
+      id: "sky-preset", name: "Sky preset", presetType: "tool", adjustments: { masks: sky("source", "data:source") },
     } }] }));
     fireEvent.click(screen.getByRole("button", { name: /Sky preset/ }));
     const target = { ...INITIAL_ADJUSTMENTS, masks: sky("target", "data:target") };
@@ -257,16 +260,32 @@ describe("preset amount", () => {
     expect(next.masks[0].subMasks[0].parameters).toMatchObject({ maskDataBase64: null, detectPending: true });
   });
 
-  it("blends the last preset applied to the open photo with its settings before", async () => {
+  it("blends the last tool preset applied to the open photo with its settings before", async () => {
     await renderTool();
-    fireEvent.click(screen.getByRole("button", { name: /High contrast/ }));
-    expect(apply).toHaveBeenCalledWith({ contrast: 40, saturation: -100 }, ["/job/a.arw"]);
+    fireEvent.click(screen.getByRole("button", { name: /Warm evening/ }));
+    expect(apply).toHaveBeenCalledWith({ temperature: 12 }, ["/job/a.arw"]);
     const slider = screen.getByLabelText("Preset amount") as HTMLInputElement;
     expect(slider.value).toBe("100");
     fireEvent.change(slider, { target: { value: "50" } });
     const update = setAdjustments.mock.lastCall![0] as (current: Record<string, unknown>) => Record<string, unknown>;
-    const next = update({ ...INITIAL_ADJUSTMENTS, exposure: 0.5, contrast: 40, saturation: -100 });
-    expect(next).toMatchObject({ contrast: 20, saturation: -50, exposure: 0.5 });
+    const next = update({ ...INITIAL_ADJUSTMENTS, exposure: 0.5, temperature: 12 });
+    expect(next).toMatchObject({ temperature: 6, exposure: 0.5 });
+  });
+
+  it("blends the applied style from the photo without it, kept in its recipe; the user's later changes stay", async () => {
+    // The photo as applying High contrast left it, then the user's saturation.
+    const base = { ...INITIAL_ADJUSTMENTS, exposure: 0.5 };
+    const styled = recordStyle(base, { ...base, contrast: 40, saturation: -100 }, { contrast: 40, saturation: -100 }, "hc");
+    useEditorStore.setState({ adjustments: { ...styled, saturation: -30 } });
+    await renderTool();
+    const slider = screen.getByLabelText("Preset amount") as HTMLInputElement;
+    expect(slider.value).toBe("100");
+    expect(slider.closest("label")!.textContent).toContain("High contrast");
+    fireEvent.change(slider, { target: { value: "50" } });
+    const next = setAdjustments.mock.lastCall![0]() as Record<string, unknown>;
+    expect(next).toMatchObject({ contrast: 20, saturation: -30, exposure: 0.5, appliedStyle: { id: "hc", amount: 50 } });
+    // Layers are the photo's own: a style's Amount leaves them.
+    expect(next.masks).toBe(useEditorStore.getState().adjustments.masks);
   });
 
   it("offers no amount when a preset goes to several photographs", async () => {
@@ -367,7 +386,9 @@ describe("built-in presets", () => {
     fireEvent.contextMenu(screen.getByText("B&W high contrast"));
     expect(screen.queryByText("Rename")).toBeNull();
     fireEvent.click(screen.getByText("B&W high contrast"));
-    expect(apply).toHaveBeenLastCalledWith({ blackAndWhite: true, contrast: 35 }, ["/job/a.arw"]);
+    expect(apply).toHaveBeenLastCalledWith({ blackAndWhite: true, contrast: 35 }, ["/job/a.arw"], {
+      style: { id: "bw-high-contrast", remove: false },
+    });
     fireEvent.contextMenu(builtinFolder());
     expect(screen.queryByText("Rename")).toBeNull();
   });
@@ -421,5 +442,58 @@ describe("presets of a tool's menu", () => {
     const updated = usePresetStore.getState().presets[0].folder!.children[0];
     expect(JSON.parse(JSON.stringify(updated.adjustments))).toEqual({ grainAmount: 40, grainSize: INITIAL_ADJUSTMENTS.grainSize, grainVersion: 2 });
     expect(updated.toolKeys).toEqual(["grainAmount", "grainSize"]);
+  });
+});
+
+describe("applied style (Capture One with Stack Styles off)", () => {
+  const styled = () => {
+    const base = { ...INITIAL_ADJUSTMENTS, exposure: 0.5 };
+    return recordStyle(base, { ...base, contrast: 40, saturation: -100 }, { contrast: 40, saturation: -100 }, "hc");
+  };
+
+  it("marks the open photo's applied style in the list, also after switching photos", async () => {
+    await renderTool();
+    const style = () => screen.getByRole("button", { name: /High contrast/ });
+    expect(style().getAttribute("aria-pressed")).toBe("false");
+    act(() => useEditorStore.setState({ selectedImage: { path: "/job/b.arw", isReady: true } as never, adjustments: styled() }));
+    expect(style().getAttribute("aria-pressed")).toBe("true");
+    expect(style().className).toContain("is-applied");
+    expect(style().title).toBe("Applied style: click to take it back");
+    // Tool presets add up and are never marked.
+    expect(screen.getByRole("button", { name: /Warm evening/ }).getAttribute("aria-pressed")).toBeNull();
+    act(() => useEditorStore.setState({ selectedImage: { path: "/job/a.arw", isReady: true } as never, adjustments: { ...INITIAL_ADJUSTMENTS } }));
+    expect(style().getAttribute("aria-pressed")).toBe("false");
+    expect(screen.queryByLabelText("Preset amount")).toBeNull();
+  });
+
+  it("takes the applied style back when it is clicked again, on every selected photo", async () => {
+    useEditorStore.setState({ adjustments: styled() });
+    useLibraryStore.setState({ multiSelectedPaths: ["/job/a.arw", "/job/b.arw"] });
+    await renderTool();
+    fireEvent.click(screen.getByRole("button", { name: /High contrast/ }));
+    expect(apply).toHaveBeenLastCalledWith({}, ["/job/a.arw", "/job/b.arw"], { style: { id: "hc", remove: true } });
+  });
+
+  it("replaces the applied style with another one", async () => {
+    useEditorStore.setState({ adjustments: styled() });
+    await renderTool();
+    fireEvent.click(screen.getByText("B&W high contrast"));
+    expect(apply).toHaveBeenLastCalledWith({ blackAndWhite: true, contrast: 35 }, ["/job/a.arw"], {
+      style: { id: "bw-high-contrast", remove: false },
+    });
+  });
+
+  it("previews another style in place of the applied one, and nothing for the applied one", async () => {
+    vi.useFakeTimers();
+    useEditorStore.setState({ adjustments: styled() });
+    await renderTool();
+    fireEvent.mouseEnter(screen.getByText("B&W high contrast").closest("button")!);
+    act(() => vi.advanceTimersByTime(200));
+    expect(useEditorStore.getState().previewOverride).toMatchObject({ blackAndWhite: true, contrast: 35, saturation: 0, exposure: 0.5 });
+    fireEvent.mouseLeave(screen.getByText("B&W high contrast").closest("button")!);
+    fireEvent.mouseEnter(screen.getByRole("button", { name: /High contrast/ }));
+    act(() => vi.advanceTimersByTime(200));
+    expect(useEditorStore.getState().previewOverride).toBeNull();
+    vi.useRealTimers();
   });
 });

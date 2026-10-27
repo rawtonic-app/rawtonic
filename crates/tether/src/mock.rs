@@ -49,6 +49,23 @@ pub struct MockSpec {
     /// The camera keeps each shot in a USB transfer queue of this many
     /// entries until it is released, and refuses to fire when it is full.
     pub queue_limit: Option<usize>,
+    /// With `queue_limit`: the photos (file names) in the transfer queue
+    /// when the camera is opened, taken while no computer took them.
+    pub queued: Vec<String>,
+    /// With `queue_limit`: a file that keeps the transfer queue (each
+    /// photo's file name and shot, which its bytes come from) between
+    /// connections and helper processes, as the camera's memory outlives
+    /// both; read when the camera is opened (`queued` when there is none
+    /// yet), written on every change.
+    pub queue_state: Option<std::path::PathBuf>,
+    /// The camera also reports the photos of its transfer queue as new ones
+    /// this long after the connect (libgphoto2's Fujifilm event wait reports
+    /// every object it has not listed itself).
+    pub queued_reported_ms: Option<u64>,
+    /// Downloads (1-based, counted per connection) that fail.
+    pub failed_downloads: Vec<u64>,
+    /// Listing the transfer queue fails.
+    pub queue_list_fails: bool,
     /// Each file is reported a second time right after (as libgphoto2 does
     /// for Fujifilm bodies: object-list polling and the camera's event).
     pub report_twice: bool,
@@ -127,6 +144,11 @@ impl Default for MockSpec {
             abort_before_event: None,
             busy_for_ms: 0,
             queue_limit: None,
+            queued: vec![],
+            queue_state: None,
+            queued_reported_ms: None,
+            failed_downloads: vec![],
+            queue_list_fails: false,
             report_twice: false,
             preview: true,
             event_poll_ms: 0,
@@ -188,17 +210,70 @@ impl Driver for MockDriver {
             .iter()
             .map(|&ms| now + Duration::from_millis(ms))
             .collect();
-        Ok(Box::new(MockCamera {
+        // Each queued photo with its shot: its bytes are the same at every
+        // download, also after a reconnect or in another helper.
+        let (queue, fired): (Vec<(CameraFile, u64)>, u64) = if self.spec.queue_limit.is_none() {
+            (Vec::new(), 0)
+        } else {
+            let state = match &self.spec.queue_state {
+                Some(state) if state.exists() => QueueState::read(state).ok_or_else(|| {
+                    TetherError::new(ErrorKind::Other, "The mock queue state is unreadable.")
+                })?,
+                // Shots taken before: a hash of the name stands for each.
+                _ => QueueState {
+                    fired: 0,
+                    queue: self
+                        .spec
+                        .queued
+                        .iter()
+                        .map(|name| {
+                            use std::hash::{Hash, Hasher};
+                            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                            name.hash(&mut hasher);
+                            (name.clone(), hasher.finish() | 1 << 63)
+                        })
+                        .collect(),
+                },
+            };
+            let queue = state
+                .queue
+                .into_iter()
+                .map(|(name, shot)| {
+                    (
+                        CameraFile {
+                            folder: FOLDER.into(),
+                            name,
+                        },
+                        shot,
+                    )
+                })
+                .collect();
+            (queue, state.fired)
+        };
+        let shots = queue
+            .iter()
+            .map(|(file, shot)| (file.name.clone(), *shot))
+            .collect();
+        let due = match self.spec.queued_reported_ms {
+            Some(ms) => queue
+                .iter()
+                .map(|(file, _)| (now + Duration::from_millis(ms), file.clone()))
+                .collect(),
+            None => VecDeque::new(),
+        };
+        let camera = MockCamera {
             spec: self.spec.clone(),
-            fired: 0,
+            // Shots stay distinct across connections (the file numbering
+            // restarts as scripted; the camera's shot counter does not).
+            fired,
             numbered: 0,
             downloaded: 0,
-            due: VecDeque::new(),
+            due,
             body,
             repeat: None,
-            queued: 0,
+            queue,
             named: Default::default(),
-            shots: Default::default(),
+            shots,
             opened: now,
             stale: None,
             complete: false,
@@ -229,7 +304,38 @@ impl Driver for MockDriver {
                 )
             }))
             .collect(),
-        }))
+        };
+        if camera
+            .spec
+            .queue_state
+            .as_ref()
+            .is_some_and(|s| !s.exists())
+        {
+            camera.save_queue();
+        }
+        Ok(Box::new(camera))
+    }
+}
+
+/// Where the mock camera keeps its photos.
+const FOLDER: &str = "/store_00010001/DCIM/100MOCK";
+
+/// What `MockSpec::queue_state` keeps: the camera's shot counter and its
+/// transfer queue (each photo's file name and shot).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct QueueState {
+    pub fired: u64,
+    pub queue: Vec<(String, u64)>,
+}
+
+impl QueueState {
+    pub fn read(path: &std::path::Path) -> Option<Self> {
+        serde_json::from_slice(&std::fs::read(path).ok()?).ok()
+    }
+
+    /// The queued photos' file names, oldest first.
+    pub fn names(&self) -> Vec<String> {
+        self.queue.iter().map(|(name, _)| name.clone()).collect()
     }
 }
 
@@ -258,8 +364,9 @@ pub struct MockCamera {
     settings: Vec<Setting>,
     /// A file to report once more (`report_twice`).
     repeat: Option<CameraFile>,
-    /// Shots in the transfer queue (`queue_limit`).
-    queued: usize,
+    /// The photos in the transfer queue (`queue_limit`), oldest first, each
+    /// with its shot.
+    queue: Vec<(CameraFile, u64)>,
     /// Shots fired under each file name, not yet reported (oldest first).
     named: std::collections::HashMap<String, VecDeque<u64>>,
     /// The shot each file name was last reported for: a repeated report of
@@ -284,6 +391,31 @@ impl MockCamera {
         TetherError::new(ErrorKind::Disconnected, "The camera was disconnected.")
     }
 
+    /// Puts the current shot's photo into the transfer queue, on a camera
+    /// that keeps one.
+    fn enqueue(&mut self, file: &CameraFile) {
+        if self.spec.queue_limit.is_some() {
+            self.queue.push((file.clone(), self.fired));
+            self.save_queue();
+        }
+    }
+
+    /// Writes the transfer queue to `queue_state`, if the script names one.
+    fn save_queue(&self) {
+        if let Some(state) = &self.spec.queue_state {
+            let saved = QueueState {
+                fired: self.fired,
+                queue: self
+                    .queue
+                    .iter()
+                    .map(|(f, shot)| (f.name.clone(), *shot))
+                    .collect(),
+            };
+            std::fs::write(state, serde_json::to_vec(&saved).unwrap())
+                .expect("the mock queue state is written");
+        }
+    }
+
     /// The JPEG of an exposure that also gives one (`raw_and_jpeg`).
     fn jpeg_of(&mut self, (at, raw): &(Instant, CameraFile)) -> Option<(Instant, CameraFile)> {
         if !self.spec.raw_and_jpeg
@@ -303,21 +435,20 @@ impl MockCamera {
             .entry(name.clone())
             .or_default()
             .push_back(self.fired);
+        let file = CameraFile {
+            folder: raw.folder.clone(),
+            name,
+        };
+        self.enqueue(&file);
         Some((
             *at + Duration::from_millis(self.spec.jpeg_late_ms.max(1)),
-            CameraFile {
-                folder: raw.folder.clone(),
-                name,
-            },
+            file,
         ))
     }
 
     /// Releases the shutter: the file the camera will report for it.
     fn shutter(&mut self, now: Instant) -> Option<(Instant, CameraFile)> {
         self.fired += 1;
-        if self.spec.queue_limit.is_some() {
-            self.queued += 1;
-        }
         if self.spec.lost_shots.contains(&self.fired) {
             return None;
         }
@@ -335,13 +466,12 @@ impl MockCamera {
             .entry(name.clone())
             .or_default()
             .push_back(self.fired);
-        Some((
-            now + Duration::from_millis(delay),
-            CameraFile {
-                folder: "/store_00010001/DCIM/100MOCK".into(),
-                name,
-            },
-        ))
+        let file = CameraFile {
+            folder: FOLDER.into(),
+            name,
+        };
+        self.enqueue(&file);
+        Some((now + Duration::from_millis(delay), file))
     }
 
     /// The bytes of a file: distinct for every shot (a header with the
@@ -456,7 +586,7 @@ impl Camera for MockCamera {
         if self
             .spec
             .queue_limit
-            .is_some_and(|limit| self.queued >= limit)
+            .is_some_and(|limit| self.queue.len() >= limit)
         {
             // As a Fujifilm body answers (0xa002, no PTP busy code).
             return Err(TetherError::new(
@@ -528,12 +658,40 @@ impl Camera for MockCamera {
             || crate::camera::memory_only(self.status().capture_target.as_deref()))
     }
 
-    fn release(&mut self, _file: &CameraFile) -> Result<bool, TetherError> {
+    fn release(&mut self, file: &CameraFile) -> Result<bool, TetherError> {
         if self.spec.queue_limit.is_none() {
             return Ok(false);
         }
-        self.queued = self.queued.saturating_sub(1);
+        let at = self
+            .queue
+            .iter()
+            .position(|(f, _)| f == file)
+            .ok_or_else(|| {
+                TetherError::new(
+                    ErrorKind::Other,
+                    format!("{} is not in the transfer queue.", file.name),
+                )
+            })?;
+        self.queue.remove(at);
+        self.save_queue();
         Ok(true)
+    }
+
+    fn queued(&mut self) -> Result<Vec<(CameraFile, Option<u64>)>, TetherError> {
+        if self.unplugged() {
+            return Err(Self::gone());
+        }
+        if self.spec.queue_list_fails {
+            return Err(TetherError::new(
+                ErrorKind::Other,
+                "The camera refused the object list.",
+            ));
+        }
+        Ok(self
+            .queue
+            .iter()
+            .map(|(file, shot)| (file.clone(), Some(self.bytes(file, *shot).len() as u64)))
+            .collect())
     }
 
     fn autofocus(&mut self) -> Result<(), TetherError> {
@@ -624,6 +782,12 @@ impl Camera for MockCamera {
             return Err(Self::gone());
         }
         self.downloaded += 1;
+        if self.spec.failed_downloads.contains(&self.downloaded) {
+            return Err(TetherError::new(
+                ErrorKind::Other,
+                "The camera did not hand the file over.",
+            ));
+        }
         let shot = self
             .shots
             .get(&file.name)

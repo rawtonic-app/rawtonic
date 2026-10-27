@@ -32,6 +32,9 @@ struct Exposure {
     request: Option<Asked>,
     /// `Captured::exposure`.
     number: u64,
+    /// It was in the camera's transfer queue at the connect: its files pair
+    /// only with each other, never with a new shot's under the same name.
+    queued: bool,
 }
 
 /// An app shot request: when it fired, and its number (`Reply::Fired`).
@@ -48,6 +51,9 @@ enum Shot {
     Waiting,
     /// The blocking capture fired at this time returned it.
     At(Asked),
+    /// None: it was in the camera's transfer queue when the camera was
+    /// connected (`Open::queue`).
+    Queued,
 }
 
 fn content_hash(data: &[u8]) -> u64 {
@@ -107,7 +113,36 @@ struct Open {
     /// shot's last file, so a RAW+JPEG's JPEG may still be on its way. A
     /// shot reported as not delivered ends it too.
     transferring: bool,
+    /// The photos that were in the camera's USB transfer queue when it was
+    /// connected and are still to be downloaded, one per turn of the loop
+    /// (requests and new photos are served in between). They were taken
+    /// while no computer took them, and a camera may keep no other copy:
+    /// they go in like any photo and are freed only after their commit
+    /// (`Request::Release`). One that cannot be downloaded stays on the
+    /// camera and is reported.
+    queue: VecDeque<CameraFile>,
+    /// The photos the transfer queue held at the connect that are not safely
+    /// downloaded yet: one the camera reports as new (also after a failed
+    /// download) is fetched as a queued photo, never taken for an app
+    /// shot's. Once one is in the transfer folder, a later file of its name
+    /// is a repeated report (same bytes, `published`) or a new photo.
+    from_queue: std::collections::HashSet<CameraFile>,
+    /// Every photo the transfer queue held at the connect. A file of one of
+    /// these names that cannot be downloaded may be that photo reported
+    /// again or a new one: it takes no app shot's request.
+    listed: std::collections::HashSet<CameraFile>,
+    /// Why the transfer queue could not be listed, told once after the
+    /// connect (its photos stay on the camera).
+    queue_unlisted: Option<TetherError>,
+    /// The transfer queue could not be listed: a file the camera reports
+    /// could be an old photo of it, so no shot is fired on this connection
+    /// (its photo could not be told from them).
+    queue_unknown: bool,
 }
+
+const QUEUE_UNKNOWN: &str = "The photos already waiting on the camera could not be listed, so a \
+     new shot could not be told from them: shots are not fired on this connection. Connect the \
+     camera again.";
 
 pub struct Server<W: Write> {
     driver: Box<dyn Driver>,
@@ -326,6 +361,25 @@ impl<W: Write> Server<W> {
                 if camera.memory_only()? && (!camera.prefer_card() || camera.memory_only()?) {
                     return Err(TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY));
                 }
+                // Listed before the reply; downloaded afterwards, one per
+                // turn (`tick`).
+                let (queue, queue_unlisted): (VecDeque<CameraFile>, _) = match camera.queued() {
+                    Ok(queued) => {
+                        if !queued.is_empty() {
+                            log::info!(
+                                "{} photo(s) of {} MB in the camera's transfer queue; fetching them",
+                                queued.len(),
+                                queued.iter().filter_map(|(_, size)| *size).sum::<u64>() >> 20
+                            );
+                        }
+                        (queued.into_iter().map(|(file, _)| file).collect(), None)
+                    }
+                    Err(e) if e.kind == ErrorKind::Disconnected => return Err(e),
+                    Err(e) => {
+                        log::warn!("transfer queue not listed: {e}");
+                        (VecDeque::new(), Some(e))
+                    }
+                };
                 self.connections += 1;
                 log::info!(
                     "connection {}: {} (firmware {})",
@@ -350,6 +404,11 @@ impl<W: Write> Server<W> {
                     connection: self.connections,
                     held: false,
                     transferring: false,
+                    from_queue: queue.iter().cloned().collect(),
+                    listed: queue.iter().cloned().collect(),
+                    queue,
+                    queue_unknown: queue_unlisted.is_some(),
+                    queue_unlisted,
                 });
                 Ok(Reply::Connected { status })
             }
@@ -386,6 +445,9 @@ impl<W: Write> Server<W> {
                 if open.memory_only || open.camera.memory_only()? {
                     open.memory_only = true;
                     return Err(TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY));
+                }
+                if open.queue_unknown {
+                    return Err(TetherError::new(ErrorKind::Other, QUEUE_UNKNOWN));
                 }
                 let at = Instant::now();
                 let shot = open.camera.fire().inspect_err(|e| {
@@ -650,6 +712,33 @@ impl<W: Write> Server<W> {
                 ambiguous: Vec::new(),
             })?;
         }
+        if let Some(open) = self.open.as_mut()
+            && let Some(error) = open.queue_unlisted.take()
+        {
+            self.event(Event::CaptureFailed {
+                error: TetherError::new(
+                    error.kind,
+                    format!(
+                        "The photos left in the camera's transfer queue could not be listed, so \
+                         they were not fetched; they stay on the camera. Connect it again to fetch \
+                         them. ({})",
+                        error.message
+                    ),
+                ),
+                request: None,
+                exposure: None,
+                ambiguous: Vec::new(),
+            })?;
+        }
+        // Not while held (nothing more is downloaded) or while the camera
+        // keeps photos only in its memory (nothing is read then).
+        if let Some(open) = self.open.as_mut()
+            && !open.held
+            && !open.memory_only
+            && let Some(file) = open.queue.pop_front()
+        {
+            self.download(file, Shot::Queued)?;
+        }
         if !read {
             return Ok(());
         }
@@ -713,6 +802,13 @@ impl<W: Write> Server<W> {
         }
         match open.camera.wait_event(wait) {
             Ok(CameraEvent::FileAdded(file)) => {
+                // A photo of the transfer queue reported as new (libgphoto2's
+                // Fujifilm event wait reports every object it has not listed
+                // itself): fetched now, never taken for an app shot's photo.
+                if open.from_queue.contains(&file) {
+                    open.queue.retain(|queued| *queued != file);
+                    return self.download(file, Shot::Queued).map(|()| true);
+                }
                 if open.camera.one_shot_at_a_time() {
                     open.transferring = true;
                 }
@@ -749,11 +845,20 @@ impl<W: Write> Server<W> {
             return Ok(());
         };
         let reported = Instant::now();
-        log::info!(
-            "camera reported {} ({} shot(s) waiting)",
-            file.name,
-            open.waiting.len()
-        );
+        let queued = matches!(shot_of, Shot::Queued);
+        if queued {
+            log::info!(
+                "{} from the camera's transfer queue ({} more to fetch)",
+                file.name,
+                open.queue.len()
+            );
+        } else {
+            log::info!(
+                "camera reported {} ({} shot(s) waiting)",
+                file.name,
+                open.waiting.len()
+            );
+        }
         let shot = open.downloaded + 1;
         let downloaded = open.camera.download(&file);
         // The same photo reported twice (libgphoto2's Fujifilm event polling
@@ -770,6 +875,34 @@ impl<W: Write> Server<W> {
             log::info!("{} reported again; already downloaded", file.name);
             return Ok(());
         }
+        // A file under the name of a photo the queue held at the connect
+        // that cannot be downloaded: it may be that photo reported again or
+        // a new one, so it answers no request (the request stays waiting).
+        if !queued
+            && open.listed.contains(&file)
+            && let Err(error) = &downloaded
+        {
+            if error.kind == ErrorKind::Disconnected {
+                return self.lost(error.clone());
+            }
+            log::warn!(
+                "{} not downloaded after {} ms ({:?}: {}); its name was in the transfer queue, \
+                 so it answers no request",
+                file.name,
+                ms(reported),
+                error.kind,
+                error.message
+            );
+            return self.event(Event::CaptureFailed {
+                error: TetherError::new(
+                    error.kind,
+                    format!("{} could not be downloaded: {}", file.name, error.message),
+                ),
+                request: None,
+                exposure: None,
+                ambiguous: Vec::new(),
+            });
+        }
         let (stem, extension) = match file.name.rsplit_once('.') {
             Some((stem, extension)) => (stem.to_string(), extension.to_lowercase()),
             None => (file.name.clone(), String::new()),
@@ -783,18 +916,23 @@ impl<W: Write> Server<W> {
         // JPEG-only ones (likewise A.RAW; A.RAW+A.JPG; A.JPG). Such a file
         // names the exposures it may belong to (`ambiguous`) (the camera test then reports its step as
         // inconclusive). notes: reference/tether.md
+        // A queued photo's file and a new shot's file under one name belong
+        // to different exposures (the queued one was taken before the
+        // connect): each looks only among its own kind.
         let ambiguous: Vec<u64> = match (&shot_of, open.exposures_by_stem.get(&stem)) {
-            (Shot::Waiting, Some(exposures)) => {
+            (Shot::Waiting | Shot::Queued, Some(exposures)) => {
                 let candidates: Vec<u64> = exposures
                     .iter()
-                    .filter(|e| !e.kinds.contains(&extension))
+                    .filter(|e| e.queued == queued && !e.kinds.contains(&extension))
                     .map(|e| e.number)
                     .collect();
                 // Another exposure of the name could have taken it (more
                 // than one open), or it may be a new exposure (the one open
                 // is not the newest: a newer one already has this kind).
                 let newest_has_it = exposures
-                    .back()
+                    .iter()
+                    .rev()
+                    .find(|e| e.queued == queued)
                     .is_some_and(|e| e.kinds.contains(&extension));
                 if candidates.len() > 1 || (candidates.len() == 1 && newest_has_it) {
                     candidates
@@ -805,12 +943,14 @@ impl<W: Write> Server<W> {
             _ => Vec::new(),
         };
         let companion = match shot_of {
-            Shot::Waiting => open.exposures_by_stem.get_mut(&stem).and_then(|exposures| {
-                exposures
-                    .iter_mut()
-                    .rev()
-                    .find(|e| !e.kinds.contains(&extension))
-            }),
+            Shot::Waiting | Shot::Queued => {
+                open.exposures_by_stem.get_mut(&stem).and_then(|exposures| {
+                    exposures
+                        .iter_mut()
+                        .rev()
+                        .find(|e| e.queued == queued && !e.kinds.contains(&extension))
+                })
+            }
             Shot::At(_) => None,
         };
         let (requested, exposure) = match companion {
@@ -823,12 +963,14 @@ impl<W: Write> Server<W> {
                 let request = match shot_of {
                     Shot::Waiting => open.waiting.pop_front(),
                     Shot::At(at) => Some(at),
+                    Shot::Queued => None,
                 };
                 open.exposures += 1;
                 let exposure = Exposure {
                     kinds: vec![extension],
                     request,
                     number: open.exposures,
+                    queued,
                 };
                 open.exposures_by_stem
                     .entry(stem)
@@ -901,6 +1043,9 @@ impl<W: Write> Server<W> {
         // downloaded (a repeat of a failed one is taken again).
         open.published.insert(file.clone(), identity);
         open.downloads.insert(file.clone(), shot);
+        if queued {
+            open.from_queue.remove(&file);
+        }
         if open.camera.abort_at(AbortPoint::BeforeEvent, shot) {
             std::process::exit(70);
         }
@@ -909,10 +1054,11 @@ impl<W: Write> Server<W> {
             file.name,
             expected,
             ms(reported),
-            requested.map_or("fired on the body".to_string(), |asked| format!(
-                "request {}",
-                asked.id
-            )),
+            match requested {
+                Some(asked) => format!("request {}", asked.id),
+                None if queued => "left in the camera's transfer queue".to_string(),
+                None => "fired on the body".to_string(),
+            },
             if ambiguous.is_empty() {
                 String::new()
             } else {

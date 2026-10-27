@@ -565,7 +565,11 @@ fn note_measures(
     if reuse && let Some(known) = known_measures(path, recipe, on) {
         return Some(known);
     }
-    let measures = RegionMeasures::of(image.as_rgb32f()?, recipe);
+    // Without them a region is not planned and the whole frame renders,
+    // which reports a failure of the GPU warp.
+    let measures = RegionMeasures::of(image.as_rgb32f()?, recipe)
+        .inspect_err(|e| log::warn!("[multi_view] {path}: region measures: {e}"))
+        .ok()?;
     if let Some(key) = measures_key(path, recipe, on) {
         let mut all = REGION_MEASURES.lock().unwrap_or_else(|e| e.into_inner());
         let all = all.get_or_insert_with(HashMap::new);

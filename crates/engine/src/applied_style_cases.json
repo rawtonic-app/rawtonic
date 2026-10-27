@@ -1,0 +1,339 @@
+[
+  {
+    "name": "no style applied: nothing changes",
+    "recipe": {
+      "exposure": 1
+    },
+    "reverted": {
+      "exposure": 1
+    },
+    "kept": []
+  },
+  {
+    "name": "settings the user left alone return, the user's other edits stay",
+    "recipe": {
+      "exposure": 1,
+      "contrast": 40,
+      "saturation": 15,
+      "appliedStyle": {
+        "id": "a",
+        "amount": 100,
+        "changes": [
+          {
+            "path": [
+              "exposure"
+            ],
+            "from": 0,
+            "to": 1
+          },
+          {
+            "path": [
+              "saturation"
+            ],
+            "from": 0,
+            "to": 15
+          }
+        ]
+      }
+    },
+    "reverted": {
+      "exposure": 0,
+      "contrast": 40,
+      "saturation": 0
+    },
+    "kept": []
+  },
+  {
+    "name": "a setting the user changed after the style keeps the user's value",
+    "recipe": {
+      "exposure": 0.3,
+      "saturation": 15,
+      "appliedStyle": {
+        "id": "a",
+        "amount": 100,
+        "changes": [
+          {
+            "path": [
+              "exposure"
+            ],
+            "from": 0,
+            "to": 1
+          },
+          {
+            "path": [
+              "saturation"
+            ],
+            "from": 0,
+            "to": 15
+          }
+        ]
+      }
+    },
+    "reverted": {
+      "exposure": 0.3,
+      "saturation": 0
+    },
+    "kept": [
+      [
+        "exposure"
+      ]
+    ]
+  },
+  {
+    "name": "a setting the recipe did not have before is removed again; numbers compare by value",
+    "recipe": {
+      "clarityVersion": 3.0,
+      "grainAmount": 20,
+      "appliedStyle": {
+        "id": "a",
+        "amount": 100,
+        "changes": [
+          {
+            "path": [
+              "clarityVersion"
+            ],
+            "to": 3
+          },
+          {
+            "path": [
+              "grainAmount"
+            ],
+            "from": 0,
+            "to": 20
+          }
+        ]
+      }
+    },
+    "reverted": {
+      "grainAmount": 0
+    },
+    "kept": []
+  },
+  {
+    "name": "nested settings go back one by one; defaults the editor added do not matter",
+    "recipe": {
+      "hsl": {
+        "reds": {
+          "hue": 5,
+          "saturation": 30,
+          "luminance": 0
+        },
+        "blues": {
+          "hue": -10,
+          "saturation": 0,
+          "luminance": 0
+        }
+      },
+      "curves": {
+        "luma": [
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 128,
+            "y": 140
+          },
+          {
+            "x": 255,
+            "y": 255
+          }
+        ],
+        "red": []
+      },
+      "appliedStyle": {
+        "id": "a",
+        "amount": 100,
+        "changes": [
+          {
+            "path": [
+              "hsl",
+              "reds",
+              "hue"
+            ],
+            "from": 0,
+            "to": 5
+          },
+          {
+            "path": [
+              "hsl",
+              "blues",
+              "hue"
+            ],
+            "from": 0,
+            "to": -20
+          },
+          {
+            "path": [
+              "curves",
+              "luma"
+            ],
+            "from": [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ],
+            "to": [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 128,
+                "y": 140
+              },
+              {
+                "x": 255,
+                "y": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "reverted": {
+      "hsl": {
+        "reds": {
+          "hue": 0,
+          "saturation": 30,
+          "luminance": 0
+        },
+        "blues": {
+          "hue": -10,
+          "saturation": 0,
+          "luminance": 0
+        }
+      },
+      "curves": {
+        "luma": [
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 255,
+            "y": 255
+          }
+        ],
+        "red": []
+      }
+    },
+    "kept": [
+      [
+        "hsl",
+        "blues",
+        "hue"
+      ]
+    ]
+  },
+  {
+    "name": "a setting the style removed (null) comes back unless the user set one",
+    "recipe": {
+      "lutPath": null,
+      "whiteBalance": "custom",
+      "appliedStyle": {
+        "id": "a",
+        "amount": 100,
+        "changes": [
+          {
+            "path": [
+              "lutPath"
+            ],
+            "from": "/looks/a.cube",
+            "to": null
+          },
+          {
+            "path": [
+              "whiteBalance"
+            ],
+            "from": "asShot"
+          }
+        ]
+      }
+    },
+    "reverted": {
+      "lutPath": "/looks/a.cube",
+      "whiteBalance": "custom"
+    },
+    "kept": [
+      [
+        "whiteBalance"
+      ]
+    ]
+  },
+  {
+    "name": "a group the style added goes setting by setting; one it leaves empty goes too",
+    "recipe": {
+      "exposure": 0,
+      "colorGrading": {
+        "shadows": {
+          "hue": 40,
+          "saturation": 20
+        },
+        "highlights": {
+          "hue": 200
+        }
+      },
+      "grayMixer": {
+        "red": 10
+      },
+      "appliedStyle": {
+        "id": "a",
+        "amount": 100,
+        "changes": [
+          {
+            "path": [
+              "colorGrading",
+              "shadows",
+              "hue"
+            ],
+            "to": 30
+          },
+          {
+            "path": [
+              "colorGrading",
+              "shadows",
+              "saturation"
+            ],
+            "to": 20
+          },
+          {
+            "path": [
+              "colorGrading",
+              "highlights",
+              "hue"
+            ],
+            "to": 200
+          },
+          {
+            "path": [
+              "grayMixer",
+              "red"
+            ],
+            "to": 10
+          }
+        ]
+      }
+    },
+    "reverted": {
+      "exposure": 0,
+      "colorGrading": {
+        "shadows": {
+          "hue": 40
+        }
+      }
+    },
+    "kept": [
+      [
+        "colorGrading",
+        "shadows",
+        "hue"
+      ]
+    ]
+  }
+]

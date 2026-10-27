@@ -693,6 +693,37 @@ impl Camera for GphotoCamera {
             .map_err(|e| session_error(&format!("Freeing {} on the camera", file.name), e))
     }
 
+    /// libgphoto2's file list of the camera (PTP GetStorageIDs,
+    /// GetObjectHandles and GetObjectInfo: read only). Listing also puts the
+    /// objects into libgphoto2's object cache, so its Fujifilm event wait,
+    /// which reports every object handle it has not cached as a new photo,
+    /// does not report these again.
+    fn queued(&mut self) -> Result<Vec<(CameraFile, Option<u64>)>, TetherError> {
+        if !self.transfer_queue {
+            return Ok(Vec::new());
+        }
+        let files = self
+            .camera
+            .list_files_recursive(&self.context, "/")
+            .map_err(|e| session_error("Listing the camera's transfer queue", e))?;
+        let mut queued = Vec::with_capacity(files.len());
+        for path in files {
+            let size = self
+                .camera
+                .file_info(&self.context, &path.folder, &path.name)
+                .map_err(|e| session_error(&format!("Reading {} on the camera", path.name), e))?
+                .size;
+            queued.push((
+                CameraFile {
+                    folder: path.folder,
+                    name: path.name,
+                },
+                size,
+            ));
+        }
+        Ok(queued)
+    }
+
     fn wait_event(&mut self, timeout: Duration) -> Result<CameraEvent, TetherError> {
         let event = self
             .camera

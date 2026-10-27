@@ -286,15 +286,29 @@ pub struct NewEditResponses {
     pub other: serde_json::Map<String, Value>,
 }
 
+/// A style applied from the styles list (`apply_adjustments_to_paths`): it
+/// replaces the style last applied to each photograph, or with `remove`
+/// takes `id` back from the photographs it is the last applied style of
+/// (`rawtonic_engine::applied_style`).
+#[derive(serde::Deserialize, Debug, Clone)]
+pub struct StyleOp {
+    pub id: String,
+    #[serde(default)]
+    pub remove: bool,
+}
+
 /// Applies `adjustments` to `paths`. With `paste` (copied or synced
 /// settings), their layers join each photograph's own
 /// (`masks::paste_layers`: same layer replaced, others added, AI detections
 /// waiting for their own photograph); otherwise (presets) they replace them.
+/// With `style`, each photograph's last applied style is taken back first
+/// and the style recorded with that photograph's own values before it.
 #[tauri::command]
 pub async fn apply_adjustments_to_paths(
     paths: Vec<String>,
     adjustments: Value,
     paste: Option<PasteFrom>,
+    style: Option<StyleOp>,
     app_handle: AppHandle,
 ) -> Result<(), SaveFailure> {
     save_then_regenerate(app_handle, paths, move |app_handle, paths| {
@@ -358,6 +372,7 @@ pub async fn apply_adjustments_to_paths(
                     sidecar_path,
                     adjustments,
                     paste.as_ref(),
+                    style.as_ref(),
                     size,
                     lens_db.as_deref(),
                 )
@@ -372,12 +387,14 @@ pub async fn apply_adjustments_to_paths(
 /// as `paste` says; its drawn masks stay on its content and its lens data is
 /// resolved again. Refused when the layers would exceed what the renderer
 /// applies (it would keep but ignore the extra ones).
+#[allow(clippy::too_many_arguments)]
 fn pasted_metadata(
     path: &str,
     source_path: &Path,
     sidecar_path: &Path,
     adjustments: &Value,
     paste: Option<&PasteFrom>,
+    style: Option<&StyleOp>,
     size: Option<(f64, f64)>,
     lens_db: Option<&rawtonic_engine::lens_correction::LensDatabase>,
 ) -> Result<ImageMetadata, String> {
@@ -390,6 +407,7 @@ fn pasted_metadata(
         source_path,
         adjustments,
         paste,
+        style,
         size,
         lens_db,
     )?;
@@ -407,9 +425,18 @@ fn pasted_into(
     source_path: &Path,
     adjustments: &Value,
     paste: Option<&PasteFrom>,
+    style: Option<&StyleOp>,
     size: Option<(f64, f64)>,
     lens_db: Option<&rawtonic_engine::lens_correction::LensDatabase>,
 ) -> Result<Value, String> {
+    use rawtonic_engine::applied_style;
+    // Taking back a style the photograph does not have as its last: unchanged.
+    if let Some(op) = style
+        && op.remove
+        && applied_style::applied_style_id(&base) != Some(op.id.as_str())
+    {
+        return Ok(base);
+    }
     let mut new_adjustments = base;
     let new_edit = crate::image_processing::is_new_recipe(&new_adjustments);
     // A photo without an edit starts one: the current render
@@ -432,6 +459,11 @@ fn pasted_into(
         }
     }
     let previous = new_adjustments.clone();
+    // The style before replaces or removes: the photograph as it was without it.
+    let reverted = style.map(|_| {
+        applied_style::revert(&mut new_adjustments);
+        new_adjustments.clone()
+    });
 
     if let (Some(new_map), Some(pasted_map)) =
         (new_adjustments.as_object_mut(), adjustments.as_object())
@@ -457,6 +489,10 @@ fn pasted_into(
                         uuid::Uuid::new_v4().to_string()
                     });
                     layers
+                }
+                // A style's groups join the photograph's own settings.
+                _ if style.is_some() => {
+                    applied_style::merged(&mut vec![k.clone()], new_map.get(k), v)
                 }
                 _ => v.clone(),
             };
@@ -486,6 +522,9 @@ fn pasted_into(
         lens_db,
         source_path,
     );
+    if let (Some(op), Some(reverted)) = (style.filter(|op| !op.remove), reverted.as_ref()) {
+        applied_style::record(reverted, &mut new_adjustments, adjustments, &op.id, 100.0);
+    }
     Ok(new_adjustments)
 }
 
@@ -1195,6 +1234,92 @@ mod tests {
         values
     }
 
+    /// A style replaces the photograph's last applied style with that
+    /// photograph's own values before it; applying it again removes it.
+    #[test]
+    fn a_style_replaces_the_last_one_per_photograph_and_toggles_off() {
+        use rawtonic_engine::applied_style::APPLIED_STYLE;
+        let source = Path::new("/nowhere/photo.jpg");
+        let apply = |base: Value, values: Value, id: &str, remove: bool| {
+            let op = StyleOp {
+                id: id.into(),
+                remove,
+            };
+            pasted_into(
+                base,
+                &None,
+                "/nowhere/photo.jpg",
+                source,
+                &values,
+                None,
+                Some(&op),
+                None,
+                None,
+            )
+            .unwrap()
+        };
+        let own = serde_json::json!({"renderVersion": 6, "exposure": 0.2, "contrast": 5, "saturation": 0});
+        let a = apply(
+            own.clone(),
+            serde_json::json!({"exposure": 1.0, "saturation": 20}),
+            "a",
+            false,
+        );
+        assert_eq!(a[APPLIED_STYLE]["id"], "a");
+        // The user changes saturation after A; B then replaces A.
+        let mut edited = a.clone();
+        edited["saturation"] = serde_json::json!(35);
+        edited["contrast"] = serde_json::json!(9);
+        let b = apply(edited, serde_json::json!({"contrast": 30}), "b", false);
+        assert_eq!(
+            b["exposure"], 0.2,
+            "A's exposure goes back to the photograph's own"
+        );
+        assert_eq!(b["saturation"], 35, "the user's later change stays");
+        assert_eq!(b["contrast"], 30);
+        assert_eq!(
+            b[APPLIED_STYLE]["changes"],
+            serde_json::json!([{"path": ["contrast"], "from": 9, "to": 30}])
+        );
+        // Removing a style the photograph does not have changes nothing.
+        assert_eq!(apply(b.clone(), serde_json::json!({}), "a", true), b);
+        let removed = apply(b, serde_json::json!({}), "b", true);
+        assert_eq!(removed.get(APPLIED_STYLE), None);
+        assert_eq!(removed["contrast"], 9);
+        assert_eq!(removed["exposure"], 0.2);
+        assert_eq!(removed["saturation"], 35);
+        // A style that sets one HSL slider leaves the others; taken back,
+        // the group is as it was.
+        let own = serde_json::json!({"renderVersion": 6, "hsl": {"reds": {"hue": 0, "saturation": 4}, "blues": {"hue": 22}}});
+        let red = apply(
+            own.clone(),
+            serde_json::json!({"hsl": {"reds": {"hue": 5}}}),
+            "red",
+            false,
+        );
+        assert_eq!(
+            red["hsl"],
+            serde_json::json!({"reds": {"hue": 5, "saturation": 4}, "blues": {"hue": 22}})
+        );
+        let mut back = apply(red, serde_json::json!({}), "red", true);
+        // The lens a style sets is the photograph's own: taking the style
+        // back leaves it.
+        let manual =
+            serde_json::json!({"renderVersion": 6, "lensCorrectionMode": "manual", "exposure": 0});
+        let auto = apply(
+            manual,
+            serde_json::json!({"lensCorrectionMode": "auto", "exposure": 1}),
+            "auto",
+            false,
+        );
+        let off = apply(auto, serde_json::json!({}), "auto", true);
+        assert_eq!(off["lensCorrectionMode"], "auto");
+        assert_eq!(off["exposure"], 0);
+        // (Every save stamps the lens choice.)
+        back.as_object_mut().unwrap().remove(LENS_PROFILE_FOR);
+        assert_eq!(back, own);
+    }
+
     #[test]
     fn culling_receipts_restore_exact_values_without_reverting_later_edits() {
         use rawtonic_catalog::{Library, Mode};
@@ -1754,7 +1879,16 @@ mod tests {
             new_edit: None,
         };
         let failed = edit_sidecars(&paths[1..], None, |path, source, sidecar| {
-            pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
+            pasted_metadata(
+                path,
+                source,
+                sidecar,
+                &pasted,
+                Some(&paste),
+                None,
+                None,
+                None,
+            )
         });
         assert!(failed.is_empty(), "{failed:?}");
         let (_, sidecar) = parse_virtual_path(&paths[1]);
@@ -1775,7 +1909,16 @@ mod tests {
             std::slice::from_ref(&copy),
             None,
             |path, source, sidecar| {
-                pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
+                pasted_metadata(
+                    path,
+                    source,
+                    sidecar,
+                    &pasted,
+                    Some(&paste),
+                    None,
+                    None,
+                    None,
+                )
             },
         );
         assert!(failed.is_empty(), "{failed:?}");
@@ -1809,7 +1952,16 @@ mod tests {
         };
         let pasted = serde_json::json!({"shadows": 80});
         let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
-            pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
+            pasted_metadata(
+                path,
+                source,
+                sidecar,
+                &pasted,
+                Some(&paste),
+                None,
+                None,
+                None,
+            )
         });
         assert!(failed.is_empty(), "{failed:?}");
         let new = crate::exif_processing::load_sidecar(&sidecar).adjustments;
@@ -1839,7 +1991,16 @@ mod tests {
         let pasted =
             serde_json::json!({"whiteBalance": null, "wbTemperature": null, "temperature": 0});
         let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
-            pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
+            pasted_metadata(
+                path,
+                source,
+                sidecar,
+                &pasted,
+                Some(&paste),
+                None,
+                None,
+                None,
+            )
         });
         assert!(failed.is_empty(), "{failed:?}");
         let saved = crate::exif_processing::load_sidecar(&sidecar).adjustments;
@@ -1862,7 +2023,16 @@ mod tests {
         // The photograph has one layer; 32 more would be 33.
         let pasted = serde_json::json!({ "masks": layers });
         let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
-            pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
+            pasted_metadata(
+                path,
+                source,
+                sidecar,
+                &pasted,
+                Some(&paste),
+                None,
+                None,
+                None,
+            )
         });
         assert_eq!(failed.len(), 1);
         assert!(failed[0].1.contains("at most 32"), "{failed:?}");
@@ -1876,7 +2046,16 @@ mod tests {
         // 31 fit.
         let pasted = serde_json::json!({ "masks": layers[..31] });
         let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
-            pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
+            pasted_metadata(
+                path,
+                source,
+                sidecar,
+                &pasted,
+                Some(&paste),
+                None,
+                None,
+                None,
+            )
         });
         assert!(failed.is_empty(), "{failed:?}");
     }
@@ -1894,6 +2073,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         assert_eq!(after.adjustments["masks"], before["masks"]);
@@ -1908,7 +2088,7 @@ mod tests {
             let preset =
                 serde_json::json!({"masks": [sky], "lutPath": null, "lutData": null, "crop": null});
             let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
-                pasted_metadata(path, source, sidecar, &preset, None, None, None)
+                pasted_metadata(path, source, sidecar, &preset, None, None, None, None)
             });
             assert!(failed.is_empty(), "{failed:?}");
             let mut ids = Vec::new();
@@ -1961,7 +2141,16 @@ mod tests {
         for _ in 0..5 {
             let start = std::time::Instant::now();
             let failed = edit_sidecars(&paths[1..], None, |path, source, sidecar| {
-                pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
+                pasted_metadata(
+                    path,
+                    source,
+                    sidecar,
+                    &pasted,
+                    Some(&paste),
+                    None,
+                    None,
+                    None,
+                )
             });
             assert!(failed.is_empty());
             runs.push(start.elapsed().as_secs_f64() * 1000.0);
@@ -1987,6 +2176,7 @@ mod tests {
                 sidecar,
                 &settings_only,
                 Some(&paste),
+                None,
                 None,
                 None,
             )

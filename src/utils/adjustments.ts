@@ -1270,6 +1270,13 @@ const deepCloneCurves = (curves: Partial<Curves> | undefined): Curves => ({
   ...(curves?.version !== undefined ? { version: curves.version } : {}),
 });
 
+/** A style's settings with its curves as loading fills them in (every
+ * channel; the version as it is), so that the record of an applied style
+ * still matches the curves after the photo is opened again. */
+export function withLoadedCurves<T extends { curves?: Partial<Curves> }>(values: T): T {
+  return values.curves ? { ...values, curves: deepCloneCurves(values.curves) } : values;
+}
+
 const deepCloneParametric = (pCurve: Partial<ParametricCurve> | undefined): ParametricCurve => ({
   luma: { ...DEFAULT_PARAMETRIC_CURVE_SETTINGS, ...(pCurve?.luma || {}) },
   red: { ...DEFAULT_PARAMETRIC_CURVE_SETTINGS, ...(pCurve?.red || {}) },
@@ -1323,7 +1330,7 @@ export const SHARPEN_VERSION = 6;
 export const LUMA_NOISE_VERSION = 2;
 
 /** The render pipeline fixes new edits start with (`renderVersion`). */
-export const RENDER_VERSION = 6;
+export const RENDER_VERSION = 7;
 
 /** The render version from which a RAW is developed with the second
  * dead-photosite test (crates/engine/src/image_loader.rs
@@ -2080,8 +2087,11 @@ export const COPYABLE_ADJUSTMENT_KEYS: string[] = Object.values(ADJUSTMENT_GROUP
 
 /** Adjustments that belong to one photograph or to the view and are never
  * copied: retouching, the depth-based lens blur, derived lens data, the
- * render pipeline version, tool visibility and the clipping display. Every other key must be copyable. */
+ * render pipeline version, tool visibility, the clipping display and the
+ * style last applied (with this photograph's settings before it,
+ * src/utils/appliedStyle.ts). Every other key must be copyable. */
 export const NON_COPYABLE_ADJUSTMENT_KEYS: string[] = [
+  'appliedStyle',
   'relightDepth',
   'aiPatches',
   'spots',

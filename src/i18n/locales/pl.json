@@ -3684,6 +3684,7 @@
     },
     "presets": {
       "amount": "Siła presetu",
+      "appliedStyle": "Zastosowany styl: kliknij, aby go cofnąć",
       "appliesAll": "Stosuje wszystkie ustawienia, z którymi został zapisany",
       "appliesBuiltin": "Własne ustawienie Rawtonic: stosuje zawarte w nim ustawienia",
       "appliesSaved": "Stosuje ustawienia, z którymi został zapisany",

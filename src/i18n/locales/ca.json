@@ -3584,6 +3584,7 @@
     },
     "presets": {
       "amount": "Quantitat del preajust",
+      "appliedStyle": "Estil aplicat: feu clic per retirar-lo",
       "appliesAll": "Aplica tota la configuració amb què es va desar",
       "appliesBuiltin": "Predefinit propi de Rawtonic: aplica els ajustos que conté",
       "appliesSaved": "Aplica la configuració amb què es va desar",

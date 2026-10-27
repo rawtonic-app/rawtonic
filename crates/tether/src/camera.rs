@@ -80,6 +80,15 @@ pub trait Camera {
     fn release(&mut self, _file: &CameraFile) -> Result<bool, TetherError> {
         Ok(false)
     }
+    /// The photos in the camera's USB transfer queue now, oldest first, with
+    /// the size the camera reports for each (read only: nothing is
+    /// downloaded or freed). They were taken while no computer took them
+    /// (before the connect, or while the helper was away), and on a camera
+    /// that writes no card copy the queue is their only copy. Empty on
+    /// cameras without a queue.
+    fn queued(&mut self) -> Result<Vec<(CameraFile, Option<u64>)>, TetherError> {
+        Ok(Vec::new())
+    }
     /// Whether a shot may only be fired once the last one's photo came: the
     /// camera takes no shot it is fired while it is still busy with the
     /// last, and says nothing about it.

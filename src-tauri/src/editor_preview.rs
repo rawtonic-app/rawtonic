@@ -355,9 +355,9 @@ fn build_reduced_preview_base(
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("preview_base_warp");
         if interim {
-            crate::image_processing::apply_geometry_warp_interim(retouched, &scaled)
+            crate::image_processing::apply_geometry_warp_interim(retouched, &scaled)?
         } else {
-            apply_geometry_warp(retouched, &scaled)
+            apply_geometry_warp(retouched, &scaled)?
         }
     };
     let warped = {
@@ -568,7 +568,7 @@ pub(crate) fn compute_patched_and_warped(
         Cow::Borrowed(loaded_image.image.as_ref())
     };
 
-    let warped = apply_geometry_warp(patched_image, adjustments);
+    let warped = apply_geometry_warp(patched_image, adjustments)?;
     let warped = rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, 1.0)?;
     let blurred = crate::lens_blur::apply_lens_blur(warped, adjustments);
 
@@ -601,12 +601,15 @@ pub(crate) fn cancel_thumbnail_generation(
     Ok(())
 }
 
+/// The warped image masks are computed on (`prepare_shared_warped_mask_image`),
+/// cached for the editor photo. Fails only where the warp runs on the GPU
+/// and the GPU fails.
 pub fn get_cached_full_warped_image(
     state: &AppState,
     source: &Arc<DynamicImage>,
     is_raw: bool,
     js_adjustments: &serde_json::Value,
-) -> Arc<DynamicImage> {
+) -> Result<Arc<DynamicImage>, String> {
     full_warped_image(state, source, is_raw, js_adjustments, false)
         .expect("only a prewarm skips the build")
 }
@@ -625,7 +628,7 @@ pub async fn cached_full_warped_image(
         get_cached_full_warped_image(&state, &source, is_raw, &js_adjustments)
     })
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?
 }
 
 /// `get_cached_full_warped_image`; a `prewarm` builds nothing for a photo that
@@ -636,7 +639,7 @@ fn full_warped_image(
     is_raw: bool,
     js_adjustments: &serde_json::Value,
     prewarm: bool,
-) -> Option<Arc<DynamicImage>> {
+) -> Option<Result<Arc<DynamicImage>, String>> {
     let geo_hash = calculate_geometry_hash(js_adjustments);
     // Whether `source` is the editor photo, and its cached warp if so.
     let lookup = || {
@@ -661,7 +664,8 @@ fn full_warped_image(
             true,
             cache
                 .as_ref()
-                .and_then(|cache| cache.get(source, is_raw, geo_hash)),
+                .and_then(|cache| cache.get(source, is_raw, geo_hash))
+                .map(Ok),
         )
     };
     let key = (Arc::as_ptr(source) as usize, is_raw, geo_hash);
@@ -670,7 +674,7 @@ fn full_warped_image(
             source,
             is_raw,
             js_adjustments,
-        );
+        )?;
 
         let original = state
             .original_image
@@ -690,7 +694,7 @@ fn full_warped_image(
                 .as_ref()
                 .and_then(|cache| cache.get(source, is_raw, geo_hash))
             {
-                return image;
+                return Ok(image);
             }
             // A build for an older geometry that ends last keeps its result
             // to itself instead of replacing the newer one.
@@ -703,7 +707,7 @@ fn full_warped_image(
                 ));
             }
         }
-        warped
+        Ok(warped)
     })
 }
 
@@ -2734,7 +2738,7 @@ pub(crate) async fn generate_uncropped_preview(
         adjusted_params.lens_vignette_amount *= if is_raw { 0.4 } else { 0.8 };
 
         let warped_image = rawtonic_engine::edge_fringe::apply_for_recipe(
-            Cow::Owned(warp_image_geometry(&pre_geometry_base, adjusted_params)),
+            Cow::Owned(warp_image_geometry(&pre_geometry_base, adjusted_params)?),
             &adjustments_clone,
             scale_for_gpu,
         )?
@@ -3162,7 +3166,7 @@ mod preview_memory_tests {
         adjustments: &serde_json::Value,
         preview_dim: u32,
     ) -> preview_cache::PreviewBase {
-        let warped = apply_geometry_warp(source, adjustments);
+        let warped = apply_geometry_warp(source, adjustments).unwrap();
         let warped =
             rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, 1.0).unwrap();
         let (transformed, offset) =

@@ -1,14 +1,17 @@
-//! Task BX7 (PR 2 gate): how far a lens warp computed in f32 on the GPU
-//! would sample from the CPU warp's positions, on real photographs' lens
-//! data. `WARP_RAWS` = a file listing RAW paths (one per line),
-//! `RAWTONIC_LENSFUN_DB` = the app's lensfun_db folder. Prints one line per
-//! photo and a summary; without `WARP_RAWS` it prints SKIP.
+//! Task BX7 (PR 2 gate) and GW: how far the lens warp in f32 (CPU,
+//! `renderVersion` 6) and on the GPU (`renderVersion` 7) samples from the
+//! exact positions, on real photographs' lens data. `WARP_RAWS` = a file
+//! listing RAW paths (one per line), `RAWTONIC_LENSFUN_DB` = the app's
+//! lensfun_db folder. Prints one line per photo and a summary; without
+//! `WARP_RAWS` it prints SKIP.
 
 use std::sync::Arc;
 
-#[test]
-#[ignore = "needs RAW files (WARP_RAWS)"]
-fn lens_warp_positions_in_f32() {
+use rawtonic_engine::image_processing::{GeometryParams, WarpPrecision};
+
+/// `measure` of each photo of `WARP_RAWS` whose lens data warps, with its
+/// geometry and decoded size; prints a line per photo and the summary.
+fn each_photo(label: &str, measure: impl Fn(&GeometryParams, u32, u32) -> WarpPrecision) {
     let Some(list) = std::env::var_os("WARP_RAWS") else {
         eprintln!("SKIP: WARP_RAWS not set");
         return;
@@ -52,11 +55,16 @@ fn lens_warp_positions_in_f32() {
             }
         };
         let (w, h) = (image.width(), image.height());
-        let p = rawtonic_engine::image_processing::warp_f32_displacement(&params, w, h, 7);
+        let p = measure(&params, w, h);
         println!(
-            "{path}\t{w}x{h}\tmodel {}\ttable {}\tf64-steps max {:.5} mean {:.6}\tf32 max {:.5} mean {:.6}\tapart max {:.5}\tn {}",
+            "{path}\t{w}x{h}\tmodel {}\ttable {}\t{} max {:.5} mean {:.6}\t{label} max {:.5} mean {:.6}\tapart max {:.5}\tn {}",
             params.lens_model,
             params.lens_table.len(),
+            if label == "gpu" {
+                "cpu f32"
+            } else {
+                "f64-steps"
+            },
             p.old.0,
             p.old.1,
             p.new.0,
@@ -70,10 +78,31 @@ fn lens_warp_positions_in_f32() {
         }
     }
     println!(
-        "SUMMARY files {} f32 warp vs exact: worst max {:.5} px ({}) mean of means {:.6} px",
+        "SUMMARY files {} {label} warp vs exact: worst max {:.5} px ({}) mean of means {:.6} px",
         means.len(),
         worst.0,
         worst.1,
         means.iter().sum::<f64>() / means.len().max(1) as f64
     );
+}
+
+#[test]
+#[ignore = "needs RAW files (WARP_RAWS)"]
+fn lens_warp_positions_in_f32() {
+    each_photo("f32", |params, w, h| {
+        rawtonic_engine::image_processing::warp_f32_displacement(params, w, h, 7)
+    });
+}
+
+/// The GPU warp's positions (`renderVersion` 7; needs a GPU), against the
+/// exact ones and the CPU's f32 warp.
+#[test]
+#[ignore = "needs RAW files (WARP_RAWS) and a GPU"]
+fn lens_warp_positions_on_the_gpu() {
+    // Registers the device the warp runs on.
+    let _context = rawtonic_gpu::gpu_processing::GpuContext::headless().unwrap();
+    each_photo("gpu", |params, w, h| {
+        rawtonic_engine::image_processing::warp_gpu_displacement(params, w, h, 7)
+            .expect("warps on the GPU")
+    });
 }

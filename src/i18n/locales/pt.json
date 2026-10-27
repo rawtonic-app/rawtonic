@@ -3584,6 +3584,7 @@
     },
     "presets": {
       "amount": "Intensidade da predefinição",
+      "appliedStyle": "Estilo aplicado: clique para o retirar",
       "appliesAll": "Aplica todas as configurações com que foi salva",
       "appliesBuiltin": "Predefinição própria do Rawtonic: aplica as definições que contém",
       "appliesSaved": "Aplica as configurações com que foi salva",

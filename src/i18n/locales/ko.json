@@ -3407,6 +3407,7 @@
     },
     "presets": {
       "amount": "프리셋 강도",
+      "appliedStyle": "적용된 스타일: 클릭하면 되돌립니다",
       "appliesAll": "저장할 때의 모든 설정을 적용합니다",
       "appliesBuiltin": "Rawtonic 자체 프리셋: 포함된 설정을 적용합니다",
       "appliesSaved": "저장할 때 포함한 설정을 적용합니다",

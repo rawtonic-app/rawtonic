@@ -3584,6 +3584,7 @@
     },
     "presets": {
       "amount": "Intensité du préréglage",
+      "appliedStyle": "Style appliqué : cliquez pour le retirer",
       "appliesAll": "Applique tous les réglages enregistrés avec lui",
       "appliesBuiltin": "Préréglage propre à Rawtonic : applique les réglages qu'il contient",
       "appliesSaved": "Applique les réglages enregistrés avec lui",

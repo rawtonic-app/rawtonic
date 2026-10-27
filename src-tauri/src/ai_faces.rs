@@ -146,13 +146,14 @@ async fn analysis(
     let (app, adjustments) = (app_handle.clone(), js_adjustments.clone());
     let (image, analysis) = tokio::task::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let warped = get_cached_full_warped_image(&state, &loaded.image, is_raw, &adjustments);
+        let warped = get_cached_full_warped_image(&state, &loaded.image, is_raw, &adjustments)?;
         let image = rawtonic_faces::recipe::display_rgb8(&warped, is_raw);
-        rawtonic_faces::analyze(&image, &models).map(|a| (Arc::new(image), Arc::new(a)))
+        rawtonic_faces::analyze(&image, &models)
+            .map(|a| (Arc::new(image), Arc::new(a)))
+            .map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| e.to_string())??;
     state.faces.lock().unwrap().cached = Some(CachedFaces {
         key,
         image: image.clone(),
@@ -281,7 +282,7 @@ pub async fn analyze_face_retouch(
     let (source, is_raw) = crate::editor_preview::original_source(&state).await?;
     tokio::task::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
-        let warped = get_cached_full_warped_image(&state, &source, is_raw, &js_adjustments);
+        let warped = get_cached_full_warped_image(&state, &source, is_raw, &js_adjustments)?;
         // The mask frame: the spatial transforms without the crop.
         let mut uncropped = js_adjustments.clone();
         uncropped["crop"] = serde_json::Value::Null;
@@ -385,7 +386,7 @@ pub async fn apply_face_retouch_to_paths(
                     &Arc::new(base),
                     is_raw,
                     &recipe,
-                );
+                )?;
                 let mut uncropped = recipe.clone();
                 uncropped["crop"] = serde_json::Value::Null;
                 let (framed, _) = crate::adjustment_utils::apply_spatial_transformations(
@@ -418,6 +419,7 @@ pub async fn apply_face_retouch_to_paths(
                 match crate::file_management::apply_adjustments_to_paths(
                     vec![path.clone()],
                     serde_json::json!({ "faceRetouch": value }),
+                    None,
                     None,
                     app_handle.clone(),
                 )
