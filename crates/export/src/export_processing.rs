@@ -1058,6 +1058,7 @@ pub fn save_export_image(
     let metadata = crate::exif_processing::export_metadata_with(
         source_path_str,
         &extension,
+        export_settings.color_space,
         export_settings.keep_metadata,
         export_settings.strip_gps,
         export_settings.keep_creator_contact,
