@@ -19,8 +19,6 @@
 //! on every platform; the shader's interpolation is then the only place
 //! GPUs can differ, by rounding.
 
-use rayon::prelude::*;
-
 /// Texels per tile side (a power of two; the tile repeats, the shader blends
 /// randomly shifted copies so the repeat does not show).
 pub const TILE: usize = 512;
@@ -148,7 +146,7 @@ fn coverage(grains: &[Grain]) -> Vec<Vec<f32>> {
     let rows = BAND * SUPERSAMPLE;
     let thresholds = THRESHOLDS.map(|t| t as f32);
     let per_band: Vec<Vec<[u8; LEVELS]>> = by_band
-        .par_iter()
+        .iter()
         .enumerate()
         .map(|(b, list)| {
             // Lowest sensitivity of the grains covering each sub-sample.
@@ -281,7 +279,7 @@ pub fn mip_sides() -> Vec<usize> {
 pub fn grain_tile() -> Vec<u32> {
     let grains = grains();
     let levels: Vec<Vec<f32>> = coverage(&grains)
-        .par_iter()
+        .iter()
         .map(|level| {
             let mut b = blur(level);
             let mean = (b.iter().map(|&v| v as f64).sum::<f64>() / b.len() as f64) as f32;

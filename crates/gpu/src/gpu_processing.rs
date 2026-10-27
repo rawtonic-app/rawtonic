@@ -3198,11 +3198,14 @@ fn off_global_pool<R: Send>(work: impl FnOnce() -> R + Send) -> R {
     }
 }
 
-/// The film grain tile's data, built in parallel off the global pool: the
-/// first film grain render builds it while holding the processor, and global
-/// pool workers may be waiting for that processor (thumbnail regeneration).
+/// The film grain tile's data. The first film grain render builds it while
+/// holding the processor, and Rayon workers may be waiting for that
+/// processor (thumbnail regeneration): `grain_tile` runs serially on the
+/// calling thread (~0.1 s, once per process), so it neither waits for a pool
+/// nor, called from a worker, steals a queued render that needs the
+/// processor.
 fn film_grain_tile_data() -> Vec<u32> {
-    off_global_pool(rawtonic_engine::film_grain::grain_tile)
+    rawtonic_engine::film_grain::grain_tile()
 }
 
 /// Creates the Rgba16Float input texture of `image` band by band.
