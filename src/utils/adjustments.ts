@@ -1611,7 +1611,7 @@ export const withGrainVersion = <T extends Partial<Adjustments>>(
     return { ...picked, grainVersion: 1 };
   }
   let versioned: T & Pick<Partial<Adjustments>, 'grainVersion'> = picked;
-  if (GRAIN_KEYS.some((key) => picked[key] !== undefined) && picked.grainVersion == null) {
+  if (GRAIN_KEYS.some((key) => Object.prototype.hasOwnProperty.call(picked, key)) && picked.grainVersion == null) {
     const version = source?.grainVersion ?? ((source?.grainAmount ?? 0) > 0 ? 1 : GRAIN_VERSION);
     versioned = { ...picked, grainVersion: version };
   }

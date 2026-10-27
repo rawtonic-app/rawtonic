@@ -5,12 +5,28 @@ import {
   GRAIN_VERSION,
   INITIAL_ADJUSTMENTS,
   normalizeLoadedAdjustments,
+  pastedAdjustments,
+  PasteMode,
   type Adjustments,
 } from '../../utils/adjustments';
 import { pick } from './StudioToolCopy';
 import { presetValues, toolPresetToSave } from './toolPresets';
 
 describe('Tool copy of grain', () => {
+  it('copies and syncs untouched Colour alone, including through JSON and paste', () => {
+    const source = { ...INITIAL_ADJUSTMENTS, grainVersion: 3, grainAmount: 40 } as Adjustments;
+    const target = { ...source, grainColor: 74 };
+    const picked = pick(source, ['grainColor']);
+    expect(picked).toEqual({ grainColor: 0, grainVersion: 3 });
+    expect({ ...target, ...picked }.grainColor).toBe(0); // Tool sync uses this same pick.
+    const clipboard = JSON.parse(JSON.stringify(picked));
+    expect(pastedAdjustments(clipboard, ['grainColor'], PasteMode.Replace))
+      .toEqual({ grainColor: 0, grainVersion: 3 });
+    expect(pick({ ...source, grainColor: 56 }, ['grainColor']))
+      .toEqual({ grainColor: 56, grainVersion: 3 });
+    expect(pick(source, ['exposure'])).not.toHaveProperty('grainColor');
+  });
+
   it('copies the source grain version, never downgrades it', () => {
     // A source that never used grain: its Size goes with the newest version.
     const fresh = { ...INITIAL_ADJUSTMENTS } as Adjustments;

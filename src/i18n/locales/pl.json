@@ -3746,7 +3746,7 @@
       "deleteFolderWithPresets_many": "Usunąć „{{name}}” i {{count}} presetów?",
       "deleteFolderWithPresets_other": "Usunąć „{{name}}” i {{count}} presetu?",
       "deletePreset": "Usuń preset",
-      "empty": "Brak presetów. Skoryguj zdjęcie i naciśnij +, aby zapisać jego ustawienia.",
+      "empty": "Nie masz jeszcze własnych stylów. Dostosuj zdjęcie i naciśnij +, aby zapisać jego ustawienia.",
       "exportTitle": "Eksportuj: {{name}}",
       "fileType": "Preset Rawtonic",
       "find": "Szukaj presetów",

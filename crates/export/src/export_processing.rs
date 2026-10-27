@@ -350,8 +350,8 @@ pub fn calculate_resize_target(
         if resize_opts.dont_enlarge && scale >= 1.0 {
             return (current_w, current_h);
         }
-        // Rounded down: the box is a limit on both sides.
-        let fit = |side: u32| ((side as f64 * scale + 1e-9).floor() as u32).max(1);
+        // Resolve the aspect ratio once, to the nearest whole pixel.
+        let fit = |side: u32| ((side as f64 * scale).round() as u32).max(1);
         return (fit(current_w), fit(current_h));
     }
     let pixels = value.round() as u32;
@@ -387,10 +387,10 @@ pub fn calculate_resize_target(
     }
 
     if fix_width {
-        let h = (pixels as f32 * (current_h as f32 / current_w as f32)).round() as u32;
+        let h = (pixels as f64 * (current_h as f64 / current_w as f64)).round() as u32;
         (pixels, h)
     } else {
-        let w = (pixels as f32 * (current_w as f32 / current_h as f32)).round() as u32;
+        let w = (pixels as f64 * (current_w as f64 / current_h as f64)).round() as u32;
         (w, pixels)
     }
 }
@@ -902,7 +902,9 @@ pub fn apply_export_geometry(
         None => {
             let (target_w, target_h) = resize_target(src_w, src_h, export_settings.resize.as_ref());
             if target_w != src_w || target_h != src_h {
-                image = crate::lanczos::resize(&image, target_w, target_h);
+                // The target already preserves the aspect ratio to a whole pixel.
+                // Fitting it again can shrink the requested edge (2048 -> 2047).
+                image = crate::lanczos::resize_exact(&image, target_w, target_h);
             }
             if let Some(sharpening) = &export_settings.output_sharpening {
                 crate::output_sharpening::apply(&mut image, sharpening);
@@ -2270,6 +2272,137 @@ mod resize_tests {
                 second_value: 0.0,
             },
         )
+    }
+
+    fn export_settings(resize: Option<ResizeOptions>) -> ExportSettings {
+        let mut settings: ExportSettings = serde_json::from_value(serde_json::json!({
+            "jpegQuality": 90, "keepMetadata": true, "stripGps": false,
+            "filenameTemplate": null, "watermark": null,
+        }))
+        .unwrap();
+        settings.resize = resize;
+        settings
+    }
+
+    #[test]
+    fn every_mode_resolves_odd_aspect_ratios() {
+        // Explicit expected sizes, including the reported Fast (Web) source.
+        let cases = [
+            (
+                (6000, 3376),
+                [
+                    (2048, 1152),
+                    (3640, 2048),
+                    (2048, 1152),
+                    (3640, 2048),
+                    (1919, 1080),
+                    (1885, 1060),
+                    (1998, 1124),
+                ],
+            ),
+            (
+                (6000, 4000),
+                [
+                    (2048, 1365),
+                    (3072, 2048),
+                    (2048, 1365),
+                    (3072, 2048),
+                    (1620, 1080),
+                    (1732, 1154),
+                    (1998, 1332),
+                ],
+            ),
+            (
+                (4000, 6000),
+                [
+                    (1365, 2048),
+                    (2048, 3072),
+                    (2048, 3072),
+                    (1365, 2048),
+                    (1080, 1620),
+                    (1154, 1732),
+                    (1332, 1998),
+                ],
+            ),
+            (
+                (5472, 3648),
+                [
+                    (2048, 1365),
+                    (3072, 2048),
+                    (2048, 1365),
+                    (3072, 2048),
+                    (1620, 1080),
+                    (1732, 1154),
+                    (1822, 1215),
+                ],
+            ),
+        ];
+        for ((w, h), expected_sizes) in cases {
+            let modes = [
+                ResizeMode::LongEdge,
+                ResizeMode::ShortEdge,
+                ResizeMode::Width,
+                ResizeMode::Height,
+                ResizeMode::Dimensions,
+                ResizeMode::Megapixels,
+                ResizeMode::Percentage,
+            ];
+            for (mode, expected) in modes.into_iter().zip(expected_sizes) {
+                let value = match mode {
+                    ResizeMode::Dimensions => 1920.0,
+                    ResizeMode::Megapixels => 2.0,
+                    ResizeMode::Percentage => 33.3,
+                    _ => 2048.0,
+                };
+                let opts = ResizeOptions {
+                    mode: mode.clone(),
+                    value,
+                    second_value: 1080.0,
+                    dont_enlarge: true,
+                };
+                assert_eq!(
+                    calculate_resize_target(w, h, &opts),
+                    expected,
+                    "{w}x{h} {mode:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn web_export_uses_the_exact_width_without_fitting_it_again() {
+        let settings = export_settings(Some(ResizeOptions {
+            mode: ResizeMode::Width,
+            value: 2048.0,
+            second_value: 0.0,
+            dont_enlarge: true,
+        }));
+        let (output, _) =
+            apply_export_geometry(DynamicImage::new_luma8(6000, 3376), &settings).unwrap();
+        assert_eq!(output.dimensions(), (2048, 1152));
+    }
+
+    #[test]
+    fn non_resized_export_keeps_every_pixel_and_encoded_byte() {
+        let image = DynamicImage::ImageRgb8(image::RgbImage::from_fn(91, 57, |x, y| {
+            image::Rgb([(x * 17) as u8, (y * 29) as u8, (x + y * 3) as u8])
+        }));
+        let (output, _) = apply_export_geometry(image.clone(), &export_settings(None)).unwrap();
+        assert_eq!(output.as_bytes(), image.as_bytes());
+        for format in ["png", "jpg", "tiff"] {
+            let encode = |image: &DynamicImage| {
+                encode_image_to_bytes(
+                    image,
+                    format,
+                    90,
+                    TiffBitDepth::Sixteen,
+                    OutputColorSpace::default(),
+                    None,
+                )
+                .unwrap()
+            };
+            assert_eq!(encode(&output), encode(&image), "{format}");
+        }
     }
 
     #[test]

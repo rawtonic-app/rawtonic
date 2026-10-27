@@ -3463,7 +3463,7 @@
       "deleteFolder": "フォルダを削除",
       "deleteFolderWithPresets_other": "「{{name}}」とその中の {{count}} 個のプリセットを削除しますか？",
       "deletePreset": "プリセットを削除",
-      "empty": "プリセットはまだありません。写真を補正し、+ を押して設定を保存してください。",
+      "empty": "独自のスタイルはまだありません。写真を調整し、+ を押して設定を保存してください。",
       "exportTitle": "{{name}} を書き出し",
       "fileType": "Rawtonic プリセット",
       "find": "プリセットを検索",

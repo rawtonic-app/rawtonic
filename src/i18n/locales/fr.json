@@ -3644,7 +3644,7 @@
       "deleteFolderWithPresets_many": "Supprimer « {{name}} » et ses {{count}} préréglages ?",
       "deleteFolderWithPresets_other": "Supprimer « {{name}} » et ses {{count}} préréglages ?",
       "deletePreset": "Supprimer le préréglage",
-      "empty": "Aucun préréglage pour le moment. Réglez une photo et appuyez sur + pour enregistrer ses réglages.",
+      "empty": "Vous n’avez pas encore de styles personnels. Ajustez une photo et appuyez sur + pour enregistrer ses réglages.",
       "exportTitle": "Exporter {{name}}",
       "fileType": "Préréglage Rawtonic",
       "find": "Rechercher des préréglages",
