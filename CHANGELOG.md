@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Film grain.** Grain in new edits is now built like the grain of photographic film: grains of random size in each dye layer of a negative, strongest in the midtones and printed back, with a fine, irregular texture at every Size and Roughness instead of smooth blobs. **New grain looks different from before**; photos already edited with grain keep their grain exactly (old recipes export byte-identically). Grain shows the same in Develop at any zoom as in the export (a smaller view shows the full-size grain scaled down). A new **Colour** slider replaces the structure choice for film grain: 0 (the default) is neutral grain like black-and-white film, higher values give each colour layer its own grain like colour negative film. Amount 50 is as strong as Lightroom's Amount 50 on a grey chart. On a laptop (M5 Pro) neutral grain costs about 3.6 ms per 4 MP preview frame, Colour about 9 ms.
+- **Grain presets measured on film.** The grain tool's built-in presets are new: *B&W 400 classic*, *B&W 100 fine*, *Colour negative 400* and *Colour negative 100 subtle*, each fitted to our own measurements of openly licensed film scans (grain strength, texture spectrum and, for the colour ones, how much the colour layers' grain goes together) for the photo enlarged from a 35 mm frame. The earlier Fine, Medium, Coarse, Heavy and Speckled presets are gone; photos they were applied to keep their grain.
+- **Grain from Lightroom and Capture One** imports as film grain: Lightroom's Amount, Size and Roughness carry over 1:1; Capture One's grain types and Granularity are mapped onto Size and Roughness and Impact onto Amount by measurement (texture spectrum and strength on a grey chart).
+
 ## 0.1.0-alpha.7.1 — 2026-10-26
 
 A fix release for alpha.7 with one fix; edits and libraries are unchanged.

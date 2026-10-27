@@ -553,38 +553,42 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
     }
     if let Some(impact) = num("FilmGrainAmount") {
         let kind = num("FilmGrainType").map_or(0, |t| t.round() as i64);
-        // Impact onto Amount by the grain's measured strength in the
-        // midtones (8-bit deviation on a grey chart at Impact 50 against
-        // the mapped structure at Amount 50, notes: reference/grain.md).
-        let strength = match kind {
-            1 => 0.81,
-            2 => 1.24,
-            3 => 1.02,
-            4 => 1.03,
-            5 => 1.08,
-            _ => 0.52,
+        let granularity = num("FilmGrainGranularity")
+            .unwrap_or(50.0)
+            .clamp(0.0, 100.0);
+        // Capture One's grain types onto film grain (user decision
+        // 2026-10-27), fitted on a grey chart (notes: reference/grain.md
+        // "Imports"): Size per Granularity 0 / 50 / 100 and one Roughness
+        // per type so the grain's spectrum (centroid, share below 0.05
+        // cycles/px) matches; Impact onto Amount by the midtone strength at
+        // Impact 50 against film grain at Amount 50. FilmGrainType 0-5:
+        // Fine (also Capture One's default; Granularity does nothing),
+        // Silver Rich, Soft, Cubic, Tabular, Harsh.
+        let (roughness, at) = match kind {
+            1 => (100.0, [(7.1, 0.36), (17.3, 0.60), (21.4, 1.25)]),
+            2 => (100.0, [(7.9, 0.58), (11.3, 0.90), (18.2, 1.33)]),
+            3 => (99.0, [(10.1, 0.46), (14.8, 0.75), (22.5, 1.16)]),
+            4 => (11.0, [(37.8, 0.46), (48.6, 0.84), (61.2, 1.45)]),
+            5 => (0.0, [(49.6, 0.74), (60.0, 1.23), (63.1, 2.20)]),
+            _ => (27.0, [(5.0, 0.63); 3]),
         };
+        let (lo, hi, t) = if granularity <= 50.0 {
+            (at[0], at[1], granularity / 50.0)
+        } else {
+            (at[1], at[2], granularity / 50.0 - 1.0)
+        };
+        let (size, strength) = (lo.0 + t * (hi.0 - lo.0), lo.1 + t * (hi.1 - lo.1));
         let v = impact * strength;
         put(&mut adjustments, "grainAmount", v, 0.0, 100.0);
         if v > 0.0 {
-            let size = num("FilmGrainGranularity").unwrap_or(50.0);
-            put(&mut adjustments, "grainSize", size, 0.0, 100.0);
-            // Capture One's grain types onto the nearest grain structure by
-            // the measured character (notes: reference/grain.md): Fine is
-            // even across the tones; Silver Rich, Soft and Cubic are
-            // midtone-weighted rounded grain; Tabular has bright specks;
-            // Harsh is coarse and hard-edged. FilmGrainType 0-5 in that
-            // order (0 Fine is also Capture One's default).
-            let structure = match kind {
-                1..=3 => "soft",
-                4 => "speckled",
-                5 => "gritty",
-                _ => "even",
-            };
-            adjustments.insert("grainStructure".into(), json!(structure));
+            // Explicit even at 0, so the photo's own values do not stay.
+            adjustments.insert("grainSize".into(), json!(size.round()));
+            adjustments.insert("grainRoughness".into(), json!(roughness));
+            // Capture One's grain is monochrome.
+            adjustments.insert("grainColor".into(), json!(0));
             adjustments.insert(
                 rawtonic_engine::image_processing::GRAIN_VERSION_KEY.into(),
-                json!(rawtonic_engine::image_processing::STRUCTURED_GRAIN_VERSION),
+                json!(rawtonic_engine::image_processing::GRAIN_VERSION),
             );
         }
     }
@@ -1207,34 +1211,49 @@ mod tests {
         let style = r#"<SL><E K="FilmGrainAmount" V="50"/><E K="FilmGrainGranularity" V="70"/>
             <E K="UsmAmount" V="0"/><E K="Vignetting" V="-1|1|0|1"/><E K="Moire" V="20;8"/></SL>"#;
         let a = convert_costyle_to_preset(style, "g").unwrap().adjustments;
-        assert_eq!(a["grainAmount"], json!(26.0));
-        assert_eq!(a["grainSize"], json!(70.0));
+        // Fine: Granularity changes nothing in Capture One.
+        assert_eq!(a["grainAmount"], json!(31.5));
+        assert_eq!(a["grainSize"], json!(5.0));
+        assert_eq!(a["grainRoughness"], json!(27.0));
         assert_eq!(a["sharpness"], json!(0.0));
         assert_eq!(a["vignetteAmount"], json!(-25.0));
         assert_eq!(a["moireAmount"], json!(20.0));
-        assert_eq!(a["grainStructure"], json!("even"));
+        assert!(a.get("grainStructure").is_none());
+        assert_eq!(a["grainColor"], json!(0));
         assert_eq!(
             a["grainVersion"],
-            json!(rawtonic_engine::image_processing::STRUCTURED_GRAIN_VERSION)
+            json!(rawtonic_engine::image_processing::GRAIN_VERSION)
         );
     }
 
     #[test]
-    fn grain_types_map_onto_the_nearest_grain_structure() {
-        for (kind, expected) in [
-            (0, Some("even")),
-            (1, Some("soft")),
-            (2, Some("soft")),
-            (3, Some("soft")),
-            (4, Some("speckled")),
-            (5, Some("gritty")),
-        ] {
+    fn grain_types_map_onto_film_grain_by_their_measured_spectrum() {
+        let grain = |kind: i64, granularity: f64| {
             let style = format!(
-                r#"<SL><E K="FilmGrainAmount" V="40"/><E K="FilmGrainType" V="{kind}"/></SL>"#
+                r#"<SL><E K="FilmGrainAmount" V="40"/><E K="FilmGrainType" V="{kind}"/><E K="FilmGrainGranularity" V="{granularity}"/></SL>"#
             );
             let a = convert_costyle_to_preset(&style, "g").unwrap().adjustments;
-            assert_eq!(a["grainStructure"].as_str(), expected, "type {kind}");
+            (
+                a["grainAmount"].as_f64().unwrap(),
+                a["grainSize"].as_f64().unwrap(),
+                a["grainRoughness"].as_f64().unwrap(),
+            )
+        };
+        // Harsh is the coarsest type, Fine the finest; Granularity coarsens
+        // and strengthens every type but Fine.
+        assert_eq!(grain(5, 50.0), (49.2, 60.0, 0.0));
+        assert_eq!(grain(0, 0.0), grain(0, 100.0));
+        for kind in 1..=5 {
+            let (fine, coarse) = (grain(kind, 0.0), grain(kind, 100.0));
+            assert!(coarse.0 > fine.0 && coarse.1 > fine.1, "type {kind}");
+            assert!(grain(kind, 50.0).1 > grain(0, 50.0).1, "type {kind}");
         }
+        // Between the measured Granularities the mapping is linear.
+        assert_eq!(grain(2, 25.0).1, ((7.9_f64 + 11.3) / 2.0).round());
+        // Impact 100 at the strongest type stays within the slider.
+        let style = r#"<SL><E K="FilmGrainAmount" V="100"/><E K="FilmGrainType" V="5"/><E K="FilmGrainGranularity" V="100"/></SL>"#;
+        let a = convert_costyle_to_preset(style, "g").unwrap().adjustments;
+        assert_eq!(a["grainAmount"], json!(100.0));
     }
 
     #[test]

@@ -7048,10 +7048,6 @@ pub const GRAIN_VERSION_KEY: &str = "grainVersion";
 /// `apply_film_grain`); structures do not apply to it, `grainColor` sets the
 /// dye layers' independence. Recipes without the key keep version 1.
 pub const GRAIN_VERSION: u64 = 3;
-/// The newest grain with structures (`grainStructure`), which imports from
-/// other editors write with their mapped structure: film grain (3) has none,
-/// so imports keep version 2 until they get a mapping of their own.
-pub const STRUCTURED_GRAIN_VERSION: u64 = 2;
 
 /// The recipe's grain version, 1 when missing, never newer than this
 /// renderer knows.

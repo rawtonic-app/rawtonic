@@ -359,68 +359,55 @@
       }
     },
     {
-      "id": "grain-fine",
+      "id": "grain-bw-400",
       "version": 1,
-      "name": "Fine",
+      "name": "B&W 400 classic",
       "presetType": "tool",
       "adjustments": {
-        "grainAmount": 18,
-        "grainSize": 12,
-        "grainRoughness": 30,
-        "grainStructure": "even",
-        "grainVersion": 2
+        "grainAmount": 59,
+        "grainSize": 65,
+        "grainRoughness": 28,
+        "grainColor": 0,
+        "grainVersion": 3
       }
     },
     {
-      "id": "grain-medium",
+      "id": "grain-bw-100",
       "version": 1,
-      "name": "Medium",
+      "name": "B&W 100 fine",
       "presetType": "tool",
       "adjustments": {
-        "grainAmount": 32,
-        "grainSize": 28,
-        "grainRoughness": 50,
-        "grainStructure": "clumped",
-        "grainVersion": 2
+        "grainAmount": 52,
+        "grainSize": 22,
+        "grainRoughness": 89,
+        "grainColor": 0,
+        "grainVersion": 3
       }
     },
     {
-      "id": "grain-coarse",
+      "id": "grain-colour-400",
       "version": 1,
-      "name": "Coarse",
+      "name": "Colour negative 400",
       "presetType": "tool",
       "adjustments": {
-        "grainAmount": 42,
-        "grainSize": 55,
-        "grainRoughness": 60,
-        "grainStructure": "soft",
-        "grainVersion": 2
+        "grainAmount": 72,
+        "grainSize": 20,
+        "grainRoughness": 94,
+        "grainColor": 74,
+        "grainVersion": 3
       }
     },
     {
-      "id": "grain-heavy",
+      "id": "grain-colour-100",
       "version": 1,
-      "name": "Heavy",
+      "name": "Colour negative 100 subtle",
       "presetType": "tool",
       "adjustments": {
-        "grainAmount": 65,
-        "grainSize": 60,
-        "grainRoughness": 75,
-        "grainStructure": "gritty",
-        "grainVersion": 2
-      }
-    },
-    {
-      "id": "grain-speckled",
-      "version": 1,
-      "name": "Speckled",
-      "presetType": "tool",
-      "adjustments": {
-        "grainAmount": 35,
-        "grainSize": 30,
-        "grainRoughness": 50,
-        "grainStructure": "speckled",
-        "grainVersion": 2
+        "grainAmount": 45,
+        "grainSize": 63,
+        "grainRoughness": 26,
+        "grainColor": 66,
+        "grainVersion": 3
       }
     },
     {
