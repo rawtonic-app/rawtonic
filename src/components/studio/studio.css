@@ -449,6 +449,15 @@
   min-height: 0;
   flex: 1;
 }
+/* The tool column scrolls up and down only: in the narrowest panel a row
+   that does not shrink (a long header, a slider label) is cut at the panel
+   edge instead of making the whole column scroll sideways. */
+.studio-tools-scroll {
+  overflow-x: hidden;
+}
+.studio-tools-scroll > * {
+  min-width: 0;
+}
 .studio-tools-scroll {
   /* Layout boundary like .studio-develop: tool changes leave the histogram
      and tabs alone. */
