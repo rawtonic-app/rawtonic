@@ -3182,6 +3182,7 @@
       "title": "Istogramma"
     },
     "layers": {
+      "bandWidth": "Larghezza banda",
       "brush": {
         "autoMask": "Maschera automatica",
         "brushFlow": "Flusso pennello",
@@ -3199,6 +3200,7 @@
       "drawTitle": "Dipingi sulla maschera di questo livello (i gradienti restano modificabili)",
       "erase": "Cancella",
       "eraseTitle": "Cancella dalla maschera di questo livello (i gradienti restano modificabili)",
+      "gradientBand": "Banda a due lati",
       "invert": "Inverti",
       "invertTitle": "Inverti la maschera di questo livello",
       "lumaRange": {

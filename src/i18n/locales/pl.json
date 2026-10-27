@@ -3277,6 +3277,7 @@
       "title": "Histogram"
     },
     "layers": {
+      "bandWidth": "Szerokość pasa",
       "brush": {
         "autoMask": "Automaskowanie",
         "brushFlow": "Przepływ pędzla",
@@ -3294,6 +3295,7 @@
       "drawTitle": "Maluj na masce tej warstwy (gradienty pozostają edytowalne)",
       "erase": "Wymaż",
       "eraseTitle": "Wymaż z maski tej warstwy (gradienty pozostają edytowalne)",
+      "gradientBand": "Pas dwustronny",
       "invert": "Odwróć",
       "invertTitle": "Odwróć maskę tej warstwy",
       "lumaRange": {

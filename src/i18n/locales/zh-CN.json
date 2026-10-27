@@ -3023,6 +3023,7 @@
       "title": "直方图"
     },
     "layers": {
+      "bandWidth": "条带宽度",
       "brush": {
         "autoMask": "自动蒙版",
         "brushFlow": "画笔流量",
@@ -3040,6 +3041,7 @@
       "drawTitle": "在此图层的蒙版上绘制（渐变仍可编辑）",
       "erase": "擦除",
       "eraseTitle": "从此图层的蒙版中擦除（渐变仍可编辑）",
+      "gradientBand": "双侧带状渐变",
       "invert": "反转",
       "invertTitle": "反转此图层的蒙版",
       "lumaRange": {

@@ -3023,6 +3023,7 @@
       "title": "色階分佈圖"
     },
     "layers": {
+      "bandWidth": "條帶寬度",
       "brush": {
         "autoMask": "自動遮色片",
         "brushFlow": "畫筆流量",
@@ -3040,6 +3041,7 @@
       "drawTitle": "在此圖層的遮色片上繪製（漸層仍可編輯）",
       "erase": "擦除",
       "eraseTitle": "從此圖層的遮色片擦除（漸層仍可編輯）",
+      "gradientBand": "雙側帶狀漸層",
       "invert": "反轉",
       "invertTitle": "反轉此圖層的遮色片",
       "lumaRange": {

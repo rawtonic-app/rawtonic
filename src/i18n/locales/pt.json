@@ -3182,6 +3182,7 @@
       "title": "Histograma"
     },
     "layers": {
+      "bandWidth": "Largura da faixa",
       "brush": {
         "autoMask": "Máscara automática",
         "brushFlow": "Fluxo do pincel",
@@ -3199,6 +3200,7 @@
       "drawTitle": "Pintar na máscara desta camada (os gradientes continuam editáveis)",
       "erase": "Apagar",
       "eraseTitle": "Apagar da máscara desta camada (os gradientes continuam editáveis)",
+      "gradientBand": "Faixa de dois lados",
       "invert": "Inverter",
       "invertTitle": "Inverter a máscara desta camada",
       "lumaRange": {

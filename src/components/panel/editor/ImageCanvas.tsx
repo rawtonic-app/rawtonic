@@ -1045,7 +1045,7 @@ const MaskOverlay = memo(
           key={line}
           points={points}
           {...lineProps}
-          dash={[6, 6]}
+          dash={params.band && (line === 'start' || line === 'end') ? undefined : [6, 6]}
           listening={editable}
           draggable={editable}
           dragBoundFunc={lockDragBoundFunc}
@@ -1127,6 +1127,10 @@ const MaskOverlay = memo(
             <>
               {featherLine('start', startLine)}
               {featherLine('end', endLine)}
+              {params.band && <>
+                {featherLine('featherStart', parallel(offsets.start - params.band.feather))}
+                {featherLine('featherEnd', parallel(offsets.end + params.band.feather))}
+              </>}
             </>
           )}
           {isSelected && (
