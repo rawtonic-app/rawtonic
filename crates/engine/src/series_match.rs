@@ -415,13 +415,18 @@ fn rendered_shift(photo: &SeriesPhoto) -> f32 {
 
 fn estimate(reference: &SeriesPhoto, photo: &SeriesPhoto, options: MatchOptions) -> Estimate {
     let (Some(rs), Some(ps)) = (&reference.stats, &photo.stats) else {
+        // (`plan` keeps unreadable photos before; this is the reference.)
         return Estimate {
             exposure_change: None,
             exposure_anchor: None,
             white_balance: None,
             white_balance_anchor: None,
             confidence: 0.0,
-            reasons: vec![Reason::Unreadable],
+            reasons: vec![if photo.stats.is_none() {
+                Reason::Unreadable
+            } else {
+                Reason::NoReference
+            }],
         };
     };
     let mut reasons = Vec::new();
@@ -567,7 +572,9 @@ fn brackets(photos: &[SeriesPhoto]) -> Vec<bool> {
                 .iter()
                 .filter_map(|&i| photos[i].capture.bias)
                 .collect();
-            if (evs.len() == group.len() && spread(evs) >= BRACKET_SPREAD_EV)
+            // Camera exposures alone also change in an auto-exposure burst
+            // (auto ISO while panning); a bracket's form an even ladder.
+            if (evs.len() == group.len() && is_ladder(evs))
                 || (biases.len() == group.len() && spread(biases) >= BRACKET_SPREAD_EV)
             {
                 group.iter().for_each(|&i| is_bracket[i] = true);
@@ -576,6 +583,18 @@ fn brackets(photos: &[SeriesPhoto]) -> Vec<bool> {
         start = end;
     }
     is_bracket
+}
+
+/// At least three exposures in even steps of at least `BRACKET_SPREAD_EV`
+/// less a margin (an exposure bracket shot without exposure compensation).
+fn is_ladder(mut evs: Vec<f32>) -> bool {
+    if evs.len() < 3 {
+        return false;
+    }
+    evs.sort_by(f32::total_cmp);
+    let steps: Vec<f32> = evs.windows(2).map(|w| w[1] - w[0]).collect();
+    let mean = steps.iter().sum::<f32>() / steps.len() as f32;
+    mean >= BRACKET_SPREAD_EV - 0.3 && steps.iter().all(|s| (s - mean).abs() <= 0.2)
 }
 
 /// A dark subject against a bright background with no lit face: the match
@@ -738,14 +757,25 @@ pub fn plan(photos: &[SeriesPhoto], options: MatchOptions) -> Vec<Proposal> {
                 if !reasons.iter().any(|r| {
                     matches!(
                         r,
-                        Reason::Silhouette | Reason::ColouredLight | Reason::NoWhiteBalance
+                        Reason::Silhouette
+                            | Reason::ColouredLight
+                            | Reason::NoWhiteBalance
+                            | Reason::NoReference
                     )
                 }) {
                     reasons.push(Reason::AlreadyMatches);
                 }
                 status = Status::Keep;
             }
-            let first = &estimates[0].0;
+            // Faces count as an anchor when they weighed in on any reference.
+            let anchor = |of: &dyn Fn(&Estimate) -> Option<Anchor>| {
+                let anchors: Vec<Anchor> = estimates.iter().filter_map(|(e, _)| of(e)).collect();
+                anchors
+                    .iter()
+                    .copied()
+                    .find(|a| *a != Anchor::Scene)
+                    .or(anchors.first().copied())
+            };
             Proposal {
                 path: photo.path.clone(),
                 status,
@@ -753,8 +783,8 @@ pub fn plan(photos: &[SeriesPhoto], options: MatchOptions) -> Vec<Proposal> {
                 exposure,
                 white_balance,
                 confidence,
-                exposure_anchor: first.exposure_anchor,
-                white_balance_anchor: first.white_balance_anchor,
+                exposure_anchor: anchor(&|e| e.exposure_anchor),
+                white_balance_anchor: anchor(&|e| e.white_balance_anchor),
                 current_exposure: photo.exposure,
                 current_white_balance: photo.white_balance,
             }
@@ -945,6 +975,52 @@ mod tests {
                 .iter()
                 .all(|p| p.status == Status::Match)
         );
+    }
+
+    #[test]
+    fn an_auto_exposure_burst_is_not_a_bracket_but_a_manual_ladder_is() {
+        let series = |evs: &[f32]| {
+            let mut photos = vec![SeriesPhoto {
+                reference: true,
+                ..photo("r", stats(hist(&[(-5.0, 1.0, 1.0)])), 0.0)
+            }];
+            for (i, ev) in evs.iter().enumerate() {
+                let mut p = photo(
+                    &format!("b{i}"),
+                    stats(hist(&[(-5.5, 1.0, 1.0)])),
+                    100.0 + i as f64 * 0.3,
+                );
+                p.capture.exposure_value = Some(*ev);
+                p.capture.bias = Some(0.0);
+                photos.push(p);
+            }
+            plan(&photos, BOTH)
+        };
+        // Auto ISO while panning: 10.0, 11.3, 10.4, 12.1.
+        assert!(
+            series(&[10.0, 11.3, 10.4, 12.1])[1..]
+                .iter()
+                .all(|p| p.status == Status::Match)
+        );
+        // Manual bracket in 1 EV steps, shot out of order.
+        assert!(
+            series(&[11.0, 10.0, 12.0])[1..]
+                .iter()
+                .all(|p| p.reasons == vec![Reason::Bracket])
+        );
+    }
+
+    #[test]
+    fn an_unreadable_reference_says_so() {
+        let mut reference = photo("r", stats(hist(&[(-5.0, 1.0, 1.0)])), 0.0);
+        reference.reference = true;
+        reference.stats = None;
+        let p = plan(
+            &[reference, photo("o", stats(hist(&[(-6.0, 1.0, 1.0)])), 1.0)],
+            BOTH,
+        );
+        assert_eq!(p[1].status, Status::Keep);
+        assert_eq!(p[1].reasons, vec![Reason::NoReference]);
     }
 
     #[test]

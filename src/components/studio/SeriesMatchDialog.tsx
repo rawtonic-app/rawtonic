@@ -241,6 +241,11 @@ function SeriesMatchDialog({ request }: { request: MatchRequest }) {
     setApplying(true);
     try {
       const written = await recipeAction(values);
+      // Nothing written: the error was shown; the list stays to try again.
+      if (written.length === 0) {
+        setApplying(false);
+        return;
+      }
       toast.success(t("studio.seriesMatch.applied", { count: written.length }));
       close();
     } catch (error) {
