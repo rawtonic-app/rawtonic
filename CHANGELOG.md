@@ -3,6 +3,12 @@
 ## Unreleased
 
 - **Protect freckles from the face retouch.** The Retouch tab has a protection brush: paint over freckles, moles and beauty marks the retouch should leave as they are (Protect / Erase, size and soft edge; Alt erases; [ and ] change the size; "Show protected areas" tints them). Protected pixels keep their values from before the retouch exactly, with a soft edge into the retouched skin, on every face the strokes touch; the rest of the face is retouched as before. Edits without protection render as before. This is manual protection; automatic freckle classification, long-stroke latency and comparison with other professional editors remain open.
+- **Remove: closing the spot tool's settings no longer removes anything.** With the Remove or Heal settings open, the click on the photo that closed them also healed or removed at that place; with Detect objects on it could take out the whole background. That click now only closes the settings.
+- **Remove: no more dark blocks or a light halo in large removals (macOS).** Where the photo around a large removed object had no patch of the right shade (the shadow inside a fruit bowl), the fill copied darker blocks of the wall behind it, and the model's slightly lighter colours showed as a faint halo. The fill now keeps the model's shading and colour and the photo's own texture, and takes the model's colour drift out. On 27 real removals both fruit-bowl potatoes are clean and one (a ferry) shows a faint coloured band it did not have before; on holes with known content the error is a little higher (LPIPS 0.0705 → 0.0715 and 0.0746 → 0.0756 on two sets of 17 and 10 objects), mostly fine texture such as water coming out smoother.
+- **Remove says when it used the smaller model.** When the object removal model cannot be downloaded (offline) or does not run on this computer, the large hole is filled by the smaller model (MI-GAN) as before, and a notice now says so and why (that it does not run, once per session).
+- **Remove's download progress runs once from 0 to 100 %** over all of the model's files on macOS (it started again for each file).
+- **Show removals.** The spot tool's settings can hide and show all removals of a photo (also in its exports) without deleting them. Removals stay in the spot tool, not in Layers: open the tool to select one (click its pin), Delete deletes it.
+- History names a removal "Remove" (it said "Adjustment"); a cancelled removal is no longer logged as an error.
 
 ## 0.1.0-alpha.8 — 2026-10-27
 

@@ -1872,6 +1872,8 @@
     "detectObjectsHint": "Peignez grossièrement sur un objet ou cliquez dessus pour le supprimer.",
     "detectObjectsRefineHint": "Maj ajoute à la suppression sélectionnée, Alt (⌥) en retire.",
     "downloadingModel": "Téléchargement du modèle de suppression d'objets… {{percent}} %",
+    "fallbackDownload": "Le modèle de suppression d’objets n’a pas pu être téléchargé (hors ligne ?) ; le modèle plus petit (MI-GAN) a rempli cette zone. Annulez et recommencez une fois en ligne pour un meilleur remplissage.",
+    "fallbackUnavailable": "Le modèle de suppression d’objets n’a pas pu être exécuté ; le modèle plus petit (MI-GAN) a rempli cette zone.",
     "feather": "Contour progressif",
     "featherAria": "Contour progressif de la zone",
     "filling": "Suppression… étape {{done}} sur {{total}}",
@@ -1908,6 +1910,7 @@
     },
     "sensitivity": "Sensibilité",
     "sensitivityAria": "Sensibilité de la visualisation des défauts",
+    "showRemovals": "Afficher les suppressions",
     "size": "Taille",
     "sizeAria": "Taille de la zone",
     "visualize": "Visualiser les défauts"
@@ -2282,6 +2285,7 @@
         "opened": "Image ouverte",
         "other": "Réglage",
         "redEyes": "Yeux rouges",
+        "remove": "Supprimer",
         "spots": "Suppression des taches",
         "title": "Historique"
       },

@@ -1212,7 +1212,60 @@ updated `models.json` (BiRefNet, sky, SAM 2.1). Check SAM with the ignored tests
   the first run in an app). Peak physical footprint of the test process
   7.1 GB on the 45 MP photos (photo copies and completion included). The
   three programs are 620 MB, downloaded on the first large removal with
-  progress and Cancel in the overlay; if they cannot be had, MI-GAN fills.
+  progress (on macOS one percent over all files) and Cancel in the overlay; if they
+  cannot be downloaded or do not run, MI-GAN fills and a notice says so
+  and why (`ai-fill-notice`).
+
+  *Colour drift and blocks (GUI check, 2026-10-27).* In the app the fruit
+  bowl's potato left a blocky dark-grey patch and a faint lighter ellipse.
+  The app's mask, crop, scale and colour space match the harness (the
+  mask is the harness's grown about 24 px more; both masks give the same
+  result through the app's code, ignored test `moebius_fill_times`), and
+  the harness's `mhybrid` through that same code shows both defects too:
+  they are the method's. Two causes, two changes:
+  1. The ellipse: the network's colours drift from the photo's (the VAE),
+     so its fill sits lighter in the hole. `moebius::guide` now measures
+     the drift on the known pixels of its 512 px square (photo − result),
+     spreads it into the hole by push-pull (bilinear pull) and takes it
+     out.
+  2. The blocks: the photo around the hole has no patch of the shadow
+     inside the bowl that the guide asks for, so the completion copies
+     the nearest ones, the dark wall behind it, in blocks. In the fill's
+     dim, sRGB-encoded base image that is 4-6 codes (grey ≈ 28, 29, 28
+     against the guide's dark green ≈ 30, 33, 22), invisible in the
+     harness's sheets but plain once the develop settings lift it; a
+     guide weight of 100 instead of 10 keeps it, another seed does not.
+     `keep_guide_shading` now takes the hole's shading and colour from
+     the guide below its own detail (a Gaussian of one guide pixel,
+     side / 512 photo pixels, three box passes) and the texture above it
+     from the completion.
+
+  Synthetic holes (same sets, the app's code end to end; before = main):
+
+  | Set | Fill | LPIPS ↓ | PSNR ↑ | ΔE ↓ |
+  |---|---|---|---|---|
+  | dev | before | 0.0705 | 21.31 | 9.85 |
+  | dev | drift only | 0.0693 | 21.33 | 9.77 |
+  | dev | **drift + shading (now)** | 0.0715 | 21.26 | 9.94 |
+  | held-out | before | 0.0746 | 18.62 | 13.44 |
+  | held-out | drift only | 0.0741 | 18.72 | 13.32 |
+  | held-out | **drift + shading (now)** | 0.0756 | 18.68 | 13.40 |
+
+  The drift correction is better on every metric; the shading costs about
+  0.002 LPIPS on known content (water and stone texture at the guide's
+  scale comes out a little smoother; worst a synthetic hole in a ship's
+  sea, +0.010). Only the shading at one guide pixel removes the blocks:
+  three guide pixels leave their outline, a correction only above a few
+  codes leaves them, colour at one and brightness at two to six guide
+  pixels scores the same as all at one. Real removals (27, lifted views
+  side by side): both fruit potatoes clean (the lower one had dark blocks
+  too; no block, no ellipse), the ferry a little worse (a faint coloured
+  band on the hill behind it), the other 24 alike; the kitten keeps its
+  whiskers (outside the selection, as before) and a faint ghost. The
+  scale was chosen looking at the fruit bowl, the sets only checked
+  afterwards. Side-by-side sheets and offline crops: maintainer's laptop,
+  `~/rawtonic-scratch/mf/` (`all*.jpg`, `real*.jpg`, `synth1.jpg`; private
+  photos), numbers in notes `parity-gaps/G33-retouch.md` (MF).
 
   *Windows and Linux (ONNX, 2026-10-27; notes:
   benchmark-results/moebius-onnx-2026-10-27).* The same three networks as

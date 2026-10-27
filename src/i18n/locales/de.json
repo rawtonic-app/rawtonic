@@ -1813,6 +1813,8 @@
     "detectObjectsHint": "Grob über ein Objekt malen oder es anklicken, um es zu entfernen.",
     "detectObjectsRefineHint": "Umschalt fügt der gewählten Entfernung hinzu, Alt (⌥) zieht davon ab.",
     "downloadingModel": "Modell zum Entfernen von Objekten wird geladen… {{percent}} %",
+    "fallbackDownload": "Das Modell zum Entfernen von Objekten konnte nicht geladen werden (offline?), daher hat das kleinere Modell (MI-GAN) diesen Bereich gefüllt. Mach den Schritt rückgängig und entferne erneut, wenn du online bist, für eine bessere Füllung.",
+    "fallbackUnavailable": "Das Modell zum Entfernen von Objekten konnte nicht ausgeführt werden, daher hat das kleinere Modell (MI-GAN) diesen Bereich gefüllt.",
     "feather": "Weiche Kante",
     "featherAria": "Weiche Kante des Bereichs",
     "filling": "Wird entfernt… Schritt {{done}} von {{total}}",
@@ -1849,6 +1851,7 @@
     },
     "sensitivity": "Empfindlichkeit",
     "sensitivityAria": "Empfindlichkeit der Bereichsvisualisierung",
+    "showRemovals": "Entfernungen anzeigen",
     "size": "Größe",
     "sizeAria": "Bereichsgröße",
     "visualize": "Bereiche visualisieren"
@@ -2222,6 +2225,7 @@
         "opened": "Bild geöffnet",
         "other": "Anpassung",
         "redEyes": "Rote Augen",
+        "remove": "Entfernen",
         "spots": "Bereichsreparatur",
         "title": "Protokoll"
       },

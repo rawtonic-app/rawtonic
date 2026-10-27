@@ -1872,6 +1872,8 @@
     "detectObjectsHint": "Pinte por cima de um objeto ou clique nele para o remover.",
     "detectObjectsRefineHint": "Shift adiciona à remoção selecionada, Alt (⌥) subtrai.",
     "downloadingModel": "Baixando o modelo de remoção de objetos… {{percent}} %",
+    "fallbackDownload": "Não foi possível transferir o modelo de remoção de objetos (offline?), por isso o modelo mais pequeno (MI-GAN) preencheu esta área. Anule e remova de novo quando estiver online para um preenchimento melhor.",
+    "fallbackUnavailable": "Não foi possível executar o modelo de remoção de objetos, por isso o modelo mais pequeno (MI-GAN) preencheu esta área.",
     "feather": "Suavização",
     "featherAria": "Suavização da mancha",
     "filling": "Removendo… etapa {{done}} de {{total}}",
@@ -1908,6 +1910,7 @@
     },
     "sensitivity": "Sensibilidade",
     "sensitivityAria": "Sensibilidade da visualização de manchas",
+    "showRemovals": "Mostrar remoções",
     "size": "Tamanho",
     "sizeAria": "Tamanho da mancha",
     "visualize": "Visualizar manchas"
@@ -2282,6 +2285,7 @@
         "opened": "Imagem aberta",
         "other": "Ajuste",
         "redEyes": "Olhos vermelhos",
+        "remove": "Remover",
         "spots": "Remoção de manchas",
         "title": "Histórico"
       },

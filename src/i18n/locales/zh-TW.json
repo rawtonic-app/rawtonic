@@ -1775,6 +1775,8 @@
     "detectObjectsHint": "用筆刷大致塗抹物件或按一下物件即可移除。",
     "detectObjectsRefineHint": "Shift 加入所選移除，Alt (⌥) 從中減去。",
     "downloadingModel": "正在下載物件移除模型… {{percent}} %",
+    "fallbackDownload": "無法下載物件移除模型（離線？），因此由較小的模型（MI-GAN）填補了此區域。連網後復原並重新移除可獲得更好的填補效果。",
+    "fallbackUnavailable": "無法執行物件移除模型，因此由較小的模型（MI-GAN）填補了此區域。",
     "feather": "羽化",
     "featherAria": "污點羽化",
     "filling": "正在移除… 第 {{done}}/{{total}} 步",
@@ -1811,6 +1813,7 @@
     },
     "sensitivity": "靈敏度",
     "sensitivityAria": "顯示污點的靈敏度",
+    "showRemovals": "顯示移除",
     "size": "大小",
     "sizeAria": "污點大小",
     "visualize": "顯示污點"
@@ -2184,6 +2187,7 @@
         "opened": "開啟影像",
         "other": "調整",
         "redEyes": "紅眼",
+        "remove": "移除",
         "spots": "污點移除",
         "title": "步驟記錄"
       },

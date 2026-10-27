@@ -1872,6 +1872,8 @@
     "detectObjectsHint": "Pinta per sobre d'un objecte o fes-hi clic per eliminar-lo.",
     "detectObjectsRefineHint": "Maj afegeix a l'eliminació seleccionada, Alt (⌥) en resta.",
     "downloadingModel": "S'està baixant el model per eliminar objectes… {{percent}} %",
+    "fallbackDownload": "No s’ha pogut baixar el model d’eliminació d’objectes (sense connexió?), així que el model més petit (MI-GAN) ha omplert aquesta zona. Desfés i torna a eliminar quan tinguis connexió per a un millor farciment.",
+    "fallbackUnavailable": "No s’ha pogut executar el model d’eliminació d’objectes, així que el model més petit (MI-GAN) ha omplert aquesta zona.",
     "feather": "Difuminat",
     "featherAria": "Difuminat de la taca",
     "filling": "S'està eliminant… pas {{done}} de {{total}}",
@@ -1908,6 +1910,7 @@
     },
     "sensitivity": "Sensibilitat",
     "sensitivityAria": "Sensibilitat de la visualització de taques",
+    "showRemovals": "Mostra les eliminacions",
     "size": "Mida",
     "sizeAria": "Mida de la taca",
     "visualize": "Visualitza les taques"
@@ -2282,6 +2285,7 @@
         "opened": "Imatge oberta",
         "other": "Ajustament",
         "redEyes": "Ulls vermells",
+        "remove": "Elimina",
         "spots": "Eliminació de taques",
         "title": "Historial"
       },

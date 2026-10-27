@@ -7,6 +7,8 @@ const { invoke, listeners } = vi.hoisted(() => ({
   listeners: new Map<string, (event: { payload: unknown }) => void>(),
 }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+const { toastWarn, toastInfo } = vi.hoisted(() => ({ toastWarn: vi.fn(), toastInfo: vi.fn() }));
+vi.mock("react-toastify", () => ({ toast: Object.assign(vi.fn(), { warn: toastWarn, info: toastInfo, error: vi.fn() }) }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: (name: string, handler: (event: { payload: unknown }) => void) => {
     listeners.set(name, handler);
@@ -232,6 +234,36 @@ describe("spot removal overlay", () => {
     await act(async () => failFill("Task cancelled"));
     expect(screen.queryByTestId("remove-progress")).toBeNull();
     expect(useEditorStore.getState().adjustments.aiPatches ?? []).toHaveLength(0);
+  });
+
+  it("shows one percent over a model of several files and says when the smaller model filled", async () => {
+    invoke.mockImplementation((command: string) =>
+      command === "invoke_generative_replace_with_mask_def" ? new Promise(() => {}) : Promise.resolve(),
+    );
+    useEditorStore.setState({ spotSettings: { mode: "remove", size: 20, feather: 0, opacity: 100 } });
+    const el = overlay();
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 50, clientY: 50, pointerId: 1 });
+      fireEvent.pointerUp(el, { clientX: 50, clientY: 50, pointerId: 1 });
+    });
+    const fill = invoke.mock.calls.find(([name]) => name === "invoke_generative_replace_with_mask_def")!;
+    const { taskId } = fill[1] as { taskId: string };
+    // The second file's first half: 60 % of the whole, not 50 % of the file.
+    act(() =>
+      listeners.get("ai-model-download-progress")!({
+        payload: { received: 100, total: 200, batchReceived: 600, batchTotal: 1000 },
+      }),
+    );
+    expect(screen.getByTestId("remove-progress").textContent).toContain("60");
+    toastWarn.mockClear();
+    act(() => listeners.get("ai-fill-notice")!({ payload: { taskId: "other", reason: "download" } }));
+    expect(toastWarn).not.toHaveBeenCalled();
+    act(() => listeners.get("ai-fill-notice")!({ payload: { taskId, reason: "download" } }));
+    expect(toastWarn).toHaveBeenCalledWith(expect.stringContaining("MI-GAN"), expect.anything());
+    // Moebius too slow on this GPU: said once for the session, whatever the task.
+    toastInfo.mockClear();
+    act(() => listeners.get("ai-fill-notice")!({ payload: { taskId: null, reason: "tooSlow" } }));
+    expect(toastInfo).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a slow removal's progress and Cancel when a quicker one finishes meanwhile", async () => {

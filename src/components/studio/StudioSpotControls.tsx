@@ -24,6 +24,11 @@ export default function StudioSpotControls() {
   const osPlatform = useSettingsStore((s) => s.osPlatform);
   const setVisualize = (patch: Partial<typeof visualize>) =>
     useEditorStore.getState().setEditor({ spotVisualize: { ...visualize, ...patch } });
+  // Removals (the AI patches Remove made): shown unless all are hidden.
+  const hasRemovals = useEditorStore((s) => Boolean(s.adjustments.aiPatches?.some((p) => p.name === "Remove")));
+  const removalsShown = useEditorStore((s) =>
+    Boolean(s.adjustments.aiPatches?.some((p) => p.name === "Remove" && p.visible !== false)),
+  );
   const activeSpot = useEditorStore((s) =>
     s.adjustments.spots?.find((spot) => spot.id === s.activeSpotId),
   );
@@ -180,6 +185,24 @@ export default function StudioSpotControls() {
             </>
           )}
         </>
+      )}
+      {!redEye && hasRemovals && (
+        // The tool's eye: hides every removal in the
+        // photo and its exports (the patches stay in the recipe).
+        <label className="studio-inline studio-check">
+          <input
+            type="checkbox"
+            checked={removalsShown}
+            onChange={(e) => {
+              const visible = e.target.checked;
+              updateAdjustments((prev) => ({
+                ...prev,
+                aiPatches: (prev.aiPatches ?? []).map((p) => (p.name === "Remove" ? { ...p, visible } : p)),
+              }));
+            }}
+          />
+          {t("spotRemoval.showRemovals")}
+        </label>
       )}
       {!redEye && (
         <label className="studio-inline studio-check">

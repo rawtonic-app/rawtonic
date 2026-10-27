@@ -50,6 +50,8 @@ const TOOLS: [match: RegExp, label: ParseKeys][] = [
   [/^faceRetouch$/, "studio.develop.groups.faceRetouch"],
   [/^spots$/, "studio.develop.history.spots"],
   [/^redEyes$/, "studio.develop.history.redEyes"],
+  // AI patches are made by Remove (the spot tool's object removal).
+  [/^aiPatches$/, "studio.develop.history.remove"],
 ];
 
 /** Keys that change with an edit but say nothing about it. */
