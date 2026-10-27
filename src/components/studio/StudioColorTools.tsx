@@ -44,7 +44,42 @@ const REGIONS = [
 type View = (typeof REGIONS)[number][0];
 type Region = Exclude<View, "threeWay">;
 /** Capture One's 3-way layout: midtones on top, shadows and highlights below. */
-const THREE_WAY: Region[] = ["midtones", "shadows", "highlights"];
+const THREE_WAY: Exclude<Region, "global">[] = [
+  "midtones",
+  "shadows",
+  "highlights",
+];
+
+/** One shared polar offset; stop the whole group at a saturation boundary. */
+export function linkedGrades(
+  grading: Adjustments["colorGrading"],
+  region: Exclude<Region, "global">,
+  next: HueSatLum,
+): Adjustments["colorGrading"] {
+  const wheel = (key: Exclude<Region, "global">) => ({
+    ...INITIAL_ADJUSTMENTS.colorGrading[key],
+    ...grading[key],
+  });
+  const current = wheel(region);
+  const hue = next.hue - current.hue;
+  const saturations = THREE_WAY.map((key) => wheel(key).saturation);
+  const saturation = Math.max(
+    -Math.min(...saturations),
+    Math.min(
+      100 - Math.max(...saturations),
+      next.saturation - current.saturation,
+    ),
+  );
+  const result = { ...grading };
+  for (const key of THREE_WAY) {
+    result[key] = {
+      ...wheel(key),
+      hue: (((wheel(key).hue + hue) % 360) + 360) % 360,
+      saturation: wheel(key).saturation + saturation,
+    };
+  }
+  return result;
+}
 
 export const tintColor = ({ hue, saturation }: HueSatLum) =>
   saturation > 0
@@ -155,6 +190,11 @@ export function StudioColorGrading({
 }: ToolProps) {
   const { t } = useTranslation();
   const [view, setView] = useState<View>("threeWay");
+  const [linked, setLinked] = useState(false);
+  const [wheelDragging, setWheelDragging] = useState(false);
+  const [linkedPreview, setLinkedPreview] = useState<
+    Adjustments["colorGrading"] | null
+  >(null);
   const region: Region = view === "threeWay" ? "midtones" : view;
   const grading = {
     ...INITIAL_ADJUSTMENTS.colorGrading,
@@ -162,10 +202,25 @@ export function StudioColorGrading({
   };
   const wheelOf = (key: Region): HueSatLum => ({
     ...(INITIAL_ADJUSTMENTS.colorGrading[key] as HueSatLum),
-    ...(grading[key] as HueSatLum),
+    ...((linkedPreview ?? grading)[key] as HueSatLum),
   });
   const setWheelOf = (key: Region, next: HueSatLum) =>
     change({ colorGrading: { ...grading, [key]: next } });
+  const setLinkedWheel = (key: Region, next: HueSatLum) => {
+    if (!linked || key === "global") return setWheelOf(key, next);
+    const colorGrading = linkedGrades(grading, key, next);
+    // Store commits are throttled during drags; all three indicators still
+    // follow the same frame as the actively dragged wheel.
+    if (wheelDragging) setLinkedPreview(colorGrading);
+    change({ colorGrading });
+  };
+  const constrainWheel = (key: Region, next: HueSatLum) =>
+    linked && key !== "global" ? linkedGrades(grading, key, next)[key] : next;
+  const onWheelInteraction = (active: boolean) => {
+    setWheelDragging(active);
+    if (!active) setLinkedPreview(null);
+    onInteraction(active);
+  };
   const nameOf = (key: View) => t(REGIONS.find(([k]) => k === key)![1]);
   const wheel = wheelOf(region);
   const setWheel = (next: HueSatLum) => setWheelOf(region, next);
@@ -218,6 +273,15 @@ export function StudioColorGrading({
           );
         })}
       </div>
+      <label className="studio-inline studio-check">
+        <input
+          type="checkbox"
+          checked={linked}
+          disabled={disabled}
+          onChange={(event) => setLinked(event.target.checked)}
+        />
+        {t("studio.color.grading.link")}
+      </label>
       {view === "threeWay" ? (
         <div
           className="studio-grading-3way"
@@ -240,8 +304,9 @@ export function StudioColorGrading({
                     className="is-fill"
                     style={THREE_WAY_DISC}
                     disabled={disabled}
-                    onChange={(next) => setWheelOf(key, next)}
-                    onInteraction={onInteraction}
+                    onChange={(next) => setLinkedWheel(key, next)}
+                    constrain={(next) => constrainWheel(key, next)}
+                    onInteraction={onWheelInteraction}
                   />
                   <StudioLuminanceArc
                     label={name}
@@ -266,8 +331,9 @@ export function StudioColorGrading({
               label={label}
               value={wheel}
               disabled={disabled}
-              onChange={setWheel}
-              onInteraction={onInteraction}
+              onChange={(next) => setLinkedWheel(region, next)}
+              constrain={(next) => constrainWheel(region, next)}
+              onInteraction={onWheelInteraction}
             />
             <span className="studio-grading-3way-name">{label}</span>
           </div>

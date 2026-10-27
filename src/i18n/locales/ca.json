@@ -2078,6 +2078,7 @@
       },
       "grading": {
         "hueAria": "To ({{range}})",
+        "link": "Vincula les rodes tonals",
         "luminanceArcTitle": "Luminància ({{range}}) {{value}} · arrossega o fletxes · Maj: fi · doble clic restableix",
         "luminanceAria": "Luminància ({{range}})",
         "ranges": "Rangs",

@@ -1980,6 +1980,7 @@
       },
       "grading": {
         "hueAria": "{{range}}色相",
+        "link": "連動色調輪",
         "luminanceArcTitle": "{{range}}亮度 {{value}} · 拖曳或方向鍵 · Shift 微調 · 按兩下重設",
         "luminanceAria": "{{range}}亮度",
         "ranges": "範圍",

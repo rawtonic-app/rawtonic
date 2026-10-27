@@ -1980,6 +1980,7 @@
       },
       "grading": {
         "hueAria": "{{range}} 색조",
+        "link": "색조 휠 연결",
         "luminanceArcTitle": "{{range}} 휘도 {{value}} · 드래그 또는 화살표 키 · Shift 미세 조정 · 두 번 클릭하여 재설정",
         "luminanceAria": "{{range}} 휘도",
         "ranges": "범위",

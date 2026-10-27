@@ -2138,6 +2138,7 @@
       },
       "grading": {
         "hueAria": "Odcień ({{range}})",
+        "link": "Połącz koła tonalne",
         "luminanceArcTitle": "Luminancja ({{range}}) {{value}} · przeciągnij lub strzałki · Shift precyzyjnie · dwuklik resetuje",
         "luminanceAria": "Luminancja ({{range}})",
         "ranges": "Zakresy",
