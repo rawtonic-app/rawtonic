@@ -281,25 +281,6 @@ pub fn run(photos: u32, iterations: u32) -> Result<()> {
     drop(lib);
 
     let mut results = serde_json::Map::new();
-    // A library made before AI facts were indexed (schema 16), opened: its
-    // versions are indexed from their recipes, once.
-    let index_old = {
-        let db = rusqlite::Connection::open(directory.join("session.sqlite"))?;
-        db.execute_batch(
-            "DROP TRIGGER versions_ai_facts_ai; DROP TRIGGER versions_ai_facts_au;
-             DROP TRIGGER recipes_ai_facts_au; DROP INDEX versions_ai_facts;
-             ALTER TABLE versions DROP COLUMN ai_facts; ALTER TABLE assets DROP COLUMN source_type;
-             PRAGMA user_version=16;",
-        )?;
-        drop(db);
-        let now = Instant::now();
-        drop(Library::open(&directory)?);
-        now.elapsed().as_secs_f64() * 1000.0
-    };
-    results.insert(
-        "index_ai_facts_of_schema_16_library".into(),
-        json!((index_old * 100.0).round() / 100.0),
-    );
     let (open, lib) = time(iterations, || Library::open(&directory))?;
     results.insert("open_library".into(), open);
     let folder = capture.join("2023-03-15");
@@ -406,6 +387,30 @@ pub fn run(photos: u32, iterations: u32) -> Result<()> {
         lib.save_editor_state(&first, &state)
     })?;
     results.insert("edit_save_with_ai_index".into(), save);
+
+    // Roll back only after query measurements: schema 16 has no source
+    // types, so rolling back earlier would erase the seeded provenance
+    // and time a source-type search that matches nothing.
+    drop(lib);
+    // A library made before AI facts were indexed (schema 16), opened: its
+    // versions are indexed from their recipes, once.
+    let index_old = {
+        let db = rusqlite::Connection::open(directory.join("session.sqlite"))?;
+        db.execute_batch(
+            "DROP TRIGGER versions_ai_facts_ai; DROP TRIGGER versions_ai_facts_au;
+             DROP TRIGGER recipes_ai_facts_au; DROP INDEX versions_ai_facts;
+             ALTER TABLE versions DROP COLUMN ai_facts; ALTER TABLE assets DROP COLUMN source_type;
+             PRAGMA user_version=16;",
+        )?;
+        drop(db);
+        let now = Instant::now();
+        drop(Library::open(&directory)?);
+        now.elapsed().as_secs_f64() * 1000.0
+    };
+    results.insert(
+        "index_ai_facts_of_schema_16_library".into(),
+        json!((index_old * 100.0).round() / 100.0),
+    );
 
     crate::print(json!({
         "platform": std::env::consts::OS,
