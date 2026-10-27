@@ -3644,7 +3644,7 @@
       "deleteFolderWithPresets_many": "Vols suprimir «{{name}}» i els seus {{count}} preajusts?",
       "deleteFolderWithPresets_other": "Vols suprimir «{{name}}» i els seus {{count}} preajusts?",
       "deletePreset": "Suprimeix el preajust",
-      "empty": "Encara no hi ha preajusts. Ajusta una foto i prem + per desar-ne la configuració.",
+      "empty": "Encara no tens estils propis. Ajusta una fotografia i prem + per desar-ne els ajustos.",
       "exportTitle": "Exporta {{name}}",
       "fileType": "Preajust de Rawtonic",
       "find": "Cerca preajusts",

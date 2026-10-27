@@ -3463,7 +3463,7 @@
       "deleteFolder": "刪除資料夾",
       "deleteFolderWithPresets_other": "刪除「{{name}}」及其中的 {{count}} 個預設？",
       "deletePreset": "刪除預設",
-      "empty": "尚無預設。調整照片後按 + 儲存其設定。",
+      "empty": "尚無自建樣式。調整照片後，按 + 儲存其設定。",
       "exportTitle": "匯出 {{name}}",
       "fileType": "Rawtonic 預設",
       "find": "尋找預設",

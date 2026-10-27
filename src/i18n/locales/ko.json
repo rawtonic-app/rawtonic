@@ -3463,7 +3463,7 @@
       "deleteFolder": "폴더 삭제",
       "deleteFolderWithPresets_other": "“{{name}}”과(와) 그 안의 프리셋 {{count}}개를 삭제할까요?",
       "deletePreset": "프리셋 삭제",
-      "empty": "아직 프리셋이 없습니다. 사진을 조정한 후 +를 눌러 설정을 저장하세요.",
+      "empty": "아직 직접 만든 스타일이 없습니다. 사진을 조정하고 +를 눌러 설정을 저장하세요.",
       "exportTitle": "{{name}} 내보내기",
       "fileType": "Rawtonic 프리셋",
       "find": "프리셋 찾기",

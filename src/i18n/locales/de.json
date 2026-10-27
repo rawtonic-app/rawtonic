@@ -3542,7 +3542,7 @@
       "deleteFolderWithPresets_one": "„{{name}}“ und seine {{count}} Vorgabe löschen?",
       "deleteFolderWithPresets_other": "„{{name}}“ und seine {{count}} Vorgaben löschen?",
       "deletePreset": "Vorgabe löschen",
-      "empty": "Noch keine Vorgaben. Passen Sie ein Foto an und drücken Sie +, um seine Einstellungen zu speichern.",
+      "empty": "Noch keine eigenen Stile. Passen Sie ein Foto an und drücken Sie +, um seine Einstellungen zu speichern.",
       "exportTitle": "{{name}} exportieren",
       "fileType": "Rawtonic-Vorgabe",
       "find": "Vorgaben suchen",

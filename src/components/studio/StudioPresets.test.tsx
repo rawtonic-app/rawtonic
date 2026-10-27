@@ -497,3 +497,16 @@ describe("applied style (Capture One with Stack Styles off)", () => {
     vi.useRealTimers();
   });
 });
+
+describe("Own styles empty state", () => {
+  it("limits the own-styles empty message to the user list, alongside built-ins", async () => {
+    usePresetStore.setState({ presets: [], isLoading: false });
+    mockInvoke.mockImplementation(async (command) => command === "load_presets" ? [] : builtins);
+    await renderTool();
+    const empty = screen.getByText(i18n.t("studio.presets.empty"));
+    expect(empty.closest('[role="listitem"]')).not.toBeNull();
+    expect(empty.textContent).toContain("your own");
+    expect(screen.getByText("Built-in")).toBeTruthy();
+    expect(empty.closest('[role="listitem"]')?.textContent).not.toContain("Built-in");
+  });
+});

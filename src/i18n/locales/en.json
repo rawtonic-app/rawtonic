@@ -3542,7 +3542,7 @@
       "deleteFolderWithPresets_one": "Delete “{{name}}” and its {{count}} preset?",
       "deleteFolderWithPresets_other": "Delete “{{name}}” and its {{count}} presets?",
       "deletePreset": "Delete preset",
-      "empty": "No presets yet. Adjust a photograph and press + to save its settings.",
+      "empty": "No styles of your own yet. Adjust a photograph and press + to save its settings.",
       "exportTitle": "Export {{name}}",
       "fileType": "Rawtonic preset",
       "find": "Find presets",

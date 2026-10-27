@@ -574,9 +574,6 @@ export default function StudioPresets() {
           onKeyDown={(e) => e.stopPropagation()}
         />
       )}
-      {!isLoading && count === 0 && !creating && (
-        <p className="studio-help">{t("studio.presets.empty")}</p>
-      )}
       {selectionSize > 1 && count > 0 && (
         <p className="studio-metadata-note">
           {t("studio.presets.appliesToSelection", { count: selectionSize })}
@@ -616,6 +613,11 @@ export default function StudioPresets() {
         </label>
       )}
       <div className="studio-presets" role="list">
+        {!isLoading && count === 0 && !creating && !query.trim() && (
+          <div role="listitem">
+            <p className="studio-help">{t("studio.presets.empty")}</p>
+          </div>
+        )}
         {groups.map((group) => {
           const key = group.folder?.id ?? "";
           const open = !group.folder || query.trim() !== "" || !collapsed.has(key);

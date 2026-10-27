@@ -3644,7 +3644,7 @@
       "deleteFolderWithPresets_many": "¿Eliminar «{{name}}» y sus {{count}} ajustes preestablecidos?",
       "deleteFolderWithPresets_other": "¿Eliminar «{{name}}» y sus {{count}} ajustes preestablecidos?",
       "deletePreset": "Eliminar ajuste preestablecido",
-      "empty": "Aún no hay ajustes preestablecidos. Ajusta una foto y pulsa + para guardar sus ajustes.",
+      "empty": "Aún no tienes estilos propios. Ajusta una fotografía y pulsa + para guardar sus ajustes.",
       "exportTitle": "Exportar {{name}}",
       "fileType": "Ajuste preestablecido de Rawtonic",
       "find": "Buscar ajustes preestablecidos",
