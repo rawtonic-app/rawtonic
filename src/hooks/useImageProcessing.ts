@@ -37,7 +37,7 @@ import { useMultiViewStore } from '../store/useMultiViewStore';
 import { interactivePreview } from '../utils/interactivePreview';
 import { retireDraftPatches, showDraftPatch } from '../utils/browserDraftPatch';
 import { previewBuffer } from '../utils/previewBuffer';
-import { previewTargetResolution } from '../utils/previews';
+import { needsFrameSize, previewTargetResolution } from '../utils/previews';
 import { applyLayerSolo } from '../utils/layerSolo';
 import {
   MASK_PARAMETERS_MISSING,
@@ -99,7 +99,8 @@ export function useImageProcessing(
   const displaySize = useEditorStore((state) => state.displaySize);
   const baseRenderSize = useEditorStore((state) => state.baseRenderSize);
   const originalSize = useEditorStore((state) => state.originalSize);
-  const hasGrain = useEditorStore((state) => (state.adjustments.grainAmount ?? 0) > 0);
+  // The recipe being rendered: a hovered preset's grain too.
+  const hasGrain = useEditorStore((state) => ((state.previewOverride ?? state.adjustments).grainAmount ?? 0) > 0);
   const isSliderDragging = useEditorStore((state) => state.isSliderDragging);
   const setEditor = useEditorStore((state) => state.setEditor);
 
@@ -697,9 +698,9 @@ export function useImageProcessing(
   const requestHiFiZoom = useMemo(
     () =>
       debounce((targetRes: number) => {
-        if (targetRes > currentResRef.current) {
+        const { adjustments, previewOverride } = useEditorStore.getState();
+        if (needsFrameSize(targetRes, currentResRef.current, ((previewOverride ?? adjustments).grainAmount ?? 0) > 0)) {
           currentResRef.current = targetRes;
-          const { adjustments, previewOverride } = useEditorStore.getState();
           const renderAdjustments = previewOverride ?? adjustments;
           applyAdjustments(renderAdjustments, false, targetRes);
         }
@@ -717,7 +718,7 @@ export function useImageProcessing(
       }
       const finalRes = Math.round(baseRes);
 
-      if (finalRes > currentResRef.current) {
+      if (needsFrameSize(finalRes, currentResRef.current, hasGrain)) {
         requestHiFiZoom(finalRes);
       }
     }
@@ -736,6 +737,7 @@ export function useImageProcessing(
     requestHiFiZoom,
     originalSize,
     currentResRef,
+    hasGrain,
   ]);
 
   useLayoutEffect(() => {

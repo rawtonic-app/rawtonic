@@ -105,3 +105,13 @@ export function previewTargetResolution({
   if (origMax && targetRes !== origMax) targetRes = Math.ceil(targetRes / 256) * 256;
   return Math.round(targetRes);
 }
+
+/**
+ * Whether the viewer needs a new frame of `target` px for its current size:
+ * a larger one for more detail; with grain also a smaller one (zooming back
+ * to fit, a smaller window), since a frame shown reduced no longer shows the
+ * grain one rendered pixel per screen pixel.
+ */
+export function needsFrameSize(target: number, current: number, grain: boolean): boolean {
+  return grain ? target !== current : target > current;
+}

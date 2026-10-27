@@ -8910,31 +8910,35 @@ fn display_at_own_size_shows_whole_texels_between_device_pixels() {
         let v = ((x * 73 + y * 151).wrapping_mul(2_654_435_761) >> 24) as u8;
         [v, v.wrapping_mul(3), 255 - v, 255]
     };
-    let data: Vec<u8> = (0..tex_h)
-        .flat_map(|y| (0..tex_w).flat_map(move |x| texel(x, y)))
-        .collect();
-    let frame = device
-        .create_texture_with_data(
-            queue,
-            &wgpu::TextureDescriptor {
-                label: Some("Own size test frame"),
-                size: wgpu::Extent3d {
-                    width: tex_w,
-                    height: tex_h,
-                    depth_or_array_layers: 1,
+    let noise_texture = |width: u32, height: u32| {
+        let data: Vec<u8> = (0..height)
+            .flat_map(|y| (0..width).flat_map(move |x| texel(x, y)))
+            .collect();
+        device
+            .create_texture_with_data(
+                queue,
+                &wgpu::TextureDescriptor {
+                    label: Some("Own size test frame"),
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
                 },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            },
-            TextureDataOrder::LayerMajor,
-            &data,
-        )
-        .create_view(&Default::default());
-    let before = solid_display_texture(&context, 1, 1, [0, 0, 0, 0]);
+                TextureDataOrder::LayerMajor,
+                &data,
+            )
+            .create_view(&Default::default())
+    };
+    let frame = noise_texture(tex_w, tex_h);
+    // The split's before fills its own texture: the same 64 × 32 texels.
+    let before = noise_texture(64, 32);
     let overlay = solid_display_texture(&context, 1, 1, [0, 0, 0, 0]);
     // The display's own sampler: linear.
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -8952,90 +8956,100 @@ fn display_at_own_size_shows_whole_texels_between_device_pixels() {
     });
     // The webview's placement in device pixels: between pixels and a
     // fraction of a pixel off the frame's size (a 1034.89 CSS px fit view).
-    let transform = DisplayTransform {
-        rect: [16.4, 7.7, 63.8, 32.0],
-        clip: [0.0, 0.0, window_w as f32, window_h as f32],
-        window: [window_w as f32, window_h as f32],
-        image_size: [64.0, 32.0],
-        texture_size: [tex_w as f32, tex_h as f32],
-        pixelated: 0.0,
-        rotation: 0.0,
-        bg_primary: [0.0, 0.0, 0.0, 1.0],
-        bg_secondary: [0.0, 0.0, 0.0, 1.0],
-        overlay_color: [0.0; 4],
-        overlay_mode: [0.0; 4],
-        box_rect: [0.0; 4],
-        split: [0.0; 4],
-    };
-    let uniforms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: None,
-        contents: bytemuck::bytes_of(&transform),
-        usage: wgpu::BufferUsages::UNIFORM,
-    });
-    let frame_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: None,
-        layout: &layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniforms.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::TextureView(&frame),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: wgpu::BindingResource::Sampler(&sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: wgpu::BindingResource::TextureView(&overlay),
-            },
-        ],
-    });
-    let mut encoder = device.create_command_encoder(&Default::default());
-    {
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+    let render = |split: [f32; 4]| -> Vec<u8> {
+        let transform = DisplayTransform {
+            rect: [16.4, 7.7, 63.8, 32.0],
+            clip: [0.0, 0.0, window_w as f32, window_h as f32],
+            window: [window_w as f32, window_h as f32],
+            image_size: [64.0, 32.0],
+            texture_size: [tex_w as f32, tex_h as f32],
+            pixelated: 0.0,
+            rotation: 0.0,
+            bg_primary: [0.0, 0.0, 0.0, 1.0],
+            bg_secondary: [0.0, 0.0, 0.0, 1.0],
+            overlay_color: [0.0; 4],
+            overlay_mode: [0.0; 4],
+            box_rect: [0.0; 4],
+            split,
+        };
+        let uniforms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &target_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
-                depth_slice: None,
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
+            contents: bytemuck::bytes_of(&transform),
+            usage: wgpu::BufferUsages::UNIFORM,
         });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, &frame_group, &[]);
-        pass.set_bind_group(1, &split_group, &[]);
-        pass.draw(0..4, 0..1);
-    }
-    queue.submit(Some(encoder.finish()));
-    let pixels = read_texture_data_roi(
-        device,
-        queue,
-        &target,
-        wgpu::Origin3d::ZERO,
-        wgpu::Extent3d {
-            width: window_w,
-            height: window_h,
-            depth_or_array_layers: 1,
-        },
-        4,
-    )
-    .unwrap();
-    // Device pixel (16 + x, 8 + y) shows texel (x, y) itself, not a blend.
-    for y in 1..31u32 {
-        for x in 1..62u32 {
-            let i = (((8 + y) * window_w + 16 + x) * 4) as usize;
-            assert_eq!(pixels[i..i + 4], texel(x, y), "texel {x}, {y}");
+        let frame_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniforms.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&frame),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&overlay),
+                },
+            ],
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &frame_group, &[]);
+            pass.set_bind_group(1, &split_group, &[]);
+            pass.draw(0..4, 0..1);
+        }
+        queue.submit(Some(encoder.finish()));
+        read_texture_data_roi(
+            device,
+            queue,
+            &target,
+            wgpu::Origin3d::ZERO,
+            wgpu::Extent3d {
+                width: window_w,
+                height: window_h,
+                depth_or_array_layers: 1,
+            },
+            4,
+        )
+        .unwrap()
+    };
+    // Device pixel (16 + x, 8 + y) shows texel (x, y) itself, not a blend,
+    // on the edited frame alone and on both sides of a split at x = 48.
+    for split in [[0.0; 4], [1.0, 48.0, 0.0, 0.0]] {
+        let pixels = render(split);
+        for y in 1..31u32 {
+            for x in 1..62u32 {
+                let i = (((8 + y) * window_w + 16 + x) * 4) as usize;
+                assert_eq!(
+                    pixels[i..i + 4],
+                    texel(x, y),
+                    "texel {x}, {y}, split {split:?}"
+                );
+            }
         }
     }
 }

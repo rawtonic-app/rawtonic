@@ -469,3 +469,42 @@ describe("detail on zoom outside Develop", () => {
     expect(await zoomIn()).toBe(1);
   });
 });
+
+describe("grain at the viewer's size", () => {
+  const target = (index: number) =>
+    (calls()[index][1] as { targetResolution: number }).targetResolution;
+
+  it("renders a smaller frame again when the view zooms back out", async () => {
+    useEditorStore.setState({
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), grainAmount: 50 },
+      displaySize: { width: 1000, height: 750 },
+    });
+    mount();
+    await finish();
+    act(() => useEditorStore.setState({ displaySize: { width: 3000, height: 2250 } }));
+    act(() => vi.advanceTimersByTime(60));
+    await finish();
+    act(() => useEditorStore.setState({ displaySize: { width: 1000, height: 750 } }));
+    act(() => vi.advanceTimersByTime(60));
+    // One rendered pixel per screen pixel (jsdom: 1 device px per CSS px).
+    expect(calls().map((_, i) => target(i))).toEqual([1000, 3000, 1000]);
+  });
+
+  it("keeps a larger frame without grain", async () => {
+    useEditorStore.setState({ displaySize: { width: 3000, height: 2250 } });
+    mount();
+    await finish();
+    act(() => useEditorStore.setState({ displaySize: { width: 1000, height: 750 } }));
+    act(() => vi.advanceTimersByTime(60));
+    expect(calls()).toHaveLength(1);
+  });
+
+  it("sizes a hovered grain preset's frame as the applied preset's", async () => {
+    useEditorStore.setState({
+      displaySize: { width: 1000, height: 750 },
+      previewOverride: { ...structuredClone(INITIAL_ADJUSTMENTS), grainAmount: 50 },
+    });
+    mount();
+    expect(target(0)).toBe(1000);
+  });
+});
