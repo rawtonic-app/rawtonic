@@ -5245,3 +5245,16 @@ img.relight-pattern-preview { object-fit: cover; }
 .app-notes-dialog header .app-notice-close {
   margin-left: auto;
 }
+/* Only operations with real progress (a copy to another volume) show a bar. */
+.app-notices .Toastify__progress-bar--wrp {
+  height: 2px;
+  border-radius: 0 0 4px 4px;
+}
+.app-notices .Toastify__progress-bar {
+  background: var(--studio-accent);
+  opacity: 1;
+}
+.app-notices .Toastify__progress-bar--bg {
+  background: #ffffff14;
+  opacity: 1;
+}

@@ -119,7 +119,8 @@ pub fn pick_asset(assets: &[Asset], platform: Platform) -> Option<&Asset> {
         Os::Mac => &[".dmg"],
         Os::Windows => &["-setup.exe", ".msi"],
         Os::Linux => match platform.linux {
-            LinuxPackage::AppImage => &[".appimage", ".deb", ".rpm"],
+            // Unknown distributions get no .deb or .rpm they may not install.
+            LinuxPackage::AppImage => &[".appimage"],
             LinuxPackage::Deb => &[".deb", ".appimage"],
             LinuxPackage::Rpm => &[".rpm", ".appimage"],
         },
@@ -290,6 +291,10 @@ mod tests {
         );
         let universal_only = assets("v1.0.0", &["Rawtonic_1.0.0_universal.dmg"]);
         let msi_only = assets("v1.0.0", &["Rawtonic_1.0.0_x64_en-US.msi"]);
+        let packages_only = assets(
+            "v1.0.0",
+            &["Rawtonic_1.0.0_amd64.deb", "Rawtonic-1.0.0-1.x86_64.rpm"],
+        );
         for (files, os, arch, linux, expected) in [
             (
                 &alpha_7_1,
@@ -399,6 +404,14 @@ mod tests {
                 Some("Rawtonic_1.0.0_x64_en-US.msi"),
             ),
             (&msi_only, Windows, Arm64, AppImage, None),
+            (&packages_only, Linux, X64, AppImage, None),
+            (
+                &packages_only,
+                Linux,
+                X64,
+                Rpm,
+                Some("Rawtonic-1.0.0-1.x86_64.rpm"),
+            ),
         ] {
             assert_eq!(
                 pick_asset(files, platform(os, arch, linux)).map(|a| a.name.as_str()),

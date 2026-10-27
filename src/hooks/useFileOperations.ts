@@ -124,7 +124,8 @@ async function withCopyProgress<T>(run: () => Promise<T>): Promise<T> {
     // Below 1: a full bar would close the toast before the move is done.
     const progress = payload.total > 0 ? Math.min(payload.done / payload.total, 0.99) : 0;
     if (shown === null) {
-      shown = toast.info(render, { autoClose: false, closeButton: false, closeOnClick: false, progress });
+      // Notices hide countdown bars; this one shows how far the copy is.
+      shown = toast.info(render, { autoClose: false, closeButton: false, closeOnClick: false, hideProgressBar: false, progress });
     } else {
       toast.update(shown, { render, progress });
     }
