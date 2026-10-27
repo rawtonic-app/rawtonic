@@ -459,3 +459,29 @@ it("keeps a linked drag constrained on screen and in one interaction", async () 
   fireEvent.pointerUp(wheel);
   expect(interaction.mock.calls).toEqual([[true], [false]]);
 });
+
+it("previews all linked indicators before the parent commits a drag", async () => {
+  const change = renderGrading();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Link tonal wheels" }));
+  const wheel = screen.getByRole("slider", {
+    name: "Shadows hue and saturation",
+  });
+  vi.spyOn(wheel, "getBoundingClientRect").mockReturnValue({
+    left: 0,
+    top: 0,
+    width: 100,
+    height: 100,
+  } as DOMRect);
+  wheel.setPointerCapture = vi.fn();
+  fireEvent.pointerDown(wheel, { button: 0, clientX: 75, clientY: 50 });
+  await waitFor(() => expect(change).toHaveBeenCalled());
+  await waitFor(() => {
+    for (const name of ["Shadows", "Midtones", "Highlights"])
+      expect(
+        screen
+          .getByRole("slider", { name: `${name} hue and saturation` })
+          .getAttribute("aria-valuenow"),
+      ).toBe("50");
+  });
+  fireEvent.pointerUp(wheel);
+});
