@@ -1690,8 +1690,8 @@ pub fn run_inpainting(
     // as an invented object (a yellow blot where a potato in a fruit bowl
     // was). Four 2 × 2 px marks at the corners of a box 2.5 × the hole's
     // size widen that crop to it; the model fills them too, but only the
-    // real hole is taken from its result. Chosen on 17 objects in 13 RAW
-    // photos (docs/MODELS.md, "Object removal").
+    // real hole is taken from its result. Measured on 27 objects in 21 RAW
+    // photos, 10 of them held out (docs/MODELS.md, "Object removal").
     const CONTEXT: f32 = 2.5;
     if crop_w >= 2 && crop_h >= 2 {
         let marks = |lo: u32, hi: u32, origin: u32, size: u32| {

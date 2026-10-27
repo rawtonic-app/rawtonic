@@ -1089,15 +1089,41 @@ updated `models.json` (BiRefNet, sky, SAM 2.1). Check SAM with the ignored tests
   the lower potato was, a white blob where a loaf was and a brown object
   left where a cat lay are gone; the car door and the tomato are cleaner;
   2 × still left a smaller blot with the QA case's own mask, 3 × added
-  blots on a ferry and a car. Still poor, with or without (model quality,
-  not the crop): a kitten in foliage, a globe in front of a toy and a red
-  pot on a table leave smeared fragments of what surrounds them, and a
-  removed lemon leaves a brown smear. Detail is lower because MI-GAN now
-  sees the hole at a smaller scale; the completion restores the photo's
-  grain. The candidates for those cases are a stronger model under the
-  license rules (the generative fill above, or a distilled diffusion
-  inpainter with Apache-2.0 weights once each weight file's license,
-  ONNX/Core ML export, speed and memory are checked).
+  blots on a ferry and a car. The factor was chosen on that set, so it
+  was then frozen and checked on 10 held-out objects in 8 other RAWs
+  (bottle, rock, hut, window pane, toy, castle, trees, motorbike, top
+  case, figure):
+
+  | Held-out | LPIPS ↓ | PSNR ↑ | ΔE ↓ | Detail |
+  |---|---|---|---|---|
+  | before | 0.0714 | 17.78 | 14.33 | 0.62 |
+  | context 2.5 × | 0.0779 | 17.45 | 14.80 | 0.54 |
+  | hole ≤ half the view (below) | 0.0748 | 17.54 | 14.94 | 0.55 |
+
+  The synthetic holes (known content, placed where the photo has the
+  most edges) come out slightly worse with context: 6 of 10 held-out and
+  9 of 17 dev cases, the dev mean carried by four large wins. On the
+  real removals, which are what Remove is for, the held-out set agrees
+  with the dev set: an object invented in a window pane is gone, the hut
+  is a little better, a motorbike's top case leaves a larger dark blob,
+  the other seven are alike. Invented objects in real removals count
+  for more than reconstruction of synthetic holes, so the app takes
+  2.5 ×. One alternative from the pipeline's own rule, not fitted: its
+  crop is a square of max(512, L + 256) around the hole (L the longer
+  side), so holes up to 256 px take at most half of its view; keeping
+  that half for every hole (side max(512, L + 256, 2 L); small holes
+  unchanged) kept a smaller blot in the QA case and the objects in the
+  window pane and the car door, so it was not taken.
+
+  Still poor, with or without (model quality,
+  not the crop): a kitten in foliage, a globe in front of a toy, a red
+  pot on a table, a motorbike, a figure in front of a cap and a removed
+  lemon leave smeared fragments of what surrounds them. Detail is lower
+  because MI-GAN now sees the hole at a smaller scale; the completion
+  restores the photo's grain. The candidates for those cases are a
+  stronger model under the license rules (the generative fill above, or a
+  distilled diffusion inpainter with Apache-2.0 weights once each weight
+  file's license, ONNX/Core ML export, speed and memory are checked).
 - **Sky.** UperNet + ConvNeXt-T against the inherited sky model on 34 RAW
   samples (22 with sky): solid masks on overcast and cloud-textured skies
   where the old one had holes, a missed sky found (bare trees in snow), no

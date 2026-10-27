@@ -579,25 +579,17 @@ mod removal_timing {
             rawtonic_onnx::ModelKind::Inpaint,
         )
         .unwrap();
+        // Never over an existing file (the outputs sit beside QA copies).
+        let save = |img: image::DynamicImage, path: String| {
+            let mut png = Vec::new();
+            img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                .unwrap();
+            rawtonic_export::output::write_new_output(&path, png)
+                .unwrap_or_else(|e| panic!("{path}: {e}"));
+        };
         for line in std::fs::read_to_string(cases).unwrap().lines() {
             let f: Vec<&str> = line.split(';').collect();
-            if f.len() == 2 {
-                let bytes = std::fs::read(f[0]).unwrap();
-                let base = crate::image_loader::load_base_image_from_bytes(
-                    &bytes,
-                    f[0],
-                    false,
-                    &Default::default(),
-                    None,
-                )
-                .unwrap();
-                super::apply_linear_to_srgb(base)
-                    .to_rgb8()
-                    .save(f[1])
-                    .unwrap();
-                continue;
-            }
-            if f.len() != 5 {
+            if f.len() != 2 && f.len() != 5 {
                 continue;
             }
             let bytes = std::fs::read(f[0]).unwrap();
@@ -610,6 +602,13 @@ mod removal_timing {
             )
             .unwrap();
             let photo = super::apply_linear_to_srgb(base);
+            if f.len() == 2 {
+                save(
+                    image::DynamicImage::ImageRgb8(photo.to_rgb8()),
+                    f[1].to_string(),
+                );
+                continue;
+            }
             let patch = image::open(f[1]).unwrap().to_luma8();
             let (px, py): (u32, u32) = (f[2].parse().unwrap(), f[3].parse().unwrap());
             let mut mask = image::GrayImage::new(photo.width(), photo.height());
@@ -620,11 +619,17 @@ mod removal_timing {
             let (w, h) = patch.dimensions();
             let crop =
                 |img: &image::RgbaImage| image::imageops::crop_imm(img, px, py, w, h).to_image();
-            crop(&photo.to_rgba8())
-                .save(format!("{}-source.png", f[4]))
-                .unwrap();
-            crop(&guide).save(format!("{}-guide.png", f[4])).unwrap();
-            crop(&fill).save(format!("{}-fill.png", f[4])).unwrap();
+            let source = crop(&photo.to_rgba8());
+            for (name, img) in [
+                ("source", source),
+                ("guide", crop(&guide)),
+                ("fill", crop(&fill)),
+            ] {
+                save(
+                    image::DynamicImage::ImageRgba8(img),
+                    format!("{}-{name}.png", f[4]),
+                );
+            }
             println!("{line}: {} ms", started.elapsed().as_millis());
         }
         crate::register_exit_handler();
