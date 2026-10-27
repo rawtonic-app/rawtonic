@@ -297,3 +297,61 @@ it("defaults face reflections only for new analyses, edits and reloads without i
   fireEvent.click(screen.getByRole("button", { name: "Remove depth" }));
   expect(screen.queryByText("Face reflections")).toBeNull();
 });
+it("double-click resets every slider to the value a new light starts with", () => {
+  const fresh = createRelightLight();
+  // Old recipe: no scene values, settings far from a new light's.
+  useEditorStore.setState({
+    adjustments: {
+      ...structuredClone(INITIAL_ADJUSTMENTS),
+      relightDepth: { data: "d", geometry: {}, version: 5, faces: [[[0.5, 0.5, 0.02, 1]]] },
+      relightSkinReflections: 80,
+      relightLights: [
+        { ...fresh, pattern: "blinds", intensity: 90, softness: 1, diffusion: 2, rotation: -10,
+          elevation: 80, shadows: 3, scale: 200, patternRotation: 40, x: 10, y: 90 },
+      ],
+    },
+  });
+  mount();
+  // Absent scene values show the renderer's defaults; reset gives the new-light start.
+  expect((screen.getByRole("slider", { name: "Original light" }) as HTMLInputElement).value).toBe("100");
+  const expected: [string, number][] = [
+    ["Original light", 60],
+    ["Surface strength", 100],
+    ["Face reflections", 25],
+    ["Intensity", fresh.intensity],
+    ["Softness", fresh.softness],
+    ["Diffusion", fresh.diffusion],
+    ["Direction / rotation", fresh.rotation],
+    ["Elevation", fresh.elevation],
+    ["Shadow depth", fresh.shadows],
+    ["Pattern scale", fresh.scale],
+    ["Pattern rotation", fresh.patternRotation!],
+    ["Position X", fresh.x],
+    ["Position Y", fresh.y],
+  ];
+  for (const [name] of expected)
+    fireEvent.doubleClick(screen.getByRole("slider", { name }));
+  const after = useEditorStore.getState().adjustments;
+  const [light] = after.relightLights!;
+  const values: Record<string, number | undefined> = {
+    "Original light": after.relightOriginalLight,
+    "Surface strength": after.relightDepthAmount,
+    "Face reflections": after.relightSkinReflections,
+    Intensity: light.intensity,
+    Softness: light.softness,
+    Diffusion: light.diffusion,
+    "Direction / rotation": light.rotation,
+    Elevation: light.elevation,
+    "Shadow depth": light.shadows,
+    "Pattern scale": light.scale,
+    "Pattern rotation": light.patternRotation,
+    "Position X": light.x,
+    "Position Y": light.y,
+  };
+  for (const [name, value] of expected) expect([name, values[name]]).toEqual([name, value]);
+  fireEvent.change(screen.getByRole("combobox", { name: "Light type" }), { target: { value: "spot" } });
+  fireEvent.doubleClick(screen.getByRole("slider", { name: "Light size" }));
+  fireEvent.doubleClick(screen.getByRole("slider", { name: "Light distance" }));
+  const spot = useEditorStore.getState().adjustments.relightLights![0];
+  expect([spot.size, spot.distance]).toEqual([fresh.size, fresh.distance]);
+});

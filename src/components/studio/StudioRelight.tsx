@@ -39,6 +39,9 @@ import RelightPatternPreview from "./RelightPatternPreview";
 import AdjustmentControl from "./AdjustmentControl";
 import { Invokes } from "../ui/AppProperties";
 
+// Double-click resets a light's slider to the value a new light starts with.
+const NEW_LIGHT = createRelightLight();
+
 const errorText = (e: unknown) =>
   e instanceof Error ? e.message : typeof e === "string" ? e : "";
 
@@ -90,6 +93,7 @@ export default function StudioRelight({
   const depth = adjustments.relightDepth;
   const depthValid = !!depth && adjustments.depthValid;
   const masks = adjustments.masks ?? [];
+  const skinDefault = (depth?.version ?? 0) >= 3 ? 25 : 0;
   const update = (patch: Partial<RelightLight>) =>
     setAdjustments((prev) => ({
       ...prev,
@@ -242,6 +246,7 @@ export default function StudioRelight({
         }
         min={min}
         max={max}
+        defaultValue={NEW_LIGHT[key]}
         disabled={disabled}
         onChange={(value) => update({ [key]: value })}
         onInteraction={onInteraction}
@@ -323,7 +328,7 @@ export default function StudioRelight({
             }
             min={0}
             max={100}
-            defaultValue={RELIGHT_SCENE_DEFAULTS.originalLight}
+            defaultValue={RELIGHT_FIRST_LIGHT_SCENE.originalLight}
             disabled={disabled}
             onChange={(value) =>
               setAdjustments({ relightOriginalLight: value })
@@ -377,7 +382,7 @@ export default function StudioRelight({
                 }
                 min={0}
                 max={100}
-                defaultValue={RELIGHT_SCENE_DEFAULTS.depthAmount}
+                defaultValue={RELIGHT_FIRST_LIGHT_SCENE.depthAmount}
                 disabled={disabled}
                 onChange={(value) =>
                   setAdjustments({ relightDepthAmount: value })
@@ -387,12 +392,10 @@ export default function StudioRelight({
               {!!depth.faces?.length && (
                 <AdjustmentControl
                   label={t("studio.relight.skinReflections")}
-                  value={
-                    adjustments.relightSkinReflections ??
-                    ((depth.version ?? 0) >= 3 ? 25 : 0)
-                  }
+                  value={adjustments.relightSkinReflections ?? skinDefault}
                   min={0}
                   max={100}
+                  defaultValue={skinDefault}
                   disabled={disabled}
                   onChange={(value) =>
                     setAdjustments({ relightSkinReflections: value })
