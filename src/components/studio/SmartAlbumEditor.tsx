@@ -80,6 +80,8 @@ function choiceLabel(field: Field, choice: string, t: TFunction): string {
     return choice === "none"
       ? t("studio.library.metadataFilter.none.ai")
       : t(`studio.library.metadataFilter.aiFacts.${choice}` as ParseKeys);
+  if (field === "sourceType" && choice !== "none" && !(SOURCE_TYPES as readonly string[]).includes(choice))
+    return choice;
   if (field === "sourceType")
     return choice === "none"
       ? t("studio.library.metadataFilter.none.sourceType")
@@ -415,9 +417,12 @@ function ValueEditor({
     }
     case "choice": {
       const chosen = Array.isArray(value) ? (value as string[]) : typeof value === "string" ? [value] : [];
+      // A file may declare a source type outside the known IPTC codes.
+      // Keep a value chosen in the Library visible and removable here.
+      const choices = [...new Set([...(CHOICES[field] ?? []), ...(field === "sourceType" ? chosen : [])])];
       return (
         <span className="studio-rule-value studio-rule-choices" role="group" aria-label={label}>
-          {(CHOICES[field] ?? []).map((choice) => (
+          {choices.map((choice) => (
             <label key={choice}>
               <input
                 type="checkbox"

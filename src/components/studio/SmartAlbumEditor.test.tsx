@@ -274,3 +274,16 @@ it("saves localized AI and provenance choices using catalog codes", async () => 
     ] },
   });
 });
+
+it("shows an unfamiliar source type selected from the Library so it can be removed", async () => {
+  render(<SmartAlbumEditorHost />);
+  act(() => useSmartAlbumEditor.getState().open({
+    name: "Imported source", parent: null,
+    rules: { combine: "all", rules: [{ field: "sourceType", op: "is", value: "custom-source" }] },
+  }));
+  await settle();
+  const choice = screen.getByLabelText("custom-source") as HTMLInputElement;
+  expect(choice.checked).toBe(true);
+  fireEvent.click(choice);
+  expect((screen.getByText("Create") as HTMLButtonElement).disabled).toBe(true);
+});
