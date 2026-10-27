@@ -1807,12 +1807,15 @@
     }
   },
   "spotRemoval": {
+    "cancel": "Abbrechen",
     "detectObjects": "Objekte erkennen",
     "detectObjectsBoxHint": "Einen Rahmen um ein Objekt ziehen oder es anklicken, um es zu entfernen.",
     "detectObjectsHint": "Grob über ein Objekt malen oder es anklicken, um es zu entfernen.",
     "detectObjectsRefineHint": "Umschalt fügt der gewählten Entfernung hinzu, Alt (⌥) zieht davon ab.",
+    "downloadingModel": "Modell zum Entfernen von Objekten wird geladen… {{percent}} %",
     "feather": "Weiche Kante",
     "featherAria": "Weiche Kante des Bereichs",
+    "filling": "Wird entfernt… Schritt {{done}} von {{total}}",
     "mode": "Reparaturmodus",
     "modes": {
       "clone": "Kopieren",

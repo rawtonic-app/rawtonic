@@ -168,13 +168,65 @@ fn fill_removal(
     mask: &image::GrayImage,
     model: &rawtonic_onnx::Model,
 ) -> anyhow::Result<RgbaImage> {
-    let (w, h) = mask.dimensions();
-    let hole_mask = image::GrayImage::from_fn(w, h, |x, y| {
-        image::Luma([if mask.get_pixel(x, y)[0] > 0 { 255 } else { 0 }])
-    });
+    let hole_mask = binary_hole(mask);
     let guided = ai_processing::run_inpainting(source, &hole_mask, model)?;
-    let Ok((min_x, max_x, min_y, max_y)) = calculate_mask_bounds(&hole_mask) else {
-        return Ok(guided);
+    Ok(complete_with_guide(source, &hole_mask, guided))
+}
+
+/// Every pixel the selection touches (`mask` > 0) as 255.
+fn binary_hole(mask: &image::GrayImage) -> image::GrayImage {
+    let (w, h) = mask.dimensions();
+    image::GrayImage::from_fn(w, h, |x, y| {
+        image::Luma([if mask.get_pixel(x, y)[0] > 0 { 255 } else { 0 }])
+    })
+}
+
+#[cfg(target_os = "macos")]
+/// Holes at least this thick (the diameter of the largest disc inside,
+/// in photo pixels) are large: MI-GAN would see them at full resolution
+/// with `moebius::CONTEXT` × their size around them only up to its 512 px
+/// view / 2.5. Thicker, the hole fills more than 40 % of its view's side
+/// (where it painted objects back, docs/MODELS.md) or the view is scaled
+/// down, and Moebius guides the fill instead (macOS). The thickness rather
+/// than the longer side: a thin line is filled from its two sides, however
+/// long it is.
+const LARGE_HOLE_THICKNESS: f32 = crate::moebius::SIZE as f32 / crate::moebius::CONTEXT;
+
+/// The hole's thickness (`LARGE_HOLE_THICKNESS`), within `bounds`
+/// (x0, x1, y0, y1 inclusive), measured on a grid of at most 1024 cells
+/// across (a cell holds the hole when any of its pixels does).
+#[cfg(any(target_os = "macos", test))]
+fn hole_thickness(mask: &image::GrayImage, bounds: (usize, usize, usize, usize)) -> f32 {
+    let (x0, x1, y0, y1) = bounds;
+    let (bw, bh) = (x1 - x0 + 1, y1 - y0 + 1);
+    let cell = bw.max(bh).div_ceil(1024);
+    // One empty cell around the hole, so its edge counts as outside.
+    let (gw, gh) = (bw.div_ceil(cell) + 2, bh.div_ceil(cell) + 2);
+    let mut grid = vec![false; gw * gh];
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            if mask.get_pixel(x as u32, y as u32)[0] > 0 {
+                grid[((y - y0) / cell + 1) * gw + (x - x0) / cell + 1] = true;
+            }
+        }
+    }
+    let radius = ai_processing::edt_2d(&grid, gw, gh)
+        .into_iter()
+        .fold(0.0f32, f32::max);
+    2.0 * radius * cell as f32
+}
+
+/// Rebuilds the hole (`hole_mask` 255) of `source` at full resolution by
+/// patch-based completion guided by `guided` (the photo with a network's
+/// fill in the hole).
+fn complete_with_guide(
+    source: &DynamicImage,
+    hole_mask: &image::GrayImage,
+    guided: RgbaImage,
+) -> RgbaImage {
+    let (w, h) = hole_mask.dimensions();
+    let Ok((min_x, max_x, min_y, max_y)) = calculate_mask_bounds(hole_mask) else {
+        return guided;
     };
     // The region the completion copies from: 1.5 × the hole around it, as
     // the model's crop (at least 128 px).
@@ -215,7 +267,7 @@ fn fill_removal(
             out.put_pixel(x, y, image::Rgba([px[0], px[1], px[2], 255]));
         }
     }
-    Ok(out)
+    out
 }
 
 /// The completion's settings for Remove, chosen on the object-removal set
@@ -234,6 +286,95 @@ fn removal_fill_params(hole_pixels: usize) -> rawtonic_engine::patch_fill::Patch
         fine_extent: if hole_pixels > LARGE_HOLE { 256 } else { 0 },
         ..Default::default()
     }
+}
+
+/// Remove's fill of a large hole on macOS: Moebius's fill guides the
+/// completion instead of MI-GAN's (`moebius`). Downloads the model on first
+/// use. `Ok(None)` when Moebius is not available (no download possible,
+/// Core ML failed) or the hole does not fit its square crop: MI-GAN fills
+/// then. Emits `ai-fill-progress` ({taskId, done, total} network runs).
+#[cfg(target_os = "macos")]
+async fn fill_large_hole(
+    app_handle: &tauri::AppHandle,
+    state: &tauri::State<'_, AppState>,
+    source: &DynamicImage,
+    mask: &image::GrayImage,
+    bounds: (usize, usize, usize, usize),
+    task_id: Option<&str>,
+    token: Option<std::sync::Arc<crate::app_state::AiTaskToken>>,
+) -> Result<Option<RgbaImage>, String> {
+    use tauri::Emitter;
+
+    let start = std::time::Instant::now();
+    // The first use downloads the model: Cancel stops waiting for it.
+    let loading = ai_processing::get_or_init_moebius(app_handle, &state.ai_state);
+    let loaded = match &token {
+        Some(token) => tokio::select! {
+            loaded = loading => loaded,
+            _ = token.wait_for_cancel() => return Err("Task cancelled".to_string()),
+        },
+        None => loading.await,
+    };
+    let model = match loaded {
+        Ok(model) => model,
+        Err(e) => {
+            log::warn!("AI fill: Moebius unavailable ({e}); MI-GAN guides the fill");
+            return Ok(None);
+        }
+    };
+    let load_ms = start.elapsed().as_millis();
+    if token.as_ref().is_some_and(|t| t.is_cancelled()) {
+        return Err("Task cancelled".to_string());
+    }
+    let hole_mask = binary_hole(mask);
+    let rgb = source.to_rgb8();
+    let (x0, x1, y0, y1) = bounds;
+    let app = app_handle.clone();
+    let task = task_id.map(str::to_string);
+    let cancel = token.clone();
+    let guided = tokio::task::spawn_blocking(move || {
+        let mut progress = |done: usize, total: usize| {
+            let _ = app.emit(
+                "ai-fill-progress",
+                serde_json::json!({ "taskId": task, "done": done, "total": total }),
+            );
+        };
+        let cancelled = || cancel.as_ref().is_some_and(|t| t.is_cancelled());
+        crate::moebius::guide(
+            &*model,
+            &rgb,
+            &hole_mask,
+            (x0 as u32, y0 as u32, x1 as u32, y1 as u32),
+            &mut progress,
+            &cancelled,
+        )
+        .map(|guided| guided.map(|g| (g, hole_mask)))
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let guide_ms = start.elapsed().as_millis() - load_ms;
+    let (guided, hole_mask) = match guided {
+        Ok(Some(done)) => done,
+        Ok(None) if token.as_ref().is_some_and(|t| t.is_cancelled()) => {
+            return Err("Task cancelled".to_string());
+        }
+        Ok(None) => {
+            log::info!(
+                "AI fill: the hole does not fit Moebius's square crop; MI-GAN guides the fill"
+            );
+            return Ok(None);
+        }
+        Err(e) => {
+            log::warn!("AI fill: Moebius failed ({e}); MI-GAN guides the fill");
+            return Ok(None);
+        }
+    };
+    let filled = complete_with_guide(source, &hole_mask, guided);
+    log::info!(
+        "AI fill: Moebius guide: load {load_ms} ms, network {guide_ms} ms, completion {} ms",
+        start.elapsed().as_millis() - load_ms - guide_ms
+    );
+    Ok(Some(filled))
 }
 
 #[tauri::command]
@@ -321,7 +462,28 @@ pub async fn invoke_generative_replace_with_mask_def(
     }
 
     let fill_start = std::time::Instant::now();
-    let patch_rgba = if use_fast_inpaint {
+    #[cfg(target_os = "macos")]
+    let large_fill = if use_fast_inpaint
+        && hole_thickness(&mask_bitmap, (min_x, max_x, min_y, max_y)) >= LARGE_HOLE_THICKNESS
+    {
+        fill_large_hole(
+            &app_handle,
+            &state,
+            &source_image,
+            &mask_bitmap,
+            (min_x, max_x, min_y, max_y),
+            task_id.as_deref(),
+            _guard.as_ref().map(|g| g.token.clone()),
+        )
+        .await?
+    } else {
+        None
+    };
+    #[cfg(not(target_os = "macos"))]
+    let large_fill: Option<RgbaImage> = None;
+    let patch_rgba = if let Some(filled) = large_fill {
+        filled
+    } else if use_fast_inpaint {
         let inpaint_model = ai_processing::get_or_init_inpaint_model(
             &app_handle,
             &state.ai_state,
@@ -633,6 +795,163 @@ mod removal_timing {
             println!("{line}: {} ms", started.elapsed().as_millis());
         }
         crate::register_exit_handler();
+    }
+
+    /// Remove's large-hole fill as the app runs it (`fill_large_hole`
+    /// without the app): Moebius from the pack's files in
+    /// `RAWTONIC_MOEBIUS_MODELS`, on `RAWTONIC_MOEBIUS_CASES` lines
+    /// `photo;mask;out` (8-bit sRGB photo, a mask of its size). Writes
+    /// `out`-guide.png (the network's square) and `out`-fill.png (the crop
+    /// `eval_inpaint.py` scores, 1.5 × the hole around it), never over a
+    /// file; prints the hole's thickness, the times and the process's
+    /// physical footprint (current / peak, as Activity Monitor shows it).
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore]
+    fn moebius_fill_times() {
+        let (Some(models), Some(cases)) = (
+            std::env::var_os("RAWTONIC_MOEBIUS_MODELS"),
+            std::env::var_os("RAWTONIC_MOEBIUS_CASES"),
+        ) else {
+            return;
+        };
+        let footprint = || {
+            // SAFETY: plain data the kernel fills for this process.
+            let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
+            unsafe {
+                libc::proc_pid_rusage(
+                    std::process::id() as libc::c_int,
+                    libc::RUSAGE_INFO_V4,
+                    (&mut info as *mut libc::rusage_info_v4).cast(),
+                )
+            };
+            format!(
+                "{:.2} / {:.2} GB",
+                info.ri_phys_footprint as f64 / 1e9,
+                info.ri_lifetime_max_phys_footprint as f64 / 1e9
+            )
+        };
+        // The packages put together from the pack's flat files, as the app does.
+        let dir = tempfile::tempdir().unwrap();
+        let models = std::path::Path::new(&models);
+        std::fs::copy(
+            models.join(crate::moebius::EMBEDDINGS_FILE.0),
+            dir.path().join(crate::moebius::EMBEDDINGS_FILE.0),
+        )
+        .unwrap();
+        for (package, files) in &crate::moebius::coreml::PACKAGES {
+            for (file, inner, _) in files {
+                let to = dir.path().join(package).join(inner);
+                std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+                std::fs::hard_link(models.join(file), &to).unwrap();
+            }
+        }
+        println!("before load: footprint {}", footprint());
+        let started = std::time::Instant::now();
+        let model = crate::moebius::coreml::Moebius::load(dir.path()).unwrap();
+        println!(
+            "load (compile): {} ms, footprint {}",
+            started.elapsed().as_millis(),
+            footprint()
+        );
+        let save = |img: image::DynamicImage, path: String| {
+            let mut png = Vec::new();
+            img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                .unwrap();
+            rawtonic_export::output::write_new_output(&path, png)
+                .unwrap_or_else(|e| panic!("{path}: {e}"));
+        };
+        for line in std::fs::read_to_string(cases).unwrap().lines() {
+            let f: Vec<&str> = line.split(';').collect();
+            if f.len() != 3 {
+                continue;
+            }
+            let photo = image::open(f[0]).unwrap();
+            let mask = image::open(f[1]).unwrap().to_luma8();
+            let started = std::time::Instant::now();
+            let (min_x, max_x, min_y, max_y) = super::calculate_mask_bounds(&mask).unwrap();
+            let thickness = super::hole_thickness(&mask, (min_x, max_x, min_y, max_y));
+            let hole_mask = super::binary_hole(&mask);
+            let rgb = photo.to_rgb8();
+            let measured = started.elapsed();
+            let mut runs = 0;
+            let guided = crate::moebius::guide(
+                &model,
+                &rgb,
+                &hole_mask,
+                (min_x as u32, min_y as u32, max_x as u32, max_y as u32),
+                &mut |done, _| runs = done,
+                &|| false,
+            )
+            .unwrap()
+            .expect("the hole fits the square");
+            let guide_done = started.elapsed();
+            let fill = super::complete_with_guide(&photo, &hole_mask, guided.clone());
+            let total = started.elapsed();
+            let (w, h) = mask.dimensions();
+            let side = crate::moebius::crop_square(
+                (min_x as u32, min_y as u32, max_x as u32, max_y as u32),
+                w,
+                h,
+            )
+            .unwrap();
+            let square =
+                image::imageops::crop_imm(&guided, side.0, side.1, side.2, side.2).to_image();
+            save(
+                image::DynamicImage::ImageRgba8(square),
+                format!("{}-guide.png", f[2]),
+            );
+            let (mw, mh) = (max_x - min_x + 1, max_y - min_y + 1);
+            let (px, py) = (128.max(mw * 3 / 2), 128.max(mh * 3 / 2));
+            let (x0, y0) = (min_x.saturating_sub(px), min_y.saturating_sub(py));
+            let (x1, y1) = (
+                (max_x + px + 1).min(w as usize),
+                (max_y + py + 1).min(h as usize),
+            );
+            let crop = image::imageops::crop_imm(
+                &fill,
+                x0 as u32,
+                y0 as u32,
+                (x1 - x0) as u32,
+                (y1 - y0) as u32,
+            );
+            save(
+                image::DynamicImage::ImageRgba8(crop.to_image()),
+                format!("{}-fill.png", f[2]),
+            );
+            println!(
+                "{}: {w}x{h}, hole {mw}x{mh}, thickness {thickness:.0} px: mask {} ms, Moebius {} ms ({runs} runs), completion {} ms, total {} ms; footprint {}",
+                f[2],
+                measured.as_millis(),
+                (guide_done - measured).as_millis(),
+                (total - guide_done).as_millis(),
+                total.as_millis(),
+                footprint()
+            );
+        }
+    }
+
+    #[test]
+    fn hole_thickness_is_the_widest_disc_inside() {
+        // A disc of radius 150 and a 4000 px long, 20 px wide line.
+        let mut mask = image::GrayImage::new(5000, 1000);
+        for y in 0..1000u32 {
+            for x in 0..5000u32 {
+                let (dx, dy) = (x as f32 - 400.0, y as f32 - 400.0);
+                if dx * dx + dy * dy <= 150.0 * 150.0
+                    || ((900..4900).contains(&x) && (800..820).contains(&y))
+                {
+                    mask.put_pixel(x, y, image::Luma([255]));
+                }
+            }
+        }
+        let bounds = super::calculate_mask_bounds(&mask).unwrap();
+        // The grid is 5 px coarse here (4650 px across in at most 1024 cells).
+        let t = super::hole_thickness(&mask, bounds);
+        assert!((t - 300.0).abs() <= 12.0, "{t}");
+        let line = image::imageops::crop_imm(&mask, 600, 0, 4400, 1000).to_image();
+        let t = super::hole_thickness(&line, super::calculate_mask_bounds(&line).unwrap());
+        assert!((t - 20.0).abs() <= 10.0, "{t}");
     }
 
     /// Fill edges on an uncropped panorama DNG (`RAWTONIC_FILL_PANO`; its

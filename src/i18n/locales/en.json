@@ -1807,12 +1807,15 @@
     }
   },
   "spotRemoval": {
+    "cancel": "Cancel",
     "detectObjects": "Detect objects",
     "detectObjectsBoxHint": "Drag a box around an object or click it to remove it.",
     "detectObjectsHint": "Brush loosely over an object or click it to remove it.",
     "detectObjectsRefineHint": "Shift adds to the selected removal, Alt (⌥) subtracts from it.",
+    "downloadingModel": "Downloading the object removal model… {{percent}} %",
     "feather": "Feather",
     "featherAria": "Spot feather",
+    "filling": "Removing… step {{done}} of {{total}}",
     "mode": "Spot mode",
     "modes": {
       "clone": "Clone",

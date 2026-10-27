@@ -1769,12 +1769,15 @@
     }
   },
   "spotRemoval": {
+    "cancel": "취소",
     "detectObjects": "개체 감지",
     "detectObjectsBoxHint": "개체 주위에 사각형을 그리거나 클릭하여 제거합니다.",
     "detectObjectsHint": "개체 위를 대략 브러시로 칠하거나 클릭하여 제거합니다.",
     "detectObjectsRefineHint": "Shift는 선택한 제거에 추가하고 Alt(⌥)는 제외합니다.",
+    "downloadingModel": "개체 제거 모델 다운로드 중… {{percent}} %",
     "feather": "페더",
     "featherAria": "스팟 페더",
+    "filling": "제거 중… {{total}}단계 중 {{done}}단계",
     "mode": "스팟 모드",
     "modes": {
       "clone": "복제",

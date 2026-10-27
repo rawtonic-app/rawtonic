@@ -216,6 +216,42 @@ MATCHFILTER_MIXED_EXPORT = [
     "python", str(Path(__file__).resolve().parent / "convert_nlmf_coreml.py"),
 ]
 
+# Moebius (hustvl, Apache-2.0), Remove's guide for large holes on macOS, and
+# the SDXL VAE fp16-fix (MIT) it works in, as Core ML programs converted by
+# convert_moebius_coreml.py in an environment of its own (the bytes repeat);
+# the network's 20 learned embeddings are a file beside them (an input of
+# the UNet: baked in, Core ML's GPU computed the network wrongly).
+MOEBIUS_ENTRY = {
+    "used_by": "Remove, large holes (Core ML, macOS)",
+    "source": "Moebius ft_places2 (Kangsheng Duan, Ziyang Xu et al., github.com/hustvl/Moebius at b88d462; huggingface.co/hustvl/Moebius, revision cd01f47), converted by scripts/models/convert_moebius_coreml.py (Core ML, fp16)",
+    "license": "Apache-2.0 (repository and README; the Hugging Face card says MIT)",
+    "license_files": ["Moebius-Apache-2.0.txt"],
+}
+SDXL_VAE_ENTRY = {
+    "used_by": "Remove, large holes: Moebius's image encoder and decoder (Core ML, macOS)",
+    "source": "SDXL-VAE-FP16-Fix (huggingface.co/madebyollin/sdxl-vae-fp16-fix, revision 207b116; from Stability AI's SDXL VAE), converted by scripts/models/convert_moebius_coreml.py (Core ML, fp16)",
+    "license": "MIT",
+    "license_files": ["sdxl-vae-fp16-fix-MIT.txt"],
+}
+MOEBIUS_SHA256 = {
+    "moebius_embeddings.bin": "1b46b6251205fd7473f9edb834073848df00fe83e3224ee1f4a2f1bc4bb52c8e",
+    "moebius_unet_fp16_coreml_Manifest.json": "935b1ef0c97fe51b4999919c28b9c91151c648c72571c1d5c3c49dd6e9b3b184",
+    "moebius_unet_fp16_coreml_model.mlmodel": "cfa6c064e439ceb7904fb1f396986a5b067219acb2ff2dca52f3bd5ce55640a7",
+    "moebius_unet_fp16_coreml_weight.bin": "5a70ccf4037c43560f2a81dacd494a9c8fe3937715becf14d4cf7e4d0d28d859",
+    "sdxl_vae_encoder_fp16_coreml_Manifest.json": "935b1ef0c97fe51b4999919c28b9c91151c648c72571c1d5c3c49dd6e9b3b184",
+    "sdxl_vae_encoder_fp16_coreml_model.mlmodel": "73532ac0c8eec0fe13fca9d6fb2ed6bdc2a54cecf7d1956070e1a31eef60c5cb",
+    "sdxl_vae_encoder_fp16_coreml_weight.bin": "1ab2c204f5b39ec9ad32226638e53be2ad169f1f6b6b438547350128a5125ca5",
+    "sdxl_vae_decoder_fp16_coreml_Manifest.json": "935b1ef0c97fe51b4999919c28b9c91151c648c72571c1d5c3c49dd6e9b3b184",
+    "sdxl_vae_decoder_fp16_coreml_model.mlmodel": "17e00d408ff23eab25fbd2d1c081223c87e6b3fde4588d7c94308339dda5aca2",
+    "sdxl_vae_decoder_fp16_coreml_weight.bin": "a08df0be795fc242c02d8af66b1f4e0daf8a0b7951a41d55bf88707125763650",
+}
+MOEBIUS_EXPORT = [
+    "uv", "run", "--python", "3.12", "--with", "torch==2.7.0", "--with", "coremltools==9.0",
+    "--with", "diffusers==0.38.0", "--with", "numpy==2.2.6", "--with", "einops==0.8.1", "--with", "timm==1.0.30",
+    "--with", "pyyaml==6.0.3", "--with", "safetensors==0.8.0", "--with", "pillow==12.0.0",
+    "python", str(Path(__file__).resolve().parent / "convert_moebius_coreml.py"),
+]
+
 SAM_ENTRY = {
     "used_by": "Subject mask (point/box prompts; builds before 2026-10-09)",
     "source": "Segment Anything ViT-B checkpoint sam_vit_b_01ec64.pth (Meta), exported by scripts/models/export_sam.py",
@@ -504,6 +540,15 @@ def main() -> None:
             if name in carried:  # a group step builds all its files; carried ones stay
                 continue
             entries.append(place(nlmf_mixed / name, args.out, name, expected) | MATCHFILTER_MIXED_ENTRY)
+
+    if todo(MOEBIUS_SHA256):
+        moebius = args.cache / "moebius-coreml"
+        subprocess.run(MOEBIUS_EXPORT + [str(moebius), "--cache", str(args.cache / "moebius")], check=True)
+        for name, expected in MOEBIUS_SHA256.items():
+            if name in carried:  # a group step builds all its files; carried ones stay
+                continue
+            entry = SDXL_VAE_ENTRY if name.startswith("sdxl_vae_") else MOEBIUS_ENTRY
+            entries.append(place(moebius / name, args.out, name, expected) | entry)
 
     if todo(FACES_SHA256):
         faces = args.cache / "faces-out"

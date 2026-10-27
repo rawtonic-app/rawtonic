@@ -1769,12 +1769,15 @@
     }
   },
   "spotRemoval": {
+    "cancel": "キャンセル",
     "detectObjects": "オブジェクトを検出",
     "detectObjectsBoxHint": "オブジェクトを矩形で囲むか、クリックして削除します。",
     "detectObjectsHint": "オブジェクトの上を大まかにブラシでなぞるか、クリックして削除します。",
     "detectObjectsRefineHint": "Shift で選択中の削除に追加、Alt (⌥) で除外します。",
+    "downloadingModel": "オブジェクト削除モデルをダウンロード中… {{percent}} %",
     "feather": "ぼかし",
     "featherAria": "スポットのぼかし",
+    "filling": "削除中… ステップ {{done}}/{{total}}",
     "mode": "スポットモード",
     "modes": {
       "clone": "コピー",

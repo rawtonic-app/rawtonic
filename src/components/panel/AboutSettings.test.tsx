@@ -30,6 +30,7 @@ describe("AboutSettings", () => {
     expect(screen.getByText(/not affiliated with/)).toBeTruthy();
     expect(screen.getByText("RapidRAW")).toBeTruthy();
     expect(screen.getByText("MI-GAN")).toBeTruthy();
+    expect(screen.getByText("Moebius")).toBeTruthy();
   });
 
   it("shows the bundled third-party license texts on request", async () => {

@@ -1866,12 +1866,15 @@
     }
   },
   "spotRemoval": {
+    "cancel": "Annulla",
     "detectObjects": "Rileva oggetti",
     "detectObjectsBoxHint": "Trascina un rettangolo attorno a un oggetto o fai clic su di esso per rimuoverlo.",
     "detectObjectsHint": "Dipingi sopra un oggetto o fai clic su di esso per rimuoverlo.",
     "detectObjectsRefineHint": "Maiusc aggiunge alla rimozione selezionata, Alt (⌥) sottrae.",
+    "downloadingModel": "Download del modello per rimuovere oggetti… {{percent}} %",
     "feather": "Sfumatura",
     "featherAria": "Sfumatura della macchia",
+    "filling": "Rimozione… passo {{done}} di {{total}}",
     "mode": "Modalità macchie",
     "modes": {
       "clone": "Clona",

@@ -1925,12 +1925,15 @@
     }
   },
   "spotRemoval": {
+    "cancel": "Anuluj",
     "detectObjects": "Wykrywaj obiekty",
     "detectObjectsBoxHint": "Przeciągnij prostokąt wokół obiektu lub kliknij go, aby go usunąć.",
     "detectObjectsHint": "Zamaluj z grubsza obiekt lub kliknij go, aby go usunąć.",
     "detectObjectsRefineHint": "Shift dodaje do zaznaczonego usunięcia, Alt (⌥) odejmuje.",
+    "downloadingModel": "Pobieranie modelu do usuwania obiektów… {{percent}} %",
     "feather": "Wtapianie",
     "featherAria": "Wtapianie plamy",
+    "filling": "Usuwanie… krok {{done}} z {{total}}",
     "mode": "Tryb usuwania plam",
     "modes": {
       "clone": "Klonuj",
