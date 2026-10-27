@@ -115,6 +115,14 @@ fn sample_before(uv: vec2<f32>) -> vec4<f32> {
     return textureSampleLevel(before_tex, samp, before_uv, 0.0);
 }
 
+// The image fills its rect at one texel per device pixel (within a pixel),
+// unrotated and not crop-edited.
+fn shown_at_own_size() -> bool {
+    return all(abs(transform.rect.zw - transform.image_size) < vec2<f32>(1.0))
+        && transform.box_rect.z <= 0.0
+        && transform.rotation == 0.0;
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var uv = in.uv;
@@ -141,6 +149,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         let clamped_nearest = clamp(nearest_uv, min_uv, max_uv);
         return with_overlay(textureSample(tex, samp, clamped_nearest), uv);
+    } else if (shown_at_own_size()) {
+        // One texel per device pixel: whole texels, as an export at this
+        // size has them. Bilinear reads at a placement between device pixels
+        // (a fit view starting at x = 105.1) blended each pixel with its
+        // neighbour, 0.9 of film grain's strength and fine detail.
+        let texel = floor(in.screen - round(transform.rect.xy)) + vec2<f32>(0.5);
+        let clamped_uv = clamp(texel / transform.texture_size, min_uv, max_uv);
+        return with_overlay(textureSample(tex, samp, clamped_uv), uv);
     } else {
         let clamped_uv = clamp(adjusted_uv, min_uv, max_uv);
         return with_overlay(textureSample(tex, samp, clamped_uv), uv);

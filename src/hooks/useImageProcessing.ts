@@ -37,6 +37,7 @@ import { useMultiViewStore } from '../store/useMultiViewStore';
 import { interactivePreview } from '../utils/interactivePreview';
 import { retireDraftPatches, showDraftPatch } from '../utils/browserDraftPatch';
 import { previewBuffer } from '../utils/previewBuffer';
+import { previewTargetResolution } from '../utils/previews';
 import { applyLayerSolo } from '../utils/layerSolo';
 import {
   MASK_PARAMETERS_MISSING,
@@ -98,6 +99,7 @@ export function useImageProcessing(
   const displaySize = useEditorStore((state) => state.displaySize);
   const baseRenderSize = useEditorStore((state) => state.baseRenderSize);
   const originalSize = useEditorStore((state) => state.originalSize);
+  const hasGrain = useEditorStore((state) => (state.adjustments.grainAmount ?? 0) > 0);
   const isSliderDragging = useEditorStore((state) => state.isSliderDragging);
   const setEditor = useEditorStore((state) => state.setEditor);
 
@@ -636,27 +638,14 @@ export function useImageProcessing(
       return baseTargetRes;
     }
 
-    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-    const sharpnessFactor = 1.25;
-    const zoomMultiplier = appSettings?.highResZoomMultiplier || 1.0;
-    const effectiveDpr = appSettings?.useFullDpiRendering ? dpr : 1;
-
-    let targetRes = Math.max(displaySize.width, displaySize.height) * effectiveDpr * sharpnessFactor * zoomMultiplier;
-    targetRes = Math.max(targetRes, 512);
-
-    if (originalSize && originalSize.width > 0 && originalSize.height > 0) {
-      const origMax = Math.max(originalSize.width, originalSize.height);
-      targetRes = Math.min(targetRes, origMax);
-      if (targetRes >= origMax * 0.8) {
-        targetRes = origMax;
-      }
-    }
-
-    if (originalSize && targetRes !== Math.max(originalSize.width, originalSize.height)) {
-      targetRes = Math.ceil(targetRes / 256) * 256;
-    }
-
-    return Math.round(targetRes);
+    return previewTargetResolution({
+      display: displaySize,
+      dpr: typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
+      fullDpi: !!appSettings?.useFullDpiRendering,
+      zoomMultiplier: appSettings?.highResZoomMultiplier || 1.0,
+      original: originalSize,
+      grain: hasGrain,
+    });
   }, [
     appSettings?.enableZoomHifi,
     appSettings?.editorPreviewResolution,
@@ -665,6 +654,7 @@ export function useImageProcessing(
     displaySize.width,
     displaySize.height,
     originalSize,
+    hasGrain,
   ]);
 
   // A slider drag's moves between store commits (utils/sliderDraft.ts), as
