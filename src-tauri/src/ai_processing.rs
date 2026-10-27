@@ -12,7 +12,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use image::imageops::{self, FilterType};
 use image::{DynamicImage, GenericImageView, GrayImage, ImageBuffer, Luma, Rgba, RgbaImage};
 use ndarray::{Array, IxDyn};
@@ -912,14 +912,17 @@ pub(crate) struct DownloadBatch {
 /// A model file could not be downloaded or did not match its SHA-256
 /// (offline, server unreachable): the context of `download_verified`'s
 /// error, so a tool can say why it fell back to another model.
+/// Its text is the download's own error (URL, status, hint).
 #[derive(Debug)]
-pub struct DownloadFailed;
+pub struct DownloadFailed(pub String);
 
 impl std::fmt::Display for DownloadFailed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("model download failed")
+        f.write_str(&self.0)
     }
 }
+
+impl std::error::Error for DownloadFailed {}
 
 /// `download_verified`, counting the download into `batch`.
 pub(crate) async fn download_verified_in(
@@ -974,7 +977,7 @@ pub(crate) async fn download_verified_in(
         if let Some(batch) = batch {
             batch.done += fetched;
         }
-        download_result.context(DownloadFailed)?;
+        download_result.map_err(|e| anyhow::Error::new(DownloadFailed(format!("{e:#}"))))?;
     }
     Ok(())
 }

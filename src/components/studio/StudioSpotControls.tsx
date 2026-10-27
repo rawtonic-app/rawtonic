@@ -187,7 +187,7 @@ export default function StudioSpotControls() {
         </>
       )}
       {!redEye && hasRemovals && (
-        // Lightroom's eye of the Remove tool: hides every removal in the
+        // The tool's eye: hides every removal in the
         // photo and its exports (the patches stay in the recipe).
         <label className="studio-inline studio-check">
           <input

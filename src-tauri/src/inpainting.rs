@@ -202,6 +202,10 @@ const MOEBIUS_MAX_SECONDS_PER_RUN: f64 = 1.5;
 /// than `MOEBIUS_MAX_SECONDS_PER_RUN`: large holes go to MI-GAN.
 static MOEBIUS_TOO_SLOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Set once Remove has said Moebius cannot run on this computer.
+static MOEBIUS_UNAVAILABLE_SAID: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 /// Moebius fills (running now, started so far). Overlapping removals wait
 /// for each other's network runs (one session per model), so a fill's time
 /// per run counts for `MOEBIUS_TOO_SLOW` only when it ran alone: none was
@@ -296,13 +300,13 @@ fn complete_with_guide(
 
 /// The completion (`filled`) with the guide's shading and colour: below
 /// the guide's own detail (a Gaussian of `sigma` pixels, the size of one of
-/// its pixels) the hole takes the guide's values, above it the
+/// its pixels; below about 0.75 px, a crop under ~384 px, the guide is at
+/// full resolution and the hole takes it as it is) the hole takes the guide's values, above it the
 /// completion's texture. Where the photo around a large hole has no patch
 /// of the shade the guide asks for (a shadow inside a bowl), the completion
 /// copies the nearest ones (the dark wall behind it) in blocks; that
 /// difference is a few codes in the fill's dim base image but plain after
 /// the develop settings lift it.
-#[cfg(any(target_os = "macos", test))]
 fn keep_guide_shading(
     mut filled: RgbaImage,
     guided: &RgbaImage,
@@ -362,7 +366,6 @@ fn keep_guide_shading(
 
 /// Blurs a `w` × `h` plane by about a Gaussian of `sigma` pixels: three
 /// box passes along rows, then along columns (zero outside).
-#[cfg(any(target_os = "macos", test))]
 fn blur_plane(plane: &mut [f32], w: usize, h: usize, sigma: f32) {
     // The box radius whose three passes have the Gaussian's variance.
     let r = (((12.0 * sigma * sigma / 3.0 + 1.0).sqrt() - 1.0) / 2.0).round() as usize;
@@ -401,7 +404,6 @@ fn blur_plane(plane: &mut [f32], w: usize, h: usize, sigma: f32) {
 }
 
 /// One box pass of radius `r` along `row` (zero outside); `line` is scratch.
-#[cfg(any(target_os = "macos", test))]
 fn box_line(row: &mut [f32], r: usize, line: &mut Vec<f32>) {
     line.clear();
     line.extend_from_slice(row);
@@ -478,6 +480,13 @@ async fn fill_large_hole(
     // weaker (`ai-fill-notice`: the download failed, or the model did not
     // run).
     let notice = |reason: &str| {
+        // "unavailable" does not change within a session (no GPU provider,
+        // Core ML fails): said once, not on every large removal.
+        if reason == "unavailable"
+            && MOEBIUS_UNAVAILABLE_SAID.swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            return;
+        }
         let _ = app_handle.emit(
             "ai-fill-notice",
             serde_json::json!({ "taskId": task_id, "reason": reason }),
