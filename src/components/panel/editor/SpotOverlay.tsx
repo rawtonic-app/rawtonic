@@ -1,4 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { useTranslation } from 'react-i18next';
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { updateAdjustments } from '../../../hooks/useEditorActions';
 import { useEditorStore } from '../../../store/useEditorStore';
@@ -131,9 +133,15 @@ function distanceToSpot(x: number, y: number, spot: Spot, dx = 0, dy = 0) {
  * objects (Lightroom's object-aware Remove) a click on an object or a box
  * drawn around it selects it with the object mask model, and the selection,
  * grown a little to take its edge along, is filled. Removals are AI patches,
- * so exports carry the generated-content marking.
+ * so exports carry the generated-content marking. A large hole on macOS is
+ * filled with Moebius, which takes a few seconds (and downloads its model
+ * the first time): the overlay shows its progress with Cancel (or Escape).
  */
+/** A running removal's progress: its model's download, then the network's runs. */
+type FillProgress = { taskId: string; download?: number; done?: number; total?: number };
+
 export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) {
+  const { t } = useTranslation();
   const spots = useEditorStore((s) => s.adjustments.spots ?? []);
   const aiPatches = useEditorStore((s) => s.adjustments.aiPatches);
   const rotation = useEditorStore((s) => s.adjustments.rotation);
@@ -161,6 +169,12 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   const objectBrush = detectObjects && (settings.objectSelect ?? 'brush') === 'brush';
   const drag = useRef<Drag | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  // The removal being filled (its task id) and what the backend reports of it.
+  const filling = useRef<string | null>(null);
+  const [progress, setProgress] = useState<FillProgress | null>(null);
+  const cancelFill = () => {
+    if (filling.current) invoke(Invokes.CancelAiTask, { taskId: filling.current }).catch(() => {});
+  };
 
   const toBox = (x: number, y: number) => [(x - cropX) * scale, (y - cropY) * scale] as const;
   const toImage = (clientX: number, clientY: number) => {
@@ -202,6 +216,7 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     const path = selectedImage.path;
     const { registerAiTask, unregisterAiTask } = useProcessStore.getState();
     registerAiTask(patch.id, 'inpaint');
+    filling.current = patch.id;
     try {
       const definition = select ? await select(patch) : patch;
       if (useEditorStore.getState().selectedImage?.path !== path) return;
@@ -230,6 +245,10 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
       toastAiError(error, `Remove failed: ${error}`);
     } finally {
       unregisterAiTask(patch.id);
+      if (filling.current === patch.id) {
+        filling.current = null;
+        setProgress(null);
+      }
     }
   };
 
@@ -565,8 +584,25 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     };
   }, [visualize?.on, visualize?.sensitivity, spotsKey]);
 
+  // Progress of the running removal: the model's download (any file of it
+  // while the removal waits) and the network's runs.
+  useEffect(() => {
+    const unlisten = [
+      listen<{ taskId: string | null; done: number; total: number }>('ai-fill-progress', ({ payload }) => {
+        if (payload.taskId && payload.taskId === filling.current)
+          setProgress({ taskId: payload.taskId, done: payload.done, total: payload.total });
+      }),
+      listen<{ received: number; total: number }>('ai-model-download-progress', ({ payload }) => {
+        const id = filling.current;
+        if (id && payload.total > 0)
+          setProgress({ taskId: id, download: Math.floor((payload.received / payload.total) * 100) });
+      }),
+    ].map((p) => p.catch(() => null));
+    return () => unlisten.forEach((p) => p.then((stop) => stop?.()));
+  }, []);
+
   // Delete removes the selected spot; [ and ] resize it (or the next one);
-  // Escape deselects.
+  // Escape cancels a removal being filled, else deselects.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -588,6 +624,10 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         const spot = adjustments.spots?.find((s) => s.id === id);
         if (spot) commit({ ...spot, radius: Math.max(2, spot.radius * factor) });
         else setEditor({ spotSettings: { ...spotSettings, size: Math.max(2, Math.round(spotSettings.size * factor)) } });
+      } else if (e.key === 'Escape' && filling.current) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        cancelFill();
       } else if (e.key === 'Escape' && id) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -795,6 +835,49 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
           </g>
         )}
       </svg>
+      {progress && (
+        <div
+          data-testid="remove-progress"
+          role="status"
+          onPointerDown={(e) => e.stopPropagation()}
+          style={{
+            position: 'absolute',
+            left: '50%',
+            bottom: 16,
+            transform: 'translateX(-50%)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '6px 8px 6px 12px',
+            borderRadius: 6,
+            background: 'rgba(20, 20, 20, 0.85)',
+            color: '#eee',
+            fontSize: 12,
+            cursor: 'default',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <span>
+            {progress.download !== undefined
+              ? t('spotRemoval.downloadingModel', { percent: progress.download })
+              : t('spotRemoval.filling', { done: progress.done ?? 0, total: progress.total ?? 0 })}
+          </span>
+          <button
+            type="button"
+            onClick={cancelFill}
+            style={{
+              padding: '2px 8px',
+              borderRadius: 4,
+              border: '1px solid rgba(255,255,255,0.3)',
+              background: 'transparent',
+              color: 'inherit',
+              cursor: 'pointer',
+            }}
+          >
+            {t('spotRemoval.cancel')}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

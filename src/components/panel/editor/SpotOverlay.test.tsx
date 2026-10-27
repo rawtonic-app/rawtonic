@@ -1,8 +1,18 @@
+import "../../../i18n";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
+const { invoke, listeners } = vi.hoisted(() => ({
+  invoke: vi.fn(),
+  listeners: new Map<string, (event: { payload: unknown }) => void>(),
+}));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: (name: string, handler: (event: { payload: unknown }) => void) => {
+    listeners.set(name, handler);
+    return Promise.resolve(() => listeners.delete(name));
+  },
+}));
 
 import SpotOverlay from "./SpotOverlay";
 import { useEditorStore } from "../../../store/useEditorStore";
@@ -190,6 +200,38 @@ describe("spot removal overlay", () => {
     expect(useEditorStore.getState().activeSpotId).toBe(patch.id);
     fireEvent.keyDown(window, { key: "Delete" });
     expect(useEditorStore.getState().adjustments.aiPatches).toHaveLength(0);
+  });
+
+  it("shows a slow removal's download and steps, and Cancel stops it", async () => {
+    let failFill: (error: unknown) => void = () => {};
+    invoke.mockImplementation((command: string) =>
+      command === "invoke_generative_replace_with_mask_def"
+        ? new Promise((_, reject) => {
+            failFill = reject;
+          })
+        : Promise.resolve(),
+    );
+    useEditorStore.setState({ spotSettings: { mode: "remove", size: 20, feather: 0, opacity: 100 } });
+    const el = overlay();
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 50, clientY: 50, pointerId: 1 });
+      fireEvent.pointerUp(el, { clientX: 50, clientY: 50, pointerId: 1 });
+    });
+    const fill = invoke.mock.calls.find(([name]) => name === "invoke_generative_replace_with_mask_def")!;
+    const { taskId } = fill[1] as { taskId: string };
+    expect(screen.queryByTestId("remove-progress")).toBeNull();
+    act(() => listeners.get("ai-model-download-progress")!({ payload: { received: 50, total: 200 } }));
+    expect(screen.getByTestId("remove-progress").textContent).toContain("25");
+    // Another task's steps are not shown.
+    act(() => listeners.get("ai-fill-progress")!({ payload: { taskId: "other", done: 1, total: 9 } }));
+    expect(screen.getByTestId("remove-progress").textContent).toContain("25");
+    act(() => listeners.get("ai-fill-progress")!({ payload: { taskId, done: 3, total: 9 } }));
+    expect(screen.getByTestId("remove-progress").textContent).toMatch(/3\D+9/);
+    fireEvent.click(screen.getByRole("button"));
+    expect(invoke).toHaveBeenCalledWith("cancel_ai_task", { taskId });
+    await act(async () => failFill("Task cancelled"));
+    expect(screen.queryByTestId("remove-progress")).toBeNull();
+    expect(useEditorStore.getState().adjustments.aiPatches ?? []).toHaveLength(0);
   });
 
   it("removes an object selected by a click: object mask, then fill, as one AI patch", async () => {

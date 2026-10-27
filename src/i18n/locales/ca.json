@@ -1866,12 +1866,15 @@
     }
   },
   "spotRemoval": {
+    "cancel": "Cancel·la",
     "detectObjects": "Detecta objectes",
     "detectObjectsBoxHint": "Arrossega un rectangle al voltant d'un objecte o fes-hi clic per eliminar-lo.",
     "detectObjectsHint": "Pinta per sobre d'un objecte o fes-hi clic per eliminar-lo.",
     "detectObjectsRefineHint": "Maj afegeix a l'eliminació seleccionada, Alt (⌥) en resta.",
+    "downloadingModel": "S'està baixant el model per eliminar objectes… {{percent}} %",
     "feather": "Difuminat",
     "featherAria": "Difuminat de la taca",
+    "filling": "S'està eliminant… pas {{done}} de {{total}}",
     "mode": "Mode de taques",
     "modes": {
       "clone": "Clona",

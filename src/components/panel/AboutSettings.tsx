@@ -127,6 +127,18 @@ export const CREDITS: Credit[] = [
     license: "MIT",
   },
   {
+    name: "Moebius",
+    url: "https://github.com/hustvl/Moebius",
+    what: "Removal of large objects on macOS (Huazhong University of Science and Technology, vivo AI Lab).",
+    license: "Apache-2.0",
+  },
+  {
+    name: "SDXL-VAE-FP16-Fix",
+    url: "https://huggingface.co/madebyollin/sdxl-vae-fp16-fix",
+    what: "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
+    license: "MIT",
+  },
+  {
     name: "ONNX Runtime",
     url: "https://github.com/microsoft/onnxruntime",
     what: "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft).",

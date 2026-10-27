@@ -208,6 +208,8 @@ fn names(taken: &AiState) -> Vec<&'static str> {
         ("people normals", taken.people_normals_model.is_some()),
         ("depth map", taken.depth_map.is_some()),
         ("MI-GAN", taken.inpaint_model.is_some()),
+        #[cfg(target_os = "macos")]
+        ("Moebius", taken.moebius.is_some()),
         ("tagging", taken.tag_models.is_some()),
         ("subject masks", !taken.subject_masks.is_empty()),
         ("sky masks", !taken.sky_masks.is_empty()),
@@ -215,6 +217,16 @@ fn names(taken: &AiState) -> Vec<&'static str> {
     .into_iter()
     .filter_map(|(name, present)| present.then_some(name))
     .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn moebius_loaded(ai: &crate::ai_processing::AiState) -> bool {
+    ai.moebius.is_some()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn moebius_loaded(_: &crate::ai_processing::AiState) -> bool {
+    false
 }
 
 /// Whether any model `unload` drops is loaded.
@@ -228,6 +240,7 @@ fn models_loaded(state: &AppState) -> bool {
             || ai.relight_model.is_some()
             || ai.people_normals_model.is_some()
             || ai.inpaint_model.is_some()
+            || moebius_loaded(ai)
     });
     drop(ai);
     ai_models

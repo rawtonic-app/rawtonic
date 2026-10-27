@@ -1866,12 +1866,15 @@
     }
   },
   "spotRemoval": {
+    "cancel": "Annuler",
     "detectObjects": "Détecter les objets",
     "detectObjectsBoxHint": "Tracez un rectangle autour d'un objet ou cliquez dessus pour le supprimer.",
     "detectObjectsHint": "Peignez grossièrement sur un objet ou cliquez dessus pour le supprimer.",
     "detectObjectsRefineHint": "Maj ajoute à la suppression sélectionnée, Alt (⌥) en retire.",
+    "downloadingModel": "Téléchargement du modèle de suppression d'objets… {{percent}} %",
     "feather": "Contour progressif",
     "featherAria": "Contour progressif de la zone",
+    "filling": "Suppression… étape {{done}} sur {{total}}",
     "mode": "Mode de correction",
     "modes": {
       "clone": "Cloner",

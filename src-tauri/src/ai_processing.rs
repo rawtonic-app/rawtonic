@@ -28,7 +28,7 @@ use tokio::sync::Mutex as TokioMutex;
 /// licenses (docs/MODELS.md, scripts/models/build_model_pack.py);
 /// `scripts/models/install_models.sh` installs them ahead with `gh`.
 const MODEL_PACK_URL: &str =
-    "https://github.com/rawtonic-app/models/releases/download/pack-2026-10-18";
+    "https://github.com/rawtonic-app/models/releases/download/pack-2026-10-27";
 
 // SAM 2.1 Hiera-T (Meta, Apache-2.0 weights), exported by
 // scripts/models/export_sam2.py: the photo stretched to 1024 x 1024 in,
@@ -297,6 +297,9 @@ pub struct AiState {
     pub sam_models: Option<Arc<SamModels>>,
     pub tag_models: Option<Arc<TagModels>>,
     pub inpaint_model: Option<Arc<rawtonic_onnx::Model>>,
+    /// Moebius, the guide of Remove's large holes (macOS, `moebius`).
+    #[cfg(target_os = "macos")]
+    pub moebius: Option<Arc<crate::moebius::coreml::Moebius>>,
     pub embeddings: Option<ImageEmbeddings>,
     pub depth_map: Option<CachedDepthMap>,
     pub subject_model: Option<Arc<SubjectModel>>,
@@ -358,7 +361,9 @@ fn edt_1d(f: &mut [f32], v: &mut [usize], z: &mut [f32], d: &mut [f32]) {
     f.copy_from_slice(&d[..n]);
 }
 
-fn edt_2d(grid: &[bool], width: usize, height: usize) -> Vec<f32> {
+/// Euclidean distance of every `true` cell of `grid` to the nearest `false`
+/// one (0 for `false` cells).
+pub(crate) fn edt_2d(grid: &[bool], width: usize, height: usize) -> Vec<f32> {
     let area = width * height;
     let mut f = vec![0.0; area];
     for i in 0..area {
@@ -610,22 +615,35 @@ fn model_url(source: &str) -> String {
     format!("{MODEL_PACK_URL}/{source}")
 }
 
-async fn fetch_model(source: &str) -> Result<Vec<u8>> {
+/// Downloads `source`, calling `progress(received, total)` as its bytes
+/// arrive (`total` 0 when the server does not say).
+async fn fetch_model(source: &str, progress: &mut (dyn FnMut(u64, u64) + Send)) -> Result<Vec<u8>> {
     let url = model_url(source);
-    let response = reqwest::get(&url).await?;
+    let mut response = reqwest::get(&url).await?;
     if !response.status().is_success() {
         return Err(anyhow::anyhow!(
             "Could not download {url} (HTTP {}). Check the internet connection and try again.",
             response.status()
         ));
     }
-    Ok(response.bytes().await?.to_vec())
+    let total = response.content_length().unwrap_or(0);
+    let mut bytes = Vec::with_capacity(total as usize);
+    while let Some(chunk) = response.chunk().await? {
+        bytes.extend_from_slice(&chunk);
+        progress(bytes.len() as u64, total);
+    }
+    Ok(bytes)
 }
 
 /// Replaces `dest` only with a download whose SHA-256 matches: a failed or
 /// corrupt download leaves the file that was there.
-async fn download_verified_model(source: &str, dest: &Path, expected_hash: &str) -> Result<()> {
-    let bytes = fetch_model(source).await?;
+async fn download_verified_model(
+    source: &str,
+    dest: &Path,
+    expected_hash: &str,
+    progress: &mut (dyn FnMut(u64, u64) + Send),
+) -> Result<()> {
+    let bytes = fetch_model(source, progress).await?;
     persist_verified_asset(dest, &bytes, expected_hash)
         .map_err(|e| anyhow::anyhow!("{}: {e}", model_url(source)))
 }
@@ -880,7 +898,20 @@ pub(crate) async fn download_verified(
             println!("Model {} has incorrect hash. Re-downloading.", model_name);
         }
         let _ = app_handle.emit("ai-model-download-start", model_name);
-        let download_result = download_verified_model(file, &dest_path, expected_hash).await;
+        // At most one event per percent.
+        let mut shown = u64::MAX;
+        let mut progress = |received: u64, total: u64| {
+            let percent = (received * 100).checked_div(total).unwrap_or(0);
+            if percent != shown {
+                shown = percent;
+                let _ = app_handle.emit(
+                    "ai-model-download-progress",
+                    serde_json::json!({ "model": model_name, "file": file, "received": received, "total": total }),
+                );
+            }
+        };
+        let download_result =
+            download_verified_model(file, &dest_path, expected_hash, &mut progress).await;
         let _ = app_handle.emit("ai-model-download-finish", model_name);
         download_result?;
     }
@@ -1620,6 +1651,49 @@ pub async fn get_or_init_inpaint_model(
 
     keep_model(ai_state_mutex, generation, |ai| {
         ai.inpaint_model = Some(model.clone())
+    });
+    Ok(model)
+}
+
+/// Serialises loading Moebius, apart from `ai_init_lock`: its first use
+/// downloads about 620 MB, which must not hold up the masking models.
+#[cfg(target_os = "macos")]
+static MOEBIUS_INIT_LOCK: TokioMutex<()> = TokioMutex::const_new(());
+
+/// Moebius (`moebius`), downloaded on first use.
+#[cfg(target_os = "macos")]
+pub async fn get_or_init_moebius(
+    app_handle: &tauri::AppHandle,
+    ai_state_mutex: &Mutex<Option<AiState>>,
+) -> Result<Arc<crate::moebius::coreml::Moebius>> {
+    let loaded = || {
+        ai_state_mutex
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|state| state.moebius.clone())
+    };
+    if let Some(model) = loaded() {
+        return Ok(model);
+    }
+    let _guard = MOEBIUS_INIT_LOCK.lock().await;
+    if let Some(model) = loaded() {
+        return Ok(model);
+    }
+    let generation = crate::ai_lifecycle::LIFECYCLE.generation();
+    let models_dir = get_models_dir(app_handle)?;
+    let start = std::time::Instant::now();
+    let model = Arc::new(
+        crate::moebius::coreml::load(app_handle, &models_dir, true)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Moebius files missing"))?,
+    );
+    log::info!(
+        "AI fill: Moebius loaded in {} ms",
+        start.elapsed().as_millis()
+    );
+    keep_model(ai_state_mutex, generation, |ai| {
+        ai.moebius = Some(model.clone())
     });
     Ok(model)
 }

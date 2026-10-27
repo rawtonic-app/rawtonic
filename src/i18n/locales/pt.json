@@ -1866,12 +1866,15 @@
     }
   },
   "spotRemoval": {
+    "cancel": "Cancelar",
     "detectObjects": "Detetar objetos",
     "detectObjectsBoxHint": "Arraste um retângulo à volta de um objeto ou clique nele para o remover.",
     "detectObjectsHint": "Pinte por cima de um objeto ou clique nele para o remover.",
     "detectObjectsRefineHint": "Shift adiciona à remoção selecionada, Alt (⌥) subtrai.",
+    "downloadingModel": "Baixando o modelo de remoção de objetos… {{percent}} %",
     "feather": "Suavização",
     "featherAria": "Suavização da mancha",
+    "filling": "Removendo… etapa {{done}} de {{total}}",
     "mode": "Modo de manchas",
     "modes": {
       "clone": "Clonar",

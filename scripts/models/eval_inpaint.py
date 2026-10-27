@@ -29,6 +29,10 @@ in percent of the photo; PHOTOS/<photo>.png are 8- or 16-bit sRGB renders.
                it, the authors' MI-GAN pipeline, blended by the mask)
     patch      patch_fill without a guide on the same crop
     hybrid     patch_fill guided by the MI-GAN fill
+    mhybrid    patch_fill guided by Moebius's fill, as Remove does for large
+               holes on macOS (src-tauri/src/moebius.rs `guide`; MOEBIUS: the
+               output folder of convert_moebius_coreml.py; needs coremltools)
+    moebius    Moebius's fill alone (same crop, blended by the mask)
     hybrid:K=V,... the same with patch_fill parameters; harness options:
                ctx=F widens the pipeline's own crop to F x the hole (the
                app uses 2.5), share=S to the hole's longer side / S where
@@ -332,6 +336,57 @@ def patch_raw(img, hole, guide, params, tmp):
     return cv2.cvtColor(cv2.imread(str(tmp / "out.png")), cv2.COLOR_BGR2RGB)
 
 
+_moebius = None
+
+
+def moebius_networks():
+    """The Core ML programs of convert_moebius_coreml.py (folder MOEBIUS) on the GPU."""
+    global _moebius
+    if _moebius is None:
+        import coremltools as ct
+
+        folder = Path(os.environ["MOEBIUS"])
+        load = lambda name: ct.models.MLModel(  # noqa: E731
+            str(folder / f"{name}.mlpackage"), compute_units=ct.ComputeUnit.CPU_AND_GPU)
+        unet, enc, dec = load("moebius_unet"), load("sdxl_vae_encoder"), load("sdxl_vae_decoder")
+        emb = np.fromfile(folder / "moebius_embeddings.bin", "<f4").reshape(2, 10, 3072)
+        _moebius = (
+            lambda x, t: unet.predict({"latent_in": x, "t": t, "embeddings": emb})["noise"],
+            lambda images: enc.predict({"image": images})["latent"],
+            lambda z: dec.predict({"latent": z})["image"],
+        )
+    return _moebius
+
+
+def moebius_guide(photo, hole):
+    """Remove's Moebius fill as the app makes it (src-tauri/src/moebius.rs
+    `guide`): a square of 2.5 x the hole's longer side (at least 256 px, at
+    most the photo's shorter side) around it, area-scaled to 512 px with
+    every pixel the hole touches in the network's hole, filled, scaled back
+    (bicubic). Returns (x0, y0, side, fill) or None when the hole does not
+    fit such a square."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from convert_moebius_coreml import moebius_pipeline
+
+    h, w = hole.shape
+    ys, xs = np.nonzero(hole)
+    hw, hh = xs.max() - xs.min() + 1, ys.max() - ys.min() + 1
+    side = min(max(int(np.float32(max(hw, hh)) * np.float32(2.5) + np.float32(0.5)), 256), w, h)
+    if hw > side or hh > side:
+        return None
+    place = lambda lo, hi, size: min(max((lo + hi + 1) // 2 - side // 2, 0), size - side)  # noqa: E731
+    x0, y0 = place(xs.min(), xs.max(), w), place(ys.min(), ys.max(), h)
+    img = photo[y0:y0 + side, x0:x0 + side].astype(np.float32) / 255.0
+    m = hole[y0:y0 + side, x0:x0 + side].astype(np.float32)
+    if side != 512:
+        img = cv2.resize(img, (512, 512), interpolation=cv2.INTER_AREA)
+        m = cv2.resize(m, (512, 512), interpolation=cv2.INTER_AREA)
+    out = moebius_pipeline(img, m > 0, *moebius_networks())
+    if side != 512:
+        out = cv2.resize(out, (side, side), interpolation=cv2.INTER_CUBIC)
+    return x0, y0, side, out
+
+
 def run_method(method, photo, mask, tmp):
     """Fills `photo` where `mask` > 0 like the app; returns (crop box, filled crop, seconds)."""
     h, w = mask.shape
@@ -364,6 +419,15 @@ def run_method(method, photo, mask, tmp):
         filled = patch_raw(img, hole, None, params, tmp)
     elif name == "hybrid":
         filled = patch_raw(img, hole, migan_raw(img, hole, own.get("ctx", 0), own.get("share", 0)), params, tmp)
+    elif name in ("mhybrid", "moebius"):
+        found = moebius_guide(photo, mask > own.get("th", 0))
+        if found is None:
+            raise SystemExit(f"{method}: the hole does not fit Moebius's square")
+        mx, my, side, fill = found
+        guide = photo.copy()
+        guide[my:my + side, mx:mx + side] = fill
+        guide = np.where(hole[..., None], guide[y0:y1, x0:x1], img)
+        filled = guide if name == "moebius" else patch_raw(img, hole, guide, params, tmp)
     else:
         raise SystemExit(f"unknown method {method}")
     if own.get("grain"):
