@@ -54,6 +54,7 @@ import { draftFor, flushSliderDraft, renderDraft, updateDraft } from '../utils/s
 import { saveFailure } from './useLibraryActions';
 import { clampViewerZoom } from '../utils/viewerDisplay';
 import { noteTool } from '../components/contribute/usageStats';
+import { registerRecipeWriter, type RecipeValues } from '../utils/appUndo';
 
 const pendingMetadataSaves = new Map<string, Promise<Adjustments | undefined>>();
 const unsavedRecipes = new Map<string, Adjustments>();
@@ -417,6 +418,41 @@ function afterRecipeSaves<T>(paths: string[], mutation: () => Promise<T>, preser
     }
   })).then(mutation);
 }
+
+/** Writes per-photo recipe values (series match and its undo/redo) after
+ * each photo's pending save; the open photograph and the Library's active
+ * one show the result. Resolves with each written photo's values before. */
+async function writeRecipeValues(values: RecipeValues[]): Promise<RecipeValues[]> {
+  const paths = values.map((value) => value.path);
+  paths.forEach((path) => globalImageCache.delete(path));
+  const result = await afterRecipeSaves(paths, () =>
+    invoke<{ before: RecipeValues[]; failure?: { message: string; failed: string[] } }>(Invokes.SetRecipeValues, {
+      changes: values,
+    }),
+  );
+  if (result.failure) toast.error(i18next.t('studio.seriesMatch.notSaved', { error: result.failure.message }));
+  const written = result.before.map((before) => before.path);
+  written.forEach((path) => unsavedRecipes.delete(path));
+  const { selectedImage, resetHistory, setEditor } = useEditorStore.getState();
+  if (selectedImage && written.includes(selectedImage.path) && isCurrentEditorImage(selectedImage.path)) {
+    const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path });
+    if (isCurrentEditorImage(selectedImage.path) && meta.adjustments && !meta.adjustments.is_null) {
+      const normalized = normalizeLoadedAdjustments(meta.adjustments, selectedImage.isRaw);
+      setEditor({ adjustments: normalized });
+      resetHistory(normalized);
+    }
+  }
+  const { libraryActivePath, setLibrary } = useLibraryStore.getState();
+  if (libraryActivePath && written.includes(libraryActivePath)) {
+    const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: libraryActivePath });
+    if (useLibraryStore.getState().libraryActivePath === libraryActivePath && meta.adjustments && !meta.adjustments.is_null)
+      setLibrary({
+        libraryActiveAdjustments: normalizeLoadedAdjustments(meta.adjustments, isRawInLibrary(libraryActivePath)),
+      });
+  }
+  return result.before;
+}
+registerRecipeWriter(writeRecipeValues);
 
 // A drag's last moves commit as it ends, before the final render.
 useEditorStore.subscribe((state, previous) => {

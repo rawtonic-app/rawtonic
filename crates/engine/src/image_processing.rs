@@ -5469,6 +5469,13 @@ fn pack_color_ranges(ranges: &serde_json::Value, limit: usize) -> Vec<[[f32; 4];
         .collect()
 }
 
+/// The recipe's white balance as temperature and tint when it sets one
+/// (custom, Auto or a preset); `None` keeps the camera's (As Shot).
+pub fn recipe_white_balance(adjustments: &serde_json::Value) -> Option<(f64, f64)> {
+    let [on, temperature, tint, _] = kelvin_white_balance(adjustments);
+    (on > 0.0).then_some((temperature as f64, tint as f64))
+}
+
 /// The recipe's white balance in Kelvin: `whiteBalance` "custom" with
 /// `wbTemperature` / `wbTint`, or one of Lightroom's presets; "asShot" (or
 /// none) keeps the camera's.

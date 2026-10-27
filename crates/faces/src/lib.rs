@@ -185,6 +185,34 @@ pub fn analyze(image: &RgbImage, models: &FaceModels) -> Result<FaceAnalysis> {
     })
 }
 
+/// Face skin only, for measuring the light on faces (series match): the
+/// faces' boxes and their parse, without landmarks or the whole-photo
+/// parse. A detection with too little face skin in its box is dropped,
+/// as in [`analyze`]. At most `max` faces, the most certain first.
+pub fn face_skin(
+    image: &RgbImage,
+    models: &FaceModels,
+    max: usize,
+) -> Result<Vec<(Detection, ParseCrop)>> {
+    let detections = models.detector.run(|s| detect::detect(s, image))?;
+    let mut faces = Vec::new();
+    for detection in detections.into_iter().take(max) {
+        let [x, y, w, h] = detection.bbox;
+        let angle = landmarks::roll(detection.keypoints[0], detection.keypoints[1]);
+        let crop = geometry::Affine::crop(
+            [x + w / 2.0, y + h / 2.0],
+            w.max(h) * parse::FACE_CROP_SCALE,
+            angle,
+            parse::INPUT,
+        );
+        let parse = models.parser.run(|s| parse::parse(s, image, crop))?;
+        if skin_share(&parse, &detection) >= MIN_SKIN_SHARE {
+            faces.push((detection, parse));
+        }
+    }
+    Ok(faces)
+}
+
 /// Share of face skin in the middle of a detection's box (a 5 × 5 grid
 /// over its central half).
 fn skin_share(parse: &ParseCrop, detection: &Detection) -> f32 {
