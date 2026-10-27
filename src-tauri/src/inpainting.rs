@@ -559,6 +559,77 @@ mod removal_timing {
         crate::register_exit_handler();
     }
 
+    /// Remove's fill on RAW photos as the app runs it (sRGB-encoded decode):
+    /// `RAWTONIC_REMOVAL_RAW_CASES` lists `raw;mask;x;y;out` lines (the grey
+    /// mask PNG of a patch at `x`, `y`, e.g. a recipe's `patchData.mask`)
+    /// and writes `out`-source/guide/fill PNGs of the patch's area; a
+    /// `raw;out.png` line writes the photo as the fill sees it (input for
+    /// `scripts/models/eval_inpaint.py`).
+    #[test]
+    #[ignore]
+    fn write_removal_fill_on_raws() {
+        let (Some(model), Some(cases)) = (
+            std::env::var_os("RAWTONIC_INPAINT_MODEL"),
+            std::env::var_os("RAWTONIC_REMOVAL_RAW_CASES"),
+        ) else {
+            return;
+        };
+        let session = rawtonic_onnx::Model::load(
+            std::path::Path::new(&model),
+            rawtonic_onnx::ModelKind::Inpaint,
+        )
+        .unwrap();
+        for line in std::fs::read_to_string(cases).unwrap().lines() {
+            let f: Vec<&str> = line.split(';').collect();
+            if f.len() == 2 {
+                let bytes = std::fs::read(f[0]).unwrap();
+                let base = crate::image_loader::load_base_image_from_bytes(
+                    &bytes,
+                    f[0],
+                    false,
+                    &Default::default(),
+                    None,
+                )
+                .unwrap();
+                super::apply_linear_to_srgb(base)
+                    .to_rgb8()
+                    .save(f[1])
+                    .unwrap();
+                continue;
+            }
+            if f.len() != 5 {
+                continue;
+            }
+            let bytes = std::fs::read(f[0]).unwrap();
+            let base = crate::image_loader::load_base_image_from_bytes(
+                &bytes,
+                f[0],
+                false,
+                &Default::default(),
+                None,
+            )
+            .unwrap();
+            let photo = super::apply_linear_to_srgb(base);
+            let patch = image::open(f[1]).unwrap().to_luma8();
+            let (px, py): (u32, u32) = (f[2].parse().unwrap(), f[3].parse().unwrap());
+            let mut mask = image::GrayImage::new(photo.width(), photo.height());
+            image::imageops::replace(&mut mask, &patch, px as i64, py as i64);
+            let guide = crate::ai_processing::run_inpainting(&photo, &mask, &session).unwrap();
+            let started = std::time::Instant::now();
+            let fill = super::fill_removal(&photo, &mask, &session).unwrap();
+            let (w, h) = patch.dimensions();
+            let crop =
+                |img: &image::RgbaImage| image::imageops::crop_imm(img, px, py, w, h).to_image();
+            crop(&photo.to_rgba8())
+                .save(format!("{}-source.png", f[4]))
+                .unwrap();
+            crop(&guide).save(format!("{}-guide.png", f[4])).unwrap();
+            crop(&fill).save(format!("{}-fill.png", f[4])).unwrap();
+            println!("{line}: {} ms", started.elapsed().as_millis());
+        }
+        crate::register_exit_handler();
+    }
+
     /// Fill edges on an uncropped panorama DNG (`RAWTONIC_FILL_PANO`; its
     /// empty edges are black): writes the panorama with the edge patches
     /// composited as at export to `RAWTONIC_FILL_OUT` (PNG) and prints the

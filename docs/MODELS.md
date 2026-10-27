@@ -1064,6 +1064,40 @@ updated `models.json` (BiRefNet, sky, SAM 2.1). Check SAM with the ignored tests
   than 256 of a level's pixels); the table above ran without that budget.
   Lightroom's times were taken while the machine was out of memory from
   other work and are an upper bound.
+  **Context for MI-GAN (2026-10-27).** QA found a conspicuous yellow-orange
+  blot where Remove took a potato out of a fruit bowl (45 MP CR3). Cause:
+  the authors' pipeline crops tightly around the hole before scaling to
+  its 512 px input, so the 1.5 × crop the app passes never reached the
+  model; a hole the size of a fist filled most of its view and MI-GAN
+  painted an object (lemon colours) that the guided completion then
+  rebuilt from the lemon's own pixels. The app now widens the pipeline's
+  crop with four 2 × 2 px marks at the corners of a box 2.5 × the hole
+  (`run_inpainting`); only the real hole is used. Set: 17 objects in 13
+  RAW photos (fruit, toys, a white car, ships, lighthouses, a windmill,
+  cats, bread, a globe, a flower pot; Detect objects masks as above, the
+  photos sRGB-encoded as Remove sees them), harness `eval_inpaint.py`
+  with `ctx=`:
+
+  | Remove's fill | LPIPS ↓ | PSNR ↑ | ΔE ↓ | Detail | Time |
+  |---|---|---|---|---|---|
+  | before (pipeline's own crop) | 0.0748 | 19.09 | 13.22 | 0.59 | 1.32 s |
+  | context 2 × the hole | 0.0717 | 19.84 | 11.79 | 0.52 | 1.49 s |
+  | **context 2.5 × (now)** | **0.0708** | 19.97 | 11.63 | 0.49 | 1.55 s |
+  | context 3 × | 0.0730 | 20.07 | 11.48 | 0.49 | 1.59 s |
+
+  Side by side on the real objects: the potato blot, a red cylinder where
+  the lower potato was, a white blob where a loaf was and a brown object
+  left where a cat lay are gone; the car door and the tomato are cleaner;
+  2 × still left a smaller blot with the QA case's own mask, 3 × added
+  blots on a ferry and a car. Still poor, with or without (model quality,
+  not the crop): a kitten in foliage, a globe in front of a toy and a red
+  pot on a table leave smeared fragments of what surrounds them, and a
+  removed lemon leaves a brown smear. Detail is lower because MI-GAN now
+  sees the hole at a smaller scale; the completion restores the photo's
+  grain. The candidates for those cases are a stronger model under the
+  license rules (the generative fill above, or a distilled diffusion
+  inpainter with Apache-2.0 weights once each weight file's license,
+  ONNX/Core ML export, speed and memory are checked).
 - **Sky.** UperNet + ConvNeXt-T against the inherited sky model on 34 RAW
   samples (22 with sky): solid masks on overcast and cloud-textured skies
   where the old one had holes, a missed sky found (bare trees in snow), no

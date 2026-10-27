@@ -1685,6 +1685,34 @@ pub fn run_inpainting(
             255
         };
     }
+    // The pipeline crops tightly around its hole before scaling to 512 px,
+    // so a large hole filled nearly all of the model's view and came back
+    // as an invented object (a yellow blot where a potato in a fruit bowl
+    // was). Four 2 × 2 px marks at the corners of a box 2.5 × the hole's
+    // size widen that crop to it; the model fills them too, but only the
+    // real hole is taken from its result. Chosen on 17 objects in 13 RAW
+    // photos (docs/MODELS.md, "Object removal").
+    const CONTEXT: f32 = 2.5;
+    if crop_w >= 2 && crop_h >= 2 {
+        let marks = |lo: u32, hi: u32, origin: u32, size: u32| {
+            let centre = (lo + hi - 2 * origin) as f32 / 2.0;
+            let half = (hi - lo + 1) as f32 * CONTEXT / 2.0;
+            let max = (size - 2) as f32;
+            [
+                (centre - half).clamp(0.0, max) as usize,
+                (centre + half).clamp(0.0, max) as usize,
+            ]
+        };
+        let mark_x = marks(min_x, max_x, x0, crop_w);
+        let mark_y = marks(min_y, max_y, y0, crop_h);
+        for &mx in &mark_x {
+            for &my in &mark_y {
+                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                    msk_tensor[[0, 0, my + dy, mx + dx]] = 0;
+                }
+            }
+        }
+    }
 
     let output = session.run(|session| {
         let outputs = session.run(ort::inputs![
