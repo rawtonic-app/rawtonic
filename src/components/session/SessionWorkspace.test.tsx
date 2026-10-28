@@ -193,7 +193,7 @@ it("owns P in a managed session instead of also invoking the legacy preset short
   window.removeEventListener("keydown", legacyShortcut);
 });
 
-it("rejects with ⇧X and leaves plain X to the proof margin", async () => {
+it("rejects with X and keeps ⇧X", async () => {
   const user = userEvent.setup();
   const navigate = vi.fn(async () => {});
   render(<SessionWorkspace onNavigate={navigate} />);
@@ -208,8 +208,8 @@ it("rejects with ⇧X and leaves plain X to the proof margin", async () => {
   const later = vi.fn();
   window.addEventListener("keydown", later);
   await user.keyboard("x");
-  expect(later).toHaveBeenCalledTimes(1);
-  expect(invoke).not.toHaveBeenCalledWith("session_set_flag", expect.anything());
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("session_set_flag", expect.objectContaining({ flag: -1 })));
+  vi.mocked(invoke).mockClear();
   await user.keyboard("{Shift>}X{/Shift}");
   await waitFor(() =>
     expect(invoke).toHaveBeenCalledWith("session_set_flag", {

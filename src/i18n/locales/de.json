@@ -139,6 +139,7 @@
       "flag_unflag": "Markierung aufheben",
       "import_photos": "Fotos importieren …",
       "keyboard_shortcuts": "Tastaturkurzbefehle",
+      "match_light": "Licht angleichen…",
       "move_to_selects": "In Auswahl verschieben",
       "new_session": "Neues Projekt oder neuer Katalog …",
       "open_session": "Projekt oder Katalog öffnen …",
@@ -161,6 +162,7 @@
       "sync_settings": "Einstellungen synchronisieren",
       "tether_capture": "Auslösen (Tethering-Kamera)",
       "toggle_all_panels": "Alle Leisten und Bedienfelder",
+      "toggle_auto_advance": "Automatisch weiter",
       "toggle_bottom_panel": "Filmstreifen",
       "toggle_clipping": "Clipping-Warnungen",
       "toggle_export": "Exportieren …",
@@ -221,7 +223,10 @@
     "empty": "Keine passenden Befehle. Versuche einen anderen Suchbegriff.",
     "keys": "↑ ↓ Auswählen · Eingabe Ausführen · Esc Schließen",
     "recent": "Zuletzt verwendete Befehle zuerst · ↑ ↓ Auswählen · Eingabe Ausführen · Esc Schließen",
-    "search": "Befehle suchen…"
+    "search": "Befehle suchen…",
+    "selectAtMostPhotos": "Wähle höchstens {{max}} Fotos aus",
+    "selectFourPhotos": "Wähle mindestens vier Fotos aus",
+    "selectTwoPhotos": "Wähle mindestens zwei Fotos aus"
   },
   "contextMenus": {
     "album": {
@@ -1534,7 +1539,7 @@
     },
     "general": {
       "autoAdvance": "Automatisch weiter",
-      "autoAdvanceDesc": "In Entwickeln geht eine Bewertungs-, Auswahl-, Ablehnungs- oder Markierung-entfernen-Taste zum nächsten Foto weiter, so braucht das Aussortieren eine Taste pro Foto.",
+      "autoAdvanceDesc": "Beim Bewerten oder Markieren geht es vom angezeigten Foto oder einem einzelnen Foto im Raster weiter. Mit Feststelltaste oder im Foto-Menü umschalten.",
       "builtinPresets": "Mitgelieferte Vorgaben",
       "builtinPresetsDesc": "Rawtonics eigene Stile und Vorgaben unter Stile & Vorgaben und in den Vorgaben-Menüs der Werkzeuge zeigen.",
       "createXmp": "Fehlende XMP-Dateien erstellen",
@@ -1550,7 +1555,7 @@
       "nativeTitlebar": "Native Titelleiste",
       "nativeTitlebarDesc": "Verwenden Sie die Standard-Fenstertitelleiste Ihres Systems anstelle der eigenen der App.",
       "proofMargin": "Prüfrand",
-      "proofMarginDesc": "Rand um das eingepasste Foto bei eingeschaltetem Prüfrand (X), als Anteil der kürzeren Seite des Betrachters.",
+      "proofMarginDesc": "Rand um das eingepasste Foto bei eingeschaltetem Prüfrand (Alt+X), als Anteil der kürzeren Seite des Betrachters.",
       "showBuiltinPresets": "Mitgelieferte Vorgaben zeigen",
       "title": "Allgemeine Einstellungen",
       "uiScale": "Oberflächengröße",

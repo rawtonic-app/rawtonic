@@ -932,7 +932,7 @@ export default function StudioWorkspace(props: Props) {
     <div className="studio-flags" role="group" aria-label={t("studio.workspace.flags.group")}>
       <button
         aria-label={pick}
-        title={withShortcut(pick, "P")}
+        title={withShortcut(pick, hint("flag_pick"))}
         aria-pressed={current === 1}
         disabled={!sessionBar.mark}
         onClick={() => void sessionBar.mark?.(current === 1 ? 0 : 1)}
@@ -941,7 +941,7 @@ export default function StudioWorkspace(props: Props) {
       </button>
       <button
         aria-label={reject}
-        title={withShortcut(reject, "⇧X")}
+        title={withShortcut(reject, hint("flag_reject"))}
         aria-pressed={current === -1}
         disabled={!sessionBar.mark}
         onClick={() => void sessionBar.mark?.(current === -1 ? 0 : -1)}
@@ -951,7 +951,7 @@ export default function StudioWorkspace(props: Props) {
       {current === undefined && (
         <button
           aria-label={clear}
-          title={withShortcut(clear, "U")}
+          title={withShortcut(clear, hint("flag_unflag"))}
           disabled={!sessionBar.mark}
           onClick={() => void sessionBar.mark?.(0)}
         >

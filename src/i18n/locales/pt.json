@@ -139,6 +139,7 @@
       "flag_unflag": "Sem marca",
       "import_photos": "Importar fotos…",
       "keyboard_shortcuts": "Atalhos de teclado",
+      "match_light": "Igualar luz…",
       "move_to_selects": "Mover para Selecionadas",
       "new_session": "Novo projeto ou catálogo…",
       "open_session": "Abrir projeto ou catálogo…",
@@ -161,6 +162,7 @@
       "sync_settings": "Sincronizar ajustes",
       "tether_capture": "Disparar (câmera conectada)",
       "toggle_all_panels": "Todos os painéis e barras",
+      "toggle_auto_advance": "Avanço automático",
       "toggle_bottom_panel": "Tira de filme",
       "toggle_clipping": "Avisos de recorte",
       "toggle_export": "Exportar…",
@@ -221,7 +223,10 @@
     "empty": "Nenhum comando correspondente. Tente outra pesquisa.",
     "keys": "↑ ↓ Selecionar · Enter Executar · Esc Fechar",
     "recent": "Comandos recentes primeiro · ↑ ↓ Selecionar · Enter Executar · Esc Fechar",
-    "search": "Pesquisar comandos…"
+    "search": "Pesquisar comandos…",
+    "selectAtMostPhotos": "Selecione no máximo {{max}} fotografias",
+    "selectFourPhotos": "Selecione pelo menos quatro fotografias",
+    "selectTwoPhotos": "Selecione pelo menos duas fotografias"
   },
   "contextMenus": {
     "album": {
@@ -1594,7 +1599,7 @@
     },
     "general": {
       "autoAdvance": "Avanço automático",
-      "autoAdvanceDesc": "Em Revelação, uma tecla de classificação, escolha, rejeição ou remoção da marca passa à fotografia seguinte, e a seleção pede uma tecla por fotografia.",
+      "autoAdvanceDesc": "Ao classificar ou marcar, avança a partir da fotografia mostrada ou de uma seleção única na grelha. Ative com Caps Lock ou no menu Fotografia.",
       "builtinPresets": "Predefinições incluídas",
       "builtinPresetsDesc": "Mostrar os estilos e predefinições próprios do Rawtonic em Estilos e predefinições e nos menus de predefinições das ferramentas.",
       "createXmp": "Criar Arquivos XMP Ausentes",
@@ -1610,7 +1615,7 @@
       "nativeTitlebar": "Barra de Título Nativa",
       "nativeTitlebarDesc": "Use a barra de título padrão da janela do seu sistema em vez da personalizada do Rawtonic.",
       "proofMargin": "Margem de prova",
-      "proofMarginDesc": "Margem em volta da foto ajustada quando a margem de prova está ativa (X), como parte do lado mais curto do visualizador.",
+      "proofMarginDesc": "Margem em volta da foto ajustada quando a margem de prova está ativa (Alt+X), como parte do lado mais curto do visualizador.",
       "showBuiltinPresets": "Mostrar predefinições incluídas",
       "title": "Configurações Gerais",
       "uiScale": "Tamanho da interface",
