@@ -611,7 +611,7 @@ fn an_experimental_camera_without_a_card_is_not_opened() {
     let refused = helper.connect_with(true).unwrap_err();
     assert_eq!(refused.kind, ErrorKind::Unsupported);
     assert!(
-        refused.message.contains("no memory card"),
+        refused.message.contains("no card in"),
         "{}",
         refused.message
     );
@@ -642,9 +642,29 @@ fn an_experimental_camera_listing_only_its_virtual_storage_is_not_opened() {
         let helper = start(&spec, dir.path());
         let refused = helper.connect_with(true).unwrap_err();
         assert!(
-            refused.message.contains("no memory card"),
+            refused.message.contains("no card in"),
             "{}",
             refused.message
+        );
+        assert!(helper.nothing_downloaded());
+    }
+}
+
+#[test]
+fn an_experimental_camera_whose_capture_destination_is_not_the_card_is_not_opened() {
+    let dir = tempfile::tempdir().unwrap();
+    // Save to set to the card and a card in, but the camera still captures
+    // to the computer's side, or does not say where.
+    for destination in ["4", ""] {
+        let spec = MockSpec {
+            capture_destination: Some(destination.into()),
+            body_shots_ms: vec![0],
+            ..canon()
+        };
+        let helper = start(&spec, dir.path());
+        assert_eq!(
+            helper.connect_with(true).unwrap_err().kind,
+            ErrorKind::Unsupported
         );
         assert!(helper.nothing_downloaded());
     }

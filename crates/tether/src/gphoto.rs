@@ -703,6 +703,20 @@ impl Camera for GphotoCamera {
         // slots with a card in (an ID whose low 16 bits are 0 is an empty
         // slot), plus Canon's virtual storage.
         if self.canon {
+            // Where the camera really puts a capture: Save to may say the
+            // card while libgphoto2 kept the computer. Unknown is unsafe.
+            let destination = match self
+                .camera
+                .get_single_config(&self.context, crate::camera::CANON_DESTINATION)
+            {
+                Ok(widget) => widget.value().ok().and_then(text),
+                Err(e) if matches!(e.kind(), Gp::BadParameters | Gp::NotSupported) => None,
+                Err(e) => return Err(session_error("Reading the capture destination", e)),
+            };
+            if !crate::camera::canon_destination_keeps_card(destination.as_deref()) {
+                log::info!("capture destination {destination:?}: no card copy");
+                return Ok(true);
+            }
             return match self.camera.storage_info(&self.context) {
                 Ok(storages) => {
                     let storages: Vec<_> = storages.iter().map(storage).collect();

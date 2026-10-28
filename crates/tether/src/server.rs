@@ -75,9 +75,10 @@ const EXPERIMENTAL_SAVE_TO: &str = "Rawtonic could not set the camera to save ea
      way, and the card copy is what keeps it. Set Save to (or Capture target) to the memory card \
      on the camera and connect again.";
 
-const EXPERIMENTAL_NO_CARD: &str = "There is no memory card in the camera, so it is not \
-     connected: with this camera a photo's report can get lost on its way, and the card copy is \
-     what keeps it. Put a memory card in and connect again.";
+const EXPERIMENTAL_NO_CARD: &str = "Rawtonic could not confirm that the camera saves each photo \
+     on a memory card (no card in, or it still saves to its own memory), so it is not connected: \
+     with this camera a photo's report can get lost on its way, and the card copy is what keeps \
+     it. Put a memory card in, set Save to on the camera to the card, and connect again.";
 
 /// A shot whose file has not come after this long is reported as failed
 /// (it is never fired again; a file that still comes is downloaded).

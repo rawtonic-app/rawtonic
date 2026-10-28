@@ -111,6 +111,10 @@ pub struct MockSpec {
     /// `no_card`); on an experimental path a card is looked for in them
     /// (`camera::card_in`) as the libgphoto2 driver does.
     pub storages: Option<Vec<crate::camera::Storage>>,
+    /// On an experimental path, where the camera really puts a capture
+    /// (`camera::CANON_DESTINATION`, "4" = the computer), if not what Save
+    /// to says (empty: the camera does not tell).
+    pub capture_destination: Option<String>,
     /// ISO's value and choices, if not the default 100 of 100–800 (e.g. a
     /// Sony list: "Auto ISO", numbers, "… Multi Frame Noise Reduction").
     pub iso: Option<(String, Vec<String>)>,
@@ -169,6 +173,7 @@ impl Default for MockSpec {
             capture_target_choices: vec![],
             experimental: false,
             storages: None,
+            capture_destination: None,
             raw_and_jpeg: false,
             jpeg_late_ms: 0,
             jpeg_from_shot: None,
@@ -669,6 +674,18 @@ impl Camera for MockCamera {
             .card_out_after_ms
             .is_some_and(|ms| self.opened.elapsed() >= Duration::from_millis(ms));
         if self.spec.experimental && !card_out {
+            let destination = match self.spec.capture_destination.clone() {
+                Some(destination) => Some(destination).filter(|d| !d.is_empty()),
+                // Else it follows Save to.
+                None => {
+                    let target = self.status().capture_target;
+                    let host = crate::camera::memory_only(target.as_deref());
+                    Some(if host { "4" } else { "1" }.to_string())
+                }
+            };
+            if !crate::camera::canon_destination_keeps_card(destination.as_deref()) {
+                return Ok(true);
+            }
             let card = vec![crate::camera::Storage::card()];
             let storages = match &self.spec.storages {
                 Some(storages) => storages,

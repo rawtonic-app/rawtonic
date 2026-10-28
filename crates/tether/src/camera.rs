@@ -154,6 +154,26 @@ pub fn card_in(storages: &[Storage]) -> bool {
     })
 }
 
+/// Canon EOS's CaptureDestination property (0xd11c), which libgphoto2
+/// exposes as the generic setting "d11c" (its value in decimal): where the
+/// camera really puts a capture. libgphoto2's Save to is only its saved
+/// preference: with no other destination offered it keeps the computer
+/// (4) while saying "card". notes: reference/tether.md
+pub const CANON_DESTINATION: &str = "d11c";
+
+/// The CaptureDestination value of the computer's side (the camera's
+/// memory, handed over and acknowledged on transfer): no card copy.
+const CANON_DESTINATION_HOST: u32 = 4;
+
+/// Whether a Canon's CaptureDestination keeps a card copy: only a value the
+/// camera reported that is not the computer's (nor 0). Unknown counts as
+/// no card copy.
+pub fn canon_destination_keeps_card(value: Option<&str>) -> bool {
+    value
+        .and_then(|value| value.trim().parse::<u32>().ok())
+        .is_some_and(|value| value != CANON_DESTINATION_HOST && value != 0)
+}
+
 /// The Save to choice that keeps a card copy and still hands each photo to
 /// the computer ("card+sdram" before "card": card alone may not transfer).
 pub fn card_choice(choices: &[String]) -> Option<&String> {
@@ -233,6 +253,16 @@ mod tests {
         assert!(card_choice(&choices(&["sdram"])).is_none());
         assert!(memory_only(Some("Internal RAM")) && memory_only(Some("sdram")));
         assert!(!memory_only(Some("card+sdram")) && !memory_only(None));
+    }
+
+    #[test]
+    fn a_canon_destination_keeps_a_card_copy_only_when_the_camera_says_so() {
+        assert!(canon_destination_keeps_card(Some("1")));
+        assert!(canon_destination_keeps_card(Some("2")));
+        assert!(!canon_destination_keeps_card(Some("4")));
+        assert!(!canon_destination_keeps_card(Some("0")));
+        assert!(!canon_destination_keeps_card(Some("Memory card")));
+        assert!(!canon_destination_keeps_card(None));
     }
 
     #[test]
