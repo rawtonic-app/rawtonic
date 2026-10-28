@@ -1349,6 +1349,13 @@
     "tether": {
       "battery": "Batteria {{level}}",
       "camera": "Fotocamera",
+      "canon": {
+        "badge": "Sperimentale",
+        "connectedNote": "Sperimentale: se una foto non compare qui, non è persa — è sulla scheda di memoria. Lascia la scheda nella fotocamera. Rawtonic ti avvisa quando una foto scattata da Rawtonic non arriva — a meno che nel frattempo arrivi una foto scattata sulla fotocamera che ne prende il posto. Dopo una sessione, confronta la scheda con la libreria.",
+        "notReceived": "La foto {{n}} non è arrivata. Se la fotocamera l’ha scattata, è sulla scheda di memoria.",
+        "openPreferences": "Apri le preferenze di Tethering",
+        "optInNeeded": "Le fotocamere Canon non sono ancora state provate con Rawtonic. Per provare la tua e aiutare a testarla, attiva «Sperimentale: fotocamere Canon» in Preferenze > Tethering."
+      },
       "capture": "Scatta",
       "captureFailed": "Scatto non riuscito: {{error}}",
       "captureTitle": "Scatta con la fotocamera (⌘K / Ctrl+K)",
@@ -1365,6 +1372,7 @@
       "lastIn": "{{file}} è nella libreria",
       "lastTiming": "{{file}} nella libreria {{ms}} ms dopo lo scatto",
       "level": {
+        "experimental": "Sperimentale — cerchiamo tester. Non ancora provato con Rawtonic: una foto potrebbe non comparire qui e allora è solo sulla scheda di memoria.",
         "notSupported": "Questa fotocamera non è ancora supportata.",
         "reported": "Funziona secondo gli utenti di questo modello di fotocamera.",
         "tested": "Testato con questo modello di fotocamera su {{systems}} ({{date}}).",
@@ -1382,6 +1390,14 @@
         "bursting": "{{shots}} scatti di fila…",
         "button": "Test della fotocamera…",
         "buttonTitle": "Testa questa fotocamera passo dopo passo e crea un rapporto anonimo",
+        "canonGuide": {
+          "card": "Tieni una scheda di memoria nella fotocamera per tutto il test.",
+          "missing": "Se una foto non compare, è utile saperlo anche questo: è ancora sulla scheda di memoria e il test la conta.",
+          "send": "Alla fine fai clic su «{{button}}». Vedi esattamente cosa viene inviato — niente foto, nomi di file o numero di serie — e nulla lascia il tuo computer prima che tu confermi.",
+          "sendNote": "Questo risultato proviene dal supporto sperimentale per Canon. Grazie per il test — ogni risultato aiuta, anche uno in cui sono mancate delle foto.",
+          "steps": "Segui i passaggi qui sotto uno alla volta: fai clic su Esegui e fai ciò che chiede il passaggio. Se la tua fotocamera non riesce a eseguire un passaggio, fai clic su Salta.",
+          "title": "Come testare la tua fotocamera Canon"
+        },
         "close": "Chiudi il test della fotocamera",
         "how": {
           "autofocus": "Mette a fuoco una volta. Saltalo con un obiettivo manuale o in MF.",
@@ -1867,6 +1883,17 @@
       "shortcuts": "Scorciatoie Tagging",
       "shortcutsDesc": "Una lista di tag che appariranno come scorciatoie nel menu contestuale del tagging.",
       "title": "Tagging"
+    },
+    "tethering": {
+      "camerasLink": "Quali fotocamere funzionano e come segnalare la tua",
+      "canon": "Sperimentale: fotocamere Canon (aiuta a testare)",
+      "canonDesc": "Permette a Rawtonic di collegare una fotocamera Canon via USB, così puoi provarla e inviare un breve risultato del test.",
+      "canonSwitch": "Collega fotocamere Canon",
+      "howToTest": "Per aiutare: collega la fotocamera nel pannello Tethering, fai clic su Test della fotocamera… e segui i passaggi. Alla fine vedi esattamente cosa verrebbe inviato prima che qualcosa lasci il tuo computer.",
+      "title": "Tethering",
+      "warningCard": "Una foto che scatti potrebbe non comparire in Rawtonic. Allora è solo sulla scheda di memoria della fotocamera, quindi tieni sempre una scheda nella fotocamera.",
+      "warningNothingDeleted": "Rawtonic non elimina mai nulla sulla fotocamera o sulla scheda.",
+      "warningUntested": "Non ancora testato: finora nessuna fotocamera Canon è stata provata con Rawtonic."
     },
     "title": "Impostazioni",
     "tooltips": {

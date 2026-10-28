@@ -11,10 +11,14 @@
 //!       read only: nothing is downloaded, freed or set. One JSON report.
 //!   rawtonic-tether probe --out DIR [--port P] [--shots N] [--interval-ms MS]
 //!                         [--body-seconds S] [--live-view-frames N] [--mock]
+//!                         [--experimental]
 //!       what a body does, through the same helper process the app uses:
 //!       settings, app shots with their timings, shots fired on the body,
 //!       autofocus, live view. One JSON report on stdout; downloads go to DIR.
+//!       --experimental opens a camera on a path no body was tested on yet
+//!       (Canon EOS; Save to on the card, nothing freed).
 //!   rawtonic-tether liveview --out DIR [--port P] [--seconds S] [--shots N] [--mock]
+//!                            [--experimental]
 //!       live view the way a session uses it, phase by phase: before any
 //!       shot, through N shots fired while it runs, and started again after
 //!       them — frame rate, gaps, why it stopped. One JSON report on stdout.
@@ -520,6 +524,7 @@ fn probe(args: &[String], mock: bool) -> Result<(), String> {
             port: arg(args, "--port"),
             staging: out.clone(),
             serial: None,
+            experimental: args.iter().any(|a| a == "--experimental"),
         },
         long,
     );
@@ -779,6 +784,7 @@ fn live_view_sequence(args: &[String], mock: bool) -> Result<(), String> {
             port: arg(args, "--port"),
             staging: out.clone(),
             serial: None,
+            experimental: args.iter().any(|a| a == "--experimental"),
         },
         long,
     );

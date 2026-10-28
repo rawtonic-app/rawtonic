@@ -1,5 +1,5 @@
 {
-  "about": "Cameras tethering was tried with, and how well it works. Shown in the tether panel for the connected camera and listed in docs/TETHER_CAMERAS.md (keep both in step; a test checks it). Levels: tested (measured by the Rawtonic project on a body), reported (a user's camera test report says it works), notSupported (Rawtonic refuses to connect it). 'match' holds the camera library's model names, 'matchPrefix' a start of them. Timings are medians / 95th percentiles in milliseconds; 'photoOnScreen' was measured by screen recording, shutter request to the new photo shown in Develop.",
+  "about": "Cameras tethering was tried with, and how well it works. Shown in the tether panel for the connected camera and listed in docs/TETHER_CAMERAS.md (keep both in step; a test checks it). Levels: tested (measured by the Rawtonic project on a body), reported (a user's camera test report says it works), experimental (connected only with the user's opt-in in Preferences > Tethering; testers wanted), notSupported (Rawtonic refuses to connect it). 'match' holds the camera library's model names, 'matchPrefix' a start of them. Timings are medians / 95th percentiles in milliseconds; 'photoOnScreen' was measured by screen recording, shutter request to the new photo shown in Develop.",
   "cameras": [
     {
       "name": "Sony α7 III",
@@ -54,9 +54,9 @@
     {
       "name": "Canon EOS cameras",
       "matchPrefix": "Canon",
-      "level": "notSupported",
+      "level": "experimental",
       "works": [],
-      "notes": "Not offered yet: no Canon body has been tested, and the camera library can lose the report of a photo on these bodies."
+      "notes": "Experimental, testers wanted: no Canon body has been tested yet. Connects only with Preferences > Tethering > Experimental: Canon cameras turned on and a memory card in the camera; every photo stays on the card and nothing is freed on the camera. The camera library can lose the report of a photo on these bodies: a shot fired from Rawtonic that does not arrive is reported, and it is on the card, unless a photo taken on the camera arrives meanwhile and takes its place (photos are matched to shots in order); compare the card with the library."
     }
   ]
 }

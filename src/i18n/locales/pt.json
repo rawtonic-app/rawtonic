@@ -1349,6 +1349,13 @@
     "tether": {
       "battery": "Bateria {{level}}",
       "camera": "Câmara",
+      "canon": {
+        "badge": "Experimental",
+        "connectedNote": "Experimental: se uma foto não aparecer aqui, ela não está perdida — está no cartão de memória. Deixe o cartão na câmera. O Rawtonic avisa você quando uma foto disparada pelo Rawtonic não chega — a menos que, nesse meio-tempo, chegue uma foto tirada na câmera e tome o lugar dela. Depois de uma sessão, compare o cartão com a biblioteca.",
+        "notReceived": "A foto {{n}} não chegou. Se a câmera a tirou, ela está no cartão de memória.",
+        "openPreferences": "Abrir as preferências de Tethering",
+        "optInNeeded": "As câmeras Canon ainda não foram testadas com o Rawtonic. Para experimentar a sua e ajudar a testar, ative “Experimental: câmeras Canon” em Preferências > Tethering."
+      },
       "capture": "Disparar",
       "captureFailed": "A captura falhou: {{error}}",
       "captureTitle": "Disparar a câmara (⌘K / Ctrl+K)",
@@ -1365,6 +1372,7 @@
       "lastIn": "{{file}} está na biblioteca",
       "lastTiming": "{{file}} na biblioteca {{ms}} ms após o disparo",
       "level": {
+        "experimental": "Experimental — procuramos testadores. Ainda não testado com o Rawtonic: uma foto pode não aparecer aqui e, então, está só no cartão de memória.",
         "notSupported": "Esta câmera ainda não é suportada.",
         "reported": "Funciona, segundo usuários deste modelo de câmera.",
         "tested": "Testado com este modelo de câmera em {{systems}} ({{date}}).",
@@ -1382,6 +1390,14 @@
         "bursting": "{{shots}} disparos seguidos…",
         "button": "Teste de câmera…",
         "buttonTitle": "Testar esta câmera passo a passo e criar um relatório anônimo",
+        "canonGuide": {
+          "card": "Mantenha um cartão de memória na câmera durante todo o teste.",
+          "missing": "Se uma foto não aparecer, isso também é útil saber: ela continua no cartão de memória, e o teste a conta.",
+          "send": "No final, clique em “{{button}}”. Você vê exatamente o que é enviado — sem fotos, nomes de arquivo ou número de série — e nada sai do seu computador antes de você confirmar.",
+          "sendNote": "Este resultado vem do suporte experimental a Canon. Obrigado por testar — todo resultado ajuda, inclusive um em que faltaram fotos.",
+          "steps": "Percorra as etapas abaixo uma por uma: clique em Executar e faça o que a etapa pede. Se a sua câmera não consegue fazer uma etapa, clique em Pular.",
+          "title": "Como testar a sua câmera Canon"
+        },
         "close": "Fechar o teste de câmera",
         "how": {
           "autofocus": "Foca uma vez. Pule com uma lente manual ou MF na câmera.",
@@ -1867,6 +1883,17 @@
       "shortcuts": "Atalhos de Tagging",
       "shortcutsDesc": "Uma lista de etiquetas que aparecerão como atalhos no menu de contexto de marcação.",
       "title": "Etiquetas"
+    },
+    "tethering": {
+      "camerasLink": "Quais câmeras funcionam e como relatar a sua",
+      "canon": "Experimental: câmeras Canon (ajude a testar)",
+      "canonDesc": "Permite que o Rawtonic conecte uma câmera Canon por USB, para que você possa experimentá-la e enviar um breve resultado de teste.",
+      "canonSwitch": "Conectar câmeras Canon",
+      "howToTest": "Para ajudar: conecte a câmera no painel Tethering, clique em Teste de câmera… e siga as etapas. No final, você vê exatamente o que seria enviado antes de qualquer coisa sair do seu computador.",
+      "title": "Tethering",
+      "warningCard": "Uma foto que você tirar pode não aparecer no Rawtonic. Ela fica, então, só no cartão de memória da câmera; por isso, mantenha um cartão na câmera o tempo todo.",
+      "warningNothingDeleted": "O Rawtonic nunca apaga nada na câmera nem no cartão.",
+      "warningUntested": "Ainda não testado: até agora nenhuma câmera Canon foi experimentada com o Rawtonic."
     },
     "title": "Configurações",
     "tooltips": {
