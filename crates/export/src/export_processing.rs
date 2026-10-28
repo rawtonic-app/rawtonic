@@ -1302,6 +1302,7 @@ pub fn prepare_export_render(
                 context,
                 source.base(),
                 js_adjustments,
+                is_raw,
                 window,
                 unique_hash,
                 color_noise,
@@ -1313,7 +1314,7 @@ pub fn prepare_export_render(
     let (warped, fringed) = match on_gpu {
         Some(uploaded) => (None, Some(uploaded)),
         None => {
-            let warped = apply_warp(Cow::Borrowed(source.base()), js_adjustments)?;
+            let warped = apply_warp(Cow::Borrowed(source.base()), js_adjustments, is_raw)?;
             let fringed = after_fringe
                 .map(|(window, offset)| {
                     upload_fringed_render_source(

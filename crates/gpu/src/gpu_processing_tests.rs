@@ -14572,11 +14572,18 @@ fn gpu_warp_matches_the_cpu_f32_warp_within_rounding() {
     let context = context();
     rawtonic_engine::edge_fringe::gpu::register(context.device.clone(), context.queue.clone());
     let image = gpu_warp_scene(2600, 1800);
-    for recipe in gpu_warp_recipes() {
-        let gpu = rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe).unwrap();
+    // A RAW's linear decode and a photograph's encoded values (vignetting
+    // on the decoded values).
+    for (recipe, is_raw) in gpu_warp_recipes()
+        .into_iter()
+        .flat_map(|recipe| [(recipe.clone(), true), (recipe, false)])
+    {
+        let gpu = rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe, is_raw)
+            .unwrap();
         let cpu = rawtonic_engine::image_processing::apply_geometry_warp(
             &image,
             &at_render_version(&recipe, 6),
+            is_raw,
         )
         .unwrap();
         let (gpu, cpu) = (
@@ -14597,7 +14604,7 @@ fn gpu_warp_matches_the_cpu_f32_warp_within_rounding() {
             .filter(|(c, g)| c.to_bits() == g.to_bits())
             .count();
         eprintln!(
-            "{recipe}: max {max:.2e} mean {mean:.2e} identical {:.2} %",
+            "{recipe} (RAW {is_raw}): max {max:.2e} mean {mean:.2e} identical {:.2} %",
             100.0 * identical as f64 / cpu.len() as f64
         );
         assert!(max < 2e-3, "{recipe}: largest difference {max:e}");
@@ -14613,7 +14620,7 @@ fn gpu_warp_matches_the_cpu_f32_warp_within_rounding() {
             image::Rgb([0.25, 0.5, 0.75]),
         ));
         for recipe in gpu_warp_recipes() {
-            let gpu = rawtonic_engine::image_processing::apply_geometry_warp(&flat, &recipe)
+            let gpu = rawtonic_engine::image_processing::apply_geometry_warp(&flat, &recipe, true)
                 .unwrap_or_else(|e| panic!("{width} x {height} {recipe}: {e}"));
             assert!(
                 gpu.as_rgb32f()
@@ -14635,7 +14642,7 @@ fn gpu_warp_matches_the_cpu_f32_warp_within_rounding() {
         image::Rgb([0.25, 0.5, 0.75]),
     ));
     assert!(rawtonic_engine::warp_gpu::runs_for(1, max + 100));
-    rawtonic_engine::image_processing::apply_geometry_warp(&tall, &gpu_warp_recipes()[0])
+    rawtonic_engine::image_processing::apply_geometry_warp(&tall, &gpu_warp_recipes()[0], true)
         .expect("warps in bands");
     assert!(!rawtonic_engine::warp_gpu::runs_for(max + 100, 1));
     assert!(rawtonic_engine::warp_gpu::runs_for(max, 1));
@@ -14683,10 +14690,11 @@ fn gpu_warp_regions_are_the_whole_frames_pixels() {
     let raw = rgb.as_raw();
     for recipe in gpu_warp_recipes() {
         let warped =
-            rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe).unwrap();
+            rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe, true).unwrap();
         let on_cpu = rawtonic_engine::image_processing::apply_geometry_warp(
             &image,
             &at_render_version(&recipe, 6),
+            true,
         )
         .unwrap();
         assert!(
@@ -14702,7 +14710,7 @@ fn gpu_warp_regions_are_the_whole_frames_pixels() {
                 warped.as_rgb32f().unwrap().as_raw()[y * row..(y + 1) * row].to_vec()
             },
         );
-        let measures = RegionMeasures::of(rgb, &recipe).unwrap();
+        let measures = RegionMeasures::of(rgb, &recipe, true).unwrap();
         assert_eq!(measures.fringe, plan_of_whole, "{recipe}");
         let fringed = rawtonic_engine::edge_fringe::apply_for_recipe(warped, &recipe, 1.0).unwrap();
         let (whole, _) =
@@ -14729,7 +14737,7 @@ fn gpu_warp_regions_are_the_whole_frames_pixels() {
                 col0: c0,
                 cols: c1 - c0,
             };
-            let region = transformed_region(&source, &recipe, &plan)
+            let region = transformed_region(&source, &recipe, &plan, true)
                 .unwrap_or_else(|| panic!("{recipe} {rect:?}"));
             assert_eq!(region.dimensions(), expected.dimensions());
             assert!(
@@ -14738,7 +14746,7 @@ fn gpu_warp_regions_are_the_whole_frames_pixels() {
             );
             // From the whole decode (the multi view's decoded rows) too.
             let all = SourceRows::whole(raw, w, h);
-            let again = transformed_region(&all, &recipe, &plan).unwrap();
+            let again = transformed_region(&all, &recipe, &plan, true).unwrap();
             assert!(
                 float_bits(&again) == float_bits(&expected),
                 "{recipe} {rect:?}: the region from the whole frame differs"
@@ -14764,13 +14772,14 @@ fn gpu_warp_display_and_export_develop_the_same_input() {
     let image = gpu_warp_scene(width, height);
     for recipe in gpu_warp_recipes() {
         let first =
-            rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe).unwrap();
+            rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe, true).unwrap();
         let again =
-            rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe).unwrap();
+            rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe, true).unwrap();
         assert!(float_bits(&first) == float_bits(&again), "{recipe}");
         let (display, _) = rawtonic_engine::adjustment_utils::apply_all_transformations(
             std::borrow::Cow::Borrowed(&image),
             &recipe,
+            true,
         )
         .unwrap();
         let expected = to_rgba_f16(&display);
@@ -14783,12 +14792,13 @@ fn gpu_warp_display_and_export_develop_the_same_input() {
         let warped = rawtonic_engine::adjustment_utils::apply_warp(
             std::borrow::Cow::Borrowed(&image),
             &recipe,
+            true,
         )
         .unwrap();
         let read_back = upload_fringed_render_source(&context, &warped, &recipe, window, 0, None)
             .unwrap()
             .expect("runs into the texture");
-        let on_gpu = upload_warped_render_source(&context, &image, &recipe, window, 0, None)
+        let on_gpu = upload_warped_render_source(&context, &image, &recipe, true, window, 0, None)
             .unwrap()
             .expect("warps on the GPU");
         for (path, uploaded) in [("read back", read_back), ("on the GPU", on_gpu)] {
@@ -14829,18 +14839,20 @@ fn a_failing_gpu_warp_fails_the_render() {
     let image = gpu_warp_scene(w, h);
     let rgb = image.as_rgb32f().unwrap();
     let recipe = gpu_warp_recipes().remove(0);
-    let measures = RegionMeasures::of(rgb, &recipe).unwrap();
+    let measures = RegionMeasures::of(rgb, &recipe, true).unwrap();
     let plan = plan_transformed_region_with(w, h, &recipe, [10, 10, 50, 40], Some(measures))
         .expect("plannable");
     rawtonic_engine::warp_gpu::fail_on_this_thread(true);
     let failed = |e: String| assert!(e.contains("failed on the GPU"), "{e}");
-    failed(rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe).unwrap_err());
     failed(
-        rawtonic_engine::image_processing::apply_geometry_warp_interim(&image, &recipe)
+        rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe, true).unwrap_err(),
+    );
+    failed(
+        rawtonic_engine::image_processing::apply_geometry_warp_interim(&image, &recipe, true)
             .unwrap_err(),
     );
     failed(
-        rawtonic_engine::adjustment_utils::apply_all_transformations(&image, &recipe)
+        rawtonic_engine::adjustment_utils::apply_all_transformations(&image, &recipe, true)
             .map(|_| ())
             .unwrap_err(),
     );
@@ -14853,20 +14865,26 @@ fn a_failing_gpu_warp_fails_the_render() {
         .map(|_| ())
         .unwrap_err(),
     );
-    failed(RegionMeasures::of(rgb, &recipe).map(|_| ()).unwrap_err());
-    assert!(transformed_region(&SourceRows::whole(rgb.as_raw(), w, h), &recipe, &plan).is_none());
+    failed(
+        RegionMeasures::of(rgb, &recipe, true)
+            .map(|_| ())
+            .unwrap_err(),
+    );
+    assert!(
+        transformed_region(&SourceRows::whole(rgb.as_raw(), w, h), &recipe, &plan, true).is_none()
+    );
     let window = [0, 0, w, h];
     failed(
-        upload_warped_render_source(&context, &image, &recipe, window, 0, None)
+        upload_warped_render_source(&context, &image, &recipe, true, window, 0, None)
             .map(|_| ())
             .unwrap_err(),
     );
     // Warped on the CPU: unaffected.
     let saved = at_render_version(&recipe, 6);
-    assert!(rawtonic_engine::image_processing::apply_geometry_warp(&image, &saved).is_ok());
-    assert!(RegionMeasures::of(rgb, &saved).is_ok());
+    assert!(rawtonic_engine::image_processing::apply_geometry_warp(&image, &saved, true).is_ok());
+    assert!(RegionMeasures::of(rgb, &saved, true).is_ok());
     rawtonic_engine::warp_gpu::fail_on_this_thread(false);
-    assert!(rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe).is_ok());
+    assert!(rawtonic_engine::image_processing::apply_geometry_warp(&image, &recipe, true).is_ok());
 }
 
 /// Wide-gamut colours (negative channels) beside a two-colour edge: the

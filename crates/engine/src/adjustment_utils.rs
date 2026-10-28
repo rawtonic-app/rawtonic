@@ -256,13 +256,15 @@ pub fn apply_spatial_transformations<'a, I: IntoCowImage<'a>>(
 
 /// The geometry stage of a render: warp, edge-fringe pass, lens blur, then
 /// orientation, rotation and crop. Fails where the edge-fringe pass's or
-/// the warp's GPU version cannot run.
+/// the warp's GPU version cannot run. `is_raw`: `image` is a RAW's decode,
+/// not a photograph's encoded values (`apply_geometry_warp`).
 pub fn apply_all_transformations<'a, I: IntoCowImage<'a>>(
     image: I,
     adjustments: &serde_json::Value,
+    is_raw: bool,
 ) -> Result<(Cow<'a, DynamicImage>, (f32, f32)), String> {
     let start_time = std::time::Instant::now();
-    let warped_image = apply_warp(image, adjustments)?;
+    let warped_image = apply_warp(image, adjustments, is_raw)?;
     let result = apply_transformations_after_warp(warped_image, adjustments);
     log::info!(
         "apply_all_transformations took {:.2?}",
@@ -276,10 +278,11 @@ pub fn apply_all_transformations<'a, I: IntoCowImage<'a>>(
 pub fn apply_warp<'a, I: IntoCowImage<'a>>(
     image: I,
     adjustments: &serde_json::Value,
+    is_raw: bool,
 ) -> Result<Cow<'a, DynamicImage>, String> {
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("transform_warp");
-    apply_geometry_warp(image.into_cow(), adjustments)
+    apply_geometry_warp(image.into_cow(), adjustments, is_raw)
 }
 
 /// What follows the warp in [`apply_all_transformations`]: the edge-fringe
