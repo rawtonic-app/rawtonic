@@ -522,7 +522,7 @@
         "intensity": "Intensität",
         "pressure": "Druck"
       },
-      "runtimeUnavailable": "Die KI-Laufzeitumgebung konnte nicht geladen werden. Werkzeuge, die sie benötigen, sind nicht verfügbar; andere können weiterhin funktionieren. Installiere Rawtonic neu und melde das Problem über das Hilfe-Menü, falls es bestehen bleibt."
+      "runtimeUnavailable": "Die KI-Laufzeitumgebung konnte nicht geladen werden. Werkzeuge, die sie benötigen, sind nicht verfügbar; andere können weiterhin funktionieren. Installiere Rawtonic neu und wähle „Problem melden“ im Hilfe- oder …-Menü, falls es bestehen bleibt."
     },
     "externalEdit": {
       "done": "Fertig",

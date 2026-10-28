@@ -522,7 +522,7 @@
         "intensity": "Intensity",
         "pressure": "Pressure"
       },
-      "runtimeUnavailable": "The AI runtime could not be loaded. Tools that use it are unavailable; other tools may still work. Reinstall Rawtonic and, if the problem remains, report a problem from the Help menu."
+      "runtimeUnavailable": "The AI runtime could not be loaded. Tools that use it are unavailable; other tools may still work. Reinstall Rawtonic and, if the problem remains, choose Report a problem in Help or the … menu."
     },
     "externalEdit": {
       "done": "Done",
