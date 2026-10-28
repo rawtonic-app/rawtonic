@@ -23,7 +23,7 @@ describe("point curve keyboard", () => {
       hasPointerCapture: () => false,
     });
     for (const [button, channel] of [["RGB", "luma"], ["Luminance", "luminance"], ["R", "red"], ["G", "green"], ["B", "blue"]] as const) {
-      fireEvent.click(screen.getByRole("button", { name: button, exact: true }));
+      fireEvent.click(screen.getByRole("button", { name: button }));
       fireEvent.pointerDown(svg, { button: 0, clientX: 75, clientY: 105 });
       expect(changed.mock.lastCall![0][channel][1].x).toBeCloseTo(42.5 * 255 / 210);
       fireEvent.pointerMove(svg, { buttons: 1, clientX: 100, clientY: 100 });
