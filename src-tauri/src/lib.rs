@@ -860,6 +860,7 @@ pub fn run() {
             file_management::resolve_pasted_lens,
             file_management::apply_auto_adjustments_to_paths,
             file_management::set_recipe_values,
+            file_management::replace_recipes,
             series_match::analyze_series_match,
             series_match::cancel_series_match,
             series_match::clear_series_match_cache,

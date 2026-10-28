@@ -14,6 +14,8 @@ import {
 } from '../utils/adjustments';
 import { rememberOpenedRecipe, waitForPendingMetadataSave } from './useEditorActions';
 import { editorRecipe, neverEdited } from '../utils/neverEdited';
+import { historyFor } from '../utils/photoHistory';
+import { recipeStepOrder } from '../utils/appUndo';
 import { globalImageCache, type ImageCacheEntry } from '../utils/ImageLRUCache';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
 
@@ -193,8 +195,8 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
               if (state.selectedImage?.path !== selectedImage.path) return state;
               return {
                 adjustments: initialAdjusts,
-                history: [initialAdjusts],
-                historyIndex: 0,
+                // Its History from when it was last open (C02).
+                ...historyFor(selectedImage.path, initialAdjusts, recipeStepOrder(selectedImage.path)),
                 panelsHeld: false,
                 originalSize: { width, height },
                 previewSize: {

@@ -283,7 +283,7 @@ it("Previous frames drawn masks with the size the previous photo was shown at", 
   expect([frame?.width, frame?.height]).toEqual([6000, 4000]);
 });
 
-it("pastes onto the open photo at once, as one undoable edit, the others in the backend", () => {
+it("pastes onto the open photo at once, as one undoable edit, the others in the backend", async () => {
   const { result } = renderHook(useEditorActions);
   useEditorStore.setState({ copiedAdjustments: { exposure: 2, masks: [sky] } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
   const opened = structuredClone(INITIAL_ADJUSTMENTS);
@@ -291,6 +291,8 @@ it("pastes onto the open photo at once, as one undoable edit, the others in the 
   useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [opened, own], historyIndex: 1 });
   useLibraryStore.setState({ multiSelectedPaths: ["/s/B.ARW", "/s/C.ARW"] });
   act(() => result.current.handlePasteAdjustments());
+  // The others' write is queued with their undo step.
+  await act(async () => {});
   expect(applied().map((call) => call.paths)).toEqual([["/s/C.ARW"]]);
   const shown = useEditorStore.getState().adjustments;
   expect([shown.exposure, shown.clarity]).toEqual([2, 7]);

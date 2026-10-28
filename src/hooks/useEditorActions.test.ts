@@ -53,7 +53,17 @@ beforeEach(() => {
     copyPasteSettings: { mode: PasteMode.Replace, includedAdjustments: ['exposure'] },
   } as AppSettings });
 });
-afterEach(() => {
+afterEach(async () => {
+  // Batch writes are queued per photo (appUndo): a test's unanswered one
+  // must not hold the next test's writes to the same photographs.
+  for (let round = 0; round < 10 && pending.some((request) => !request.settled); round++) {
+    for (const request of pending) {
+      if (request.settled) continue;
+      request.settled = true;
+      request.resolve({ changes: [] });
+    }
+    await act(async () => {});
+  }
   cleanup();
   debouncedSave.cancel();
   debouncedSetHistory.cancel();
@@ -63,7 +73,7 @@ afterEach(() => {
 it.each([
   ['auto', Invokes.CalculateAutoAdjustments, { ...INITIAL_ADJUSTMENTS, exposure: 4 }],
   ['lut', 'load_and_parse_lut', { size: 32 }],
-  ['reset', Invokes.ResetAdjustmentsForPaths, undefined],
+  ['reset', Invokes.ResetAdjustmentsForPaths, { changes: [] }],
 ] as const)('ignores a completed %s edit after switching photographs', async (kind, command, payload) => {
   const { result } = renderHook(useEditorActions);
   act(() => {
@@ -94,7 +104,7 @@ it.each(['lens', 'paste'] as const)('ignores delayed %s metadata when the user s
     if (kind === 'lens') result.current.handleAutoLensCorrection(['/first.dng']);
     else result.current.handlePasteAdjustments(['/first.dng']);
   });
-  await finish(kind === 'lens' ? 'apply_auto_lens_correction_to_paths' : Invokes.ApplyAdjustmentsToPaths, undefined);
+  await finish(kind === 'lens' ? 'apply_auto_lens_correction_to_paths' : Invokes.ApplyAdjustmentsToPaths, { changes: [] });
   expect(pending.at(-1)?.command).toBe(Invokes.LoadMetadata);
   act(() => select('/second.dng'));
   const recipe = useEditorStore.getState().adjustments;
@@ -145,7 +155,7 @@ it('clears a failed-save overlay after an explicit successful reset from Library
   expect(await waitForPendingMetadataSave('/failed-reset.dng')).toBe(unsaved);
   const { result } = renderHook(useEditorActions);
   act(() => result.current.handleResetAdjustments(['/failed-reset.dng']));
-  await finish(Invokes.ResetAdjustmentsForPaths, undefined);
+  await finish(Invokes.ResetAdjustmentsForPaths, { changes: [] });
   expect(waitForPendingMetadataSave('/failed-reset.dng')).toBeUndefined();
   expect(useEditorStore.getState().selectedImage?.path).toBe('/first.dng');
   expect(useEditorStore.getState().adjustments.exposure).toBe(-2);
@@ -164,7 +174,7 @@ it('persists unrelated unsaved adjustments before applying a partial Library pas
   expect(vi.mocked(invoke).mock.calls.at(-1)?.[1]).toMatchObject({ adjustments: { temperature: 42 } });
   await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
   expect(pending.at(-1)?.command).toBe(Invokes.ApplyAdjustmentsToPaths);
-  await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+  await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
   expect(waitForPendingMetadataSave('/failed-paste.dng')).toBeUndefined();
   errorLog.mockRestore();
 });
@@ -187,7 +197,7 @@ it.each([
 it('makes Reset one undoable step for the open photograph', async () => {
   const { result } = renderHook(useEditorActions);
   act(() => result.current.handleResetAdjustments(['/first.dng']));
-  await finish(Invokes.ResetAdjustmentsForPaths, undefined);
+  await finish(Invokes.ResetAdjustmentsForPaths, { changes: [] });
   expect(useEditorStore.getState().adjustments.exposure).toBe(0);
   expect(useEditorStore.getState().history).toHaveLength(2);
   act(() => useEditorStore.getState().undo());
@@ -231,7 +241,7 @@ it('keeps the edit made just before Reset as its own undo step', async () => {
   const { result } = renderHook(useEditorActions);
   act(() => result.current.setAdjustments({ exposure: 1 }));
   act(() => result.current.handleResetAdjustments(['/first.dng']));
-  await finish(Invokes.ResetAdjustmentsForPaths, undefined);
+  await finish(Invokes.ResetAdjustmentsForPaths, { changes: [] });
   expect(useEditorStore.getState().history.map((r) => r.exposure)).toEqual([-2, 1, 0]);
   act(() => useEditorStore.getState().undo());
   expect(useEditorStore.getState().adjustments.exposure).toBe(1);
@@ -651,7 +661,7 @@ describe('AI preset layers', () => {
     const sub = useEditorStore.getState().adjustments.masks[0].subMasks[0];
     expect(sub.id).not.toBe('source-sky');
     expect(sub.parameters).toEqual({ ...parameters, maskDataBase64: null, detectPending: true });
-    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
     expect(invoke).toHaveBeenCalledWith(Invokes.ApplyAdjustmentsToPaths, expect.objectContaining({ paths: ['/second.dng'] }));
     expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === Invokes.ApplyAdjustmentsToPaths)).toHaveLength(1);
     expect(masks).toMatchObject([{ subMasks: [{ parameters: { maskDataBase64: 'data:source' } }] }]);
@@ -668,7 +678,7 @@ describe('AI preset layers', () => {
     const partial = { masks, lutPath: null, lutData: null, crop: null };
     act(() => { void result.current.applyAdjustmentsToPaths(partial, ['/first.dng', '/second.dng']); });
     expect(useEditorStore.getState().adjustments).toMatchObject({ lutPath: null, lutData: null, crop: null });
-    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
     expect(invoke).toHaveBeenCalledWith(Invokes.ApplyAdjustmentsToPaths, expect.objectContaining({
       paths: ['/second.dng'], adjustments: expect.objectContaining({ lutPath: null, lutData: null, crop: null }),
     }));
@@ -686,11 +696,13 @@ describe('styles', () => {
     const { result } = renderHook(useEditorActions);
     applyStyle(result, { exposure: 1, saturation: 20 }, 'a');
     expect(recipe()).toMatchObject({ exposure: 1, saturation: 20, appliedStyle: { id: 'a', amount: 100 } });
-    // The open photo is taken back by its editor; the others by the backend.
+    // The open photo is taken back by its editor; the others by the backend
+    // (queued with the photographs' undo steps).
+    await act(async () => {});
     expect(invoke).toHaveBeenCalledWith(Invokes.ApplyAdjustmentsToPaths, expect.objectContaining({
       paths: ['/second.dng'], adjustments: expect.objectContaining({ exposure: 1, saturation: 20 }), style: { id: 'a', remove: false },
     }));
-    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
     // The user changes saturation (a setting of A) and contrast after A.
     act(() => result.current.setAdjustments((current) => ({ ...current, saturation: 35, contrast: 12 })));
     act(() => debouncedSetHistory.flush());
@@ -698,13 +710,13 @@ describe('styles', () => {
     applyStyle(result, { contrast: 30 }, 'b');
     expect(recipe()).toMatchObject({ exposure: -2, saturation: 35, contrast: 30, appliedStyle: { id: 'b' } });
     expect(useEditorStore.getState().history).toHaveLength(steps + 1);
-    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
     // Clicking B again removes it: back to the photo without it.
     applyStyle(result, {}, 'b', true);
     expect(recipe()).toMatchObject({ exposure: -2, saturation: 35, contrast: 12 });
     expect(recipe().appliedStyle).toBeUndefined();
     expect(useEditorStore.getState().history).toHaveLength(steps + 2);
-    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
     act(() => useEditorStore.getState().undo());
     expect(recipe()).toMatchObject({ contrast: 30, appliedStyle: { id: 'b' } });
   });
@@ -716,7 +728,7 @@ describe('styles', () => {
     rememberOpenedRecipe('/first.dng', { saved: null, camera: {} as never, width: 4000, height: 3000, shown });
     applyStyle(result, { exposure: 1 }, 'a');
     expect(recipe()).toMatchObject({ exposure: 1, sharpenVersion: 6, appliedStyle: { id: 'a' } });
-    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
   });
 
   it('leaves the lens a style set when it is taken back (the photo\'s own), without looking it up again', async () => {
@@ -726,18 +738,18 @@ describe('styles', () => {
     applyStyle(result, { lensCorrectionMode: 'auto', exposure: 1 }, 'lens');
     expect(recipe()).toMatchObject({ lensCorrectionMode: 'auto', exposure: 1, lensProfileFor: 'unresolved' });
     await finish(Invokes.ResolvePastedLens, { lensMaker: 'Detected', lensModel: 'Its lens', lensDistortionParams: { k1: 0.1 }, lensProfileFor: 'stamp' });
-    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
     applyStyle(result, {}, 'lens', true);
     expect(recipe()).toMatchObject({ exposure: -2, lensCorrectionMode: 'auto', lensMaker: 'Detected', lensProfileFor: 'stamp' });
     await act(async () => {});
     expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === Invokes.ResolvePastedLens)).toHaveLength(1);
-    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
   });
 
   it('applies a partial curve with every channel, so it is still the style\'s after reopening', async () => {
     const { result } = renderHook(useEditorActions);
     applyStyle(result, { curves: { luma: [{ x: 0, y: 0 }, { x: 128, y: 150 }, { x: 255, y: 255 }] } }, 'curve');
-    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
     const reopened = normalizeLoadedAdjustments(JSON.parse(JSON.stringify(recipe())));
     expect(revertStyle(reopened).kept).toEqual([]);
     expect(revertStyle(reopened).recipe.curves).toEqual(INITIAL_ADJUSTMENTS.curves);
@@ -752,6 +764,6 @@ describe('styles', () => {
     expect(invoke).toHaveBeenCalledWith(Invokes.ApplyAdjustmentsToPaths, expect.objectContaining({
       paths: ['/second.dng'], style: { id: 'a', remove: true },
     }));
-    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
   });
 });

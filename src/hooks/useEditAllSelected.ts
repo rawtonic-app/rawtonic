@@ -121,6 +121,7 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
         openingNow: true,
         pasteFrom: from.path,
         replaceLayers: true,
+        undoStep: false,
       });
       if (!done) {
         // Nothing was written: the cells show their recipes again.
@@ -176,6 +177,7 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
             openingNow: true,
             pasteFrom: image.path,
             replaceLayers: true,
+            undoStep: false,
           });
         }
       }

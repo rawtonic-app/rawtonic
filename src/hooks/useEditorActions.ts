@@ -54,7 +54,15 @@ import { draftFor, flushSliderDraft, renderDraft, updateDraft } from '../utils/s
 import { saveFailure } from './useLibraryActions';
 import { clampViewerZoom } from '../utils/viewerDisplay';
 import { noteTool } from '../components/contribute/usageStats';
-import { registerRecipeWriter, type RecipeValues } from '../utils/appUndo';
+import {
+  recipeBatchAction,
+  registerRecipeWriter,
+  type BatchLabel,
+  type RecipeShown,
+  type RecipeSnapshot,
+  type RecipeValues,
+} from '../utils/appUndo';
+import { editUndoOrder, nextUndoOrder } from '../utils/undoOrder';
 
 const pendingMetadataSaves = new Map<string, Promise<Adjustments | undefined>>();
 const unsavedRecipes = new Map<string, Adjustments>();
@@ -161,6 +169,34 @@ function savedBatch(command: Promise<unknown>, paths: string[], what: string): P
     },
   );
 }
+
+type RecipeBatch = { changes: RecipeSnapshot[]; failure?: { message: string; failed: string[] } };
+
+/** A batch recipe command that returns what it wrote (`RecipeBatch` in
+ * edits.rs): tells the user what was not saved and resolves with those
+ * photos and the recipe changes of the others (their undo step). */
+function recordedBatch(
+  command: Promise<RecipeBatch>,
+  paths: string[],
+  what: string,
+): Promise<{ failed: string[]; changes: RecipeSnapshot[] }> {
+  return command.then(
+    ({ changes, failure }) => {
+      if (failure) {
+        console.error(`Failed to ${what}:`, failure);
+        toast.error(`Failed to ${what}: ${failure.message}`);
+      }
+      return { failed: failure?.failed ?? [], changes };
+    },
+    (err) => savedBatch(Promise.reject(err), paths, what).then((failed) => ({ failed, changes: [] })),
+  );
+}
+
+/** The undo order of the open photograph's current History entry. */
+const currentEditOrder = () => {
+  const { history, historyIndex } = useEditorStore.getState();
+  return editUndoOrder(history, historyIndex);
+};
 
 /** The saved recipe the open photograph was opened from (with the camera
  * lens data and size its editor recipe was made with, and that recipe,
@@ -419,27 +455,21 @@ function afterRecipeSaves<T>(paths: string[], mutation: () => Promise<T>, preser
   })).then(mutation);
 }
 
-/** Writes per-photo recipe values (series match and its undo/redo) after
- * each photo's pending save; the open photograph and the Library's active
- * one show the result. Resolves with each written photo's values before. */
-async function writeRecipeValues(values: RecipeValues[]): Promise<RecipeValues[]> {
-  const paths = values.map((value) => value.path);
-  paths.forEach((path) => globalImageCache.delete(path));
-  const result = await afterRecipeSaves(paths, () =>
-    invoke<{ before: RecipeValues[]; failure?: { message: string; failed: string[] } }>(Invokes.SetRecipeValues, {
-      changes: values,
-    }),
-  );
-  if (result.failure) toast.error(i18next.t('studio.seriesMatch.notSaved', { error: result.failure.message }));
-  const written = result.before.map((before) => before.path);
-  written.forEach((path) => unsavedRecipes.delete(path));
-  const { selectedImage, resetHistory, setEditor } = useEditorStore.getState();
-  if (selectedImage && written.includes(selectedImage.path) && isCurrentEditorImage(selectedImage.path)) {
+/** Shows the recipes `written` on the open photograph (unless `shown`
+ * says its editor travelled them itself; a changed one becomes an entry of
+ * its History with the step's undo order) and on the Library's active one. */
+async function showWrittenRecipes(written: string[], shown?: RecipeShown) {
+  const { selectedImage } = useEditorStore.getState();
+  if (selectedImage && !shown?.skipOpen && written.includes(selectedImage.path) && isCurrentEditorImage(selectedImage.path)) {
     const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path });
     if (isCurrentEditorImage(selectedImage.path) && meta.adjustments && !meta.adjustments.is_null) {
       const normalized = normalizeLoadedAdjustments(meta.adjustments, selectedImage.isRaw);
-      setEditor({ adjustments: normalized });
-      resetHistory(normalized);
+      const { adjustments, pushHistory, setEditor } = useEditorStore.getState();
+      if (!sameAdjustmentValue(normalized, adjustments)) {
+        debouncedSetHistory.flush();
+        setEditor({ adjustments: normalized });
+        pushHistory(normalized, shown?.order);
+      }
     }
   }
   const { libraryActivePath, setLibrary } = useLibraryStore.getState();
@@ -450,9 +480,41 @@ async function writeRecipeValues(values: RecipeValues[]): Promise<RecipeValues[]
         libraryActiveAdjustments: normalizeLoadedAdjustments(meta.adjustments, isRawInLibrary(libraryActivePath)),
       });
   }
+}
+
+/** Writes per-photo recipe values (series match and its undo/redo) after
+ * each photo's pending save; the open photograph and the Library's active
+ * one show the result. Resolves with each written photo's values before. */
+async function writeRecipeValues(values: RecipeValues[], shown?: RecipeShown): Promise<RecipeValues[]> {
+  const paths = values.map((value) => value.path);
+  paths.forEach((path) => globalImageCache.delete(path));
+  const result = await afterRecipeSaves(paths, () =>
+    invoke<{ before: RecipeValues[]; failure?: { message: string; failed: string[] } }>(Invokes.SetRecipeValues, {
+      changes: values,
+    }),
+  );
+  if (result.failure) toast.error(i18next.t('studio.seriesMatch.notSaved', { error: result.failure.message }));
+  const written = result.before.map((before) => before.path);
+  written.forEach((path) => unsavedRecipes.delete(path));
+  await showWrittenRecipes(written, shown);
   return result.before;
 }
-registerRecipeWriter(writeRecipeValues);
+
+/** Writes whole recipes back (the undo and redo of a batch edit) after each
+ * photo's pending save. Resolves with the photos written. */
+async function replaceRecipes(recipes: { path: string; adjustments: unknown }[], shown: RecipeShown): Promise<string[]> {
+  const paths = recipes.map((recipe) => recipe.path);
+  paths.forEach((path) => globalImageCache.delete(path));
+  // The editor's own save of a travelled entry comes after: the same recipe.
+  const { changes } = await afterRecipeSaves(paths, () =>
+    recordedBatch(invoke<RecipeBatch>(Invokes.ReplaceRecipes, { changes: recipes }), paths, 'restore adjustments'),
+  false);
+  const written = changes.map((change) => change.path);
+  written.forEach((path) => unsavedRecipes.delete(path));
+  await showWrittenRecipes(written, shown);
+  return written;
+}
+registerRecipeWriter(writeRecipeValues, replaceRecipes);
 
 // A drag's last moves commit as it ends, before the final render.
 useEditorStore.subscribe((state, previous) => {
@@ -751,11 +813,20 @@ export function useEditorActions() {
       pathsToReset.forEach((p) => globalImageCache.delete(p));
       // The last edit stays a step of its own, before the reset.
       debouncedSetHistory.flush();
+      // One undo step for every photo reset; the open one's History entry
+      // is its part of it.
+      const openOrder = selectedImage?.isReady && pathsToReset.includes(selectedImage.path) ? nextUndoOrder() : undefined;
 
-      afterRecipeSaves(
+      recipeBatchAction(
+        'reset',
+        () =>
+          afterRecipeSaves(
+            pathsToReset,
+            () => recordedBatch(invoke(Invokes.ResetAdjustmentsForPaths, { paths: pathsToReset }), pathsToReset, 'reset adjustments'),
+            false,
+          ),
         pathsToReset,
-        () => savedBatch(invoke(Invokes.ResetAdjustmentsForPaths, { paths: pathsToReset }), pathsToReset, 'reset adjustments'),
-        false,
+        openOrder,
       )
         .then((failed) => {
           const reset = pathsToReset.filter((path) => !failed.includes(path));
@@ -770,7 +841,7 @@ export function useEditorActions() {
             const resetData = { ...initialAdjustmentsFor(!!selectedImage.isRaw), aspectRatio: aspect, aiPatches: [] };
             // One undoable step, as in Capture One and Lightroom.
             debouncedSetHistory.flush();
-            pushHistory(resetData);
+            pushHistory(resetData, openOrder);
             setEditor({ adjustments: resetData });
           }
         })
@@ -782,7 +853,7 @@ export function useEditorActions() {
   const handleAutoLensCorrection = useCallback(
     (paths?: string[]) => {
       const { multiSelectedPaths, libraryActivePath, setLibrary } = useLibraryStore.getState();
-      const { selectedImage, resetHistory } = useEditorStore.getState();
+      const { selectedImage } = useEditorStore.getState();
 
       const pathsToUpdate =
         paths && paths.length > 0
@@ -797,13 +868,21 @@ export function useEditorActions() {
       if (selectedImage && !selectedImage.isReady && pathsToUpdate.includes(selectedImage.path)) return;
 
       pathsToUpdate.forEach((p) => globalImageCache.delete(p));
+      debouncedSetHistory.flush();
+      const openOrder = selectedImage?.isReady && pathsToUpdate.includes(selectedImage.path) ? nextUndoOrder() : undefined;
 
-      afterRecipeSaves(pathsToUpdate, () =>
-        savedBatch(
-          invoke(Invokes.ApplyAutoLensCorrectionToPaths, { paths: pathsToUpdate }),
-          pathsToUpdate,
-          'apply auto lens correction',
-        ),
+      recipeBatchAction(
+        'lensCorrection',
+        () =>
+          afterRecipeSaves(pathsToUpdate, () =>
+            recordedBatch(
+              invoke(Invokes.ApplyAutoLensCorrectionToPaths, { paths: pathsToUpdate }),
+              pathsToUpdate,
+              'apply auto lens correction',
+            ),
+          ),
+        pathsToUpdate,
+        openOrder,
       )
         .then(async (failed) => {
           const updated = pathsToUpdate.filter((path) => !failed.includes(path));
@@ -813,8 +892,9 @@ export function useEditorActions() {
             const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path });
             if (isCurrentEditorImage(selectedImage.path) && meta.adjustments && !meta.adjustments.is_null) {
               const normalized = normalizeLoadedAdjustments(meta.adjustments, selectedImage.isRaw);
+              debouncedSetHistory.flush();
               setEditor({ adjustments: normalized });
-              resetHistory(normalized);
+              useEditorStore.getState().pushHistory(normalized, openOrder);
             }
           }
           if (libraryActivePath && updated.includes(libraryActivePath)
@@ -851,12 +931,19 @@ export function useEditorActions() {
         replaceLayers = false,
         asChosen = false,
         style = null,
+        label,
+        undoStep = true,
       }: {
         openingNow?: boolean;
         pasteFrom?: string | null;
         replaceLayers?: boolean;
         asChosen?: boolean;
         style?: StyleOp | null;
+        /** Its undo step's name (default: by `style` and `pasteFrom`). */
+        label?: BatchLabel;
+        /** One undo step for the photographs written (Edit all selected:
+         * no, an undo of the primary's edit reaches them as an edit). */
+        undoStep?: boolean;
       } = {},
     ) => {
       // Grain from before the structure choice (old presets, other photos)
@@ -892,6 +979,10 @@ export function useEditorActions() {
       // A style is taken back from the open photo by its editor's recipe
       // (the saved one may be behind it).
       const pastedOntoOpen = Boolean(open && (paste || presetWithAiMasks || style));
+      // The open photograph's History entry for this edit (its own step,
+      // made at once) is its part of the batch's undo step.
+      debouncedSetHistory.flush();
+      const orderBefore = open ? currentEditOrder() : 0;
       if (open && pastedOntoOpen) {
         // At once, as one step: a drag's moves since the last commit are
         // part of the edit it is pasted onto.
@@ -920,29 +1011,47 @@ export function useEditorActions() {
         }
       } else if (open) {
         setAdjustments({ ...adjustments, ...adjustmentsToApply });
+        if (pathsToUpdate.length > 1) debouncedSetHistory.flush();
       }
       const others = pastedOntoOpen ? pathsToUpdate.filter((path) => path !== open!.path) : pathsToUpdate;
       if (others.length === 0) return Promise.resolve();
-      const written = afterRecipeSaves(others, () =>
-        savedBatch(
-          invoke(Invokes.ApplyAdjustmentsToPaths, {
-            paths: others,
-            adjustments: adjustmentsToApply,
-            ...(paste ? { paste } : {}),
-            ...(style ? { style } : {}),
-          }),
-          others,
-          'paste adjustments',
-        ),
-      );
+      const openOrder = open && currentEditOrder() !== orderBefore ? currentEditOrder() : undefined;
       // A photograph opened meanwhile reads its recipe after this write.
-      const settled = written.then(() => undefined, () => undefined);
+      let writeSettled = () => {};
+      const settled = new Promise<undefined>((resolve) => {
+        writeSettled = () => resolve(undefined);
+      });
       others.forEach((path) => {
         pendingMetadataSaves.set(path, settled);
         void settled.then(() => {
           if (pendingMetadataSaves.get(path) === settled) pendingMetadataSaves.delete(path);
         });
       });
+      const writeBatch = () => {
+        // The write waits for the photographs' earlier saves, not for itself.
+        const own = others.filter((path) => pendingMetadataSaves.get(path) === settled);
+        own.forEach((path) => pendingMetadataSaves.delete(path));
+        const write = afterRecipeSaves(others, () =>
+          recordedBatch(
+            invoke<RecipeBatch>(Invokes.ApplyAdjustmentsToPaths, {
+              paths: others,
+              adjustments: adjustmentsToApply,
+              ...(paste ? { paste } : {}),
+              ...(style ? { style } : {}),
+            }),
+            others,
+            'paste adjustments',
+          ),
+        );
+        own.forEach((path) => {
+          if (!pendingMetadataSaves.has(path)) pendingMetadataSaves.set(path, settled);
+        });
+        return write;
+      };
+      const written = undoStep
+        ? recipeBatchAction(label ?? (style ? 'style' : pasteFrom ? 'paste' : 'apply'), writeBatch, others, openOrder)
+        : writeBatch().then(({ failed }) => failed);
+      void written.then(writeSettled, writeSettled);
       return written
         .then((failed) => {
           const updated = others.filter((path) => !failed.includes(path));
@@ -1026,7 +1135,7 @@ export function useEditorActions() {
         rememberChoice(choice, source.path);
         const chosen = withSourceFrames(chosenSettings(source.adjustments, choice.keys, choice.layerIds), source);
         if (Object.keys(chosen).length > 0) {
-          applyAdjustmentsToPaths(chosen, targets, { pasteFrom: source.path, asChosen: true });
+          applyAdjustmentsToPaths(chosen, targets, { pasteFrom: source.path, asChosen: true, label: 'sync' });
           noteTool('copySettings');
         }
       };

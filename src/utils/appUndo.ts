@@ -33,19 +33,57 @@ interface RecipeChange {
   before: Record<string, unknown>;
   after: Record<string, unknown>;
 }
+/** One photo's whole recipe before and after a batch edit (paste, sync,
+ * reset, styles, lens correction: `RecipeChange` in edits.rs). */
+export interface RecipeSnapshot {
+  path: string;
+  before: unknown;
+  after: unknown;
+}
+/** How a travelled recipe step reaches the open photograph: its editor
+ * entry for the step gets `order`; with `skipOpen` its editor travelled the
+ * step itself (a linked entry), so it is not loaded again. */
+export interface RecipeShown {
+  order: number;
+  skipOpen: boolean;
+}
 /** Writes recipe values and returns each written photo's values before
  * (registered by useEditorActions, which knows the open photo's saves). */
-type RecipeWriter = (values: RecipeValues[]) => Promise<RecipeValues[]>;
+type RecipeWriter = (
+  values: RecipeValues[],
+  shown?: RecipeShown,
+) => Promise<RecipeValues[]>;
+/** Writes whole recipes back; resolves with the photos written. */
+type RecipeReplacer = (
+  recipes: { path: string; adjustments: unknown }[],
+  shown: RecipeShown,
+) => Promise<string[]>;
 let recipeWriter: RecipeWriter | null = null;
-export function registerRecipeWriter(writer: RecipeWriter) {
+let recipeReplacer: RecipeReplacer | null = null;
+export function registerRecipeWriter(
+  writer: RecipeWriter,
+  replacer?: RecipeReplacer,
+) {
   recipeWriter = writer;
+  recipeReplacer = replacer ?? null;
 }
+export type BatchLabel =
+  | "matchLight"
+  | "paste"
+  | "sync"
+  | "reset"
+  | "style"
+  | "lensCorrection"
+  | "apply";
 interface Step {
   order: number;
   action: CullingValue["kind"] | "recipes";
   changes: CullingChange[];
   /** A batch recipe change (series match): one step for all its photos. */
   recipes?: RecipeChange[];
+  /** A batch edit of whole recipes (paste, sync, reset, …). */
+  snapshots?: RecipeSnapshot[];
+  label?: BatchLabel;
   directory: string | null;
 }
 interface FileStep {
@@ -266,7 +304,9 @@ export function recipeAction(values: RecipeValues[]): Promise<string[]> {
   }));
   return enqueue(async () => {
     try {
-      const before = recipeWriter ? await recipeWriter(values) : [];
+      const before = recipeWriter
+        ? await recipeWriter(values, { order: step.order, skipOpen: false })
+        : [];
       step.recipes = before.map(({ path, values: old }) => ({
         path,
         before: old,
@@ -281,6 +321,67 @@ export function recipeAction(values: RecipeValues[]): Promise<string[]> {
         }));
     }
   }, "catalog", paths);
+}
+
+/** Runs a batch recipe edit of `paths` (paste, sync, reset, …) as one
+ * undoable step for every photo it wrote, as Lightroom's Undo of a Sync.
+ * `order`: the open photograph's own editor entry for the same edit (both
+ * travel together). Resolves with the photos not written. */
+export function recipeBatchAction(
+  label: BatchLabel,
+  work: () => Promise<{ failed: string[]; changes: RecipeSnapshot[] }>,
+  paths: readonly string[],
+  order?: number,
+): Promise<string[]> {
+  debouncedSetHistory.flush();
+  branch++;
+  // A new step branches: the open photograph's redo goes too.
+  const editor = useEditorStore.getState();
+  if (order === undefined && editor.historyIndex < editor.history.length - 1)
+    editor.setEditor({
+      history: editor.history.slice(0, editor.historyIndex + 1),
+    });
+  const step: Step = {
+    order: order ?? nextUndoOrder(),
+    action: "recipes",
+    changes: [],
+    snapshots: [],
+    label,
+    directory: useLibraryStore.getState().sessionDirectory,
+  };
+  currentTargets.set(step, [...paths]);
+  useCatalogUndoStore.setState((s) => ({
+    past: [...s.past, step].slice(-100),
+    future: [],
+    filesFuture: [],
+    fileRedoBlocked: true,
+  }));
+  return enqueue(async () => {
+    try {
+      const { failed, changes } = await work();
+      step.snapshots = changes;
+      return failed;
+    } finally {
+      currentTargets.set(step, step.snapshots!.map((change) => change.path));
+      // A step that wrote nothing but has its editor entry stays: the open
+      // photograph's part travels with it.
+      if (!step.snapshots!.length && order === undefined)
+        useCatalogUndoStore.setState((s) => ({
+          past: s.past.filter((item) => item !== step),
+        }));
+    }
+  }, "catalog", paths);
+}
+
+/** The undo order of the newest batch step that wrote `path` (its loaded
+ * recipe joins its History as that step's entry), if any. */
+export function recipeStepOrder(path: string): number | undefined {
+  const step = useCatalogUndoStore
+    .getState()
+    .past.findLast((item) =>
+      item.snapshots?.some((change) => change.path === path),
+    );
+  return step?.order;
 }
 
 /** The file journal stays native; these small markers order its successful
@@ -405,6 +506,16 @@ function fileStep(direction: "undo" | "redo") {
       : useCatalogUndoStore.getState().filesFuture
   ).at(-1);
 }
+/** Whether the open photograph's next History entry in `direction` is its
+ * own part of the batch recipe step `step` (the same undo order). */
+function linkedEdit(step: Step, direction: "undo" | "redo") {
+  if (!step.recipes && !step.snapshots) return false;
+  const e = useEditorStore.getState();
+  if (!e.selectedImage?.isReady) return false;
+  const index = direction === "undo" ? e.historyIndex : e.historyIndex + 1;
+  if (direction === "undo" ? index < 1 : index >= e.history.length) return false;
+  return editUndoOrder(e.history, index) === step.order;
+}
 function candidate(
   direction: "undo" | "redo",
 ): "catalog" | "edit" | "file" | null {
@@ -455,9 +566,32 @@ export const catalogUndoAvailable = (direction: "undo" | "redo") =>
   candidate(direction) === "catalog";
 export const canUndo = () => candidate("undo") !== null;
 export const canRedo = () => candidate("redo") !== null;
+function batchLabel(label: BatchLabel | undefined) {
+  switch (label) {
+    case "paste":
+      return i18n.t("undoHistory.paste");
+    case "sync":
+      return i18n.t("undoHistory.sync");
+    case "reset":
+      return i18n.t("undoHistory.reset");
+    case "style":
+      return i18n.t("undoHistory.style");
+    case "lensCorrection":
+      return i18n.t("undoHistory.lensCorrection");
+    case "apply":
+      return i18n.t("undoHistory.apply");
+    default:
+      return i18n.t("undoHistory.matchLight");
+  }
+}
 function actionLabel(direction: "undo" | "redo") {
   const kind = candidate(direction);
-  if (kind === "edit") return i18n.t("undoHistory.edit");
+  if (kind === "edit") {
+    const step = catalogStep(direction);
+    return step && linkedEdit(step, direction)
+      ? batchLabel(step.label)
+      : i18n.t("undoHistory.edit");
+  }
   if (kind === "file") {
     const action = fileStep(direction)?.kind.toLowerCase() ?? "";
     if (action.includes("move")) return i18n.t("undoHistory.move");
@@ -470,7 +604,8 @@ function actionLabel(direction: "undo" | "redo") {
     if (action === "rating") return i18n.t("undoHistory.rating");
     if (action === "flag") return i18n.t("undoHistory.flag");
     if (action === "color") return i18n.t("undoHistory.color");
-    if (action === "recipes") return i18n.t("undoHistory.matchLight");
+    if (action === "recipes")
+      return batchLabel(catalogStep(direction)!.label);
     return null;
   }
   return null;
@@ -615,8 +750,25 @@ async function travel(
   // Settle an older draft before capturing the undo branch, also in Library.
   debouncedSetHistory.flush();
   const target = candidate(direction);
-  if (target === "edit") {
+  const top = catalogStep(direction);
+  // One step for every photo of a batch edit: the open photograph's own
+  // entry and the others' recipes travel together.
+  const linked =
+    (target === "edit" || target === "catalog") &&
+    !!top &&
+    linkedEdit(top, direction);
+  if (target === "edit" && !linked) {
     useEditorStore.getState()[direction]();
+    return;
+  }
+  if (linked) {
+    useEditorStore.getState()[direction]();
+    useCatalogUndoStore.setState({ busy: true });
+    try {
+      await travelRecipes(top, direction, branch, true);
+    } finally {
+      useCatalogUndoStore.setState({ busy: false });
+    }
     return;
   }
   const inLibrary = useUIStore.getState().activeView !== "editor";
@@ -660,7 +812,7 @@ async function travel(
   const step = useCatalogUndoStore.getState()[from].at(-1)!;
   const label = direction === "undo" ? getUndoLabel() : getRedoLabel();
   useCatalogUndoStore.setState({ busy: true });
-  if (step.recipes) {
+  if (step.recipes || step.snapshots) {
     try {
       await travelRecipes(step, direction, startedOnBranch);
     } finally {
@@ -774,20 +926,36 @@ async function travelRecipes(
   step: Step,
   direction: "undo" | "redo",
   startedOnBranch: number,
+  skipOpen = false,
 ) {
   const from = direction === "undo" ? "past" : "future";
   const to = direction === "undo" ? "future" : "past";
-  const recipes = step.recipes ?? [];
+  const shown = { order: step.order, skipOpen };
   try {
     await enqueue(async () => {
-      if (!recipes.length || !useCatalogUndoStore.getState()[from].includes(step))
-        return;
-      const values = recipes.map(({ path, before, after }) => ({
-        path,
-        values: direction === "undo" ? before : after,
-      }));
-      const written = recipeWriter ? await recipeWriter(values) : [];
-      if (written.length < values.length) throw new Error(i18n.t("undoHistory.recipesNotAll"));
+      if (!useCatalogUndoStore.getState()[from].includes(step)) return;
+      let missing: boolean;
+      if (step.snapshots) {
+        const recipes = step.snapshots.map(({ path, before, after }) => ({
+          path,
+          adjustments: direction === "undo" ? before : after,
+        }));
+        if (recipes.length) {
+          const written = recipeReplacer
+            ? await recipeReplacer(recipes, shown)
+            : [];
+          missing = written.length < recipes.length;
+        } else missing = false;
+      } else {
+        const values = (step.recipes ?? []).map(({ path, before, after }) => ({
+          path,
+          values: direction === "undo" ? before : after,
+        }));
+        if (!values.length) return;
+        const written = recipeWriter ? await recipeWriter(values, shown) : [];
+        missing = written.length < values.length;
+      }
+      if (missing) throw new Error(i18n.t("undoHistory.recipesNotAll"));
       if (useCatalogUndoStore.getState()[from].includes(step))
         useCatalogUndoStore.setState((s) => ({
           [from]: s[from].filter((item) => item !== step),

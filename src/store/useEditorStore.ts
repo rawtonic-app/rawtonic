@@ -203,7 +203,9 @@ interface EditorState {
 
   // Actions
   setEditor: (updater: Partial<EditorState> | ((state: EditorState) => Partial<EditorState>)) => void;
-  pushHistory: (newAdjustments: Adjustments) => void;
+  /** `order`: the undo order of a batch step this entry is the open
+   * photograph's part of (appUndo.ts; default: a new edit's). */
+  pushHistory: (newAdjustments: Adjustments, order?: number) => void;
   undo: () => void;
   redo: () => void;
   resetHistory: (initialState: Adjustments) => void;
@@ -312,12 +314,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setEditor: (updater) => set((state) => (typeof updater === 'function' ? updater(state) : updater)),
 
-  pushHistory: (newAdj) => {
+  pushHistory: (newAdj, batchOrder) => {
     scheduledHistory.cancel();
     heldHistory = null;
     // Usage statistics (only while switched on): the tools this step used.
     noteEdit(get().history[get().historyIndex], newAdj);
-    const order = newEditOrder();
+    const order = batchOrder ?? newEditOrder();
     set((state) => {
       const newHistory = state.history.slice(0, state.historyIndex + 1);
       newHistory.push(newAdj);

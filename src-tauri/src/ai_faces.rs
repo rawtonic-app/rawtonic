@@ -443,8 +443,13 @@ pub async fn apply_face_retouch_to_paths(
                 )
                 .await
                 {
-                    Ok(()) => done += 1,
-                    Err(failure) => log::warn!("Face retouch for {path}: {}", failure.message),
+                    Ok(batch) => match batch.failure {
+                        None => done += 1,
+                        Some(failure) => {
+                            log::warn!("Face retouch for {path}: {}", failure.message)
+                        }
+                    },
+                    Err(error) => log::warn!("Face retouch for {path}: {error}"),
                 }
             }
             Err(error) => log::warn!("Face retouch for {path}: {error}"),
