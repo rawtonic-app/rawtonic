@@ -1851,6 +1851,8 @@
   },
   "spotRemoval": {
     "cancel": "キャンセル",
+    "deleteSelected": "選択を削除",
+    "deleteSelectedHint": "Delete または Backspace。写真上で Alt+クリックで1つ削除、Alt+ドラッグで枠に触れたものをすべて削除します。",
     "detectObjects": "オブジェクトを検出",
     "detectObjectsBoxHint": "オブジェクトを矩形で囲むか、クリックして削除します。",
     "detectObjectsHint": "オブジェクトの上を大まかにブラシでなぞるか、クリックして削除します。",
@@ -1862,6 +1864,17 @@
     "featherAria": "スポットのぼかし",
     "filling": "削除中… ステップ {{done}}/{{total}}",
     "largeHoleTooSlow": "このGPUは大きな領域の削除には遅すぎます。このセッションの間、削除は高速な方法を使います。",
+    "list": {
+      "aria": "スポットと除去",
+      "count": "補正 ({{number}})",
+      "delete": "{{name}} を削除",
+      "deleteAll": "すべて削除",
+      "hideAll": "すべて非表示",
+      "item": "{{kind}} {{number}}",
+      "select": "{{name}} を選択",
+      "showAll": "すべて表示",
+      "toggle": "{{name}} を表示"
+    },
     "mode": "スポットモード",
     "modes": {
       "clone": "コピー",
@@ -3809,6 +3822,7 @@
       "whiteBalanceTo": "ホワイトバランス {{to}} K"
     },
     "spot": {
+      "done": "スポット修正を終了",
       "start": "スポット修正を開始",
       "withShortcut": "{{text}}（{{key}}）"
     },

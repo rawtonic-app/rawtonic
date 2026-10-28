@@ -3858,6 +3858,23 @@ body.is-dragging.is-drop-refused * {
   color: #eef0f3;
 }
 
+/* What the spot tool made: a count with eye and bin for all, then the rows
+   (the layer list's look). */
+.studio-spot-list {
+  margin-top: 8px;
+}
+.studio-spot-list-header {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0 3px 0 7px;
+  font-size: 10px;
+  color: #8e9298;
+}
+.studio-spot-list-header > span {
+  flex: 1;
+}
+
 /* Refinements under an amount (Lightroom's noise Detail, Contrast,
    Smoothness): indented, smaller labels. */
 .studio-subcontrols {

@@ -1949,6 +1949,8 @@
   },
   "spotRemoval": {
     "cancel": "Annuler",
+    "deleteSelected": "Supprimer la sélection",
+    "deleteSelectedHint": "Suppr ou Retour arrière. Sur la photo, Alt-clic en supprime une ; Alt-glisser supprime toutes celles que le cadre atteint.",
     "detectObjects": "Détecter les objets",
     "detectObjectsBoxHint": "Tracez un rectangle autour d'un objet ou cliquez dessus pour le supprimer.",
     "detectObjectsHint": "Peignez grossièrement sur un objet ou cliquez dessus pour le supprimer.",
@@ -1960,6 +1962,17 @@
     "featherAria": "Contour progressif de la zone",
     "filling": "Suppression… étape {{done}} sur {{total}}",
     "largeHoleTooSlow": "Ce GPU est trop lent pour supprimer de grandes zones ; Supprimer utilise la méthode rapide jusqu'à la fin de la session.",
+    "list": {
+      "aria": "Taches et suppressions",
+      "count": "Corrections ({{number}})",
+      "delete": "Supprimer {{name}}",
+      "deleteAll": "Tout supprimer",
+      "hideAll": "Tout masquer",
+      "item": "{{kind}} {{number}}",
+      "select": "Sélectionner {{name}}",
+      "showAll": "Tout afficher",
+      "toggle": "Afficher {{name}}"
+    },
     "mode": "Mode de correction",
     "modes": {
       "clone": "Cloner",
@@ -3996,6 +4009,7 @@
       "whiteBalanceTo": "Balance des blancs {{to}} K"
     },
     "spot": {
+      "done": "Terminer la correction des défauts",
       "start": "Lancer la correction des défauts",
       "withShortcut": "{{text}} ({{key}})"
     },

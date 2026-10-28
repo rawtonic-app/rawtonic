@@ -1889,6 +1889,8 @@
   },
   "spotRemoval": {
     "cancel": "Cancel",
+    "deleteSelected": "Delete selected",
+    "deleteSelectedHint": "Delete or Backspace. On the photo, Alt-click deletes one; Alt-drag deletes every one the box reaches.",
     "detectObjects": "Detect objects",
     "detectObjectsBoxHint": "Drag a box around an object or click it to remove it.",
     "detectObjectsHint": "Brush loosely over an object or click it to remove it.",
@@ -1900,6 +1902,17 @@
     "featherAria": "Spot feather",
     "filling": "Removing… step {{done}} of {{total}}",
     "largeHoleTooSlow": "This GPU is too slow for large-hole removal; Remove uses the fast method for the rest of the session.",
+    "list": {
+      "aria": "Spots and removals",
+      "count": "Corrections ({{number}})",
+      "delete": "Delete {{name}}",
+      "deleteAll": "Delete all",
+      "hideAll": "Hide all",
+      "item": "{{kind}} {{number}}",
+      "select": "Select {{name}}",
+      "showAll": "Show all",
+      "toggle": "Show {{name}}"
+    },
     "mode": "Spot mode",
     "modes": {
       "clone": "Clone",
@@ -3889,6 +3902,7 @@
       "whiteBalanceTo": "White balance {{to}} K"
     },
     "spot": {
+      "done": "End spot removal",
       "start": "Start spot removal",
       "withShortcut": "{{text}} ({{key}})"
     },

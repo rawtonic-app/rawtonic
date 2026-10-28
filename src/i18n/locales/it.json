@@ -1949,6 +1949,8 @@
   },
   "spotRemoval": {
     "cancel": "Annulla",
+    "deleteSelected": "Elimina selezione",
+    "deleteSelectedHint": "Canc o Backspace. Sulla foto, Alt-clic ne elimina una; Alt-trascina elimina tutte quelle raggiunte dal riquadro.",
     "detectObjects": "Rileva oggetti",
     "detectObjectsBoxHint": "Trascina un rettangolo attorno a un oggetto o fai clic su di esso per rimuoverlo.",
     "detectObjectsHint": "Dipingi sopra un oggetto o fai clic su di esso per rimuoverlo.",
@@ -1960,6 +1962,17 @@
     "featherAria": "Sfumatura della macchia",
     "filling": "Rimozione… passo {{done}} di {{total}}",
     "largeHoleTooSlow": "Questa GPU è troppo lenta per rimuovere aree grandi; Rimuovi usa il metodo rapido per il resto della sessione.",
+    "list": {
+      "aria": "Macchie e rimozioni",
+      "count": "Correzioni ({{number}})",
+      "delete": "Elimina {{name}}",
+      "deleteAll": "Elimina tutte",
+      "hideAll": "Nascondi tutte",
+      "item": "{{kind}} {{number}}",
+      "select": "Seleziona {{name}}",
+      "showAll": "Mostra tutte",
+      "toggle": "Mostra {{name}}"
+    },
     "mode": "Modalità macchie",
     "modes": {
       "clone": "Clona",
@@ -3996,6 +4009,7 @@
       "whiteBalanceTo": "Bilanciamento del bianco {{to}} K"
     },
     "spot": {
+      "done": "Termina rimozione macchie",
       "start": "Avvia rimozione macchie",
       "withShortcut": "{{text}} ({{key}})"
     },

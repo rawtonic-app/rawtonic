@@ -1851,6 +1851,8 @@
   },
   "spotRemoval": {
     "cancel": "취소",
+    "deleteSelected": "선택 항목 삭제",
+    "deleteSelectedHint": "Delete 또는 Backspace. 사진에서 Alt-클릭하면 하나를, Alt-드래그하면 상자에 닿는 모든 항목을 삭제합니다.",
     "detectObjects": "개체 감지",
     "detectObjectsBoxHint": "개체 주위에 사각형을 그리거나 클릭하여 제거합니다.",
     "detectObjectsHint": "개체 위를 대략 브러시로 칠하거나 클릭하여 제거합니다.",
@@ -1862,6 +1864,17 @@
     "featherAria": "스팟 페더",
     "filling": "제거 중… {{total}}단계 중 {{done}}단계",
     "largeHoleTooSlow": "이 GPU는 큰 영역을 제거하기에 너무 느립니다. 이 세션 동안 제거는 빠른 방법을 사용합니다.",
+    "list": {
+      "aria": "스팟 및 제거",
+      "count": "보정 ({{number}})",
+      "delete": "{{name}} 삭제",
+      "deleteAll": "모두 삭제",
+      "hideAll": "모두 숨기기",
+      "item": "{{kind}} {{number}}",
+      "select": "{{name}} 선택",
+      "showAll": "모두 표시",
+      "toggle": "{{name}} 표시"
+    },
     "mode": "스팟 모드",
     "modes": {
       "clone": "복제",
@@ -3809,6 +3822,7 @@
       "whiteBalanceTo": "화이트 밸런스 {{to}} K"
     },
     "spot": {
+      "done": "스팟 제거 끝내기",
       "start": "스팟 제거 시작",
       "withShortcut": "{{text}}({{key}})"
     },

@@ -109,6 +109,7 @@ export function ToolGroup({
   toggle,
   actions,
   onOpenChange,
+  expand,
 }: {
   /** Stable id of the tool (remembered open state and order, copy/apply,
    * `data-tool-title`); never translated. */
@@ -126,10 +127,18 @@ export function ToolGroup({
   copy?: ToolParams;
   /** Lightroom's eye: the tool's effect on or off without losing values. */
   toggle?: { enabled: boolean; onToggle(): void };
+  /** Opens the group (remembered) when it turns true: its cursor tool was
+   * chosen from the keyboard or the tool bar. */
+  expand?: boolean;
 }) {
   const { t } = useTranslation();
   const name = label ?? title;
   const [isOpen, setOpen] = useToolOpen(title, open);
+  useEffect(() => {
+    if (expand && !isOpen) setOpen(true);
+    // Only the change of `expand` opens it: the user may close it again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expand]);
   useEffect(() => {
     onOpenChange?.(isOpen);
     return () => onOpenChange?.(false);
@@ -1532,6 +1541,7 @@ export default function StudioDevelop() {
               title="Spot removal"
               label={t("studio.tools.bar.spot.label")}
               open
+              expand={isSpotToolActive}
               onReset={resetSpotSettings}
             >
               <StudioSpotPanel />

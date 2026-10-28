@@ -5,6 +5,7 @@ import { toast } from "react-toastify";
 import { updateAdjustments } from "../../../hooks/useEditorActions";
 import { useEditorStore } from "../../../store/useEditorStore";
 import type { RedEye } from "../../../utils/adjustments";
+import { withoutSpotItems } from "../../../utils/spotItems";
 import { GEOMETRY_KEYS, ORIENTATION_KEYS } from "../../../utils/geometryKeys";
 import { Invokes } from "../../ui/AppProperties";
 
@@ -31,7 +32,8 @@ type Shown = { eye: RedEye; ellipse: Pupil };
 
 type Drag =
   | { kind: "search"; start: Point; radius: number }
-  | { kind: "move"; id: string; start: Point; offset: Point };
+  | { kind: "move"; id: string; start: Point; offset: Point }
+  | { kind: "delete"; id: string };
 
 /** Screen pixels a press must travel to size the search circle. */
 const DRAG_MIN = 4;
@@ -75,8 +77,8 @@ function insideEllipse(
  * the found ellipse becomes a correction. Corrections are kept in the photo
  * as decoded; the backend says where the geometry shows them
  * (`red_eyes_shown`). A correction can be selected and dragged; Delete
- * removes the selected one, [ and ] change the search circle, Escape
- * deselects.
+ * or an Alt-click removes one, a right-click selects it for the tool's
+ * settings popover, [ and ] change the search circle, Escape deselects.
  */
 export default function RedEyeOverlay({
   rect,
@@ -226,14 +228,7 @@ export default function RedEyeOverlay({
   };
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    e.stopPropagation();
     const p = toImage(e.clientX, e.clientY);
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      // Synthetic input without a tracked pointer: no capture.
-    }
     // The selected correction first, then the others from the top.
     const hit = [...shown]
       .reverse()
@@ -243,6 +238,23 @@ export default function RedEyeOverlay({
       .find(({ eye, ellipse }) =>
         insideEllipse(ellipse, pupilScale(eye.pupilSize), p.x, p.y, 3 * pixel),
       );
+    // A right-click selects; the viewer then opens the settings popover.
+    if (e.button === 2) {
+      if (hit) useEditorStore.getState().setEditor({ activeSpotId: hit.eye.id });
+      return;
+    }
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Synthetic input without a tracked pointer: no capture.
+    }
+    // Alt: the correction under the press is deleted on release.
+    if (e.altKey) {
+      if (hit) drag.current = { kind: "delete", id: hit.eye.id };
+      return;
+    }
     if (hit) {
       useEditorStore.getState().setEditor({ activeSpotId: hit.eye.id });
       drag.current = {
@@ -268,7 +280,7 @@ export default function RedEyeOverlay({
       // Kept on the drag too: the release may come before a render.
       d.offset = { x: p.x - d.start.x, y: p.y - d.start.y };
       setDraft({ id: d.id, offset: d.offset });
-    } else {
+    } else if (d.kind === "search") {
       const travelled = Math.hypot(p.x - d.start.x, p.y - d.start.y);
       // A drag sizes the circle from its centre.
       if (travelled >= DRAG_MIN * pixel) d.radius = Math.max(2, travelled);
@@ -289,6 +301,18 @@ export default function RedEyeOverlay({
         e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
       // See setPointerCapture.
+    }
+    // A cancelled press (the system took the pointer) changes nothing.
+    if (e.type === "pointercancel") {
+      setSearch(null);
+      setDraft(null);
+      return;
+    }
+    if (d?.kind === "delete") {
+      updateAdjustments((prev) => withoutSpotItems(prev, new Set([d.id])));
+      const { activeSpotId, setEditor } = useEditorStore.getState();
+      if (activeSpotId === d.id) setEditor({ activeSpotId: null });
+      return;
     }
     if (d?.kind === "search") {
       const { setEditor, redEyeSettings } = useEditorStore.getState();
@@ -431,6 +455,8 @@ export default function RedEyeOverlay({
               style={{
                 color: active ? "var(--studio-accent, #9cc2e0)" : "#fff",
               }}
+              // A hidden correction stays there to select.
+              opacity={eye.visible === false ? 0.4 : undefined}
               transform={`rotate(${ellipse.angle} ${cx} ${cy})`}
             >
               <ellipse

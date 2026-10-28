@@ -1949,6 +1949,8 @@
   },
   "spotRemoval": {
     "cancel": "Cancel·la",
+    "deleteSelected": "Elimina la selecció",
+    "deleteSelectedHint": "Suprimeix o Retrocés. A la foto, Alt+clic n'elimina una; Alt+arrossegar elimina totes les que toca el requadre.",
     "detectObjects": "Detecta objectes",
     "detectObjectsBoxHint": "Arrossega un rectangle al voltant d'un objecte o fes-hi clic per eliminar-lo.",
     "detectObjectsHint": "Pinta per sobre d'un objecte o fes-hi clic per eliminar-lo.",
@@ -1960,6 +1962,17 @@
     "featherAria": "Difuminat de la taca",
     "filling": "S'està eliminant… pas {{done}} de {{total}}",
     "largeHoleTooSlow": "Aquesta GPU és massa lenta per eliminar zones grans; Elimina fa servir el mètode ràpid la resta de la sessió.",
+    "list": {
+      "aria": "Taques i eliminacions",
+      "count": "Correccions ({{number}})",
+      "delete": "Elimina {{name}}",
+      "deleteAll": "Elimina-les totes",
+      "hideAll": "Amaga-les totes",
+      "item": "{{kind}} {{number}}",
+      "select": "Selecciona {{name}}",
+      "showAll": "Mostra-les totes",
+      "toggle": "Mostra {{name}}"
+    },
     "mode": "Mode de taques",
     "modes": {
       "clone": "Clona",
@@ -3996,6 +4009,7 @@
       "whiteBalanceTo": "Balanç de blancs {{to}} K"
     },
     "spot": {
+      "done": "Acaba l'eliminació de taques",
       "start": "Inicia l'eliminació de taques",
       "withShortcut": "{{text}} ({{key}})"
     },
