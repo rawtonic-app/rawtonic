@@ -595,6 +595,11 @@ pub struct AppSettings {
     /// Send anonymous weekly usage statistics (ADR 0017; missing: off).
     #[serde(default)]
     pub usage_stats: Option<bool>,
+    /// Connect Canon cameras on the camera library's untested EOS path to
+    /// help test it (Preferences > Tethering; missing: off). Such a body
+    /// keeps every photo on its memory card and has nothing freed.
+    #[serde(default)]
+    pub tether_experimental_canon: Option<bool>,
     /// Rawtonic's own presets and styles in the presets panel and the tools'
     /// preset menus (missing: shown).
     #[serde(default)]
@@ -824,6 +829,7 @@ impl Default for AppSettings {
             show_builtin_presets: None,
             auto_advance: None,
             usage_stats: None,
+            tether_experimental_canon: None,
             last_root_path: None,
             root_folders: Vec::new(),
             recent_libraries: None,

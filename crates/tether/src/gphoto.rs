@@ -95,10 +95,12 @@ fn has_transfer_queue(summary: &str) -> bool {
 }
 
 /// Whether libgphoto2 drives the camera on its Canon path (vendor extension
-/// 0xb). Not offered yet (user decision 2026-10-19): untested with a body,
-/// and libgphoto2's EOS trigger discards the events it collected (a report
-/// of a photo can be lost), its Save to shows a preference and it captures
-/// to the camera's memory when no card is in. notes: reference/tether.md
+/// 0xb). Experimental, only with the user's opt-in (user decision
+/// 2026-10-28; `CameraStatus::experimental`): untested with a body, and
+/// libgphoto2's EOS trigger discards the events it collected (a report of a
+/// photo can be lost), its Save to shows a preference and it captures to the
+/// camera's memory when no card is in — so a connection there needs Save to
+/// on the card and a card in, and frees nothing. notes: reference/tether.md
 fn on_canon_path(summary: &str) -> bool {
     summary.contains(": 0xb (")
 }
@@ -229,14 +231,8 @@ impl Driver for GphotoDriver {
         let summary = camera
             .summary(&context)
             .map_err(|e| error("Reading the camera's description", e))?;
-        if on_canon_path(&summary) {
-            return Err(TetherError::new(
-                ErrorKind::Unsupported,
-                "Tethering Canon cameras is not supported yet: it has not been tested with a Canon \
-                 body. Use the hot folder with Canon's tethering app meanwhile.",
-            ));
-        }
-        let transfer_queue = has_transfer_queue(&summary);
+        let canon = on_canon_path(&summary);
+        let transfer_queue = !canon && has_transfer_queue(&summary);
         let serial = serial_number(&summary);
         let firmware = firmware_version(&summary);
         if transfer_queue {
@@ -252,6 +248,7 @@ impl Driver for GphotoDriver {
             transfer_queue,
             serial,
             firmware,
+            canon,
             one_at_a_time: on_sony_path(&summary),
             trigger: true,
             capture: true,
@@ -277,6 +274,8 @@ pub struct GphotoCamera {
     transfer_queue: bool,
     serial: Option<String>,
     firmware: Option<String>,
+    /// On libgphoto2's Canon path (`on_canon_path`): experimental.
+    canon: bool,
     /// `Camera::one_shot_at_a_time` (`on_sony_path`).
     one_at_a_time: bool,
     /// Our setting key → the camera's name for it, once found.
@@ -285,6 +284,24 @@ pub struct GphotoCamera {
     /// A live-view frame came since the connect or the last
     /// `end_live_view` (libgphoto2 keeps the camera's live view open).
     live_view_open: bool,
+}
+
+/// What libgphoto2 tells of a storage (its folder is "/store_<id in hex>").
+fn storage(info: &gphoto2::storage::StorageInfo) -> crate::camera::Storage {
+    use gphoto2::storage::StorageType;
+    crate::camera::Storage {
+        id: info
+            .base_dir
+            .as_deref()
+            .and_then(|dir| dir.strip_prefix("/store_"))
+            .and_then(|id| u32::from_str_radix(id, 16).ok()),
+        removable: info.storage_type.as_ref().and_then(|kind| match kind {
+            StorageType::RemovableRam | StorageType::RemovableRom => Some(true),
+            StorageType::FixedRam | StorageType::FixedRom => Some(false),
+            _ => None,
+        }),
+        capacity_kb: info.capacity_kb,
+    }
 }
 
 fn text(value: WidgetValue) -> Option<String> {
@@ -428,6 +445,7 @@ impl Camera for GphotoCamera {
             transfer_queue: self.transfer_queue,
             serial: self.serial.clone(),
             firmware: self.firmware.clone(),
+            experimental: self.canon,
         }
     }
 
@@ -676,15 +694,61 @@ impl Camera for GphotoCamera {
             Err(e) if matches!(e.kind(), Gp::BadParameters | Gp::NotSupported) => None,
             Err(e) => return Err(session_error("Reading Save to", e)),
         };
-        Ok(crate::camera::memory_only(target.as_deref()))
+        if crate::camera::memory_only(target.as_deref()) {
+            return Ok(true);
+        }
+        // libgphoto2's Canon path shows Save to as set while the camera
+        // keeps photos in its memory without a card: there the card itself
+        // is looked for (`camera::card_in`). libgphoto2 lists only storage
+        // slots with a card in (an ID whose low 16 bits are 0 is an empty
+        // slot), plus Canon's virtual storage.
+        if self.canon {
+            // Where the camera really puts a capture: Save to may say the
+            // card while libgphoto2 kept the computer. Unknown is unsafe.
+            let destination = match self
+                .camera
+                .get_single_config(&self.context, crate::camera::CANON_DESTINATION)
+            {
+                Ok(widget) => widget.value().ok().and_then(text),
+                Err(e) if matches!(e.kind(), Gp::BadParameters | Gp::NotSupported) => None,
+                Err(e) => return Err(session_error("Reading the capture destination", e)),
+            };
+            if !crate::camera::canon_destination_keeps_card(destination.as_deref()) {
+                log::info!("capture destination {destination:?}: no card copy");
+                return Ok(true);
+            }
+            return match self.camera.storage_info(&self.context) {
+                Ok(storages) => {
+                    let storages: Vec<_> = storages.iter().map(storage).collect();
+                    let card = crate::camera::card_in(&storages);
+                    if !card {
+                        log::info!("no memory card found in {storages:?}");
+                    }
+                    Ok(!card)
+                }
+                // Cannot be told: kept as if no card were in.
+                Err(e) if matches!(e.kind(), Gp::NotSupported) => {
+                    log::warn!("the camera does not list its memory cards: {e}");
+                    Ok(true)
+                }
+                Err(e) => Err(session_error("Looking for the memory card", e)),
+            };
+        }
+        Ok(false)
     }
 
     fn one_shot_at_a_time(&self) -> bool {
         self.one_at_a_time
     }
 
+    fn experimental(&self) -> bool {
+        self.canon
+    }
+
     fn release(&mut self, file: &CameraFile) -> Result<bool, TetherError> {
-        if !self.transfer_queue {
+        // Never on the Canon path: there is no transfer queue, and a delete
+        // would reach the photo on the card.
+        if !self.transfer_queue || self.canon {
             return Ok(false);
         }
         self.camera

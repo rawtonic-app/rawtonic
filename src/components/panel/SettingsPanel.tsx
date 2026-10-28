@@ -15,6 +15,7 @@ import {
   Mouse,
   Touchpad,
   HardDrive,
+  Camera,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -45,6 +46,7 @@ import StorageSettings from './StorageSettings';
 import UpdateSettings from './UpdateSettings';
 import CrashReportSettings from './CrashReportSettings';
 import UsageStatsSettings from './UsageStatsSettings';
+import TetheringSettings from './TetheringSettings';
 import DevelopToolsSide from '../studio/DevelopToolsSide';
 import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 import { useOsPlatform } from '../../hooks/useOsPlatform';
@@ -441,6 +443,7 @@ export default function SettingsPanel({
       // One in its Image preferences), not the end of a long one.
       { id: 'previews', label: t('previews.settings.title'), icon: Images },
       { id: 'storage', label: t('storage.title'), icon: HardDrive },
+      { id: 'tethering', label: t('settings.tethering.title'), icon: Camera },
       { id: 'shortcuts', label: t('settings.categories.shortcuts'), icon: Keyboard },
       { id: 'about', label: 'About', icon: Info },
     ],
@@ -1863,6 +1866,17 @@ export default function SettingsPanel({
               {activeCategory === 'storage' && (
                 <motion.div key="storage" className="pref-page">
                   <StorageSettings appSettings={appSettings} onSettingsChange={onSettingsChange} onLibraryRefresh={onLibraryRefresh} onOpenPreviews={() => setActiveCategory('previews')} />
+                </motion.div>
+              )}
+
+              {activeCategory === 'tethering' && (
+                <motion.div key="tethering" className="pref-page">
+                  <div className="pref-section">
+                    <Text as="h2" variant={TextVariants.title} className="pref-section-title">
+                      {t('settings.tethering.title')}
+                    </Text>
+                    <TetheringSettings appSettings={appSettings} onSettingsChange={onSettingsChange} />
+                  </div>
                 </motion.div>
               )}
 
