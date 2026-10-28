@@ -1349,6 +1349,13 @@
     "tether": {
       "battery": "Batterie {{level}}",
       "camera": "Appareil",
+      "canon": {
+        "badge": "Expérimental",
+        "connectedNote": "Expérimental : si une photo n’apparaît pas ici, elle n’est pas perdue — elle est sur la carte mémoire. Laissez la carte dans l’appareil. Rawtonic vous prévient quand une photo déclenchée depuis Rawtonic n’arrive pas — sauf si, entre-temps, une photo prise sur l’appareil arrive et prend sa place. Après une séance, comparez la carte avec la bibliothèque.",
+        "notReceived": "La photo {{n}} n’est pas arrivée. Si l’appareil l’a prise, elle est sur la carte mémoire.",
+        "openPreferences": "Ouvrir les préférences de Connexion",
+        "optInNeeded": "Les appareils Canon n’ont pas encore été testés avec Rawtonic. Pour essayer le vôtre et aider à le tester, activez « Expérimental : appareils Canon » dans Préférences > Connexion."
+      },
       "capture": "Déclencher",
       "captureFailed": "Échec de la prise : {{error}}",
       "captureTitle": "Déclencher l’appareil (⌘K / Ctrl+K)",
@@ -1365,6 +1372,7 @@
       "lastIn": "{{file}} est dans la bibliothèque",
       "lastTiming": "{{file}} dans la bibliothèque {{ms}} ms après la prise",
       "level": {
+        "experimental": "Expérimental — testeurs recherchés. Pas encore testé avec Rawtonic : une photo peut ne pas apparaître ici et se trouve alors uniquement sur la carte mémoire.",
         "notSupported": "Cet appareil n'est pas encore pris en charge.",
         "reported": "Fonctionne d'après les utilisateurs de ce modèle d'appareil.",
         "tested": "Testé avec ce modèle d'appareil sous {{systems}} ({{date}}).",
@@ -1382,6 +1390,14 @@
         "bursting": "{{shots}} prises à la suite…",
         "button": "Test de l'appareil…",
         "buttonTitle": "Tester cet appareil étape par étape et créer un rapport anonyme",
+        "canonGuide": {
+          "card": "Gardez une carte mémoire dans l’appareil pendant tout le test.",
+          "missing": "Si une photo n’apparaît pas, c’est aussi une information utile : elle est toujours sur la carte mémoire, et le test la compte.",
+          "send": "À la fin, cliquez sur « {{button}} ». Vous voyez exactement ce qui est envoyé — ni photos, ni noms de fichiers, ni numéro de série — et rien ne quitte votre ordinateur avant que vous ne confirmiez.",
+          "sendNote": "Ce résultat provient de la prise en charge expérimentale de Canon. Merci de tester — chaque résultat aide, y compris un où des photos ont manqué.",
+          "steps": "Passez les étapes ci-dessous une par une : cliquez sur Lancer et faites ce que demande l’étape. Si votre appareil ne peut pas faire une étape, cliquez sur Passer.",
+          "title": "Comment tester votre appareil Canon"
+        },
         "close": "Fermer le test de l'appareil",
         "how": {
           "autofocus": "Fait la mise au point une fois. Passez cette étape avec un objectif manuel ou en MF.",
@@ -1868,6 +1884,17 @@
       "shortcuts": "Raccourcis de marquage",
       "shortcutsDesc": "Une liste d'étiquettes qui apparaîtront comme raccourcis dans le menu contextuel de marquage.",
       "title": "Marquage"
+    },
+    "tethering": {
+      "camerasLink": "Quels appareils fonctionnent, et comment signaler le vôtre",
+      "canon": "Expérimental : appareils Canon (aider à tester)",
+      "canonDesc": "Permet à Rawtonic de connecter un appareil Canon en USB, pour que vous puissiez l’essayer et envoyer un court résultat de test.",
+      "canonSwitch": "Connecter les appareils Canon",
+      "howToTest": "Pour aider : connectez l’appareil dans le panneau Connexion, cliquez sur Test de l’appareil… et suivez les étapes. À la fin, vous voyez exactement ce qui serait envoyé avant que quoi que ce soit ne quitte votre ordinateur.",
+      "title": "Connexion",
+      "warningCard": "Une photo que vous prenez peut ne pas apparaître dans Rawtonic. Elle est alors uniquement sur la carte mémoire de l’appareil ; gardez donc une carte dans l’appareil en permanence.",
+      "warningNothingDeleted": "Rawtonic ne supprime jamais rien sur l’appareil ni sur la carte.",
+      "warningUntested": "Pas encore testé : aucun appareil Canon n’a été essayé avec Rawtonic jusqu’ici."
     },
     "title": "Paramètres",
     "tooltips": {

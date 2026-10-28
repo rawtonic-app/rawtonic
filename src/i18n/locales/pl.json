@@ -1393,6 +1393,13 @@
     "tether": {
       "battery": "Bateria {{level}}",
       "camera": "Aparat",
+      "canon": {
+        "badge": "Eksperymentalne",
+        "connectedNote": "Eksperymentalne: jeśli zdjęcie się tu nie pojawi, nie przepadło — jest na karcie pamięci. Zostaw kartę w aparacie. Rawtonic da ci znać, gdy zdjęcie wyzwolone z Rawtonic nie dotrze — chyba że w międzyczasie dotrze zdjęcie zrobione na aparacie i zajmie jego miejsce. Po sesji porównaj kartę z biblioteką.",
+        "notReceived": "Zdjęcie {{n}} nie dotarło. Jeśli aparat je zrobił, jest na karcie pamięci.",
+        "openPreferences": "Otwórz preferencje Tethering",
+        "optInNeeded": "Aparaty Canon nie były jeszcze testowane z Rawtonic. Aby wypróbować swój i pomóc w testach, włącz „Eksperymentalne: aparaty Canon” w Preferencje > Tethering."
+      },
       "capture": "Zrób zdjęcie",
       "captureFailed": "Zdjęcie nie powiodło się: {{error}}",
       "captureTitle": "Wyzwól aparat (⌘K / Ctrl+K)",
@@ -1409,6 +1416,7 @@
       "lastIn": "{{file}} jest w bibliotece",
       "lastTiming": "{{file}} w bibliotece {{ms}} ms po zdjęciu",
       "level": {
+        "experimental": "Eksperymentalne — szukamy testerów. Jeszcze nie testowane z Rawtonic: zdjęcie może się tu nie pojawić i wtedy jest tylko na karcie pamięci.",
         "notSupported": "Ten aparat nie jest jeszcze obsługiwany.",
         "reported": "Według użytkowników tego modelu aparatu działa.",
         "tested": "Przetestowano z tym modelem aparatu w {{systems}} ({{date}}).",
@@ -1426,6 +1434,14 @@
         "bursting": "{{shots}} zdjęć jedno po drugim…",
         "button": "Test aparatu…",
         "buttonTitle": "Przetestuj ten aparat krok po kroku i utwórz anonimowy raport",
+        "canonGuide": {
+          "card": "Przez cały test trzymaj kartę pamięci w aparacie.",
+          "missing": "Jeśli zdjęcie się nie pojawi, to też jest przydatna informacja: nadal jest na karcie pamięci, a test je liczy.",
+          "send": "Na koniec kliknij „{{button}}”. Zobaczysz dokładnie, co zostanie wysłane — bez zdjęć, nazw plików i numeru seryjnego — a nic nie opuści twojego komputera, dopóki tego nie potwierdzisz.",
+          "sendNote": "Ten wynik pochodzi z eksperymentalnej obsługi Canon. Dziękujemy za testowanie — każdy wynik pomaga, także taki, w którym zabrakło zdjęć.",
+          "steps": "Przejdź kolejno przez poniższe kroki: kliknij Uruchom i zrób to, o co prosi krok. Jeśli aparat nie potrafi wykonać kroku, kliknij Pomiń.",
+          "title": "Jak przetestować aparat Canon"
+        },
         "close": "Zamknij test aparatu",
         "how": {
           "autofocus": "Ustawia ostrość raz. Pomiń przy obiektywie manualnym lub MF w aparacie.",
@@ -1928,6 +1944,17 @@
       "shortcuts": "Skróty do tagowania",
       "shortcutsDesc": "Lista tagów, które będą widoczne jako szybkie skróty w menu kontekstowym tagowania.",
       "title": "Tagowanie"
+    },
+    "tethering": {
+      "camerasLink": "Które aparaty działają i jak zgłosić swój",
+      "canon": "Eksperymentalne: aparaty Canon (pomóż w testach)",
+      "canonDesc": "Pozwala Rawtonic połączyć się z aparatem Canon przez USB, żeby można było go wypróbować i wysłać krótki wynik testu.",
+      "canonSwitch": "Łącz aparaty Canon",
+      "howToTest": "Aby pomóc: połącz aparat w panelu Tethering, kliknij Test aparatu… i wykonuj kolejne kroki. Na końcu zobaczysz dokładnie, co zostałoby wysłane, zanim cokolwiek opuści twój komputer.",
+      "title": "Tethering",
+      "warningCard": "Zdjęcie, które zrobisz, może nie pojawić się w Rawtonic. Jest wtedy tylko na karcie pamięci aparatu, więc przez cały czas trzymaj kartę w aparacie.",
+      "warningNothingDeleted": "Rawtonic nigdy niczego nie usuwa z aparatu ani z karty.",
+      "warningUntested": "Jeszcze nie testowane: do tej pory żaden aparat Canon nie został wypróbowany z Rawtonic."
     },
     "title": "Ustawienia",
     "tooltips": {

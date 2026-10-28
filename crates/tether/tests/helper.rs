@@ -1,5 +1,6 @@
 //! The real helper process with the scripted mock camera, driven through
 //! the client as the app drives it.
+use rawtonic_tether::camera::{Storage, VIRTUAL_STORAGE};
 use rawtonic_tether::client::{Client, Incoming};
 use rawtonic_tether::mock::{MockSpec, QueueState};
 use rawtonic_tether::protocol::{Captured, ErrorKind, Event, Reply, Request};
@@ -60,14 +61,29 @@ fn start(spec: &MockSpec, session: &Path) -> Helper {
 
 impl Helper {
     fn connect(&self) -> Result<Reply, rawtonic_tether::protocol::TetherError> {
+        self.connect_with(false)
+    }
+
+    /// Connects with the user's opt-in to experimental driver paths or not.
+    fn connect_with(
+        &self,
+        experimental: bool,
+    ) -> Result<Reply, rawtonic_tether::protocol::TetherError> {
         self.client.request(
             Request::Connect {
                 port: None,
                 staging: self.staging.clone(),
                 serial: None,
+                experimental,
             },
             WAIT,
         )
+    }
+
+    /// Nothing reached the transfer folder.
+    fn nothing_downloaded(&self) -> bool {
+        let incoming = self.staging.join(staging::INCOMING);
+        !incoming.exists() || std::fs::read_dir(&incoming).unwrap().next().is_none()
     }
 
     /// Fires; the request's number.
@@ -319,6 +335,7 @@ fn another_body_of_the_model_is_closed_before_anything_of_it_is_read() {
                 port: None,
                 staging: helper.staging.clone(),
                 serial: Some("SOMEONE ELSE".into()),
+                experimental: false,
             },
             WAIT,
         )
@@ -549,6 +566,219 @@ fn interleaved_raw_and_jpeg_under_one_reused_name_keep_their_exposures() {
         other.push(helper.next_event(Duration::from_millis(200)));
     }
     assert_eq!(timeouts(&other), 2, "{other:?}");
+}
+
+/// A Canon EOS body as libgphoto2 drives it: an experimental path, Save to
+/// "Internal RAM" or "Memory card".
+fn canon() -> MockSpec {
+    MockSpec {
+        model: "Canon EOS R6".into(),
+        experimental: true,
+        capture_target: Some("Internal RAM".into()),
+        capture_target_choices: vec!["Internal RAM".into(), "Memory card".into()],
+        ..MockSpec::default()
+    }
+}
+
+#[test]
+fn an_experimental_camera_is_not_opened_without_the_opt_in() {
+    let dir = tempfile::tempdir().unwrap();
+    // Nothing of the camera is read before the refusal (a settings read
+    // prepares an EOS body for capture).
+    let reads = dir.path().join("config-reads");
+    let spec = MockSpec {
+        body_shots_ms: vec![0],
+        config_reads: Some(reads.clone()),
+        ..canon()
+    };
+    let helper = start(&spec, dir.path());
+    let refused = helper.connect().unwrap_err();
+    assert!(!reads.exists(), "the camera was read before the refusal");
+    assert_eq!(refused.kind, ErrorKind::Unsupported);
+    assert!(
+        refused.message.contains("Preferences"),
+        "{}",
+        refused.message
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(helper.nothing_downloaded());
+}
+
+#[test]
+fn an_experimental_camera_without_a_card_is_not_opened() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        no_card: true,
+        body_shots_ms: vec![0],
+        ..canon()
+    };
+    let helper = start(&spec, dir.path());
+    let refused = helper.connect_with(true).unwrap_err();
+    assert_eq!(refused.kind, ErrorKind::Unsupported);
+    assert!(
+        refused.message.contains("no card in"),
+        "{}",
+        refused.message
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(helper.nothing_downloaded());
+}
+
+#[test]
+fn an_experimental_camera_listing_only_its_virtual_storage_is_not_opened() {
+    let dir = tempfile::tempdir().unwrap();
+    // A Canon without a card lists its virtual storage; one whose storage
+    // says nothing of being a card is no card either.
+    for storages in [
+        vec![Storage {
+            id: Some(VIRTUAL_STORAGE),
+            ..Storage::card()
+        }],
+        vec![Storage {
+            removable: None,
+            ..Storage::card()
+        }],
+    ] {
+        let spec = MockSpec {
+            storages: Some(storages),
+            body_shots_ms: vec![0],
+            ..canon()
+        };
+        let helper = start(&spec, dir.path());
+        let refused = helper.connect_with(true).unwrap_err();
+        assert!(
+            refused.message.contains("no card in"),
+            "{}",
+            refused.message
+        );
+        assert!(helper.nothing_downloaded());
+    }
+}
+
+#[test]
+fn an_experimental_camera_whose_capture_destination_is_not_the_card_is_not_opened() {
+    let dir = tempfile::tempdir().unwrap();
+    // Save to set to the card and a card in, but the camera still captures
+    // to the computer's side, or does not say where.
+    for destination in ["4", ""] {
+        let spec = MockSpec {
+            capture_destination: Some(destination.into()),
+            body_shots_ms: vec![0],
+            ..canon()
+        };
+        let helper = start(&spec, dir.path());
+        assert_eq!(
+            helper.connect_with(true).unwrap_err().kind,
+            ErrorKind::Unsupported
+        );
+        assert!(helper.nothing_downloaded());
+    }
+}
+
+#[test]
+fn an_experimental_camera_whose_save_to_cannot_take_the_card_is_not_opened() {
+    let dir = tempfile::tempdir().unwrap();
+    // Already on the card, but the card cannot be chosen: refused all the
+    // same (the opt-in needs Save to set by Rawtonic).
+    let spec = MockSpec {
+        capture_target: Some("Memory card".into()),
+        capture_target_choices: vec!["Internal RAM".into()],
+        body_shots_ms: vec![0],
+        ..canon()
+    };
+    let helper = start(&spec, dir.path());
+    let refused = helper.connect_with(true).unwrap_err();
+    assert_eq!(refused.kind, ErrorKind::Unsupported);
+    assert!(refused.message.contains("Save to"), "{}", refused.message);
+    assert!(helper.nothing_downloaded());
+}
+
+#[test]
+fn an_experimental_camera_with_a_card_connects_on_the_card_and_frees_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    // A transfer queue on the driver side too: the helper must not ask to
+    // free even then.
+    let spec = MockSpec {
+        queue_limit: Some(10),
+        ..canon()
+    };
+    let helper = start(&spec, dir.path());
+    let status = match helper.connect_with(true).unwrap() {
+        Reply::Connected { status } => status,
+        other => panic!("{other:?}"),
+    };
+    assert!(status.experimental);
+    assert_eq!(status.capture_target.as_deref(), Some("Memory card"));
+    helper.capture();
+    let photo = helper.photos(1).0.remove(0);
+    let release = Request::Release {
+        connection: photo.connection,
+        download: photo.download,
+        camera_folder: photo.camera_folder.clone(),
+        camera_name: photo.camera_name.clone(),
+    };
+    assert_eq!(
+        helper.client.request(release, WAIT).unwrap(),
+        Reply::Released { freed: false }
+    );
+    // Switching Save to to the camera's memory is refused as anywhere.
+    let set = Request::SetSetting {
+        key: "capturetarget".into(),
+        value: "Internal RAM".into(),
+    };
+    assert!(helper.client.request(set, WAIT).is_err());
+}
+
+#[test]
+fn an_experimental_shot_without_its_photo_is_reported_as_kept_on_the_card() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        lost_shots: vec![1],
+        ..canon()
+    };
+    let helper = start_with(&spec, dir.path(), 500);
+    helper.connect_with(true).unwrap();
+    let request = helper.capture();
+    match helper.next_event(Duration::from_secs(5)) {
+        Some(Event::CaptureFailed {
+            error, request: r, ..
+        }) => {
+            assert_eq!(error.kind, ErrorKind::Timeout);
+            assert_eq!(r, Some(request));
+            assert!(
+                error.message.contains(&format!("Shot {request} ")),
+                "{}",
+                error.message
+            );
+            assert!(error.message.contains("memory card"), "{}", error.message);
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// A known limit, said in the UI and the docs: libgphoto2 gives no exposure
+/// identity, so photos answer the app's shots in order. When an app shot's
+/// report is lost and a photo taken on the body arrives before its timeout,
+/// that photo is taken as the app shot's and no "not received" follows (the
+/// camera test reports such steps as not certain on the experimental path).
+#[test]
+fn an_experimental_lost_shot_is_hidden_by_a_body_photo_arriving_meanwhile() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        lost_shots: vec![1],
+        body_shots_ms: vec![400],
+        ..canon()
+    };
+    let helper = start_with(&spec, dir.path(), 2000);
+    helper.connect_with(true).unwrap();
+    let request = helper.capture();
+    let (photos, _) = helper.photos(1);
+    assert_eq!(photos[0].request, Some(request));
+    std::thread::sleep(Duration::from_millis(2300));
+    assert!(
+        helper.next_event(Duration::from_millis(200)).is_none(),
+        "no shot reported as not received"
+    );
 }
 
 #[test]
