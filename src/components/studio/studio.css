@@ -467,7 +467,7 @@
    of the column, scrolling inside beyond that. */
 .studio-develop-dock {
   flex: 0 1 auto;
-  max-height: 40%;
+  max-height: 30%;
   overflow-y: auto;
   border-top: 1px solid var(--studio-line);
 }
@@ -5406,4 +5406,9 @@ img.relight-pattern-preview { object-fit: cover; }
 .app-notices .Toastify__progress-bar--bg {
   background: #ffffff14;
   opacity: 1;
+}
+.curve-point:focus-visible {
+  outline: none;
+  stroke: #fff;
+  stroke-width: 3;
 }

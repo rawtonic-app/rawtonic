@@ -220,7 +220,7 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
   useEditAllSelected(active && editAll, editable);
 
   const { shown, more } = useMemo(() => cellsFor(selection, primary, pinned), [selection, primary, pinned]);
-  // The proof margin (X) goes around the whole grid, not around each cell.
+  // The proof margin (Alt+X) goes around the whole grid, not around each cell.
   const { proofMarginOn, proofMarginPercent } = useSettingsStore(
     useShallow((s) => ({
       proofMarginOn: s.appSettings?.viewerProofMargin ?? false,

@@ -139,6 +139,7 @@
       "flag_unflag": "フラグなし",
       "import_photos": "写真を読み込む…",
       "keyboard_shortcuts": "キーボードショートカット",
+      "match_light": "光を揃える…",
       "move_to_selects": "セレクトに移動",
       "new_session": "新規プロジェクトまたはカタログ…",
       "open_session": "プロジェクトまたはカタログを開く…",
@@ -161,6 +162,7 @@
       "sync_settings": "設定を同期",
       "tether_capture": "撮影（テザーカメラ）",
       "toggle_all_panels": "すべてのパネルとバー",
+      "toggle_auto_advance": "自動送り",
       "toggle_bottom_panel": "フィルムストリップ",
       "toggle_clipping": "クリッピング警告",
       "toggle_export": "書き出す…",
@@ -221,7 +223,10 @@
     "empty": "一致するコマンドがありません。別の語句で検索してください。",
     "keys": "↑ ↓ 選択 · Enter 実行 · Esc 閉じる",
     "recent": "最近使ったコマンドを優先 · ↑ ↓ 選択 · Enter 実行 · Esc 閉じる",
-    "search": "コマンドを検索…"
+    "search": "コマンドを検索…",
+    "selectAtMostPhotos": "写真は最大{{max}}枚まで選択してください",
+    "selectFourPhotos": "写真を4枚以上選択してください",
+    "selectTwoPhotos": "写真を2枚以上選択してください"
   },
   "contextMenus": {
     "album": {
@@ -1512,7 +1517,7 @@
     },
     "general": {
       "autoAdvance": "自動送り",
-      "autoAdvanceDesc": "現像で、レーティング・採用・不採用・フラグ解除のキーを押すと次の写真に進むため、選別は写真ごとに 1 キーで済みます。",
+      "autoAdvanceDesc": "評価やフラグの後、表示中の写真またはグリッドで1枚選択した写真から次へ進みます。Caps Lockまたは写真メニューで切り替えます。",
       "builtinPresets": "内蔵プリセット",
       "builtinPresetsDesc": "Rawtonic 独自のスタイルとプリセットを「スタイルとプリセット」とツールのプリセットメニューに表示します。",
       "createXmp": "見つからないXMPファイルを作成",
@@ -1528,7 +1533,7 @@
       "nativeTitlebar": "OS標準のタイトルバー",
       "nativeTitlebarDesc": "Rawtonicカスタムのもの代わりに、システムのデフォルトのウィンドウタイトルバーを使用します。",
       "proofMargin": "プルーフマージン",
-      "proofMarginDesc": "プルーフマージンがオンのとき（X）、全体表示の写真の周りに空ける余白。ビューアの短辺に対する割合。",
+      "proofMarginDesc": "プルーフマージンがオンのとき（Alt+X）、全体表示の写真の周りに空ける余白。ビューアの短辺に対する割合。",
       "showBuiltinPresets": "内蔵プリセットを表示",
       "title": "全般設定",
       "uiScale": "インターフェイスのサイズ",
@@ -2162,7 +2167,8 @@
         "channel": "カーブのチャンネル",
         "input": "入力",
         "maxPoints": "チャンネルごとに最大 {{max}} ポイントです。ポイントを移動または削除してカーブを調整してください。",
-        "output": "出力"
+        "output": "出力",
+        "point": "ポイント{{index}}、入力{{input}}、出力{{output}}。矢印キーで移動、Aで追加、Deleteで削除。"
       },
       "effects": {
         "grainColor": "粒子の色",
@@ -2557,11 +2563,14 @@
           "minutes": "残り約 {{minutes}} 分",
           "seconds": "残り約 {{seconds}} 秒"
         },
+        "exportedTo": "書き出し先:",
         "failed": "{{total}} 枚中 {{failed}} 枚が失敗",
         "failures": "書き出されなかった写真",
+        "fullResolution": "フル解像度",
         "held": "キューは停止中です。キューを開始すると待機中の書き出しが始まります。",
         "holdQueue": "キューを停止",
         "interrupted": "中断（{{total}} 枚中 {{done}} 枚書き出し済み）",
+        "originalFolder": "元のフォルダー",
         "pause": "一時停止",
         "paused": "一時停止中（{{total}} 枚中 {{done}} 枚書き出し済み）",
         "pausing": "処理中の写真の後で一時停止します…",
@@ -3753,6 +3762,7 @@
       "whiteBalanceTo": "ホワイトバランス {{to}} K"
     },
     "spot": {
+      "start": "スポット修正を開始",
       "withShortcut": "{{text}}（{{key}}）"
     },
     "tone": {

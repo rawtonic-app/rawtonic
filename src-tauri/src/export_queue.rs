@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::HashSet,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -65,6 +65,8 @@ const KEEP_DONE: usize = 20;
 #[serde(rename_all = "camelCase")]
 pub struct ExportRequest {
     pub paths: Vec<String>,
+    #[serde(default)]
+    pub display_label: Option<String>,
     pub output_folder_or_file: String,
     pub is_explicit_file_path: bool,
     pub base_origin_folders: Vec<String>,
@@ -327,7 +329,7 @@ pub fn open(app: &AppHandle) {
 fn label_for(request: &ExportRequest) -> String {
     let n = request.paths.len();
     let format = request.output_format.to_uppercase();
-    if n == 1 {
+    let source = if n == 1 {
         let name = request.paths[0]
             .split("?vc=")
             .next()
@@ -337,6 +339,10 @@ fn label_for(request: &ExportRequest) -> String {
         format!("{name} as {format}")
     } else {
         format!("{n} photos as {format}")
+    };
+    match &request.display_label {
+        Some(label) if !label.is_empty() => label.clone(),
+        _ => source,
     }
 }
 
@@ -624,6 +630,29 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
         };
         with_queue(|q| q.finish(&tracking.job, end));
     }
+    // Report only outputs written in this run, including a partially successful
+    // run; resumed jobs must not announce their earlier outputs again.
+    let outputs: Vec<_> = trackings
+        .iter()
+        .flat_map(|(_, tracking)| {
+            new_outputs(
+                with_queue(|q| q.items(&tracking.job)).unwrap_or_default(),
+                &tracking.pending,
+            )
+        })
+        .collect();
+    if !outputs.is_empty() {
+        let _ = app.emit("export-outputs-written", outputs);
+    }
+}
+
+/// Only successful items admitted in this run are newly written outputs.
+fn new_outputs(items: Vec<Item>, pending: &HashSet<usize>) -> Vec<PathBuf> {
+    items
+        .into_iter()
+        .filter(|item| pending.contains(&item.index) && item.state == ItemState::Done)
+        .filter_map(|item| item.output)
+        .collect()
 }
 
 #[tauri::command]
@@ -679,6 +708,29 @@ mod tests {
                 })
                 .collect(),
         ))
+    }
+
+    #[test]
+    fn output_notification_excludes_earlier_and_failed_items() {
+        let item = |index, state, output: Option<&str>| Item {
+            index,
+            path: format!("{index}.raw"),
+            state,
+            output: output.map(PathBuf::from),
+            error: None,
+            attempts: 1,
+            started_ms: None,
+            finished_ms: None,
+        };
+        let items = vec![
+            item(0, ItemState::Done, Some("old.jpg")),
+            item(1, ItemState::Done, Some("new.jpg")),
+            item(2, ItemState::Failed, Some("failed.jpg")),
+        ];
+        assert_eq!(
+            new_outputs(items, &HashSet::from([1, 2])),
+            vec![PathBuf::from("new.jpg")]
+        );
     }
 
     #[test]

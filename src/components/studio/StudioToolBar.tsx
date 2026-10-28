@@ -58,7 +58,7 @@ export default function StudioToolBar() {
           key={tool}
           aria-label={t(`studio.tools.bar.${tool}.label`)}
           title={withKey(
-            ["linear", "radial", "brush", "erase"].includes(tool)
+            ["linear", "radial", "brush", "erase", "spot"].includes(tool)
               ? t("studio.tools.bar.rightClickHint", {
                   hint: t(`studio.tools.bar.${tool}.title`),
                 })

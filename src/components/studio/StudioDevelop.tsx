@@ -17,7 +17,7 @@ import {
   Crosshair,
   ScanFace,
 } from "lucide-react";
-import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
+import { debouncedSetHistory, panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useUIStore } from "../../store/useUIStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
@@ -74,6 +74,7 @@ import StudioPresets from "./StudioPresets";
 import StudioLensCorrection from "./StudioLensCorrection";
 import StudioUpright from "./StudioUpright";
 import StudioFaceRetouch from "./StudioFaceRetouch";
+import { StudioSpotPanel, resetSpotSettings } from "./StudioSpotControls";
 import StudioToolCopy, { type ToolParams } from "./StudioToolCopy";
 import StudioToolPresets from "./StudioToolPresets";
 import { PRESET_TOOLS } from "./toolPresets";
@@ -95,6 +96,7 @@ import {
   isNeutralRegionCurve,
   regionCurveValue,
 } from "../../utils/regionCurve";
+import { curvePointerPosition } from "../../utils/curvePointer";
 import { selectOnFocus } from "../../utils/selectOnFocus";
 
 export function ToolGroup({
@@ -216,7 +218,7 @@ const RegionCurveLine = memo(function RegionCurveLine({ region }: { region: Regi
   );
 });
 
-function PointCurve({
+export function PointCurve({
   curves,
   region,
   onChange,
@@ -253,6 +255,7 @@ function PointCurve({
   const send = useDragSend((next: Coord[]) =>
     onChange({ ...curves, [channel]: next }),
   );
+  const svgRef = useRef<SVGSVGElement>(null);
   const dragging = useRef(false);
   const interaction = useRef(onInteraction);
   interaction.current = onInteraction;
@@ -280,17 +283,22 @@ function PointCurve({
     }).join(" ");
   }, [channel, points, wholeCurves]);
   const position = (event: React.PointerEvent<SVGSVGElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return {
-      x: Math.max(
-        0,
-        Math.min(255, ((event.clientX - rect.left) / rect.width) * 255),
-      ),
-      y: Math.max(
-        0,
-        Math.min(255, 255 - ((event.clientY - rect.top) / rect.height) * 255),
-      ),
-    };
+    const matrix = event.currentTarget.getScreenCTM();
+    return matrix
+      ? curvePointerPosition(event.clientX, event.clientY, matrix.inverse())
+      : null;
+  };
+  const keyboardChange = (next: Coord[]) => {
+    debouncedSetHistory.flush();
+    onChange({ ...curves, [channel]: next });
+    debouncedSetHistory.flush();
+  };
+  const focusPoint = (index: number) => {
+    requestAnimationFrame(() =>
+      svgRef.current
+        ?.querySelector<SVGElement>(`[data-curve-point="${index}"]`)
+        ?.focus(),
+    );
   };
   return (
     <div className="studio-curve">
@@ -320,14 +328,16 @@ function PointCurve({
         ))}
       </div>
       <svg
+        ref={svgRef}
         viewBox="0 0 255 255"
-        role="img"
+        role="group"
         aria-label={t("studio.develop.curve.aria", {
           channel: t(`studio.develop.curve.ariaChannels.${channel}`),
         })}
         onPointerDown={(e) => {
           if (disabled || e.button !== 0) return;
           const p = position(e);
+          if (!p) return;
           const nearest = points.findIndex(
             (q) =>
               Math.hypot(q.x - p.x, q.y - p.y) < 14 || Math.abs(q.x - p.x) < 1,
@@ -345,6 +355,7 @@ function PointCurve({
           if (disabled || !dragging.current || !e.buttons || selected === null)
             return;
           const p = position(e);
+          if (!p) return;
           const points = latest.current;
           const next = points.map((q, i) =>
             i === selected
@@ -394,6 +405,61 @@ function PointCurve({
             cy={255 - p.y}
             r={selected === i ? 4.5 : 3}
             className="curve-point"
+            data-curve-point={i}
+            tabIndex={disabled ? -1 : 0}
+            role="button"
+            aria-label={t("studio.develop.curve.point", {
+              index: i + 1,
+              input: Math.round(p.x),
+              output: Math.round(p.y),
+            })}
+            onFocus={() => setSelected(i)}
+            onKeyDown={(e) => {
+              if (disabled || e.metaKey || e.ctrlKey || e.altKey) return;
+              if (e.key === "Delete" || e.key === "Backspace") {
+                e.preventDefault();
+                if (i === 0 || i === points.length - 1) return;
+                keyboardChange(points.filter((_, n) => n !== i));
+                setSelected(i - 1);
+                focusPoint(i - 1);
+              } else if (e.key.toLowerCase() === "a") {
+                e.preventDefault();
+                if (points.length >= MAX_CURVE_POINTS) return;
+                const left = i === points.length - 1 ? i - 1 : i;
+                const x = (points[left].x + points[left + 1].x) / 2;
+                if (x - points[left].x < 1 || points[left + 1].x - x < 1)
+                  return;
+                const curve =
+                  channel === "luminance"
+                    ? renderedLuminancePoints(points)
+                    : renderedPoints(points, wholeCurves);
+                const next = [...points];
+                next.splice(left + 1, 0, { x, y: pointCurveValue(curve, x) });
+                keyboardChange(next);
+                setSelected(left + 1);
+                focusPoint(left + 1);
+              } else if (
+                ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(
+                  e.key,
+                )
+              ) {
+                e.preventDefault();
+                const dx =
+                  e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0;
+                const dy =
+                  e.key === "ArrowDown" ? -1 : e.key === "ArrowUp" ? 1 : 0;
+                const x =
+                  i === 0 || i === points.length - 1
+                    ? p.x
+                    : Math.max(
+                        points[i - 1].x + 1,
+                        Math.min(points[i + 1].x - 1, p.x + dx),
+                      );
+                const y = Math.max(0, Math.min(255, p.y + dy));
+                if (x !== p.x || y !== p.y)
+                  keyboardChange(points.map((q, n) => (n === i ? { x, y } : q)));
+              }
+            }}
             onDoubleClick={(e) => {
               e.stopPropagation();
               if (!disabled && i > 0 && i < points.length - 1) {
@@ -407,6 +473,13 @@ function PointCurve({
           />
         ))}
       </svg>
+      <span className="sr-only" aria-live="polite" aria-atomic="true">
+        {selected !== null && points[selected] && t("studio.develop.curve.point", {
+          index: selected + 1,
+          input: Math.round(points[selected].x),
+          output: Math.round(points[selected].y),
+        })}
+      </span>
       {selected !== null && points[selected] && (
         <div className="curve-coordinate">
           <label>
@@ -549,6 +622,35 @@ export default function StudioDevelop() {
         current === "geometry" || current === "layers" ? "all" : current,
       );
   }, [activePanel]);
+  // Lightroom opens the Remove tool's panel with the tool: the spot tool
+  // opens the Retouch tab, which holds its settings, and ending it returns
+  // to the tab it was started from unless another tab was chosen meanwhile.
+  // The tool ends cropping and layer editing, so from Crop or Layers it
+  // returns to Adjust, as the panel change above does.
+  const isSpotToolActive = useEditorStore((s) => s.isSpotToolActive);
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+  const tabBeforeSpot = useRef<string | null>(null);
+  useEffect(() => {
+    if (isSpotToolActive) {
+      const current = tabRef.current;
+      if (current !== "retouch")
+        tabBeforeSpot.current = current === "geometry" || current === "layers" ? "all" : current;
+      setTab("retouch");
+      return;
+    }
+    const before = tabBeforeSpot.current;
+    tabBeforeSpot.current = null;
+    if (before) setTab((current) => (current === "retouch" ? before : current));
+  }, [isSpotToolActive]);
+  // A layer's mask overlay belongs to the tabs that edit masks (Adjust,
+  // Layers), as Lightroom shows it only in the Masking panel: elsewhere it
+  // shows only while a mask is drawn.
+  const maskTab = tab === "all" || tab === "layers";
+  useEffect(() => {
+    setEditor({ maskOverlayOutsideMaskTab: !maskTab });
+  }, [maskTab, setEditor]);
+  useEffect(() => () => setEditor({ maskOverlayOutsideMaskTab: false }), [setEditor]);
   const [hsl, setHsl] = useState("reds");
   // Targeted Adjustment Tool (Lightroom's TAT): one target at a time; the
   // colour mixer follows the channel a drag acts on most.
@@ -691,6 +793,7 @@ export default function StudioDevelop() {
   // target in every tab but Crop (as Capture One's layer selector does);
   // tools the layer cannot take are hidden there.
   const selectTab = (next: string) => {
+    tabBeforeSpot.current = null;
     setTab(next);
     const keepLayer = !!layer && next !== "geometry";
     useUIStore
@@ -863,6 +966,10 @@ export default function StudioDevelop() {
               key="layers"
               title="Layers & masks"
               label={t("studio.develop.groups.layersMasks")}
+              // In Adjust an empty list starts folded, so White balance and
+              // Exposure are in view on a laptop (Lightroom keeps masking
+              // out of the Basic panel); a photo with layers opens it.
+              open={tab === "layers" || adjustments.masks.length > 0}
               actions={
                 <>
                   <button
@@ -1418,6 +1525,17 @@ export default function StudioDevelop() {
                 ["colorCalibration", t("studio.develop.params.calibration")],
               ])}
             />
+          )}
+          {tab === "retouch" && !layer && selectedImage && (
+            <ToolGroup
+              key="spotRemoval"
+              title="Spot removal"
+              label={t("studio.tools.bar.spot.label")}
+              open
+              onReset={resetSpotSettings}
+            >
+              <StudioSpotPanel />
+            </ToolGroup>
           )}
           {tab === "retouch" && !layer && (
             // Capture One's Retouch Faces (Skin): per face or all faces.

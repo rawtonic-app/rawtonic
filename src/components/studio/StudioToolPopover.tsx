@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import StudioLayerControls from "./StudioLayerControls";
 import StudioCropControls from "./StudioCropControls";
-import StudioSpotControls from "./StudioSpotControls";
+import StudioSpotControls, { resetSpotSettings } from "./StudioSpotControls";
 import { RotateCcw } from "lucide-react";
 import { useStudioTools, type StudioTool } from "./useStudioTools";
 import { useEditorStore } from "../../store/useEditorStore";
@@ -147,10 +147,7 @@ export default function StudioToolPopover({
     if (tools.activeTool === "spot")
       return {
         label: t("studio.tools.popover.resetSpot"),
-        run: () =>
-          useEditorStore.getState().setEditor({
-            spotSettings: { mode: "heal", size: 60, feather: 0, opacity: 100 },
-          }),
+        run: resetSpotSettings,
       };
     const layerId = tools.layer?.id;
     const radialId = tools.radialMask?.id;

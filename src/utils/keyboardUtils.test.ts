@@ -4,13 +4,18 @@ import { KEYBIND_DEFINITIONS, buildComboMap, conflictingActions, shortcutHint } 
 describe('keybinds', () => {
   it.each([
     ['view_grid', ['KeyG']], ['view_loupe', ['KeyE']], ['view_develop', ['KeyD']],
-    ['flag_pick', ['KeyP']], ['flag_unflag', ['KeyU']], ['flag_reject', ['shift', 'KeyX']],
+    ['flag_pick', ['KeyP']], ['flag_unflag', ['KeyU']], ['flag_reject', ['KeyX']],
   ])('binds and rebinds %s through the shared table', (action, combo) => {
     expect(buildComboMap(null).get(combo.join('+'))).toContain(action);
     const rebound = buildComboMap({ [action as string]: ['ctrl', 'KeyF12'] });
     expect(rebound.get(combo.join('+')) ?? []).not.toContain(action);
     expect(rebound.get('ctrl+KeyF12')).toContain(action);
     expect(buildComboMap({ [action as string]: [] }).get(combo.join('+')) ?? []).not.toContain(action);
+  });
+  it('binds the culling keys and keeps earlier aliases', () => {
+    const map = buildComboMap(null);
+    for (const [key, action] of Object.entries({ KeyP: 'flag_pick', KeyX: 'flag_reject', 'shift+KeyX': 'flag_reject', KeyU: 'flag_unflag', Digit6: 'color_label_red', Digit7: 'color_label_yellow', Digit8: 'color_label_green', Digit9: 'color_label_blue', 'shift+Digit5': 'color_label_purple', CapsLock: 'toggle_auto_advance', 'alt+KeyX': 'toggle_proof_margin' })) expect(map.get(key)).toEqual([action]);
+    for (let n = 0; n <= 5; n++) expect(map.get(`Digit${n}`)).toEqual([`rate_${n}`]);
   });
   it('bind Capture One keys with Lightroom aliases', () => {
     const map = buildComboMap(null);

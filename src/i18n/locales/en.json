@@ -139,6 +139,7 @@
       "flag_unflag": "Unflag",
       "import_photos": "Import Photos…",
       "keyboard_shortcuts": "Keyboard Shortcuts",
+      "match_light": "Match Light…",
       "move_to_selects": "Move to Selects",
       "new_session": "New Project or Catalog…",
       "open_session": "Open Project or Catalog…",
@@ -161,6 +162,7 @@
       "sync_settings": "Sync Settings",
       "tether_capture": "Capture (Tethered Camera)",
       "toggle_all_panels": "All Panels and Bars",
+      "toggle_auto_advance": "Auto-advance",
       "toggle_bottom_panel": "Filmstrip",
       "toggle_clipping": "Clipping Warnings",
       "toggle_export": "Export…",
@@ -221,7 +223,10 @@
     "empty": "No matching commands. Try another search.",
     "keys": "↑ ↓ Select · Enter Run · Esc Close",
     "recent": "Recent commands first · ↑ ↓ Select · Enter Run · Esc Close",
-    "search": "Search commands…"
+    "search": "Search commands…",
+    "selectAtMostPhotos": "Select at most {{max}} photographs",
+    "selectFourPhotos": "Select at least four photographs",
+    "selectTwoPhotos": "Select at least two photographs"
   },
   "contextMenus": {
     "album": {
@@ -1550,7 +1555,7 @@
     },
     "general": {
       "autoAdvance": "Auto-advance",
-      "autoAdvanceDesc": "In Develop, a rating, pick, reject or unflag key moves on to the next photograph, so culling takes one key per photograph.",
+      "autoAdvanceDesc": "Rating or flagging advances from the photograph shown, or from a single grid selection. Toggle with Caps Lock or the Photo menu.",
       "builtinPresets": "Built-in presets",
       "builtinPresetsDesc": "Show Rawtonic's own styles and presets in Styles & presets and in the tools' preset menus.",
       "createXmp": "Create Missing XMP Files",
@@ -1566,7 +1571,7 @@
       "nativeTitlebar": "Native Titlebar",
       "nativeTitlebarDesc": "Use your system's default window titlebar instead of the app's own one.",
       "proofMargin": "Proof margin",
-      "proofMarginDesc": "Margin around the fitted photograph when the proof margin is on (X), as a share of the viewer's shorter side.",
+      "proofMarginDesc": "Margin around the fitted photograph when the proof margin is on (Alt+X), as a share of the viewer's shorter side.",
       "showBuiltinPresets": "Show built-in presets",
       "title": "General Settings",
       "uiScale": "Interface size",
@@ -2189,7 +2194,7 @@
         }
       },
       "curve": {
-        "aria": "{{channel}} point curve. Click to add a point; drag to adjust; double-click a point to remove it.",
+        "aria": "{{channel}} point curve. Click to add a point; drag to adjust; double-click a point to remove it. Focus a point for keyboard controls.",
         "ariaChannels": {
           "blue": "blue",
           "green": "green",
@@ -2200,7 +2205,8 @@
         "channel": "Curve channel",
         "input": "Input",
         "maxPoints": "Maximum {{max}} points per channel. Move or remove a point to refine the curve.",
-        "output": "Output"
+        "output": "Output",
+        "point": "Point {{index}}, input {{input}}, output {{output}}. Arrow keys move; A adds a point; Delete removes."
       },
       "effects": {
         "grainColor": "Grain colour",
@@ -2598,11 +2604,14 @@
           "minutes": "about {{minutes}} min left",
           "seconds": "about {{seconds}} s left"
         },
+        "exportedTo": "Exported to:",
         "failed": "{{failed}} of {{total}} failed",
         "failures": "Photos that did not export",
+        "fullResolution": "Full resolution",
         "held": "The queue is held: waiting exports start when you start the queue.",
         "holdQueue": "Hold queue",
         "interrupted": "Interrupted ({{done}} of {{total}} exported)",
+        "originalFolder": "Original folder",
         "pause": "Pause",
         "paused": "Paused ({{done}} of {{total}} exported)",
         "pausing": "Pausing after the photos in progress…",
@@ -3833,6 +3842,7 @@
       "whiteBalanceTo": "White balance {{to}} K"
     },
     "spot": {
+      "start": "Start spot removal",
       "withShortcut": "{{text}} ({{key}})"
     },
     "tone": {

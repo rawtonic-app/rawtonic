@@ -468,7 +468,7 @@ export interface AppSettings {
   editorNeutralGreyBg?: boolean;
   /** Develop viewer background around the photograph (utils/viewerDisplay). */
   viewerBackground?: string;
-  /** Develop viewer: fit leaves a proof margin around the photograph (X). */
+  /** Develop viewer: fit leaves a proof margin around the photograph (Alt+X). */
   viewerProofMargin?: boolean;
   /** Proof margin size in % of the viewer's shorter side. */
   viewerProofMarginPercent?: number;

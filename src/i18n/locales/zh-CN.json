@@ -139,6 +139,7 @@
       "flag_unflag": "取消旗标",
       "import_photos": "导入照片…",
       "keyboard_shortcuts": "键盘快捷键",
+      "match_light": "统一光线…",
       "move_to_selects": "移到精选",
       "new_session": "新建项目或图库…",
       "open_session": "打开项目或图库…",
@@ -161,6 +162,7 @@
       "sync_settings": "同步设置",
       "tether_capture": "拍摄（联机相机）",
       "toggle_all_panels": "所有面板和栏",
+      "toggle_auto_advance": "自动前进",
       "toggle_bottom_panel": "胶片栏",
       "toggle_clipping": "剪切警告",
       "toggle_export": "导出…",
@@ -221,7 +223,10 @@
     "empty": "没有匹配的命令。请尝试其他搜索词。",
     "keys": "↑ ↓ 选择 · Enter 执行 · Esc 关闭",
     "recent": "最近使用的命令优先 · ↑ ↓ 选择 · Enter 执行 · Esc 关闭",
-    "search": "搜索命令…"
+    "search": "搜索命令…",
+    "selectAtMostPhotos": "最多选择 {{max}} 张照片",
+    "selectFourPhotos": "请至少选择四张照片",
+    "selectTwoPhotos": "请至少选择两张照片"
   },
   "contextMenus": {
     "album": {
@@ -1512,7 +1517,7 @@
     },
     "general": {
       "autoAdvance": "自动前进",
-      "autoAdvanceDesc": "在冲印中，按评级、选中、排除或取消标记键后会转到下一张照片，筛选时每张照片只需按一个键。",
+      "autoAdvanceDesc": "评分或标记后，从当前显示的照片或网格中单独选中的照片前进。使用 Caps Lock 或照片菜单切换。",
       "builtinPresets": "内置预设",
       "builtinPresetsDesc": "在“样式与预设”和工具的预设菜单中显示 Rawtonic 自有的样式和预设。",
       "createXmp": "创建缺失的 XMP 文件",
@@ -1528,7 +1533,7 @@
       "nativeTitlebar": "原生标题栏",
       "nativeTitlebarDesc": "使用系统默认的窗口标题栏，而非 Rawtonic 的自定义标题栏。",
       "proofMargin": "校样边距",
-      "proofMarginDesc": "开启校样边距（X）时适合窗口的照片周围的边距，占查看器较短边的比例。",
+      "proofMarginDesc": "开启校样边距（Alt+X）时适合窗口的照片周围的边距，占查看器较短边的比例。",
       "showBuiltinPresets": "显示内置预设",
       "title": "通用设置",
       "uiScale": "界面大小",
@@ -2162,7 +2167,8 @@
         "channel": "曲线通道",
         "input": "输入",
         "maxPoints": "每个通道最多 {{max}} 个点。移动或删除点以细调曲线。",
-        "output": "输出"
+        "output": "输出",
+        "point": "点 {{index}}，输入 {{input}}，输出 {{output}}。方向键移动，A 添加点，Delete 删除。"
       },
       "effects": {
         "grainColor": "颗粒颜色",
@@ -2557,11 +2563,14 @@
           "minutes": "约剩 {{minutes}} 分钟",
           "seconds": "约剩 {{seconds}} 秒"
         },
+        "exportedTo": "导出到：",
         "failed": "{{failed}}/{{total}} 失败",
         "failures": "未导出的照片",
+        "fullResolution": "完整分辨率",
         "held": "队列已暂停：启动队列后，等待中的导出才会开始。",
         "holdQueue": "暂停队列",
         "interrupted": "已中断（已导出 {{done}}/{{total}}）",
+        "originalFolder": "原始文件夹",
         "pause": "暂停",
         "paused": "已暂停（已导出 {{done}} / {{total}}）",
         "pausing": "将在当前照片完成后暂停…",
@@ -3753,6 +3762,7 @@
       "whiteBalanceTo": "白平衡 {{to}} K"
     },
     "spot": {
+      "start": "开始污点去除",
       "withShortcut": "{{text}}（{{key}}）"
     },
     "tone": {

@@ -6,7 +6,7 @@ import { shortcutHint } from "../../utils/keyboardUtils";
 import { captureInfoParts } from "../../utils/captureInfo";
 import { fitZoomValue, zoomPresetsAboveFit } from "../../utils/viewerDisplay";
 
-/** Capture One's proof margin: fit leaves a margin around the photograph (X). */
+/** Capture One's proof margin: fit leaves a margin around the photograph (Alt+X). */
 export function ProofMarginButton() {
   const { t } = useTranslation();
   const appSettings = useSettingsStore((s) => s.appSettings);
