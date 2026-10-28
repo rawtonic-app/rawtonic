@@ -2140,7 +2140,8 @@
         "channel": "커브 채널",
         "input": "입력",
         "maxPoints": "채널당 최대 {{max}}개의 점을 사용할 수 있습니다. 점을 이동하거나 제거하여 커브를 다듬으세요.",
-        "output": "출력"
+        "output": "출력",
+        "point": "점 {{index}}, 입력 {{input}}, 출력 {{output}}. 화살표 키로 이동하고 A로 추가, Delete로 삭제합니다."
       },
       "effects": {
         "grainColor": "그레인 색상",

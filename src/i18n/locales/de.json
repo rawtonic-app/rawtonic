@@ -2167,7 +2167,7 @@
         }
       },
       "curve": {
-        "aria": "Punktkurve {{channel}}. Klicken fügt einen Punkt hinzu, Ziehen passt an, ein Doppelklick auf einen Punkt entfernt ihn.",
+        "aria": "{{channel}}-Punktkurve. Klicke, um einen Punkt hinzuzufügen; ziehe zum Anpassen; doppelklicke zum Entfernen. Fokussiere einen Punkt für die Tastatursteuerung.",
         "ariaChannels": {
           "blue": "Blau",
           "green": "Grün",
@@ -2178,7 +2178,8 @@
         "channel": "Kurvenkanal",
         "input": "Eingabe",
         "maxPoints": "Höchstens {{max}} Punkte pro Kanal. Verschieben oder entfernen Sie einen Punkt, um die Kurve zu verfeinern.",
-        "output": "Ausgabe"
+        "output": "Ausgabe",
+        "point": "Punkt {{index}}, Eingabe {{input}}, Ausgabe {{output}}. Pfeiltasten verschieben; A fügt einen Punkt hinzu; Entf entfernt ihn."
       },
       "effects": {
         "grainColor": "Kornfarbe",

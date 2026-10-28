@@ -2140,7 +2140,8 @@
         "channel": "カーブのチャンネル",
         "input": "入力",
         "maxPoints": "チャンネルごとに最大 {{max}} ポイントです。ポイントを移動または削除してカーブを調整してください。",
-        "output": "出力"
+        "output": "出力",
+        "point": "ポイント{{index}}、入力{{input}}、出力{{output}}。矢印キーで移動、Aで追加、Deleteで削除。"
       },
       "effects": {
         "grainColor": "粒子の色",

@@ -2239,7 +2239,8 @@
         "channel": "Canal de la curva",
         "input": "Entrada",
         "maxPoints": "Máximo {{max}} puntos por canal. Mueve o quita un punto para afinar la curva.",
-        "output": "Salida"
+        "output": "Salida",
+        "point": "Punto {{index}}, entrada {{input}}, salida {{output}}. Las flechas mueven; A añade un punto; Supr lo elimina."
       },
       "effects": {
         "grainColor": "Color del grano",
