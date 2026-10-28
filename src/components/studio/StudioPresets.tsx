@@ -574,7 +574,7 @@ export default function StudioPresets() {
           onKeyDown={(e) => e.stopPropagation()}
         />
       )}
-      {selectionSize > 1 && count > 0 && (
+      {selectionSize > 1 && count + (showBuiltins ? builtinStyles : 0) > 0 && (
         <p className="studio-metadata-note">
           {t("studio.presets.appliesToSelection", { count: selectionSize })}
         </p>

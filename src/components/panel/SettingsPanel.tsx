@@ -430,7 +430,7 @@ export default function SettingsPanel({
       { id: 'storage', label: t('storage.title'), icon: HardDrive },
       { id: 'tethering', label: t('settings.tethering.title'), icon: Camera },
       { id: 'shortcuts', label: t('settings.categories.shortcuts'), icon: Keyboard },
-      { id: 'about', label: 'About', icon: Info },
+      { id: 'about', label: t('settings.categories.about'), icon: Info },
     ],
     [t],
   );
@@ -846,7 +846,7 @@ export default function SettingsPanel({
             <span className="pref-nav-spacer" />
             <button type="button" className="pref-close" onClick={onBack} data-tooltip={t('settings.tooltips.goHome')}>
               <X size={14} />
-              <span>Close</span>
+              <span>{t('session.dialogs.close')}</span>
             </button>
           </nav>
           <div className="pref-content custom-scrollbar">

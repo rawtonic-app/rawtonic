@@ -137,7 +137,7 @@ export default function IngestPreviewGrid({
   }, []);
 
   // Without layout (tests, a hidden dialog) a typical dialog's size.
-  const width = view.width || 360;
+  const width = view.width ? Math.max(0, view.width - 16) : 360;
   const height = view.height || 300;
   const TILE = TILE_SIZES[tileSize];
   const ROW = TILE + NAME + GAP;

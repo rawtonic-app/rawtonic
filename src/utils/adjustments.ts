@@ -1932,6 +1932,8 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
 
 export interface AdjustmentGroup {
   label: string;
+  /** Override the category in the Copy/Sync picker when the panel groups these controls elsewhere. */
+  clipboardSection?: string;
   keys: string[];
 }
 
@@ -1963,7 +1965,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
       label: 'modals.copyPaste.groups.whiteBalance',
       keys: [ColorAdjustment.Temperature, ColorAdjustment.Tint, 'whiteBalance', 'wbTemperature', 'wbTint'],
     },
-    { label: 'modals.copyPaste.groups.presence', keys: [ColorAdjustment.Saturation, ColorAdjustment.Vibrance] },
+    { label: 'modals.copyPaste.groups.presence', clipboardSection: 'basic', keys: [ColorAdjustment.Saturation, ColorAdjustment.Vibrance] },
     {
       label: 'modals.copyPaste.groups.hueShift',
       keys: [ColorAdjustment.Hue],
@@ -1976,6 +1978,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
   details: [
     {
       label: 'modals.copyPaste.groups.clarityDehaze',
+      clipboardSection: 'basic',
       keys: [
         DetailsAdjustment.Clarity,
         DetailsAdjustment.Structure,

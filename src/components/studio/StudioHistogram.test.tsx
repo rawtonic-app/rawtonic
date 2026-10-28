@@ -15,10 +15,10 @@ afterEach(() => {
 
 it("soft-proofs in a chosen colour space with an optional gamut warning", () => {
   render(<StudioHistogram />);
-  expect(screen.queryByLabelText("Proof colour space")).toBeNull();
+  expect(screen.queryByLabelText("Proof color space")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Proof" }));
   expect(useEditorStore.getState().softProof).toBe(true);
-  const space = screen.getByLabelText("Proof colour space") as HTMLSelectElement;
+  const space = screen.getByLabelText("Proof color space") as HTMLSelectElement;
   expect(space.value).toBe("srgb");
   fireEvent.change(space, { target: { value: "adobeRgb" } });
   expect(useEditorStore.getState().softProofSpace).toBe("adobeRgb");
@@ -26,5 +26,5 @@ it("soft-proofs in a chosen colour space with an optional gamut warning", () => 
   expect(useEditorStore.getState().softProofWarning).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Proof" }));
   expect(useEditorStore.getState().softProof).toBe(false);
-  expect(screen.queryByLabelText("Proof colour space")).toBeNull();
+  expect(screen.queryByLabelText("Proof color space")).toBeNull();
 });

@@ -233,7 +233,7 @@ it("moves the Library controls into the header only when the scaled width fits",
   searchBounds.mockRestore();
   search.setSelectionRange(2, 4);
   expect(screen.getByRole("button", { name: "Picked 12" })).toBeTruthy();
-  expect(screen.getByRole("combobox", { name: "Sort photographs" })).toBeTruthy();
+  expect(screen.getByRole("combobox", { name: "Sort photos" })).toBeTruthy();
   act(() => {
     Object.defineProperty(window, "innerWidth", { value: 1280, configurable: true });
     window.dispatchEvent(new Event("resize"));

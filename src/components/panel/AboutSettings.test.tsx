@@ -1,3 +1,5 @@
+import "../../i18n";
+import i18n from "i18next";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
@@ -11,10 +13,10 @@ vi.mock("@tauri-apps/api/core", () => ({
   ),
 }));
 
-import AboutSettings, { SOURCE_URL } from "./AboutSettings";
+import AboutSettings, { CREDITS, SOURCE_URL } from "./AboutSettings";
 
 describe("AboutSettings", () => {
-  afterEach(cleanup);
+  afterEach(() => { cleanup(); void i18n.changeLanguage("en"); });
 
   it("shows the notices the licenses require", async () => {
     render(<AboutSettings />);
@@ -31,6 +33,23 @@ describe("AboutSettings", () => {
     expect(screen.getByText("RapidRAW")).toBeTruthy();
     expect(screen.getByText("MI-GAN")).toBeTruthy();
     expect(screen.getByText("Moebius")).toBeTruthy();
+  });
+
+  it("has a description for every credit in both languages", () => {
+    const english = i18n.t("settings.about.creditDescriptions", { returnObjects: true, lng: "en" });
+    const german = i18n.t("settings.about.creditDescriptions", { returnObjects: true, lng: "de" });
+    expect(english).toEqual(Object.fromEntries(CREDITS.map((credit) => [credit.name, credit.what])));
+    expect(Object.keys(german)).toEqual(expect.arrayContaining(CREDITS.map((credit) => credit.name)));
+  });
+
+  it("explains optional network use in English and German", async () => {
+    render(<AboutSettings />);
+    expect(screen.getByText(/anonymous usage statistics/i)).toBeTruthy();
+    expect(screen.getByText(/review what will be sent/i)).toBeTruthy();
+    await i18n.changeLanguage("de");
+    expect(await screen.findByText(/anonyme Nutzungsstatistiken/i)).toBeTruthy();
+    expect(screen.getByText(/erst nach deiner Prüfung/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Lizenztexte anzeigen" })).toBeTruthy();
   });
 
   it("shows the bundled third-party license texts on request", async () => {

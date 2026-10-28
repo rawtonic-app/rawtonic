@@ -77,6 +77,15 @@ beforeEach(() => {
 });
 
 describe("Session workspace keyboard flows", () => {
+  it("suggests today's local date in the project name", async () => {
+    const user = userEvent.setup();
+    render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
+    await user.click(screen.getByRole("button", { name: "Create a project" }));
+    const now = new Date();
+    const date = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-");
+    expect((screen.getByLabelText("Project name") as HTMLInputElement).placeholder).toBe(`${date}_Client_Job`);
+  });
+
   it("keeps the chosen tools side visible after opening and cancelling a form", async () => {
     const user = userEvent.setup();
     render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
@@ -484,7 +493,7 @@ it("previews and imports a Lightroom catalog into the open catalog", async () =>
   await user.click(await screen.findByRole("menuitem", { name: /Import from Lightroom/ }));
   await user.type(screen.getByLabelText("Library to import"), "/LR/Catalog.lrcat");
   await user.click(screen.getByRole("button", { name: "Check" }));
-  expect(await screen.findByText(/12 photographs, 5 with edits, 2 albums/)).toBeTruthy();
+  expect(await screen.findByText(/12 photos, 5 with edits, 2 albums/)).toBeTruthy();
   await user.type(screen.getByLabelText("New location of /Volumes/Old/2026"), "/Volumes/New/2026");
   await user.click(screen.getByRole("button", { name: /Import into Acme/ }));
   await waitFor(() =>
@@ -495,7 +504,7 @@ it("previews and imports a Lightroom catalog into the open catalog", async () =>
     }),
   );
   expect(toast.success).toHaveBeenCalledWith(
-    expect.stringContaining("12 photographs imported (5 with edits, 2 albums)"),
+    expect.stringContaining("12 photos imported (5 with edits, 2 albums)"),
     expect.anything(),
   );
 });

@@ -100,7 +100,7 @@ sysinfo = "0.39.6"
 
 [target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = "2.5.4"
-reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "rustls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 
 # The system Trash through `trash` on Windows and Linux; macOS uses
 # NSFileManager directly (file_operations.rs).
