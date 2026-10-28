@@ -3913,6 +3913,7 @@
       "whiteBalanceTo": "Balanço de brancos {{to}} K"
     },
     "spot": {
+      "start": "Iniciar remoção de manchas",
       "withShortcut": "{{text}} ({{key}})"
     },
     "tone": {

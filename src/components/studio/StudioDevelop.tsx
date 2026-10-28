@@ -53,6 +53,7 @@ import {
   maskColorOf,
   maskDisplayOf,
   maskOpacityOf,
+  type MaskOverlayAuto,
 } from "../../utils/maskDisplay";
 import AdjustmentControl from "./AdjustmentControl";
 import StudioCameraProfile from "./StudioCameraProfile";
@@ -74,6 +75,7 @@ import StudioPresets from "./StudioPresets";
 import StudioLensCorrection from "./StudioLensCorrection";
 import StudioUpright from "./StudioUpright";
 import StudioFaceRetouch from "./StudioFaceRetouch";
+import { StudioSpotPanel, resetSpotSettings } from "./StudioSpotControls";
 import StudioToolCopy, { type ToolParams } from "./StudioToolCopy";
 import StudioToolPresets from "./StudioToolPresets";
 import { PRESET_TOOLS } from "./toolPresets";
@@ -549,6 +551,41 @@ export default function StudioDevelop() {
         current === "geometry" || current === "layers" ? "all" : current,
       );
   }, [activePanel]);
+  // Lightroom opens the Remove tool's panel with the tool: the spot tool
+  // opens the Retouch tab, which holds its settings, and ending it returns
+  // to the tab it was started from unless another tab was chosen meanwhile.
+  const isSpotToolActive = useEditorStore((s) => s.isSpotToolActive);
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+  const tabBeforeSpot = useRef<string | null>(null);
+  useEffect(() => {
+    if (isSpotToolActive) {
+      if (tabRef.current !== "retouch") tabBeforeSpot.current = tabRef.current;
+      setTab("retouch");
+      return;
+    }
+    const before = tabBeforeSpot.current;
+    tabBeforeSpot.current = null;
+    if (before) setTab((current) => (current === "retouch" ? before : current));
+  }, [isSpotToolActive]);
+  // A layer's mask overlay belongs to the tabs that edit masks (Adjust,
+  // Layers), as Lightroom shows it only in the Masking panel: elsewhere it
+  // is off as after a layer's first adjustment (painting still shows it),
+  // and back as it was on return.
+  const maskTab = tab === "all" || tab === "layers";
+  const overlayBeforeTab = useRef<MaskOverlayAuto | null>(null);
+  useEffect(() => {
+    const { maskOverlayAuto, setEditor } = useEditorStore.getState();
+    if (!maskTab) {
+      if (maskOverlayAuto === "hidden") return;
+      overlayBeforeTab.current = maskOverlayAuto;
+      setEditor({ maskOverlayAuto: "hidden" });
+      return;
+    }
+    const before = overlayBeforeTab.current;
+    overlayBeforeTab.current = null;
+    if (before && maskOverlayAuto === "hidden") setEditor({ maskOverlayAuto: before });
+  }, [maskTab]);
   const [hsl, setHsl] = useState("reds");
   // Targeted Adjustment Tool (Lightroom's TAT): one target at a time; the
   // colour mixer follows the channel a drag acts on most.
@@ -691,6 +728,7 @@ export default function StudioDevelop() {
   // target in every tab but Crop (as Capture One's layer selector does);
   // tools the layer cannot take are hidden there.
   const selectTab = (next: string) => {
+    tabBeforeSpot.current = null;
     setTab(next);
     const keepLayer = !!layer && next !== "geometry";
     useUIStore
@@ -863,6 +901,10 @@ export default function StudioDevelop() {
               key="layers"
               title="Layers & masks"
               label={t("studio.develop.groups.layersMasks")}
+              // In Adjust an empty list starts folded, so White balance and
+              // Exposure are in view on a laptop (Lightroom keeps masking
+              // out of the Basic panel); a photo with layers opens it.
+              open={tab === "layers" || adjustments.masks.length > 0}
               actions={
                 <>
                   <button
@@ -1418,6 +1460,17 @@ export default function StudioDevelop() {
                 ["colorCalibration", t("studio.develop.params.calibration")],
               ])}
             />
+          )}
+          {tab === "retouch" && !layer && selectedImage && (
+            <ToolGroup
+              key="spotRemoval"
+              title="Spot removal"
+              label={t("studio.tools.bar.spot.label")}
+              open
+              onReset={resetSpotSettings}
+            >
+              <StudioSpotPanel />
+            </ToolGroup>
           )}
           {tab === "retouch" && !layer && (
             // Capture One's Retouch Faces (Skin): per face or all faces.

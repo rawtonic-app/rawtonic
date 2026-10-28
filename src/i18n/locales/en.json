@@ -3806,6 +3806,7 @@
       "whiteBalanceTo": "White balance {{to}} K"
     },
     "spot": {
+      "start": "Start spot removal",
       "withShortcut": "{{text}} ({{key}})"
     },
     "tone": {

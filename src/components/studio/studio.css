@@ -467,7 +467,7 @@
    of the column, scrolling inside beyond that. */
 .studio-develop-dock {
   flex: 0 1 auto;
-  max-height: 40%;
+  max-height: 30%;
   overflow-y: auto;
   border-top: 1px solid var(--studio-line);
 }

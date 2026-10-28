@@ -3913,6 +3913,7 @@
       "whiteBalanceTo": "Balance des blancs {{to}} K"
     },
     "spot": {
+      "start": "Lancer la correction des défauts",
       "withShortcut": "{{text}} ({{key}})"
     },
     "tone": {

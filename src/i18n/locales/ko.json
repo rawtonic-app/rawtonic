@@ -3726,6 +3726,7 @@
       "whiteBalanceTo": "화이트 밸런스 {{to}} K"
     },
     "spot": {
+      "start": "스팟 제거 시작",
       "withShortcut": "{{text}}({{key}})"
     },
     "tone": {

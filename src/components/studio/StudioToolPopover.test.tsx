@@ -5,7 +5,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 const tools = vi.hoisted(() => ({ activeTool: "spot", ready: true, layer: null as unknown }));
 vi.mock("./useStudioTools", () => ({ useStudioTools: () => tools }));
-vi.mock("./StudioSpotControls", () => ({ default: () => null }));
+vi.mock("./StudioSpotControls", () => ({ default: () => null, resetSpotSettings: vi.fn() }));
 vi.mock("./StudioLayerControls", () => ({ default: () => null }));
 
 import StudioToolPopover from "./StudioToolPopover";

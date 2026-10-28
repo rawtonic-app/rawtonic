@@ -3913,6 +3913,7 @@
       "whiteBalanceTo": "Bilanciamento del bianco {{to}} K"
     },
     "spot": {
+      "start": "Avvia rimozione macchie",
       "withShortcut": "{{text}} ({{key}})"
     },
     "tone": {

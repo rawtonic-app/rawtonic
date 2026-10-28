@@ -3726,6 +3726,7 @@
       "whiteBalanceTo": "ホワイトバランス {{to}} K"
     },
     "spot": {
+      "start": "スポット修正を開始",
       "withShortcut": "{{text}}（{{key}}）"
     },
     "tone": {

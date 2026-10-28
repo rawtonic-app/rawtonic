@@ -1480,3 +1480,78 @@ describe("mask display mode hint", () => {
     expect(button.title).toBe("Mask overlay: when and how masks are shown");
   });
 });
+
+describe("spot removal in the Retouch tab (Lightroom's Remove panel)", () => {
+  const tab = (name: string) =>
+    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name }));
+  const pressed = () =>
+    within(screen.getByRole("navigation"))
+      .getAllByRole("button")
+      .find((b) => b.getAttribute("aria-pressed") === "true")?.textContent;
+
+  it("shows the spot settings in the tab and starts the tool from there", () => {
+    mount();
+    tab("Retouch");
+    const group = document.querySelector<HTMLElement>('[data-tool-title="Spot removal"]')!;
+    expect(within(group).getByRole("radiogroup", { name: "Spot mode" })).toBeTruthy();
+    fireEvent.click(within(group).getByRole("radio", { name: "Clone" }));
+    expect(useEditorStore.getState().spotSettings.mode).toBe("clone");
+    fireEvent.click(within(group).getByRole("button", { name: "Start spot removal" }));
+    expect(useEditorStore.getState().isSpotToolActive).toBe(true);
+    expect(within(group).queryByRole("button", { name: "Start spot removal" })).toBeNull();
+    fireEvent.click(within(group).getByRole("button", { name: "Reset Spot removal" }));
+    expect(useEditorStore.getState().spotSettings.mode).toBe("heal");
+  });
+
+  it("opens the Retouch tab with the tool and returns to the tab it came from", () => {
+    mount();
+    tab("Detail");
+    act(() => useEditorStore.setState({ isSpotToolActive: true }));
+    expect(pressed()).toBe("Retouch");
+    expect(document.querySelector('[data-tool-title="Spot removal"]')).toBeTruthy();
+    act(() => useEditorStore.setState({ isSpotToolActive: false }));
+    expect(pressed()).toBe("Detail");
+    // A tab chosen while the tool is on is kept when it ends.
+    act(() => useEditorStore.setState({ isSpotToolActive: true }));
+    tab("Color");
+    act(() => useEditorStore.setState({ isSpotToolActive: false }));
+    expect(pressed()).toBe("Color");
+  });
+});
+
+describe("Develop column on a laptop screen", () => {
+  const isOpen = (title: string) =>
+    document.querySelector<HTMLDetailsElement>(`[data-tool-title="${title}"]`)!.open;
+
+  it("folds empty Layers & masks and Snapshots, so White balance and Exposure lead", () => {
+    mount();
+    expect(isOpen("Layers & masks")).toBe(false);
+    expect(isOpen("Snapshots")).toBe(false);
+    expect(isOpen("White balance")).toBe(true);
+    expect(isOpen("Exposure")).toBe(true);
+    // The Layers tab shows its list open.
+    openLayersTab();
+    expect(isOpen("Layers & masks")).toBe(true);
+  });
+
+  it("opens Layers & masks in Adjust when the photo has layers", () => {
+    const adjustments = structuredClone(INITIAL_ADJUSTMENTS);
+    adjustments.masks = [{ ...structuredClone(INITIAL_MASK_CONTAINER), id: "sky", name: "Sky", subMasks: [] }];
+    useEditorStore.setState({ adjustments });
+    mount();
+    expect(isOpen("Layers & masks")).toBe(true);
+  });
+});
+
+describe("mask overlay outside the mask tabs", () => {
+  it("is off in tabs that do not edit masks and back as it was in Adjust", () => {
+    mount();
+    expect(useEditorStore.getState().maskOverlayAuto).toBe("auto");
+    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "Retouch" }));
+    expect(useEditorStore.getState().maskOverlayAuto).toBe("hidden");
+    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "Color" }));
+    expect(useEditorStore.getState().maskOverlayAuto).toBe("hidden");
+    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "Adjustments" }));
+    expect(useEditorStore.getState().maskOverlayAuto).toBe("auto");
+  });
+});

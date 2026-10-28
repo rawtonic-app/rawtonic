@@ -4020,6 +4020,7 @@
       "whiteBalanceTo": "Balans bieli {{to}} K"
     },
     "spot": {
+      "start": "Uruchom usuwanie plamek",
       "withShortcut": "{{text}} ({{key}})"
     },
     "tone": {
