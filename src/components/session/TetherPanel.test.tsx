@@ -3,7 +3,10 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { useState } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import TetherPanel, { ramOnly, type TetherStatus } from "./TetherPanel";
-import { TETHER_CAPTURE_EVENT, isTetherConnected } from "./tether";
+import { TETHER_CAPTURE_EVENT, isTetherConnected, isTetherExperimental, notDeliveredToast } from "./tether";
+import { useSettingsStore } from "../../store/useSettingsStore";
+import { useUIStore } from "../../store/useUIStore";
+import type { AppSettings } from "../ui/AppProperties";
 
 type Callback = (event: { payload: unknown }) => void;
 // Every listener of an event hears it (the panel and its camera test).
@@ -245,15 +248,49 @@ it("shows what the compatibility list says of the connected camera model", async
   expect(screen.getByText(/Tested with this camera model on macOS 26 \(2026-10-19\)/)).toBeTruthy();
 });
 
-it("says before connecting that a camera is not supported yet", async () => {
+it("says before connecting a Canon that it is experimental and needs the opt-in in Preferences", async () => {
   const base = invoke.getMockImplementation()!;
   invoke.mockImplementation((command: string, args?: unknown) =>
     command === "tether_cameras"
       ? Promise.resolve({ library: "2.5.34", cameras: [{ model: "Canon EOS R5", port: "usb:020,007" }] })
       : base(command, args),
   );
+  useSettingsStore.setState({ appSettings: { lastRootPath: null } as AppSettings });
   render(<Harness />);
-  expect(await screen.findByText(/This camera is not supported yet/)).toBeTruthy();
+  expect(await screen.findByText(/Experimental — testers wanted/)).toBeTruthy();
+  expect(screen.getByText(/turn on “Experimental: Canon cameras” in Preferences > Tethering/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Open Tethering preferences" }));
+  expect(useUIStore.getState().isSettingsOpen).toBe(true);
+  expect(useUIStore.getState().settingsCategory).toBe("tethering");
+  cleanup();
+  // Turned on: nothing more to ask before the connect.
+  useSettingsStore.setState({ appSettings: { lastRootPath: null, tetherExperimentalCanon: true } as AppSettings });
+  render(<Harness />);
+  expect(await screen.findByText(/Experimental — testers wanted/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Open Tethering preferences" })).toBeNull();
+  useSettingsStore.setState({ appSettings: null });
+  useUIStore.getState().setUI({ isSettingsOpen: false, settingsCategory: null });
+});
+
+it("marks a camera on the experimental path and says where a missing shot is", async () => {
+  const canon = { ...STATUS, camera: { ...STATUS.camera, model: "Canon EOS R6", experimental: true } };
+  render(<Harness initial={canon} />);
+  await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
+  expect(screen.getByText("Experimental")).toBeTruthy();
+  expect(screen.getByText(/if a shot does not show up here, it is not lost — it is on the memory card/)).toBeTruthy();
+  await waitFor(() => expect(isTetherExperimental()).toBe(true));
+  // A shot with no photo in time: said in the user's words, kept on screen.
+  expect(notDeliveredToast({ kind: "timeout", message: "No photo came", request: 4 })).toEqual({
+    text: "Shot 4 was not received. If the camera took it, it is on the memory card.",
+    sticky: true,
+  });
+  expect(notDeliveredToast({ kind: "busy", message: "Busy", request: 5 }).sticky).toBe(false);
+  cleanup();
+  render(<Harness initial={STATUS} />);
+  await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
+  expect(screen.queryByText("Experimental")).toBeNull();
+  await waitFor(() => expect(isTetherExperimental()).toBe(false));
+  expect(notDeliveredToast({ kind: "timeout", message: "No photo came", request: 4 }).sticky).toBe(false);
 });
 
 it("opens the camera test for the connected camera and keeps it through a cable pull", async () => {

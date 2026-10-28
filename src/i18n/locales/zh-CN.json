@@ -1275,6 +1275,13 @@
     "tether": {
       "battery": "电池 {{level}}",
       "camera": "相机",
+      "canon": {
+        "badge": "实验性",
+        "connectedNote": "实验性：如果某张照片没有出现在这里，它并没有丢失——它在存储卡上。请让存储卡一直留在相机里。Rawtonic 会告诉你每一张没有传到的照片。",
+        "notReceived": "没有收到第 {{n}} 张照片。如果相机拍下了它，它就在存储卡上。",
+        "openPreferences": "打开联机拍摄偏好设置",
+        "optInNeeded": "Canon 相机还没有在 Rawtonic 上测试过。要试用你的相机并帮助测试，请在“偏好设置”>“联机拍摄”中打开“实验性：Canon 相机”。"
+      },
       "capture": "拍摄",
       "captureFailed": "拍摄失败：{{error}}",
       "captureTitle": "触发相机（⌘K / Ctrl+K）",
@@ -1291,6 +1298,7 @@
       "lastIn": "{{file}} 已在图库中",
       "lastTiming": "{{file}} 在拍摄后 {{ms}} 毫秒进入图库",
       "level": {
+        "experimental": "实验性——征集测试者。尚未在 Rawtonic 上测试：照片可能不会出现在这里，那样它就只在存储卡上。",
         "notSupported": "尚不支持此相机。",
         "reported": "此相机型号的用户报告可以使用。",
         "tested": "已在 {{systems}} 上用此相机型号测试（{{date}}）。",
@@ -1308,6 +1316,14 @@
         "bursting": "连续拍摄 {{shots}} 张…",
         "button": "相机测试…",
         "buttonTitle": "逐步测试此相机并生成匿名报告",
+        "canonGuide": {
+          "card": "整个测试期间，请让相机里一直插着存储卡。",
+          "missing": "如果某张照片没有出现，这同样有用：它仍在存储卡上，测试也会把它计入。",
+          "send": "最后点击“{{button}}”。你会看到将要发送的全部内容——没有照片、文件名或序列号——在你确认之前，没有任何内容会离开你的电脑。",
+          "sendNote": "此结果来自实验性的 Canon 支持。感谢你的测试——每一个结果都有帮助，包括有照片丢失的结果。",
+          "steps": "请按顺序完成下面的步骤：点击“运行”，然后按步骤的要求操作。如果你的相机无法完成某一步，请点击“跳过”。",
+          "title": "如何测试你的 Canon 相机"
+        },
         "close": "关闭相机测试",
         "how": {
           "autofocus": "对焦一次。使用手动镜头或相机设为 MF 时请跳过。",
@@ -1764,6 +1780,17 @@
       "shortcuts": "标签快捷方式",
       "shortcutsDesc": "将出现在标签上下文菜单中作为快捷方式的标签列表。",
       "title": "标签"
+    },
+    "tethering": {
+      "camerasLink": "哪些相机可用，以及如何报告你的相机",
+      "canon": "实验性：Canon 相机（帮助测试）",
+      "canonDesc": "让 Rawtonic 通过 USB 连接 Canon 相机，这样你可以试用它并发送一份简短的测试结果。",
+      "canonSwitch": "连接 Canon 相机",
+      "howToTest": "帮忙的方法：在“联机拍摄”面板中连接相机，点击“相机测试…”，然后按步骤操作。最后，在任何内容离开你的电脑之前，你会看到将要发送的确切内容。",
+      "title": "联机拍摄",
+      "warningCard": "你拍的照片可能不会出现在 Rawtonic 中。那时它只在相机的存储卡上，所以请一直让相机里插着存储卡。",
+      "warningNothingDeleted": "Rawtonic 绝不会删除相机或存储卡上的任何内容。",
+      "warningUntested": "尚未测试：到目前为止，还没有 Canon 相机在 Rawtonic 上试过。"
     },
     "title": "设置",
     "tooltips": {

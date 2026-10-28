@@ -22,6 +22,7 @@ import { recountAfterFileOperation } from '../utils/offline';
 import { throttleAsync } from '../utils/throttle';
 import { IMPORTS_CHANGED } from '../utils/folderSync';
 import { metadataWritten } from '../utils/catalogWrites';
+import { notDeliveredToast } from '../components/session/tether';
 
 type EditorState = ReturnType<typeof useEditorStore.getState>;
 
@@ -487,8 +488,11 @@ export function useTauriListeners({
           showCapture(event.payload, true);
         },
       ),
-      listen<{ message: string }>('tether-capture-failed', (event) => {
-        if (isEffectActive) toast.error(i18n.t('session.tether.captureFailed', { error: event.payload.message }));
+      listen<{ kind?: string; message: string; request?: number | null }>('tether-capture-failed', (event) => {
+        if (!isEffectActive) return;
+        const { text, sticky } = notDeliveredToast(event.payload);
+        if (sticky) toast.warning(text, { autoClose: false });
+        else toast.error(text);
       }),
       listen<string>('tether-incomplete', (event) => {
         if (isEffectActive)

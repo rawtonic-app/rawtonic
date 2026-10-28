@@ -389,6 +389,9 @@ export interface AppSettings {
   crashReports?: boolean;
   /** Anonymous weekly usage statistics (ADR 0017); off unless true. */
   usageStats?: boolean;
+  /** Connect Canon cameras on the camera library's untested path to help
+   * test it (Preferences > Tethering); off unless true. */
+  tetherExperimentalCanon?: boolean;
   updatePrereleases?: boolean;
   dismissedUpdateVersion?: string;
   /** The version that ran last; a newer one shows its CHANGELOG section once. */

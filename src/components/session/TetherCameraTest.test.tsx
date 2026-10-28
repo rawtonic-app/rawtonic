@@ -244,6 +244,41 @@ it("fails a shot whose photo did not come in, its message kept out of the report
   expect(report()).not.toMatch(/DSCF7|93X1234567|someone/);
 });
 
+it("guides a Canon tester step by step and counts each shot not received in the report", async () => {
+  onCapture = (n) =>
+    window.setTimeout(() => {
+      if (n === 2) emit("tether-capture-failed", { kind: "timeout", message: "Shot 2 was not received." });
+      else
+        emit("tether-captured", {
+          cameraName: `IMG_${n}.CR3`,
+          connection: 1,
+          exposure: n,
+          destination: null,
+          assetId: `a${n}`,
+          skipped: false,
+          error: null,
+          requested: true,
+        });
+    }, 5);
+  const canon: TestedCamera = { ...CAMERA, model: "Canon EOS R6", transferQueue: false, experimental: true };
+  render(<TetherCameraTest camera={canon} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
+  expect(screen.getByText("How to test your Canon camera")).toBeTruthy();
+  expect(screen.getByText("Keep a memory card in the camera for the whole test.")).toBeTruthy();
+  expect(await screen.findByText(/At the end, click “Send result…”/)).toBeTruthy();
+  expect(report()).toContain("- Driver path: experimental (Canon EOS");
+  for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  fireEvent.change(screen.getByLabelText("Number of shots"), { target: { value: "5" } });
+  await runStep(/\| Shots from Rawtonic \| FAIL \| 4\/5 in the library/);
+  expect(report()).toContain("- Shots not received (on the memory card if the camera took them): 1");
+  // The send dialog says the result is from the experimental path.
+  fireEvent.click(screen.getByRole("button", { name: "Send result…" }));
+  expect(await screen.findByText(/This result comes from experimental Canon support/)).toBeTruthy();
+  cleanup();
+  render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
+  expect(screen.queryByText("How to test your Canon camera")).toBeNull();
+  expect(report()).not.toContain("Driver path");
+});
+
 it("finds a release before its photo's commit and skips the queue step on cameras without one", async () => {
   onCapture = (n) =>
     window.setTimeout(() => {

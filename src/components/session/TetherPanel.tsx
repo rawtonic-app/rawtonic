@@ -16,11 +16,13 @@ import {
   type PresetChoice,
   type PresetItemJson,
 } from "./nextCapture";
-import { TETHER_CAPTURE_EVENT, panelHandlesCapture, setTetherConnected } from "./tether";
+import { TETHER_CAPTURE_EVENT, panelHandlesCapture, setTetherConnected, setTetherExperimental } from "./tether";
 import TetherCameraTest, { type TestedCamera } from "./TetherCameraTest";
 import { compatibilityOf } from "./cameraTest";
 import "./tether.css";
 import { noteTool } from "../contribute/usageStats";
+import { useSettingsStore } from "../../store/useSettingsStore";
+import { useUIStore } from "../../store/useUIStore";
 
 /** Mirrors `rawtonic_tether::protocol::CameraInfo`. */
 interface CameraInfo {
@@ -46,6 +48,9 @@ interface CameraStatus {
   transferQueue?: boolean;
   serial?: string | null;
   firmware?: string | null;
+  /** On a driver path no body was tested on yet (Canon EOS, the user's
+   * opt-in): every photo stays on the card, nothing is freed. */
+  experimental?: boolean;
 }
 
 /** Mirrors `camera_tethering::TetherStatus`. */
@@ -123,11 +128,13 @@ function Compatibility({ model }: { model: string }) {
       ? t("session.tether.level.tested", { systems: entry.systems?.join(", ") ?? "", date: entry.tested ?? "" })
       : entry.level === "reported"
         ? t("session.tether.level.reported")
-        : t("session.tether.level.notSupported");
+        : entry.level === "experimental"
+          ? t("session.tether.level.experimental")
+          : t("session.tether.level.notSupported");
   return (
     <p className="tether-note" data-level={entry?.level ?? "unlisted"}>
       {level}
-      {entry?.notes && <> {entry.notes}</>}
+      {entry?.notes && entry.level !== "experimental" && <> {entry.notes}</>}
     </p>
   );
 }
@@ -240,7 +247,8 @@ export default function TetherPanel({
   // fullscreen): unmounting it does not say "disconnected".
   useEffect(() => {
     setTetherConnected(connected);
-  }, [connected]);
+    setTetherExperimental(status?.camera.experimental === true);
+  }, [connected, status?.camera.experimental]);
   // What the connection was given, for the panel shown again (it must not
   // send defaults over what the camera's photos are ingested with).
   useEffect(() => {
@@ -468,6 +476,10 @@ export default function TetherPanel({
   };
 
   const selected = cameras?.find((c) => c.port === port);
+  // A camera on an experimental path connects only with the opt-in in
+  // Preferences > Tethering: said before the connect, in the user's words.
+  const canonOptIn = useSettingsStore((state) => state.appSettings?.tetherExperimentalCanon === true);
+  const needsOptIn = selected !== undefined && compatibilityOf(selected.model)?.level === "experimental" && !canonOptIn;
 
   return (
     <aside className="tether-panel" hidden={hidden} aria-label={t("session.tether.title")}>
@@ -518,6 +530,18 @@ export default function TetherPanel({
             <small>{t("session.tether.usbHint")}</small>
           </label>
           {selected && <Compatibility model={selected.model} />}
+          {needsOptIn && (
+            <div className="tether-experimental" role="note">
+              <p>{t("session.tether.canon.optInNeeded")}</p>
+              <button
+                type="button"
+                className="session-action"
+                onClick={() => useUIStore.getState().setUI({ isSettingsOpen: true, settingsCategory: "tethering" })}
+              >
+                {t("session.tether.canon.openPreferences")}
+              </button>
+            </div>
+          )}
           <NamingEditor mode="ingest" value={template} onChange={setTemplate}
             label={t("session.fields.filenameTemplate")} job={jobName} />
           <NextCaptureFields value={nextCapture} onChange={(form) => void changeNextCapture(form)} presets={presets} />
@@ -548,11 +572,17 @@ export default function TetherPanel({
         <div className="tether-body">
           <div className="tether-camera">
             <strong>{status.camera.model}</strong>
+            {status.camera.experimental && <span className="tether-badge">{t("session.tether.canon.badge")}</span>}
             {status.camera.battery && (
               <span>{t("session.tether.battery", { level: status.camera.battery })}</span>
             )}
           </div>
           <Compatibility model={status.camera.model} />
+          {status.camera.experimental && (
+            <p className="tether-experimental" role="note">
+              {t("session.tether.canon.connectedNote")}
+            </p>
+          )}
           <div className="tether-actions">
             <button
               type="button"

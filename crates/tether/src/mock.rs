@@ -101,6 +101,12 @@ pub struct MockSpec {
     pub jpeg_from_shot: Option<u64>,
     /// Its "Save to" (capturetarget: sdram or card+sdram), if it has one.
     pub capture_target: Option<String>,
+    /// Save to's choices, if not sdram, card and card+sdram (a Canon EOS
+    /// body: "Internal RAM", "Memory card").
+    pub capture_target_choices: Vec<String>,
+    /// Driven on a driver path no body was tested on yet, like libgphoto2's
+    /// Canon EOS path (`CameraStatus::experimental`).
+    pub experimental: bool,
     /// ISO's value and choices, if not the default 100 of 100–800 (e.g. a
     /// Sony list: "Auto ISO", numbers, "… Multi Frame Noise Reduction").
     pub iso: Option<(String, Vec<String>)>,
@@ -156,6 +162,8 @@ impl Default for MockSpec {
             serial: Some("MOCK0001".into()),
             firmware: Some("1.00".into()),
             capture_target: None,
+            capture_target_choices: vec![],
+            experimental: false,
             raw_and_jpeg: false,
             jpeg_late_ms: 0,
             jpeg_from_shot: None,
@@ -296,12 +304,13 @@ impl Driver for MockDriver {
             ]
             .into_iter()
             .chain(self.spec.capture_target.as_deref().map(|target| {
-                setting(
-                    "capturetarget",
-                    "Save to",
-                    target,
-                    &["sdram", "card", "card+sdram"],
-                )
+                let choices = &self.spec.capture_target_choices;
+                let choices: Vec<&str> = if choices.is_empty() {
+                    vec!["sdram", "card", "card+sdram"]
+                } else {
+                    choices.iter().map(String::as_str).collect()
+                };
+                setting("capturetarget", "Save to", target, &choices)
             }))
             .collect(),
         };
@@ -513,6 +522,7 @@ impl Camera for MockCamera {
             transfer_queue: self.spec.queue_limit.is_some(),
             serial: self.spec.serial.clone(),
             firmware: self.spec.firmware.clone(),
+            experimental: self.spec.experimental,
         }
     }
 

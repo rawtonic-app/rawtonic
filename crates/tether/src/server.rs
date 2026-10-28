@@ -66,6 +66,19 @@ const MEMORY_ONLY: &str = "The camera keeps photos only in its memory now (no ca
      without the card), where a photo could be lost on its way: Rawtonic no longer fires it or \
      takes photos from it. Put a card in, set Save to with the card, and connect again.";
 
+const EXPERIMENTAL_OFF: &str = "Canon cameras have not been tested with Rawtonic yet, so they are \
+     not connected by default. To help test one, turn on Preferences > Tethering > Experimental: \
+     Canon cameras, keep a memory card in the camera and connect again.";
+
+const EXPERIMENTAL_SAVE_TO: &str = "Rawtonic could not set the camera to save each photo on its \
+     memory card, so it is not connected: with this camera a photo's report can get lost on its \
+     way, and the card copy is what keeps it. Set Save to (or Capture target) to the memory card \
+     on the camera and connect again.";
+
+const EXPERIMENTAL_NO_CARD: &str = "There is no memory card in the camera, so it is not \
+     connected: with this camera a photo's report can get lost on its way, and the card copy is \
+     what keeps it. Put a memory card in and connect again.";
+
 /// A shot whose file has not come after this long is reported as failed
 /// (it is never fired again; a file that still comes is downloaded).
 pub const SHOT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -101,6 +114,10 @@ struct Open {
     /// the card, or no card): not polled or fired for the rest of this
     /// connection (photos it took meanwhile have no card copy).
     memory_only: bool,
+    /// On a driver path no body was tested on (`CameraStatus::experimental`):
+    /// nothing is freed on the camera, and a shot without its photo is
+    /// reported as kept on the card.
+    experimental: bool,
     /// This connection's number: a release names the connection its photo
     /// came from, so a late one never reaches another camera's photo.
     connection: u64,
@@ -338,6 +355,7 @@ impl<W: Write> Server<W> {
                 port,
                 staging,
                 serial,
+                experimental,
             } => {
                 if !staging.is_absolute() {
                     return Err(TetherError::new(
@@ -354,6 +372,32 @@ impl<W: Write> Server<W> {
                         ErrorKind::NotFound,
                         "Another body of that model is on this port.",
                     ));
+                }
+                // A path no body was tested on (libgphoto2's Canon EOS
+                // path) only with the user's opt-in, and only with every
+                // photo kept on the memory card: its trigger can discard a
+                // photo's report, and the card copy is then the only one.
+                // notes: reference/tether.md
+                if status.experimental {
+                    if !experimental {
+                        return Err(TetherError::new(ErrorKind::Unsupported, EXPERIMENTAL_OFF));
+                    }
+                    if !camera.prefer_card() {
+                        return Err(TetherError::new(
+                            ErrorKind::Unsupported,
+                            EXPERIMENTAL_SAVE_TO,
+                        ));
+                    }
+                    if camera.memory_only()? {
+                        return Err(TetherError::new(
+                            ErrorKind::Unsupported,
+                            EXPERIMENTAL_NO_CARD,
+                        ));
+                    }
+                    log::info!(
+                        "{} on an experimental driver path: Save to on the card, nothing freed",
+                        status.model
+                    );
                 }
                 // A connection never starts with photos kept only in the
                 // camera's memory: Save to goes to the card where the camera
@@ -380,6 +424,8 @@ impl<W: Write> Server<W> {
                         (VecDeque::new(), Some(e))
                     }
                 };
+                // Save to may have changed since the first look.
+                let status = camera.status();
                 self.connections += 1;
                 log::info!(
                     "connection {}: {} (firmware {})",
@@ -401,6 +447,7 @@ impl<W: Write> Server<W> {
                     exposures_by_stem: Default::default(),
                     exposures: 0,
                     memory_only: false,
+                    experimental: status.experimental,
                     connection: self.connections,
                     held: false,
                     transferring: false,
@@ -511,6 +558,12 @@ impl<W: Write> Server<W> {
                 // A photo of an earlier connection stays on its camera (the
                 // camera now open may be another one with a file of that
                 // name), and so does one whose name stands for a newer photo.
+                // Nothing is freed on an experimental path: there the card
+                // copy is what keeps a photo whose report got lost.
+                if open.experimental {
+                    log::info!("{}: kept on the camera (experimental path)", file.name);
+                    return Ok(Reply::Released { freed: false });
+                }
                 if open.connection != connection || open.downloads.get(&file) != Some(&download) {
                     log::info!("{} is not the photo to release any more; kept", file.name);
                     return Ok(Reply::Released { freed: false });
@@ -693,6 +746,7 @@ impl<W: Write> Server<W> {
             if open.waiting.is_empty() {
                 open.transferring = false;
             }
+            let experimental = open.experimental;
             if let Some(asked) = asked {
                 log::warn!(
                     "request {}: no photo {} s after the shot; reported as not delivered, not fired again",
@@ -700,13 +754,23 @@ impl<W: Write> Server<W> {
                     self.shot_timeout.as_secs()
                 );
             }
+            let message = if experimental {
+                // The known risk of this path (libgphoto2's EOS trigger can
+                // discard a photo's report): said every time, never silent.
+                format!(
+                    "Shot {} was not received within a minute. If the camera took it, it is on the \
+                     memory card: with this camera (experimental support) a photo's report can get \
+                     lost on its way. It was not fired again.",
+                    asked.map_or(0, |asked| asked.id)
+                )
+            } else {
+                "No photo came within a minute of the shot: the camera may not have fired (with \
+                 autofocus, a shot that finds no focus is not taken) or did not hand it over. It \
+                 was not fired again."
+                    .to_string()
+            };
             self.event(Event::CaptureFailed {
-                error: TetherError::new(
-                    ErrorKind::Timeout,
-                    "No photo came within a minute of the shot: the camera may not have fired (with \
-                     autofocus, a shot that finds no focus is not taken) or did not hand it over. It \
-                     was not fired again.",
-                ),
+                error: TetherError::new(ErrorKind::Timeout, message),
                 request: asked.map(|asked| asked.id),
                 exposure: None,
                 ambiguous: Vec::new(),

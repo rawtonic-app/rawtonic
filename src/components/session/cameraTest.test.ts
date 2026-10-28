@@ -67,16 +67,29 @@ it("writes an anonymous report with the camera, its firmware, the driver and eve
   expect(mock).toContain("- Compatibility list: not listed");
 });
 
+it("marks a report from an experimental driver path and counts shots not received", () => {
+  const report = buildReport({ ...INFO, model: "Canon EOS R6", experimental: true, failures: 2, notReceived: 1 }, {});
+  expect(report).toContain("- Compatibility list: experimental, testers wanted");
+  expect(report).toContain("- Driver path: experimental (Canon EOS");
+  expect(report).toContain("- Shots not received (on the memory card if the camera took them): 1");
+  expect(buildReport(INFO, {})).not.toContain("Driver path");
+});
+
 it("finds a camera's entry by its model name or its maker", () => {
   expect(compatibilityOf("Fuji GFX 50 R")?.level).toBe("tested");
-  expect(compatibilityOf("Canon EOS R5")?.level).toBe("notSupported");
+  expect(compatibilityOf("Canon EOS R5")?.level).toBe("experimental");
   expect(compatibilityOf("Nikon Z 8")).toBeUndefined();
 });
 
 it("lists every entry of the compatibility data on the docs page with its level", () => {
   const rows = page.split("\n").filter((line) => line.startsWith("| ") && !line.startsWith("| Camera"));
   expect(rows).toHaveLength(COMPATIBILITY.length);
-  const levels = { tested: "tested", reported: "reported", notSupported: "not supported" };
+  const levels = {
+    tested: "tested",
+    reported: "reported",
+    experimental: "experimental — testers wanted",
+    notSupported: "not supported",
+  };
   for (const entry of COMPATIBILITY) {
     const row = rows.find((line) => line.startsWith(`| ${entry.name} |`));
     expect(row, entry.name).toBeTruthy();

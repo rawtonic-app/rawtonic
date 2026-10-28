@@ -18,6 +18,23 @@ export const setTetherConnected = (value: boolean) => {
   connected = value;
 };
 
+let experimental = false;
+/** Whether the tethered camera is on an experimental driver path (Canon
+ * EOS, the user's opt-in): a shot without its photo is then said to be on
+ * the memory card. */
+export const isTetherExperimental = () => experimental;
+export const setTetherExperimental = (value: boolean) => {
+  experimental = value;
+};
+
+/** The message for a shot that was not delivered (`tether-capture-failed`):
+ * on an experimental path a timed-out shot is on the memory card, said in
+ * the user's language and kept on screen until dismissed. */
+export const notDeliveredToast = (payload: { kind?: string; message: string; request?: number | null }) =>
+  payload.kind === "timeout" && experimental
+    ? { text: i18n.t("session.tether.canon.notReceived", { n: payload.request ?? "?" }), sticky: true }
+    : { text: i18n.t("session.tether.captureFailed", { error: payload.message }), sticky: false };
+
 /** A tether panel handles the shortcut while it is mounted; returns its
  * release. */
 export const panelHandlesCapture = () => {

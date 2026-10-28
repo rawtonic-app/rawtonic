@@ -29,6 +29,8 @@ export interface TestedCamera {
   transferQueue?: boolean;
   library?: string | null;
   transport?: string;
+  /** On an experimental driver path (Canon EOS, the user's opt-in). */
+  experimental?: boolean;
 }
 
 interface Setting {
@@ -173,6 +175,8 @@ export default function TetherCameraTest({
   const [sharing, setSharing] = useState(false);
   // Files not added to the library and shots not delivered during the test.
   const [failures, setFailures] = useState(0);
+  // Of them, shots with no photo reported in time (`ReportInfo::notReceived`).
+  const [notReceived, setNotReceived] = useState(0);
   // The photo step running, and the last one that ran: a failure heard
   // after its end (a late RAW or JPEG of its last exposure) fails it.
   const runningStep = useRef<StepId | null>(null);
@@ -288,6 +292,8 @@ export default function TetherCameraTest({
       // A failure of an ambiguous file is counted, but it cannot be told
       // whose it is: its step is inconclusive (above), not failed.
       if (isFailure(h)) setFailures((n) => n + 1);
+      if (name === "tether-capture-failed" && (payload as { kind?: string }).kind === "timeout")
+        setNotReceived((n) => n + 1);
       if (isFailure(h) && !ambiguous) {
         if (owner) failuresOf.current.set(owner, [...(failuresOf.current.get(owner) ?? []), h]);
         // A step that has ended fails now.
@@ -685,6 +691,8 @@ export default function TetherCameraTest({
     transferQueue: camera.transferQueue ?? false,
     freeCameraCopies,
     failures,
+    experimental: camera.experimental === true,
+    notReceived,
   };
   const report = buildReport(info, results);
   const payload = useMemo(() => (app ? cameraTestPayload(app, camera, report) : null), [app, camera, report]);
@@ -726,7 +734,23 @@ export default function TetherCameraTest({
           <X size={14} />
         </button>
       </div>
-      <p className="tether-note">{t("session.tether.test.intro")}</p>
+      {camera.experimental ? (
+        <div className="tether-experimental" role="note">
+          <strong>{t("session.tether.test.canonGuide.title")}</strong>
+          <ol className="tether-test-guide">
+            <li>{t("session.tether.test.canonGuide.card")}</li>
+            <li>{t("session.tether.test.canonGuide.steps")}</li>
+            <li>{t("session.tether.test.canonGuide.missing")}</li>
+            <li>
+              {t("session.tether.test.canonGuide.send", {
+                button: relay ? t("session.tether.test.send") : t("session.tether.test.share"),
+              })}
+            </li>
+          </ol>
+        </div>
+      ) : (
+        <p className="tether-note">{t("session.tether.test.intro")}</p>
+      )}
       <ol className="tether-test-steps">
         {STEPS.map((id) => {
           const result = results[id];
@@ -808,6 +832,7 @@ export default function TetherCameraTest({
         onClose={() => setSharing(false)}
       >
         <p className="text-sm">{t("session.tether.test.sendIntro")}</p>
+        {camera.experimental && <p className="text-sm">{t("session.tether.test.canonGuide.sendNote")}</p>}
         <pre
           aria-label={t("session.tether.test.report")}
           className="min-h-0 overflow-auto rounded bg-bg-primary p-3 font-mono text-xs whitespace-pre-wrap wrap-anywhere"

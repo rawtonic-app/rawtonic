@@ -2,7 +2,7 @@ import compatibility from "./tetherCameras.json";
 import { plainName, type AppInfo } from "../contribute/reports";
 
 /** How well tethering works with a camera (tetherCameras.json). */
-export type SupportLevel = "tested" | "reported" | "notSupported";
+export type SupportLevel = "tested" | "reported" | "experimental" | "notSupported";
 
 export interface CompatibilityEntry {
   name: string;
@@ -111,6 +111,13 @@ export interface ReportInfo {
   /** Files not added to the library and shots not delivered during the
    * test (also after their step ended). */
   failures: number;
+  /** On a driver path no body was tested on yet (Canon EOS, the user's
+   * opt-in): every photo kept on the memory card, nothing freed. */
+  experimental?: boolean;
+  /** Shots with no photo reported within the helper's timeout (of
+   * `failures`): on an experimental path the camera library may have lost
+   * the photo's report, and the photo is on the card if it was taken. */
+  notReceived?: number;
 }
 
 const TRANSPORTS: Record<string, string> = {
@@ -122,6 +129,7 @@ const TRANSPORTS: Record<string, string> = {
 const LEVELS: Record<SupportLevel, string> = {
   tested: "tested",
   reported: "reported working",
+  experimental: "experimental, testers wanted",
   notSupported: "not supported",
 };
 
@@ -182,6 +190,12 @@ export const buildReport = (info: ReportInfo, results: Partial<Record<StepId, St
     `- Transfer queue: ${info.transferQueue ? `yes (freeing ${info.freeCameraCopies ? "on" : "off"})` : "no"}`,
     `- Compatibility list: ${entry ? LEVELS[entry.level] : "not listed"}`,
     `- Files not added or shots not delivered during the test: ${info.failures}`,
+    ...(info.experimental
+      ? [
+          "- Driver path: experimental (Canon EOS, the user's opt-in; Save to on the memory card, nothing freed on the camera)",
+          `- Shots not received (on the memory card if the camera took them): ${info.notReceived ?? 0}`,
+        ]
+      : []),
     "",
     "| Step | Result | Measured |",
     "|---|---|---|",
