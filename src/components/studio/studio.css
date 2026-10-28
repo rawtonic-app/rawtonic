@@ -2570,7 +2570,7 @@
   min-height: 34px;
   font-size: 11px;
 }
-.studio-export-form input:not([type="checkbox"]) {
+.studio-export-form input:not([type="checkbox"], [type="radio"]) {
   border: 1px solid #555a61;
   background: #202123;
   border-radius: 3px;
@@ -2620,7 +2620,6 @@
   margin: 6px 0 4px;
 }
 .studio-export-anchor input {
-  accent-color: #adc6db;
   margin: 0;
 }
 .studio-export-more summary {

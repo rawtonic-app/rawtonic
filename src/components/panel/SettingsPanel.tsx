@@ -38,6 +38,7 @@ import Text from '../ui/Text';
 import AboutSettings from './AboutSettings';
 import PreviewSettings from './PreviewSettings';
 import StorageSettings from './StorageSettings';
+import PrefSegments from './PrefSegments';
 import UpdateSettings from './UpdateSettings';
 import CrashReportSettings from './CrashReportSettings';
 import UsageStatsSettings from './UsageStatsSettings';
@@ -262,31 +263,6 @@ const DataActionItem = ({
     </div>
   );
 };
-
-/** A two-way choice in a preference row, as the studio's segmented control
- * (Develop tools Left | Right). */
-function PrefSegments<T extends string>({ label, onChange, options, value }: {
-  label: string;
-  onChange(value: T): void;
-  options: { label: string; value: T }[];
-  value: T;
-}) {
-  return (
-    <div className="studio-segments pref-segments" role="radiogroup" aria-label={label}>
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          role="radio"
-          aria-checked={value === option.value}
-          onClick={() => onChange(option.value)}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 export default function SettingsPanel({
   appSettings,
