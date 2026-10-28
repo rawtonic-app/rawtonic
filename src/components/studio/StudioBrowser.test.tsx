@@ -1,6 +1,6 @@
 import "../../i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor, screen } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import { useProcessStore } from "../../store/useProcessStore";
 import StudioBrowser, { isEmptySpace } from "./StudioBrowser";
@@ -96,6 +96,19 @@ it("shows a readable label as well as its colour in the grid and filmstrip", () 
     view.unmount();
     expect(grid(vi.fn(), true).getByTitle("Green label").textContent).toBe("Green");
   } finally { files[0].tags = null; }
+});
+
+it("offers import in an empty library and clear filters for an empty result", () => {
+  const onImport = vi.fn();
+  const props = { files: [], onSelect: vi.fn(), onOpen: vi.fn(), onRate: vi.fn(), onContextMenu: vi.fn(), requestThumbnails: vi.fn(), onImport };
+  useLibraryStore.setState({ sessionDirectory: "/s", imageList: [], isViewLoading: false, filterCriteria: { colors: [], rating: 0, rawStatus: "all" as never }, searchCriteria: { text: "", tags: [], mode: "OR" } });
+  const view = render(<StudioBrowser {...props} />);
+  fireEvent.click(screen.getByRole("button", { name: "Import photos" }));
+  expect(onImport).toHaveBeenCalledOnce();
+  act(() => useLibraryStore.setState({ imageList: files, searchCriteria: { text: "missing", tags: [], mode: "OR" } }));
+  fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+  expect(useLibraryStore.getState().searchCriteria.text).toBe("");
+  view.unmount();
 });
 
 describe("library grid empty space", () => {

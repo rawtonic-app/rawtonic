@@ -1621,6 +1621,7 @@ export default function StudioWorkspace(props: Props) {
                 onOpen={onOpen}
                 size={size}
                 onClearSelection={clearLibrarySelection}
+                onImport={() => runAppCommand("import_photos")}
                 listing={JSON.stringify([currentFolderPath, activeAlbumId, searchCriteria, filterCriteria, sortCriteria])}
               />
               {panels.bars && (

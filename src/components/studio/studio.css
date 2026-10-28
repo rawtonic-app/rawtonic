@@ -1763,6 +1763,15 @@
   text-align: center;
   padding: 24px;
 }
+.studio-workspace button.studio-empty-action {
+  padding: 7px 12px;
+  border: 1px solid var(--studio-line);
+  border-radius: 4px;
+  color: var(--studio-text);
+  background: #373a3d;
+  cursor: pointer;
+}
+.studio-workspace button.studio-empty-action:hover { background: #484c50; }
 .studio-empty strong {
   font-weight: 500;
   color: #d0d3d7;
