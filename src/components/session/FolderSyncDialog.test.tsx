@@ -41,7 +41,7 @@ it("ticks verified moves and new files, leaves probable moves, copies and remova
   expect(checkbox("/lib/Capture/B2.ARW").checked).toBe(false);
   expect(checkbox("/lib/Capture/C copy.ARW").checked).toBe(false);
   expect(checkbox("/lib/Capture/R.ARW").checked).toBe(false);
-  // Unavailable photographs are listed without a checkbox.
+  // Unavailable photos are listed without a checkbox.
   const unavailable = screen.getByRole("region", { name: "Not available" });
   expect(within(unavailable).queryByRole("checkbox")).toBeNull();
   expect(within(unavailable).getByText("on “Photos”")).toBeTruthy();
@@ -129,7 +129,7 @@ it("lists the rows of a group in natural order", async () => {
   const file = (name: string) => ({ path: `/lib/Capture/${name}`, identity: plan.newFiles[0].identity, copyOf: [] });
   vi.mocked(invoke).mockResolvedValueOnce({ ...plan, newFiles: ["copy_10.ARW", "copy_2.ARW", "copy_1.ARW"].map(file) });
   render(<FolderSyncDialog directory="/lib" folder="/lib/Capture" onClose={vi.fn()} onApplied={vi.fn()} />);
-  const added = await screen.findByRole("region", { name: "New photographs" });
+  const added = await screen.findByRole("region", { name: "New photos" });
   expect(within(added).getAllByRole("listitem").map((row) => row.textContent)).toEqual([
     "copy_1.ARW",
     "copy_2.ARW",
@@ -141,7 +141,7 @@ it("does not call a folder on a disconnected drive in sync", async () => {
   const offline = { ...samplePlan(), files: 0, verifiedMoves: [], probableMoves: [], newFiles: [], copies: [], contested: [], removed: [] };
   vi.mocked(invoke).mockResolvedValueOnce(offline);
   render(<FolderSyncDialog directory="/lib" folder="/Volumes/Photos" onClose={vi.fn()} onApplied={vi.fn()} />);
-  await screen.findByText("Nothing to change: 0 photograph files looked at. The photographs below could not be checked.");
+  await screen.findByText("Nothing to change: 0 photo files looked at. The photos below could not be checked.");
   expect(screen.queryByText(/in sync/)).toBeNull();
   expect(within(screen.getByRole("region", { name: "Not available" })).getByText("on “Photos”")).toBeTruthy();
   expect(screen.queryByRole("button", { name: /Apply/ })).toBeNull();

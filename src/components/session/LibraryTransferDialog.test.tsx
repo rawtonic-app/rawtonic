@@ -33,7 +33,7 @@ it("flushes edits and creates a new full backup without opening it for editing",
     source: "/photos", destination: `/drive/${folder.value}`, purpose: "backup",
   }));
   expect(vi.mocked(flushBeforeQuit).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(invoke).mock.invocationCallOrder[0]);
-  await screen.findByText(/42 photographs/);
+  await screen.findByText(/42 photos/);
   expect(screen.queryByRole("button", { name: /Open copied library/ })).toBeNull();
   expect(onOpen).not.toHaveBeenCalled();
 });
@@ -44,7 +44,7 @@ it("reports edit resources that were already missing without failing the copy", 
   render(<LibraryTransferDialog purpose="backup" directory="/photos" onClose={vi.fn()} onOpen={vi.fn()} />);
   await user.click(screen.getByRole("button", { name: "Destination parent folder" }));
   await user.click(screen.getByRole("button", { name: /Create full backup/ }));
-  await screen.findByText(/3 photographs/);
+  await screen.findByText(/3 photos/);
   expect(screen.getByText(/2 LUT, profile or mask files .* \(1 of them used by current edits\)/)).toBeTruthy();
   expect(screen.queryByRole("alert")).toBeNull();
 });
@@ -71,7 +71,7 @@ it("restores the chosen backup into a new folder and opens only the finished cop
   await user.clear(folder);
   await user.type(folder, "Restored");
   await user.click(screen.getByRole("button", { name: /Restore backup/ }));
-  await screen.findByText(/42 photographs/);
+  await screen.findByText(/42 photos/);
   expect(invoke).toHaveBeenCalledWith("library_copy", { source: "/backup", destination: "/drive/Restored", purpose: "restore" });
   expect(onOpen).not.toHaveBeenCalled();
   await user.click(screen.getByRole("button", { name: /Open copied library/ }));

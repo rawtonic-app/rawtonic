@@ -1524,6 +1524,7 @@
   },
   "settings": {
     "categories": {
+      "about": "À propos",
       "general": "Général",
       "processing": "Traitement",
       "shortcuts": "Contrôles"

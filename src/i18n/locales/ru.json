@@ -1581,6 +1581,7 @@
   },
   "settings": {
     "categories": {
+      "about": "О программе",
       "general": "Общие",
       "processing": "Обработка",
       "shortcuts": "Управление"

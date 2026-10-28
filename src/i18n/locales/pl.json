@@ -1581,6 +1581,7 @@
   },
   "settings": {
     "categories": {
+      "about": "Informacje",
       "general": "Ogólne",
       "processing": "Przetwarzanie",
       "shortcuts": "Sterowanie"

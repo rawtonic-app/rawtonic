@@ -1429,6 +1429,7 @@
   },
   "settings": {
     "categories": {
+      "about": "关于",
       "general": "通用",
       "processing": "处理",
       "shortcuts": "控制"

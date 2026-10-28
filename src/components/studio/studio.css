@@ -4838,6 +4838,12 @@ img.relight-pattern-preview { object-fit: cover; }
   justify-content: flex-end;
   gap: 8px;
 }
+.studio-copy-settings footer .is-primary {
+  background: var(--studio-accent, #477db4);
+  color: white;
+  border-radius: 4px;
+  padding: 5px 12px;
+}
 /* Match light: options, progress and the result list with real previews. */
 .studio-series-match {
   display: flex;

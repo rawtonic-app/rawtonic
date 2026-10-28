@@ -1524,6 +1524,7 @@
   },
   "settings": {
     "categories": {
+      "about": "Quant a",
       "general": "General",
       "processing": "Processament",
       "shortcuts": "Controls"

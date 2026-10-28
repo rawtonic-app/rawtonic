@@ -680,7 +680,7 @@ it.each(["ContextMenu", "F10"])("opens brush settings from the existing viewer w
     activeMaskId: brush.id,
   }));
   workspace();
-  const viewer = screen.getByRole("group", { name: "Image viewer" });
+  const viewer = screen.getByRole("group", { name: "Photo viewer" });
   viewer.focus();
   vi.spyOn(viewer, "getBoundingClientRect").mockReturnValue({ left: 400, bottom: 300 } as DOMRect);
   fireEvent.keyDown(viewer, { key, shiftKey: key === "F10" });

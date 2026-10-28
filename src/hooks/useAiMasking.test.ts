@@ -590,7 +590,7 @@ describe("automatic AI masks from imported presets", () => {
     expect(toast.error).toHaveBeenCalledTimes(2);
     for (const [text, options] of toast.error.mock.calls) {
       expect(text).toBe(
-        "The AI runtime could not be loaded, so AI tools are unavailable. Everything else works as usual.",
+        "The AI runtime could not be loaded. Tools that use it are unavailable; other tools may still work. Reinstall Rawtonic and, if the problem remains, report a problem from the Help menu.",
       );
       // One toast on screen for both.
       expect(options).toEqual({ toastId: "ai-runtime-unavailable" });
