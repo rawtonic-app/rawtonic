@@ -2295,7 +2295,8 @@
         "channel": "Kanał krzywej",
         "input": "Wejście",
         "maxPoints": "Maksymalnie {{max}} punktów na kanał. Przesuń lub usuń punkt, aby dopracować krzywą.",
-        "output": "Wyjście"
+        "output": "Wyjście",
+        "point": "Punkt {{index}}, wejście {{input}}, wyjście {{output}}. Strzałki przesuwają; A dodaje punkt; Delete usuwa."
       },
       "effects": {
         "grainColor": "Kolor ziarna",

@@ -2135,7 +2135,8 @@
         "channel": "曲线通道",
         "input": "输入",
         "maxPoints": "每个通道最多 {{max}} 个点。移动或删除点以细调曲线。",
-        "output": "输出"
+        "output": "输出",
+        "point": "点 {{index}}，输入 {{input}}，输出 {{output}}。方向键移动，A 添加点，Delete 删除。"
       },
       "effects": {
         "grainColor": "颗粒颜色",

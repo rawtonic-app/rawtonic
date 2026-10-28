@@ -2135,7 +2135,8 @@
         "channel": "曲線色版",
         "input": "輸入",
         "maxPoints": "每個色版最多 {{max}} 個點。移動或移除點以微調曲線。",
-        "output": "輸出"
+        "output": "輸出",
+        "point": "點 {{index}}，輸入 {{input}}，輸出 {{output}}。方向鍵移動，A 新增點，Delete 刪除。"
       },
       "effects": {
         "grainColor": "顆粒顏色",

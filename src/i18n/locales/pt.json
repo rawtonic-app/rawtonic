@@ -2234,7 +2234,8 @@
         "channel": "Canal da curva",
         "input": "Entrada",
         "maxPoints": "Máximo de {{max}} pontos por canal. Mova ou remova um ponto para refinar a curva.",
-        "output": "Saída"
+        "output": "Saída",
+        "point": "Ponto {{index}}, entrada {{input}}, saída {{output}}. As setas movem; A adiciona um ponto; Delete o remove."
       },
       "effects": {
         "grainColor": "Cor da granulação",

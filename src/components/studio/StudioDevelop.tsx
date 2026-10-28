@@ -17,7 +17,7 @@ import {
   Crosshair,
   ScanFace,
 } from "lucide-react";
-import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
+import { debouncedSetHistory, panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useUIStore } from "../../store/useUIStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
@@ -95,6 +95,7 @@ import {
   isNeutralRegionCurve,
   regionCurveValue,
 } from "../../utils/regionCurve";
+import { curvePointerPosition } from "../../utils/curvePointer";
 import { selectOnFocus } from "../../utils/selectOnFocus";
 
 export function ToolGroup({
@@ -216,7 +217,7 @@ const RegionCurveLine = memo(function RegionCurveLine({ region }: { region: Regi
   );
 });
 
-function PointCurve({
+export function PointCurve({
   curves,
   region,
   onChange,
@@ -253,6 +254,7 @@ function PointCurve({
   const send = useDragSend((next: Coord[]) =>
     onChange({ ...curves, [channel]: next }),
   );
+  const svgRef = useRef<SVGSVGElement>(null);
   const dragging = useRef(false);
   const interaction = useRef(onInteraction);
   interaction.current = onInteraction;
@@ -280,17 +282,22 @@ function PointCurve({
     }).join(" ");
   }, [channel, points, wholeCurves]);
   const position = (event: React.PointerEvent<SVGSVGElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return {
-      x: Math.max(
-        0,
-        Math.min(255, ((event.clientX - rect.left) / rect.width) * 255),
-      ),
-      y: Math.max(
-        0,
-        Math.min(255, 255 - ((event.clientY - rect.top) / rect.height) * 255),
-      ),
-    };
+    const matrix = event.currentTarget.getScreenCTM();
+    return matrix
+      ? curvePointerPosition(event.clientX, event.clientY, matrix.inverse())
+      : null;
+  };
+  const keyboardChange = (next: Coord[]) => {
+    debouncedSetHistory.flush();
+    onChange({ ...curves, [channel]: next });
+    debouncedSetHistory.flush();
+  };
+  const focusPoint = (index: number) => {
+    requestAnimationFrame(() =>
+      svgRef.current
+        ?.querySelector<SVGElement>(`[data-curve-point="${index}"]`)
+        ?.focus(),
+    );
   };
   return (
     <div className="studio-curve">
@@ -320,14 +327,16 @@ function PointCurve({
         ))}
       </div>
       <svg
+        ref={svgRef}
         viewBox="0 0 255 255"
-        role="img"
+        role="group"
         aria-label={t("studio.develop.curve.aria", {
           channel: t(`studio.develop.curve.ariaChannels.${channel}`),
         })}
         onPointerDown={(e) => {
           if (disabled || e.button !== 0) return;
           const p = position(e);
+          if (!p) return;
           const nearest = points.findIndex(
             (q) =>
               Math.hypot(q.x - p.x, q.y - p.y) < 14 || Math.abs(q.x - p.x) < 1,
@@ -345,6 +354,7 @@ function PointCurve({
           if (disabled || !dragging.current || !e.buttons || selected === null)
             return;
           const p = position(e);
+          if (!p) return;
           const points = latest.current;
           const next = points.map((q, i) =>
             i === selected
@@ -394,6 +404,61 @@ function PointCurve({
             cy={255 - p.y}
             r={selected === i ? 4.5 : 3}
             className="curve-point"
+            data-curve-point={i}
+            tabIndex={disabled ? -1 : 0}
+            role="button"
+            aria-label={t("studio.develop.curve.point", {
+              index: i + 1,
+              input: Math.round(p.x),
+              output: Math.round(p.y),
+            })}
+            onFocus={() => setSelected(i)}
+            onKeyDown={(e) => {
+              if (disabled || e.metaKey || e.ctrlKey || e.altKey) return;
+              if (e.key === "Delete" || e.key === "Backspace") {
+                e.preventDefault();
+                if (i === 0 || i === points.length - 1) return;
+                keyboardChange(points.filter((_, n) => n !== i));
+                setSelected(i - 1);
+                focusPoint(i - 1);
+              } else if (e.key.toLowerCase() === "a") {
+                e.preventDefault();
+                if (points.length >= MAX_CURVE_POINTS) return;
+                const left = i === points.length - 1 ? i - 1 : i;
+                const x = (points[left].x + points[left + 1].x) / 2;
+                if (x - points[left].x < 1 || points[left + 1].x - x < 1)
+                  return;
+                const curve =
+                  channel === "luminance"
+                    ? renderedLuminancePoints(points)
+                    : renderedPoints(points, wholeCurves);
+                const next = [...points];
+                next.splice(left + 1, 0, { x, y: pointCurveValue(curve, x) });
+                keyboardChange(next);
+                setSelected(left + 1);
+                focusPoint(left + 1);
+              } else if (
+                ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(
+                  e.key,
+                )
+              ) {
+                e.preventDefault();
+                const dx =
+                  e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0;
+                const dy =
+                  e.key === "ArrowDown" ? -1 : e.key === "ArrowUp" ? 1 : 0;
+                const x =
+                  i === 0 || i === points.length - 1
+                    ? p.x
+                    : Math.max(
+                        points[i - 1].x + 1,
+                        Math.min(points[i + 1].x - 1, p.x + dx),
+                      );
+                const y = Math.max(0, Math.min(255, p.y + dy));
+                if (x !== p.x || y !== p.y)
+                  keyboardChange(points.map((q, n) => (n === i ? { x, y } : q)));
+              }
+            }}
             onDoubleClick={(e) => {
               e.stopPropagation();
               if (!disabled && i > 0 && i < points.length - 1) {
@@ -407,6 +472,13 @@ function PointCurve({
           />
         ))}
       </svg>
+      <span className="sr-only" aria-live="polite" aria-atomic="true">
+        {selected !== null && points[selected] && t("studio.develop.curve.point", {
+          index: selected + 1,
+          input: Math.round(points[selected].x),
+          output: Math.round(points[selected].y),
+        })}
+      </span>
       {selected !== null && points[selected] && (
         <div className="curve-coordinate">
           <label>

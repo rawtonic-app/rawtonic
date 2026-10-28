@@ -2162,7 +2162,7 @@
         }
       },
       "curve": {
-        "aria": "{{channel}} point curve. Click to add a point; drag to adjust; double-click a point to remove it.",
+        "aria": "{{channel}} point curve. Click to add a point; drag to adjust; double-click a point to remove it. Focus a point for keyboard controls.",
         "ariaChannels": {
           "blue": "blue",
           "green": "green",
@@ -2173,7 +2173,8 @@
         "channel": "Curve channel",
         "input": "Input",
         "maxPoints": "Maximum {{max}} points per channel. Move or remove a point to refine the curve.",
-        "output": "Output"
+        "output": "Output",
+        "point": "Point {{index}}, input {{input}}, output {{output}}. Arrow keys move; A adds a point; Delete removes."
       },
       "effects": {
         "grainColor": "Grain colour",

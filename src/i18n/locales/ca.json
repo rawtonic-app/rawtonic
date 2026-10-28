@@ -2234,7 +2234,8 @@
         "channel": "Canal de la corba",
         "input": "Entrada",
         "maxPoints": "Màxim {{max}} punts per canal. Mou o treu un punt per afinar la corba.",
-        "output": "Sortida"
+        "output": "Sortida",
+        "point": "Punt {{index}}, entrada {{input}}, sortida {{output}}. Mou amb les fletxes; A afegeix un punt; Supr l’elimina."
       },
       "effects": {
         "grainColor": "Color del gra",

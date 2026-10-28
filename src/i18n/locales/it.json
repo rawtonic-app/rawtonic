@@ -2234,7 +2234,8 @@
         "channel": "Canale della curva",
         "input": "Input",
         "maxPoints": "Massimo {{max}} punti per canale. Sposta o rimuovi un punto per rifinire la curva.",
-        "output": "Output"
+        "output": "Output",
+        "point": "Punto {{index}}, ingresso {{input}}, uscita {{output}}. Le frecce spostano; A aggiunge un punto; Canc lo elimina."
       },
       "effects": {
         "grainColor": "Colore della grana",
