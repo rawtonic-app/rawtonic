@@ -1531,7 +1531,7 @@
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
-@container viewer-footer (max-width: 860px) {
+@container viewer-footer (max-width: 1100px) {
   .studio-capture-info {
     display: none;
   }
