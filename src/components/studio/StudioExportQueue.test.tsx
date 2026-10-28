@@ -124,7 +124,8 @@ it("shows a job's photos live, with time left, reasons and their files", async (
     "3.RAFWaiting",
   ]);
   // Its exported files can be revealed while the rest run.
-  expect(screen.getAllByRole("button", { name: "Show" }).length).toBe(2);
+  expect(screen.getByRole("button", { name: "Show in file manager" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Show" })).toBeTruthy();
   // Counted from the photos, not the job's count from before the run.
   expect(screen.getByText(/Exporting \(1 of 4 exported\)/)).toBeTruthy();
   // (5 s of photo 2 + 10 s for photo 3) on one worker.
@@ -150,14 +151,15 @@ it("reveals a finished job's files and closes with Escape", async () => {
   const onClose = vi.fn();
   useProcessStore.setState({ exportQueue: [job({ state: "done", done: 1 })] });
   render(<ExportQueuePanel onClose={onClose} />);
-  fireEvent.click(screen.getByRole("button", { name: "Show" }));
+  fireEvent.click(screen.getByRole("button", { name: "Show in file manager" }));
   await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("show_in_finder", { path: "/out/1.jpg" }));
+  expect(await screen.findByText("/out")).toBeTruthy();
   // The app's shortcuts (Escape reverts a crop or leaves Develop) listen on
   // the window and skip handled keys.
   const reachedShortcuts = vi.fn();
   const shortcuts = (e: KeyboardEvent) => reachedShortcuts(e.defaultPrevented);
   window.addEventListener("keydown", shortcuts);
-  fireEvent.keyDown(screen.getByRole("button", { name: "Show" }), { key: "Escape", code: "Escape" });
+  fireEvent.keyDown(screen.getByRole("button", { name: "Show in file manager" }), { key: "Escape", code: "Escape" });
   window.removeEventListener("keydown", shortcuts);
   expect(onClose).toHaveBeenCalled();
   expect(reachedShortcuts).toHaveBeenCalledWith(true);
@@ -169,7 +171,7 @@ it("leaves Enter and Space on its buttons to the buttons", () => {
   // As the crop tool's Enter does: it takes the key and the button's press with it.
   const shortcut = vi.fn((e: KeyboardEvent) => e.preventDefault());
   window.addEventListener("keydown", shortcut);
-  const button = screen.getByRole("button", { name: "Show" });
+  const button = screen.getByRole("button", { name: "Show in file manager" });
   fireEvent.keyDown(button, { key: "Enter", code: "Enter" });
   fireEvent.keyDown(button, { key: " ", code: "Space" });
   window.removeEventListener("keydown", shortcut);
