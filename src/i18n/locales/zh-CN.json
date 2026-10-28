@@ -4200,6 +4200,7 @@
     "download": "下载",
     "failed": "无法检查更新。请稍后重试。",
     "fileWithSize": "{{file}}（{{size}} MB）",
+    "manual": "检查更新",
     "noFile": "此版本没有适用于这台电脑的下载；发布页面列出了所有文件。",
     "noNotes": "没有发布说明。发布页面可能有更多信息。",
     "notesTitle": "Rawtonic {{version}} 的新功能",

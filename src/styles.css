@@ -31,6 +31,57 @@
   ::file-selector-button {
     border-color: var(--color-gray-200, currentcolor);
   }
+
+  /* One checkbox and radio for the whole app, in the studio's colours. Native
+     ones draw in the light system look on the dark chrome, where an unselected
+     radio is a white disc and reads as the chosen one. */
+  input[type='checkbox'],
+  input[type='radio'] {
+    appearance: none;
+    -webkit-appearance: none;
+    flex: none;
+    display: inline-block;
+    vertical-align: middle;
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    border: 1px solid #6b6e73;
+    border-radius: 3px;
+    background: #1d1e20 center / 10px 10px no-repeat;
+    cursor: pointer;
+  }
+  input[type='radio'] {
+    border-radius: 50%;
+  }
+  input[type='checkbox']:hover:not(:disabled),
+  input[type='radio']:hover:not(:disabled) {
+    border-color: #9a9ea4;
+  }
+  input[type='checkbox']:checked,
+  input[type='checkbox']:indeterminate,
+  input[type='radio']:checked {
+    border-color: #a9bdcc;
+    background-color: #a9bdcc;
+  }
+  input[type='checkbox']:checked {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='m2 5.2 2 2 4-4.4' fill='none' stroke='%2318232a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+  input[type='checkbox']:indeterminate {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2.5 5h5' stroke='%2318232a' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+  }
+  input[type='radio']:checked {
+    background-image: radial-gradient(circle, #18232a 0 2.5px, transparent 3px);
+    background-size: 100% 100%;
+  }
+  input[type='checkbox']:focus-visible,
+  input[type='radio']:focus-visible {
+    box-shadow: 0 0 0 2px #292a2c, 0 0 0 3px #b4c8d3;
+  }
+  input[type='checkbox']:disabled,
+  input[type='radio']:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
 }
 
 @utility slider-input {

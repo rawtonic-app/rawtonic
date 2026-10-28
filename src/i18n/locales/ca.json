@@ -4399,6 +4399,7 @@
     "download": "Baixa",
     "failed": "No s’han pogut comprovar les actualitzacions. Torna-ho a provar més tard.",
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "manual": "Cerca actualitzacions",
     "noFile": "Aquesta versió no té descàrrega per a aquest ordinador; la pàgina de la versió llista tots els fitxers.",
     "noNotes": "Sense notes de la versió. La pàgina de la versió en pot tenir més.",
     "notesTitle": "Novetats del Rawtonic {{version}}",

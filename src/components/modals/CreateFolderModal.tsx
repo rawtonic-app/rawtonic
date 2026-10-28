@@ -1,7 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import Text from '../ui/Text';
-import { TextVariants } from '../../types/typography';
 
 interface FolderModalProps {
   isOpen: boolean;
@@ -70,44 +68,37 @@ export default function CreateFolderModal({
   return (
     <div
       aria-modal="true"
-      className={`
-        fixed inset-0 flex items-center justify-center z-50
-        bg-black/30 backdrop-blur-xs
-        transition-opacity duration-300 ease-in-out
-        ${show ? 'opacity-100' : 'opacity-0'}
-      `}
+      className={`studio-dialog-backdrop transition-opacity duration-300 ease-in-out ${show ? 'opacity-100' : 'opacity-0'}`}
       onClick={onClose}
       role="dialog"
     >
       <div
-        className={`
-          bg-surface rounded-lg shadow-xl p-6 w-full max-w-sm
-          transform transition-all duration-300 ease-out
-          ${show ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 -translate-y-4'}
-        `}
+        className={`studio-dialog transform transition-all duration-300 ease-out ${
+          show ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 -translate-y-4'
+        }`}
         onClick={(e: React.MouseEvent<HTMLDivElement>) => e.stopPropagation()}
       >
-        <Text variant={TextVariants.title} className="mb-4">
+        <h2 className="studio-dialog-title">
           {title || t('modals.createFolder.title')}
-        </Text>
+        </h2>
         <input
           autoFocus
-          className="w-full bg-bg-primary text-text-primary border border-border rounded-md px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-accent"
+          className="w-full px-2 py-1.5"
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder || t('modals.createFolder.placeholder')}
           type="text"
           value={name}
         />
-        <div className="flex justify-end gap-3 mt-5">
+        <div className="studio-dialog-footer">
           <button
-            className="px-4 py-2 rounded-md text-text-secondary hover:bg-surface transition-colors"
+            className="studio-button"
             onClick={onClose}
           >
             {t('modals.createFolder.cancel')}
           </button>
           <button
-            className="px-4 py-2 rounded-md bg-accent text-button-text font-semibold hover:bg-accent-hover disabled:bg-gray-500 disabled:text-white disabled:cursor-not-allowed transition-colors"
+            className="studio-button is-primary"
             disabled={!name.trim()}
             onClick={handleSave}
           >

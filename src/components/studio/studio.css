@@ -2105,8 +2105,16 @@
 }
 .studio-snapshot-text {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  flex: 1;
   min-width: 0;
   font-size: 11px;
+}
+/* Renaming: the field takes the row's room, never more, so Update and Delete
+   stay inside the panel. */
+.studio-snapshot-text input {
+  width: 100%;
+  min-width: 0;
 }
 .studio-snapshot-name {
   overflow: hidden;
@@ -2582,7 +2590,7 @@
   min-height: 34px;
   font-size: 11px;
 }
-.studio-export-form input:not([type="checkbox"]) {
+.studio-export-form input:not([type="checkbox"], [type="radio"]) {
   border: 1px solid #555a61;
   background: #202123;
   border-radius: 3px;
@@ -2632,7 +2640,6 @@
   margin: 6px 0 4px;
 }
 .studio-export-anchor input {
-  accent-color: #adc6db;
   margin: 0;
 }
 .studio-export-more summary {
@@ -4529,6 +4536,7 @@ body.is-dragging.is-drop-refused * {
 }
 .pref-control .pref-segments button {
   padding: 3px 14px;
+  white-space: nowrap;
   min-height: 26px;
 }
 .pref-segments button[aria-checked="true"] {
@@ -4825,6 +4833,143 @@ img.relight-pattern-preview { object-fit: cover; }
   opacity: 0.5;
 }
 
+/* Dialogs and buttons shared with the inherited views (confirmations, Report
+   a problem, Preferences): the studio's panel, type scale and buttons.
+   `button.` outranks the workspace's own button reset. */
+.studio-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #10111488;
+}
+.studio-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 440px;
+  max-height: min(680px, 100%);
+  padding: 16px;
+  background: #292a2c;
+  border: 1px solid #45484c;
+  border-radius: 6px;
+  box-shadow: 0 18px 80px #0008;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--studio-text, #e0e1e3);
+}
+.studio-dialog.is-wide {
+  max-width: 620px;
+}
+.studio-dialog:focus {
+  outline: none;
+}
+.studio-dialog-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f0f1f2;
+}
+.studio-dialog :is(.text-base, .text-sm, .text-md, .text-lg, .text-xl) {
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+}
+.studio-dialog .text-xs {
+  font-size: 11px !important;
+}
+.studio-dialog .text-text-secondary {
+  color: #9a9ea4;
+}
+.studio-dialog textarea,
+.studio-dialog input:not([type="checkbox"], [type="radio"]) {
+  border: 1px solid #45484c;
+  border-radius: 3px;
+  background: #1f2022;
+  color: var(--studio-text, #e0e1e3);
+}
+/* The global `*:focus { outline: none }` hides the native ring. */
+.studio-dialog textarea:focus-visible,
+.studio-dialog input:not([type="checkbox"], [type="radio"]):focus-visible {
+  border-color: #b4c8d3;
+  box-shadow: 0 0 0 1px #b4c8d3;
+}
+.studio-dialog pre {
+  border: 1px solid #3c3f43;
+  border-radius: 3px;
+  background: #1f2022;
+}
+.studio-dialog-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+/* Secondary actions (Copy report, Open on GitHub) at the left; Cancel and the
+   default action stay together at the right at every width. */
+.studio-dialog-footer-end {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+button.studio-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 4px 12px;
+  border: 1px solid #55585d;
+  border-radius: 3px;
+  background: #ffffff08;
+  color: #e6e7e9;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+button.studio-button:hover:not(:disabled) {
+  background: #ffffff14;
+}
+button.studio-button:focus-visible,
+button.studio-button.is-default:focus {
+  box-shadow: 0 0 0 2px #292a2c, 0 0 0 3px #b4c8d3;
+}
+button.studio-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+button.studio-button.is-primary {
+  border-color: transparent;
+  background: #a9bdcc;
+  color: #18232a;
+}
+button.studio-button.is-primary:hover:not(:disabled) {
+  background: #bfd0dc;
+}
+button.studio-button.is-destructive {
+  border-color: transparent;
+  background: #8a3b3b;
+  color: #fff;
+}
+button.studio-button.is-destructive:hover:not(:disabled) {
+  background: #9c4545;
+}
+/* Preferences has no default action: its buttons are plain push buttons. */
+.pref-content button.studio-button.is-primary {
+  border-color: #55585d;
+  background: #ffffff08;
+  color: #e6e7e9;
+}
+.pref-content button.studio-button.is-primary:hover:not(:disabled) {
+  background: #ffffff14;
+}
+
 /* Copy and Sync settings: groups by section and the layers, in columns. */
 .studio-copy-settings {
   display: flex;
@@ -4851,6 +4996,11 @@ img.relight-pattern-preview { object-fit: cover; }
 .studio-copy-settings-quick {
   display: flex;
   gap: 6px;
+}
+.studio-copy-settings-quick button.studio-button {
+  min-height: 22px;
+  padding: 2px 10px;
+  font-size: 11px;
 }
 .studio-copy-settings-groups {
   display: grid;
@@ -5036,77 +5186,10 @@ img.relight-pattern-preview { object-fit: cover; }
   font-size: 10px;
 }
 
-/* At wide Library widths the filters join the session chrome. The workspace
-   decides using logical width, including the user's interface scale. */
-.session-library-slot:empty {
-  display: none;
-}
-.studio-app .session-bar:has(.is-in-header) {
-  gap: 8px;
-}
-.studio-app .session-bar:has(.is-in-header) .session-bar-start {
-  flex: 0 1 120px;
-}
-.studio-app .session-bar:has(.is-in-header) .session-bar-end {
-  flex: 0 0 auto;
-  gap: 5px;
-}
-.studio-app .session-bar:has(.is-in-header) .session-count-total,
-.studio-app .session-bar:has(.is-in-header) .session-count-status-text,
-.studio-app .session-bar:has(.is-in-header) .session-mark,
-.studio-app .session-bar:has(.is-in-header) .session-action > span {
-  display: none;
-}
-.studio-app .session-bar:has(.is-in-header) .session-action {
-  padding: 6px;
-}
-.session-library-slot {
-  flex: 1;
-  min-width: 0;
-}
 .studio-controls {
   font-size: 12px;
   line-height: 1.4;
   color: var(--studio-text);
-}
-.studio-library-toolbar.is-in-header {
-  flex-direction: row;
-  flex-wrap: nowrap;
-  min-height: 0;
-  height: 34px;
-  gap: 5px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  overflow: visible;
-}
-.is-in-header .studio-library-filters {
-  order: 0;
-  flex-wrap: nowrap;
-  gap: 5px;
-}
-.is-in-header .studio-search {
-  flex: 1 1 110px;
-}
-.is-in-header .studio-library-filters select {
-  flex: 0 1 auto;
-  max-width: 85px;
-}
-.is-in-header .studio-filter select {
-  max-width: 85px;
-}
-.is-in-header .studio-flag-label,
-.is-in-header .studio-metadata-toggle > span:not(.studio-filter-count),
-.is-in-header .studio-clear-filters > span {
-  display: none;
-}
-.is-in-header .studio-flag-filters button,
-.is-in-header .studio-clear-filters,
-.is-in-header .studio-metadata-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 5px;
 }
 /* The fallback row can be narrower than the window because of the sidebar. */
 @container library-toolbar (max-width: 1100px) {
@@ -5138,29 +5221,10 @@ img.relight-pattern-preview { object-fit: cover; }
   font-size: 9px;
 }
 
-.session-count-status-icon {
-  display: none;
-}
-.studio-app .session-bar:has(.is-in-header) .session-count {
-  display: flex;
-  flex: none;
-  overflow: visible;
-  gap: 6px;
-}
-.studio-app .session-bar:has(.is-in-header) .session-count-status-icon {
-  display: inline-block;
-  color: #e5bc72;
-}
 @container library-toolbar (max-width: 770px) {
   .studio-library-filters {
     flex-wrap: wrap;
   }
-}
-.studio-app .session-bar:has(.is-in-header) .session-bar-start:has(.session-count-status-icon) {
-  flex-basis: 160px;
-}
-.studio-app .session-bar:has(.is-in-header) .session-identity {
-  flex-shrink: 1;
 }
 
 /* Notices: toasts and the update notice share one look and one bottom-right
@@ -5472,4 +5536,8 @@ img.relight-pattern-preview { object-fit: cover; }
   outline: none;
   stroke: #fff;
   stroke-width: 3;
+}
+/* A checkbox beside a label that may wrap lines up with its first line. */
+.studio-dialog label.items-start > input:first-child {
+  margin-top: 2px;
 }

@@ -2,8 +2,6 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import Button from '../ui/Button';
-import Text from '../ui/Text';
-import { TextVariants } from '../../types/typography';
 
 interface ConfirmModalProps {
   cancelText?: string;
@@ -90,34 +88,25 @@ export default function ConfirmModal({
     <div
       aria-labelledby="confirm-modal-title"
       aria-modal="true"
-      className={`
-        fixed inset-0 flex items-center justify-center z-[9999]
-        bg-black/30 backdrop-blur-xs
-        transition-opacity duration-300 ease-in-out
-        ${show ? 'opacity-100' : 'opacity-0'}
-      `}
+      className={`studio-dialog-backdrop transition-opacity duration-300 ease-in-out ${show ? 'opacity-100' : 'opacity-0'}`}
       onClick={onClose}
       role="dialog"
     >
       <div
-        className={`
-          bg-surface rounded-lg shadow-xl p-6 w-full max-w-md text-text-primary
-          transform transition-all duration-300 ease-out
-          ${show ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 -translate-y-4'}
-        `}
+        className={`studio-dialog transform transition-all duration-300 ease-out ${
+          show ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 -translate-y-4'
+        }`}
         onClick={(e: React.MouseEvent<HTMLDivElement>) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
-        <Text variant={TextVariants.title} id="confirm-modal-title" className="mb-4">
+        <h2 className="studio-dialog-title" id="confirm-modal-title">
           {title}
-        </Text>
-        <Text className="mb-6 whitespace-pre-wrap wrap-anywhere">{message}</Text>
-        <div className="flex justify-end gap-3 mt-5">
+        </h2>
+        <p className="m-0 whitespace-pre-wrap wrap-anywhere">{message}</p>
+        <div className="studio-dialog-footer">
           <Button
-            className={`bg-bg-primary shadow-transparent hover:bg-bg-primary text-white shadow-none ${
-              // The default button shows that it is: Enter cancels.
-              destructive ? 'focus:ring-1 focus:ring-text-secondary' : 'focus:ring-0'
-            }`}
+            // The default button shows that it is: Enter cancels.
+            className={destructive ? 'is-default' : undefined}
             onClick={onClose}
             variant="ghost"
             tabIndex={0}
@@ -125,13 +114,7 @@ export default function ConfirmModal({
           >
             {resolvedCancelText}
           </Button>
-          <Button
-            onClick={handleConfirm}
-            variant={confirmVariant}
-            autoFocus={!destructive}
-            ref={confirmRef}
-            className="focus:ring-0 focus:ring-offset-0"
-          >
+          <Button onClick={handleConfirm} variant={confirmVariant} autoFocus={!destructive} ref={confirmRef}>
             {resolvedConfirmText}
           </Button>
         </div>

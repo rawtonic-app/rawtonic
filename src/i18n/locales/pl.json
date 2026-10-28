@@ -4512,6 +4512,7 @@
     "download": "Pobierz",
     "failed": "Nie udało się sprawdzić aktualizacji. Spróbuj ponownie później.",
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "manual": "Sprawdź aktualizacje",
     "noFile": "To wydanie nie ma pliku do pobrania dla tego komputera; strona wydania zawiera wszystkie pliki.",
     "noNotes": "Brak informacji o wydaniu. Strona wydania może zawierać więcej.",
     "notesTitle": "Co nowego w Rawtonic {{version}}",

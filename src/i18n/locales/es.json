@@ -4399,6 +4399,7 @@
     "download": "Descargar",
     "failed": "No se han podido comprobar las actualizaciones. Inténtalo más tarde.",
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "manual": "Buscar actualizaciones",
     "noFile": "Esta versión no tiene descarga para este ordenador; la página de la versión lista todos los archivos.",
     "noNotes": "Sin notas de la versión. La página de la versión puede tener más.",
     "notesTitle": "Novedades de Rawtonic {{version}}",

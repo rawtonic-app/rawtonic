@@ -96,6 +96,16 @@ export const photoInfo = (
   return { make, model, fileType: fileType.toUpperCase(), path: photo.path.split("?")[0] };
 };
 
+/** A maker and a model or product name with the maker named once: "Canon" and
+ * "Canon EOS 7D" read "Canon EOS 7D", "apple" and "Apple M5 Pro" "Apple M5 Pro". */
+export const makerAndName = (maker: string | null | undefined, name: string | null | undefined) => {
+  const m = maker?.trim() ?? "";
+  const n = name?.trim() ?? "";
+  const first = m.split(/\s+/)[0]?.toLowerCase() ?? "";
+  if (!m || !n) return m || n;
+  return n.toLowerCase() === first || n.toLowerCase().startsWith(`${first} `) ? n : `${m} ${n}`;
+};
+
 /** A file whose camera is not known (its metadata could not be read): the
  * report can still carry it, as an unknown camera. */
 export const filePhoto = (path: string): PhotoInfo | null => {
@@ -207,7 +217,7 @@ const systemLine = (p: Parsed) => {
   const parts = [
     p.app && `Rawtonic ${p.app.version}`,
     p.app && `${p.app.os} ${p.app.osVersion} (${p.app.arch})`,
-    p.gpu && `GPU: ${[p.gpu.vendor, p.gpu.name].filter(Boolean).join(", ")}`,
+    p.gpu && `GPU: ${makerAndName(p.gpu.vendor, p.gpu.name)}`,
   ].filter(Boolean);
   return parts.join(" · ");
 };
@@ -256,7 +266,7 @@ function render(p: Parsed, fit: Fit): string {
   }
   const system = systemLine(p);
   if (system) out.push(`**System:** ${system}`);
-  if (p.photo) out.push(`**Photo:** ${p.photo.make} ${p.photo.model} (${p.photo.fileType})`);
+  if (p.photo) out.push(`**Photo:** ${makerAndName(p.photo.make, p.photo.model)} (${p.photo.fileType})`);
   if (p.screenshot) out.push("**Screenshot:** not included here (only the relay takes files).");
   if (p.photo?.file) out.push("**Photo file:** not included here (only the relay takes files).");
   if (p.backtrace) {

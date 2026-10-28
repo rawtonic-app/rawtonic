@@ -96,33 +96,33 @@ export default function RenameFileModal({ filesToRename, isOpen, onClose, onSave
   return (
     <div
       aria-modal="true"
-      className={`fixed inset-0 flex items-center justify-center z-50 bg-black/30 backdrop-blur-xs transition-opacity duration-300 ease-in-out ${
+      className={`studio-dialog-backdrop transition-opacity duration-300 ease-in-out ${
         show ? 'opacity-100' : 'opacity-0'
       }`}
       onClick={onClose}
       role="dialog"
     >
       <div
-        className={`bg-surface rounded-lg shadow-xl p-6 w-full max-w-lg transform transition-all duration-300 ease-out ${
+        className={`studio-dialog transform transition-all duration-300 ease-out ${
           show ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 -translate-y-4'
         }`}
         onClick={(e: React.MouseEvent<HTMLDivElement>) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
-        <Text variant={TextVariants.title} className="mb-4">
+        <h2 className="studio-dialog-title">
           {isSingleFile
             ? t('modals.renameFile.titleSingle')
             : t('modals.renameFile.titleMultiple', { count: fileCount })}
-        </Text>
+        </h2>
 
-        <div className="space-y-8 text-sm">
+        <div>
           <div>
-            <Text variant={TextVariants.heading} className="block mb-2">
+            <Text variant={TextVariants.label} className="block mb-2">
               {isSingleFile ? t('modals.renameFile.newName') : t('modals.renameFile.fileNamingTemplate')}
             </Text>
             <input
               autoFocus
-              className="w-full bg-bg-primary border border-surface rounded-md p-2 text-sm text-text-primary focus:ring-accent focus:border-accent"
+              className="w-full px-2 py-1.5"
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNameTemplate(e.target.value)}
               onKeyDown={handleKeyDown}
               ref={nameInputRef}
@@ -133,7 +133,7 @@ export default function RenameFileModal({ filesToRename, isOpen, onClose, onSave
               <div className="flex flex-wrap gap-2 mt-2">
                 {FILENAME_VARIABLES.map((variable: string) => (
                   <button
-                    className="px-2 py-1 bg-surface text-text-secondary text-xs rounded-md hover:bg-card-active transition-colors"
+                    className="studio-button"
                     key={variable}
                     onClick={() => handleVariableClick(variable)}
                   >
@@ -145,15 +145,15 @@ export default function RenameFileModal({ filesToRename, isOpen, onClose, onSave
           </div>
         </div>
 
-        <div className="flex justify-end gap-3 mt-8">
+        <div className="studio-dialog-footer">
           <button
-            className="px-4 py-2 rounded-md text-text-secondary hover:bg-surface transition-colors"
+            className="studio-button"
             onClick={onClose}
           >
             {t('modals.renameFile.cancel')}
           </button>
           <button
-            className="px-4 py-2 rounded-md bg-accent shadow-shiny text-button-text font-semibold hover:bg-accent-hover disabled:bg-gray-500 disabled:text-white disabled:cursor-not-allowed transition-colors"
+            className="studio-button is-primary"
             disabled={!nameTemplate.trim()}
             onClick={handleSave}
           >
