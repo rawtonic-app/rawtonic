@@ -224,6 +224,8 @@
     "keys": "↑ ↓ Sélectionner · Entrée Exécuter · Échap Fermer",
     "recent": "Commandes récentes en premier · ↑ ↓ Sélectionner · Entrée Exécuter · Échap Fermer",
     "search": "Rechercher une commande…",
+    "selectAtMostPhotos": "Sélectionnez au maximum {{max}} photos",
+    "selectFourPhotos": "Sélectionnez au moins quatre photos",
     "selectTwoPhotos": "Sélectionnez au moins deux photos"
   },
   "contextMenus": {
@@ -1597,7 +1599,7 @@
     },
     "general": {
       "autoAdvance": "Avance automatique",
-      "autoAdvanceDesc": "Dans Développement, une touche de note, de sélection, de rejet ou de retrait du marquage passe à la photo suivante : le tri ne demande qu’une touche par photo.",
+      "autoAdvanceDesc": "Après une note ou un marquage, passe à la photo suivante depuis la photo affichée ou une sélection unique dans la grille. Activez cette option avec Verr. maj. ou dans le menu Photo.",
       "builtinPresets": "Préréglages intégrés",
       "builtinPresetsDesc": "Afficher les styles et préréglages propres à Rawtonic dans Styles et préréglages et dans les menus de préréglages des outils.",
       "createXmp": "Créer les fichiers XMP manquants",

@@ -224,6 +224,8 @@
     "keys": "↑ ↓ Seleccionar · Intro Ejecutar · Esc Cerrar",
     "recent": "Comandos recientes primero · ↑ ↓ Seleccionar · Intro Ejecutar · Esc Cerrar",
     "search": "Buscar comandos…",
+    "selectAtMostPhotos": "Selecciona como máximo {{max}} fotografías",
+    "selectFourPhotos": "Selecciona al menos cuatro fotografías",
     "selectTwoPhotos": "Selecciona al menos dos fotografías"
   },
   "contextMenus": {
@@ -1597,7 +1599,7 @@
     },
     "general": {
       "autoAdvance": "Avance automático",
-      "autoAdvanceDesc": "En Revelado, una tecla de valoración, selección, rechazo o quitar marca pasa a la foto siguiente, así el descarte pide una tecla por foto.",
+      "autoAdvanceDesc": "Al valorar o marcar, avanza desde la foto mostrada o una selección individual de la cuadrícula. Actívalo con Bloq Mayús o en el menú Foto.",
       "builtinPresets": "Ajustes integrados",
       "builtinPresetsDesc": "Mostrar los estilos y ajustes propios de Rawtonic en Estilos y ajustes y en los menús de ajustes de las herramientas.",
       "createXmp": "Crear archivos XMP faltantes",

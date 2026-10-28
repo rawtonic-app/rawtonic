@@ -86,6 +86,8 @@ import { PREVIOUS_IMPORT_VIEW_ID } from '../utils/folderSync';
 import { registerAppCommands } from '../utils/appCommands';
 import { noteTool } from '../components/contribute/usageStats';
 
+const MERGE_LIMITS = { panorama: [2, 30], hdr: [2, 9], hdrPanorama: [4, Infinity], focusStack: [2, Infinity] } as const;
+
 type TaggingSubMenuProps = Omit<ComponentProps<typeof TaggingSubMenu>, 'hideContextMenu'>;
 
 export interface UseAppContextMenusProps {
@@ -134,16 +136,22 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       run: () => useUIStore.getState().setUI({ negativeModalState: { isOpen: true, targetPaths: [...useLibraryStore.getState().multiSelectedPaths] } }),
     },
     ...Object.fromEntries(([
-      ['merge_panorama', 'panorama', t('contextMenus.editor.stitchPanorama'), 2, 30],
-      ['merge_hdr', 'hdr', t('contextMenus.editor.mergeHdr'), 2, 9],
-      ['merge_hdr_panorama', 'hdrPanorama', t('contextMenus.merge.hdrPanorama'), 4, Infinity],
-      ['merge_focus_stack', 'focusStack', t('contextMenus.merge.focusStack'), 2, Infinity],
+      ['merge_panorama', 'panorama', t('contextMenus.editor.stitchPanorama'), ...MERGE_LIMITS.panorama],
+      ['merge_hdr', 'hdr', t('contextMenus.editor.mergeHdr'), ...MERGE_LIMITS.hdr],
+      ['merge_hdr_panorama', 'hdrPanorama', t('contextMenus.merge.hdrPanorama'), ...MERGE_LIMITS.hdrPanorama],
+      ['merge_focus_stack', 'focusStack', t('contextMenus.merge.focusStack'), ...MERGE_LIMITS.focusStack],
     ] as const).map(([id, kind, paletteLabel, min, max]) => [id, {
       paletteLabel,
+      disabledHint: () => {
+        const count = useLibraryStore.getState().multiSelectedPaths.length;
+        if (count < min) return t(min === 4 ? 'commandPalette.selectFourPhotos' : 'commandPalette.selectTwoPhotos');
+        if (count > max) return t('commandPalette.selectAtMostPhotos', { max });
+      },
       enabled: () => { const count = useLibraryStore.getState().multiSelectedPaths.length; return count >= min && count <= max; },
       run: () => useUIStore.getState().setUI({ mergeModalState: { ...CLOSED_MERGE_MODAL, isOpen: true, kind, sourcePaths: [...useLibraryStore.getState().multiSelectedPaths] } }),
     }])),
     match_light: {
+      disabledHint: () => t('commandPalette.selectTwoPhotos'),
       enabled: () => useLibraryStore.getState().multiSelectedPaths.length >= 2,
       run: () => {
         const { multiSelectedPaths: paths, libraryActivePath } = useLibraryStore.getState();
@@ -765,7 +773,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           icon: LayersArrowDown,
           submenu: [
             {
-              disabled: selectionCount < 2 || selectionCount > 30,
+              disabled: selectionCount < MERGE_LIMITS.panorama[0] || selectionCount > MERGE_LIMITS.panorama[1],
               icon: SquaresUnite,
               label: stitchLabel,
               onClick: () => {
@@ -773,7 +781,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               },
             },
             {
-              disabled: selectionCount < 2 || selectionCount > 9,
+              disabled: selectionCount < MERGE_LIMITS.hdr[0] || selectionCount > MERGE_LIMITS.hdr[1],
               icon: Images,
               label: mergeLabel,
               onClick: () => {
@@ -781,7 +789,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               },
             },
             {
-              disabled: selectionCount < 4,
+              disabled: selectionCount < MERGE_LIMITS.hdrPanorama[0],
               icon: SquaresUnite,
               label: t('contextMenus.merge.hdrPanorama'),
               onClick: () => {
@@ -789,7 +797,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               },
             },
             {
-              disabled: selectionCount < 2,
+              disabled: selectionCount < MERGE_LIMITS.focusStack[0],
               icon: Layers,
               label: t('contextMenus.merge.focusStack'),
               onClick: () => {

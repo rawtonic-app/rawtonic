@@ -229,8 +229,8 @@ export const useKeyboardShortcuts = ({
   }, [sortedImageList]);
 
   // Auto-advance (Preferences, off by default; Lightroom's Auto Advance): a
-  // rating or flag key on the photograph shown (Develop's single view, the
-  // Library's loupe, the full screen) steps to the next one, one key per
+  // rating or flag key on the photograph shown or a single grid selection
+  // steps to the next one, one key per
   // photograph while culling. The rating or flag is bound to the rated
   // photograph before the step; Undo keeps its meaning (Develop: the open
   // photograph's edits).
@@ -1182,6 +1182,25 @@ export const useKeyboardShortcuts = ({
     }
     const unregisterCommands = registerAppCommands(menuCommands);
 
+    // On macOS WebKit may report Caps Lock locking as keydown and unlocking
+    // as keyup. Follow the lock state on both transitions, not the event count.
+    const syncMacCapsLock = (event: KeyboardEvent, state: ShortcutState) => {
+      if (state.settings.osPlatform !== 'macos' || event.code !== 'CapsLock' || event.repeat ||
+          event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || !state.settings.appSettings ||
+          !(buildComboMap(state.settings.appSettings.keybinds).get('CapsLock') ?? []).includes('toggle_auto_advance')) return false;
+      event.preventDefault();
+      const appSettings = state.settings.appSettings;
+      const autoAdvance = event.getModifierState('CapsLock');
+      if (appSettings.autoAdvance !== autoAdvance) void state.settings.handleSettingsChange({ ...appSettings, autoAdvance });
+      return true;
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      const state = getStoreState();
+      if (event.defaultPrevented || state.ui.isSettingsOpen || shortcutsHeld(state) || fieldOwnsKey(document.activeElement, event.code)) return;
+      syncMacCapsLock(event, state);
+    };
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       const state = getStoreState();
@@ -1204,6 +1223,8 @@ export const useKeyboardShortcuts = ({
       // Tab moves the focus between fields and controls; it hides panels only
       // from the photograph, the browser tiles or with nothing focused.
       if (event.code === 'Tab' && !ownsPanelShortcut(document.activeElement)) return;
+
+      if (!rangeOwnsKey && syncMacCapsLock(event, state)) return;
 
       for (const builtin of builtinShortcuts) {
         if (!rangeOwnsKey && builtin.match(event, state)) {
@@ -1235,8 +1256,10 @@ export const useKeyboardShortcuts = ({
     };
 
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
       unregisterCommands();
     };
   }, [

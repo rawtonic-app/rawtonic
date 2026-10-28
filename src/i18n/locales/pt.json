@@ -224,6 +224,8 @@
     "keys": "↑ ↓ Selecionar · Enter Executar · Esc Fechar",
     "recent": "Comandos recentes primeiro · ↑ ↓ Selecionar · Enter Executar · Esc Fechar",
     "search": "Pesquisar comandos…",
+    "selectAtMostPhotos": "Selecione no máximo {{max}} fotografias",
+    "selectFourPhotos": "Selecione pelo menos quatro fotografias",
     "selectTwoPhotos": "Selecione pelo menos duas fotografias"
   },
   "contextMenus": {
@@ -1597,7 +1599,7 @@
     },
     "general": {
       "autoAdvance": "Avanço automático",
-      "autoAdvanceDesc": "Em Revelação, uma tecla de classificação, escolha, rejeição ou remoção da marca passa à fotografia seguinte, e a seleção pede uma tecla por fotografia.",
+      "autoAdvanceDesc": "Ao classificar ou marcar, avança a partir da fotografia mostrada ou de uma seleção única na grelha. Ative com Caps Lock ou no menu Fotografia.",
       "builtinPresets": "Predefinições incluídas",
       "builtinPresetsDesc": "Mostrar os estilos e predefinições próprios do Rawtonic em Estilos e predefinições e nos menus de predefinições das ferramentas.",
       "createXmp": "Criar Arquivos XMP Ausentes",

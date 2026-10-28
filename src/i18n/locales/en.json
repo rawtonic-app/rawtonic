@@ -224,6 +224,8 @@
     "keys": "↑ ↓ Select · Enter Run · Esc Close",
     "recent": "Recent commands first · ↑ ↓ Select · Enter Run · Esc Close",
     "search": "Search commands…",
+    "selectAtMostPhotos": "Select at most {{max}} photographs",
+    "selectFourPhotos": "Select at least four photographs",
     "selectTwoPhotos": "Select at least two photographs"
   },
   "contextMenus": {
@@ -1537,7 +1539,7 @@
     },
     "general": {
       "autoAdvance": "Auto-advance",
-      "autoAdvanceDesc": "A rating, pick, reject or unflag key moves to the next photograph when one photo is selected. Toggle with Caps Lock or the Photo menu.",
+      "autoAdvanceDesc": "Rating or flagging advances from the photograph shown, or from a single grid selection. Toggle with Caps Lock or the Photo menu.",
       "builtinPresets": "Built-in presets",
       "builtinPresetsDesc": "Show Rawtonic's own styles and presets in Styles & presets and in the tools' preset menus.",
       "createXmp": "Create Missing XMP Files",

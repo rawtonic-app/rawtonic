@@ -224,6 +224,8 @@
     "keys": "↑ ↓ 选择 · Enter 执行 · Esc 关闭",
     "recent": "最近使用的命令优先 · ↑ ↓ 选择 · Enter 执行 · Esc 关闭",
     "search": "搜索命令…",
+    "selectAtMostPhotos": "最多选择 {{max}} 张照片",
+    "selectFourPhotos": "请至少选择四张照片",
     "selectTwoPhotos": "请至少选择两张照片"
   },
   "contextMenus": {
@@ -1499,7 +1501,7 @@
     },
     "general": {
       "autoAdvance": "自动前进",
-      "autoAdvanceDesc": "在冲印中，按评级、选中、排除或取消标记键后会转到下一张照片，筛选时每张照片只需按一个键。",
+      "autoAdvanceDesc": "评分或标记后，从当前显示的照片或网格中单独选中的照片前进。使用 Caps Lock 或照片菜单切换。",
       "builtinPresets": "内置预设",
       "builtinPresetsDesc": "在“样式与预设”和工具的预设菜单中显示 Rawtonic 自有的样式和预设。",
       "createXmp": "创建缺失的 XMP 文件",

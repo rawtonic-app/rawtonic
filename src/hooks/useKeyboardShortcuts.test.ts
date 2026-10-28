@@ -485,8 +485,33 @@ it("toggles the proof margin with Alt+X in Develop and saves it", () => {
   expect(useSettingsStore.getState().appSettings?.viewerProofMargin).toBe(false);
 });
 
-it("toggles the persistent auto-advance setting with Caps Lock", () => {
-  expect(useSettingsStore.getState().appSettings?.autoAdvance).not.toBe(true);
+it("follows both Caps Lock transitions on macOS", () => {
+  const transition = (type: "keydown" | "keyup", locked: boolean) => {
+    const event = new KeyboardEvent(type, { code: "CapsLock", key: "CapsLock", bubbles: true, cancelable: true });
+    Object.defineProperty(event, "getModifierState", { value: (key: string) => key === "CapsLock" && locked });
+    window.dispatchEvent(event);
+  };
+  transition("keydown", true);
+  expect(useSettingsStore.getState().appSettings?.autoAdvance).toBe(true);
+  transition("keyup", false);
+  expect(useSettingsStore.getState().appSettings?.autoAdvance).toBe(false);
+});
+
+it("respects a disabled Caps Lock binding and text fields on macOS", () => {
+  useSettingsStore.setState({ appSettings: { keybinds: { toggle_auto_advance: [] }, autoAdvance: false } as unknown as AppSettings });
+  const event = new KeyboardEvent("keydown", { code: "CapsLock", bubbles: true });
+  Object.defineProperty(event, "getModifierState", { value: () => true });
+  window.dispatchEvent(event);
+  expect(useSettingsStore.getState().appSettings?.autoAdvance).toBe(false);
+  useSettingsStore.setState({ appSettings: { keybinds: {}, autoAdvance: false } as unknown as AppSettings });
+  document.body.innerHTML = '<input />';
+  document.querySelector("input")!.focus();
+  window.dispatchEvent(event);
+  expect(useSettingsStore.getState().appSettings?.autoAdvance).toBe(false);
+});
+
+it("toggles auto-advance on Caps Lock keydown outside macOS", () => {
+  useSettingsStore.setState({ osPlatform: "linux" });
   press("CapsLock");
   expect(useSettingsStore.getState().appSettings?.autoAdvance).toBe(true);
   press("CapsLock");

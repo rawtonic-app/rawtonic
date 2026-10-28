@@ -900,7 +900,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   }, [mark, session]);
 
   // The File and Photo menus' commands (useAppMenu) run what the identity
-  // menu, the Import button and P/U/⇧X run; the latest closures, by ref.
+  // menu, the Import button and P/U/X run; the latest closures, by ref.
   const menuCommands = useRef({
     flag: (_flag: number) => {},
     newSession: () => {},

@@ -224,6 +224,8 @@
     "keys": "↑ ↓ Seleziona · Invio Esegui · Esc Chiudi",
     "recent": "Prima i comandi recenti · ↑ ↓ Seleziona · Invio Esegui · Esc Chiudi",
     "search": "Cerca comandi…",
+    "selectAtMostPhotos": "Seleziona al massimo {{max}} fotografie",
+    "selectFourPhotos": "Seleziona almeno quattro fotografie",
     "selectTwoPhotos": "Seleziona almeno due fotografie"
   },
   "contextMenus": {
@@ -1597,7 +1599,7 @@
     },
     "general": {
       "autoAdvance": "Avanzamento automatico",
-      "autoAdvanceDesc": "In Sviluppo, un tasto di valutazione, scelta, scarto o rimozione del contrassegno passa alla foto successiva: la selezione richiede un tasto per foto.",
+      "autoAdvanceDesc": "Dopo una valutazione o un contrassegno, passa alla foto successiva da quella visualizzata o da una singola selezione nella griglia. Attiva con Bloc Maiusc o dal menu Foto.",
       "builtinPresets": "Preset inclusi",
       "builtinPresetsDesc": "Mostra gli stili e i preset di Rawtonic in Stili e preset e nei menu dei preset degli strumenti.",
       "createXmp": "Crea File XMP Mancanti",

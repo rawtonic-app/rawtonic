@@ -224,6 +224,8 @@
     "keys": "↑ ↓ Auswählen · Eingabe Ausführen · Esc Schließen",
     "recent": "Zuletzt verwendete Befehle zuerst · ↑ ↓ Auswählen · Eingabe Ausführen · Esc Schließen",
     "search": "Befehle suchen…",
+    "selectAtMostPhotos": "Wähle höchstens {{max}} Fotos aus",
+    "selectFourPhotos": "Wähle mindestens vier Fotos aus",
     "selectTwoPhotos": "Wähle mindestens zwei Fotos aus"
   },
   "contextMenus": {
@@ -1537,7 +1539,7 @@
     },
     "general": {
       "autoAdvance": "Automatisch weiter",
-      "autoAdvanceDesc": "Bei einem ausgewählten Foto geht eine Bewertungs-, Auswahl-, Ablehnungs- oder Markierung-entfernen-Taste zum nächsten Foto weiter. Mit Feststelltaste oder im Foto-Menü umschalten.",
+      "autoAdvanceDesc": "Beim Bewerten oder Markieren geht es vom angezeigten Foto oder einem einzelnen Foto im Raster weiter. Mit Feststelltaste oder im Foto-Menü umschalten.",
       "builtinPresets": "Mitgelieferte Vorgaben",
       "builtinPresetsDesc": "Rawtonics eigene Stile und Vorgaben unter Stile & Vorgaben und in den Vorgaben-Menüs der Werkzeuge zeigen.",
       "createXmp": "Fehlende XMP-Dateien erstellen",

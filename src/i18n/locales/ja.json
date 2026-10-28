@@ -224,6 +224,8 @@
     "keys": "↑ ↓ 選択 · Enter 実行 · Esc 閉じる",
     "recent": "最近使ったコマンドを優先 · ↑ ↓ 選択 · Enter 実行 · Esc 閉じる",
     "search": "コマンドを検索…",
+    "selectAtMostPhotos": "写真は最大{{max}}枚まで選択してください",
+    "selectFourPhotos": "写真を4枚以上選択してください",
     "selectTwoPhotos": "写真を2枚以上選択してください"
   },
   "contextMenus": {
@@ -1499,7 +1501,7 @@
     },
     "general": {
       "autoAdvance": "自動送り",
-      "autoAdvanceDesc": "現像で、レーティング・採用・不採用・フラグ解除のキーを押すと次の写真に進むため、選別は写真ごとに 1 キーで済みます。",
+      "autoAdvanceDesc": "評価やフラグの後、表示中の写真またはグリッドで1枚選択した写真から次へ進みます。Caps Lockまたは写真メニューで切り替えます。",
       "builtinPresets": "内蔵プリセット",
       "builtinPresetsDesc": "Rawtonic 独自のスタイルとプリセットを「スタイルとプリセット」とツールのプリセットメニューに表示します。",
       "createXmp": "見つからないXMPファイルを作成",

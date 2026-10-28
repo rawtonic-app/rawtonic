@@ -141,7 +141,10 @@ it('offers selection-aware photo operations in the palette', async () => {
   const { appCommandEnabled, runAppCommand } = await import('../utils/appCommands');
   const { paletteCommands } = await import('../utils/commandPalette');
   renderHook(() => useAppContextMenus(props));
-  const names = paletteCommands((key) => Array.isArray(key) ? key[0] : key).map((command) => command.id);
+  const commands = paletteCommands((key) => Array.isArray(key) ? key[0] : key);
+  const names = commands.map((command) => command.id);
+  expect(commands.find((command) => command.id === 'merge_hdr')?.disabledHint).toBe('commandPalette.selectTwoPhotos');
+  expect(commands.find((command) => command.id === 'merge_hdr_panorama')?.disabledHint).toBe('commandPalette.selectFourPhotos');
   expect(names).toEqual(expect.arrayContaining(['auto_lens_correction', 'convert_negative', 'merge_panorama', 'merge_hdr', 'merge_hdr_panorama', 'merge_focus_stack']));
   expect(appCommandEnabled('merge_hdr')).toBe(false);
   useLibraryStore.setState({ multiSelectedPaths: [raw, copy] });

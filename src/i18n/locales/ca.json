@@ -224,6 +224,8 @@
     "keys": "↑ ↓ Selecciona · Retorn Executa · Esc Tanca",
     "recent": "Ordres recents primer · ↑ ↓ Selecciona · Retorn Executa · Esc Tanca",
     "search": "Cerca ordres…",
+    "selectAtMostPhotos": "Selecciona com a màxim {{max}} fotografies",
+    "selectFourPhotos": "Selecciona almenys quatre fotografies",
     "selectTwoPhotos": "Selecciona almenys dues fotografies"
   },
   "contextMenus": {
@@ -1597,7 +1599,7 @@
     },
     "general": {
       "autoAdvance": "Avanç automàtic",
-      "autoAdvanceDesc": "A Revelatge, una tecla de valoració, selecció, rebuig o treure la marca passa a la foto següent, i la tria demana una tecla per foto.",
+      "autoAdvanceDesc": "En valorar o marcar, avança des de la foto mostrada o una selecció individual de la graella. Activa-ho amb Bloq Maj o al menú Foto.",
       "builtinPresets": "Predefinits integrats",
       "builtinPresetsDesc": "Mostra els estils i predefinits propis de Rawtonic a Estils i predefinits i als menús de predefinits de les eines.",
       "createXmp": "Crear fitxers XMP que falten",
