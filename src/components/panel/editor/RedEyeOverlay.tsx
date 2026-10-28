@@ -32,7 +32,8 @@ type Shown = { eye: RedEye; ellipse: Pupil };
 
 type Drag =
   | { kind: "search"; start: Point; radius: number }
-  | { kind: "move"; id: string; start: Point; offset: Point };
+  | { kind: "move"; id: string; start: Point; offset: Point }
+  | { kind: "delete"; id: string };
 
 /** Screen pixels a press must travel to size the search circle. */
 const DRAG_MIN = 4;
@@ -244,18 +245,15 @@ export default function RedEyeOverlay({
     }
     if (e.button !== 0) return;
     e.stopPropagation();
-    if (e.altKey) {
-      if (hit) {
-        updateAdjustments((prev) => withoutSpotItems(prev, new Set([hit.eye.id])));
-        if (hit.eye.id === activeId)
-          useEditorStore.getState().setEditor({ activeSpotId: null });
-      }
-      return;
-    }
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {
       // Synthetic input without a tracked pointer: no capture.
+    }
+    // Alt: the correction under the press is deleted on release.
+    if (e.altKey) {
+      if (hit) drag.current = { kind: "delete", id: hit.eye.id };
+      return;
     }
     if (hit) {
       useEditorStore.getState().setEditor({ activeSpotId: hit.eye.id });
@@ -282,7 +280,7 @@ export default function RedEyeOverlay({
       // Kept on the drag too: the release may come before a render.
       d.offset = { x: p.x - d.start.x, y: p.y - d.start.y };
       setDraft({ id: d.id, offset: d.offset });
-    } else {
+    } else if (d.kind === "search") {
       const travelled = Math.hypot(p.x - d.start.x, p.y - d.start.y);
       // A drag sizes the circle from its centre.
       if (travelled >= DRAG_MIN * pixel) d.radius = Math.max(2, travelled);
@@ -303,6 +301,18 @@ export default function RedEyeOverlay({
         e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
       // See setPointerCapture.
+    }
+    // A cancelled press (the system took the pointer) changes nothing.
+    if (e.type === "pointercancel") {
+      setSearch(null);
+      setDraft(null);
+      return;
+    }
+    if (d?.kind === "delete") {
+      updateAdjustments((prev) => withoutSpotItems(prev, new Set([d.id])));
+      const { activeSpotId, setEditor } = useEditorStore.getState();
+      if (activeSpotId === d.id) setEditor({ activeSpotId: null });
+      return;
     }
     if (d?.kind === "search") {
       const { setEditor, redEyeSettings } = useEditorStore.getState();

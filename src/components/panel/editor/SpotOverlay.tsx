@@ -633,6 +633,8 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     }
     if (d?.kind === 'erase') {
       setEraseBox(null);
+      // A cancelled press (the system took the pointer) deletes nothing.
+      if (e.type === 'pointercancel') return;
       // Travelled less than a few screen pixels: a click on one.
       if (Math.hypot(d.end.x - d.start.x, d.end.y - d.start.y) < BOX_MIN * pixel) {
         const id = itemAt(d.start.x, d.start.y);

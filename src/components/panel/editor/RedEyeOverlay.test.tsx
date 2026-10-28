@@ -229,6 +229,10 @@ describe("red eye overlay", () => {
     invoke.mockClear();
     fireEvent.pointerDown(el, { button: 2, clientX: 150, clientY: 100, pointerId: 1 });
     expect(useEditorStore.getState().activeSpotId).toBe("e2");
+    // A cancelled Alt press deletes nothing; a released one deletes.
+    fireEvent.pointerDown(el, { button: 0, altKey: true, clientX: 150, clientY: 100, pointerId: 1 });
+    fireEvent.pointerCancel(el, { clientX: 150, clientY: 100, pointerId: 1 });
+    expect(useEditorStore.getState().adjustments.redEyes).toHaveLength(2);
     fireEvent.pointerDown(el, { button: 0, altKey: true, clientX: 150, clientY: 100, pointerId: 1 });
     fireEvent.pointerUp(el, { clientX: 150, clientY: 100, pointerId: 1 });
     expect(useEditorStore.getState().adjustments.redEyes!.map((e) => e.id)).toEqual(["e1"]);

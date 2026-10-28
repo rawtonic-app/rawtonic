@@ -284,6 +284,23 @@ describe("spot removal overlay", () => {
     expect(useEditorStore.getState().adjustments.spots.map((s) => s.id)).toEqual(["far"]);
   });
 
+  it("deletes nothing when an Alt-click or Alt-drag is cancelled", () => {
+    useEditorStore.setState({
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        spots: [circle("s1", 200, 150), circle("s2", 400, 250)],
+      },
+    });
+    const el = overlay();
+    fireEvent.pointerDown(el, { button: 0, altKey: true, clientX: 50, clientY: 50, pointerId: 1 });
+    fireEvent.pointerCancel(el, { clientX: 50, clientY: 50, pointerId: 1 });
+    fireEvent.pointerDown(el, { button: 0, altKey: true, clientX: 30, clientY: 30, pointerId: 1 });
+    fireEvent.pointerMove(el, { clientX: 160, clientY: 110, pointerId: 1 });
+    fireEvent.pointerCancel(el, { clientX: 160, clientY: 110, pointerId: 1 });
+    expect(useEditorStore.getState().adjustments.spots.map((s) => s.id)).toEqual(["s1", "s2"]);
+    expect(screen.queryByTestId("spot-erase-box")).toBeNull();
+  });
+
   it("measures a path's distance to a box, zero where a segment crosses it", () => {
     const lo = { x: 250, y: 150 };
     const hi = { x: 350, y: 250 };
