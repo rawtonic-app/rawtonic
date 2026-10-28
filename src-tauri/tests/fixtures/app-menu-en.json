@@ -280,6 +280,13 @@
           ]
         },
         {
+          "kind": "item",
+          "id": "cmd:toggle_auto_advance",
+          "label": "Auto-advance",
+          "enabled": false,
+          "checked": false
+        },
+        {
           "kind": "submenu",
           "label": "Flag",
           "items": [
@@ -365,6 +372,12 @@
         },
         {
           "kind": "separator"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:match_light",
+          "label": "Match Light…",
+          "enabled": false
         },
         {
           "kind": "item",

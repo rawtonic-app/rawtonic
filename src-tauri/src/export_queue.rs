@@ -65,6 +65,8 @@ const KEEP_DONE: usize = 20;
 #[serde(rename_all = "camelCase")]
 pub struct ExportRequest {
     pub paths: Vec<String>,
+    #[serde(default)]
+    pub display_label: Option<String>,
     pub output_folder_or_file: String,
     pub is_explicit_file_path: bool,
     pub base_origin_folders: Vec<String>,
@@ -327,7 +329,7 @@ pub fn open(app: &AppHandle) {
 fn label_for(request: &ExportRequest) -> String {
     let n = request.paths.len();
     let format = request.output_format.to_uppercase();
-    if n == 1 {
+    let source = if n == 1 {
         let name = request.paths[0]
             .split("?vc=")
             .next()
@@ -337,6 +339,10 @@ fn label_for(request: &ExportRequest) -> String {
         format!("{name} as {format}")
     } else {
         format!("{n} photos as {format}")
+    };
+    match &request.display_label {
+        Some(label) if !label.is_empty() => format!("{source} · {label}"),
+        _ => source,
     }
 }
 
@@ -623,6 +629,23 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
             RunEnd::Completed
         };
         with_queue(|q| q.finish(&tracking.job, end));
+    }
+    // Report only outputs written in this run, including a partially successful
+    // run; resumed jobs must not announce their earlier outputs again.
+    let outputs: Vec<_> = trackings
+        .iter()
+        .flat_map(|(_, tracking)| {
+            with_queue(|q| q.items(&tracking.job))
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|item| {
+                    tracking.pending.contains(&item.index) && item.state == ItemState::Done
+                })
+                .filter_map(|item| item.output)
+        })
+        .collect();
+    if !outputs.is_empty() {
+        let _ = app.emit("export-outputs-written", outputs);
     }
 }
 

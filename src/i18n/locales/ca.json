@@ -139,6 +139,7 @@
       "flag_unflag": "Sense marca",
       "import_photos": "Importa fotos…",
       "keyboard_shortcuts": "Dreceres de teclat",
+      "match_light": "Iguala la llum…",
       "move_to_selects": "Mou a Seleccionades",
       "new_session": "Projecte o catàleg nou…",
       "open_session": "Obre un projecte o catàleg…",
@@ -161,6 +162,7 @@
       "sync_settings": "Sincronitza els ajustos",
       "tether_capture": "Dispara (càmera connectada)",
       "toggle_all_panels": "Tots els taulers i barres",
+      "toggle_auto_advance": "Avanç automàtic",
       "toggle_bottom_panel": "Tira de fotos",
       "toggle_clipping": "Avisos de retall",
       "toggle_export": "Exporta…",
@@ -221,7 +223,10 @@
     "empty": "Cap ordre coincident. Prova una altra cerca.",
     "keys": "↑ ↓ Selecciona · Retorn Executa · Esc Tanca",
     "recent": "Ordres recents primer · ↑ ↓ Selecciona · Retorn Executa · Esc Tanca",
-    "search": "Cerca ordres…"
+    "search": "Cerca ordres…",
+    "selectAtMostPhotos": "Selecciona com a màxim {{max}} fotografies",
+    "selectFourPhotos": "Selecciona almenys quatre fotografies",
+    "selectTwoPhotos": "Selecciona almenys dues fotografies"
   },
   "contextMenus": {
     "album": {
@@ -1594,7 +1599,7 @@
     },
     "general": {
       "autoAdvance": "Avanç automàtic",
-      "autoAdvanceDesc": "A Revelatge, una tecla de valoració, selecció, rebuig o treure la marca passa a la foto següent, i la tria demana una tecla per foto.",
+      "autoAdvanceDesc": "En valorar o marcar, avança des de la foto mostrada o una selecció individual de la graella. Activa-ho amb Bloq Maj o al menú Foto.",
       "builtinPresets": "Predefinits integrats",
       "builtinPresetsDesc": "Mostra els estils i predefinits propis de Rawtonic a Estils i predefinits i als menús de predefinits de les eines.",
       "createXmp": "Crear fitxers XMP que falten",
@@ -1610,7 +1615,7 @@
       "nativeTitlebar": "Barra de títol nativa",
       "nativeTitlebarDesc": "Utilitzar la barra de títol de la finestra predeterminada del sistema en lloc de la personalitzada de Rawtonic.",
       "proofMargin": "Marge de prova",
-      "proofMarginDesc": "Marge al voltant de la foto ajustada quan el marge de prova és actiu (X), com a part del costat més curt del visor.",
+      "proofMarginDesc": "Marge al voltant de la foto ajustada quan el marge de prova és actiu (Alt+X), com a part del costat més curt del visor.",
       "showBuiltinPresets": "Mostra els predefinits integrats",
       "title": "Configuració general",
       "uiScale": "Mida de la interfície",
@@ -2635,11 +2640,14 @@
           "minutes": "queden uns {{minutes}} min",
           "seconds": "queden uns {{seconds}} s"
         },
+        "exportedTo": "Exportat a:",
         "failed": "{{failed}} de {{total}} han fallat",
         "failures": "Fotos que no s'han exportat",
+        "fullResolution": "Resolució completa",
         "held": "La cua està aturada: les exportacions en espera començaran quan inicieu la cua.",
         "holdQueue": "Atura la cua",
         "interrupted": "Interrompuda ({{done}} de {{total}} exportades)",
+        "originalFolder": "Carpeta original",
         "pause": "Pausa",
         "paused": "En pausa ({{done}} de {{total}} exportades)",
         "pausing": "Es posarà en pausa després de les fotos en curs…",
