@@ -341,6 +341,8 @@ it("exports once per ticked recipe, each with its own settings and place", async
     vi.mocked(invoke).mock.calls.filter((c) => c[0] === "export_images_batch"),
   ).toHaveLength(1);
   const calls = exported();
+  expect(calls[0].displayLabel).toContain("Web · JPG · Long edge 2048 px · /job/Output");
+  expect(calls[1].displayLabel).toContain("Print · TIFF · Full resolution · /print");
   expect(calls[0]).toMatchObject({
     outputFolderOrFile: "/job/Output",
     outputFormat: "jpg",

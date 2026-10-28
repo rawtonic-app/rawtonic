@@ -139,6 +139,7 @@
       "flag_unflag": "取消旗標",
       "import_photos": "讀入照片…",
       "keyboard_shortcuts": "鍵盤快速鍵",
+      "match_light": "統一光線…",
       "move_to_selects": "移至精選",
       "new_session": "新增專案或目錄…",
       "open_session": "打開專案或目錄…",
@@ -161,6 +162,7 @@
       "sync_settings": "同步設定",
       "tether_capture": "拍攝（連線相機）",
       "toggle_all_panels": "所有面板與列",
+      "toggle_auto_advance": "自動前進",
       "toggle_bottom_panel": "底片顯示窗格",
       "toggle_clipping": "剪裁警告",
       "toggle_export": "輸出…",
@@ -221,7 +223,10 @@
     "empty": "沒有符合的命令。請嘗試其他搜尋詞。",
     "keys": "↑ ↓ 選取 · Enter 執行 · Esc 關閉",
     "recent": "最近使用的命令優先 · ↑ ↓ 選取 · Enter 執行 · Esc 關閉",
-    "search": "搜尋命令…"
+    "search": "搜尋命令…",
+    "selectAtMostPhotos": "最多選取 {{max}} 張相片",
+    "selectFourPhotos": "請至少選取四張照片",
+    "selectTwoPhotos": "請至少選取兩張照片"
   },
   "contextMenus": {
     "album": {
@@ -1496,7 +1501,7 @@
     },
     "general": {
       "autoAdvance": "自動前進",
-      "autoAdvanceDesc": "在沖印中，按評等、選取、排除或取消旗標鍵後會移到下一張照片，篩選時每張照片只需按一個鍵。",
+      "autoAdvanceDesc": "評分或標記後，從目前顯示的相片或格狀檢視中單獨選取的相片前進。使用 Caps Lock 或相片選單切換。",
       "builtinPresets": "內建預設",
       "builtinPresetsDesc": "在「樣式與預設」和工具的預設選單中顯示 Rawtonic 自有的樣式和預設。",
       "createXmp": "建立缺失的 XMP 檔案",
@@ -1512,7 +1517,7 @@
       "nativeTitlebar": "原生標題欄",
       "nativeTitlebarDesc": "使用系統預設的視窗標題欄，而非 Rawtonic 的自定義標題欄。",
       "proofMargin": "校樣邊距",
-      "proofMarginDesc": "開啟校樣邊距（X）時符合視窗的相片周圍的邊距，佔檢視器較短邊的比例。",
+      "proofMarginDesc": "開啟校樣邊距（Alt+X）時符合視窗的相片周圍的邊距，佔檢視器較短邊的比例。",
       "showBuiltinPresets": "顯示內建預設",
       "title": "通用設定",
       "uiScale": "介面大小",
@@ -2531,11 +2536,14 @@
           "minutes": "約剩 {{minutes}} 分鐘",
           "seconds": "約剩 {{seconds}} 秒"
         },
+        "exportedTo": "匯出至：",
         "failed": "{{failed}}/{{total}} 失敗",
         "failures": "未輸出的照片",
+        "fullResolution": "完整解析度",
         "held": "佇列已暫停：啟動佇列後，等待中的匯出才會開始。",
         "holdQueue": "暫停佇列",
         "interrupted": "已中斷（已匯出 {{done}}/{{total}}）",
+        "originalFolder": "原始資料夾",
         "pause": "暫停",
         "paused": "已暫停（已匯出 {{done}} / {{total}}）",
         "pausing": "將在目前照片完成後暫停…",

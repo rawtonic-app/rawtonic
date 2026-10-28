@@ -12,9 +12,11 @@ import {
   type ExportItemLive,
   type ExportJob,
 } from "../../store/useProcessStore";
+import { outputFolder } from "../../utils/exportFeedback";
 import { renderErrorMessage } from "../../utils/renderErrors";
 import { exportTimeLeft, splitTimeLeft } from "../../utils/exportTimeLeft";
 import { Invokes } from "../ui/AppProperties";
+import { useSettingsStore } from "../../store/useSettingsStore";
 
 /** What a queued job's state means for the photographer. */
 export function describeExportJob(job: ExportJob): string {
@@ -162,9 +164,14 @@ const ExportItemRow = memo(function ExportItemRow({ item }: { item: ExportItemLi
 
 function ExportJobRow({ job, held, full }: { job: ExportJob; held: boolean; full: boolean }) {
   const { t } = useTranslation();
+  const isMac = useSettingsStore((s) => s.osPlatform === "macos");
   const [open, setOpen] = useState(false);
   const items = useProcessStore((s) => s.exportItems[job.id]);
   const pausing = useProcessStore((s) => s.exportPausing.includes(job.id));
+  useEffect(() => {
+    if (full && job.state === "done" && !items && !followsExportItems(job.id)) void loadExportItems(job.id);
+  }, [full, job.id, job.state, items]);
+  const folders = [...new Set((items ?? []).filter((item) => item.state === "done" && item.output).map((item) => outputFolder(item.output!)))];
   const running = job.state === "running";
   const now = useNow(running && full);
   const finished = items ? items.filter((item) => item.state === "done").length : job.done;
@@ -195,6 +202,7 @@ function ExportJobRow({ job, held, full }: { job: ExportJob; held: boolean; full
               ? t("studio.export.queue.pausing")
               : describeExportJob(items ? { ...job, done: finished, failed } : job)}
             {running && full && ` · ${describeTimeLeft(items ? exportTimeLeft(items, now) : null)}`}
+            {folders.map((folder) => <span key={folder} style={{ display: "block", overflowWrap: "anywhere" }}>{folder}</span>)}
           </small>
         </span>
         {canResume && (
@@ -214,7 +222,7 @@ function ExportJobRow({ job, held, full }: { job: ExportJob; held: boolean; full
         )}
         {full && finished > 0 && (
           <button type="button" onClick={() => void revealJob(job)}>
-            {t("studio.export.queue.show")}
+            {t(isMac ? "studio.library.folders.menu.showInFinder" : "studio.library.folders.menu.showInFileManager")}
           </button>
         )}
         {!running && (

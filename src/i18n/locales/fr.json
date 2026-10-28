@@ -139,6 +139,7 @@
       "flag_unflag": "Sans marquage",
       "import_photos": "Importer des photos…",
       "keyboard_shortcuts": "Raccourcis clavier",
+      "match_light": "Harmoniser la lumière…",
       "move_to_selects": "Déplacer vers Sélections",
       "new_session": "Nouveau projet ou catalogue…",
       "open_session": "Ouvrir un projet ou un catalogue…",
@@ -161,6 +162,7 @@
       "sync_settings": "Synchroniser les réglages",
       "tether_capture": "Déclencher (appareil connecté)",
       "toggle_all_panels": "Tous les panneaux et barres",
+      "toggle_auto_advance": "Avance automatique",
       "toggle_bottom_panel": "Pellicule",
       "toggle_clipping": "Avertissements d'écrêtage",
       "toggle_export": "Exporter…",
@@ -221,7 +223,10 @@
     "empty": "Aucune commande correspondante. Essayez une autre recherche.",
     "keys": "↑ ↓ Sélectionner · Entrée Exécuter · Échap Fermer",
     "recent": "Commandes récentes en premier · ↑ ↓ Sélectionner · Entrée Exécuter · Échap Fermer",
-    "search": "Rechercher une commande…"
+    "search": "Rechercher une commande…",
+    "selectAtMostPhotos": "Sélectionnez au maximum {{max}} photos",
+    "selectFourPhotos": "Sélectionnez au moins quatre photos",
+    "selectTwoPhotos": "Sélectionnez au moins deux photos"
   },
   "contextMenus": {
     "album": {
@@ -1594,7 +1599,7 @@
     },
     "general": {
       "autoAdvance": "Avance automatique",
-      "autoAdvanceDesc": "Dans Développement, une touche de note, de sélection, de rejet ou de retrait du marquage passe à la photo suivante : le tri ne demande qu’une touche par photo.",
+      "autoAdvanceDesc": "Après une note ou un marquage, passe à la photo suivante depuis la photo affichée ou une sélection unique dans la grille. Activez cette option avec Verr. maj. ou dans le menu Photo.",
       "builtinPresets": "Préréglages intégrés",
       "builtinPresetsDesc": "Afficher les styles et préréglages propres à Rawtonic dans Styles et préréglages et dans les menus de préréglages des outils.",
       "createXmp": "Créer les fichiers XMP manquants",
@@ -1610,7 +1615,7 @@
       "nativeTitlebar": "Barre de titre native",
       "nativeTitlebarDesc": "Utiliser la barre de titre de fenêtre par défaut de votre système au lieu de celle personnalisée de Rawtonic.",
       "proofMargin": "Marge d'épreuve",
-      "proofMarginDesc": "Marge autour de la photo ajustée quand la marge d'épreuve est active (X), en part du côté le plus court de la visionneuse.",
+      "proofMarginDesc": "Marge autour de la photo ajustée quand la marge d'épreuve est active (Alt+X), en part du côté le plus court de la visionneuse.",
       "showBuiltinPresets": "Afficher les préréglages intégrés",
       "title": "Paramètres généraux",
       "uiScale": "Taille de l'interface",
@@ -2636,11 +2641,14 @@
           "minutes": "environ {{minutes}} min restantes",
           "seconds": "environ {{seconds}} s restantes"
         },
+        "exportedTo": "Exporté vers :",
         "failed": "{{failed}} sur {{total}} en échec",
         "failures": "Photos non exportées",
+        "fullResolution": "Pleine résolution",
         "held": "La file est suspendue : les exports en attente démarreront quand vous lancerez la file.",
         "holdQueue": "Suspendre la file",
         "interrupted": "Interrompue ({{done}} sur {{total}} exportées)",
+        "originalFolder": "Dossier d’origine",
         "pause": "Pause",
         "paused": "En pause ({{done}} sur {{total}} exportées)",
         "pausing": "Mise en pause après les photos en cours…",
