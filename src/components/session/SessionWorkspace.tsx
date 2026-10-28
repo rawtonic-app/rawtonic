@@ -819,6 +819,23 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   useEffect(() => useCatalogUndoStore.subscribe((state, previous) => {
     if (previous.busy && !state.busy) void refreshRef.current().catch(() => {});
   }), []);
+  // A rating, label or Develop edit whose XMP could not be written shows in
+  // the bar once its catalog step settles or Develop is left, not only
+  // after the next flag.
+  useEffect(() => {
+    const recount = throttleAsync(() => refreshRef.current().catch(() => {}), 500);
+    const stopSteps = useCatalogUndoStore.subscribe((state, previous) => {
+      if (state.past !== previous.past) recount();
+    });
+    const stopViews = useUIStore.subscribe((state, previous) => {
+      if (previous.activeView === "editor" && state.activeView !== "editor") recount();
+    });
+    return () => {
+      stopSteps();
+      stopViews();
+      recount.cancel();
+    };
+  }, []);
   // The folder list's "Synchronize Folder…".
   useEffect(() => {
     const open = (e: Event) => setSyncing({ folder: (e as CustomEvent<OpenFolderSyncDetail>).detail.folder });

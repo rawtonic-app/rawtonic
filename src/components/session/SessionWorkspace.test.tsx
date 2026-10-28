@@ -12,6 +12,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { toast } from "react-toastify";
 import { useUIStore } from "../../store/useUIStore";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
+import { useCatalogUndoStore } from "../../utils/appUndo";
 
 vi.mock("@tauri-apps/api/core", () => ({
   isTauri: () => false,
@@ -131,6 +132,30 @@ describe("Session workspace keyboard flows", () => {
     await user.click(screen.getByRole("button", { name: "Create project" }));
     expect(await screen.findByRole("img", { name: "3 offline" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "2 XMP not updated" })).toBeTruthy();
+  });
+
+  it("re-reads the XMP count after a rating settles and after leaving Develop", async () => {
+    const user = userEvent.setup();
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    let pending = 0;
+    vi.mocked(invoke).mockImplementation(async (command, args) =>
+      command === "session_create" || command === "session_summary"
+        ? { ...summary, xmp_pending: pending } : base(command, args));
+    render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
+    await user.click(screen.getByRole("button", { name: "Create a project" }));
+    await user.type(screen.getByLabelText("Project name"), "Acme");
+    await user.click(screen.getByRole("button", { name: "Location" }));
+    await user.click(screen.getByRole("button", { name: "Create project" }));
+    await screen.findByText("Acme");
+    expect(screen.queryByRole("button", { name: /XMP not updated/ })).toBeNull();
+    // A rating's XMP could not be written: its catalog step settles.
+    pending = 1;
+    act(() => useCatalogUndoStore.setState((s) => ({ past: [...s.past] })));
+    expect(await screen.findByRole("button", { name: "1 XMP not updated" })).toBeTruthy();
+    pending = 2;
+    act(() => useUIStore.setState({ activeView: "editor" }));
+    act(() => useUIStore.setState({ activeView: "library" }));
+    expect(await screen.findByRole("button", { name: "2 XMP not updated" }, { timeout: 2000 })).toBeTruthy();
   });
 
   it("surfaces a failed create without navigating or dismissing the entered name", async () => {
