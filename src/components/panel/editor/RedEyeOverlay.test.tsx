@@ -190,6 +190,58 @@ describe("red eye overlay", () => {
     expect(useEditorStore.getState().adjustments.redEyes).toHaveLength(0);
   });
 
+  it("selects a correction by a right-click and deletes one by an Alt-click, searching nothing", async () => {
+    const stored = (id: string, visible: boolean) => ({
+      id,
+      version: 1,
+      kind: "red" as const,
+      x: 0.3,
+      y: 0.2,
+      radiusX: 0.002,
+      radiusY: 0.002,
+      angle: 0,
+      pupilSize: 50,
+      darken: 50,
+      catchlight: false,
+      catchlightX: 0,
+      catchlightY: 0,
+      visible,
+    });
+    useEditorStore.setState({
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        redEyes: [stored("e1", false), stored("e2", true)],
+      },
+    });
+    // e1 at mask (200, 150), e2 at (400, 250), 8 px radius.
+    invoke.mockImplementation(async (command: string) =>
+      command === "red_eyes_shown"
+        ? [
+            { x: 200, y: 150, radiusX: 8, radiusY: 8, angle: 0 },
+            { x: 400, y: 250, radiusX: 8, radiusY: 8, angle: 0 },
+          ]
+        : null,
+    );
+    const el = overlay();
+    await act(async () => {});
+    // The hidden correction is drawn faintly.
+    expect(screen.getAllByTestId("red-eye").map((g) => g.getAttribute("opacity"))).toEqual(["0.4", null]);
+    invoke.mockClear();
+    fireEvent.pointerDown(el, { button: 2, clientX: 150, clientY: 100, pointerId: 1 });
+    expect(useEditorStore.getState().activeSpotId).toBe("e2");
+    fireEvent.pointerDown(el, { button: 0, altKey: true, clientX: 150, clientY: 100, pointerId: 1 });
+    fireEvent.pointerUp(el, { clientX: 150, clientY: 100, pointerId: 1 });
+    expect(useEditorStore.getState().adjustments.redEyes!.map((e) => e.id)).toEqual(["e1"]);
+    expect(useEditorStore.getState().activeSpotId).toBeNull();
+    // An Alt-click beside every correction does nothing.
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, altKey: true, clientX: 10, clientY: 140, pointerId: 1 });
+      fireEvent.pointerUp(el, { clientX: 10, clientY: 140, pointerId: 1 });
+    });
+    expect(invoke).not.toHaveBeenCalledWith("detect_red_eye", expect.anything());
+    expect(useEditorStore.getState().adjustments.redEyes).toHaveLength(1);
+  });
+
   it("selects a correction anywhere inside its outline at its Pupil Size", async () => {
     const stored = {
       id: "e1",

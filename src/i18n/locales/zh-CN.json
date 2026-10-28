@@ -1851,6 +1851,8 @@
   },
   "spotRemoval": {
     "cancel": "取消",
+    "deleteSelected": "删除所选",
+    "deleteSelectedHint": "Delete 或 Backspace。在照片上 Alt-单击删除一个；Alt-拖动删除框选到的全部。",
     "detectObjects": "检测对象",
     "detectObjectsBoxHint": "围绕对象拖出矩形或单击对象即可移除。",
     "detectObjectsHint": "用画笔大致涂抹对象或单击对象即可移除。",
@@ -1862,6 +1864,17 @@
     "featherAria": "污点羽化",
     "filling": "正在移除… 第 {{done}}/{{total}} 步",
     "largeHoleTooSlow": "此 GPU 处理大面积移除太慢；本次会话中移除将使用快速方法。",
+    "list": {
+      "aria": "污点与移除",
+      "count": "修正 ({{number}})",
+      "delete": "删除 {{name}}",
+      "deleteAll": "全部删除",
+      "hideAll": "全部隐藏",
+      "item": "{{kind}} {{number}}",
+      "select": "选择 {{name}}",
+      "showAll": "全部显示",
+      "toggle": "显示 {{name}}"
+    },
     "mode": "污点模式",
     "modes": {
       "clone": "仿制",
@@ -3809,6 +3822,7 @@
       "whiteBalanceTo": "白平衡 {{to}} K"
     },
     "spot": {
+      "done": "结束污点去除",
       "start": "开始污点去除",
       "withShortcut": "{{text}}（{{key}}）"
     },

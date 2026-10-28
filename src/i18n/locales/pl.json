@@ -2009,6 +2009,8 @@
   },
   "spotRemoval": {
     "cancel": "Anuluj",
+    "deleteSelected": "Usuń zaznaczone",
+    "deleteSelectedHint": "Delete lub Backspace. Na zdjęciu Alt-kliknięcie usuwa jedną; Alt-przeciągnięcie usuwa wszystkie, których dosięga ramka.",
     "detectObjects": "Wykrywaj obiekty",
     "detectObjectsBoxHint": "Przeciągnij prostokąt wokół obiektu lub kliknij go, aby go usunąć.",
     "detectObjectsHint": "Zamaluj z grubsza obiekt lub kliknij go, aby go usunąć.",
@@ -2020,6 +2022,17 @@
     "featherAria": "Wtapianie plamy",
     "filling": "Usuwanie… krok {{done}} z {{total}}",
     "largeHoleTooSlow": "Ten procesor graficzny jest zbyt wolny do usuwania dużych obszarów; Usuń używa szybkiej metody do końca sesji.",
+    "list": {
+      "aria": "Plamki i usunięcia",
+      "count": "Korekty ({{number}})",
+      "delete": "Usuń {{name}}",
+      "deleteAll": "Usuń wszystkie",
+      "hideAll": "Ukryj wszystkie",
+      "item": "{{kind}} {{number}}",
+      "select": "Zaznacz {{name}}",
+      "showAll": "Pokaż wszystkie",
+      "toggle": "Pokaż {{name}}"
+    },
     "mode": "Tryb usuwania plam",
     "modes": {
       "clone": "Klonuj",
@@ -4103,6 +4116,7 @@
       "whiteBalanceTo": "Balans bieli {{to}} K"
     },
     "spot": {
+      "done": "Zakończ usuwanie plamek",
       "start": "Uruchom usuwanie plamek",
       "withShortcut": "{{text}} ({{key}})"
     },

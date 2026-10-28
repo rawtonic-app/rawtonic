@@ -179,6 +179,116 @@ describe("spot removal overlay", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
+  // A heal circle of radius 20 at mask (x, y): box ((x − 100) / 2, (y − 50) / 2).
+  const circle = (id: string, x: number, y: number, visible = true) => ({
+    id,
+    mode: "heal" as const,
+    x,
+    y,
+    radius: 20,
+    sourceX: x + 60,
+    sourceY: y,
+    feather: 50,
+    opacity: 100,
+    visible,
+  });
+  // A removal painted as a circle of radius 20 at mask (x, y).
+  const removal = (id: string, x: number, y: number) => ({
+    id,
+    name: "Remove",
+    isLoading: false,
+    invert: false,
+    visible: true,
+    prompt: "",
+    patchData: null,
+    subMasks: [
+      {
+        id: `${id}-m`,
+        type: "brush",
+        mode: "additive",
+        invert: false,
+        opacity: 100,
+        visible: true,
+        parameters: { lines: [{ points: [{ x, y }], brushSize: 40, feather: 0.2, tool: "brush" }] },
+      },
+    ],
+  });
+
+  it("deletes the spot or removal under an Alt-click (Lightroom) and places nothing", () => {
+    useEditorStore.setState({
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        spots: [circle("s1", 200, 150), circle("s2", 400, 250)],
+        aiPatches: [removal("r1", 300, 300)] as never,
+      },
+      activeSpotId: "s1",
+    });
+    const el = overlay();
+    fireEvent.pointerDown(el, { button: 0, altKey: true, clientX: 50, clientY: 50, pointerId: 1 });
+    fireEvent.pointerUp(el, { clientX: 50, clientY: 50, pointerId: 1 });
+    expect(useEditorStore.getState().adjustments.spots.map((s) => s.id)).toEqual(["s2"]);
+    expect(useEditorStore.getState().activeSpotId).toBeNull();
+    // The removal at mask (300, 300) is at box (100, 125).
+    fireEvent.pointerDown(el, { button: 0, altKey: true, clientX: 100, clientY: 125, pointerId: 1 });
+    fireEvent.pointerUp(el, { clientX: 100, clientY: 125, pointerId: 1 });
+    expect(useEditorStore.getState().adjustments.aiPatches).toHaveLength(0);
+    // An Alt-click on the empty photo neither places nor deletes.
+    fireEvent.pointerDown(el, { button: 0, altKey: true, clientX: 10, clientY: 140, pointerId: 1 });
+    fireEvent.pointerUp(el, { clientX: 10, clientY: 140, pointerId: 1 });
+    expect(useEditorStore.getState().adjustments.spots.map((s) => s.id)).toEqual(["s2"]);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("deletes every spot and removal an Alt-drag box reaches, in one change", () => {
+    useEditorStore.setState({
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        spots: [circle("s1", 200, 150), circle("s2", 400, 250), circle("s3", 480, 330)],
+        aiPatches: [removal("r1", 300, 200)] as never,
+      },
+    });
+    const el = overlay();
+    const changes = vi.fn();
+    const stop = useEditorStore.subscribe((s, before) => s.adjustments !== before.adjustments && changes());
+    // From box (30, 30) to (160, 110): mask 160…420 × 110…270.
+    fireEvent.pointerDown(el, { button: 0, altKey: true, clientX: 30, clientY: 30, pointerId: 1 });
+    fireEvent.pointerMove(el, { clientX: 160, clientY: 110, pointerId: 1 });
+    expect(screen.getByTestId("spot-erase-box")).toBeTruthy();
+    fireEvent.pointerUp(el, { clientX: 160, clientY: 110, pointerId: 1 });
+    stop();
+    expect(useEditorStore.getState().adjustments.spots.map((s) => s.id)).toEqual(["s3"]);
+    expect(useEditorStore.getState().adjustments.aiPatches).toHaveLength(0);
+    expect(changes).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("spot-erase-box")).toBeNull();
+  });
+
+  it("selects the spot under a right-click for the settings popover, placing nothing", () => {
+    useEditorStore.setState({
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), spots: [circle("s1", 200, 150)] },
+    });
+    const el = overlay();
+    fireEvent.pointerDown(el, { button: 2, clientX: 50, clientY: 50, pointerId: 1 });
+    fireEvent.pointerUp(el, { button: 2, clientX: 50, clientY: 50, pointerId: 1 });
+    expect(useEditorStore.getState().activeSpotId).toBe("s1");
+    expect(useEditorStore.getState().adjustments.spots).toHaveLength(1);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("draws a hidden spot faintly, still there to select", () => {
+    useEditorStore.setState({
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        spots: [circle("s1", 200, 150, false), circle("s2", 400, 250)],
+      },
+    });
+    const el = overlay();
+    const groups = [...el.querySelectorAll("svg > g")];
+    expect(groups.map((g) => g.getAttribute("opacity"))).toEqual(["0.4", null]);
+    fireEvent.pointerDown(el, { button: 0, clientX: 50, clientY: 50, pointerId: 1 });
+    fireEvent.pointerUp(el, { clientX: 50, clientY: 50, pointerId: 1 });
+    expect(useEditorStore.getState().activeSpotId).toBe("s1");
+  });
+
   it("removes an area with the local inpainting model as an AI patch, and deletes it again", async () => {
     const patchData = { color: "c", mask: "m", offsetX: 0, offsetY: 0, width: 4, height: 4, isSrgbEncoded: true };
     invoke.mockResolvedValue(JSON.stringify(patchData));

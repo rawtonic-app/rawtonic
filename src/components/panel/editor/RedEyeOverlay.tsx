@@ -5,6 +5,7 @@ import { toast } from "react-toastify";
 import { updateAdjustments } from "../../../hooks/useEditorActions";
 import { useEditorStore } from "../../../store/useEditorStore";
 import type { RedEye } from "../../../utils/adjustments";
+import { withoutSpotItems } from "../../../utils/spotItems";
 import { GEOMETRY_KEYS, ORIENTATION_KEYS } from "../../../utils/geometryKeys";
 import { Invokes } from "../../ui/AppProperties";
 
@@ -75,8 +76,8 @@ function insideEllipse(
  * the found ellipse becomes a correction. Corrections are kept in the photo
  * as decoded; the backend says where the geometry shows them
  * (`red_eyes_shown`). A correction can be selected and dragged; Delete
- * removes the selected one, [ and ] change the search circle, Escape
- * deselects.
+ * or an Alt-click removes one, a right-click selects it for the tool's
+ * settings popover, [ and ] change the search circle, Escape deselects.
  */
 export default function RedEyeOverlay({
   rect,
@@ -226,14 +227,7 @@ export default function RedEyeOverlay({
   };
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    e.stopPropagation();
     const p = toImage(e.clientX, e.clientY);
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      // Synthetic input without a tracked pointer: no capture.
-    }
     // The selected correction first, then the others from the top.
     const hit = [...shown]
       .reverse()
@@ -243,6 +237,26 @@ export default function RedEyeOverlay({
       .find(({ eye, ellipse }) =>
         insideEllipse(ellipse, pupilScale(eye.pupilSize), p.x, p.y, 3 * pixel),
       );
+    // A right-click selects; the viewer then opens the settings popover.
+    if (e.button === 2) {
+      if (hit) useEditorStore.getState().setEditor({ activeSpotId: hit.eye.id });
+      return;
+    }
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    if (e.altKey) {
+      if (hit) {
+        updateAdjustments((prev) => withoutSpotItems(prev, new Set([hit.eye.id])));
+        if (hit.eye.id === activeId)
+          useEditorStore.getState().setEditor({ activeSpotId: null });
+      }
+      return;
+    }
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Synthetic input without a tracked pointer: no capture.
+    }
     if (hit) {
       useEditorStore.getState().setEditor({ activeSpotId: hit.eye.id });
       drag.current = {
@@ -431,6 +445,8 @@ export default function RedEyeOverlay({
               style={{
                 color: active ? "var(--studio-accent, #9cc2e0)" : "#fff",
               }}
+              // A hidden correction stays there to select.
+              opacity={eye.visible === false ? 0.4 : undefined}
               transform={`rotate(${ellipse.angle} ${cx} ${cy})`}
             >
               <ellipse

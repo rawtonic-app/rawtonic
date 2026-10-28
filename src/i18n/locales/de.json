@@ -1889,6 +1889,8 @@
   },
   "spotRemoval": {
     "cancel": "Abbrechen",
+    "deleteSelected": "Auswahl löschen",
+    "deleteSelectedHint": "Entf oder Rückschritt. Auf dem Foto löscht Alt-Klick eine Korrektur, Alt-Ziehen alle, die der Rahmen erfasst.",
     "detectObjects": "Objekte erkennen",
     "detectObjectsBoxHint": "Einen Rahmen um ein Objekt ziehen oder es anklicken, um es zu entfernen.",
     "detectObjectsHint": "Grob über ein Objekt malen oder es anklicken, um es zu entfernen.",
@@ -1900,6 +1902,17 @@
     "featherAria": "Weiche Kante des Bereichs",
     "filling": "Wird entfernt… Schritt {{done}} von {{total}}",
     "largeHoleTooSlow": "Diese GPU ist für das Entfernen großer Bereiche zu langsam; Entfernen nutzt bis zum Neustart die schnelle Methode.",
+    "list": {
+      "aria": "Reparaturen und Entfernungen",
+      "count": "Korrekturen ({{number}})",
+      "delete": "{{name}} löschen",
+      "deleteAll": "Alle löschen",
+      "hideAll": "Alle ausblenden",
+      "item": "{{kind}} {{number}}",
+      "select": "{{name}} auswählen",
+      "showAll": "Alle einblenden",
+      "toggle": "{{name}} anzeigen"
+    },
     "mode": "Reparaturmodus",
     "modes": {
       "clone": "Kopieren",
@@ -3889,6 +3902,7 @@
       "whiteBalanceTo": "Weißabgleich {{to}} K"
     },
     "spot": {
+      "done": "Bereichsreparatur beenden",
       "start": "Bereichsreparatur starten",
       "withShortcut": "{{text}} ({{key}})"
     },
