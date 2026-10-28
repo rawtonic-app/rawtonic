@@ -5,7 +5,10 @@
 //! `quit_saving` at once and `finish_quit` when everything is on disk, or
 //! with `cancel_quit` when a save failed and the user keeps the app open. A
 //! webview that does not answer cannot keep the app open: it quits after
-//! `ACK_TIMEOUT` without an answer and after `SAVE_TIMEOUT` in any case.
+//! `ACK_TIMEOUT` without an answer and after `SAVE_TIMEOUT` without
+//! progress: the webview answers `quit_saving` again each time one of its
+//! queued photo writes settles (a long batch keeps it saving, a hung write
+//! does not).
 //!
 //! macOS terminating the app from outside its menu (Dock Quit, log out,
 //! restart, shut down) asks the app delegate `applicationShouldTerminate:`,
@@ -19,14 +22,31 @@
 //! event and ends the app through `RunEvent::Exit`: ending the process
 //! without that reply (`_exit` alone) left the sender (AppleScript, the
 //! Dock, log out) waiting about half a second for an answer that never came.
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 /// The webview did not take the request (not loaded, hung).
 const ACK_TIMEOUT: Duration = Duration::from_secs(3);
-/// Saving took longer than any recipe write should.
+/// Saving made no progress for longer than any recipe write should take.
 const SAVE_TIMEOUT: Duration = Duration::from_secs(30);
+/// When the webview last answered that it is saving (`quit_saving`).
+static PROGRESS: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// How long to wait yet before quitting without the webview: `None` once
+/// `SAVE_TIMEOUT` passed since its last progress (or the request).
+fn save_time_left(progress: Instant, now: Instant) -> Option<Duration> {
+    SAVE_TIMEOUT
+        .checked_sub(now.saturating_duration_since(progress))
+        .filter(|left| !left.is_zero())
+}
+
+fn last_progress() -> Option<Instant> {
+    *PROGRESS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 /// The custom Quit menu item (macOS) that replaces AppKit's predefined one.
 #[cfg(target_os = "macos")]
@@ -63,6 +83,9 @@ pub fn request_quit<R: Runtime>(app: &AppHandle<R>) {
         return;
     }
     ACKNOWLEDGED.store(false, Ordering::SeqCst);
+    *PROGRESS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Instant::now());
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     if let Err(e) = app.emit_to("main", "app-quit-requested", ()) {
         log::warn!("Could not ask the editor to save before quitting: {e}");
@@ -79,10 +102,15 @@ pub fn request_quit<R: Runtime>(app: &AppHandle<R>) {
             exit(&app);
             return;
         }
-        std::thread::sleep(SAVE_TIMEOUT - ACK_TIMEOUT);
-        if waiting() {
-            log::warn!("The editor did not finish saving in time; quitting.");
-            exit(&app);
+        while waiting() {
+            match last_progress().and_then(|progress| save_time_left(progress, Instant::now())) {
+                Some(left) => std::thread::sleep(left),
+                None => {
+                    log::warn!("The editor made no saving progress in time; quitting.");
+                    exit(&app);
+                    return;
+                }
+            }
         }
     });
 }
@@ -99,10 +127,13 @@ fn exit<R: Runtime>(app: &AppHandle<R>) {
     app.exit(0);
 }
 
-/// The webview took the quit request and is saving.
+/// The webview took the quit request and is saving (again: a write settled).
 #[tauri::command]
 pub(crate) fn quit_saving() {
     ACKNOWLEDGED.store(true, Ordering::SeqCst);
+    *PROGRESS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Instant::now());
 }
 
 /// Everything is saved (or the user quits anyway): quit now.
@@ -153,6 +184,24 @@ pub use system_terminate::hold_system_terminate;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quits_only_after_save_timeout_without_progress() {
+        let start = Instant::now();
+        assert_eq!(save_time_left(start, start), Some(SAVE_TIMEOUT));
+        assert_eq!(
+            save_time_left(start, start + Duration::from_secs(20)),
+            Some(Duration::from_secs(10))
+        );
+        assert_eq!(save_time_left(start, start + SAVE_TIMEOUT), None);
+        // Progress 25 s in: still saving at 50 s, quitting at 55 s.
+        let progress = start + Duration::from_secs(25);
+        assert!(save_time_left(progress, start + Duration::from_secs(50)).is_some());
+        assert_eq!(
+            save_time_left(progress, start + Duration::from_secs(55)),
+            None
+        );
+    }
 
     #[test]
     fn only_tauris_restart_code_restarts() {

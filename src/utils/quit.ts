@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Invokes } from '../components/ui/AppProperties';
 import { useUIStore } from '../store/useUIStore';
+import { onPhotoWritesSettled } from './photoWrites';
 
 /** A write that must reach disk before the app quits (a debounced save):
  * resolves with what it could not save, empty when everything is saved. */
@@ -58,7 +59,15 @@ export async function handleQuitRequest(askToQuitAnyway: AskToQuitAnyway): Promi
   handlingQuit = true;
   try {
     await invoke(Invokes.QuitSaving).catch(() => undefined);
-    const failures = await flushBeforeQuit();
+    // Each settled photo write is progress: the backend's deadline counts
+    // from the last one, so a long batch is not cut off while it writes.
+    const stopProgress = onPhotoWritesSettled(() => void invoke(Invokes.QuitSaving).catch(() => undefined));
+    let failures: string[];
+    try {
+      failures = await flushBeforeQuit();
+    } finally {
+      stopProgress();
+    }
     if (failures.length === 0) {
       await invoke(Invokes.FinishQuit);
       return;

@@ -61,3 +61,19 @@ it('no longer runs unregistered flushes', async () => {
   expect(await flushBeforeQuit()).toEqual([]);
   expect(flush).not.toHaveBeenCalled();
 });
+
+it('tells the backend it is still saving each time a queued photo write settles', async () => {
+  const { submitPhotoWrite } = await import('./photoWrites');
+  let finishBatch!: () => void;
+  const batch = submitPhotoWrite(['/a.dng'], () => new Promise<void>((resolve) => { finishBatch = resolve; }), { kind: 'auto' });
+  const save = submitPhotoWrite(['/a.dng'], async () => {}, { kind: 'recipe' });
+  register(async () => { await save; return []; });
+  const quitting = handleQuitRequest(vi.fn());
+  await Promise.resolve();
+  expect(commands()).toEqual([Invokes.QuitSaving]);
+  finishBatch();
+  await batch;
+  await quitting;
+  // Twice more: the batch and the save behind it, each progress; then quit.
+  expect(commands()).toEqual([Invokes.QuitSaving, Invokes.QuitSaving, Invokes.QuitSaving, Invokes.FinishQuit]);
+});
