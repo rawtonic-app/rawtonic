@@ -55,43 +55,69 @@ import { saveFailure } from './useLibraryActions';
 import { clampViewerZoom } from '../utils/viewerDisplay';
 import { noteTool } from '../components/contribute/usageStats';
 import { registerRecipeWriter, type RecipeValues } from '../utils/appUndo';
+import { allPhotoWritesSettled, photoWriteKey, photoWritesSettled, submitPhotoWrite } from '../utils/photoWrites';
 
-const pendingMetadataSaves = new Map<string, Promise<Adjustments | undefined>>();
+/** Recipes whose editor save failed, kept until a later write supersedes them. */
 const unsavedRecipes = new Map<string, Adjustments>();
 
+/** Settles after every write submitted for `path` (utils/photoWrites) with
+ * its recipe no save could write, if any; undefined when there is nothing
+ * to wait for or keep (its recipe may be read at once). */
 export function waitForPendingMetadataSave(path: string): Promise<Adjustments | undefined> | undefined {
-  return pendingMetadataSaves.get(path)
-    ?? (unsavedRecipes.has(path) ? Promise.resolve(unsavedRecipes.get(path)) : undefined);
+  const writes = photoWritesSettled(path);
+  if (writes) return writes.then(() => unsavedRecipes.get(path));
+  return unsavedRecipes.has(path) ? Promise.resolve(unsavedRecipes.get(path)) : undefined;
 }
 
 const isIdentityCurve = (points?: Array<Coord>) =>
   !points ||
   (points.length === 2 && points[0].x === 0 && points[0].y === 0 && points[1].x === 255 && points[1].y === 255);
 
-export const debouncedSave = debounce((path: string, adjustmentsToSave: Adjustments) => {
-  const save = () => invoke<void>(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments: adjustmentsToSave });
-  // A returned-to photograph must read its recipe after its flushed save, and
-  // multiple writes to that photograph must retain the user's edit order.
-  const previous = pendingMetadataSaves.get(path);
-  const pending = (previous ? previous.then(save) : save())
-    .then(() => {
-      unsavedRecipes.delete(path);
-      return undefined;
-    })
-    .catch((err) => {
-      // A persistence error must not turn reopening into a silent undo. Keep
-      // the unsaved recipe until a later successful write supersedes it.
-      unsavedRecipes.set(path, adjustmentsToSave);
-      console.error('Auto-save failed:', err);
-      toast.error(`Failed to save changes: ${err}`);
-      return adjustmentsToSave;
-    });
-  pendingMetadataSaves.set(path, pending);
-  void pending.then(() => {
-    if (pendingMetadataSaves.get(path) === pending) pendingMetadataSaves.delete(path);
-  });
-  return pending;
-}, 300);
+/** Writes the editor's recipe of `path` in its photograph's write queue
+ * (after every write given before it); resolves with the recipe when it
+ * could not be written (kept in `unsavedRecipes`). */
+function saveEditorRecipe(path: string, adjustmentsToSave: Adjustments): Promise<Adjustments | undefined> {
+  scheduledSave = null;
+  return submitPhotoWrite(
+    [path],
+    () =>
+      invoke<void>(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments: adjustmentsToSave }).then(
+        () => {
+          unsavedRecipes.delete(path);
+          return undefined;
+        },
+        (err) => {
+          // A persistence error must not turn reopening into a silent undo. Keep
+          // the unsaved recipe until a later successful write supersedes it.
+          unsavedRecipes.set(path, adjustmentsToSave);
+          console.error('Auto-save failed:', err);
+          toast.error(`Failed to save changes: ${err}`);
+          return adjustmentsToSave;
+        },
+      ),
+    { kind: 'recipe', failedOf: (unsaved) => (unsaved ? [path] : []) },
+  );
+}
+
+const debouncedEditorSave = debounce(saveEditorRecipe, 300);
+/** The photograph whose editor save `debouncedSave` holds back, if any. */
+let scheduledSave: string | null = null;
+
+/** The open photograph's editor save, written 300 ms after its last change
+ * (`flush` writes it now, `cancel` drops it). */
+export const debouncedSave = Object.assign(
+  (path: string, adjustmentsToSave: Adjustments) => {
+    scheduledSave = path;
+    return debouncedEditorSave(path, adjustmentsToSave);
+  },
+  {
+    flush: () => debouncedEditorSave.flush(),
+    cancel: () => {
+      scheduledSave = null;
+      debouncedEditorSave.cancel();
+    },
+  },
+);
 
 type ScheduledRecipe = { path: string; adjustments: Adjustments };
 let readScheduledRecipe: (() => ScheduledRecipe | null) | null = null;
@@ -127,13 +153,13 @@ export async function flushRecipeSaves(): Promise<string[]> {
   flushSliderDraft();
   scheduleUnsavedEditorRecipe();
   debouncedSave.flush();
-  while (pendingMetadataSaves.size > 0) {
-    await Promise.all(pendingMetadataSaves.values());
-  }
+  await allPhotoWritesSettled();
   const failed: string[] = [];
   for (const [path, adjustments] of [...unsavedRecipes]) {
     try {
-      await invoke(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments });
+      await submitPhotoWrite([path], () => invoke(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments }), {
+        kind: 'recipe',
+      });
       if (unsavedRecipes.get(path) === adjustments) unsavedRecipes.delete(path);
     } catch (err) {
       console.error('Saving before quitting failed:', err);
@@ -405,19 +431,41 @@ export function isCurrentEditorImage(path: string): boolean {
   return image?.path === path && image.isReady;
 }
 
-function afterRecipeSaves<T>(paths: string[], mutation: () => Promise<T>, preserveUnsaved = true): Promise<T> {
-  if (!paths.some((path) => pendingMetadataSaves.has(path) || unsavedRecipes.has(path))) return mutation();
-  return Promise.all(paths.map(async (path) => {
-    await pendingMetadataSaves.get(path);
-    const unsaved = unsavedRecipes.get(path);
-    if (preserveUnsaved && unsaved) {
-      // A partial batch edit must not overwrite unrelated edits from a failed
-      // save. Retry that complete recipe first, or leave it intact on failure.
-      await invoke(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments: unsaved });
-      if (unsavedRecipes.get(path) === unsaved) unsavedRecipes.delete(path);
-    }
-  })).then(mutation);
+/**
+ * Submits a batch recipe write of `paths` (`mutation`) to their write
+ * queues (utils/photoWrites): it runs after every write given before it for
+ * any of them, the open photograph's scheduled editor save included, and is
+ * announced once when settled. Resolves with the photographs it could not
+ * write (`failedOf`).
+ */
+export function recipeWrite<T>(
+  paths: string[],
+  kind: string,
+  mutation: () => Promise<T>,
+  failedOf: (result: T) => string[],
+  preserveUnsaved = true,
+): Promise<T> {
+  // An edit of one of them made before this write is saved before it.
+  if (scheduledSave !== null && paths.some((path) => photoWriteKey(path) === photoWriteKey(scheduledSave!)))
+    debouncedSave.flush();
+  return submitPhotoWrite(
+    paths,
+    () => {
+      const unsaved = preserveUnsaved ? paths.filter((path) => unsavedRecipes.has(path)) : [];
+      if (unsaved.length === 0) return mutation();
+      return Promise.all(unsaved.map(async (path) => {
+        const recipe = unsavedRecipes.get(path)!;
+        // A partial batch edit must not overwrite unrelated edits from a failed
+        // save. Retry that complete recipe first, or leave it intact on failure.
+        await invoke(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments: recipe });
+        if (unsavedRecipes.get(path) === recipe) unsavedRecipes.delete(path);
+      })).then(mutation);
+    },
+    { kind, failedOf },
+  );
 }
+
+const failedPaths = (failed: string[]) => failed;
 
 /** Writes per-photo recipe values (series match and its undo/redo) after
  * each photo's pending save; the open photograph and the Library's active
@@ -425,10 +473,14 @@ function afterRecipeSaves<T>(paths: string[], mutation: () => Promise<T>, preser
 async function writeRecipeValues(values: RecipeValues[]): Promise<RecipeValues[]> {
   const paths = values.map((value) => value.path);
   paths.forEach((path) => globalImageCache.delete(path));
-  const result = await afterRecipeSaves(paths, () =>
-    invoke<{ before: RecipeValues[]; failure?: { message: string; failed: string[] } }>(Invokes.SetRecipeValues, {
-      changes: values,
-    }),
+  const result = await recipeWrite(
+    paths,
+    'recipeValues',
+    () =>
+      invoke<{ before: RecipeValues[]; failure?: { message: string; failed: string[] } }>(Invokes.SetRecipeValues, {
+        changes: values,
+      }),
+    (written) => written.failure?.failed ?? [],
   );
   if (result.failure) toast.error(i18next.t('studio.seriesMatch.notSaved', { error: result.failure.message }));
   const written = result.before.map((before) => before.path);
@@ -752,9 +804,11 @@ export function useEditorActions() {
       // The last edit stays a step of its own, before the reset.
       debouncedSetHistory.flush();
 
-      afterRecipeSaves(
+      recipeWrite(
         pathsToReset,
+        'reset',
         () => savedBatch(invoke(Invokes.ResetAdjustmentsForPaths, { paths: pathsToReset }), pathsToReset, 'reset adjustments'),
+        failedPaths,
         false,
       )
         .then((failed) => {
@@ -798,12 +852,16 @@ export function useEditorActions() {
 
       pathsToUpdate.forEach((p) => globalImageCache.delete(p));
 
-      afterRecipeSaves(pathsToUpdate, () =>
-        savedBatch(
-          invoke(Invokes.ApplyAutoLensCorrectionToPaths, { paths: pathsToUpdate }),
-          pathsToUpdate,
-          'apply auto lens correction',
-        ),
+      recipeWrite(
+        pathsToUpdate,
+        'lens',
+        () =>
+          savedBatch(
+            invoke(Invokes.ApplyAutoLensCorrectionToPaths, { paths: pathsToUpdate }),
+            pathsToUpdate,
+            'apply auto lens correction',
+          ),
+        failedPaths,
       )
         .then(async (failed) => {
           const updated = pathsToUpdate.filter((path) => !failed.includes(path));
@@ -923,26 +981,23 @@ export function useEditorActions() {
       }
       const others = pastedOntoOpen ? pathsToUpdate.filter((path) => path !== open!.path) : pathsToUpdate;
       if (others.length === 0) return Promise.resolve();
-      const written = afterRecipeSaves(others, () =>
-        savedBatch(
-          invoke(Invokes.ApplyAdjustmentsToPaths, {
-            paths: others,
-            adjustments: adjustmentsToApply,
-            ...(paste ? { paste } : {}),
-            ...(style ? { style } : {}),
-          }),
-          others,
-          'paste adjustments',
-        ),
-      );
       // A photograph opened meanwhile reads its recipe after this write.
-      const settled = written.then(() => undefined, () => undefined);
-      others.forEach((path) => {
-        pendingMetadataSaves.set(path, settled);
-        void settled.then(() => {
-          if (pendingMetadataSaves.get(path) === settled) pendingMetadataSaves.delete(path);
-        });
-      });
+      const written = recipeWrite(
+        others,
+        style ? 'style' : paste ? 'paste' : 'preset',
+        () =>
+          savedBatch(
+            invoke(Invokes.ApplyAdjustmentsToPaths, {
+              paths: others,
+              adjustments: adjustmentsToApply,
+              ...(paste ? { paste } : {}),
+              ...(style ? { style } : {}),
+            }),
+            others,
+            'paste adjustments',
+          ),
+        failedPaths,
+      );
       return written
         .then((failed) => {
           const updated = others.filter((path) => !failed.includes(path));

@@ -17,8 +17,9 @@ it('writes ratings in the order they were given, also after a failure', async ()
   const first = invokeInOrder('set_rating_for_paths', { paths: ['/a'], rating: 1 });
   const second = invokeInOrder('set_rating_for_paths', { paths: ['/a'], rating: 2 });
   const third = invokeInOrder('set_rating_for_paths', { paths: ['/a'], rating: 3 });
-  await Promise.resolve();
   // Only the first is asked for until it has answered.
+  await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+  await new Promise((resolve) => setTimeout(resolve, 0));
   expect(invoke).toHaveBeenCalledTimes(1);
   fails[0]('database is locked');
   await expect(first).rejects.toBe('database is locked');

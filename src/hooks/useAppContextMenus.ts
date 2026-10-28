@@ -75,7 +75,7 @@ import {
 import TaggingSubMenu from '../context/TaggingSubMenu';
 import SessionAlbumSubMenu from '../components/studio/SessionAlbumSubMenu';
 import { SESSION_ALBUM_PREFIX, SESSION_ALBUMS_CHANGED } from '../components/studio/StudioAlbums';
-import { isCurrentEditorImage, useEditorActions } from './useEditorActions';
+import { isCurrentEditorImage, recipeWrite, useEditorActions } from './useEditorActions';
 import { useSeriesMatchDialog } from '../components/studio/SeriesMatchDialog';
 import { saveFailure, useLibraryActions } from './useLibraryActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
@@ -574,17 +574,22 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         if (selectedImage && !selectedImage.isReady && finalSelection.includes(selectedImage.path)) return;
         finalSelection.forEach((p) => globalImageCache.delete(p));
 
-        invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: finalSelection })
-          .then(
-            () => [] as string[],
-            (err) => {
-              // The photos that were saved still update below.
-              console.error('Failed to apply auto adjustments to paths:', err);
-              const { message, failed } = saveFailure(err, finalSelection);
-              toast.error(t('contextMenus.toasts.failedApplyAuto', { err: message }));
-              return failed;
-            },
-          )
+        recipeWrite(
+          finalSelection,
+          'auto',
+          () =>
+            invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: finalSelection }).then(
+              () => [] as string[],
+              (err) => {
+                // The photos that were saved still update below.
+                console.error('Failed to apply auto adjustments to paths:', err);
+                const { message, failed } = saveFailure(err, finalSelection);
+                toast.error(t('contextMenus.toasts.failedApplyAuto', { err: message }));
+                return failed;
+              },
+            ),
+          (failed) => failed,
+        )
           .then(async (failed) => {
             const applied = finalSelection.filter((p) => !failed.includes(p));
             // The open photograph may have changed meanwhile: its editor

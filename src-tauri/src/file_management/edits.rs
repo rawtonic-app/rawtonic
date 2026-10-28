@@ -32,9 +32,9 @@ pub use rawtonic_engine::lens_recipe::{
 
 /// Off the main thread: it opens the session catalog, reads settings and
 /// writes sidecars, and a busy database must not stall the interface. The
-/// webview chains saves per photograph and reads a recipe only after its
-/// pending save finished (`debouncedSave`, `afterRecipeSaves`), so no order
-/// is lost by leaving the main thread.
+/// webview submits every write of a photograph to its one write queue and
+/// reads a recipe only after the writes before (`src/utils/photoWrites.ts`),
+/// so no order is lost by leaving the main thread.
 #[tauri::command]
 pub async fn save_metadata_and_update_thumbnail(
     path: String,

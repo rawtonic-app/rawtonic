@@ -12,6 +12,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { toast } from "react-toastify";
 import { useUIStore } from "../../store/useUIStore";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
+import { PHOTO_WRITES_SETTLED } from "../../utils/photoWrites";
 
 vi.mock("@tauri-apps/api/core", () => ({
   isTauri: () => false,
@@ -131,6 +132,30 @@ describe("Session workspace keyboard flows", () => {
     await user.click(screen.getByRole("button", { name: "Create project" }));
     expect(await screen.findByRole("img", { name: "3 offline" })).toBeTruthy();
     expect(screen.getByRole("img", { name: "2 XMP pending" })).toBeTruthy();
+  });
+
+  it("counts pending XMP files again when a batch write settles, also one that failed", async () => {
+    const user = userEvent.setup();
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    let pendingXmp = 0;
+    vi.mocked(invoke).mockImplementation(async (command, args) =>
+      command === "session_create" || command === "session_summary"
+        ? { ...summary, xmp_pending: pendingXmp } : base(command, args));
+    render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
+    await user.click(screen.getByRole("button", { name: "Create a project" }));
+    await user.type(screen.getByLabelText("Project name"), "Acme");
+    await user.click(screen.getByRole("button", { name: "Location" }));
+    await user.click(screen.getByRole("button", { name: "Create project" }));
+    await screen.findByText("Acme");
+    expect(screen.queryByRole("img", { name: /XMP pending/ })).toBeNull();
+    // A paste onto closed photographs whose XMP could not be written.
+    pendingXmp = 2;
+    act(() => {
+      window.dispatchEvent(new CustomEvent(PHOTO_WRITES_SETTLED, {
+        detail: { id: 1, kind: "paste", paths: ["/a", "/b"], failed: ["/a", "/b"] },
+      }));
+    });
+    expect(await screen.findByRole("img", { name: "2 XMP pending" })).toBeTruthy();
   });
 
   it("surfaces a failed create without navigating or dismissing the entered name", async () => {
