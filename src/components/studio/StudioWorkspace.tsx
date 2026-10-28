@@ -1100,7 +1100,7 @@ export default function StudioWorkspace(props: Props) {
         <>
           <MultiViewStage
             files={files}
-            onOpen={onOpen}
+            onOpen={libraryViewer ? (props.onShow ?? onOpen) : onOpen}
             onRate={onRate}
             transformWrapperRef={transformWrapperRef}
           >
