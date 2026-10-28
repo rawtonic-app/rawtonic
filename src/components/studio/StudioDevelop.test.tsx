@@ -392,13 +392,10 @@ describe("Develop tool contracts", () => {
     });
     mount();
     openGroups();
-    const curve = screen.getByRole("img", { name: /^RGB point curve/ });
-    vi.spyOn(curve, "getBoundingClientRect").mockReturnValue({
-      left: 0,
-      top: 0,
-      width: 255,
-      height: 255,
-    } as DOMRect);
+    const curve = screen.getByRole("group", { name: /^RGB point curve/ });
+    Object.assign(curve, {
+      getScreenCTM: () => ({ inverse: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) }),
+    });
     fireEvent.pointerDown(curve, { button: 0, clientX: 100, clientY: 200 });
     expect(useEditorStore.getState().adjustments.curves.luma).toHaveLength(16);
     expect(useEditorStore.getState().isSliderDragging).toBe(false);
@@ -408,13 +405,10 @@ describe("Develop tool contracts", () => {
     mount();
     openGroups();
     fireEvent.click(screen.getByRole("button", { name: "Luminance" }));
-    const curve = screen.getByRole("img", { name: /^luminance point curve/ });
-    vi.spyOn(curve, "getBoundingClientRect").mockReturnValue({
-      left: 0,
-      top: 0,
-      width: 255,
-      height: 255,
-    } as DOMRect);
+    const curve = screen.getByRole("group", { name: /^luminance point curve/ });
+    Object.assign(curve, {
+      getScreenCTM: () => ({ inverse: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) }),
+    });
     curve.setPointerCapture = vi.fn();
     fireEvent.pointerDown(curve, { button: 0, clientX: 100, clientY: 135 });
     const { curves } = useEditorStore.getState().adjustments;
@@ -447,7 +441,7 @@ describe("Develop tool contracts", () => {
     mount();
     openGroups();
     fireEvent.click(screen.getByRole("button", { name: "Luminance" }));
-    const curve = screen.getByRole("img", { name: /^luminance point curve/ });
+    const curve = screen.getByRole("group", { name: /^luminance point curve/ });
     const line = curve.querySelector("polyline.curve-line")!;
     const drawn = line
       .getAttribute("points")!
@@ -469,7 +463,7 @@ describe("Develop tool contracts", () => {
     openGroups();
     fireEvent.click(screen.getByRole("button", { name: "Luminance" }));
     const neutral = screen
-      .getByRole("img", { name: /^luminance point curve/ })
+      .getByRole("group", { name: /^luminance point curve/ })
       .querySelector("polyline.curve-line")!
       .getAttribute("points")!
       .split(" ")
@@ -482,13 +476,10 @@ describe("Develop tool contracts", () => {
     const unregister = registerSliderDraftRenderer(() => true);
     mount();
     openGroups();
-    const curve = screen.getByRole("img", { name: /^RGB point curve/ });
-    vi.spyOn(curve, "getBoundingClientRect").mockReturnValue({
-      left: 0,
-      top: 0,
-      width: 255,
-      height: 255,
-    } as DOMRect);
+    const curve = screen.getByRole("group", { name: /^RGB point curve/ });
+    Object.assign(curve, {
+      getScreenCTM: () => ({ inverse: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) }),
+    });
     curve.setPointerCapture = vi.fn();
     curve.hasPointerCapture = vi.fn(() => false);
     fireEvent.pointerDown(curve, { button: 0, clientX: 128, clientY: 127 });
@@ -520,7 +511,7 @@ describe("Develop tool contracts", () => {
     const unregister = registerSliderDraftRenderer(() => true);
     mount();
     openGroups();
-    const curve = screen.getByRole("img", { name: /^RGB point curve/ });
+    const curve = screen.getByRole("group", { name: /^RGB point curve/ });
     const region = () => curve.querySelector("polyline.curve-region")?.getAttribute("points") ?? null;
     expect(region()).toBeNull();
     const slider = screen.getByRole("slider", { name: "Region curve highlights" });
@@ -541,13 +532,10 @@ describe("Develop tool contracts", () => {
   it("ends a curve drag on cancellation and unmount", () => {
     const view = mount();
     openGroups();
-    const curve = screen.getByRole("img", { name: /^RGB point curve/ });
-    vi.spyOn(curve, "getBoundingClientRect").mockReturnValue({
-      left: 0,
-      top: 0,
-      width: 255,
-      height: 255,
-    } as DOMRect);
+    const curve = screen.getByRole("group", { name: /^RGB point curve/ });
+    Object.assign(curve, {
+      getScreenCTM: () => ({ inverse: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) }),
+    });
     curve.setPointerCapture = vi.fn();
     fireEvent.pointerDown(curve, { button: 0, clientX: 120, clientY: 120 });
     expect(useEditorStore.getState().isSliderDragging).toBe(true);
