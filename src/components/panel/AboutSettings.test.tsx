@@ -38,8 +38,8 @@ describe("AboutSettings", () => {
   it("has a description for every credit in both languages", () => {
     const english = i18n.t("settings.about.creditDescriptions", { returnObjects: true, lng: "en" });
     const german = i18n.t("settings.about.creditDescriptions", { returnObjects: true, lng: "de" });
-    expect(english).toEqual(CREDITS.map((credit) => credit.what));
-    expect(german).toHaveLength(CREDITS.length);
+    expect(english).toEqual(Object.fromEntries(CREDITS.map((credit) => [credit.name, credit.what])));
+    expect(Object.keys(german)).toEqual(expect.arrayContaining(CREDITS.map((credit) => credit.name)));
   });
 
   it("explains optional network use in English and German", async () => {

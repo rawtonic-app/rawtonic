@@ -206,7 +206,7 @@ function Link({ href, children }: { href: string; children: React.ReactNode }) {
 
 export default function AboutSettings() {
   const { t } = useTranslation();
-  const creditDescriptions = t("settings.about.creditDescriptions", { returnObjects: true }) as string[];
+  const creditDescriptions = t("settings.about.creditDescriptions", { returnObjects: true }) as Record<string, string>;
   const [version, setVersion] = useState<string | null>(null);
   const [licenses, setLicenses] = useState<string | null>(null);
   const showLicenses = () => {
@@ -233,7 +233,7 @@ export default function AboutSettings() {
         <div className="space-y-3">
           <Text>{t("settings.about.copyright")}</Text>
           <Text>
-            {t("settings.about.licenseIntro")} <Link href="https://www.gnu.org/licenses/agpl-3.0.html">GNU AGPL</Link>{" "}
+            {t("settings.about.licenseIntro")} <strong>{t("settings.about.noWarranty")}</strong>{t("settings.about.licenseAfter")} <Link href="https://www.gnu.org/licenses/agpl-3.0.html">GNU AGPL</Link>{" "}
             {t("settings.about.licenseEnd")}
           </Text>
           <Text>
@@ -260,9 +260,9 @@ export default function AboutSettings() {
           {t("settings.about.creditsIntro")}
         </Text>
         <Text as="ul" className="space-y-3 list-disc ml-5 pl-1">
-          {CREDITS.map((credit, index) => (
+          {CREDITS.map((credit) => (
             <li key={credit.name}>
-              <Link href={credit.url}>{credit.name}</Link>: {creditDescriptions[index] || credit.what} (
+              <Link href={credit.url}>{credit.name}</Link>: {(typeof creditDescriptions === "object" && creditDescriptions?.[credit.name]) || credit.what} (
               {credit.license})
             </li>
           ))}
