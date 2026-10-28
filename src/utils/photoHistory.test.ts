@@ -34,11 +34,24 @@ it('a recipe changed while another photo was open becomes a new step (C02)', () 
   open('/a.nef');
   useEditorStore.getState().pushHistory(recipe(0.7));
   open('/b.nef');
-  const { history, historyIndex } = historyFor('/a.nef', recipe(1.85), 42);
+  const { history, historyIndex } = historyFor('/a.nef', recipe(1.85), [{ order: 42, recipe: recipe(1.85) }]);
   expect(history.map((step) => step.exposure)).toEqual([0, 0.7, 1.85]);
   expect(historyIndex).toBe(2);
   // The batch step that wrote it (undoes with it).
   expect(editUndoOrder(history, 2)).toBe(42);
+});
+
+it('each batch step that wrote a closed photo becomes its own entry (C02)', () => {
+  open('/a.nef');
+  useEditorStore.getState().pushHistory(recipe(1));
+  open('/b.nef');
+  const { history, historyIndex } = historyFor('/a.nef', recipe(3), [
+    { order: 41, recipe: recipe(2) },
+    { order: 42, recipe: recipe(3) },
+  ]);
+  expect(history.map((step) => step.exposure)).toEqual([0, 1, 2, 3]);
+  expect(historyIndex).toBe(3);
+  expect([2, 3].map((index) => editUndoOrder(history, index))).toEqual([41, 42]);
 });
 
 it('a photograph never left starts with its loaded recipe', () => {

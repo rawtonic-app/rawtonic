@@ -206,6 +206,44 @@ it('writes two pastes onto the same photograph queued one after the other, neith
   expect(waitForPendingMetadataSave('/second.dng')).toBeUndefined();
 });
 
+it('a Reset queued between two pastes onto the same photograph waits for neither later write', async () => {
+  const { result } = renderHook(useEditorActions);
+  act(() => result.current.handlePasteAdjustments(['/second.dng']));
+  await act(async () => {});
+  act(() => result.current.handleResetAdjustments(['/second.dng']));
+  act(() => result.current.handlePasteAdjustments(['/second.dng']));
+  await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
+  await finish(Invokes.ResetAdjustmentsForPaths, { changes: [] });
+  await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
+  expect(waitForPendingMetadataSave('/second.dng')).toBeUndefined();
+});
+
+it('undoing a batch back to a never-edited recipe shows the never-edited editor recipe', async () => {
+  const { recipeBatchAction, undo, useCatalogUndoStore } = await import('../utils/appUndo');
+  const { useUIStore } = await import('../store/useUIStore');
+  useUIStore.setState({ activeView: 'editor' });
+  useCatalogUndoStore.setState(useCatalogUndoStore.getInitialState());
+  renderHook(useEditorActions);
+  let step!: Promise<string[]>;
+  act(() => {
+    step = recipeBatchAction('paste', async () => ({
+      failed: [],
+      changes: [{ path: '/first.dng', before: null, after: { exposure: -2 } }],
+    }), ['/first.dng']);
+  });
+  await act(() => step);
+  act(() => { void undo(); });
+  await finish(Invokes.ReplaceRecipes, { changes: [{ path: '/first.dng', before: null, after: null }] });
+  await finish(Invokes.LoadMetadata, { adjustments: null });
+  await finish(Invokes.GetCameraLensProfile, null);
+  await finish(Invokes.LoadMetadata, { adjustments: null });
+  const { history, historyIndex, adjustments } = useEditorStore.getState();
+  expect(adjustments.exposure).toBe(0);
+  expect(history.map((entry) => entry.exposure)).toEqual([0, -2]);
+  expect(historyIndex).toBe(0);
+  expect(useLibraryStore.getState().libraryActiveAdjustments.exposure).toBe(0);
+});
+
 it('an undone batch step on a photograph opened after it goes under its current History entry', async () => {
   const { recipeBatchAction, undo, redo, canUndo, useCatalogUndoStore } = await import('../utils/appUndo');
   const { useUIStore } = await import('../store/useUIStore');

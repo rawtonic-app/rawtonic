@@ -14,8 +14,8 @@ import {
 } from '../utils/adjustments';
 import { rememberOpenedRecipe, waitForPendingMetadataSave } from './useEditorActions';
 import { editorRecipe, neverEdited } from '../utils/neverEdited';
-import { historyFor } from '../utils/photoHistory';
-import { recipeStepOrder } from '../utils/appUndo';
+import { historyFor, keptSince } from '../utils/photoHistory';
+import { recipeStepsSince } from '../utils/appUndo';
 import { globalImageCache, type ImageCacheEntry } from '../utils/ImageLRUCache';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
 
@@ -165,6 +165,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
           const cameraRequest = invoke<{ params: Adjustments['lensDistortionParams'] } | null>(
             Invokes.GetCameraLensProfile, { path: selectedImage.path },
           ).catch(() => null);
+          let batches: { order: number; recipe: Adjustments }[] = [];
           // The recipe to render: saved, or the defaults for a never-edited photo.
           const recipeFor = async (metadata: ImageMetadata | null, isRaw: boolean, width: number, height: number) => {
             const savedAdjustments = unsavedAdjustments ?? metadata?.adjustments;
@@ -177,6 +178,14 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             // this saved recipe, as onto a closed photograph).
             const shown = editorRecipe(savedAdjustments, isRaw, width, height, camera);
             rememberOpenedRecipe(selectedImage.path, { saved: savedAdjustments ?? null, camera, width, height, shown });
+            // The batch edits written onto it while it was not open, each a
+            // History entry of its own (photoHistory.ts).
+            batches = await Promise.all(
+              recipeStepsSince(selectedImage.path, keptSince(selectedImage.path)).map(async ({ order, after }) => ({
+                order,
+                recipe: editorRecipe(after, isRaw, width, height, isRaw && neverEdited(after) ? await cameraRequest : null),
+              })),
+            );
             return shown;
           };
           const publishSource = (
@@ -196,7 +205,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
               return {
                 adjustments: initialAdjusts,
                 // Its History from when it was last open (C02).
-                ...historyFor(selectedImage.path, initialAdjusts, recipeStepOrder(selectedImage.path)),
+                ...historyFor(selectedImage.path, initialAdjusts, batches),
                 panelsHeld: false,
                 originalSize: { width, height },
                 previewSize: {

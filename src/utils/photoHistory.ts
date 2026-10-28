@@ -2,7 +2,7 @@ import type { Adjustments } from './adjustments';
 import { sameAdjustmentValue } from './adjustments';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
-import { historyOrders, nextUndoOrder, setHistoryOrders } from './undoOrder';
+import { currentUndoOrder, historyOrders, nextUndoOrder, setHistoryOrders } from './undoOrder';
 
 // Each photograph keeps its History while another one is open, as
 // Lightroom's per-photo Develop history (ui-review-2026-10-28 C02).
@@ -10,21 +10,28 @@ interface Kept {
   history: Adjustments[];
   index: number;
   orders: number[];
+  /** The newest undo order when it was left. */
+  since: number;
 }
 /** Photographs whose History is kept (least recently left dropped first). */
 const KEPT_PHOTOS = 100;
 const HISTORY_LIMIT = 50;
 const kept = new Map<string, Kept>();
 
+/** The newest undo order when `path` was left, if its History is kept
+ * (`recipeStepsSince` gives the batch steps that wrote it since). */
+export const keptSince = (path: string) => kept.get(path)?.since;
+
 /** The History `path` opens with: the one it had when it was left, with
- * `shown` (its recipe as loaded now) as its current entry; when its recipe
- * changed meanwhile (a batch edit, another editor), `shown` becomes a new
- * entry with the undo order `changedOrder` (the batch step that wrote it,
- * so both undo together; otherwise a new one). */
+ * `shown` (its recipe as loaded now) as its current entry. When its recipe
+ * changed meanwhile, each batch step that wrote it since (`batches`, oldest
+ * first, with the recipe it wrote) becomes an entry with its undo order, so
+ * each undoes together with its step; the last one is `shown`. A change
+ * by none (another editor) is a new entry of its own. */
 export function historyFor(
   path: string,
   shown: Adjustments,
-  changedOrder?: number,
+  batches: { order: number; recipe: Adjustments }[] = [],
 ): { history: Adjustments[]; historyIndex: number } {
   const entry = kept.get(path);
   if (!entry) return { history: [shown], historyIndex: 0 };
@@ -35,8 +42,13 @@ export function historyFor(
     setHistoryOrders(history, entry.orders);
     return { history, historyIndex: entry.index };
   }
-  const history = [...entry.history.slice(0, entry.index + 1), shown].slice(-HISTORY_LIMIT);
-  const orders = [...entry.orders.slice(0, entry.index + 1), changedOrder ?? nextUndoOrder()].slice(
+  const steps = batches.length ? batches : [{ order: nextUndoOrder(), recipe: shown }];
+  const history = [
+    ...entry.history.slice(0, entry.index + 1),
+    ...steps.slice(0, -1).map((step) => step.recipe),
+    shown,
+  ].slice(-HISTORY_LIMIT);
+  const orders = [...entry.orders.slice(0, entry.index + 1), ...steps.map((step) => step.order)].slice(
     -HISTORY_LIMIT,
   );
   setHistoryOrders(history, orders);
@@ -55,7 +67,7 @@ export function travelKeptHistory(path: string, order: number, direction: 'undo'
 
 function keep(path: string, history: Adjustments[], index: number) {
   kept.delete(path);
-  kept.set(path, { history, index, orders: historyOrders(history) });
+  kept.set(path, { history, index, orders: historyOrders(history), since: currentUndoOrder() });
   while (kept.size > KEPT_PHOTOS) kept.delete(kept.keys().next().value!);
 }
 

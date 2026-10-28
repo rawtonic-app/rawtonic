@@ -379,15 +379,19 @@ export function recipeBatchAction(
   }, "catalog", paths);
 }
 
-/** The undo order of the newest batch step that wrote `path` (its loaded
- * recipe joins its History as that step's entry), if any. */
-export function recipeStepOrder(path: string): number | undefined {
-  const step = useCatalogUndoStore
-    .getState()
-    .past.findLast((item) =>
-      item.snapshots?.some((change) => change.path === path),
-    );
-  return step?.order;
+/** The batch steps (still to undo) that wrote `path` after the undo order
+ * `since`, oldest first, with the recipe each wrote there. */
+export function recipeStepsSince(
+  path: string,
+  since: number | undefined,
+): { order: number; after: unknown }[] {
+  if (since === undefined) return [];
+  return useCatalogUndoStore.getState().past.flatMap((step) => {
+    const change = step.snapshots?.find((item) => item.path === path);
+    return step.order > since && change
+      ? [{ order: step.order, after: change.after }]
+      : [];
+  });
 }
 
 /** The file journal stays native; these small markers order its successful

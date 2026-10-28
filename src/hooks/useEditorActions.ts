@@ -44,7 +44,7 @@ import {
 } from '../utils/settingsClipboard';
 import { MAX_RENDERED_LAYERS } from '../utils/layerLimit';
 import { useCopySettingsDialog, type SettingsChoice, type SettingsSource } from '../components/studio/CopySettingsDialog';
-import { editorRecipe, withNeverEditedDefaults, type CameraLens } from '../utils/neverEdited';
+import { editorRecipe, neverEdited, withNeverEditedDefaults, type CameraLens } from '../utils/neverEdited';
 import { withOwnBitmapIds } from '../utils/bitmapIds';
 import { appliedStyleOf, recordStyle, revertStyle, withStyleValues } from '../utils/appliedStyle';
 import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
@@ -441,6 +441,16 @@ export function isCurrentEditorImage(path: string): boolean {
   return image?.path === path && image.isReady;
 }
 
+/** Completions of queued batch writes (in pendingMetadataSaves). */
+const batchSaves = new WeakSet<Promise<unknown>>();
+/** The save a queued recipe write of `path` waits for: an editor save, never
+ * another queued batch write (the queue orders those; a later one waits for
+ * this one). */
+const savedBeforeQueued = (path: string) => {
+  const save = pendingMetadataSaves.get(path);
+  return save && !batchSaves.has(save) ? save : undefined;
+};
+
 /** Runs `mutation` after the pending saves of `paths` (`waitFor`: the saves
  * to wait for instead of those pending now). */
 function afterRecipeSaves<T>(
@@ -468,9 +478,19 @@ function afterRecipeSaves<T>(
 async function showWrittenRecipes(written: string[], shown?: RecipeShown) {
   const { selectedImage } = useEditorStore.getState();
   if (selectedImage && !shown?.skipOpen && written.includes(selectedImage.path) && isCurrentEditorImage(selectedImage.path)) {
-    const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path });
-    if (isCurrentEditorImage(selectedImage.path) && meta.adjustments && !meta.adjustments.is_null) {
-      const normalized = normalizeLoadedAdjustments(meta.adjustments, selectedImage.isRaw);
+    const { path, isRaw, width, height } = selectedImage;
+    const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path });
+    // As loading makes it (a never-edited one: its defaults, useImageLoader).
+    const saved = meta.adjustments ?? null;
+    const camera =
+      isRaw && neverEdited(saved)
+        ? openedRecipe?.path === path
+          ? openedRecipe.camera
+          : await invoke<CameraLens>(Invokes.GetCameraLensProfile, { path }).catch(() => null)
+        : null;
+    if (isCurrentEditorImage(path)) {
+      const normalized = editorRecipe(saved, !!isRaw, width, height, camera);
+      rememberOpenedRecipe(path, { saved, camera, width, height, shown: normalized });
       const { adjustments, pushHistory } = useEditorStore.getState();
       if (!sameAdjustmentValue(normalized, adjustments)) {
         debouncedSetHistory.flush();
@@ -495,9 +515,12 @@ async function showWrittenRecipes(written: string[], shown?: RecipeShown) {
   const { libraryActivePath, setLibrary } = useLibraryStore.getState();
   if (libraryActivePath && written.includes(libraryActivePath)) {
     const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: libraryActivePath });
-    if (useLibraryStore.getState().libraryActivePath === libraryActivePath && meta.adjustments && !meta.adjustments.is_null)
+    if (useLibraryStore.getState().libraryActivePath === libraryActivePath)
       setLibrary({
-        libraryActiveAdjustments: normalizeLoadedAdjustments(meta.adjustments, isRawInLibrary(libraryActivePath)),
+        libraryActiveAdjustments:
+          meta.adjustments && !meta.adjustments.is_null
+            ? normalizeLoadedAdjustments(meta.adjustments, isRawInLibrary(libraryActivePath))
+            : { ...INITIAL_ADJUSTMENTS },
       });
   }
 }
@@ -508,10 +531,14 @@ async function showWrittenRecipes(written: string[], shown?: RecipeShown) {
 async function writeRecipeValues(values: RecipeValues[], shown?: RecipeShown): Promise<RecipeValues[]> {
   const paths = values.map((value) => value.path);
   paths.forEach((path) => globalImageCache.delete(path));
-  const result = await afterRecipeSaves(paths, () =>
-    invoke<{ before: RecipeValues[]; failure?: { message: string; failed: string[] } }>(Invokes.SetRecipeValues, {
-      changes: values,
-    }),
+  const result = await afterRecipeSaves(
+    paths,
+    () =>
+      invoke<{ before: RecipeValues[]; failure?: { message: string; failed: string[] } }>(Invokes.SetRecipeValues, {
+        changes: values,
+      }),
+    true,
+    savedBeforeQueued,
   );
   if (result.failure) toast.error(i18next.t('studio.seriesMatch.notSaved', { error: result.failure.message }));
   const written = result.before.map((before) => before.path);
@@ -528,7 +555,7 @@ async function replaceRecipes(recipes: { path: string; adjustments: unknown }[],
   // The editor's own save of a travelled entry comes after: the same recipe.
   const { changes } = await afterRecipeSaves(paths, () =>
     recordedBatch(invoke<RecipeBatch>(Invokes.ReplaceRecipes, { changes: recipes }), paths, 'restore adjustments'),
-  false);
+  false, savedBeforeQueued);
   const written = changes.map((change) => change.path);
   written.forEach((path) => unsavedRecipes.delete(path));
   await showWrittenRecipes(written, shown);
@@ -844,6 +871,7 @@ export function useEditorActions() {
             pathsToReset,
             () => recordedBatch(invoke(Invokes.ResetAdjustmentsForPaths, { paths: pathsToReset }), pathsToReset, 'reset adjustments'),
             false,
+            savedBeforeQueued,
           ),
         pathsToReset,
         openOrder,
@@ -900,6 +928,8 @@ export function useEditorActions() {
               pathsToUpdate,
               'apply auto lens correction',
             ),
+            true,
+            savedBeforeQueued,
           ),
         pathsToUpdate,
         openOrder,
@@ -1044,13 +1074,12 @@ export function useEditorActions() {
         open && openOrder !== undefined && pastedOntoOpen
           ? { path: open.path, before: openBefore, after: useEditorStore.getState().adjustments }
           : undefined;
-      // The saves this write waits for: those before it, never a later one.
-      const predecessors = new Map(others.map((path) => [path, pendingMetadataSaves.get(path)]));
       // A photograph opened meanwhile reads its recipe after this write.
       let writeSettled = () => {};
       const settled = new Promise<undefined>((resolve) => {
         writeSettled = () => resolve(undefined);
       });
+      if (undoStep) batchSaves.add(settled);
       others.forEach((path) => {
         pendingMetadataSaves.set(path, settled);
         void settled.then(() => {
@@ -1070,7 +1099,7 @@ export function useEditorActions() {
             'paste adjustments',
           ),
           true,
-          (path) => predecessors.get(path),
+          undoStep ? savedBeforeQueued : (path) => (pendingMetadataSaves.get(path) === settled ? undefined : pendingMetadataSaves.get(path)),
         );
       const written = undoStep
         ? recipeBatchAction(
