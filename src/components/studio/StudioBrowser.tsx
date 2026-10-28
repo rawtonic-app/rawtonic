@@ -86,6 +86,11 @@ const Tile = memo(function Tile({
     blue: t("studio.library.colorLabels.blue"),
     purple: t("studio.library.colorLabels.purple"),
   } as Record<string, string>;
+  const colorNames: Record<string, string> = {
+    red: t("studio.library.colors.red"), yellow: t("studio.library.colors.yellow"),
+    green: t("studio.library.colors.green"), blue: t("studio.library.colors.blue"),
+    purple: t("studio.library.colors.purple"),
+  };
   return (
     <div
       className={`studio-photo ${selected ? "is-selected" : ""} ${current ? "is-current" : ""} ${flag === -1 ? "is-rejected" : ""} ${file.is_offline ? "is-offline" : ""}`}
@@ -146,7 +151,7 @@ const Tile = memo(function Tile({
             </span>
           )}
           {film && color && colorLabels[color] && (
-            <span className={`studio-photo-color is-${color}`} role="img" aria-label={colorLabels[color]} />
+            <span className={`studio-photo-color is-${color}`} role="img" aria-label={colorLabels[color]} title={colorLabels[color]}>{colorNames[color]}</span>
           )}
         </span>
         {!film && (
@@ -172,7 +177,7 @@ const Tile = memo(function Tile({
           </button>
         ))}
         {color && colorLabels[color] && (
-          <span className={`studio-photo-color is-${color}`} role="img" aria-label={colorLabels[color]} title={colorLabels[color]} />
+          <span className={`studio-photo-color is-${color}`} role="img" aria-label={colorLabels[color]} title={colorLabels[color]}>{colorNames[color]}</span>
         )}
       </div>
       )}

@@ -88,6 +88,16 @@ it("lays the grid out for its real width from the first frame, not for a guessed
   }
 });
 
+it("shows a readable label as well as its colour in the grid and filmstrip", () => {
+  files[0].tags = ["color:green"];
+  try {
+    const view = grid();
+    expect(view.getByTitle("Green label").textContent).toBe("Green");
+    view.unmount();
+    expect(grid(vi.fn(), true).getByTitle("Green label").textContent).toBe("Green");
+  } finally { files[0].tags = null; }
+});
+
 describe("library grid empty space", () => {
   it("clears the selection on a click on the grid's background", () => {
     const { browser, onClearSelection } = grid();

@@ -1685,11 +1685,14 @@
   opacity: 0.45;
 }
 .studio-photo-color {
-  width: 8px;
-  height: 8px;
+  min-height: 16px;
+  padding: 1px 4px;
   margin-left: auto;
-  border-radius: 1px;
+  border-radius: 2px;
   flex-shrink: 0;
+  color: #161616;
+  font-size: 10px;
+  line-height: 14px;
 }
 .studio-photo-color.is-red { background: #f08080; }
 .studio-photo-color.is-yellow { background: #e6c76c; }
