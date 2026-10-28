@@ -1673,7 +1673,7 @@
       "nativeTitlebar": "Natywny pasek tytułu",
       "nativeTitlebarDesc": "Użyj domyślnego paska tytułu okna twojego systemu zamiast niestandardowego w Rawtonic.",
       "proofMargin": "Margines podglądu",
-      "proofMarginDesc": "Margines wokół dopasowanego zdjęcia, gdy margines podglądu jest włączony (X), jako część krótszego boku podglądu.",
+      "proofMarginDesc": "Margines wokół dopasowanego zdjęcia, gdy margines podglądu jest włączony (Alt+X), jako część krótszego boku podglądu.",
       "showBuiltinPresets": "Pokazuj wbudowane ustawienia",
       "title": "Ustawienia ogólne",
       "uiScale": "Rozmiar interfejsu",

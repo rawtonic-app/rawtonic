@@ -1613,7 +1613,7 @@
       "nativeTitlebar": "Barra de título nativa",
       "nativeTitlebarDesc": "Usa la barra de título de ventana predeterminada de tu sistema en lugar de la personalizada de Rawtonic.",
       "proofMargin": "Margen de prueba",
-      "proofMarginDesc": "Margen alrededor de la foto ajustada cuando el margen de prueba está activo (X), como parte del lado más corto del visor.",
+      "proofMarginDesc": "Margen alrededor de la foto ajustada cuando el margen de prueba está activo (Alt+X), como parte del lado más corto del visor.",
       "showBuiltinPresets": "Mostrar ajustes integrados",
       "title": "Ajustes generales",
       "uiScale": "Tamaño de la interfaz",

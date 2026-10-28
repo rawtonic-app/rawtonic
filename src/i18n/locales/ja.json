@@ -1515,7 +1515,7 @@
       "nativeTitlebar": "OS標準のタイトルバー",
       "nativeTitlebarDesc": "Rawtonicカスタムのもの代わりに、システムのデフォルトのウィンドウタイトルバーを使用します。",
       "proofMargin": "プルーフマージン",
-      "proofMarginDesc": "プルーフマージンがオンのとき（X）、全体表示の写真の周りに空ける余白。ビューアの短辺に対する割合。",
+      "proofMarginDesc": "プルーフマージンがオンのとき（Alt+X）、全体表示の写真の周りに空ける余白。ビューアの短辺に対する割合。",
       "showBuiltinPresets": "内蔵プリセットを表示",
       "title": "全般設定",
       "uiScale": "インターフェイスのサイズ",

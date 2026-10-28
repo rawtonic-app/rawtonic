@@ -1613,7 +1613,7 @@
       "nativeTitlebar": "Barra de títol nativa",
       "nativeTitlebarDesc": "Utilitzar la barra de títol de la finestra predeterminada del sistema en lloc de la personalitzada de Rawtonic.",
       "proofMargin": "Marge de prova",
-      "proofMarginDesc": "Marge al voltant de la foto ajustada quan el marge de prova és actiu (X), com a part del costat més curt del visor.",
+      "proofMarginDesc": "Marge al voltant de la foto ajustada quan el marge de prova és actiu (Alt+X), com a part del costat més curt del visor.",
       "showBuiltinPresets": "Mostra els predefinits integrats",
       "title": "Configuració general",
       "uiScale": "Mida de la interfície",

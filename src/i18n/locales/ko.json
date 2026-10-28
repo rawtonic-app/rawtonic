@@ -1515,7 +1515,7 @@
       "nativeTitlebar": "네이티브 제목 표시줄",
       "nativeTitlebarDesc": "Rawtonic의 사용자 지정 제목 표시줄 대신 시스템 기본 창 제목 표시줄을 사용합니다.",
       "proofMargin": "교정 여백",
-      "proofMarginDesc": "교정 여백이 켜져 있을 때(X) 맞춤 사진 주위의 여백으로, 뷰어 짧은 변에 대한 비율입니다.",
+      "proofMarginDesc": "교정 여백이 켜져 있을 때(Alt+X) 맞춤 사진 주위의 여백으로, 뷰어 짧은 변에 대한 비율입니다.",
       "showBuiltinPresets": "기본 제공 프리셋 표시",
       "title": "일반 설정",
       "uiScale": "인터페이스 크기",

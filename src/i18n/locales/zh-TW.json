@@ -1515,7 +1515,7 @@
       "nativeTitlebar": "原生標題欄",
       "nativeTitlebarDesc": "使用系統預設的視窗標題欄，而非 Rawtonic 的自定義標題欄。",
       "proofMargin": "校樣邊距",
-      "proofMarginDesc": "開啟校樣邊距（X）時符合視窗的相片周圍的邊距，佔檢視器較短邊的比例。",
+      "proofMarginDesc": "開啟校樣邊距（Alt+X）時符合視窗的相片周圍的邊距，佔檢視器較短邊的比例。",
       "showBuiltinPresets": "顯示內建預設",
       "title": "通用設定",
       "uiScale": "介面大小",
