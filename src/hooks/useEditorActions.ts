@@ -435,15 +435,19 @@ export function isCurrentEditorImage(path: string): boolean {
  * Submits a batch recipe write of `paths` (`mutation`) to their write
  * queues (utils/photoWrites): it runs after every write given before it for
  * any of them, the open photograph's scheduled editor save included, and is
- * announced once when settled. Resolves with the photographs it could not
- * write (`failedOf`).
+ * announced once when settled (with `step`). Resolves as `mutation`;
+ * `failedOf` names the photographs it could not write. With
+ * `preserveUnsaved`, a recipe whose editor save failed is written first.
  */
 export function recipeWrite<T>(
   paths: string[],
-  kind: string,
   mutation: () => Promise<T>,
-  failedOf: (result: T) => string[],
-  preserveUnsaved = true,
+  {
+    kind,
+    failedOf,
+    preserveUnsaved = true,
+    step,
+  }: { kind: string; failedOf: (result: T) => string[]; preserveUnsaved?: boolean; step?: unknown },
 ): Promise<T> {
   // An edit of one of them made before this write is saved before it.
   if (scheduledSave !== null && paths.some((path) => photoWriteKey(path) === photoWriteKey(scheduledSave!)))
@@ -461,10 +465,11 @@ export function recipeWrite<T>(
         if (unsavedRecipes.get(path) === recipe) unsavedRecipes.delete(path);
       })).then(mutation);
     },
-    { kind, failedOf },
+    { kind, failedOf, step },
   );
 }
 
+/** A `savedBatch` result: the photographs not saved. */
 const failedPaths = (failed: string[]) => failed;
 
 /** Writes per-photo recipe values (series match and its undo/redo) after
@@ -475,12 +480,11 @@ async function writeRecipeValues(values: RecipeValues[]): Promise<RecipeValues[]
   paths.forEach((path) => globalImageCache.delete(path));
   const result = await recipeWrite(
     paths,
-    'recipeValues',
     () =>
       invoke<{ before: RecipeValues[]; failure?: { message: string; failed: string[] } }>(Invokes.SetRecipeValues, {
         changes: values,
       }),
-    (written) => written.failure?.failed ?? [],
+    { kind: 'recipeValues', failedOf: (written) => written.failure?.failed ?? [] },
   );
   if (result.failure) toast.error(i18next.t('studio.seriesMatch.notSaved', { error: result.failure.message }));
   const written = result.before.map((before) => before.path);
@@ -806,10 +810,8 @@ export function useEditorActions() {
 
       recipeWrite(
         pathsToReset,
-        'reset',
         () => savedBatch(invoke(Invokes.ResetAdjustmentsForPaths, { paths: pathsToReset }), pathsToReset, 'reset adjustments'),
-        failedPaths,
-        false,
+        { kind: 'reset', failedOf: failedPaths, preserveUnsaved: false },
       )
         .then((failed) => {
           const reset = pathsToReset.filter((path) => !failed.includes(path));
@@ -854,14 +856,13 @@ export function useEditorActions() {
 
       recipeWrite(
         pathsToUpdate,
-        'lens',
         () =>
           savedBatch(
             invoke(Invokes.ApplyAutoLensCorrectionToPaths, { paths: pathsToUpdate }),
             pathsToUpdate,
             'apply auto lens correction',
           ),
-        failedPaths,
+        { kind: 'lens', failedOf: failedPaths },
       )
         .then(async (failed) => {
           const updated = pathsToUpdate.filter((path) => !failed.includes(path));
@@ -984,7 +985,6 @@ export function useEditorActions() {
       // A photograph opened meanwhile reads its recipe after this write.
       const written = recipeWrite(
         others,
-        style ? 'style' : paste ? 'paste' : 'preset',
         () =>
           savedBatch(
             invoke(Invokes.ApplyAdjustmentsToPaths, {
@@ -996,7 +996,7 @@ export function useEditorActions() {
             others,
             'paste adjustments',
           ),
-        failedPaths,
+        { kind: style ? 'style' : paste ? 'paste' : 'preset', failedOf: failedPaths },
       );
       return written
         .then((failed) => {

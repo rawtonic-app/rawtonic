@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
-import { useEditorActions } from "../../hooks/useEditorActions";
+import { recipeWrite, useEditorActions } from "../../hooks/useEditorActions";
 import { Invokes } from "../ui/AppProperties";
 import type {
   Adjustments,
@@ -215,11 +215,13 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
       .map((f) => ({ center: [(f.box[0] + f.box[2] / 2) / w, (f.box[1] + f.box[3] / 2) / h], settings: f.settings }));
     setApplying(t("studio.faceRetouch.applying", { count: others.length }));
     try {
-      const done = await invoke<number>(Invokes.ApplyFaceRetouchToPaths, {
-        paths: others,
-        settings: current.settings,
-        faceSettings,
-      });
+      const done = await recipeWrite(
+        others,
+        () =>
+          invoke<number>(Invokes.ApplyFaceRetouchToPaths, { paths: others, settings: current.settings, faceSettings }),
+        // It answers how many it wrote, not which: short of all, any may have failed.
+        { kind: "faceRetouch", failedOf: (written) => (written < others.length ? others : []) },
+      );
       setApplying(t("studio.faceRetouch.applied", { done, total: others.length }));
     } catch (e) {
       setApplying(aiErrorMessage(e));

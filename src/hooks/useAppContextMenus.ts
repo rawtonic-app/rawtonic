@@ -576,7 +576,6 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
 
         recipeWrite(
           finalSelection,
-          'auto',
           () =>
             invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: finalSelection }).then(
               () => [] as string[],
@@ -588,7 +587,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
                 return failed;
               },
             ),
-          (failed) => failed,
+          { kind: 'auto', failedOf: (failed) => failed },
         )
           .then(async (failed) => {
             const applied = finalSelection.filter((p) => !failed.includes(p));
