@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Bumped whenever a request, reply or event changes shape.
-pub const PROTOCOL: u32 = 5;
+pub const PROTOCOL: u32 = 6;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
@@ -29,6 +29,10 @@ pub enum Request {
         /// Only this body (its serial number): another one is closed again
         /// before anything of it is read or downloaded.
         serial: Option<String>,
+        /// The user's opt-in to driver paths no body has been tested on yet
+        /// (libgphoto2's Canon EOS path, Preferences > Tethering): without
+        /// it such a camera is closed again before anything of it is read.
+        experimental: bool,
     },
     Disconnect,
     /// Stops taking photos from the camera but keeps it open: every photo
@@ -107,6 +111,10 @@ pub struct CameraStatus {
     pub serial: Option<String>,
     /// The body's firmware version, when it reports one.
     pub firmware: Option<String>,
+    /// Driven on a path no body has been tested on yet (libgphoto2's Canon
+    /// EOS path; the user's opt-in): a photo's report can be lost there, so
+    /// every photo is kept on the memory card and nothing is freed.
+    pub experimental: bool,
 }
 
 /// A camera setting the interface shows (`key` is ours; `camera_key` the
@@ -324,6 +332,7 @@ mod tests {
                 port: Some("usb:020,005".into()),
                 staging: "/s/.tether".into(),
                 serial: Some("CA7F603B7405".into()),
+                experimental: false,
             },
         };
         let text = serde_json::to_string(&request).unwrap();
