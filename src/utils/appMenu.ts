@@ -117,6 +117,7 @@ export const MENU_LAYOUT: TopMenu[] = [
         submenu: 'rating',
         items: [c('rate_0'), c('rate_1'), c('rate_2'), c('rate_3'), c('rate_4'), c('rate_5')],
       },
+      c('toggle_auto_advance', { check: true }),
       { submenu: 'flag', items: [c('flag_pick'), c('flag_unflag'), c('flag_reject')] },
       {
         submenu: 'colorLabel',
@@ -134,6 +135,7 @@ export const MENU_LAYOUT: TopMenu[] = [
       c('rotate_left'),
       c('rotate_right'),
       'separator',
+      c('match_light'),
       c('auto_adjust'),
       c('auto_white_balance'),
       'separator',
