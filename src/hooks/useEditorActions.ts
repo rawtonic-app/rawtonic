@@ -62,7 +62,7 @@ import {
   type RecipeSnapshot,
   type RecipeValues,
 } from '../utils/appUndo';
-import { editUndoOrder, nextUndoOrder } from '../utils/undoOrder';
+import { editUndoOrder, historyOrders, nextUndoOrder, setHistoryOrders } from '../utils/undoOrder';
 
 const pendingMetadataSaves = new Map<string, Promise<Adjustments | undefined>>();
 const unsavedRecipes = new Map<string, Adjustments>();
@@ -441,10 +441,17 @@ export function isCurrentEditorImage(path: string): boolean {
   return image?.path === path && image.isReady;
 }
 
-function afterRecipeSaves<T>(paths: string[], mutation: () => Promise<T>, preserveUnsaved = true): Promise<T> {
-  if (!paths.some((path) => pendingMetadataSaves.has(path) || unsavedRecipes.has(path))) return mutation();
+/** Runs `mutation` after the pending saves of `paths` (`waitFor`: the saves
+ * to wait for instead of those pending now). */
+function afterRecipeSaves<T>(
+  paths: string[],
+  mutation: () => Promise<T>,
+  preserveUnsaved = true,
+  waitFor: (path: string) => Promise<unknown> | undefined = (path) => pendingMetadataSaves.get(path),
+): Promise<T> {
+  if (!paths.some((path) => waitFor(path) || unsavedRecipes.has(path))) return mutation();
   return Promise.all(paths.map(async (path) => {
-    await pendingMetadataSaves.get(path);
+    await waitFor(path);
     const unsaved = unsavedRecipes.get(path);
     if (preserveUnsaved && unsaved) {
       // A partial batch edit must not overwrite unrelated edits from a failed
@@ -464,11 +471,24 @@ async function showWrittenRecipes(written: string[], shown?: RecipeShown) {
     const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path });
     if (isCurrentEditorImage(selectedImage.path) && meta.adjustments && !meta.adjustments.is_null) {
       const normalized = normalizeLoadedAdjustments(meta.adjustments, selectedImage.isRaw);
-      const { adjustments, pushHistory, setEditor } = useEditorStore.getState();
+      const { adjustments, pushHistory } = useEditorStore.getState();
       if (!sameAdjustmentValue(normalized, adjustments)) {
         debouncedSetHistory.flush();
-        setEditor({ adjustments: normalized });
-        pushHistory(normalized, shown?.order);
+        if (shown?.direction === 'undo') {
+          // The recipe before the step goes under the current entry, which
+          // becomes the step: Undo goes on to older steps, Redo re-applies it.
+          useEditorStore.getState().setEditor((state) => {
+            const orders = historyOrders(state.history);
+            const at = state.historyIndex;
+            const history = [...state.history.slice(0, at), normalized, ...state.history.slice(at)].slice(-50);
+            const kept = [...orders.slice(0, at), orders[at] ?? 0, shown.order, ...orders.slice(at + 1)].slice(-50);
+            setHistoryOrders(history, kept);
+            return { history, historyIndex: history.indexOf(normalized), adjustments: normalized };
+          });
+        } else {
+          useEditorStore.getState().setEditor({ adjustments: normalized });
+          pushHistory(normalized, shown?.order);
+        }
       }
     }
   }
@@ -983,6 +1003,8 @@ export function useEditorActions() {
       // made at once) is its part of the batch's undo step.
       debouncedSetHistory.flush();
       const orderBefore = open ? currentEditOrder() : 0;
+      flushSliderDraft();
+      const openBefore = useEditorStore.getState().adjustments;
       if (open && pastedOntoOpen) {
         // At once, as one step: a drag's moves since the last commit are
         // part of the edit it is pasted onto.
@@ -1016,6 +1038,14 @@ export function useEditorActions() {
       const others = pastedOntoOpen ? pathsToUpdate.filter((path) => path !== open!.path) : pathsToUpdate;
       if (others.length === 0) return Promise.resolve();
       const openOrder = open && currentEditOrder() !== orderBefore ? currentEditOrder() : undefined;
+      // The open photograph's own part, so the step can also take it back
+      // once another photograph is open.
+      const openChange =
+        open && openOrder !== undefined && pastedOntoOpen
+          ? { path: open.path, before: openBefore, after: useEditorStore.getState().adjustments }
+          : undefined;
+      // The saves this write waits for: those before it, never a later one.
+      const predecessors = new Map(others.map((path) => [path, pendingMetadataSaves.get(path)]));
       // A photograph opened meanwhile reads its recipe after this write.
       let writeSettled = () => {};
       const settled = new Promise<undefined>((resolve) => {
@@ -1027,11 +1057,8 @@ export function useEditorActions() {
           if (pendingMetadataSaves.get(path) === settled) pendingMetadataSaves.delete(path);
         });
       });
-      const writeBatch = () => {
-        // The write waits for the photographs' earlier saves, not for itself.
-        const own = others.filter((path) => pendingMetadataSaves.get(path) === settled);
-        own.forEach((path) => pendingMetadataSaves.delete(path));
-        const write = afterRecipeSaves(others, () =>
+      const writeBatch = () =>
+        afterRecipeSaves(others, () =>
           recordedBatch(
             invoke<RecipeBatch>(Invokes.ApplyAdjustmentsToPaths, {
               paths: others,
@@ -1042,14 +1069,20 @@ export function useEditorActions() {
             others,
             'paste adjustments',
           ),
+          true,
+          (path) => predecessors.get(path),
         );
-        own.forEach((path) => {
-          if (!pendingMetadataSaves.has(path)) pendingMetadataSaves.set(path, settled);
-        });
-        return write;
-      };
       const written = undoStep
-        ? recipeBatchAction(label ?? (style ? 'style' : pasteFrom ? 'paste' : 'apply'), writeBatch, others, openOrder)
+        ? recipeBatchAction(
+            label ?? (style ? 'style' : pasteFrom ? 'paste' : 'apply'),
+            () =>
+              writeBatch().then((batch) => ({
+                ...batch,
+                changes: openChange ? [...batch.changes, openChange] : batch.changes,
+              })),
+            openChange ? [...others, openChange.path] : others,
+            openOrder,
+          )
         : writeBatch().then(({ failed }) => failed);
       void written.then(writeSettled, writeSettled);
       return written

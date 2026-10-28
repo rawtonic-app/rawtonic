@@ -43,6 +43,16 @@ export function historyFor(
   return { history, historyIndex: history.length - 1 };
 }
 
+/** A batch step with undo order `order` travelled `direction` on `path`
+ * while another photograph is open: a kept History holding the step's entry
+ * moves with it (other kept Histories are compared when they open). */
+export function travelKeptHistory(path: string, order: number, direction: 'undo' | 'redo') {
+  const entry = kept.get(path);
+  if (!entry) return;
+  if (direction === 'undo' && entry.index > 0 && entry.orders[entry.index] === order) entry.index--;
+  else if (direction === 'redo' && entry.orders[entry.index + 1] === order) entry.index++;
+}
+
 function keep(path: string, history: Adjustments[], index: number) {
   kept.delete(path);
   kept.set(path, { history, index, orders: historyOrders(history) });

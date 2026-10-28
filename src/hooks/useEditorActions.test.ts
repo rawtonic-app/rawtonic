@@ -194,6 +194,51 @@ it.each([
   errorLog.mockRestore();
 });
 
+it('writes two pastes onto the same photograph queued one after the other, neither waiting for the later', async () => {
+  const { result } = renderHook(useEditorActions);
+  act(() => {
+    result.current.handlePasteAdjustments(['/second.dng']);
+    result.current.handlePasteAdjustments(['/second.dng']);
+  });
+  await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
+  await finish(Invokes.ApplyAdjustmentsToPaths, { changes: [] });
+  expect(pending.filter((request) => request.command === Invokes.ApplyAdjustmentsToPaths)).toHaveLength(2);
+  expect(waitForPendingMetadataSave('/second.dng')).toBeUndefined();
+});
+
+it('an undone batch step on a photograph opened after it goes under its current History entry', async () => {
+  const { recipeBatchAction, undo, redo, canUndo, useCatalogUndoStore } = await import('../utils/appUndo');
+  const { useUIStore } = await import('../store/useUIStore');
+  useUIStore.setState({ activeView: 'editor' });
+  useCatalogUndoStore.setState(useCatalogUndoStore.getInitialState());
+  renderHook(useEditorActions);
+  const synced = useEditorStore.getState().adjustments;
+  // Written while another photograph was open; this one opened after it.
+  let step!: Promise<string[]>;
+  act(() => {
+    step = recipeBatchAction('sync', async () => ({
+      failed: [],
+      changes: [{ path: '/first.dng', before: { exposure: 1 }, after: { exposure: -2 } }],
+    }), ['/first.dng']);
+  });
+  await act(() => step);
+  act(() => { void undo(); });
+  await finish(Invokes.ReplaceRecipes, { changes: [{ path: '/first.dng', before: null, after: { exposure: 1 } }] });
+  await finish(Invokes.LoadMetadata, { adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 1 } });
+  // (The Library's active photograph shows it too.)
+  await finish(Invokes.LoadMetadata, { adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 1 } });
+  const { history, historyIndex, adjustments } = useEditorStore.getState();
+  expect(adjustments.exposure).toBe(1);
+  expect(history.map((entry) => entry.exposure)).toEqual([1, -2]);
+  expect(historyIndex).toBe(0);
+  expect(history[1]).toBe(synced);
+  // Nothing older to undo here: Undo does not re-apply the step.
+  expect(canUndo()).toBe(false);
+  act(() => { void redo(); });
+  expect(useEditorStore.getState().adjustments.exposure).toBe(-2);
+  await finish(Invokes.ReplaceRecipes, { changes: [{ path: '/first.dng', before: null, after: { exposure: -2 } }] });
+});
+
 it('makes Reset one undoable step for the open photograph', async () => {
   const { result } = renderHook(useEditorActions);
   act(() => result.current.handleResetAdjustments(['/first.dng']));

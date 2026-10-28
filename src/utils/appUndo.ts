@@ -9,6 +9,7 @@ import { useUIStore } from "../store/useUIStore";
 import { movedPath, type PathMove } from "./pathKeyedState";
 import { invokeInOrder } from "./catalogWrites";
 import { editUndoOrder, nextUndoOrder, onNewEdit } from "./undoOrder";
+import { travelKeptHistory } from "./photoHistory";
 
 export type CullingValue =
   | { kind: "rating" | "flag"; value: number }
@@ -46,6 +47,7 @@ export interface RecipeSnapshot {
 export interface RecipeShown {
   order: number;
   skipOpen: boolean;
+  direction: "undo" | "redo";
 }
 /** Writes recipe values and returns each written photo's values before
  * (registered by useEditorActions, which knows the open photo's saves). */
@@ -305,7 +307,11 @@ export function recipeAction(values: RecipeValues[]): Promise<string[]> {
   return enqueue(async () => {
     try {
       const before = recipeWriter
-        ? await recipeWriter(values, { order: step.order, skipOpen: false })
+        ? await recipeWriter(values, {
+            order: step.order,
+            skipOpen: false,
+            direction: "redo",
+          })
         : [];
       step.recipes = before.map(({ path, values: old }) => ({
         path,
@@ -930,7 +936,7 @@ async function travelRecipes(
 ) {
   const from = direction === "undo" ? "past" : "future";
   const to = direction === "undo" ? "future" : "past";
-  const shown = { order: step.order, skipOpen };
+  const shown = { order: step.order, skipOpen, direction };
   try {
     await enqueue(async () => {
       if (!useCatalogUndoStore.getState()[from].includes(step)) return;
@@ -955,6 +961,10 @@ async function travelRecipes(
         const written = recipeWriter ? await recipeWriter(values, shown) : [];
         missing = written.length < values.length;
       }
+      // Photographs not open keep a History that follows the step.
+      const open = useEditorStore.getState().selectedImage?.path;
+      for (const { path } of step.snapshots ?? step.recipes ?? [])
+        if (path !== open) travelKeptHistory(path, step.order, direction);
       if (missing) throw new Error(i18n.t("undoHistory.recipesNotAll"));
       if (useCatalogUndoStore.getState()[from].includes(step))
         useCatalogUndoStore.setState((s) => ({
