@@ -99,7 +99,7 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
       }
       requests.push({
         paths,
-        displayLabel: exportJobLabel(job.recipe?.name ?? t("studio.export.dialogs.customName"), job.draft, job.outputFormat, destination.path),
+        displayLabel: exportJobLabel(job.recipe?.name ?? t("studio.export.dialogs.customName"), job.draft, job.outputFormat, destination.path, paths),
         outputFolderOrFile: destination.path,
         isExplicitFilePath: destination.isFile,
         baseOriginFolders: useLibraryStore.getState().rootPaths,
