@@ -445,10 +445,13 @@ function App() {
     let known: boolean | null = null;
     const checkFullscreen = async () => {
       const isWindowFullScreen = await appWindow.isFullscreen();
+      // Resizing sends many events (a zoom animation one per frame): only a
+      // change of full screen updates the store.
+      if (known === isWindowFullScreen) return;
       setUI({ isWindowFullScreen });
       // Entering or leaving full screen by any means (F, the green button,
       // ⌃⌘F) leaves the web view without keyboard focus on macOS.
-      if (known !== null && known !== isWindowFullScreen) void refocusWebview();
+      if (known !== null) void refocusWebview();
       known = isWindowFullScreen;
     };
     checkFullscreen();

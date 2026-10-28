@@ -218,11 +218,8 @@ pub fn run() {
             }
             let tauri::WindowEvent::Resized(size) = event else { return };
             let state = window.state::<AppState>();
-            if let Some(ctx) = state.gpu_context.lock().unwrap().as_ref()
-                && let Ok(mut display_lock) = ctx.display.try_lock()
-                    && let Some(display) = display_lock.as_mut() {
-                        display.resize(&ctx.device, &ctx.queue, size.width, size.height);
-                    }
+            let Some(ctx) = state.gpu_context.lock().unwrap().clone() else { return };
+            gpu_processing::resize_display(ctx, size.width, size.height);
         })
         .setup(move |app| {
             // Before anything reads settings or user content (see the module).

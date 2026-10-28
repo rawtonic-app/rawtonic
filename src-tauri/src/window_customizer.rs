@@ -63,6 +63,7 @@ impl<R: Runtime> Plugin<R> for PinchZoomDisablePlugin {
                     let window: *mut objc::runtime::Object = msg_send![view, window];
                     if !window.is_null() {
                         full_screen::observe(window);
+                        animated_frames::install(window);
                     }
                 }
             }
@@ -231,6 +232,126 @@ mod full_screen {
                                              selector: selector
                                                  name: name
                                                object: window];
+            }
+        }
+    }
+}
+
+/// Animated frame changes of the window — Zoom by a double click on the
+/// title bar, Window > Zoom, ⌥ + the green button — as a non-blocking
+/// animation. AppKit's own `setFrame:display:animate:` runs a blocking loop
+/// for its ~0.2 s in which the web view gets no answer from its web process:
+/// the page stayed laid out for the old size while the window grew or
+/// shrank, then snapped to the new layout in one frame (measured
+/// 2026-10-28, screen recordings in notes: benchmark-results/wz-window-zoom-2026-10-28).
+/// The window's animator sets the frame step by step from the run loop
+/// instead, so the page lays out on each step as during a drag resize.
+#[cfg(target_os = "macos")]
+mod animated_frames {
+    use objc::runtime::{BOOL, Class, NO, Object, Sel, class_addMethod, object_getClass};
+    use objc::{class, msg_send, sel, sel_impl};
+    use std::ffi::{CStr, c_char};
+    use std::sync::OnceLock;
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Rect {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    }
+
+    unsafe extern "C" {
+        fn method_getTypeEncoding(method: *const objc::runtime::Method) -> *const c_char;
+    }
+
+    /// NSWindowStyleMaskFullScreen.
+    const FULL_SCREEN: usize = 1 << 14;
+
+    /// The superclass whose `setFrame:display:animate:` the override calls
+    /// for frame changes it leaves to AppKit.
+    static SUPERCLASS: OnceLock<usize> = OnceLock::new();
+
+    extern "C" fn set_frame(this: &Object, _: Sel, frame: Rect, display: BOOL, animate: BOOL) {
+        let Some(&superclass) = SUPERCLASS.get() else {
+            return;
+        };
+        // SAFETY: AppKit calls this on the main thread with a live window;
+        // `superclass` is a registered class (set before the method exists).
+        unsafe {
+            let superclass = &*(superclass as *const Class);
+            let mask: usize = msg_send![this, styleMask];
+            let in_live_resize: BOOL = msg_send![this, inLiveResize];
+            if animate == NO || mask & FULL_SCREEN != 0 || in_live_resize != NO {
+                let () = msg_send![super(this, superclass), setFrame: frame display: display animate: animate];
+                return;
+            }
+            let duration: f64 = msg_send![this, animationResizeTime: frame];
+            let context_class = class!(NSAnimationContext);
+            let () = msg_send![context_class, beginGrouping];
+            let context: *mut Object = msg_send![context_class, currentContext];
+            let () = msg_send![context, setDuration: duration];
+            if let Some(timing) = Class::get("CAMediaTimingFunction") {
+                let name = objc2_foundation::NSString::from_str("easeInEaseOut");
+                let name = objc2::rc::Retained::as_ptr(&name)
+                    .cast_mut()
+                    .cast::<Object>();
+                let function: *mut Object = msg_send![timing, functionWithName: name];
+                let () = msg_send![context, setTimingFunction: function];
+            }
+            let animator: *mut Object = msg_send![this, animator];
+            let () = msg_send![animator, setFrame: frame display: display];
+            let () = msg_send![context_class, endGrouping];
+        }
+    }
+
+    /// Overrides `setFrame:display:animate:` on the window's class (Tao's
+    /// NSWindow subclass, only this app's windows). Main thread, live NSWindow.
+    pub unsafe fn install(window: *mut Object) {
+        unsafe {
+            let mut class = object_getClass(window);
+            // A key-value observed window has a runtime subclass in front.
+            while !class.is_null() && (*class).name().starts_with("NSKVONotifying_") {
+                class = objc::runtime::class_getSuperclass(class);
+            }
+            if class.is_null() || SUPERCLASS.get().is_some() {
+                return;
+            }
+            let selector = sel!(setFrame:display:animate:);
+            let superclass = objc::runtime::class_getSuperclass(class);
+            if superclass.is_null() {
+                return;
+            }
+            let inherited = objc::runtime::class_getInstanceMethod(superclass, selector);
+            if inherited.is_null() {
+                return;
+            }
+            let types = method_getTypeEncoding(inherited);
+            // `Rect` and the two BOOLs must be what AppKit passes.
+            if types.is_null()
+                || !CStr::from_ptr(types)
+                    .to_bytes()
+                    .windows(6)
+                    .any(|w| w == b"CGRect")
+            {
+                return;
+            }
+            let _ = SUPERCLASS.set(superclass as usize);
+            let imp: extern "C" fn(&Object, Sel, Rect, BOOL, BOOL) = set_frame;
+            if class_addMethod(
+                class as *mut Class,
+                selector,
+                std::mem::transmute::<
+                    extern "C" fn(&Object, Sel, Rect, BOOL, BOOL),
+                    objc::runtime::Imp,
+                >(imp),
+                types,
+            ) == NO
+            {
+                log::warn!(
+                    "Window frame animations stay blocking: the window class already overrides them"
+                );
             }
         }
     }
