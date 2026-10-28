@@ -167,3 +167,30 @@ it('announces each editor save once, a failed one with its photograph', async ()
     window.removeEventListener(SETTLED, settled);
   }
 });
+
+it('keeps a batch in the queue until every retry of a failed save has settled, also when one fails at once', async () => {
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  // Two editor saves fail, so the paste retries both first.
+  for (const path of ['/a.dng', '/b.dng']) {
+    debouncedSave(path, { ...INITIAL_ADJUSTMENTS, exposure: 1 });
+    debouncedSave.flush();
+    await answer(Invokes.SaveMetadataAndUpdateThumbnail, new Error('disk full'), true);
+  }
+  const { result } = renderHook(useEditorActions);
+  await act(async () => { await result.current.handlePasteAdjustments(['/a.dng', '/b.dng']); });
+  await act(async () => {});
+  expect(commands().filter((command) => command === Invokes.SaveMetadataAndUpdateThumbnail)).toHaveLength(4);
+  // A's retry fails at once; B's is still writing.
+  await answer(Invokes.SaveMetadataAndUpdateThumbnail, new Error('disk full'), true);
+  debouncedSave('/b.dng', { ...INITIAL_ADJUSTMENTS, exposure: 2 });
+  debouncedSave.flush();
+  let quit = false;
+  void flushRecipeSaves().then(() => { quit = true; });
+  await act(async () => {});
+  // B's newer save and quitting wait for B's retry.
+  expect(commands().filter((command) => command === Invokes.SaveMetadataAndUpdateThumbnail)).toHaveLength(4);
+  expect(quit).toBe(false);
+  await answer(Invokes.SaveMetadataAndUpdateThumbnail);
+  await vi.waitFor(() => expect(pending.at(-1)!.args).toMatchObject({ path: '/b.dng', adjustments: { exposure: 2 } }));
+  expect(commands()).not.toContain(Invokes.ApplyAdjustmentsToPaths);
+});

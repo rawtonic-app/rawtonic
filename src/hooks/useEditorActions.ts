@@ -457,13 +457,19 @@ export function recipeWrite<T>(
     () => {
       const unsaved = preserveUnsaved ? paths.filter((path) => unsavedRecipes.has(path)) : [];
       if (unsaved.length === 0) return mutation();
-      return Promise.all(unsaved.map(async (path) => {
+      // Every retry settles before this write does (or fails): a write after
+      // it must not start beside a retry still running.
+      return Promise.allSettled(unsaved.map(async (path) => {
         const recipe = unsavedRecipes.get(path)!;
         // A partial batch edit must not overwrite unrelated edits from a failed
         // save. Retry that complete recipe first, or leave it intact on failure.
         await invoke(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments: recipe });
         if (unsavedRecipes.get(path) === recipe) unsavedRecipes.delete(path);
-      })).then(mutation);
+      })).then((retries) => {
+        const failed = retries.find((retry) => retry.status === 'rejected');
+        if (failed) throw failed.reason;
+        return mutation();
+      });
     },
     { kind, failedOf, step },
   );
