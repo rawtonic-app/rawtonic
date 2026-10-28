@@ -172,3 +172,33 @@ describe("grid keyboard reveal", () => {
     }
   });
 });
+
+describe("grid keyboard entry", () => {
+  it("takes the focus to the active photograph when Tab enters a grid scrolled away from it", async () => {
+    const { act, fireEvent } = await import("@testing-library/react");
+    const { useLibraryStore } = await import("../../store/useLibraryStore");
+    const files = Array.from({ length: 400 }, (_, n) => ({
+      path: `/qa/photo-${n}.jpg`, rating: 0, is_raw: false, is_edited: false, tags: null, exif: null,
+      modified: 0, is_virtual_copy: false, is_cloud_placeholder: false, group_id: null,
+    })) satisfies ImageFile[];
+    const props = { onSelect: vi.fn(), onOpen: vi.fn(), onRate: vi.fn(), onContextMenu: vi.fn(), requestThumbnails: vi.fn() };
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 500 });
+    useLibraryStore.setState({ libraryActivePath: files[0].path });
+    try {
+      render(<StudioBrowser {...props} files={files} currentPath={files[0].path} />);
+      const grid = screen.getByRole("listbox");
+      grid.scrollTop = 201 * 13;
+      fireEvent.scroll(grid);
+      expect(grid.textContent).not.toContain("photo-0.jpg");
+      // The fallback stop is the first tile in view; Tab focuses it.
+      const stop = Array.from(grid.querySelectorAll<HTMLElement>("[role=option]")).find((o) => o.tabIndex === 0)!;
+      expect(stop.getAttribute("aria-label")).not.toBe("photo-0.jpg");
+      act(() => stop.focus());
+      expect(grid.scrollTop).toBe(0);
+      expect(document.activeElement?.getAttribute("aria-label")).toBe("photo-0.jpg");
+    } finally {
+      delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+      useLibraryStore.setState({ libraryActivePath: null });
+    }
+  });
+});

@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   useMemo,
+  type FocusEvent,
   type MouseEvent,
   type PointerEvent,
 } from "react";
@@ -411,18 +412,38 @@ export default function StudioBrowser({
       && focused.classList.contains("studio-photo-open")
       ? { panelShortcut: focused.dataset.panelShortcut } : null;
   }, [currentPath]);
+  const [focusTarget, setFocusTarget] = useState<string | null>(null);
   useLayoutEffect(() => {
-    if (!focusFollows.current || !currentPath) return;
+    const target = focusTarget ?? currentPath;
+    if (!focusFollows.current || !target) return;
     const tile = Array.from(ref.current?.querySelectorAll<HTMLElement>(".studio-photo-open") ?? [])
-      .find((b) => b.dataset.path === currentPath);
+      .find((b) => b.dataset.path === target);
     if (!tile) return;
     const { panelShortcut } = focusFollows.current;
     focusFollows.current = null;
+    if (focusTarget) setFocusTarget(null);
     if (document.activeElement === tile) return;
     tile.focus({ preventScroll: true });
     // The focus moved by key keeps what Tab does (panels after a click).
     if (panelShortcut) tile.dataset.panelShortcut = panelShortcut;
   });
+  // Entering the grid by keyboard (Tab onto the fallback stop while the
+  // active photograph is scrolled away) takes the focus to the active
+  // photograph, where the arrow keys step from.
+  const onTileFocus = (e: FocusEvent<HTMLDivElement>) => {
+    const tile = e.target;
+    const el = ref.current;
+    if (!el || !(tile instanceof HTMLElement) || !tile.classList.contains("studio-photo-open")) return;
+    if (tile.dataset.panelShortcut === "true" || el.contains(e.relatedTarget as Node | null)) return;
+    const active = useLibraryStore.getState().libraryActivePath ?? currentPath;
+    const index = active ? files.findIndex((f) => f.path === active) : -1;
+    if (index < 0 || tile.dataset.path === active) return;
+    focusFollows.current = {};
+    if (film) el.scrollLeft = Math.max(0, index * extent - (el.clientWidth - extent) / 2);
+    else el.scrollTop = Math.floor(index / columns) * extent;
+    setOffset(film ? el.scrollLeft : el.scrollTop);
+    setFocusTarget(active);
+  };
   return (
     <PerfProfiler id={film ? "filmstrip" : "grid"}>
     <div
@@ -431,6 +452,7 @@ export default function StudioBrowser({
       role="listbox"
       aria-label={film ? t("studio.library.browser.filmstrip") : t("studio.library.browser.photographs")}
       aria-multiselectable="true"
+      onFocus={onTileFocus}
       onPointerDown={onBackgroundDown}
       onPointerUp={onBackgroundUp}
       onScroll={(e) =>

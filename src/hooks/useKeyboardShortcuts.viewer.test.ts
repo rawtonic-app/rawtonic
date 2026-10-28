@@ -113,6 +113,16 @@ it("opens the loupe with Space in the grid and goes back to the grid with Escape
   expect(useUIStore.getState().libraryLoupe).toBe(false);
 });
 
+it("opens the loupe with Space from a tile reached by the keyboard", () => {
+  const tile = document.createElement("button");
+  tile.className = "studio-photo-open";
+  document.body.append(tile);
+  tile.focus();
+  press("Space");
+  expect(useUIStore.getState().libraryLoupe).toBe(true);
+  tile.remove();
+});
+
 it("steps one photograph with the arrows in the loupe, wrapping, and zooms with Up/Down", () => {
   useUIStore.setState({ libraryLoupe: true });
   press("ArrowRight");

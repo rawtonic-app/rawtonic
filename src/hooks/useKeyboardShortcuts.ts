@@ -17,7 +17,7 @@ import { isAnyModalOpen, useUIStore } from '../store/useUIStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { endBeforePeek, startBeforePeek, updateAdjustments, useEditorActions } from './useEditorActions';
 import { useLibraryActions } from './useLibraryActions';
-import { libraryTool, ownsPanelShortcut, revealLibraryTool } from '../components/studio/workspaceInteractions';
+import { isPhotoTile, libraryTool, ownsPanelShortcut, revealLibraryTool } from '../components/studio/workspaceInteractions';
 import { useMultiViewStore, type CellZoomKey } from '../store/useMultiViewStore';
 import { orderedSelection, stepPrimary } from '../utils/multiView';
 import { AUTO_ADVANCE_EVENT, autoAdvanceTarget, requestAutoAdvance } from '../utils/photoStepping';
@@ -1135,7 +1135,7 @@ export const useKeyboardShortcuts = ({
           !!s.library.libraryActivePath &&
           // From a photograph tile or with nothing focused; Space presses
           // other buttons.
-          ownsPanelShortcut(document.activeElement),
+          (ownsPanelShortcut(document.activeElement) || isPhotoTile(document.activeElement)),
         execute: (e: KeyboardEvent, s: ShortcutState) => {
           e.preventDefault();
           const path = s.library.libraryActivePath!;

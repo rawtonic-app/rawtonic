@@ -14,6 +14,12 @@ export function ownsPanelShortcut(target: EventTarget | null) {
   return target instanceof HTMLElement && target.dataset.panelShortcut === "true";
 }
 
+/** Whether the focus is on a photograph tile of the Library grid or the
+ * filmstrip (Space opens the loupe from it, however the tile got the focus). */
+export function isPhotoTile(target: EventTarget | null) {
+  return target instanceof HTMLElement && target.classList.contains("studio-photo-open");
+}
+
 /** The library column's tool group with `title`, when it is on screen. */
 export function libraryTool(title: string) {
   return document.querySelector<HTMLDetailsElement>(
