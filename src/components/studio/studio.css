@@ -4869,6 +4869,12 @@ img.relight-pattern-preview { object-fit: cover; }
   background: #1f2022;
   color: var(--studio-text, #e0e1e3);
 }
+/* The global `*:focus { outline: none }` hides the native ring. */
+.studio-dialog textarea:focus-visible,
+.studio-dialog input:not([type="checkbox"], [type="radio"]):focus-visible {
+  border-color: #b4c8d3;
+  box-shadow: 0 0 0 1px #b4c8d3;
+}
 .studio-dialog pre {
   border: 1px solid #3c3f43;
   border-radius: 3px;
