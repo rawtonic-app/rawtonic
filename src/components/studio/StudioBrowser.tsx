@@ -118,11 +118,12 @@ const Tile = memo(function Tile({
         aria-posinset={position}
         aria-setsize={total}
         // One Tab stop in the grid, on the current photograph; the arrow keys
-        // move between photographs and Tab leaves the grid. A click does not
-        // focus a button in WebKit, so after a click Tab still hides the
-        // panels (Lightroom).
+        // move between photographs. After a click Tab hides the panels
+        // (Lightroom); a tile reached by the keyboard lets Tab leave the grid.
         tabIndex={tabStop ? 0 : -1}
         data-path={file.path}
+        onPointerDown={(e) => { e.currentTarget.dataset.panelShortcut = "true"; }}
+        onBlur={(e) => { delete e.currentTarget.dataset.panelShortcut; }}
         onClick={(e) => onSelect(file.path, e)}
         onDoubleClick={() => onOpen(file.path)}
         title={label}
@@ -383,18 +384,24 @@ export default function StudioBrowser({
   // The focus follows the arrow keys from tile to tile: when the current
   // photograph changes while a tile has the focus, its tile takes it once
   // it is mounted (after the reveal above scrolled to it).
-  const focusFollows = useRef(false);
+  const focusFollows = useRef<{ panelShortcut?: string } | null>(null);
   useLayoutEffect(() => {
     const focused = document.activeElement;
-    focusFollows.current = Boolean(ref.current?.contains(focused) && focused?.classList.contains("studio-photo-open"));
+    focusFollows.current = focused instanceof HTMLElement && ref.current?.contains(focused)
+      && focused.classList.contains("studio-photo-open")
+      ? { panelShortcut: focused.dataset.panelShortcut } : null;
   }, [currentPath]);
   useLayoutEffect(() => {
     if (!focusFollows.current || !currentPath) return;
     const tile = Array.from(ref.current?.querySelectorAll<HTMLElement>(".studio-photo-open") ?? [])
       .find((b) => b.dataset.path === currentPath);
     if (!tile) return;
-    focusFollows.current = false;
-    if (document.activeElement !== tile) tile.focus({ preventScroll: true });
+    const { panelShortcut } = focusFollows.current;
+    focusFollows.current = null;
+    if (document.activeElement === tile) return;
+    tile.focus({ preventScroll: true });
+    // The focus moved by key keeps what Tab does (panels after a click).
+    if (panelShortcut) tile.dataset.panelShortcut = panelShortcut;
   });
   return (
     <PerfProfiler id={film ? "filmstrip" : "grid"}>

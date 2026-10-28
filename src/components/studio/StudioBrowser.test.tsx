@@ -7,7 +7,7 @@ import StudioBrowser, { isEmptySpace } from "./StudioBrowser";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useUIStore } from "../../store/useUIStore";
 import type { ImageFile } from "../ui/AppProperties";
-import { clearLibrarySelection, reselectForDevelop } from "./workspaceInteractions";
+import { clearLibrarySelection, ownsPanelShortcut, reselectForDevelop } from "./workspaceInteractions";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(), convertFileSrc: (path: string) => `asset://${path}` }));
 
@@ -319,6 +319,21 @@ describe("library grid keyboard focus", () => {
     expect(document.activeElement?.getAttribute("aria-label")).toBe("b.NEF");
     expect(getAllByRole("option")[1].tabIndex).toBe(0);
     expect(getAllByRole("option")[0].tabIndex).toBe(-1);
+  });
+
+  it("lets Tab hide the panels after a click, and leave the grid from a tile reached by the keyboard", () => {
+    const { getAllByRole, rerender } = render(<StudioBrowser {...props} currentPath="/s/a.NEF" />);
+    const [first] = getAllByRole("option");
+    first.focus();
+    expect(ownsPanelShortcut(document.activeElement)).toBe(false);
+    first.blur();
+    fireEvent.pointerDown(first);
+    first.focus();
+    expect(ownsPanelShortcut(document.activeElement)).toBe(true);
+    rerender(<StudioBrowser {...props} currentPath="/s/b.NEF" />);
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("b.NEF");
+    expect(ownsPanelShortcut(document.activeElement)).toBe(true);
+    expect(ownsPanelShortcut(first)).toBe(false);
   });
 
   it("leaves the focus alone when no tile has it", () => {
