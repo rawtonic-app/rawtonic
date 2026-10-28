@@ -554,13 +554,17 @@ export default function StudioDevelop() {
   // Lightroom opens the Remove tool's panel with the tool: the spot tool
   // opens the Retouch tab, which holds its settings, and ending it returns
   // to the tab it was started from unless another tab was chosen meanwhile.
+  // The tool ends cropping and layer editing, so from Crop or Layers it
+  // returns to Adjust, as the panel change above does.
   const isSpotToolActive = useEditorStore((s) => s.isSpotToolActive);
   const tabRef = useRef(tab);
   tabRef.current = tab;
   const tabBeforeSpot = useRef<string | null>(null);
   useEffect(() => {
     if (isSpotToolActive) {
-      if (tabRef.current !== "retouch") tabBeforeSpot.current = tabRef.current;
+      const current = tabRef.current;
+      if (current !== "retouch")
+        tabBeforeSpot.current = current === "geometry" || current === "layers" ? "all" : current;
       setTab("retouch");
       return;
     }

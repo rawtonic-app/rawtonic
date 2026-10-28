@@ -1517,6 +1517,19 @@ describe("spot removal in the Retouch tab (Lightroom's Remove panel)", () => {
     act(() => useEditorStore.setState({ isSpotToolActive: false }));
     expect(pressed()).toBe("Color");
   });
+
+  it("returns to Adjust when started from Crop, which the tool ends", () => {
+    useUIStore.setState({ activePanel: Panel.Crop });
+    mount();
+    expect(pressed()).toBe("Crop");
+    act(() => {
+      useEditorStore.setState({ isSpotToolActive: true });
+      useUIStore.setState({ activePanel: Panel.Adjustments });
+    });
+    expect(pressed()).toBe("Retouch");
+    act(() => useEditorStore.setState({ isSpotToolActive: false }));
+    expect(pressed()).toBe("Adjust");
+  });
 });
 
 describe("Develop column on a laptop screen", () => {
