@@ -25,6 +25,7 @@ import clsx from 'clsx';
 import TitleBar from './window/TitleBar';
 import WindowControls from './window/WindowControls';
 import SessionWorkspace from './components/session/SessionWorkspace';
+import { openPendingXmpView, PENDING_XMP_VIEW_ID, SHOW_PENDING_XMP_EVENT } from './components/session/SessionXmpStatus';
 import type { FolderTree as FolderTreeNode } from './utils/folderTree';
 import SettingsPanel from './components/panel/SettingsPanel';
 import GlobalTooltip from './components/ui/GlobalTooltip';
@@ -250,6 +251,13 @@ function App() {
             handleSelectAlbum,
             true,
           ).catch((e) => toast.error(String(e)));
+        } else if (activeAlbumId === PENDING_XMP_VIEW_ID && sessionDirectory) {
+          await openPendingXmpView(
+            sessionDirectory,
+            currentFolderPath.slice('Album: '.length),
+            handleSelectAlbum,
+            true,
+          ).catch((e) => toast.error(String(e)));
         } else if (activeAlbumId?.startsWith(SESSION_ALBUM_PREFIX) && sessionDirectory) {
           await openSessionAlbum(
             sessionDirectory,
@@ -288,6 +296,19 @@ function App() {
     window.addEventListener(DRIVES_CHANGED, changed);
     return () => window.removeEventListener(DRIVES_CHANGED, changed);
   }, []);
+
+  // The session bar's "Show photos" for XMP files that are not up to date.
+  useEffect(() => {
+    const show = () => {
+      const { sessionDirectory } = useLibraryStore.getState();
+      if (!sessionDirectory) return;
+      void openPendingXmpView(sessionDirectory, i18n.t('session.xmp.view'), handleSelectAlbum).catch((e) =>
+        toast.error(String(e)),
+      );
+    };
+    window.addEventListener(SHOW_PENDING_XMP_EVENT, show);
+    return () => window.removeEventListener(SHOW_PENDING_XMP_EVENT, show);
+  }, [handleSelectAlbum]);
 
   /** After Locate Photo / Locate Folder: the folders show the new places, the
    * selection (and a photograph open in Develop) follows the relinked files,

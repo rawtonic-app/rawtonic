@@ -1053,9 +1053,7 @@
       "picked_other": "採用 {{count}}",
       "tether": "テザー",
       "tetherConnected": "{{camera}} 接続中",
-      "tetherTitle": "テザー撮影：USB 接続したカメラの写真がこのライブラリに直接入ります",
-      "xmpPending_other": "XMP 保留 {{count}}",
-      "xmpPendingTitle": "補正はライブラリに保存されています。一部の XMP サイドカーファイルは同期または競合の解決が必要です。"
+      "tetherTitle": "テザー撮影：USB 接続したカメラの写真がこのライブラリに直接入ります"
     },
     "create": {
       "catalog": "カタログ",
@@ -1420,6 +1418,25 @@
       "toolsLeft": "ツールを左に配置",
       "toolsRight": "ツールを右に配置",
       "toolsSide": "現像ツールをどちら側に配置しますか？"
+    },
+    "xmp": {
+      "buttonTitle": "一部の XMP ファイルがライブラリの内容に追いついていません。クリックすると詳細を表示し、再書き込みできます。",
+      "count_other": "{{count}} 件の XMP が未更新",
+      "explain": "編集、レーティング、キーワードはライブラリに安全に保存されています。XMP ファイルを読むほかのプログラムには、これらの変更がまだ見えません。写真そのものが変更されることはありません。",
+      "heading_other": "{{count}} 枚の写真の XMP ファイルが最新ではありません",
+      "reason": {
+        "changedElsewhere_other": "{{count}} 件の XMP ファイルがほかのプログラムで変更されました。Rawtonic は上書きしません。ライブラリにはあなたの内容が保持されます。",
+        "failed_other": "{{count}} 件の XMP ファイルを書き込めませんでした: {{error}}",
+        "offline_other": "{{count}} 枚の写真がオフラインです。ドライブを再接続すると XMP ファイルが更新されます。",
+        "sharedName_other": "{{count}} 枚の写真がほかの写真と同じ名前です (RAW と JPEG)。両方が同じ XMP ファイルに書き込むことになります。"
+      },
+      "retry": "再試行",
+      "retryFailed": "XMP ファイルを書き込めませんでした: {{error}}",
+      "show": "写真を表示",
+      "title": "更新されていない XMP ファイル",
+      "view": "未更新の XMP",
+      "writing": "書き込み中…",
+      "written_other": "{{count}} 枚の写真の XMP ファイルを更新しました"
     }
   },
   "settings": {

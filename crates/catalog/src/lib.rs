@@ -25,12 +25,14 @@ pub mod ingest_jobs;
 pub mod query;
 pub mod snapshots;
 pub mod volume;
+pub mod xmp_state;
 pub use add::{AddReport, Contents, ImportBatchInfo, ImportKind, PlannedAsset};
 pub use facts::{CaptureFacts, Rated};
 pub use hot_folder::{HotFolderConfig, HotFolderFile};
 pub use query::{Combine, Field, Op, Rule};
 pub use snapshots::Snapshot;
 pub use volume::Volume;
+pub use xmp_state::{UnsavedXmp, XmpProblem, XmpRetry};
 
 /// Version of the session/catalog manifest (`session.json`).
 pub const SCHEMA_VERSION: u32 = 1;
@@ -39,7 +41,7 @@ pub const SCHEMA_VERSION: u32 = 1;
 const VISIBLE_ASSETS: &str = "a.trashed=0 AND NOT (a.root_id='session' AND (a.rel_path='Trash' OR substr(replace(a.rel_path,char(92),'/'),1,6)='Trash/'))";
 
 /// Version of the SQLite schema; older databases are migrated when opened.
-pub const DB_SCHEMA_VERSION: u32 = 17;
+pub const DB_SCHEMA_VERSION: u32 = 18;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -292,6 +294,7 @@ impl Library {
         conn.execute_batch(include_str!("../migrations/0015.sql"))?;
         conn.execute_batch(include_str!("../migrations/0016.sql"))?;
         conn.execute_batch(include_str!("../migrations/0017.sql"))?;
+        conn.execute_batch(include_str!("../migrations/0018.sql"))?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],
@@ -421,6 +424,9 @@ impl Library {
         }
         if version < 17 {
             tx.execute_batch(include_str!("../migrations/0017.sql"))?;
+        }
+        if version < 18 {
+            tx.execute_batch(include_str!("../migrations/0018.sql"))?;
         }
         tx.commit()?;
         Ok(())

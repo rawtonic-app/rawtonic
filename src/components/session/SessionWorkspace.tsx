@@ -4,6 +4,7 @@ import { validNamingTemplate, validSequenceStart, type NamePreview } from "../..
 import NamingEditor from "../ui/NamingEditor";
 import LibraryTransferDialog, { type TransferPurpose } from "./LibraryTransferDialog";
 import FolderSyncDialog from "./FolderSyncDialog";
+import SessionXmpStatus from "./SessionXmpStatus";
 import {
   useCallback,
   useEffect,
@@ -26,7 +27,6 @@ import {
   Database,
   FolderOpen,
   FileWarning,
-  RefreshCw,
   FolderPlus,
   FolderSync,
   FolderPlus as FolderAdd,
@@ -1387,14 +1387,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                   <span className="session-count-status-text" aria-hidden>{` · ${t("offline.sessionCount", { count: session.missing })}`}</span>
                 </span>
               )}
-              {session.xmp_pending > 0 && (
-                <span className="session-count-pending" role="img"
-                  aria-label={t("session.bar.xmpPending", { count: session.xmp_pending })}
-                  title={t("session.bar.xmpPendingTitle")}>
-                  <RefreshCw className="session-count-status-icon" size={13} aria-hidden />
-                  <span className="session-count-status-text" aria-hidden>{` · ${t("session.bar.xmpPending", { count: session.xmp_pending })}`}</span>
-                </span>
-              )}
+              <SessionXmpStatus directory={session.directory} count={session.xmp_pending}
+                onChanged={() => refresh().catch(() => {})} />
             </span>
           )}
         </div>

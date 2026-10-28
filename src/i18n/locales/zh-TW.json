@@ -1053,9 +1053,7 @@
       "picked_other": "{{count}} 張留用",
       "tether": "連線拍攝",
       "tetherConnected": "{{camera}} 已連線",
-      "tetherTitle": "連線拍攝：USB 相機拍攝的照片直接進入此圖庫",
-      "xmpPending_other": "{{count}} 個 XMP 待處理",
-      "xmpPendingTitle": "調整已儲存在圖庫中。部分 XMP 附屬檔案需要同步或解決衝突。"
+      "tetherTitle": "連線拍攝：USB 相機拍攝的照片直接進入此圖庫"
     },
     "create": {
       "catalog": "目錄",
@@ -1420,6 +1418,25 @@
       "toolsLeft": "工具在左側",
       "toolsRight": "工具在右側",
       "toolsSide": "您希望將顯影工具放在哪一側？"
+    },
+    "xmp": {
+      "buttonTitle": "部分 XMP 檔案未與圖庫同步。按一下以查看詳細資訊並重新寫入。",
+      "count_other": "{{count}} 個 XMP 未更新",
+      "explain": "你的編輯、評等和關鍵字已安全儲存在圖庫中。讀取 XMP 檔案的其他程式還看不到這些變更。照片本身永遠不會被修改。",
+      "heading_other": "{{count}} 張照片的 XMP 檔案不是最新的",
+      "reason": {
+        "changedElsewhere_other": "{{count}} 個 XMP 檔案已被其他程式修改。Rawtonic 不會覆寫它們，圖庫保留你的版本。",
+        "failed_other": "無法寫入 {{count}} 個 XMP 檔案：{{error}}",
+        "offline_other": "{{count}} 張照片處於離線狀態。重新連接磁碟後會更新其 XMP 檔案。",
+        "sharedName_other": "{{count}} 張照片與另一張同名（RAW 和 JPEG），兩者會寫入同一個 XMP 檔案。"
+      },
+      "retry": "重試",
+      "retryFailed": "無法寫入 XMP 檔案：{{error}}",
+      "show": "顯示照片",
+      "title": "XMP 檔案未更新",
+      "view": "XMP 未更新",
+      "writing": "正在寫入…",
+      "written_other": "已為 {{count}} 張照片更新 XMP 檔案"
     }
   },
   "settings": {

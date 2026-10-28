@@ -130,7 +130,7 @@ describe("Session workspace keyboard flows", () => {
     await user.click(screen.getByRole("button", { name: "Location" }));
     await user.click(screen.getByRole("button", { name: "Create project" }));
     expect(await screen.findByRole("img", { name: "3 offline" })).toBeTruthy();
-    expect(screen.getByRole("img", { name: "2 XMP pending" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "2 XMP not updated" })).toBeTruthy();
   });
 
   it("surfaces a failed create without navigating or dismissing the entered name", async () => {

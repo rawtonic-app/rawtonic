@@ -1064,10 +1064,7 @@
       "picked_other": "{{count}} picked",
       "tether": "Tether",
       "tetherConnected": "{{camera}} connected",
-      "tetherTitle": "Shoot tethered: photos from a camera on USB come straight into this library",
-      "xmpPending_one": "{{count}} XMP pending",
-      "xmpPending_other": "{{count}} XMP pending",
-      "xmpPendingTitle": "Edits are saved in the library. Some XMP sidecars need synchronization or conflict resolution."
+      "tetherTitle": "Shoot tethered: photos from a camera on USB come straight into this library"
     },
     "create": {
       "catalog": "Catalog",
@@ -1458,6 +1455,32 @@
       "toolsLeft": "Tools on the left",
       "toolsRight": "Tools on the right",
       "toolsSide": "Where would you like the Develop tools?"
+    },
+    "xmp": {
+      "buttonTitle": "Some XMP files are behind the library. Click for details and to write them again.",
+      "count_one": "{{count}} XMP not updated",
+      "count_other": "{{count}} XMP not updated",
+      "explain": "Your edits, ratings and keywords are safe in the library. Other programs that read XMP files don't see these changes yet. The photos themselves are never changed.",
+      "heading_one": "The XMP file of {{count}} photo is not up to date",
+      "heading_other": "The XMP files of {{count}} photos are not up to date",
+      "reason": {
+        "changedElsewhere_one": "{{count}} XMP file was changed by another program. Rawtonic doesn't overwrite it; the library keeps your version.",
+        "changedElsewhere_other": "{{count}} XMP files were changed by another program. Rawtonic doesn't overwrite them; the library keeps your version.",
+        "failed_one": "{{count}} XMP file could not be written: {{error}}",
+        "failed_other": "{{count}} XMP files could not be written: {{error}}",
+        "offline_one": "{{count}} photo is offline. Its XMP file is updated when the drive is connected again.",
+        "offline_other": "{{count}} photos are offline. Their XMP files are updated when the drive is connected again.",
+        "sharedName_one": "{{count}} photo has the same name as another one (RAW and JPEG), so both would write the same XMP file.",
+        "sharedName_other": "{{count}} photos have the same name as another one (RAW and JPEG), so both would write the same XMP file."
+      },
+      "retry": "Try again",
+      "retryFailed": "The XMP files could not be written: {{error}}",
+      "show": "Show photos",
+      "title": "XMP files not updated",
+      "view": "XMP not updated",
+      "writing": "Writing…",
+      "written_one": "XMP file updated for {{count}} photo",
+      "written_other": "XMP files updated for {{count}} photos"
     }
   },
   "settings": {
