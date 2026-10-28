@@ -1119,7 +1119,7 @@
       "location": "Emplacement",
       "modeLabel": "Organisation",
       "name": "Nom du projet",
-      "namePlaceholder": "2026-10-01_Client_Projet",
+      "namePlaceholder": "{{date}}_Client_Projet",
       "namePreview": "Votre mission",
       "originalsUntouched": "Les photos originales restent intactes.",
       "session": "Projet",

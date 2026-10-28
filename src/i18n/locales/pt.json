@@ -1119,7 +1119,7 @@
       "location": "Local",
       "modeLabel": "Organização",
       "name": "Nome do projeto",
-      "namePlaceholder": "2026-10-01_Cliente_Trabalho",
+      "namePlaceholder": "{{date}}_Cliente_Trabalho",
       "namePreview": "Seu trabalho",
       "originalsUntouched": "As fotos originais permanecem intactas.",
       "session": "Projeto",

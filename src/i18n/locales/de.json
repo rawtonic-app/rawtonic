@@ -1088,7 +1088,7 @@
       "location": "Speicherort",
       "modeLabel": "Organisation",
       "name": "Projektname",
-      "namePlaceholder": "2026-10-01_Kunde_Auftrag",
+      "namePlaceholder": "{{date}}_Kunde_Auftrag",
       "namePreview": "Dein Auftrag",
       "originalsUntouched": "Originalfotos bleiben unverändert.",
       "session": "Projekt",

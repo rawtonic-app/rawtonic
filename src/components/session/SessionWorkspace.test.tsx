@@ -77,6 +77,15 @@ beforeEach(() => {
 });
 
 describe("Session workspace keyboard flows", () => {
+  it("suggests today's local date in the project name", async () => {
+    const user = userEvent.setup();
+    render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
+    await user.click(screen.getByRole("button", { name: "Create a project" }));
+    const now = new Date();
+    const date = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-");
+    expect((screen.getByLabelText("Project name") as HTMLInputElement).placeholder).toBe(`${date}_Client_Job`);
+  });
+
   it("keeps the chosen tools side visible after opening and cancelling a form", async () => {
     const user = userEvent.setup();
     render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
