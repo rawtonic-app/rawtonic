@@ -398,8 +398,6 @@ export interface AppSettings {
   lastRunVersion?: string;
   /** Show "What's new" after an update (missing: yes). */
   showWhatsNew?: boolean;
-  aiConnectorAddress?: string;
-  aiProvider?: string;
   decorations?: boolean;
   editorPreviewResolution?: number;
   smallThumbnailResolution?: number;

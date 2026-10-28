@@ -7,7 +7,6 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 mod adjustment_utils;
 mod ai_commands;
-mod ai_connector;
 mod ai_denoise;
 mod ai_faces;
 mod ai_lifecycle;
