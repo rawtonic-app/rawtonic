@@ -2870,6 +2870,7 @@
         "rating": "レーティング",
         "rejected": "不採用",
         "stars_other": "星 {{count}}",
+        "unrated": "評価なし",
         "virtualCopy": "仮想コピー",
         "virtualCopyName": "{{name}}（仮想コピー）"
       },

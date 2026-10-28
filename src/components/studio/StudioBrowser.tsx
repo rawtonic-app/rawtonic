@@ -1,6 +1,7 @@
 import {
   memo,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -58,10 +59,18 @@ const Tile = memo(function Tile({
   onRate,
   onContextMenu,
   film,
+  position,
+  total,
+  tabStop,
 }: {
   file: ImageFile;
   selected: boolean;
   current: boolean;
+  /** 1-based place in the listing and its length (most tiles are not mounted). */
+  position: number;
+  total: number;
+  /** The grid's one Tab stop (roving tabindex); the arrow keys move it. */
+  tabStop: boolean;
   onSelect(path: string, event: MouseEvent): void;
   onOpen(path: string): void;
   onRate(rating: number, paths: string[]): void;
@@ -86,20 +95,34 @@ const Tile = memo(function Tile({
     blue: t("studio.library.colorLabels.blue"),
     purple: t("studio.library.colorLabels.purple"),
   } as Record<string, string>;
+  // The option's children are presentational: its description says the
+  // rating, flag and colour label, which the 0–5, P, X and 6–9 keys set.
+  const descriptionId = useId();
+  const description = [
+    rating > 0 ? t("studio.library.browser.stars", { count: rating }) : t("studio.library.browser.unrated"),
+    flag === 1 ? t("studio.library.browser.picked") : flag === -1 ? t("studio.library.browser.rejected") : null,
+    color && colorLabels[color],
+  ].filter(Boolean).join(", ");
   return (
     <div
       className={`studio-photo ${selected ? "is-selected" : ""} ${current ? "is-current" : ""} ${flag === -1 ? "is-rejected" : ""} ${file.is_offline ? "is-offline" : ""}`}
-      role="option"
-      aria-selected={selected}
-      aria-label={label}
       onContextMenu={(e) => onContextMenu(e, file.path)}
       onPointerDown={(e) => startTileDrag(e, file.path)}
     >
       <button
         className="studio-photo-open"
-        // Tab on a selected photograph hides the panels (Lightroom); the
-        // arrow keys move between photographs.
-        data-panel-shortcut="true"
+        role="option"
+        aria-selected={selected}
+        aria-label={label}
+        aria-describedby={descriptionId}
+        aria-posinset={position}
+        aria-setsize={total}
+        // One Tab stop in the grid, on the current photograph; the arrow keys
+        // move between photographs and Tab leaves the grid. A click does not
+        // focus a button in WebKit, so after a click Tab still hides the
+        // panels (Lightroom).
+        tabIndex={tabStop ? 0 : -1}
+        data-path={file.path}
         onClick={(e) => onSelect(file.path, e)}
         onDoubleClick={() => onOpen(file.path)}
         title={label}
@@ -156,11 +179,18 @@ const Tile = memo(function Tile({
           </span>
         )}
       </button>
+      <span id={descriptionId} hidden>
+        {description}
+      </span>
       {!film && (
-      <div className="studio-photo-rating" aria-label={t("studio.library.browser.rating")}>
+      // Pointer shortcuts only: the keys rate, and the option's name says the
+      // rating, so the five buttons are no Tab stops.
+      <div className="studio-photo-rating">
         {[1, 2, 3, 4, 5].map((n) => (
           <button
             key={n}
+            tabIndex={-1}
+            aria-hidden="true"
             aria-label={t("studio.library.browser.rate", { name: label, count: n })}
             aria-pressed={rating >= n}
             onClick={() => onRate(rating === n ? 0 : n, [file.path])}
@@ -346,6 +376,26 @@ export default function StudioBrowser({
     else return;
     setOffset(el.scrollTop);
   }, [currentPath, film]);
+  // The Tab stop is the current photograph when it is mounted, else the
+  // first mounted one.
+  const currentIndex = currentPath ? files.findIndex((f) => f.path === currentPath) : -1;
+  const tabStopIndex = currentIndex >= range.start && currentIndex < range.end ? currentIndex : range.start;
+  // The focus follows the arrow keys from tile to tile: when the current
+  // photograph changes while a tile has the focus, its tile takes it once
+  // it is mounted (after the reveal above scrolled to it).
+  const focusFollows = useRef(false);
+  useLayoutEffect(() => {
+    const focused = document.activeElement;
+    focusFollows.current = Boolean(ref.current?.contains(focused) && focused?.classList.contains("studio-photo-open"));
+  }, [currentPath]);
+  useLayoutEffect(() => {
+    if (!focusFollows.current || !currentPath) return;
+    const tile = Array.from(ref.current?.querySelectorAll<HTMLElement>(".studio-photo-open") ?? [])
+      .find((b) => b.dataset.path === currentPath);
+    if (!tile) return;
+    focusFollows.current = false;
+    if (document.activeElement !== tile) tile.focus({ preventScroll: true });
+  });
   return (
     <PerfProfiler id={film ? "filmstrip" : "grid"}>
     <div
@@ -401,6 +451,9 @@ export default function StudioBrowser({
                   onRate={onRate}
                   onContextMenu={onContextMenu}
                   film={film}
+                  position={index + 1}
+                  total={files.length}
+                  tabStop={index === tabStopIndex}
                 />
               </div>
             );

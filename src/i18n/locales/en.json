@@ -2922,6 +2922,7 @@
         "rejected": "Rejected",
         "stars_one": "{{count}} star",
         "stars_other": "{{count}} stars",
+        "unrated": "Unrated",
         "virtualCopy": "Virtual copy",
         "virtualCopyName": "{{name}} (virtual copy)"
       },

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import Button from "../ui/Button";
 import Dropdown, { type OptionItem } from "../ui/Dropdown";
+import SettingItem from "./SettingItem";
 import { type AppSettings, Invokes } from "../ui/AppProperties";
 import { useLibraryStore } from "../../store/useLibraryStore";
 
@@ -50,42 +51,30 @@ export default function PreviewSettings({
   };
   return (
     <>
-      <div className="pref-row">
-        <div className="pref-text">
-          <div className="pref-label">
-            {t("previews.settings.standardSize")}
-          </div>
-          <p className="pref-description">
-            {t("previews.settings.standardSizeDesc")}
-          </p>
-        </div>
-        <div className="pref-control">
-          <Dropdown
-            onChange={(value) => void change({ standardPreviewSize: value })}
-            options={sizeOptions}
-            value={appSettings?.standardPreviewSize ?? 0}
-            triggerClassName="bg-bg-primary"
-          />
-        </div>
-      </div>
-      <div className="pref-row">
-        <div className="pref-text">
-          <div className="pref-label">{t("previews.settings.discardFull")}</div>
-          <p className="pref-description">
-            {t("previews.settings.discardFullDesc")}
-          </p>
-        </div>
-        <div className="pref-control">
-          <Dropdown
-            onChange={(value) =>
-              void change({ discardFullPreviewsDays: value })
-            }
-            options={discardOptions}
-            value={appSettings?.discardFullPreviewsDays ?? 30}
-            triggerClassName="bg-bg-primary"
-          />
-        </div>
-      </div>
+      <SettingItem
+        label={t("previews.settings.standardSize")}
+        description={t("previews.settings.standardSizeDesc")}
+      >
+        <Dropdown
+          onChange={(value) => void change({ standardPreviewSize: value })}
+          options={sizeOptions}
+          value={appSettings?.standardPreviewSize ?? 0}
+          triggerClassName="bg-bg-primary"
+        />
+      </SettingItem>
+      <SettingItem
+        label={t("previews.settings.discardFull")}
+        description={t("previews.settings.discardFullDesc")}
+      >
+        <Dropdown
+          onChange={(value) =>
+            void change({ discardFullPreviewsDays: value })
+          }
+          options={discardOptions}
+          value={appSettings?.discardFullPreviewsDays ?? 30}
+          triggerClassName="bg-bg-primary"
+        />
+      </SettingItem>
       <Button onClick={onOpenStorage}>{t("storage.manage")}</Button>
       {error && <p role="alert">{t("storage.failed")}</p>}
     </>

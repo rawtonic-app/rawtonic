@@ -3,6 +3,7 @@ import clsx from 'clsx';
 import { motion } from 'framer-motion';
 import Text from './Text';
 import { TextVariants } from '../../types/typography';
+import { useSettingField } from './settingField';
 
 interface SwitchProps {
   checked: boolean;
@@ -35,6 +36,10 @@ const Switch = ({
   trackClassName,
 }: SwitchProps) => {
   const uniqueId = `switch-${label.replace(/\s+/g, '-').toLowerCase()}`;
+  // In a preference row the switch keeps its own label and is described by
+  // the setting's name and description.
+  const field = useSettingField();
+  const describedBy = field ? [field.labelId, field.descriptionId].filter(Boolean).join(' ') : undefined;
 
   const spring = {
     type: 'spring',
@@ -58,15 +63,18 @@ const Switch = ({
       <div className="relative w-10 h-5">
         <input
           checked={checked}
-          className="sr-only"
+          className="sr-only peer"
           disabled={disabled}
           id={uniqueId}
+          aria-describedby={describedBy}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => !disabled && onChange(e.target.checked)}
           type="checkbox"
         />
         <div
           className={clsx(
             'w-full h-full rounded-full border transition-colors',
+            // The input is visually hidden; its keyboard focus shows on the track.
+            'peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[#a9c9e1]',
             checked ? 'bg-[#7d95a9] border-[#7d95a9]' : 'bg-[#3a3c40] border-[#4b4e53]',
             trackClassName,
           )}

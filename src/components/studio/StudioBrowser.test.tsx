@@ -127,7 +127,7 @@ describe("library grid empty space", () => {
 
   it("marks the open photograph in the grid only while it is selected", () => {
     const { container, rerender } = grid();
-    expect(container.querySelector(".is-current")?.getAttribute("aria-label")).toBe("b.NEF");
+    expect(container.querySelector(".is-current [role=option]")?.getAttribute("aria-label")).toBe("b.NEF");
     useLibraryStore.setState({ multiSelectedPaths: [] });
     rerender(
       <StudioBrowser
@@ -266,4 +266,68 @@ it("recovers an evicted thumbnail when its Library tile becomes visible", async 
   fireEvent.error(view.container.querySelector("img")!);
   await waitFor(() => expect(view.container.querySelector("img")).toBeNull());
   expect(invoke).toHaveBeenCalledTimes(1);
+});
+
+describe("library grid keyboard focus", () => {
+  const props = {
+    files,
+    onSelect: vi.fn(),
+    onOpen: vi.fn(),
+    onRate: vi.fn(),
+    onContextMenu: vi.fn(),
+    requestThumbnails: vi.fn(),
+  };
+  const tabStops = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll<HTMLElement>("button, [tabindex]")).filter((el) => el.tabIndex >= 0);
+
+  it("has one Tab stop, on the current photograph, and says where each tile is", () => {
+    const { container, getAllByRole } = render(<StudioBrowser {...props} currentPath="/s/b.NEF" />);
+    const stops = tabStops(container);
+    expect(stops).toHaveLength(1);
+    expect(stops[0].getAttribute("aria-label")).toBe("b.NEF");
+    const options = getAllByRole("option");
+    expect(options.map((o) => [o.getAttribute("aria-posinset"), o.getAttribute("aria-setsize")])).toEqual([
+      ["1", "3"],
+      ["2", "3"],
+      ["3", "3"],
+    ]);
+  });
+
+  it("starts at the first photograph when none is current", () => {
+    const { container } = render(<StudioBrowser {...props} />);
+    expect(tabStops(container).map((el) => el.getAttribute("aria-label"))).toEqual(["a.NEF"]);
+  });
+
+  it("keeps the rating buttons out of the Tab order and says the rating in the tile's description", () => {
+    useLibraryStore.setState({ imageRatings: { "/s/a.NEF": 3 }, imageFlags: { "/s/a.NEF": 1 } });
+    const { getAllByRole } = render(<StudioBrowser {...props} currentPath="/s/a.NEF" />);
+    const [first, second] = getAllByRole("option");
+    const description = (el: HTMLElement) =>
+      document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent;
+    expect(description(first)).toBe("3 stars, Picked");
+    expect(description(second)).toBe("Unrated");
+    const stars = first.closest(".studio-photo")!.querySelectorAll<HTMLButtonElement>(".studio-photo-rating button");
+    expect(stars).toHaveLength(5);
+    stars.forEach((star) => expect(star.tabIndex).toBe(-1));
+    useLibraryStore.setState({ imageRatings: {}, imageFlags: {} });
+  });
+
+  it("moves the focus with the current photograph while a tile has it", () => {
+    const { getAllByRole, rerender } = render(<StudioBrowser {...props} currentPath="/s/a.NEF" />);
+    getAllByRole("option")[0].focus();
+    rerender(<StudioBrowser {...props} currentPath="/s/b.NEF" />);
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("b.NEF");
+    expect(getAllByRole("option")[1].tabIndex).toBe(0);
+    expect(getAllByRole("option")[0].tabIndex).toBe(-1);
+  });
+
+  it("leaves the focus alone when no tile has it", () => {
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    outside.focus();
+    const { rerender } = render(<StudioBrowser {...props} currentPath="/s/a.NEF" />);
+    rerender(<StudioBrowser {...props} currentPath="/s/b.NEF" />);
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
+  });
 });

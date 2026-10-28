@@ -3072,6 +3072,7 @@
         "stars_few": "{{count}} gwiazdki",
         "stars_many": "{{count}} gwiazdek",
         "stars_other": "{{count}} gwiazdki",
+        "unrated": "Bez oceny",
         "virtualCopy": "Kopia wirtualna",
         "virtualCopyName": "{{name}} (kopia wirtualna)"
       },

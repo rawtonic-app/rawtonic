@@ -118,8 +118,19 @@
     @apply text-text-primary font-sans;
   }
 
-  *:focus {
-    outline: none !important;
+  /* One keyboard focus ring for every control (the studio's own rules and
+     component utilities override it); a mouse click shows none, as
+     :focus-visible only matches keyboard focus and text fields. Dialogs and
+     regions that take the focus only to hold it draw no ring. */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+  :focus-visible {
+    outline: 2px solid #a9c9e1;
+    outline-offset: -2px;
+  }
+  :is(dialog, [role='dialog'], [role='alertdialog'], [role='region'])[tabindex='-1']:focus-visible {
+    outline: none;
   }
 
   .enable-color-transitions *,

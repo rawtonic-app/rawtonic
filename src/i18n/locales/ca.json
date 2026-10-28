@@ -2997,6 +2997,7 @@
         "stars_one": "{{count}} estrella",
         "stars_many": "{{count}} estrelles",
         "stars_other": "{{count}} estrelles",
+        "unrated": "Sense valoració",
         "virtualCopy": "Còpia virtual",
         "virtualCopyName": "{{name}} (còpia virtual)"
       },

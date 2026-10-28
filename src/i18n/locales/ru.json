@@ -3072,6 +3072,7 @@
         "stars_few": "{{count}} звезды",
         "stars_many": "{{count}} звёзд",
         "stars_other": "{{count}} звезды",
+        "unrated": "Без рейтинга",
         "virtualCopy": "Виртуальная копия",
         "virtualCopyName": "{{name}} (виртуальная копия)"
       },

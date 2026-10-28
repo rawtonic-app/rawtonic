@@ -114,7 +114,7 @@ export default function ConfirmModal({
         <Text className="mb-6 whitespace-pre-wrap wrap-anywhere">{message}</Text>
         <div className="flex justify-end gap-3 mt-5">
           <Button
-            className={`bg-bg-primary shadow-transparent hover:bg-bg-primary text-white shadow-none focus:outline-hidden ${
+            className={`bg-bg-primary shadow-transparent hover:bg-bg-primary text-white shadow-none ${
               // The default button shows that it is: Enter cancels.
               destructive ? 'focus:ring-1 focus:ring-text-secondary' : 'focus:ring-0'
             }`}
@@ -130,7 +130,7 @@ export default function ConfirmModal({
             variant={confirmVariant}
             autoFocus={!destructive}
             ref={confirmRef}
-            className="focus:outline-hidden focus:ring-0 focus:ring-offset-0"
+            className="focus:ring-0 focus:ring-offset-0"
           >
             {resolvedConfirmText}
           </Button>

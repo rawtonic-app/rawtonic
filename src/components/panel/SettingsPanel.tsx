@@ -27,6 +27,7 @@ import Dropdown, { OptionItem } from '../ui/Dropdown';
 import Switch from '../ui/Switch';
 import Input from '../ui/Input';
 import Slider from '../ui/Slider';
+import SettingItem from './SettingItem';
 import { useTranslation } from 'react-i18next';
 import type { ParseKeys } from 'i18next';
 import { AppSettings, Invokes, MyLens } from '../ui/AppProperties';
@@ -87,12 +88,6 @@ interface KeybindRowProps {
   recordingAction: string | null;
   onStartRecording: (action: string) => void;
   isConflicting: boolean;
-}
-
-interface SettingItemProps {
-  children: React.ReactNode;
-  description?: string;
-  label: string;
 }
 
 interface SettingsPanelProps {
@@ -227,16 +222,6 @@ const KeybindRow = ({
 };
 
 /** One preference: what it is and does on the left, its control on the right. */
-const SettingItem = ({ children, description, label }: SettingItemProps) => (
-  <div className="pref-row">
-    <div className="pref-text">
-      <div className="pref-label">{label}</div>
-      {description && <p className="pref-description">{description}</p>}
-    </div>
-    <div className="pref-control">{children}</div>
-  </div>
-);
-
 const DataActionItem = ({
   buttonAction,
   buttonText,

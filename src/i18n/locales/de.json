@@ -2922,6 +2922,7 @@
         "rejected": "Abgelehnt",
         "stars_one": "{{count}} Stern",
         "stars_other": "{{count}} Sterne",
+        "unrated": "Ohne Bewertung",
         "virtualCopy": "Virtuelle Kopie",
         "virtualCopyName": "{{name}} (virtuelle Kopie)"
       },

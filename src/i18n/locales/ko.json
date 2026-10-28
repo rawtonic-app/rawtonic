@@ -2870,6 +2870,7 @@
         "rating": "별점",
         "rejected": "거부",
         "stars_other": "별 {{count}}개",
+        "unrated": "등급 없음",
         "virtualCopy": "가상 복사본",
         "virtualCopyName": "{{name}} (가상 복사본)"
       },

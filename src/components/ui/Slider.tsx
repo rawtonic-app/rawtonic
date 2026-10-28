@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GLOBAL_KEYS } from './AppProperties';
+import { useSettingField } from './settingField';
 
 type SliderChangeEvent =
   | React.ChangeEvent<HTMLInputElement>
@@ -59,6 +60,7 @@ const Slider = ({
   suffix = '',
 }: SliderProps) => {
   const { t } = useTranslation();
+  const field = useSettingField();
   const [displayValue, setDisplayValue] = useState<number>(value);
   const [isDragging, setIsDragging] = useState(false);
   const animationFrameRef = useRef<number | undefined>(undefined);
@@ -638,6 +640,9 @@ const Slider = ({
           step={String(step)}
           type="range"
           value={displayValue}
+          aria-label={typeof label === 'string' ? label : undefined}
+          aria-labelledby={typeof label === 'string' ? undefined : field?.labelId}
+          aria-describedby={field?.descriptionId}
         />
       </div>
     </div>

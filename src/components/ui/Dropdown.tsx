@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Check, ChevronDown } from 'lucide-react';
 import Input from './Input';
 import Text from './Text';
+import { useSettingField } from './settingField';
 import { TEXT_COLOR_KEYS, TextColors, TextVariants, TextWeights } from '../../types/typography';
 import clsx from 'clsx';
 
@@ -50,6 +51,9 @@ const Dropdown = <T extends React.Key>({
   const listboxId = `${baseId}-listbox`;
   const optionId = (index: number) => `${baseId}-option-${index}`;
   const selectedOption = options.find((opt) => opt.value === value) || null;
+  // In a preference row the setting names the combobox; the chosen value is
+  // its value, not its name.
+  const field = useSettingField();
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -239,6 +243,8 @@ const Dropdown = <T extends React.Key>({
         aria-controls={isOpen ? listboxId : undefined}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
+        aria-labelledby={field?.labelId}
+        aria-describedby={field?.descriptionId}
         disabled={disabled}
         className={clsx(
           'w-full border border-border-color rounded-md px-3 mr-4 py-2 flex justify-between items-center text-left disabled:opacity-50 disabled:cursor-not-allowed',

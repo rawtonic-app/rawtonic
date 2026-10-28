@@ -91,7 +91,7 @@ it("shows persisted flags and color labels in both browser modes, including virt
   const { rerender } = render(<StudioBrowser {...props} />);
   expect(screen.getByRole("img", { name: "Rejected" })).toBeTruthy();
   expect(screen.getByRole("img", { name: "Blue label" })).toBeTruthy();
-  expect(screen.getByRole("option").className).toContain("is-rejected");
+  expect(screen.getByRole("option").closest(".studio-photo")?.className).toContain("is-rejected");
   useLibraryStore.setState({ imageFlags: { "/job/photo.arw": 1 } });
   rerender(<StudioBrowser {...props} film />);
   expect(screen.getByRole("img", { name: "Picked" })).toBeTruthy();
