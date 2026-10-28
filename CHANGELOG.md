@@ -8,6 +8,7 @@
 - **Remove says when it used the smaller model.** When the object removal model cannot be downloaded (offline) or does not run on this computer, the large hole is filled by the smaller model (MI-GAN) as before, and a notice now says so and why (that it does not run, once per session).
 - **Remove's download progress runs once from 0 to 100 %** over all of the model's files on macOS (it started again for each file).
 - **Show removals.** The spot tool's settings can hide and show all removals of a photo (also in its exports) without deleting them. Removals stay in the spot tool, not in Layers: open the tool to select one (click its pin), Delete deletes it.
+- **Panasonic RW2: no more short streaks.** Photos from older Panasonic and Leica bodies (Lumix G/GH/GX/GF/GM, FZ, LX, TZ and others, about 0.02 % of their sensor samples) decoded a few pixels wrong where the RAW file's data blocks wrap, which showed as short bright or dark streaks of four pixels. These photos now decode exactly as LibRaw reads them. **Exports of these cameras change, also for existing edits:** the streaks are gone, and because noise reduction measures the photo's noise, which those samples had inflated, the rest of the photo moves by a few levels in 16 bits (a median of 10 of 65535). Previews and thumbnails of these photos are made again once.
 - History names a removal "Remove" (it said "Adjustment"); a cancelled removal is no longer logged as an error.
 
 ## 0.1.0-alpha.8 — 2026-10-27

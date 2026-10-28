@@ -119,7 +119,9 @@ const READ_VERSIONS: [u32; 3] = [1, 2, 3];
 /// 58: highlight reconstruction without pink or green casts: two clipped
 /// colours solved from the recorded one, fully clipped areas neutral at the
 /// brightness around them (2026-10-16).
-pub const ENGINE_VERSION: u32 = 58;
+/// 59: Panasonic RW2 (v4) samples where a split block wraps, as LibRaw reads
+/// them (2026-10-28).
+pub const ENGINE_VERSION: u32 = 59;
 /// Rows per band of half floats (format 1; written by tests only).
 #[cfg(test)]
 const F16_ROWS_PER_BAND: u32 = 64;

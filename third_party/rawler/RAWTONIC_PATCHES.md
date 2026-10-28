@@ -54,6 +54,18 @@ this list current.
   file holds it. DJI/Hasselblad L2D-20c (Mavic 3) DNGs state 5280-sample rows
   but store 5376 (the strip ends exactly at the end of the file); they
   panicked before.
+- `src/decoders/rw2/v4decompressor.rs` (`BitPumpPanasonic`): both bytes of a
+  read are taken from the rotated 0x4000-byte block buffer, as LibRaw's
+  `pana_data` reads them (two zero bytes past its end). In the split layout
+  block byte 0x2008 is the block's first file byte; the pump read the file
+  byte after 0x3fff instead (the next block's first), so the 14-pixel group
+  crossing there decoded wrong: 0.010-0.026 % of samples, runs of four
+  same-colour pixels off by 1-3840 codes. All 360 Panasonic/Leica v4 files of
+  raw.pixls.us now equal LibRaw 0.22.2 on every sample (none did before); the
+  other 1,541 decodable files decode byte-identically. Unit tests
+  `rawtonic_tests` in the same file. No recipe version key (user decision
+  2026-10-28): the fix applies to saved edits too, since the old samples were
+  corrupt sensor data and not a look.
 
 ## Levels and white balance against Adobe DNG Converter (2026-10-05)
 
