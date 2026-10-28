@@ -339,9 +339,6 @@
 .session-mode label:hover {
   background: var(--app-card-active);
 }
-.session-mode input {
-  accent-color: #b4c8d3;
-}
 .session-mode span {
   display: flex;
   flex-direction: column;
@@ -673,5 +670,4 @@
 }
 .session-tools-side-options label:has(:checked) { background: var(--app-card-active); border-color: var(--app-text-secondary); }
 .session-tools-side-options label:hover { background: var(--app-bg-secondary); }
-.session-tools-side-options input { accent-color: var(--app-text-primary); }
 .session-tools-side p { margin-top: 10px; font-size: 12px; }

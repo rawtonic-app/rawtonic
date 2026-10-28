@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import { useTranslation } from 'react-i18next';
 import Switch from '../ui/Switch';
@@ -21,35 +21,59 @@ export default function UpdateSettings({ appSettings, onSettingsChange }: {
   const checked = useUpdateStore((s) => s.checked);
   const failed = useUpdateStore((s) => s.failed);
   const update = useUpdateStore((s) => s.update);
-  return (
-    <div className="space-y-3">
-      <Switch
-        checked={appSettings.checkForUpdates ?? true}
-        label={t('updates.startup')}
-        onChange={(checked) => { void onSettingsChange({ ...appSettings, checkForUpdates: checked }); }}
-      />
-      <Switch
-        disabled={prereleasesDefault === null && appSettings.updatePrereleases === undefined}
-        checked={appSettings.updatePrereleases ?? prereleasesDefault ?? false}
-        label={t('updates.prereleases')}
-        onChange={(checked) => { void onSettingsChange({ ...appSettings, updatePrereleases: checked }); }}
-      />
-      <Switch
-        checked={appSettings.showWhatsNew ?? true}
-        label={t('updates.showWhatsNew')}
-        onChange={(checked) => { void onSettingsChange({ ...appSettings, showWhatsNew: checked }); }}
-      />
-      <p className="text-sm text-text-secondary">{t('updates.privacy')}</p>
-      <button
-        type="button"
-        disabled={checking}
-        className="rounded border border-border px-3 py-2 text-sm hover:bg-bg-tertiary disabled:opacity-50"
-        onClick={() => { void useUpdateStore.getState().check(true); }}
-      >
-        {checking ? t('updates.checking') : t('updates.checkNow')}
-      </button>
-      {failed && <p role="status" className="text-sm text-text-secondary">{t('updates.failed')}</p>}
-      {checked && !update && <p role="status" className="text-sm text-text-secondary">{t('updates.noUpdate')}</p>}
+  // One row per preference: its name and explanation left, its control right.
+  const row = (label: string, control: ReactNode, description?: ReactNode) => (
+    <div className="pref-row">
+      <div className="pref-text">
+        <div className="pref-label">{label}</div>
+        {description}
+      </div>
+      <div className="pref-control">{control}</div>
     </div>
+  );
+  return (
+    <>
+      {row(
+        t('updates.startup'),
+        <Switch
+          checked={appSettings.checkForUpdates ?? true}
+          label={t('updates.startup')}
+          onChange={(checked) => { void onSettingsChange({ ...appSettings, checkForUpdates: checked }); }}
+        />,
+        <p className="pref-description">{t('updates.privacy')}</p>,
+      )}
+      {row(
+        t('updates.prereleases'),
+        <Switch
+          disabled={prereleasesDefault === null && appSettings.updatePrereleases === undefined}
+          checked={appSettings.updatePrereleases ?? prereleasesDefault ?? false}
+          label={t('updates.prereleases')}
+          onChange={(checked) => { void onSettingsChange({ ...appSettings, updatePrereleases: checked }); }}
+        />,
+      )}
+      {row(
+        t('updates.showWhatsNew'),
+        <Switch
+          checked={appSettings.showWhatsNew ?? true}
+          label={t('updates.showWhatsNew')}
+          onChange={(checked) => { void onSettingsChange({ ...appSettings, showWhatsNew: checked }); }}
+        />,
+      )}
+      {row(
+        t('updates.manual'),
+        <button
+          type="button"
+          disabled={checking}
+          className="studio-button"
+          onClick={() => { void useUpdateStore.getState().check(true); }}
+        >
+          {checking ? t('updates.checking') : t('updates.checkNow')}
+        </button>,
+        <>
+          {failed && <p role="status" className="pref-description">{t('updates.failed')}</p>}
+          {checked && !update && <p role="status" className="pref-description">{t('updates.noUpdate')}</p>}
+        </>,
+      )}
+    </>
   );
 }

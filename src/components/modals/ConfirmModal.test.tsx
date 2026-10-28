@@ -5,6 +5,8 @@ import ConfirmModal from './ConfirmModal';
 
 afterEach(cleanup);
 
+const classes = (element: Element | null) => [...(element?.classList ?? [])];
+
 function open(confirmVariant?: string) {
   const onConfirm = vi.fn();
   const onClose = vi.fn();
@@ -24,6 +26,14 @@ function open(confirmVariant?: string) {
 }
 
 describe('ConfirmModal', () => {
+  it('uses the studio dialog and buttons', () => {
+    open();
+    expect(classes(screen.getByRole('dialog').firstElementChild)).toEqual(expect.arrayContaining(['studio-dialog']));
+    expect(classes(screen.getByRole('heading', { name: 'Empty the Session Trash?' }))).toEqual(expect.arrayContaining(['studio-dialog-title']));
+    expect(classes(screen.getByRole('button', { name: 'Cancel' }))).toEqual(expect.arrayContaining(['studio-button']));
+    expect(classes(screen.getByRole('button', { name: 'Delete Permanently' }))).toEqual(expect.arrayContaining(['studio-button', 'is-primary']));
+  });
+
   it('confirms an ordinary confirmation with Enter', () => {
     const { onConfirm, onClose } = open();
     const confirm = screen.getByRole('button', { name: 'Delete Permanently' });
@@ -38,8 +48,8 @@ describe('ConfirmModal', () => {
     const cancel = screen.getByRole('button', { name: 'Cancel' });
     const confirm = screen.getByRole('button', { name: 'Delete Permanently' });
     expect(document.activeElement).toBe(cancel);
-    expect(confirm.className).toContain('bg-destructive');
-    expect(confirm.className).not.toContain('bg-accent');
+    expect(classes(confirm)).toEqual(expect.arrayContaining(['studio-button', 'is-destructive']));
+    expect(classes(confirm)).not.toContain('is-primary');
     fireEvent.keyDown(cancel, { key: 'Enter' });
     expect(onConfirm).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledTimes(1);

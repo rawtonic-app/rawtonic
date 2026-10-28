@@ -4199,6 +4199,7 @@
     "download": "다운로드",
     "failed": "업데이트를 확인할 수 없습니다. 나중에 다시 시도하세요.",
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "manual": "업데이트 확인",
     "noFile": "이 릴리스에는 이 컴퓨터용 다운로드가 없습니다. 릴리스 페이지에 모든 파일이 있습니다.",
     "noNotes": "릴리스 노트가 없습니다. 릴리스 페이지에 더 있을 수 있습니다.",
     "notesTitle": "Rawtonic {{version}}의 새로운 기능",

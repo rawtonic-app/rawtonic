@@ -13,6 +13,7 @@ import ReportDialog from "./ReportDialog";
 import {
   DIAGNOSTICS_CAP,
   TEXT_CAP,
+  makerAndName,
   reportPayload,
   type CrashRecord,
   type PhotoInfo,
@@ -98,7 +99,7 @@ export default function ProblemReportDialog({
     ],
   );
 
-  const gpu = context?.gpu ? [context.gpu.vendor, context.gpu.name].filter(Boolean).join(", ") : null;
+  const gpu = context?.gpu ? makerAndName(context.gpu.vendor, context.gpu.name) || null : null;
   const system = context
     ? `Rawtonic ${context.app.version} · ${context.app.os} ${context.app.osVersion} (${context.app.arch})`
     : "";
@@ -150,7 +151,7 @@ export default function ProblemReportDialog({
           {photo ? (
             <span className="text-text-secondary">
               {" "}
-              — {photo.make} {photo.model} ({photo.fileType})
+              — {makerAndName(photo.make, photo.model)} ({photo.fileType})
             </span>
           ) : (
             <span className="text-text-secondary"> — {t("contribute.report.noPhoto")}</span>

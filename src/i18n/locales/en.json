@@ -4285,6 +4285,7 @@
     "download": "Download",
     "failed": "Could not check for updates. Try again later.",
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "manual": "Check for updates",
     "noFile": "This release has no download for this computer; the release page lists every file.",
     "noNotes": "No release notes. The release page may have more.",
     "notesTitle": "What's new in Rawtonic {{version}}",
