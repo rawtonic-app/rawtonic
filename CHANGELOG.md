@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.9.1 — 2026-10-28
+
+A small update to the spot tool: it is chosen as soon as you pick what it does, and what you healed, cloned or removed can now be found, hidden and deleted without knowing a keyboard shortcut. Existing edits and exports are unchanged.
+
+### Highlights
+
+- **Picking a spot mode chooses the tool.** In the Retouch tab's *Spot removal* group, clicking Remove, Heal, Clone or Red eye (or Red eye / Pet eye, or Detect objects) turns the spot tool on, as in Lightroom; opening the group or moving a slider does not, so a click on the photo still moves it while you look at the settings. The button shows the tool's key — *Start spot removal (Q)*, and *End spot removal (Q)* while it is on. Q or the tool bar opens the group if it was folded. Escape first deselects a spot, then ends the tool, and only then goes back to the Library.
+- **A list of your spots.** Below the settings, *Corrections (n)* lists every heal and clone spot and every removal (in Red eye mode, every eye correction). Click a row to select it on the photo; its eye hides it in the photo and its exports (it stays drawn faintly on the photo so you can select it again); its bin deletes it. The header shows or hides all of them and deletes all of them (one step to undo).
+- **Deleting on the photo.** Alt-click a spot, removal or eye correction to delete it; Alt-drag a box to delete every spot and removal it touches. With an object removal selected, Alt still takes away from its selection. A right-click on a spot selects it, and the settings that open with it have *Delete selected*; Delete or Backspace still deletes the selected one.
+
+### Changes to existing edits
+
+- None: saved edits render and export as in alpha.9.
+
 ## 0.1.0-alpha.9 — 2026-10-28
 
 The ninth alpha. Object removal fills large holes with a new, larger AI model on macOS and Linux, and inpainting now always runs on your computer. Match Light gives a series shot in changing light consistent exposure and white balance, the culling keys follow the common professional layout (X rejects; the proof margin moved to Alt+X), and point curves put a point exactly where you click. Canon owners can help test tethered shooting behind an opt-in that is off by default. Two decoder and lens fixes change exports of some existing edits: photos from older Panasonic and Leica bodies, and JPEG, TIFF and other non-RAW photos with lens vignetting correction (see *Changes to existing edits*). Many fixes from a review of the whole interface make the dialogs, Preferences and the Develop column more consistent.
