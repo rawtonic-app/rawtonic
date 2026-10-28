@@ -286,6 +286,24 @@ pub struct GphotoCamera {
     live_view_open: bool,
 }
 
+/// What libgphoto2 tells of a storage (its folder is "/store_<id in hex>").
+fn storage(info: &gphoto2::storage::StorageInfo) -> crate::camera::Storage {
+    use gphoto2::storage::StorageType;
+    crate::camera::Storage {
+        id: info
+            .base_dir
+            .as_deref()
+            .and_then(|dir| dir.strip_prefix("/store_"))
+            .and_then(|id| u32::from_str_radix(id, 16).ok()),
+        removable: info.storage_type.as_ref().and_then(|kind| match kind {
+            StorageType::RemovableRam | StorageType::RemovableRom => Some(true),
+            StorageType::FixedRam | StorageType::FixedRom => Some(false),
+            _ => None,
+        }),
+        capacity_kb: info.capacity_kb,
+    }
+}
+
 fn text(value: WidgetValue) -> Option<String> {
     match value {
         WidgetValue::Text(s) | WidgetValue::Choice(s) => Some(s),
@@ -681,13 +699,19 @@ impl Camera for GphotoCamera {
         }
         // libgphoto2's Canon path shows Save to as set while the camera
         // keeps photos in its memory without a card: there the card itself
-        // is looked for. libgphoto2 lists only storage slots with a card in
-        // (an ID whose low 16 bits are 0 is an empty slot).
+        // is looked for (`camera::card_in`). libgphoto2 lists only storage
+        // slots with a card in (an ID whose low 16 bits are 0 is an empty
+        // slot), plus Canon's virtual storage.
         if self.canon {
             return match self.camera.storage_info(&self.context) {
-                Ok(storages) => Ok(!storages
-                    .iter()
-                    .any(|storage| storage.capacity_kb != Some(0))),
+                Ok(storages) => {
+                    let storages: Vec<_> = storages.iter().map(storage).collect();
+                    let card = crate::camera::card_in(&storages);
+                    if !card {
+                        log::info!("no memory card found in {storages:?}");
+                    }
+                    Ok(!card)
+                }
                 // Cannot be told: kept as if no card were in.
                 Err(e) if matches!(e.kind(), Gp::NotSupported) => {
                     log::warn!("the camera does not list its memory cards: {e}");

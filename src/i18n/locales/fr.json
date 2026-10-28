@@ -1346,7 +1346,7 @@
       "camera": "Appareil",
       "canon": {
         "badge": "Expérimental",
-        "connectedNote": "Expérimental : si une photo n’apparaît pas ici, elle n’est pas perdue — elle est sur la carte mémoire. Laissez la carte dans l’appareil. Rawtonic vous signale chaque photo qui n’est pas arrivée.",
+        "connectedNote": "Expérimental : si une photo n’apparaît pas ici, elle n’est pas perdue — elle est sur la carte mémoire. Laissez la carte dans l’appareil. Rawtonic vous prévient quand une photo déclenchée depuis Rawtonic n’arrive pas ; pour les photos prises avec le déclencheur de l’appareil, regardez sur la carte.",
         "notReceived": "La photo {{n}} n’est pas arrivée. Si l’appareil l’a prise, elle est sur la carte mémoire.",
         "openPreferences": "Ouvrir les préférences de Connexion",
         "optInNeeded": "Les appareils Canon n’ont pas encore été testés avec Rawtonic. Pour essayer le vôtre et aider à le tester, activez « Expérimental : appareils Canon » dans Préférences > Connexion."

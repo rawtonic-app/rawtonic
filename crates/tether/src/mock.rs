@@ -107,6 +107,10 @@ pub struct MockSpec {
     /// Driven on a driver path no body was tested on yet, like libgphoto2's
     /// Canon EOS path (`CameraStatus::experimental`).
     pub experimental: bool,
+    /// The storages it lists, if not one memory card (none with
+    /// `no_card`); on an experimental path a card is looked for in them
+    /// (`camera::card_in`) as the libgphoto2 driver does.
+    pub storages: Option<Vec<crate::camera::Storage>>,
     /// ISO's value and choices, if not the default 100 of 100–800 (e.g. a
     /// Sony list: "Auto ISO", numbers, "… Multi Frame Noise Reduction").
     pub iso: Option<(String, Vec<String>)>,
@@ -164,6 +168,7 @@ impl Default for MockSpec {
             capture_target: None,
             capture_target_choices: vec![],
             experimental: false,
+            storages: None,
             raw_and_jpeg: false,
             jpeg_late_ms: 0,
             jpeg_from_shot: None,
@@ -663,6 +668,17 @@ impl Camera for MockCamera {
             .spec
             .card_out_after_ms
             .is_some_and(|ms| self.opened.elapsed() >= Duration::from_millis(ms));
+        if self.spec.experimental && !card_out {
+            let card = vec![crate::camera::Storage::card()];
+            let storages = match &self.spec.storages {
+                Some(storages) => storages,
+                None if self.spec.no_card => &Vec::new(),
+                None => &card,
+            };
+            if !crate::camera::card_in(storages) {
+                return Ok(true);
+            }
+        }
         Ok(self.spec.no_card
             || card_out
             || crate::camera::memory_only(self.status().capture_target.as_deref()))

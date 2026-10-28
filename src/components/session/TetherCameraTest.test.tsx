@@ -248,6 +248,9 @@ it("guides a Canon tester step by step and counts each shot not received in the 
   onCapture = (n) =>
     window.setTimeout(() => {
       if (n === 2) emit("tether-capture-failed", { kind: "timeout", message: "Shot 2 was not received." });
+      // A download that timed out: a failure, but not a shot not received.
+      else if (n === 3)
+        emit("tether-capture-failed", { kind: "timeout", message: "Download timed out", connection: 1, exposure: 3 });
       else
         emit("tether-captured", {
           cameraName: `IMG_${n}.CR3`,
@@ -268,7 +271,7 @@ it("guides a Canon tester step by step and counts each shot not received in the 
   expect(report()).toContain("- Driver path: experimental (Canon EOS");
   for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
   fireEvent.change(screen.getByLabelText("Number of shots"), { target: { value: "5" } });
-  await runStep(/\| Shots from Rawtonic \| FAIL \| 4\/5 in the library/);
+  await runStep(/\| Shots from Rawtonic \| FAIL \| 3\/5 in the library/);
   expect(report()).toContain("- Shots not received (on the memory card if the camera took them): 1");
   // The send dialog says the result is from the experimental path.
   fireEvent.click(screen.getByRole("button", { name: "Send result…" }));

@@ -488,7 +488,7 @@ export function useTauriListeners({
           showCapture(event.payload, true);
         },
       ),
-      listen<{ kind?: string; message: string; request?: number | null }>('tether-capture-failed', (event) => {
+      listen<{ kind?: string; message: string; request?: number | null; exposure?: number | null }>('tether-capture-failed', (event) => {
         if (!isEffectActive) return;
         const { text, sticky } = notDeliveredToast(event.payload);
         if (sticky) toast.warning(text, { autoClose: false });

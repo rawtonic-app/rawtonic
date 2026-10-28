@@ -56,7 +56,7 @@
       "matchPrefix": "Canon",
       "level": "experimental",
       "works": [],
-      "notes": "Experimental, testers wanted: no Canon body has been tested yet. Connects only with Preferences > Tethering > Experimental: Canon cameras turned on and a memory card in the camera; every photo stays on the card and nothing is freed on the camera. The camera library can lose the report of a photo on these bodies: a shot that does not arrive is reported, and it is on the card."
+      "notes": "Experimental, testers wanted: no Canon body has been tested yet. Connects only with Preferences > Tethering > Experimental: Canon cameras turned on and a memory card in the camera; every photo stays on the card and nothing is freed on the camera. The camera library can lose the report of a photo on these bodies: a shot fired from Rawtonic that does not arrive is reported, and it is on the card (shots taken with the camera's shutter button are not checked)."
     }
   ]
 }

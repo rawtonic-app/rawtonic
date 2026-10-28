@@ -20,6 +20,7 @@ import {
   type StepId,
   type StepResult,
 } from "./cameraTest";
+import { shotNotReceived } from "./tether";
 
 /** What the test needs of the connected camera (`TetherStatus`). */
 export interface TestedCamera {
@@ -292,7 +293,7 @@ export default function TetherCameraTest({
       // A failure of an ambiguous file is counted, but it cannot be told
       // whose it is: its step is inconclusive (above), not failed.
       if (isFailure(h)) setFailures((n) => n + 1);
-      if (name === "tether-capture-failed" && (payload as { kind?: string }).kind === "timeout")
+      if (name === "tether-capture-failed" && shotNotReceived(payload as { kind?: string; exposure?: number | null }))
         setNotReceived((n) => n + 1);
       if (isFailure(h) && !ambiguous) {
         if (owner) failuresOf.current.set(owner, [...(failuresOf.current.get(owner) ?? []), h]);

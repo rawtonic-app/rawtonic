@@ -288,6 +288,11 @@ it("marks a camera on the experimental path and says where a missing shot is", a
     sticky: true,
   });
   expect(notDeliveredToast({ kind: "busy", message: "Busy", request: 5 }).sticky).toBe(false);
+  // A download that timed out names its exposure and keeps its own message.
+  expect(notDeliveredToast({ kind: "timeout", message: "Downloading IMG_4.CR3 timed out", request: 4, exposure: 4 })).toEqual({
+    text: "Capture failed: Downloading IMG_4.CR3 timed out",
+    sticky: false,
+  });
   cleanup();
   render(<Harness initial={STATUS} />);
   await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());

@@ -1,6 +1,7 @@
 //! What the helper needs from a camera driver: libgphoto2 (`gphoto`) or
 //! the scripted mock (`mock`).
 use crate::protocol::{CameraInfo, CameraStatus, Setting, TetherError};
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 /// A file on the camera.
@@ -113,6 +114,46 @@ pub fn memory_only(capture_target: Option<&str>) -> bool {
     })
 }
 
+/// A storage the camera lists (libgphoto2's storage information), as far
+/// as it tells.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Storage {
+    /// The PTP storage ID (libgphoto2's folder "/store_<id>").
+    pub id: Option<u32>,
+    /// A removable medium (PTP storage type removable RAM or ROM).
+    pub removable: Option<bool>,
+    pub capacity_kb: Option<u64>,
+}
+
+impl Storage {
+    /// A memory card with room on it: what a card in the camera looks like.
+    pub fn card() -> Self {
+        Self {
+            id: Some(0x0002_0001),
+            removable: Some(true),
+            capacity_kb: Some(64 << 20),
+        }
+    }
+}
+
+/// Canon's virtual storage (live view and in-memory captures), listed
+/// also without a card; libgphoto2 itself takes a camera that lists only it
+/// as one without a card.
+pub const VIRTUAL_STORAGE: u32 = 0x8000_0001;
+
+/// Whether the storages show a memory card: only on positive evidence — a
+/// listed storage other than the virtual one that says it is removable and
+/// has a capacity above 0. Anything the camera does not tell counts as no
+/// card (the card copy is what keeps a photo safe there).
+pub fn card_in(storages: &[Storage]) -> bool {
+    storages.iter().any(|storage| {
+        storage.id.is_some_and(|id| id != VIRTUAL_STORAGE)
+            && storage.removable == Some(true)
+            && storage.capacity_kb.is_some_and(|kb| kb > 0)
+    })
+}
+
 /// The Save to choice that keeps a card copy and still hands each photo to
 /// the computer ("card+sdram" before "card": card alone may not transfer).
 pub fn card_choice(choices: &[String]) -> Option<&String> {
@@ -192,5 +233,29 @@ mod tests {
         assert!(card_choice(&choices(&["sdram"])).is_none());
         assert!(memory_only(Some("Internal RAM")) && memory_only(Some("sdram")));
         assert!(!memory_only(Some("card+sdram")) && !memory_only(None));
+    }
+
+    #[test]
+    fn a_card_is_only_a_removable_storage_with_room_that_is_not_the_virtual_one() {
+        assert!(card_in(&[Storage::card()]));
+        assert!(!card_in(&[]));
+        // Canon's virtual storage alone: no card (libgphoto2's own test).
+        let virtual_only = Storage {
+            id: Some(VIRTUAL_STORAGE),
+            ..Storage::card()
+        };
+        assert!(!card_in(std::slice::from_ref(&virtual_only)));
+        assert!(card_in(&[virtual_only, Storage::card()]));
+        // What the camera does not tell is no evidence of a card.
+        let unknown = |change: fn(&mut Storage)| {
+            let mut storage = Storage::card();
+            change(&mut storage);
+            card_in(&[storage])
+        };
+        assert!(!unknown(|s| s.id = None));
+        assert!(!unknown(|s| s.removable = None));
+        assert!(!unknown(|s| s.removable = Some(false)));
+        assert!(!unknown(|s| s.capacity_kb = None));
+        assert!(!unknown(|s| s.capacity_kb = Some(0)));
     }
 }

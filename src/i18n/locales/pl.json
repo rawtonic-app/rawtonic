@@ -1390,7 +1390,7 @@
       "camera": "Aparat",
       "canon": {
         "badge": "Eksperymentalne",
-        "connectedNote": "Eksperymentalne: jeśli zdjęcie się tu nie pojawi, nie przepadło — jest na karcie pamięci. Zostaw kartę w aparacie. Rawtonic powiadomi cię o każdym zdjęciu, które nie dotarło.",
+        "connectedNote": "Eksperymentalne: jeśli zdjęcie się tu nie pojawi, nie przepadło — jest na karcie pamięci. Zostaw kartę w aparacie. Rawtonic da ci znać, gdy zdjęcie wyzwolone z Rawtonic nie dotrze; przy zdjęciach zrobionych przyciskiem migawki na aparacie sprawdź kartę.",
         "notReceived": "Zdjęcie {{n}} nie dotarło. Jeśli aparat je zrobił, jest na karcie pamięci.",
         "openPreferences": "Otwórz preferencje Tethering",
         "optInNeeded": "Aparaty Canon nie były jeszcze testowane z Rawtonic. Aby wypróbować swój i pomóc w testach, włącz „Eksperymentalne: aparaty Canon” w Preferencje > Tethering."

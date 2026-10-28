@@ -27,11 +27,22 @@ export const setTetherExperimental = (value: boolean) => {
   experimental = value;
 };
 
+/** The helper's report of a shot whose photo never came (its timeout, with
+ * no exposure): not a download that failed or timed out, which names the
+ * exposure it belongs to and keeps its own message. */
+export const shotNotReceived = (payload: { kind?: string; exposure?: number | null }) =>
+  payload.kind === "timeout" && payload.exposure == null;
+
 /** The message for a shot that was not delivered (`tether-capture-failed`):
  * on an experimental path a timed-out shot is on the memory card, said in
  * the user's language and kept on screen until dismissed. */
-export const notDeliveredToast = (payload: { kind?: string; message: string; request?: number | null }) =>
-  payload.kind === "timeout" && experimental
+export const notDeliveredToast = (payload: {
+  kind?: string;
+  message: string;
+  request?: number | null;
+  exposure?: number | null;
+}) =>
+  shotNotReceived(payload) && experimental
     ? { text: i18n.t("session.tether.canon.notReceived", { n: payload.request ?? "?" }), sticky: true }
     : { text: i18n.t("session.tether.captureFailed", { error: payload.message }), sticky: false };
 

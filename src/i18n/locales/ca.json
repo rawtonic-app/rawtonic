@@ -1346,7 +1346,7 @@
       "camera": "Càmera",
       "canon": {
         "badge": "Experimental",
-        "connectedNote": "Experimental: si una foto no apareix aquí, no s’ha perdut: és a la targeta de memòria. Deixa la targeta a la càmera. Rawtonic t’avisa de cada foto que no hagi arribat.",
+        "connectedNote": "Experimental: si una foto no apareix aquí, no s’ha perdut: és a la targeta de memòria. Deixa la targeta a la càmera. Rawtonic t’avisa quan una foto disparada des de Rawtonic no arriba; en les fotos fetes amb el disparador de la mateixa càmera, mira la targeta.",
         "notReceived": "No s’ha rebut la foto {{n}}. Si la càmera l’ha feta, és a la targeta de memòria.",
         "openPreferences": "Obre les preferències de Tethering",
         "optInNeeded": "Les càmeres Canon encara no s’han provat amb Rawtonic. Per provar la teva i ajudar a provar-la, activa «Experimental: càmeres Canon» a Preferències > Tethering."

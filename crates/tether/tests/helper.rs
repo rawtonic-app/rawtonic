@@ -1,5 +1,6 @@
 //! The real helper process with the scripted mock camera, driven through
 //! the client as the app drives it.
+use rawtonic_tether::camera::{Storage, VIRTUAL_STORAGE};
 use rawtonic_tether::client::{Client, Incoming};
 use rawtonic_tether::mock::{MockSpec, QueueState};
 use rawtonic_tether::protocol::{Captured, ErrorKind, Event, Reply, Request};
@@ -616,6 +617,37 @@ fn an_experimental_camera_without_a_card_is_not_opened() {
     );
     std::thread::sleep(Duration::from_millis(300));
     assert!(helper.nothing_downloaded());
+}
+
+#[test]
+fn an_experimental_camera_listing_only_its_virtual_storage_is_not_opened() {
+    let dir = tempfile::tempdir().unwrap();
+    // A Canon without a card lists its virtual storage; one whose storage
+    // says nothing of being a card is no card either.
+    for storages in [
+        vec![Storage {
+            id: Some(VIRTUAL_STORAGE),
+            ..Storage::card()
+        }],
+        vec![Storage {
+            removable: None,
+            ..Storage::card()
+        }],
+    ] {
+        let spec = MockSpec {
+            storages: Some(storages),
+            body_shots_ms: vec![0],
+            ..canon()
+        };
+        let helper = start(&spec, dir.path());
+        let refused = helper.connect_with(true).unwrap_err();
+        assert!(
+            refused.message.contains("no memory card"),
+            "{}",
+            refused.message
+        );
+        assert!(helper.nothing_downloaded());
+    }
 }
 
 #[test]
