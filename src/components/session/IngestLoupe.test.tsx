@@ -54,6 +54,14 @@ function Harness({
 const shownName = () => document.querySelector(".session-ingest-loupe-title strong")?.textContent;
 const loupe = () => screen.queryByRole("region", { name: "Large view" });
 
+it("fits columns inside the padded preview scroller", () => {
+  const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(352);
+  try {
+    render(<Harness list={files(8)} />);
+    expect((document.querySelector(".session-ingest-tiles") as HTMLElement).style.gridTemplateColumns).toBe("repeat(2, 112px)");
+  } finally { width.mockRestore(); }
+});
+
 describe("Import dialog large view", () => {
   it("opens on double-click and on Enter, shows the large preview and capture info, and closes back to the grid", async () => {
     const user = userEvent.setup();
