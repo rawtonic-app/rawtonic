@@ -265,6 +265,7 @@ fn lateral_ca_is_shared(
 /// Retouching (patches, spots) and lens blur are applied at this resolution:
 /// recipes with them reach this only for an offline photograph's Standard
 /// preview (online they use the full decode).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn reduced_preview_base(
     source: &DynamicImage,
     source_scale: f32,
@@ -290,6 +291,7 @@ pub(crate) fn reduced_preview_base(
 /// `reduced_preview_base` of a reduced `source` that stands in only until
 /// the photograph at full resolution is in (`build_reduced_preview_base`
 /// with `interim`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn interim_preview_base(
     source: &DynamicImage,
     source_scale: f32,
@@ -315,6 +317,7 @@ pub(crate) fn interim_preview_base(
 /// `reduced_preview_base` with `interim`: `source` (a reduced copy) stands
 /// in only until the photograph's decode is in, so its warp does not
 /// measure the automatic lateral CA on it (`warp_image_geometry_interim`).
+#[allow(clippy::too_many_arguments)]
 fn build_reduced_preview_base(
     source: &DynamicImage,
     source_scale: f32,
