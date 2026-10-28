@@ -102,6 +102,7 @@ const CHECKED: Record<string, (s: ShortcutState) => boolean> = {
   toggle_multi_view: () => useMultiViewStore.getState().active,
   toggle_clipping: (s) => !!s.editor.clippingWarnings,
   toggle_soft_proof: (s) => !!s.editor.softProof,
+  toggle_auto_advance: (s) => !!s.settings.appSettings?.autoAdvance,
   toggle_proof_margin: (s) => !!s.settings.appSettings?.viewerProofMargin,
 };
 
@@ -249,17 +250,23 @@ export const useKeyboardShortcuts = ({
       const rated = (event as CustomEvent<string>).detail;
       if (useSettingsStore.getState().appSettings?.autoAdvance !== true) return;
       const ui = useUIStore.getState();
-      if (!viewerShown(ui) || (ui.activeView === 'editor' && useMultiViewStore.getState().active)) return;
+      if (ui.activeView === 'editor' && useMultiViewStore.getState().active) return;
+      const grid = ui.activeView === 'library' && !viewerShown(ui);
+      const library = useLibraryStore.getState();
+      if (grid && (library.multiSelectedPaths.length !== 1 || library.multiSelectedPaths[0] !== rated)) return;
       const next = autoAdvanceTarget(
         sortedListRef.current.map((image) => image.path),
-        useEditorStore.getState().selectedImage?.path ?? null,
+        grid ? library.libraryActivePath : useEditorStore.getState().selectedImage?.path ?? null,
         rated,
       );
-      if (next) showInViewer(next);
+      if (next && grid) {
+        library.setLibrary({ libraryActivePath: next, multiSelectedPaths: [next], selectionAnchorPath: next });
+        handleImageSelect(next, false);
+      } else if (next) showInViewer(next);
     };
     window.addEventListener(AUTO_ADVANCE_EVENT, advance);
     return () => window.removeEventListener(AUTO_ADVANCE_EVENT, advance);
-  }, [showInViewer]);
+  }, [showInViewer, handleImageSelect]);
 
   const handleCopyImagePaths = useCallback(async (paths: Array<string>) => {
     const physicalPaths = [...new Set(paths.map((path) => path.split('?vc=')[0]))];
@@ -330,7 +337,7 @@ export const useKeyboardShortcuts = ({
       shownOnly(s) ?? (multiViewActive(s) && s.editor.selectedImage ? [s.editor.selectedImage.path] : undefined);
     const rateAndAdvance = (rating: number, s: ShortcutState) => {
       handleRate(rating, ratedPaths(s));
-      if (viewerShown(s.ui)) requestAutoAdvance(s.editor.selectedImage?.path);
+      requestAutoAdvance(viewerShown(s.ui) ? s.editor.selectedImage?.path : s.library.libraryActivePath ?? undefined);
     };
     // In the multi view the zoom keys zoom the primary in its cell; with the
     // zoom lock every other cell follows (MultiViewStage). Without the lock
@@ -686,6 +693,15 @@ export const useKeyboardShortcuts = ({
         execute: (e, s) => {
           e.preventDefault();
           s.editor.setEditor({ clippingWarnings: !s.editor.clippingWarnings });
+        },
+      },
+      toggle_auto_advance: {
+        shouldFire: (s) => !!s.settings.appSettings,
+        execute: (e, s) => {
+          e.preventDefault();
+          if (e.repeat) return;
+          const appSettings = s.settings.appSettings!;
+          void s.settings.handleSettingsChange({ ...appSettings, autoAdvance: !appSettings.autoAdvance });
         },
       },
       toggle_proof_margin: {

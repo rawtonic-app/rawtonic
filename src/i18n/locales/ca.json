@@ -139,6 +139,7 @@
       "flag_unflag": "Sense marca",
       "import_photos": "Importa fotos…",
       "keyboard_shortcuts": "Dreceres de teclat",
+      "match_light": "Iguala la llum…",
       "move_to_selects": "Mou a Seleccionades",
       "new_session": "Projecte o catàleg nou…",
       "open_session": "Obre un projecte o catàleg…",
@@ -161,6 +162,7 @@
       "sync_settings": "Sincronitza els ajustos",
       "tether_capture": "Dispara (càmera connectada)",
       "toggle_all_panels": "Tots els taulers i barres",
+      "toggle_auto_advance": "Avanç automàtic",
       "toggle_bottom_panel": "Tira de fotos",
       "toggle_clipping": "Avisos de retall",
       "toggle_export": "Exporta…",
@@ -221,7 +223,8 @@
     "empty": "Cap ordre coincident. Prova una altra cerca.",
     "keys": "↑ ↓ Selecciona · Retorn Executa · Esc Tanca",
     "recent": "Ordres recents primer · ↑ ↓ Selecciona · Retorn Executa · Esc Tanca",
-    "search": "Cerca ordres…"
+    "search": "Cerca ordres…",
+    "selectTwoPhotos": "Selecciona almenys dues fotografies"
   },
   "contextMenus": {
     "album": {

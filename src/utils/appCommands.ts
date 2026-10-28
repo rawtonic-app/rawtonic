@@ -6,6 +6,8 @@
  */
 export interface AppCommand {
   run(): void;
+  /** Label for a command that is available only in the palette. */
+  paletteLabel?: string;
   /** A live item placed in a File submenu. */
   menu?: { group: 'recent' | 'recipes'; label: string };
   /** Whether running it does something now (the menu greys it out else). */

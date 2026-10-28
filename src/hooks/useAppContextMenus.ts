@@ -83,6 +83,7 @@ import { runAutoStraighten } from '../utils/autoStraighten';
 import { previewsMenu } from '../utils/previews';
 import { MISSING_VIEW_ID, offlineMenu } from '../utils/offline';
 import { PREVIOUS_IMPORT_VIEW_ID } from '../utils/folderSync';
+import { registerAppCommands } from '../utils/appCommands';
 import { noteTool } from '../components/contribute/usageStats';
 
 type TaggingSubMenuProps = Omit<ComponentProps<typeof TaggingSubMenu>, 'hideContextMenu'>;
@@ -120,6 +121,40 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
     applyAdjustmentsToPaths,
   } = useEditorActions();
   const { handleRate, handleSetColorLabel, handleTagsChanged } = useLibraryActions();
+
+  useEffect(() => registerAppCommands({
+    auto_lens_correction: {
+      paletteLabel: t('contextMenus.thumbnail.autoLensCorrection', { count: 2 }),
+      enabled: () => useLibraryStore.getState().multiSelectedPaths.length > 0,
+      run: () => handleAutoLensCorrection(useLibraryStore.getState().multiSelectedPaths),
+    },
+    convert_negative: {
+      paletteLabel: t('contextMenus.thumbnail.convertNegative', { count: 2 }),
+      enabled: () => useLibraryStore.getState().multiSelectedPaths.length > 0,
+      run: () => useUIStore.getState().setUI({ negativeModalState: { isOpen: true, targetPaths: [...useLibraryStore.getState().multiSelectedPaths] } }),
+    },
+    ...Object.fromEntries(([
+      ['merge_panorama', 'panorama', t('contextMenus.editor.stitchPanorama'), 2, 30],
+      ['merge_hdr', 'hdr', t('contextMenus.editor.mergeHdr'), 2, 9],
+      ['merge_hdr_panorama', 'hdrPanorama', t('contextMenus.merge.hdrPanorama'), 4, Infinity],
+      ['merge_focus_stack', 'focusStack', t('contextMenus.merge.focusStack'), 2, Infinity],
+    ] as const).map(([id, kind, paletteLabel, min, max]) => [id, {
+      paletteLabel,
+      enabled: () => { const count = useLibraryStore.getState().multiSelectedPaths.length; return count >= min && count <= max; },
+      run: () => useUIStore.getState().setUI({ mergeModalState: { ...CLOSED_MERGE_MODAL, isOpen: true, kind, sourcePaths: [...useLibraryStore.getState().multiSelectedPaths] } }),
+    }])),
+    match_light: {
+      enabled: () => useLibraryStore.getState().multiSelectedPaths.length >= 2,
+      run: () => {
+        const { multiSelectedPaths: paths, libraryActivePath } = useLibraryStore.getState();
+        const selected = useEditorStore.getState().selectedImage?.path;
+        const candidates = useUIStore.getState().activeView === 'editor'
+          ? [selected, libraryActivePath] : [libraryActivePath];
+        const reference = candidates.find((path) => path && paths.includes(path)) ?? paths[0];
+        useSeriesMatchDialog.getState().open({ paths: [...paths], references: [reference] });
+      },
+    },
+  }), [handleAutoLensCorrection, t]);
 
   /** Capture One's Styles / Lightroom's Saved Preset for the selection, in the Library. */
   const presetMenu = (items: UserPreset[], paths: string[]): Option => {

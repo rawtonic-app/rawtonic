@@ -28,13 +28,14 @@ const props = {
   handlePasteFiles: vi.fn(),
   handleZoomChange: vi.fn(),
 };
-const press = (code: string, key = code) =>
+const press = (code: string, key = code, init: KeyboardEventInit = {}) =>
   window.dispatchEvent(
     new KeyboardEvent("keydown", {
       code,
       key,
       bubbles: true,
       cancelable: true,
+      ...init,
     }),
   );
 
@@ -475,13 +476,21 @@ describe("panel keys (Lightroom's Tab, Shift+Tab, F6–F8)", () => {
   });
 });
 
-it("toggles the proof margin with X in Develop and saves it", () => {
+it("toggles the proof margin with Alt+X in Develop and saves it", () => {
   useUIStore.setState({ activeView: "editor" });
   useEditorStore.setState({ selectedImage: { path: "/a.dng" } as never });
-  press("KeyX", "x");
+  press("KeyX", "x", { altKey: true });
   expect(useSettingsStore.getState().appSettings?.viewerProofMargin).toBe(true);
-  press("KeyX", "x");
+  press("KeyX", "x", { altKey: true });
   expect(useSettingsStore.getState().appSettings?.viewerProofMargin).toBe(false);
+});
+
+it("toggles the persistent auto-advance setting with Caps Lock", () => {
+  expect(useSettingsStore.getState().appSettings?.autoAdvance).not.toBe(true);
+  press("CapsLock");
+  expect(useSettingsStore.getState().appSettings?.autoAdvance).toBe(true);
+  press("CapsLock");
+  expect(useSettingsStore.getState().appSettings?.autoAdvance).toBe(false);
 });
 
 describe("Before/After keys", () => {
@@ -705,14 +714,34 @@ describe("auto-advance after a rating", () => {
     expect(props.handleImageSelect).not.toHaveBeenCalled();
   });
 
-  it("steps after a flag key's request too, but not in the Library", async () => {
+  it("steps after a flag key request and a single Library selection", async () => {
     const { requestAutoAdvance } = await import("../utils/photoStepping");
     open("/s/b.NEF", true);
     requestAutoAdvance("/s/b.NEF");
     expect(props.handleImageSelect).toHaveBeenCalledExactlyOnceWith("/s/c.NEF", true);
     vi.clearAllMocks();
     useUIStore.setState({ activeView: "library" });
+    useLibraryStore.setState({ libraryActivePath: "/s/b.NEF" });
     requestAutoAdvance("/s/b.NEF");
+    expect(props.handleImageSelect).toHaveBeenCalledExactlyOnceWith("/s/c.NEF", false);
+  });
+
+  it("rates the selected grid photo and advances to the next one", () => {
+    open("/s/a.NEF", true);
+    useUIStore.setState({ activeView: "library" });
+    useLibraryStore.setState({ libraryActivePath: "/s/a.NEF", multiSelectedPaths: ["/s/a.NEF"] });
+    press("Digit3", "3");
+    expect(useLibraryStore.getState().imageRatings["/s/a.NEF"]).toBe(3);
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual(["/s/b.NEF"]);
+    expect(props.handleImageSelect).toHaveBeenCalledExactlyOnceWith("/s/b.NEF", false);
+  });
+
+  it("does not discard a multiple selection when auto-advance is on", async () => {
+    const { requestAutoAdvance } = await import("../utils/photoStepping");
+    open("/s/a.NEF", true);
+    useUIStore.setState({ activeView: "library" });
+    useLibraryStore.setState({ libraryActivePath: "/s/a.NEF", multiSelectedPaths: ["/s/a.NEF", "/s/b.NEF"] });
+    requestAutoAdvance("/s/a.NEF");
     expect(props.handleImageSelect).not.toHaveBeenCalled();
   });
 

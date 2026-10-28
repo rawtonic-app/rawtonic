@@ -39,7 +39,7 @@ export function paletteCommands(
       const def = KEYBIND_DEFINITIONS.find((def) => def.action === id);
       labels.set(
         id,
-        command.menu?.label ??
+        command.paletteLabel ?? command.menu?.label ??
           t(
             def
               ? [`appMenu.items.${id}`, def.description]

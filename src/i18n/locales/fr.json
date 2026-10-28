@@ -139,6 +139,7 @@
       "flag_unflag": "Sans marquage",
       "import_photos": "Importer des photos…",
       "keyboard_shortcuts": "Raccourcis clavier",
+      "match_light": "Harmoniser la lumière…",
       "move_to_selects": "Déplacer vers Sélections",
       "new_session": "Nouveau projet ou catalogue…",
       "open_session": "Ouvrir un projet ou un catalogue…",
@@ -161,6 +162,7 @@
       "sync_settings": "Synchroniser les réglages",
       "tether_capture": "Déclencher (appareil connecté)",
       "toggle_all_panels": "Tous les panneaux et barres",
+      "toggle_auto_advance": "Avance automatique",
       "toggle_bottom_panel": "Pellicule",
       "toggle_clipping": "Avertissements d'écrêtage",
       "toggle_export": "Exporter…",
@@ -221,7 +223,8 @@
     "empty": "Aucune commande correspondante. Essayez une autre recherche.",
     "keys": "↑ ↓ Sélectionner · Entrée Exécuter · Échap Fermer",
     "recent": "Commandes récentes en premier · ↑ ↓ Sélectionner · Entrée Exécuter · Échap Fermer",
-    "search": "Rechercher une commande…"
+    "search": "Rechercher une commande…",
+    "selectTwoPhotos": "Sélectionnez au moins deux photos"
   },
   "contextMenus": {
     "album": {

@@ -123,3 +123,28 @@ it('leaves the next photograph alone when auto adjustments finish after a switch
   expect(useEditorStore.getState().adjustments).toBe(before);
   expect(useEditorStore.getState().history).toBe(history);
 });
+
+
+it('offers Match Light for the selection with the active photo as reference', async () => {
+  const { appCommandEnabled, runAppCommand } = await import('../utils/appCommands');
+  const { useSeriesMatchDialog } = await import('../components/studio/SeriesMatchDialog');
+  renderHook(() => useAppContextMenus(props));
+  expect(appCommandEnabled('match_light')).toBe(false);
+  useLibraryStore.setState({ multiSelectedPaths: [raw, copy], libraryActivePath: copy });
+  expect(appCommandEnabled('match_light')).toBe(true);
+  expect(runAppCommand('match_light')).toBe(true);
+  expect(useSeriesMatchDialog.getState().request).toEqual({ paths: [raw, copy], references: [copy] });
+  useSeriesMatchDialog.getState().close();
+});
+
+it('offers selection-aware photo operations in the palette', async () => {
+  const { appCommandEnabled, runAppCommand } = await import('../utils/appCommands');
+  const { paletteCommands } = await import('../utils/commandPalette');
+  renderHook(() => useAppContextMenus(props));
+  const names = paletteCommands((key) => Array.isArray(key) ? key[0] : key).map((command) => command.id);
+  expect(names).toEqual(expect.arrayContaining(['auto_lens_correction', 'convert_negative', 'merge_panorama', 'merge_hdr', 'merge_hdr_panorama', 'merge_focus_stack']));
+  expect(appCommandEnabled('merge_hdr')).toBe(false);
+  useLibraryStore.setState({ multiSelectedPaths: [raw, copy] });
+  expect(runAppCommand('merge_hdr')).toBe(true);
+  expect(useUIStore.getState().mergeModalState).toMatchObject({ isOpen: true, kind: 'hdr', sourcePaths: [raw, copy] });
+});

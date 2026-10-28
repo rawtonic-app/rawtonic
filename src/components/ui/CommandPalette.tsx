@@ -226,7 +226,11 @@ function PaletteDialog({ close }: { close(): void }) {
               onClick={() => execute(command)}
               className={`flex items-center gap-4 px-3 py-2.5 rounded text-sm ${index === selected ? "bg-bg-primary ring-1 ring-border-color" : ""} ${command.enabled ? "cursor-pointer" : "opacity-40 cursor-default"}`}
             >
-              <span className="grow">{command.label}</span>
+              <span className="grow">{command.label}
+                {command.id === "match_light" && !command.enabled && (
+                  <span className="block text-xs text-text-secondary">{t("commandPalette.selectTwoPhotos")}</span>
+                )}
+              </span>
               {command.shortcut && (
                 <kbd className="shrink-0 text-xs text-text-secondary">
                   {command.shortcut}

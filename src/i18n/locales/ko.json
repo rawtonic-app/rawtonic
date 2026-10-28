@@ -139,6 +139,7 @@
       "flag_unflag": "플래그 해제",
       "import_photos": "사진 가져오기…",
       "keyboard_shortcuts": "키보드 단축키",
+      "match_light": "빛 맞추기…",
       "move_to_selects": "선택 항목으로 이동",
       "new_session": "새 프로젝트 또는 카탈로그…",
       "open_session": "프로젝트 또는 카탈로그 열기…",
@@ -161,6 +162,7 @@
       "sync_settings": "설정 동기화",
       "tether_capture": "촬영(테더링 카메라)",
       "toggle_all_panels": "모든 패널과 막대",
+      "toggle_auto_advance": "자동 넘기기",
       "toggle_bottom_panel": "필름 스트립",
       "toggle_clipping": "클리핑 경고",
       "toggle_export": "내보내기…",
@@ -221,7 +223,8 @@
     "empty": "일치하는 명령이 없습니다. 다른 검색어를 입력하세요.",
     "keys": "↑ ↓ 선택 · Enter 실행 · Esc 닫기",
     "recent": "최근 명령 우선 · ↑ ↓ 선택 · Enter 실행 · Esc 닫기",
-    "search": "명령 검색…"
+    "search": "명령 검색…",
+    "selectTwoPhotos": "사진을 두 장 이상 선택하세요"
   },
   "contextMenus": {
     "album": {

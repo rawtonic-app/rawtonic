@@ -139,6 +139,7 @@
       "flag_unflag": "フラグなし",
       "import_photos": "写真を読み込む…",
       "keyboard_shortcuts": "キーボードショートカット",
+      "match_light": "光を揃える…",
       "move_to_selects": "セレクトに移動",
       "new_session": "新規プロジェクトまたはカタログ…",
       "open_session": "プロジェクトまたはカタログを開く…",
@@ -161,6 +162,7 @@
       "sync_settings": "設定を同期",
       "tether_capture": "撮影（テザーカメラ）",
       "toggle_all_panels": "すべてのパネルとバー",
+      "toggle_auto_advance": "自動送り",
       "toggle_bottom_panel": "フィルムストリップ",
       "toggle_clipping": "クリッピング警告",
       "toggle_export": "書き出す…",
@@ -221,7 +223,8 @@
     "empty": "一致するコマンドがありません。別の語句で検索してください。",
     "keys": "↑ ↓ 選択 · Enter 実行 · Esc 閉じる",
     "recent": "最近使ったコマンドを優先 · ↑ ↓ 選択 · Enter 実行 · Esc 閉じる",
-    "search": "コマンドを検索…"
+    "search": "コマンドを検索…",
+    "selectTwoPhotos": "写真を2枚以上選択してください"
   },
   "contextMenus": {
     "album": {
