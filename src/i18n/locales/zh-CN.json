@@ -2992,10 +2992,23 @@
         }
       },
       "metadataFilter": {
+        "aiFacts": {
+          "aiDenoise": "AI 降噪",
+          "aiMask": "AI 选区",
+          "fillExternal": "填充：外部服务",
+          "fillMiGan": "移除：MI-GAN",
+          "fillMoebius": "移除：Moebius",
+          "fillUnrecorded": "移除：未记录模型",
+          "generated": "生成的区域",
+          "missingFill": "缺少像素的填充",
+          "olderDenoise": "旧版 AI 降噪",
+          "pendingDetection": "尚未检测的 AI 选区"
+        },
         "all_other": "全部（{{count}} 个值）",
         "apertureValue": "f/{{value}}",
         "button": "元数据",
         "fields": {
+          "ai": "AI 编辑",
           "aperture": "光圈",
           "camera": "相机",
           "captureDate": "拍摄日期",
@@ -3003,7 +3016,8 @@
           "focalLength": "焦距",
           "iso": "ISO",
           "keyword": "关键字",
-          "lens": "镜头"
+          "lens": "镜头",
+          "sourceType": "数字来源类型"
         },
         "fileTypes": {
           "dng": "DNG",
@@ -3019,6 +3033,7 @@
         "isoValue": "ISO {{value}}",
         "label": "元数据筛选",
         "none": {
+          "ai": "无 AI 编辑",
           "aperture": "未知光圈",
           "camera": "未知相机",
           "captureDate": "无日期",
@@ -3026,11 +3041,30 @@
           "focalLength": "未知焦距",
           "iso": "未知 ISO",
           "keyword": "无关键字",
-          "lens": "未知镜头"
+          "lens": "未知镜头",
+          "sourceType": "未注明"
         },
         "rangeHint": "单击选择一个值，Shift 单击选择从上次单击的值起的所有值",
         "showMonths": "显示 {{year}} 年的月份",
-        "toggle": "显示或隐藏元数据列表（拍摄日期、相机、镜头、关键字、文件类型、ISO、焦距、光圈）"
+        "sourceTypes": {
+          "algorithmicallyEnhanced": "经算法增强",
+          "algorithmicMedia": "由算法创建",
+          "compositeCapture": "多张照片合成",
+          "compositeSynthetic": "合成元素的合成",
+          "compositeWithTrainedAlgorithmicMedia": "含 AI 生成部分的合成",
+          "computationalCapture": "计算摄影",
+          "dataDrivenMedia": "数据驱动媒体",
+          "digitalArt": "数字艺术",
+          "digitalCapture": "数码拍摄",
+          "humanEdits": "由人工编辑",
+          "negativeFilm": "胶片负片",
+          "positiveFilm": "胶片正片",
+          "print": "印刷品",
+          "screenCapture": "屏幕截图",
+          "trainedAlgorithmicMedia": "AI 生成",
+          "virtualRecording": "虚拟录制"
+        },
+        "toggle": "显示或隐藏元数据列表（拍摄日期、相机、镜头、关键字、文件类型、ISO、焦距、光圈、AI 编辑、数字来源类型）"
       },
       "navigator": {
         "empty": "请选择一张照片",
@@ -3078,6 +3112,7 @@
         "editTitle": "编辑智能相册",
         "fieldLabel": "字段",
         "fields": {
+          "ai": "AI 编辑",
           "album": "相册",
           "aperture": "光圈（f 值）",
           "camera": "相机",
@@ -3098,6 +3133,7 @@
           "offline": "缺失的照片",
           "previousImport": "在上次导入中",
           "rating": "星级",
+          "sourceType": "数字来源类型（文件中）",
           "text": "任何可搜索的文本"
         },
         "folderPlaceholder": "文件夹路径",

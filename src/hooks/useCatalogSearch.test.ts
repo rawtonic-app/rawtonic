@@ -184,3 +184,16 @@ it('asks for answers in the form of the folder the grid lists', async () => {
   });
   useLibraryStore.setState({ currentFolderPath: null });
 });
+
+it('refreshes AI searches after recipe events and removes the listener on close', async () => {
+  useLibraryStore.setState({ filterCriteria: { colors: [], rating: 0, rawStatus: RawStatus.All, metadata: { ai: ['generated'] } } });
+  const { unmount } = renderHook(() => useCatalogSearch());
+  await settle();
+  expect(useLibraryStore.getState().catalogMatches?.size).toBe(1);
+  mockInvoke.mockResolvedValue([]);
+  act(() => listeners.get('library-ai-facts-changed')?.());
+  await settle();
+  expect(useLibraryStore.getState().catalogMatches?.size).toBe(0);
+  unmount();
+  expect(listeners.has('library-ai-facts-changed')).toBe(false);
+});

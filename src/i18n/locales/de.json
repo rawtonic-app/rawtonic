@@ -3057,11 +3057,24 @@
         }
       },
       "metadataFilter": {
+        "aiFacts": {
+          "aiDenoise": "KI-Rauschentfernung",
+          "aiMask": "KI-Auswahlen",
+          "fillExternal": "Füllen: externer Dienst",
+          "fillMiGan": "Entfernen: MI-GAN",
+          "fillMoebius": "Entfernen: Moebius",
+          "fillUnrecorded": "Entfernen: Modell nicht vermerkt",
+          "generated": "Generierte Bereiche",
+          "missingFill": "Füllung ohne Pixel",
+          "olderDenoise": "Ältere Version der KI-Rauschentfernung",
+          "pendingDetection": "KI-Auswahl noch nicht erkannt"
+        },
         "all_one": "Alle ({{count}} Wert)",
         "all_other": "Alle ({{count}} Werte)",
         "apertureValue": "f/{{value}}",
         "button": "Metadaten",
         "fields": {
+          "ai": "KI-Bearbeitungen",
           "aperture": "Blende",
           "camera": "Kamera",
           "captureDate": "Aufnahmedatum",
@@ -3069,7 +3082,8 @@
           "focalLength": "Brennweite",
           "iso": "ISO",
           "keyword": "Stichwort",
-          "lens": "Objektiv"
+          "lens": "Objektiv",
+          "sourceType": "Digitale Quelle"
         },
         "fileTypes": {
           "dng": "DNG",
@@ -3085,6 +3099,7 @@
         "isoValue": "ISO {{value}}",
         "label": "Metadatenfilter",
         "none": {
+          "ai": "Keine KI-Bearbeitung",
           "aperture": "Unbekannte Blende",
           "camera": "Unbekannte Kamera",
           "captureDate": "Kein Datum",
@@ -3092,11 +3107,30 @@
           "focalLength": "Unbekannte Brennweite",
           "iso": "Unbekannter ISO-Wert",
           "keyword": "Kein Stichwort",
-          "lens": "Unbekanntes Objektiv"
+          "lens": "Unbekanntes Objektiv",
+          "sourceType": "Nicht angegeben"
         },
         "rangeHint": "Klicken wählt einen Wert, Umschalt-Klick jeden Wert ab dem zuletzt geklickten",
         "showMonths": "Monate von {{year}} zeigen",
-        "toggle": "Metadatenlisten ein- oder ausblenden (Aufnahmedatum, Kamera, Objektiv, Stichwort, Dateityp, ISO, Brennweite, Blende)"
+        "sourceTypes": {
+          "algorithmicallyEnhanced": "Algorithmisch verbessert",
+          "algorithmicMedia": "Algorithmisch erzeugt",
+          "compositeCapture": "Komposit aus Aufnahmen",
+          "compositeSynthetic": "Komposit synthetischer Elemente",
+          "compositeWithTrainedAlgorithmicMedia": "Komposit mit KI-erzeugten Teilen",
+          "computationalCapture": "Computergestützte Aufnahme",
+          "dataDrivenMedia": "Datengestützte Medien",
+          "digitalArt": "Digitale Kunst",
+          "digitalCapture": "Digitale Aufnahme",
+          "humanEdits": "Von einer Person bearbeitet",
+          "negativeFilm": "Filmnegativ",
+          "positiveFilm": "Filmpositiv",
+          "print": "Abzug",
+          "screenCapture": "Bildschirmaufnahme",
+          "trainedAlgorithmicMedia": "Von KI erzeugt",
+          "virtualRecording": "Virtuelle Aufnahme"
+        },
+        "toggle": "Metadatenlisten ein- oder ausblenden (Aufnahmedatum, Kamera, Objektiv, Stichwort, Dateityp, ISO, Brennweite, Blende, KI-Bearbeitungen, digitale Quelle)"
       },
       "navigator": {
         "empty": "Foto auswählen",
@@ -3144,6 +3178,7 @@
         "editTitle": "Smart-Album bearbeiten",
         "fieldLabel": "Feld",
         "fields": {
+          "ai": "KI-Bearbeitung",
           "album": "Album",
           "aperture": "Blende (Blendenzahl)",
           "camera": "Kamera",
@@ -3164,6 +3199,7 @@
           "offline": "Fehlendes Foto",
           "previousImport": "Im letzten Import",
           "rating": "Bewertung",
+          "sourceType": "Digitale Quelle (in der Datei)",
           "text": "Beliebiger durchsuchbarer Text"
         },
         "folderPlaceholder": "Ordnerpfad",

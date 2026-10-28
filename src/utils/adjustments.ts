@@ -803,6 +803,9 @@ export interface AiPatchData {
   width: number;
   height: number;
   isSrgbEncoded: boolean;
+  /** The model that guided the fill (`provenance::fill_model`); missing on
+   * fills made before it was recorded. */
+  model?: 'moebius' | 'mi-gan' | 'external';
 }
 
 /** One spot of the spot removal tool, in mask coordinates (the photo after

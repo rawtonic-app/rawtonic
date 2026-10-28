@@ -42,6 +42,7 @@ fn facts(
         aperture: Some(aperture),
         iso: Some(iso),
         exposure: Some(exposure),
+        source_type: None,
         camera_rating: None,
     }
 }
@@ -730,6 +731,7 @@ fn a_schema_10_library_gets_its_keywords_search_and_albums_migrated() {
     drop(lib);
     let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
     db.execute_batch(concat!(
+        include_str!("undo_0017.sql"),
         include_str!("undo_0016.sql"),
         include_str!("undo_0015.sql"),
         include_str!("undo_0014.sql"),
@@ -1263,6 +1265,7 @@ fn a_schema_12_library_reads_undated_and_unrated_facts_again() {
     drop(lib);
     let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
     db.execute_batch(concat!(
+        include_str!("undo_0017.sql"),
         include_str!("undo_0016.sql"),
         include_str!("undo_0015.sql"),
         include_str!("undo_0014.sql"),
@@ -1329,19 +1332,31 @@ fn a_schema_13_library_reads_undated_facts_again() {
     drop(lib);
     let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
     db.execute_batch(concat!(
+        include_str!("undo_0017.sql"),
         include_str!("undo_0016.sql"),
         include_str!("undo_0015.sql"),
         include_str!("undo_0014.sql")
     ))
     .unwrap();
     drop(db);
+    // Schema 14 alone: only the undated ones.
+    let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
+    db.execute_batch(include_str!("../migrations/0014.sql"))
+        .unwrap();
+    let unread: Vec<String> = db
+        .prepare("SELECT id FROM assets WHERE facts_read=0 ORDER BY rowid")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(unread, [ids[0].clone(), ids[2].clone(), ids[3].clone()]);
+    db.execute_batch("PRAGMA user_version=13").unwrap();
+    drop(db);
+    // Schema 17 then reads every DNG and PNG again (for a digital source
+    // type), so all four are read.
     let lib = Library::open(&d.path().join("Job")).unwrap();
-    assert_eq!(lib.facts_backlog().unwrap(), 3);
-    let read = |i: usize| lib.facts(&ids[i]).unwrap().unwrap().1;
-    assert_eq!(
-        [read(0), read(1), read(2), read(3)],
-        [false, true, false, false]
-    );
+    assert_eq!(lib.facts_backlog().unwrap(), 4);
     lib.fill_all_facts(&AtomicBool::new(false), &|path: &Path| {
         Some(CaptureFacts {
             captured: path

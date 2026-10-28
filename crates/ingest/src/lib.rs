@@ -1755,6 +1755,7 @@ mod exif_and_sidecar_tests {
                 aperture: Some(2.8),
                 iso: Some(800),
                 exposure: Some(0.004),
+                source_type: None,
                 camera_rating: None,
             }
         );

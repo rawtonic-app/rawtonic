@@ -185,3 +185,7 @@ light), copied with the light. A custom light without its bitmap is
 unpatterned. `relightDepth.cacheKey` names an analysis: previews send its
 bitmap and landmarks once and then only the name, as with AI patches; files
 without a key are named by a hash of the bitmap when loaded.
+
+## Generated patch provenance
+
+`adjustments.aiPatches[].patchData.model` optionally records the model that produced the stored fill pixels: `moebius`, `mi-gan`, or `external`. It records the model actually used, including fallback; earlier patches without the field remain valid and are listed as model not recorded. It does not alter rendering. Visible model-generated patches with nonempty `patchData.color` carry the existing export Digital Source Type marking; clone, heal, liquify, retouch and patches marked `generated: false` do not. The shared predicates live in `rawtonic_metadata::provenance` and feed the catalog’s AI-edit index as well as export. A patch without pixels is indexed as an unfinished fill, not a generated area.

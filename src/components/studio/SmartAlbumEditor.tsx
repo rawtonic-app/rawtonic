@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import type { ParseKeys } from "i18next";
+import type { ParseKeys, TFunction } from "i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { toast } from "react-toastify";
@@ -10,6 +10,8 @@ import { useModalFocus } from "../../hooks/useModalFocus";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { Invokes } from "../ui/AppProperties";
 import {
+  AI_FACTS,
+  SOURCE_TYPES,
   isGroup,
   searchLibrary,
   type Combine,
@@ -47,6 +49,8 @@ const FIELDS: { field: Field; kind: Kind }[] = [
   { field: "folder", kind: "folder" },
   { field: "offline", kind: "bool" },
   { field: "previousImport", kind: "bool" },
+  { field: "ai", kind: "choice" },
+  { field: "sourceType", kind: "choice" },
 ];
 const kindOf = (field: Field): Kind => FIELDS.find((f) => f.field === field)?.kind ?? "text";
 
@@ -65,7 +69,25 @@ export const CHOICES: Partial<Record<Field, string[]>> = {
   flag: ["picked", "unflagged", "rejected"],
   label: ["red", "yellow", "green", "blue", "purple", "none"],
   fileType: ["raw", "dng", "jpeg", "heif", "tiff", "png", "other"],
+  ai: [...AI_FACTS, "none"],
+  sourceType: [...SOURCE_TYPES, "none"],
 };
+
+/** A choice as the editor names it (AI edits and source types as the
+ * Library's lists name them). */
+function choiceLabel(field: Field, choice: string, t: TFunction): string {
+  if (field === "ai")
+    return choice === "none"
+      ? t("studio.library.metadataFilter.none.ai")
+      : t(`studio.library.metadataFilter.aiFacts.${choice}` as ParseKeys);
+  if (field === "sourceType" && choice !== "none" && !(SOURCE_TYPES as readonly string[]).includes(choice))
+    return choice;
+  if (field === "sourceType")
+    return choice === "none"
+      ? t("studio.library.metadataFilter.none.sourceType")
+      : t(`studio.library.metadataFilter.sourceTypes.${choice}` as ParseKeys);
+  return t(`studio.library.smartAlbums.choices.${field}.${choice}` as ParseKeys);
+}
 
 const today = () => {
   const now = new Date();
@@ -395,9 +417,12 @@ function ValueEditor({
     }
     case "choice": {
       const chosen = Array.isArray(value) ? (value as string[]) : typeof value === "string" ? [value] : [];
+      // A file may declare a source type outside the known IPTC codes.
+      // Keep a value chosen in the Library visible and removable here.
+      const choices = [...new Set([...(CHOICES[field] ?? []), ...(field === "sourceType" ? chosen : [])])];
       return (
         <span className="studio-rule-value studio-rule-choices" role="group" aria-label={label}>
-          {(CHOICES[field] ?? []).map((choice) => (
+          {choices.map((choice) => (
             <label key={choice}>
               <input
                 type="checkbox"
@@ -406,7 +431,7 @@ function ValueEditor({
                   onChange(e.target.checked ? [...chosen, choice] : chosen.filter((c) => c !== choice))
                 }
               />
-              {t(`studio.library.smartAlbums.choices.${field}.${choice}` as ParseKeys)}
+              {choiceLabel(field, choice, t)}
             </label>
           ))}
         </span>

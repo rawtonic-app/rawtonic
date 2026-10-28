@@ -49,6 +49,16 @@ describe('library search rules', () => {
     expect(selectionRules({ aperture: ['2.8'] })).toEqual([{ field: 'aperture', op: 'is', value: 2.8 }]);
   });
 
+  it('keeps AI and source-type choices as codes, including absent facts', () => {
+    expect(selectionRules({ ai: ['generated', ''], sourceType: ['trainedAlgorithmicMedia'] })).toEqual([
+      { combine: 'any', rules: [{ field: 'ai', op: 'is', value: 'generated' }, { field: 'ai', op: 'empty' }] },
+      { field: 'sourceType', op: 'is', value: 'trainedAlgorithmicMedia' },
+    ]);
+    expect(selectionRules({ ai: ['aiMask'], sourceType: [''] }, 'ai')).toEqual([
+      { field: 'sourceType', op: 'empty' },
+    ]);
+  });
+
   it('writes the culling filters as the filter bar applies them', () => {
     const filter = { colors: [], rating: 0, rawStatus: RawStatus.All };
     expect(cullingRules(filter)).toEqual([]);

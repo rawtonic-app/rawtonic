@@ -114,6 +114,7 @@ fn encode_patch_result(
     is_srgb: bool,
     quality: u8,
     mask_as_png: bool,
+    model: Option<&str>,
 ) -> Result<String, String> {
     let mut color_buf = Cursor::new(Vec::with_capacity(32768));
     color_image
@@ -139,7 +140,7 @@ fn encode_patch_result(
     }
     let mask_base64 = general_purpose::STANDARD.encode(mask_buf.get_ref());
 
-    let result_json = serde_json::json!({
+    let mut result = serde_json::json!({
         "color": color_base64,
         "mask": mask_base64,
         "offsetX": offset_x,
@@ -147,8 +148,13 @@ fn encode_patch_result(
         "width": width,
         "height": height,
         "isSrgbEncoded": is_srgb
-    })
-    .to_string();
+    });
+    // The model that guided a fill, so the library can find its photographs
+    // (`rawtonic_metadata::provenance::fill_model`).
+    if let Some(model) = model {
+        result["model"] = Value::from(model);
+    }
+    let result_json = result.to_string();
 
     Ok(result_json)
 }
@@ -694,8 +700,9 @@ pub async fn invoke_generative_replace_with_mask_def(
     } else {
         None
     };
-    let patch_rgba = if let Some(filled) = large_fill {
-        filled
+    use rawtonic_metadata::provenance::fill_model;
+    let (patch_rgba, model) = if let Some(filled) = large_fill {
+        (filled, fill_model::MOEBIUS)
     } else if use_fast_inpaint {
         let inpaint_model = ai_processing::get_or_init_inpaint_model(
             &app_handle,
@@ -709,7 +716,9 @@ pub async fn invoke_generative_replace_with_mask_def(
             return Err("Task cancelled".to_string());
         }
 
-        fill_removal(&source_image, &mask_bitmap, &inpaint_model).map_err(|e| e.to_string())?
+        let filled =
+            fill_removal(&source_image, &mask_bitmap, &inpaint_model).map_err(|e| e.to_string())?;
+        (filled, fill_model::MI_GAN)
     } else if settings.ai_provider.as_deref() == Some("ai-connector")
         && let Some(address) = settings.ai_connector_address
     {
@@ -737,7 +746,7 @@ pub async fn invoke_generative_replace_with_mask_def(
             None,
         );
 
-        if let Some(token) = cancel_flag.as_ref() {
+        let filled = if let Some(token) = cancel_flag.as_ref() {
             tokio::select! {
                 res = inpaint_fut => res.map_err(|e| e.to_string())?,
                 _ = token.wait_for_cancel() => {
@@ -746,7 +755,8 @@ pub async fn invoke_generative_replace_with_mask_def(
             }
         } else {
             inpaint_fut.await.map_err(|e| e.to_string())?
-        }
+        };
+        (filled, fill_model::EXTERNAL)
     } else {
         return Err(
             "No generative backend configured or connection invalid. Please check your AI settings."
@@ -809,6 +819,7 @@ pub async fn invoke_generative_replace_with_mask_def(
         is_raw,
         95,
         true,
+        Some(model),
     );
     log::info!(
         "AI fill ({}): {img_w}x{img_h}, area {crop_w}x{crop_h}: source {source_ms} ms, mask {mask_ms} ms, fill {fill_ms} ms, total {} ms",
@@ -1461,7 +1472,7 @@ pub(crate) fn fill_edge_patches(
             }])
         });
         let data = encode_patch_result(
-            &color, &area_mask, x0 as u32, y0 as u32, bw as u32, bh as u32, true, 95, true,
+            &color, &area_mask, x0 as u32, y0 as u32, bw as u32, bh as u32, true, 95, true, None,
         )
         .map_err(anyhow::Error::msg)?;
         patches.push(serde_json::json!({

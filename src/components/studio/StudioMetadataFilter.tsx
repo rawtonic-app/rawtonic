@@ -7,6 +7,7 @@ import { useSettingsStore } from "../../store/useSettingsStore";
 import { onCatalogChange } from "../../utils/catalogWrites";
 import {
   FACET_FIELDS,
+  SOURCE_TYPES,
   cullingRules,
   libraryFacets,
   rawRules,
@@ -119,6 +120,12 @@ export function facetLabel(
       return t("studio.library.metadataFilter.focalValue", { value });
     case "aperture":
       return t("studio.library.metadataFilter.apertureValue", { value });
+    case "ai":
+      return t(`studio.library.metadataFilter.aiFacts.${value}` as ParseKeys, { defaultValue: value });
+    case "sourceType":
+      return (SOURCE_TYPES as readonly string[]).includes(value)
+        ? t(`studio.library.metadataFilter.sourceTypes.${value}` as ParseKeys)
+        : value;
     default:
       return value;
   }
@@ -127,7 +134,9 @@ export function facetLabel(
 /**
  * The Library's metadata lists (Lightroom's metadata columns, Capture One's
  * Filters tool): capture month, camera, lens, keyword, file type, ISO, focal
- * length and aperture, each value with how many photographs of the shown
+ * length, aperture, AI edits (generated areas and the model that filled
+ * them, AI selections, AI Denoise, AI results still missing) and the
+ * digital source type a file states, each value with how many photographs of the shown
  * folder or album have it within the search box and the culling filters.
  * Choosing values narrows the grid: any chosen value of a list, every list;
  * Shift-click chooses a run of values (ISO 800 to 3200), and capture dates
@@ -248,7 +257,8 @@ export default function StudioMetadataFilter() {
             <div className="studio-metadata-values">
               <button aria-pressed={chosen.length === 0} onClick={() => clear(field)}>
                 <span>{t("studio.library.metadataFilter.all", { count: field === "captureDate" ? values.length : listed.length })}</span>
-                {field !== "keyword" && <small>{total.toLocaleString()}</small>}
+                {/* A photograph counts once per keyword or AI edit. */}
+                {field !== "keyword" && field !== "ai" && <small>{total.toLocaleString()}</small>}
               </button>
               {shown.map(({ value, count, months }) => {
                 const month = field === "captureDate" && value !== "" && !isYear(value);

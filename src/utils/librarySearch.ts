@@ -30,7 +30,9 @@ export type Field =
   | 'album'
   | 'folder'
   | 'offline'
-  | 'previousImport';
+  | 'previousImport'
+  | 'ai'
+  | 'sourceType';
 
 export type Op =
   | 'contains'
@@ -66,7 +68,18 @@ export const isGroup = (rule: Rule): rule is Group => 'combine' in rule;
 
 /** The value lists of the Library filter, left to right (Lightroom's metadata
  * columns, Capture One's Filters tool). */
-export const FACET_FIELDS = ['captureDate', 'camera', 'lens', 'keyword', 'fileType', 'iso', 'focalLength', 'aperture'] as const;
+export const FACET_FIELDS = [
+  'captureDate',
+  'camera',
+  'lens',
+  'keyword',
+  'fileType',
+  'iso',
+  'focalLength',
+  'aperture',
+  'ai',
+  'sourceType',
+] as const;
 export type FacetField = (typeof FACET_FIELDS)[number];
 /** Values chosen per list ("" = no value: no keyword, unknown camera, …;
  * a capture date is a month `YYYY-MM` or a whole year `YYYY`). */
@@ -76,6 +89,42 @@ export interface FacetValue {
   count: number;
 }
 export type Facets = Partial<Record<FacetField, FacetValue[]>>;
+
+/** What a recipe does with AI, by the names the catalog's `ai` rule takes
+ * (`rawtonic_metadata::provenance::AI_FACTS`), in the order it lists them. */
+export const AI_FACTS = [
+  'generated',
+  'fillMoebius',
+  'fillMiGan',
+  'fillExternal',
+  'fillUnrecorded',
+  'aiMask',
+  'aiDenoise',
+  'pendingDetection',
+  'missingFill',
+  'olderDenoise',
+] as const;
+
+/** IPTC Digital Source Types (their codes) the Library names; a file may
+ * state another, shown as it is. */
+export const SOURCE_TYPES = [
+  'trainedAlgorithmicMedia',
+  'compositeWithTrainedAlgorithmicMedia',
+  'algorithmicMedia',
+  'compositeSynthetic',
+  'algorithmicallyEnhanced',
+  'dataDrivenMedia',
+  'digitalCapture',
+  'computationalCapture',
+  'compositeCapture',
+  'humanEdits',
+  'digitalArt',
+  'negativeFilm',
+  'positiveFilm',
+  'print',
+  'screenCapture',
+  'virtualRecording',
+] as const;
 
 const NUMERIC: ReadonlySet<FacetField> = new Set(['iso', 'focalLength', 'aperture']);
 

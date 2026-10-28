@@ -51,23 +51,14 @@ pub fn srgb_to_linear_lut() -> &'static [f32; 256] {
     })
 }
 
-/// The recipe's AI Denoise amount (`aiDenoise`, 0 … 100) as 0 … 1; zero
-/// when the Detail section or its Noise reduction tool is switched off.
-pub fn ai_denoise_amount(adjustments: &Value) -> f32 {
-    let visibility = &adjustments["sectionVisibility"];
-    let off = |key: &str| visibility[key].as_bool() == Some(false);
-    if off("details") || off("noiseReduction") {
-        return 0.0;
-    }
-    (adjustments["aiDenoise"].as_f64().unwrap_or(0.0) as f32 / 100.0).clamp(0.0, 1.0)
-}
+pub use rawtonic_metadata::provenance::{
+    AI_DENOISE_LATEST, ai_denoise_amount, has_generated_areas,
+};
 
 /// The AI Denoise version new edits get (`aiDenoiseVersion`; recipes
 /// without the key are version 1): 3, the mixed-precision model, since the
 /// model pack carries it (pack-2026-10-18).
 pub const AI_DENOISE_VERSION: u8 = 3;
-/// The newest AI Denoise version this build renders.
-pub const AI_DENOISE_LATEST: u8 = 3;
 
 /// How a recipe's AI Denoise develops the mosaic.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -942,50 +933,6 @@ pub fn has_base_retouch(adjustments: &Value) -> bool {
         || crate::red_eye::is_active(adjustments)
         || crate::spot_removal::has_spots(adjustments)
         || crate::face_retouch::is_active(adjustments)
-}
-
-/// Sub-mask types of the inherited patches that no model makes: clone and
-/// heal copy pixels, liquify warps them, retouch smooths them.
-const HAND_MADE_PATCH_TYPES: [&str; 4] = ["clone", "heal", "liquify", "retouch"];
-
-/// Whether the recipe shows areas made by a generative model (visible AI
-/// patches with pixels: object removal, generative fill). Exports of such
-/// recipes are marked (`rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI`).
-/// Patches whose every sub-mask is a hand-made type (clone, heal, liquify,
-/// retouch) do not count: no model made their pixels. Neither do patches
-/// marked `"generated": false` (Fill edges' patch-based completion).
-pub fn has_generated_areas(adjustments: &Value) -> bool {
-    adjustments
-        .get("aiPatches")
-        .and_then(Value::as_array)
-        .is_some_and(|patches| {
-            patches.iter().any(|patch| {
-                let hand_made =
-                    patch
-                        .get("subMasks")
-                        .and_then(Value::as_array)
-                        .is_some_and(|subs| {
-                            !subs.is_empty()
-                                && subs.iter().all(|sub| {
-                                    sub.get("type")
-                                        .and_then(Value::as_str)
-                                        .is_some_and(|t| HAND_MADE_PATCH_TYPES.contains(&t))
-                                })
-                        });
-                let not_generated = patch.get("generated").and_then(Value::as_bool) == Some(false);
-                !hand_made
-                    && !not_generated
-                    && patch
-                        .get("visible")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(true)
-                    && patch
-                        .get("patchData")
-                        .and_then(|data| data.get("color"))
-                        .and_then(Value::as_str)
-                        .is_some_and(|color| !color.is_empty())
-            })
-        })
 }
 
 /// The base image with the recipe's patches, then its red eye correction

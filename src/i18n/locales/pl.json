@@ -3233,6 +3233,18 @@
         }
       },
       "metadataFilter": {
+        "aiFacts": {
+          "aiDenoise": "Odszumianie AI",
+          "aiMask": "Zaznaczenia AI",
+          "fillExternal": "Wypełnienie: usługa zewnętrzna",
+          "fillMiGan": "Usuwanie: MI-GAN",
+          "fillMoebius": "Usuwanie: Moebius",
+          "fillUnrecorded": "Usuwanie: model nie zapisany",
+          "generated": "Obszary wygenerowane",
+          "missingFill": "Wypełnienie bez pikseli",
+          "olderDenoise": "Starsza wersja odszumiania AI",
+          "pendingDetection": "Zaznaczenie AI jeszcze nie wykryte"
+        },
         "all_one": "Wszystkie ({{count}} wartość)",
         "all_few": "Wszystkie ({{count}} wartości)",
         "all_many": "Wszystkie ({{count}} wartości)",
@@ -3240,6 +3252,7 @@
         "apertureValue": "f/{{value}}",
         "button": "Metadane",
         "fields": {
+          "ai": "Edycje AI",
           "aperture": "Przysłona",
           "camera": "Aparat",
           "captureDate": "Data wykonania",
@@ -3247,7 +3260,8 @@
           "focalLength": "Ogniskowa",
           "iso": "ISO",
           "keyword": "Słowo kluczowe",
-          "lens": "Obiektyw"
+          "lens": "Obiektyw",
+          "sourceType": "Źródło cyfrowe"
         },
         "fileTypes": {
           "dng": "DNG",
@@ -3263,6 +3277,7 @@
         "isoValue": "ISO {{value}}",
         "label": "Filtr metadanych",
         "none": {
+          "ai": "Bez edycji AI",
           "aperture": "Nieznana przysłona",
           "camera": "Nieznany aparat",
           "captureDate": "Brak daty",
@@ -3270,11 +3285,30 @@
           "focalLength": "Nieznana ogniskowa",
           "iso": "Nieznane ISO",
           "keyword": "Brak słowa kluczowego",
-          "lens": "Nieznany obiektyw"
+          "lens": "Nieznany obiektyw",
+          "sourceType": "Nie podano"
         },
         "rangeHint": "Kliknięcie wybiera wartość, Shift+kliknięcie wybiera wszystkie wartości od ostatnio klikniętej",
         "showMonths": "Pokaż miesiące roku {{year}}",
-        "toggle": "Pokaż lub ukryj listy metadanych (data wykonania, aparat, obiektyw, słowo kluczowe, typ pliku, ISO, ogniskowa, przysłona)"
+        "sourceTypes": {
+          "algorithmicallyEnhanced": "Ulepszone przez algorytm",
+          "algorithmicMedia": "Utworzone przez algorytm",
+          "compositeCapture": "Kompozycja zdjęć",
+          "compositeSynthetic": "Kompozycja elementów syntetycznych",
+          "compositeWithTrainedAlgorithmicMedia": "Kompozycja z częściami wygenerowanymi przez AI",
+          "computationalCapture": "Zdjęcie obliczeniowe",
+          "dataDrivenMedia": "Media oparte na danych",
+          "digitalArt": "Grafika cyfrowa",
+          "digitalCapture": "Zdjęcie cyfrowe",
+          "humanEdits": "Edytowane przez człowieka",
+          "negativeFilm": "Negatyw",
+          "positiveFilm": "Pozytyw",
+          "print": "Odbitka",
+          "screenCapture": "Zrzut ekranu",
+          "trainedAlgorithmicMedia": "Wygenerowane przez AI",
+          "virtualRecording": "Nagranie wirtualne"
+        },
+        "toggle": "Pokaż lub ukryj listy metadanych (data wykonania, aparat, obiektyw, słowo kluczowe, typ pliku, ISO, ogniskowa, przysłona, edycje AI, źródło cyfrowe)"
       },
       "navigator": {
         "empty": "Zaznacz zdjęcie",
@@ -3322,6 +3356,7 @@
         "editTitle": "Edytuj album inteligentny",
         "fieldLabel": "Pole",
         "fields": {
+          "ai": "Edycja AI",
           "album": "Album",
           "aperture": "Przysłona (liczba f)",
           "camera": "Aparat",
@@ -3342,6 +3377,7 @@
           "offline": "Brakujące zdjęcie",
           "previousImport": "W poprzednim imporcie",
           "rating": "Ocena",
+          "sourceType": "Źródło cyfrowe (w pliku)",
           "text": "Dowolny tekst do wyszukania"
         },
         "folderPlaceholder": "Ścieżka folderu",
