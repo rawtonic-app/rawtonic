@@ -640,8 +640,10 @@ const Slider = ({
           step={String(step)}
           type="range"
           value={displayValue}
-          aria-label={typeof label === 'string' ? label : undefined}
-          aria-labelledby={typeof label === 'string' ? undefined : field?.labelId}
+          // In a preference row the setting names it (several rows label
+          // their slider just "Amount"); elsewhere its own label does.
+          aria-label={!field && typeof label === 'string' ? label : undefined}
+          aria-labelledby={field?.labelId}
           aria-describedby={field?.descriptionId}
         />
       </div>

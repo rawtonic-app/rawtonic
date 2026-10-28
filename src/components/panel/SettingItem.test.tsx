@@ -34,14 +34,19 @@ it('keeps a switch its own label and describes it with the setting', () => {
   expect(description(toggle)).toBe('XMP sync Writes edits next to the photographs.');
 });
 
-it('names a slider by its label and describes it with the setting', () => {
+it('names a slider by its setting, not by its generic label, and describes it', () => {
   render(
     <SettingItem label="Maximum AI tags" description="How many tags are added per photograph.">
       <Slider label="Amount" value={5} min={1} max={20} step={1} onChange={vi.fn()} />
     </SettingItem>,
   );
-  const slider = screen.getByRole('slider', { name: 'Amount' });
+  const slider = screen.getByRole('slider', { name: 'Maximum AI tags' });
   expect(description(slider)).toBe('How many tags are added per photograph.');
+});
+
+it('names a slider outside a preference row by its own label', () => {
+  render(<Slider label="Amount" value={5} min={1} max={20} step={1} onChange={vi.fn()} />);
+  expect(screen.getByRole('slider', { name: 'Amount' })).toBeTruthy();
 });
 
 it('leaves a dropdown outside a preference row as before', () => {

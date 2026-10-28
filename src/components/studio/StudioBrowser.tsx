@@ -400,7 +400,12 @@ export default function StudioBrowser({
   }, [currentPath, film]);
   // The Tab stop is the current photograph when it is mounted, else the
   // first mounted one.
-  const currentIndex = currentPath ? files.findIndex((f) => f.path === currentPath) : -1;
+  // In the grid the keys work on the Library's active photograph (a
+  // modifier-click can make it differ from the open one); the Tab stop, the
+  // focus that follows the keys and the keyboard entry all use it.
+  const libraryActivePath = useLibraryStore((s) => s.libraryActivePath);
+  const focusPath = (film ? null : libraryActivePath) ?? currentPath;
+  const currentIndex = focusPath ? files.findIndex((f) => f.path === focusPath) : -1;
   const tabStopIndex = currentIndex >= range.start && currentIndex < range.end ? currentIndex : range.start;
   // The focus follows the arrow keys from tile to tile: when the current
   // photograph changes while a tile has the focus, its tile takes it once
@@ -411,10 +416,10 @@ export default function StudioBrowser({
     focusFollows.current = focused instanceof HTMLElement && ref.current?.contains(focused)
       && focused.classList.contains("studio-photo-open")
       ? { panelShortcut: focused.dataset.panelShortcut } : null;
-  }, [currentPath]);
+  }, [focusPath]);
   const focusTarget = useRef<string | null>(null);
   useLayoutEffect(() => {
-    const target = focusTarget.current ?? currentPath;
+    const target = focusTarget.current ?? focusPath;
     if (!focusFollows.current || !target) return;
     const tile = Array.from(ref.current?.querySelectorAll<HTMLElement>(".studio-photo-open") ?? [])
       .find((b) => b.dataset.path === target);
@@ -435,7 +440,7 @@ export default function StudioBrowser({
     const el = ref.current;
     if (!el || !(tile instanceof HTMLElement) || !tile.classList.contains("studio-photo-open")) return;
     if (tile.dataset.panelShortcut === "true" || el.contains(e.relatedTarget as Node | null)) return;
-    const active = useLibraryStore.getState().libraryActivePath ?? currentPath;
+    const active = focusPath;
     const index = active ? files.findIndex((f) => f.path === active) : -1;
     if (index < 0 || tile.dataset.path === active) return;
     const mounted = Array.from(el.querySelectorAll<HTMLElement>(".studio-photo-open")).find((b) => b.dataset.path === active);

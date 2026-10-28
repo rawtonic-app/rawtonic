@@ -292,6 +292,8 @@ it("recovers an evicted thumbnail when its Library tile becomes visible", async 
 });
 
 describe("library grid keyboard focus", () => {
+  // The open photograph stands for the active one unless a test sets it.
+  beforeEach(() => useLibraryStore.setState({ libraryActivePath: null }));
   const props = {
     files,
     onSelect: vi.fn(),
@@ -357,6 +359,18 @@ describe("library grid keyboard focus", () => {
     expect(document.activeElement?.getAttribute("aria-label")).toBe("b.NEF");
     expect(ownsPanelShortcut(document.activeElement)).toBe(true);
     expect(ownsPanelShortcut(first)).toBe(false);
+  });
+
+  it("puts the Tab stop on the Library's active photograph after a modifier-click made it differ from the open one", () => {
+    useLibraryStore.setState({ libraryActivePath: "/s/a.NEF" });
+    const { container, getAllByRole } = render(<StudioBrowser {...props} currentPath="/s/b.NEF" />);
+    expect(tabStops(container).map((el) => el.getAttribute("aria-label"))).toEqual(["a.NEF"]);
+    act(() => getAllByRole("option")[0].focus());
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("a.NEF");
+    act(() => useLibraryStore.setState({ libraryActivePath: "/s/c.NEF" }));
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("c.NEF");
+    expect(tabStops(container).map((el) => el.getAttribute("aria-label"))).toEqual(["c.NEF"]);
+    useLibraryStore.setState({ libraryActivePath: null });
   });
 
   it("leaves the focus alone when no tile has it", () => {
