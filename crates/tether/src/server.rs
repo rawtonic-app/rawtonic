@@ -758,10 +758,11 @@ impl<W: Write> Server<W> {
                 // The known risk of this path (libgphoto2's EOS trigger can
                 // discard a photo's report): said every time, never silent.
                 format!(
-                    "Shot {} was not received within a minute. If the camera took it, it is on the \
+                    "Shot {} was not received within {} s. If the camera took it, it is on the \
                      memory card: with this camera (experimental support) a photo's report can get \
                      lost on its way. It was not fired again.",
-                    asked.map_or(0, |asked| asked.id)
+                    asked.map_or(0, |asked| asked.id),
+                    self.shot_timeout.as_secs()
                 )
             } else {
                 "No photo came within a minute of the shot: the camera may not have fired (with \

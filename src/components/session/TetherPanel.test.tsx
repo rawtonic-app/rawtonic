@@ -59,8 +59,8 @@ afterEach(() => {
   invoke.mockReset();
 });
 
-function Harness({ initial = null as TetherStatus | null, onStatus = vi.fn(), hidden = false }) {
-  return <TetherPanel hidden={hidden} directory="/jobs/Acme" jobName="Acme" status={initial} onStatus={onStatus} onClose={vi.fn()} />;
+function Harness({ initial = null as TetherStatus | null, onStatus = vi.fn(), hidden = false, onClose = vi.fn() }) {
+  return <TetherPanel hidden={hidden} directory="/jobs/Acme" jobName="Acme" status={initial} onStatus={onStatus} onClose={onClose} />;
 }
 
 it("connects the camera found on USB for this library, with the next-capture settings", async () => {
@@ -256,12 +256,15 @@ it("says before connecting a Canon that it is experimental and needs the opt-in 
       : base(command, args),
   );
   useSettingsStore.setState({ appSettings: { lastRootPath: null } as AppSettings });
-  render(<Harness />);
+  const onClose = vi.fn();
+  render(<Harness onClose={onClose} />);
   expect(await screen.findByText(/Experimental — testers wanted/)).toBeTruthy();
   expect(screen.getByText(/turn on “Experimental: Canon cameras” in Preferences > Tethering/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Open Tethering preferences" }));
   expect(useUIStore.getState().isSettingsOpen).toBe(true);
   expect(useUIStore.getState().settingsCategory).toBe("tethering");
+  // The floating panel goes, so it does not cover the Preferences page.
+  expect(onClose).toHaveBeenCalled();
   cleanup();
   // Turned on: nothing more to ask before the connect.
   useSettingsStore.setState({ appSettings: { lastRootPath: null, tetherExperimentalCanon: true } as AppSettings });

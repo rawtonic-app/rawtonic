@@ -536,7 +536,11 @@ export default function TetherPanel({
               <button
                 type="button"
                 className="session-action"
-                onClick={() => useUIStore.getState().setUI({ isSettingsOpen: true, settingsCategory: "tethering" })}
+                onClick={() => {
+                  // The floating panel would cover the Preferences page.
+                  onClose();
+                  useUIStore.getState().setUI({ isSettingsOpen: true, settingsCategory: "tethering" });
+                }}
               >
                 {t("session.tether.canon.openPreferences")}
               </button>
