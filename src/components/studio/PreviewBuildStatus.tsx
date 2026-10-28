@@ -7,11 +7,9 @@ import { Invokes, type PreviewBuildProgress } from "../ui/AppProperties";
 import { useLibraryStore } from "../../store/useLibraryStore";
 
 export const PREVIEW_BUILD_EVENT = "preview-build-progress";
-/** How long a finished build's report stays when something was not built. */
-const REPORT_MS = 12000;
 
 /** The top bar's report of a preview build: progress and Stop while it
- * runs, then what could not be built (reasons on hover) until dismissed. */
+ * runs, then what could not be built until dismissed. */
 export default function PreviewBuildStatus() {
   const { t } = useTranslation();
   const [progress, setProgress] = useState<PreviewBuildProgress | null>(null);
@@ -51,11 +49,7 @@ export default function PreviewBuildStatus() {
 
   const finishedWithReport =
     progress && !progress.running && (progress.failedCount > 0 || progress.stopped);
-  useEffect(() => {
-    if (!finishedWithReport) return;
-    const timer = setTimeout(() => setDismissed(true), REPORT_MS);
-    return () => clearTimeout(timer);
-  }, [finishedWithReport, progress]);
+
 
   if (!progress || dismissed || (!progress.running && !finishedWithReport)) return null;
 
@@ -82,16 +76,16 @@ export default function PreviewBuildStatus() {
     );
   }
 
-  const reasons = progress.failed
-    .map((failure) => `${failure.path.split("/").pop()}: ${failure.reason}`)
-    .join("\n");
   return (
-    <div className="studio-preview-build" role="status" title={reasons || undefined}>
-      <span>
-        {progress.failedCount > 0
-          ? t("previews.status.notBuilt", { failed: progress.failedCount })
-          : t("previews.status.stopped", { done: progress.done })}
-      </span>
+    <div className="studio-preview-build" role="status">
+      {progress.failedCount > 0 ? (
+        <details className="studio-preview-failures">
+          <summary>{t("previews.status.notBuilt", { failed: progress.failedCount })}</summary>
+          <ul>{progress.failed.map((failure, index) => (
+            <li key={index}>{failure.path.split("/").pop()}: {failure.reason}</li>
+          ))}</ul>
+        </details>
+      ) : <span>{t("previews.status.stopped", { done: progress.done })}</span>}
       <button aria-label={t("previews.status.dismiss")} onClick={() => setDismissed(true)}>
         <X size={12} />
       </button>

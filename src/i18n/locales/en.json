@@ -1088,7 +1088,7 @@
       "location": "Location",
       "modeLabel": "Organization",
       "name": "Project name",
-      "namePlaceholder": "2026-10-01_Client_Job",
+      "namePlaceholder": "{{date}}_Client_Job",
       "namePreview": "Your assignment",
       "originalsUntouched": "Original photos stay untouched.",
       "session": "Project",

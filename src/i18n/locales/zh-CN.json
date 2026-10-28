@@ -1076,7 +1076,7 @@
       "location": "位置",
       "modeLabel": "整理方式",
       "name": "项目名称",
-      "namePlaceholder": "2026-10-01_客户_项目",
+      "namePlaceholder": "{{date}}_客户_项目",
       "namePreview": "你的项目",
       "originalsUntouched": "原始照片保持不变。",
       "session": "项目",

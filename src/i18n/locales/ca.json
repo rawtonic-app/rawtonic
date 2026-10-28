@@ -1119,7 +1119,7 @@
       "location": "Ubicació",
       "modeLabel": "Organització",
       "name": "Nom del projecte",
-      "namePlaceholder": "2026-10-01_Client_Feina",
+      "namePlaceholder": "{{date}}_Client_Feina",
       "namePreview": "El teu encàrrec",
       "originalsUntouched": "Les fotos originals no es modifiquen.",
       "session": "Projecte",

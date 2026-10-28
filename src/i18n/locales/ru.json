@@ -1150,7 +1150,7 @@
       "location": "Расположение",
       "modeLabel": "Организация",
       "name": "Название проекта",
-      "namePlaceholder": "2026-10-01_Клиент_Заказ",
+      "namePlaceholder": "{{date}}_Клиент_Заказ",
       "namePreview": "Ваш заказ",
       "originalsUntouched": "Исходные фотографии остаются нетронутыми.",
       "session": "Проект",

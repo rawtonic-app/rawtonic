@@ -13,7 +13,8 @@ import { useTranslation } from "react-i18next";
 import { useProcessStore } from "../../store/useProcessStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useUIStore } from "../../store/useUIStore";
-import { type ImageFile } from "../ui/AppProperties";
+import { EditedStatus, RawStatus, type ImageFile } from "../ui/AppProperties";
+import { selectionCount } from "../../utils/librarySearch";
 import { imageFlag } from "../../utils/culling";
 import { PerfProfiler, performanceDiagnosticsEnabled, reportForcedLayout, reportPerformance } from '../../hooks/usePerformanceDiagnostics';
 import CachedThumbnail from "../ui/CachedThumbnail";
@@ -43,7 +44,7 @@ const CLICK_SLOP = 4;
 /** Whether a press at (x, y) on `target` inside the browser `el` is on its
  * empty space: not on a photograph and not on a scroll bar. */
 export function isEmptySpace(el: HTMLElement, target: Element | null, x: number, y: number) {
-  if (!target || !el.contains(target) || target.closest(".studio-photo")) return false;
+  if (!target || !el.contains(target) || target.closest(".studio-photo, button")) return false;
   const rect = el.getBoundingClientRect();
   // Scroll bars lie outside the client area (classic, always-shown ones).
   return x - rect.left < el.clientLeft + el.clientWidth && y - rect.top < el.clientTop + el.clientHeight;
@@ -86,6 +87,11 @@ const Tile = memo(function Tile({
     blue: t("studio.library.colorLabels.blue"),
     purple: t("studio.library.colorLabels.purple"),
   } as Record<string, string>;
+  const colorNames: Record<string, string> = {
+    red: t("studio.library.colors.red"), yellow: t("studio.library.colors.yellow"),
+    green: t("studio.library.colors.green"), blue: t("studio.library.colors.blue"),
+    purple: t("studio.library.colors.purple"),
+  };
   return (
     <div
       className={`studio-photo ${selected ? "is-selected" : ""} ${current ? "is-current" : ""} ${flag === -1 ? "is-rejected" : ""} ${file.is_offline ? "is-offline" : ""}`}
@@ -146,7 +152,7 @@ const Tile = memo(function Tile({
             </span>
           )}
           {film && color && colorLabels[color] && (
-            <span className={`studio-photo-color is-${color}`} role="img" aria-label={colorLabels[color]} />
+            <span className={`studio-photo-color is-${color}`} role="img" aria-label={colorLabels[color]} title={colorLabels[color]}>{colorNames[color]}</span>
           )}
         </span>
         {!film && (
@@ -172,7 +178,7 @@ const Tile = memo(function Tile({
           </button>
         ))}
         {color && colorLabels[color] && (
-          <span className={`studio-photo-color is-${color}`} role="img" aria-label={colorLabels[color]} title={colorLabels[color]} />
+          <span className={`studio-photo-color is-${color}`} role="img" aria-label={colorLabels[color]} title={colorLabels[color]}>{colorNames[color]}</span>
         )}
       </div>
       )}
@@ -189,6 +195,7 @@ export default function StudioBrowser({
   onContextMenu,
   requestThumbnails,
   onClearSelection,
+  onImport,
   size = 190,
   listing,
 }: {
@@ -206,6 +213,7 @@ export default function StudioBrowser({
   /** A plain click on empty space (not a photograph, not a scroll bar)
    * clears the selection (Lightroom, Capture One). */
   onClearSelection?(): void;
+  onImport?(): void;
   size?: number;
 }) {
   const { t } = useTranslation();
@@ -235,6 +243,18 @@ export default function StudioBrowser({
   const [box, setBox] = useState({ width: 800, height: 500 });
   const [offset, setOffset] = useState(0);
   const selected = useLibraryStore((s) => s.multiSelectedPaths);
+  const filter = useLibraryStore((s) => s.filterCriteria);
+  const search = useLibraryStore((s) => s.searchCriteria);
+  const sessionDirectory = useLibraryStore((s) => s.sessionDirectory);
+  const loading = useLibraryStore((s) => s.isViewLoading);
+  const filtered = (filter.flag ?? "all") !== "all" || filter.rating !== 0 || filter.colors.length > 0 ||
+    filter.rawStatus !== RawStatus.All || (filter.editedStatus ?? EditedStatus.All) !== EditedStatus.All ||
+    search.text.trim() !== "" || search.tags.length > 0 || selectionCount(filter.metadata) > 0;
+  const clearFilters = () => {
+    const store = useLibraryStore.getState();
+    store.setFilterCriteria({ flag: "all", rating: 0, colors: [], rawStatus: RawStatus.All, editedStatus: EditedStatus.All, metadata: {} });
+    store.setSearchCriteria({ text: "", tags: [] });
+  };
   const selectedSet = useMemo(() => new Set(selected), [selected]);
   // Where a press on empty space started; a click (press and release
   // there, no drag) clears the selection.
@@ -364,7 +384,11 @@ export default function StudioBrowser({
         <div className="studio-empty">
           <ImageIcon size={30} />
           <strong>{t("studio.library.browser.emptyTitle")}</strong>
-          <span>{t("studio.library.browser.emptyHint")}</span>
+          {!film && !loading && filtered ? (
+            <button type="button" className="studio-empty-action" onClick={clearFilters}>{t("studio.library.filters.clearFilters")}</button>
+          ) : !film && !loading && sessionDirectory && onImport ? (
+            <button type="button" className="studio-empty-action" onClick={onImport}>{t("settings.keybinds.actions.import_photos")}</button>
+          ) : <span>{t("studio.library.browser.emptyHint")}</span>}
         </div>
       ) : (
         <div

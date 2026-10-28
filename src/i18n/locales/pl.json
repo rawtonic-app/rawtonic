@@ -1150,7 +1150,7 @@
       "location": "Lokalizacja",
       "modeLabel": "Organizacja",
       "name": "Nazwa projektu",
-      "namePlaceholder": "2026-10-01_Klient_Zlecenie",
+      "namePlaceholder": "{{date}}_Klient_Zlecenie",
       "namePreview": "Twoje zlecenie",
       "originalsUntouched": "Oryginalne zdjęcia pozostają nietknięte.",
       "session": "Projekt",

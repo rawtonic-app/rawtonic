@@ -1076,7 +1076,7 @@
       "location": "位置",
       "modeLabel": "整理方式",
       "name": "專案名稱",
-      "namePlaceholder": "2026-10-01_客戶_案子",
+      "namePlaceholder": "{{date}}_客戶_案子",
       "namePreview": "你的案子",
       "originalsUntouched": "原始照片保持不變。",
       "session": "專案",

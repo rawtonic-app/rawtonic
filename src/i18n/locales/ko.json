@@ -1076,7 +1076,7 @@
       "location": "위치",
       "modeLabel": "정리 방식",
       "name": "프로젝트 이름",
-      "namePlaceholder": "2026-10-01_고객_작업",
+      "namePlaceholder": "{{date}}_고객_작업",
       "namePreview": "내 작업",
       "originalsUntouched": "원본 사진은 변경되지 않습니다.",
       "session": "프로젝트",

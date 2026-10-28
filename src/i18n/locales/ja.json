@@ -1076,7 +1076,7 @@
       "location": "場所",
       "modeLabel": "整理方法",
       "name": "プロジェクト名",
-      "namePlaceholder": "2026-10-01_クライアント_案件",
+      "namePlaceholder": "{{date}}_クライアント_案件",
       "namePreview": "あなたの仕事",
       "originalsUntouched": "元の写真は変更されません。",
       "session": "プロジェクト",

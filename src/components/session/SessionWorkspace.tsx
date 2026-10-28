@@ -316,6 +316,11 @@ export function leavesTetheredLibrary(tetheredFor: string | null, openLibrary: s
   return tetheredFor.replace(/\/$/, "") !== openLibrary.replace(/\/$/, "");
 }
 
+function localDateStamp(): string {
+  const now = new Date();
+  return [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-");
+}
+
 export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, windowControls }: Props) {
   const { t } = useTranslation();
   const [session, setSession] = useState<SessionSummary | null>(null);
@@ -1844,7 +1849,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 placeholder={
                   catalog || importAfterCreate
                     ? t("session.create.catalogPlaceholder")
-                    : t("session.create.namePlaceholder")
+                    : t("session.create.namePlaceholder", { date: localDateStamp() })
                 }
               />
             </label>

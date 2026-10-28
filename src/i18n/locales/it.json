@@ -1119,7 +1119,7 @@
       "location": "Posizione",
       "modeLabel": "Organizzazione",
       "name": "Nome del progetto",
-      "namePlaceholder": "2026-10-01_Cliente_Lavoro",
+      "namePlaceholder": "{{date}}_Cliente_Lavoro",
       "namePreview": "Il tuo incarico",
       "originalsUntouched": "Le foto originali restano intatte.",
       "session": "Progetto",
