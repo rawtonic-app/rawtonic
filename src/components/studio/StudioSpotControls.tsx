@@ -6,8 +6,43 @@ import { useSettingsStore } from "../../store/useSettingsStore";
 import { shortcutHint } from "../../utils/keyboardUtils";
 import type { Spot } from "../../utils/adjustments";
 import StudioRedEyeControls from "./StudioRedEyeControls";
+import { useStudioTools } from "./useStudioTools";
 
 type Settings = ReturnType<typeof useEditorStore.getState>["spotSettings"];
+
+/** The settings new spots get at first (the panels' reset). */
+export const resetSpotSettings = () =>
+  useEditorStore.getState().setEditor({
+    spotSettings: { mode: "heal", size: 60, feather: 0, opacity: 100 },
+  });
+
+/** The spot tool in the Retouch tab, as Lightroom's Remove panel: the
+ * settings stay visible (the right-click on the photo is a shortcut), and
+ * while the tool is off a button starts it. */
+export function StudioSpotPanel() {
+  const { t } = useTranslation();
+  const { activeTool, selectTool, ready } = useStudioTools();
+  const keybinds = useSettingsStore((s) => s.appSettings?.keybinds);
+  const osPlatform = useSettingsStore((s) => s.osPlatform);
+  const key = shortcutHint("tool_spot", keybinds, osPlatform);
+  const label = t("studio.spot.start");
+  return (
+    <>
+      {activeTool !== "spot" && (
+        <button
+          type="button"
+          className="studio-text-button"
+          title={key ? t("studio.spot.withShortcut", { text: label, key }) : label}
+          disabled={!ready}
+          onClick={() => selectTool("spot")}
+        >
+          {label}
+        </button>
+      )}
+      <StudioSpotControls />
+    </>
+  );
+}
 
 /** Spot removal settings (Lightroom's Remove tool): Remove (the area filled
  * by the local inpainting model, an AI patch), Heal or Clone, size, feather

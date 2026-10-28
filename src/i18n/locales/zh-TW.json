@@ -3735,6 +3735,7 @@
       "whiteBalanceTo": "白平衡 {{to}} K"
     },
     "spot": {
+      "start": "開始污點移除",
       "withShortcut": "{{text}}（{{key}}）"
     },
     "tone": {

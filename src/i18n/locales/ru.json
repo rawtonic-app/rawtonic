@@ -4029,6 +4029,7 @@
       "whiteBalanceTo": "Баланс белого {{to}} K"
     },
     "spot": {
+      "start": "Начать удаление пятен",
       "withShortcut": "{{text}} ({{key}})"
     },
     "tone": {

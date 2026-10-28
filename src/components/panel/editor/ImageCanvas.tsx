@@ -1329,7 +1329,9 @@ const ImageCanvas = memo(
     const holdingNativeFrame = useEditorStore((state) => state.holdingNativeFrame);
     const showMaskWithSelectTool = useEditorStore((state) => state.showMaskWithSelectTool);
     const isMaskRangeDragging = useEditorStore((state) => state.isMaskRangeDragging);
-    const maskOverlayAutoHidden = useEditorStore((state) => state.maskOverlayAuto === 'hidden');
+    const maskOverlayAutoHidden = useEditorStore(
+      (state) => state.maskOverlayAuto === 'hidden' || state.maskOverlayOutsideMaskTab,
+    );
     const lumaPickerLayer = useEditorStore((state) => state.lumaPickerLayer);
     const shapeDrawTarget = useEditorStore((state) => state.shapeDrawTarget);
     const tatTarget = useEditorStore((state) => state.tatTarget);
@@ -3202,6 +3204,7 @@ const ImageCanvas = memo(
       rangeDragging: isMaskRangeDragging,
       // Off after the layer's first adjustment, as in Lightroom (notes:
       // reference/layers-panel-c1-lr.md); painting or M shows it again.
+      // Outside Develop's mask tabs it shows only while drawing.
       autoHidden: maskOverlayAutoHidden,
     });
 

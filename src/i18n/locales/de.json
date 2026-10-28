@@ -3815,6 +3815,7 @@
       "whiteBalanceTo": "Weißabgleich {{to}} K"
     },
     "spot": {
+      "start": "Bereichsreparatur starten",
       "withShortcut": "{{text}} ({{key}})"
     },
     "tone": {

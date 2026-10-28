@@ -3922,6 +3922,7 @@
       "whiteBalanceTo": "Balanç de blancs {{to}} K"
     },
     "spot": {
+      "start": "Inicia l'eliminació de taques",
       "withShortcut": "{{text}} ({{key}})"
     },
     "tone": {
