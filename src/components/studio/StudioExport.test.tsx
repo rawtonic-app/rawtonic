@@ -107,7 +107,7 @@ it("lists why each photo of a failed export did not export", async () => {
   });
   const items = within(failures).getAllByRole("listitem");
   expect(items.map((item) => item.textContent)).toEqual([
-    "big.RAFThe image (40000 × 9000 px) is larger than this graphics card can render (16384 px per side).",
+    "big.RAFThe photo (40000 × 9000 px) is larger than this graphics card can render (16384 px per side).",
     "b.RAFDecoder said no",
   ]);
   const i18n = (await import("i18next")).default;
@@ -473,11 +473,11 @@ async function fillEverything() {
   change("Border measured on", "eachEdge");
   change("Left and right (%)", "3");
   change("Top and bottom (%)", "1.5");
-  change("Border colour", "#000000");
+  change("Border color", "#000000");
   tick("Pad to an aspect ratio");
   change("Ratio width", "4");
   change("Ratio height", "5");
-  change("Canvas colour", "#eeeeee");
+  change("Canvas color", "#eeeeee");
   tick("Also export each mask");
 }
 
@@ -816,7 +816,7 @@ it("makes a text watermark in an installed font", async () => {
 it("exports into a wide colour space in every image format", async () => {
   useLibraryStore.setState({ sessionDirectory: "/job" });
   render(<StudioExport />);
-  const space = screen.getByLabelText("Colour space") as HTMLSelectElement;
+  const space = screen.getByLabelText("Color space") as HTMLSelectElement;
   expect(space.value).toBe("srgb");
   fireEvent.change(space, { target: { value: "proPhoto" } });
   expect(screen.getByText(/ProPhoto RGB needs 16-bit TIFF/)).toBeTruthy();

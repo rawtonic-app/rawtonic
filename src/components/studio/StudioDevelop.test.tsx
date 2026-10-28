@@ -267,7 +267,7 @@ describe("Develop tool contracts", () => {
     // A new edit's grain is film grain: Colour instead of a structure.
     expect(useEditorStore.getState().adjustments.grainVersion).toBe(GRAIN_VERSION);
     expect(screen.queryByRole("combobox", { name: "Grain structure" })).toBeNull();
-    edit("Grain colour", 30);
+    edit("Grain color", 30);
     expect(useEditorStore.getState().adjustments.grainColor).toBe(30);
     fireEvent.click(screen.getByRole("button", { name: "Reset Grain" }));
     const a = useEditorStore.getState().adjustments;
@@ -288,7 +288,7 @@ describe("Develop tool contracts", () => {
     mount();
     fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "Detail" }));
     openGroups();
-    expect(screen.queryByRole("slider", { name: "Grain colour" })).toBeNull();
+    expect(screen.queryByRole("slider", { name: "Grain color" })).toBeNull();
     const structure = screen.getByRole("combobox", { name: "Grain structure" }) as HTMLSelectElement;
     expect(structure.value).toBe("clumped");
     fireEvent.change(structure, { target: { value: "gritty" } });
@@ -947,7 +947,7 @@ describe("selections, ranges and components (Lightroom's mask menu)", () => {
     }
     expect(last().subMasks[0].parameters).toMatchObject({ minDepth: 30, maxDepth: 80 });
     newLayer("New color range layer", "Color range");
-    edit("Colour range refine", 45);
+    edit("Color range refine", 45);
     expect(last().subMasks[0].parameters).toMatchObject({ refine: 45 });
     expect(last().subMasks[0].parameters.tolerance).toBeUndefined();
   });

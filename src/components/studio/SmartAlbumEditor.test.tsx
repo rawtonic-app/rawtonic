@@ -64,7 +64,7 @@ describe("smart album editor", () => {
     );
     await settle();
     const dialog = screen.getByRole("dialog", { name: "New smart album" });
-    expect(within(dialog).getByRole("status").textContent).toBe("Matches 2 photographs now");
+    expect(within(dialog).getByRole("status").textContent).toBe("Matches 2 photos now");
 
     // The first rule becomes "Camera contains …"; a group of any two rules follows.
     const rule = within(dialog).getByRole("group", { name: "Rating" });

@@ -31,7 +31,7 @@ describe("face retouch models", () => {
     expect(invoke.mock.calls[0][1]).toMatchObject({ download: false });
 
     fireEvent.click(button);
-    await waitFor(() => expect(screen.getByText("No faces found in this photograph.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("No faces found in this photo.")).toBeTruthy());
     expect(invoke.mock.calls.at(-1)?.[1]).toMatchObject({ download: true });
   });
 });
