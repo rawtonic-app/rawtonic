@@ -38,6 +38,21 @@ const settle = () =>
   });
 
 describe("smart album editor", () => {
+  it("shows a project-relative folder while retaining its full path for editing and saving", async () => {
+    render(<SmartAlbumEditorHost />);
+    act(() => useSmartAlbumEditor.getState().open({ name: "Folder", parent: null, rules: { combine: "all", rules: [{ field: "folder", op: "is", value: "/job/Capture/Portraits" }] } }));
+    await settle();
+    const input = within(screen.getByRole("group", { name: "Folder" })).getByLabelText("Value") as HTMLInputElement;
+    expect(input.value).toBe("Capture/Portraits");
+    expect(input.title).toBe("/job/Capture/Portraits");
+    fireEvent.focus(input);
+    expect(input.value).toBe("/job/Capture/Portraits");
+    fireEvent.blur(input);
+    expect(input.value).toBe("Capture/Portraits");
+    await act(async () => fireEvent.click(screen.getByText("Create")));
+    expect(mockInvoke).toHaveBeenCalledWith("session_create_smart_album", expect.objectContaining({ rules: { combine: "all", rules: [{ field: "folder", op: "is", value: "/job/Capture/Portraits" }] } }));
+  });
+
   it("builds nested rules, shows what they match and creates the album", async () => {
     render(<SmartAlbumEditorHost />);
     act(() =>
