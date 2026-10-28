@@ -190,7 +190,11 @@ describe("spot removal overlay", () => {
     });
     expect(invoke).toHaveBeenCalledWith(
       "invoke_generative_replace_with_mask_def",
-      expect.objectContaining({ path: "/s/a.NEF", useFastInpaint: true }),
+      expect.objectContaining({ patchDefinition: expect.anything() }),
+    );
+    // Inpainting is always local: no backend choice reaches the command.
+    expect(invoke.mock.calls.find(([name]) => name === "invoke_generative_replace_with_mask_def")![1]).not.toHaveProperty(
+      "useFastInpaint",
     );
     const [patch] = useEditorStore.getState().adjustments.aiPatches;
     expect(patch).toMatchObject({ name: "Remove", isLoading: false, patchData });
@@ -363,7 +367,6 @@ describe("spot removal overlay", () => {
     const fill = invoke.mock.calls.find(([name]) => name === "invoke_generative_replace_with_mask_def")!;
     const definition = (fill[1] as { patchDefinition: { subMasks: { type: string; parameters: object }[] } })
       .patchDefinition;
-    expect(fill[1]).toMatchObject({ useFastInpaint: true });
     expect(definition.subMasks).toHaveLength(1);
     expect(definition.subMasks[0].type).toBe("quick-eraser");
     // The selection is grown and feathered, so the fill takes the object's edge along.

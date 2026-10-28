@@ -458,7 +458,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | memoffset | 0.9.1 | MIT |
 | mimalloc | 0.1.52 | MIT |
 | mime | 0.3.17 | MIT OR Apache-2.0 |
-| mime_guess | 2.0.5 | MIT |
 | minimal-lexical | 0.2.1 | MIT/Apache-2.0 |
 | miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 |
 | mio | 1.2.2 | MIT |
@@ -793,7 +792,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | typenum | 1.20.1 | MIT OR Apache-2.0 |
 | uds_windows | 1.2.1 | MIT |
 | unarray | 0.1.4 | MIT OR Apache-2.0 |
-| unicase | 2.9.0 | MIT OR Apache-2.0 |
 | unicode-ident | 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 |
 | unicode-normalization-alignments | 0.1.12 | MIT/Apache-2.0 |
 | unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 |
