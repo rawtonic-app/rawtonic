@@ -1456,6 +1456,23 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.studio-preview-failures { position: relative; }
+.studio-preview-failures summary { cursor: pointer; }
+.studio-preview-failures ul {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  top: 100%;
+  width: max-content;
+  max-width: min(480px, 80vw);
+  max-height: 40vh;
+  overflow: auto;
+  white-space: normal;
+  padding: 12px 12px 12px 28px;
+  background: var(--studio-panel, #252525);
+  color: var(--studio-text);
+  box-shadow: 0 4px 12px #0008;
+}
 .studio-preview-build progress {
   width: 72px;
   height: 4px;
