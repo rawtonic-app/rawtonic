@@ -418,7 +418,7 @@ fn reconnect_lost(
         if !wanted() {
             return;
         }
-        let (client, session, model, serial, config) = {
+        let (client, session, model, serial, experimental, config) = {
             let mut helper = state.lock().unwrap();
             let Some(h) = helper.as_mut() else { return };
             // Only a lost connection, and only the one this reconnect is
@@ -440,6 +440,9 @@ fn reconnect_lost(
                 c.session.clone(),
                 c.status.model.clone(),
                 c.status.serial.clone(),
+                // A body on an experimental path was connected with the
+                // user's opt-in: the same body comes back with it.
+                c.status.experimental,
                 c.config.clone(),
             )
         };
@@ -448,6 +451,7 @@ fn reconnect_lost(
             &client,
             &model,
             serial.as_deref(),
+            experimental,
             &session,
             every,
             QUICK,
@@ -492,6 +496,7 @@ fn reconnect<'a>(
     client: &Client,
     model: &str,
     serial: Option<&str>,
+    experimental: bool,
     session: &Path,
     every: Duration,
     look: Duration,
@@ -534,6 +539,7 @@ fn reconnect<'a>(
                 port: Some(camera.port),
                 staging: staging::root(session),
                 serial: serial.map(String::from),
+                experimental,
             };
             match client.request(connect, SLOW) {
                 Ok(Reply::Connected { status }) => return Some((status, turn)),
@@ -991,6 +997,15 @@ fn check_template(template: &str) -> Result<(), String> {
         .map_err(|e| format!("Filename template: {e}"))
 }
 
+/// The user's opt-in to Canon cameras on the camera library's untested
+/// path (Preferences > Tethering; off when the settings cannot be read).
+fn experimental_canon(app: &AppHandle) -> bool {
+    crate::app_settings::load_settings(app.clone())
+        .ok()
+        .and_then(|settings| settings.tether_experimental_canon)
+        .unwrap_or(false)
+}
+
 /// Opens the camera on `port` (the first one when `None`) for the library
 /// in `directory`: its photos are ingested into that session's Capture.
 #[tauri::command]
@@ -1025,6 +1040,7 @@ pub async fn tether_connect(
                 session: session.clone(),
                 port,
                 config,
+                experimental: experimental_canon(&app),
             },
             || {
                 let app = app.clone();
@@ -1081,6 +1097,8 @@ struct Opening {
     session: PathBuf,
     port: Option<String>,
     config: Arc<Mutex<CaptureConfig>>,
+    /// The user's opt-in to experimental driver paths (Canon EOS).
+    experimental: bool,
 }
 
 /// Opens a camera for `session` on the running helper: the earlier
@@ -1096,6 +1114,7 @@ fn open_session(
         session,
         port,
         config,
+        experimental,
     }: Opening,
     on_lost: impl FnOnce(),
 ) -> Result<CameraStatus, String> {
@@ -1147,6 +1166,7 @@ fn open_session(
         port,
         staging: staging::root(&session),
         serial: None,
+        experimental,
     };
     let status = match client.request(connect, SLOW) {
         Ok(Reply::Connected { status }) => status,
@@ -1500,6 +1520,7 @@ mod tests {
             port: None,
             staging: staging::root(&session),
             serial: None,
+            experimental: false,
         };
         client.request(connect, SLOW).unwrap();
         let mut files = 0;
@@ -1528,6 +1549,7 @@ mod tests {
                 &client,
                 &spec.model,
                 Some("MOCK0001"),
+                false,
                 &session,
                 Duration::ZERO,
                 QUICK,
@@ -1544,6 +1566,7 @@ mod tests {
                 &client,
                 &spec.model,
                 Some("MOCK0001"),
+                false,
                 &session,
                 Duration::ZERO,
                 QUICK,
@@ -1561,6 +1584,7 @@ mod tests {
             &client,
             &spec.model,
             Some("MOCK0001"),
+            false,
             &session,
             Duration::from_millis(50),
             QUICK,
@@ -1798,6 +1822,7 @@ mod tests {
             &client,
             "Mock Camera",
             Some("MOCK0001"),
+            false,
             &session,
             Duration::ZERO,
             Duration::from_millis(500),
@@ -1830,6 +1855,7 @@ mod tests {
             &client,
             "Mock Camera",
             Some("MOCK0002"),
+            false,
             &session,
             Duration::ZERO,
             QUICK,
@@ -1936,6 +1962,7 @@ mod tests {
                 session: session.clone(),
                 port: None,
                 config,
+                experimental: false,
             },
             move || {
                 from_connect.fetch_add(1, Ordering::SeqCst);
@@ -1990,6 +2017,7 @@ mod tests {
                 session: session.clone(),
                 port: None,
                 config: config.clone(),
+                experimental: false,
             },
             || {},
         )
@@ -2010,6 +2038,7 @@ mod tests {
                 session: session.clone(),
                 port: None,
                 config,
+                experimental: false,
             },
             || {},
         )
@@ -2060,6 +2089,7 @@ mod tests {
                     session: session.to_path_buf(),
                     port: None,
                     config: config(),
+                    experimental: false,
                 },
                 || {},
             )
@@ -2079,6 +2109,50 @@ mod tests {
         let in_a = photos_in_capture(&a);
         assert!(in_a >= 20, "{in_a}");
         assert_eq!(incoming_left(&b), 0);
+    }
+
+    #[test]
+    fn a_canon_body_connects_only_with_the_users_opt_in() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session = session(tmp.path());
+        let spec = MockSpec {
+            model: "Canon EOS R6".into(),
+            experimental: true,
+            capture_target: Some("Internal RAM".into()),
+            capture_target_choices: vec!["Internal RAM".into(), "Memory card".into()],
+            ..MockSpec::default()
+        };
+        let (state, client) = mock_helper(&spec);
+        let (notify, seen) = collector();
+        let transition = Mutex::new(());
+        let open = |experimental| {
+            open_session(
+                &state,
+                &transition,
+                client.clone(),
+                notify.clone(),
+                Opening {
+                    session: session.clone(),
+                    port: None,
+                    config: Arc::new(Mutex::new(CaptureConfig {
+                        template: "{orig}".into(),
+                        settings: settings(0, "canon"),
+                        free_camera_copies: true,
+                    })),
+                    experimental,
+                },
+                || {},
+            )
+        };
+        let refused = open(false).unwrap_err();
+        assert!(refused.contains("Preferences"), "{refused}");
+        let status = open(true).unwrap();
+        assert!(status.experimental);
+        assert_eq!(status.capture_target.as_deref(), Some("Memory card"));
+        client.request(Request::Capture, CAPTURE).unwrap();
+        let photos = captured(&seen, 1);
+        assert!(photos.iter().all(|c| c.error.is_none()), "{photos:?}");
+        assert_eq!(photos_in_capture(&session), 1);
     }
 
     #[test]
@@ -2112,6 +2186,7 @@ mod tests {
                 session: session.clone(),
                 port: None,
                 config,
+                experimental: false,
             },
             || {},
         );
@@ -2146,6 +2221,7 @@ mod tests {
                 session,
                 port: None,
                 config,
+                experimental: false,
             },
             || {},
         );
@@ -2179,6 +2255,7 @@ mod tests {
                 session: folder,
                 port: None,
                 config,
+                experimental: false,
             },
             || {},
         );
@@ -2206,6 +2283,7 @@ mod tests {
                         port: None,
                         staging: staging.clone(),
                         serial: None,
+                        experimental: false,
                     },
                     SLOW,
                 )
@@ -2237,6 +2315,7 @@ mod tests {
                     port: None,
                     staging,
                     serial: None,
+                    experimental: false,
                 },
                 SLOW,
             )
@@ -2288,6 +2367,7 @@ mod tests {
                         settings: settings(0, "queue"),
                         free_camera_copies: free,
                     })),
+                    experimental: false,
                 },
                 || {},
             )
@@ -2475,6 +2555,7 @@ mod tests {
                     port: None,
                     staging: staging::root(&session),
                     serial: None,
+                    experimental: false,
                 },
                 SLOW,
             )
