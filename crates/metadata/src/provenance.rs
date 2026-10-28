@@ -167,7 +167,9 @@ pub mod fill_model {
     pub const MOEBIUS: &str = "moebius";
     /// MI-GAN guided the completion.
     pub const MI_GAN: &str = "mi-gan";
-    /// An external generative service the user connected filled it.
+    /// An external generative service the user connected filled it (no
+    /// longer written since that path was removed on 2026-10-28; read so
+    /// recipes filled before keep their fact).
     pub const EXTERNAL: &str = "external";
 }
 

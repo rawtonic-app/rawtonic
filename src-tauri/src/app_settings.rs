@@ -666,8 +666,6 @@ pub struct AppSettings {
     #[serde(default)]
     pub font_family: Option<String>,
     pub decorations: Option<bool>,
-    #[serde(alias = "comfyuiAddress")]
-    pub ai_connector_address: Option<String>,
     pub last_folder_state: Option<LastFolderState>,
     pub ui_visibility: Option<Value>,
     pub enable_ai_tagging: Option<bool>,
@@ -680,7 +678,6 @@ pub struct AppSettings {
     pub ai_tag_count: Option<u32>,
     pub thumbnail_size: Option<String>,
     pub thumbnail_aspect_ratio: Option<String>,
-    pub ai_provider: Option<String>,
     #[serde(default = "default_open_tree_sections")]
     pub open_tree_sections: Vec<String>,
     #[serde(default)]
@@ -853,7 +850,6 @@ impl Default for AppSettings {
             theme: Some("dark".to_string()),
             font_family: None,
             decorations: Some(false),
-            ai_connector_address: None,
             last_folder_state: None,
             ui_visibility: None,
             enable_ai_tagging: Some(false),
@@ -863,7 +859,6 @@ impl Default for AppSettings {
             ai_tag_count: Some(10),
             thumbnail_size: Some("medium".to_string()),
             thumbnail_aspect_ratio: Some("contain".to_string()),
-            ai_provider: Some("cpu".to_string()),
             open_tree_sections: default_open_tree_sections(),
             copy_paste_settings: CopyPasteSettings::default(),
             raw_highlight_compression: Some(2.5),
@@ -1024,9 +1019,6 @@ pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
     let path = get_settings_path(&app_handle)?;
     let mut settings = read_settings_file(&path)?;
 
-    if settings.ai_provider.as_deref() == Some("cloud") {
-        settings.ai_provider = Some("cpu".into());
-    }
     let all_current_keys = all_available_adjustments();
     let default_included = default_included_adjustments();
     let mut settings_modified = migrate_viewer_background(&mut settings);
@@ -1089,9 +1081,6 @@ pub fn save_settings(mut settings: AppSettings, app_handle: AppHandle) -> Result
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let path = get_settings_path(&app_handle)?;
-    if settings.ai_provider.as_deref() == Some("cloud") {
-        settings.ai_provider = Some("cpu".into());
-    }
     write_settings_file(&path, &mut settings)?;
 
     let state = app_handle.state::<AppState>();
@@ -1188,6 +1177,25 @@ mod tests {
         let cleared: AppSettings =
             serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
         assert_eq!(cleared.recent_libraries, Some(Vec::new()));
+    }
+
+    #[test]
+    fn old_generative_server_settings_load_and_are_dropped_on_save() {
+        // Settings of versions with the external generative AI server (removed
+        // 2026-10-28): inpainting is local only, so the keys are ignored on
+        // read and gone after the next save.
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("settings.json");
+        let content = r#"{"rootFolders":["/Photos"],"aiProvider":"ai-connector","aiConnectorAddress":"127.0.0.1:8188","comfyuiAddress":"127.0.0.1:8188"}"#;
+        fs::write(&path, content).unwrap();
+        let mut settings = read_settings_file(&path).unwrap();
+        assert_eq!(settings.root_folders, vec!["/Photos".to_string()]);
+        write_settings_file(&path, &mut settings).unwrap();
+        let saved = fs::read_to_string(&path).unwrap();
+        for key in ["aiProvider", "aiConnectorAddress", "comfyuiAddress"] {
+            assert!(!saved.contains(key), "{key} kept: {saved}");
+        }
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
     }
 
     #[test]

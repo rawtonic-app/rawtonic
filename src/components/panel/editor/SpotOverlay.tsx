@@ -232,8 +232,6 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
       const json = await invoke<string>(Invokes.InvokeGenerativeReplaseWithMaskDef, {
         currentAdjustments: adjustments,
         patchDefinition: definition,
-        path,
-        useFastInpaint: true,
         taskId: patch.id,
       });
       if (useEditorStore.getState().selectedImage?.path !== path) return;
