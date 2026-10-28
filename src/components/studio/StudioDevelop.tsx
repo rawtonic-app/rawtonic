@@ -53,7 +53,6 @@ import {
   maskColorOf,
   maskDisplayOf,
   maskOpacityOf,
-  type MaskOverlayAuto,
 } from "../../utils/maskDisplay";
 import AdjustmentControl from "./AdjustmentControl";
 import StudioCameraProfile from "./StudioCameraProfile";
@@ -574,22 +573,12 @@ export default function StudioDevelop() {
   }, [isSpotToolActive]);
   // A layer's mask overlay belongs to the tabs that edit masks (Adjust,
   // Layers), as Lightroom shows it only in the Masking panel: elsewhere it
-  // is off as after a layer's first adjustment (painting still shows it),
-  // and back as it was on return.
+  // shows only while a mask is drawn.
   const maskTab = tab === "all" || tab === "layers";
-  const overlayBeforeTab = useRef<MaskOverlayAuto | null>(null);
   useEffect(() => {
-    const { maskOverlayAuto, setEditor } = useEditorStore.getState();
-    if (!maskTab) {
-      if (maskOverlayAuto === "hidden") return;
-      overlayBeforeTab.current = maskOverlayAuto;
-      setEditor({ maskOverlayAuto: "hidden" });
-      return;
-    }
-    const before = overlayBeforeTab.current;
-    overlayBeforeTab.current = null;
-    if (before && maskOverlayAuto === "hidden") setEditor({ maskOverlayAuto: before });
-  }, [maskTab]);
+    setEditor({ maskOverlayOutsideMaskTab: !maskTab });
+  }, [maskTab, setEditor]);
+  useEffect(() => () => setEditor({ maskOverlayOutsideMaskTab: false }), [setEditor]);
   const [hsl, setHsl] = useState("reds");
   // Targeted Adjustment Tool (Lightroom's TAT): one target at a time; the
   // colour mixer follows the channel a drag acts on most.

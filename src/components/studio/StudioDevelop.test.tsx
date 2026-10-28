@@ -1557,14 +1557,35 @@ describe("Develop column on a laptop screen", () => {
 });
 
 describe("mask overlay outside the mask tabs", () => {
-  it("is off in tabs that do not edit masks and back as it was in Adjust", () => {
+  const tab = (name: string) =>
+    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name }));
+  const outside = () => useEditorStore.getState().maskOverlayOutsideMaskTab;
+
+  it("shows only while drawing in tabs that do not edit masks", () => {
     mount();
-    expect(useEditorStore.getState().maskOverlayAuto).toBe("auto");
-    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "Retouch" }));
+    expect(outside()).toBe(false);
+    tab("Retouch");
+    expect(outside()).toBe(true);
+    tab("Color");
+    expect(outside()).toBe(true);
+    tab("Adjustments");
+    expect(outside()).toBe(false);
+    tab("Layers & masks");
+    expect(outside()).toBe(false);
+  });
+
+  it("leaves the automatic overlay to the edits made in those tabs", () => {
+    mount();
+    tab("Color");
+    // A stroke there shows the overlay again ('auto'); the tab still hides
+    // it after the stroke.
+    act(() => useEditorStore.setState({ maskOverlayAuto: "auto" }));
+    expect(outside()).toBe(true);
+    // The layer's first adjustment there hides it; back in Adjust it stays
+    // hidden.
+    act(() => useEditorStore.setState({ maskOverlayAuto: "hidden" }));
+    tab("Adjustments");
     expect(useEditorStore.getState().maskOverlayAuto).toBe("hidden");
-    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "Color" }));
-    expect(useEditorStore.getState().maskOverlayAuto).toBe("hidden");
-    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "Adjustments" }));
-    expect(useEditorStore.getState().maskOverlayAuto).toBe("auto");
+    expect(outside()).toBe(false);
   });
 });
