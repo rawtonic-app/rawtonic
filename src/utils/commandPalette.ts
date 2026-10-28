@@ -1,5 +1,6 @@
 import { type Option, OPTION_SEPARATOR } from "../components/ui/AppProperties";
 import {
+  appCommand,
   appCommandEnabled,
   registeredAppCommands,
   runAppCommand,
@@ -18,6 +19,7 @@ export interface PaletteCommand {
   label: string;
   enabled: boolean;
   shortcut?: string | null;
+  disabledHint?: string;
 }
 
 export function paletteCommands(
@@ -39,7 +41,7 @@ export function paletteCommands(
       const def = KEYBIND_DEFINITIONS.find((def) => def.action === id);
       labels.set(
         id,
-        command.menu?.label ??
+        command.paletteLabel ?? command.menu?.label ??
           t(
             def
               ? [`appMenu.items.${id}`, def.description]
@@ -54,6 +56,7 @@ export function paletteCommands(
     label,
     enabled: enabled(id),
     shortcut: shortcutHint(id, keybinds, platform),
+    ...(!enabled(id) ? { disabledHint: appCommand(id)?.disabledHint?.() } : {}),
   }));
 }
 

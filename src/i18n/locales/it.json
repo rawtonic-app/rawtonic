@@ -139,6 +139,7 @@
       "flag_unflag": "Senza contrassegno",
       "import_photos": "Importa foto…",
       "keyboard_shortcuts": "Abbreviazioni da tastiera",
+      "match_light": "Uniforma luce…",
       "move_to_selects": "Sposta in Selezionate",
       "new_session": "Nuovo progetto o catalogo…",
       "open_session": "Apri progetto o catalogo…",
@@ -161,6 +162,7 @@
       "sync_settings": "Sincronizza impostazioni",
       "tether_capture": "Scatta (fotocamera collegata)",
       "toggle_all_panels": "Tutti i pannelli e le barre",
+      "toggle_auto_advance": "Avanzamento automatico",
       "toggle_bottom_panel": "Pellicola",
       "toggle_clipping": "Avvisi di clipping",
       "toggle_export": "Esporta…",
@@ -221,7 +223,10 @@
     "empty": "Nessun comando corrispondente. Prova un’altra ricerca.",
     "keys": "↑ ↓ Seleziona · Invio Esegui · Esc Chiudi",
     "recent": "Prima i comandi recenti · ↑ ↓ Seleziona · Invio Esegui · Esc Chiudi",
-    "search": "Cerca comandi…"
+    "search": "Cerca comandi…",
+    "selectAtMostPhotos": "Seleziona al massimo {{max}} fotografie",
+    "selectFourPhotos": "Seleziona almeno quattro fotografie",
+    "selectTwoPhotos": "Seleziona almeno due fotografie"
   },
   "contextMenus": {
     "album": {
@@ -1594,7 +1599,7 @@
     },
     "general": {
       "autoAdvance": "Avanzamento automatico",
-      "autoAdvanceDesc": "In Sviluppo, un tasto di valutazione, scelta, scarto o rimozione del contrassegno passa alla foto successiva: la selezione richiede un tasto per foto.",
+      "autoAdvanceDesc": "Dopo una valutazione o un contrassegno, passa alla foto successiva da quella visualizzata o da una singola selezione nella griglia. Attiva con Bloc Maiusc o dal menu Foto.",
       "builtinPresets": "Preset inclusi",
       "builtinPresetsDesc": "Mostra gli stili e i preset di Rawtonic in Stili e preset e nei menu dei preset degli strumenti.",
       "createXmp": "Crea File XMP Mancanti",
@@ -1610,7 +1615,7 @@
       "nativeTitlebar": "Barra del Titolo Nativa",
       "nativeTitlebarDesc": "Usa la barra del titolo della finestra predefinita del tuo sistema invece di quella personalizzata di Rawtonic.",
       "proofMargin": "Margine di prova",
-      "proofMarginDesc": "Margine intorno alla foto adattata quando il margine di prova è attivo (X), come quota del lato più corto del visore.",
+      "proofMarginDesc": "Margine intorno alla foto adattata quando il margine di prova è attivo (Alt+X), come quota del lato più corto del visore.",
       "showBuiltinPresets": "Mostra preset inclusi",
       "title": "Impostazioni Generali",
       "uiScale": "Dimensione dell'interfaccia",
@@ -2234,7 +2239,8 @@
         "channel": "Canale della curva",
         "input": "Input",
         "maxPoints": "Massimo {{max}} punti per canale. Sposta o rimuovi un punto per rifinire la curva.",
-        "output": "Output"
+        "output": "Output",
+        "point": "Punto {{index}}, ingresso {{input}}, uscita {{output}}. Le frecce spostano; A aggiunge un punto; Canc lo elimina."
       },
       "effects": {
         "grainColor": "Colore della grana",
@@ -3916,6 +3922,7 @@
       "whiteBalanceTo": "Bilanciamento del bianco {{to}} K"
     },
     "spot": {
+      "start": "Avvia rimozione macchie",
       "withShortcut": "{{text}} ({{key}})"
     },
     "tone": {

@@ -139,6 +139,7 @@
       "flag_unflag": "Usuń flagę",
       "import_photos": "Importuj zdjęcia…",
       "keyboard_shortcuts": "Skróty klawiszowe",
+      "match_light": "Wyrównaj światło…",
       "move_to_selects": "Przenieś do Wybranych",
       "new_session": "Nowy projekt lub katalog…",
       "open_session": "Otwórz projekt lub katalog…",
@@ -161,6 +162,7 @@
       "sync_settings": "Synchronizuj ustawienia",
       "tether_capture": "Wyzwól (aparat podłączony)",
       "toggle_all_panels": "Wszystkie panele i paski",
+      "toggle_auto_advance": "Automatyczne przejście",
       "toggle_bottom_panel": "Pasek zdjęć",
       "toggle_clipping": "Ostrzeżenia o przycięciu",
       "toggle_export": "Eksportuj…",
@@ -221,7 +223,10 @@
     "empty": "Brak pasujących poleceń. Spróbuj innego wyszukiwania.",
     "keys": "↑ ↓ Wybierz · Enter Wykonaj · Esc Zamknij",
     "recent": "Ostatnie polecenia najpierw · ↑ ↓ Wybierz · Enter Wykonaj · Esc Zamknij",
-    "search": "Szukaj poleceń…"
+    "search": "Szukaj poleceń…",
+    "selectAtMostPhotos": "Wybierz najwyżej {{max}} zdjęć",
+    "selectFourPhotos": "Wybierz co najmniej cztery zdjęcia",
+    "selectTwoPhotos": "Wybierz co najmniej dwa zdjęcia"
   },
   "contextMenus": {
     "album": {
@@ -1654,7 +1659,7 @@
     },
     "general": {
       "autoAdvance": "Automatyczne przejście",
-      "autoAdvanceDesc": "W module Wywoływanie klawisz oceny, wyboru, odrzucenia lub usunięcia flagi przechodzi do następnego zdjęcia, więc selekcja wymaga jednego klawisza na zdjęcie.",
+      "autoAdvanceDesc": "Po ocenie lub oznaczeniu przechodzi do następnego zdjęcia od wyświetlanego albo pojedynczo wybranego w siatce. Przełącz klawiszem Caps Lock lub w menu Zdjęcie.",
       "builtinPresets": "Wbudowane ustawienia",
       "builtinPresetsDesc": "Pokazuj własne style i ustawienia Rawtonic w panelu Style i ustawienia oraz w menu ustawień narzędzi.",
       "createXmp": "Twórz brakujące pliki XMP",
@@ -1670,7 +1675,7 @@
       "nativeTitlebar": "Natywny pasek tytułu",
       "nativeTitlebarDesc": "Użyj domyślnego paska tytułu okna twojego systemu zamiast niestandardowego w Rawtonic.",
       "proofMargin": "Margines podglądu",
-      "proofMarginDesc": "Margines wokół dopasowanego zdjęcia, gdy margines podglądu jest włączony (X), jako część krótszego boku podglądu.",
+      "proofMarginDesc": "Margines wokół dopasowanego zdjęcia, gdy margines podglądu jest włączony (Alt+X), jako część krótszego boku podglądu.",
       "showBuiltinPresets": "Pokazuj wbudowane ustawienia",
       "title": "Ustawienia ogólne",
       "uiScale": "Rozmiar interfejsu",
@@ -2295,7 +2300,8 @@
         "channel": "Kanał krzywej",
         "input": "Wejście",
         "maxPoints": "Maksymalnie {{max}} punktów na kanał. Przesuń lub usuń punkt, aby dopracować krzywą.",
-        "output": "Wyjście"
+        "output": "Wyjście",
+        "point": "Punkt {{index}}, wejście {{input}}, wyjście {{output}}. Strzałki przesuwają; A dodaje punkt; Delete usuwa."
       },
       "effects": {
         "grainColor": "Kolor ziarna",
@@ -4023,6 +4029,7 @@
       "whiteBalanceTo": "Balans bieli {{to}} K"
     },
     "spot": {
+      "start": "Uruchom usuwanie plamek",
       "withShortcut": "{{text}} ({{key}})"
     },
     "tone": {

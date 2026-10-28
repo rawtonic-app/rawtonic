@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::HashSet,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -341,7 +341,7 @@ fn label_for(request: &ExportRequest) -> String {
         format!("{n} photos as {format}")
     };
     match &request.display_label {
-        Some(label) if !label.is_empty() => format!("{source} · {label}"),
+        Some(label) if !label.is_empty() => label.clone(),
         _ => source,
     }
 }
@@ -635,18 +635,24 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
     let outputs: Vec<_> = trackings
         .iter()
         .flat_map(|(_, tracking)| {
-            with_queue(|q| q.items(&tracking.job))
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|item| {
-                    tracking.pending.contains(&item.index) && item.state == ItemState::Done
-                })
-                .filter_map(|item| item.output)
+            new_outputs(
+                with_queue(|q| q.items(&tracking.job)).unwrap_or_default(),
+                &tracking.pending,
+            )
         })
         .collect();
     if !outputs.is_empty() {
         let _ = app.emit("export-outputs-written", outputs);
     }
+}
+
+/// Only successful items admitted in this run are newly written outputs.
+fn new_outputs(items: Vec<Item>, pending: &HashSet<usize>) -> Vec<PathBuf> {
+    items
+        .into_iter()
+        .filter(|item| pending.contains(&item.index) && item.state == ItemState::Done)
+        .filter_map(|item| item.output)
+        .collect()
 }
 
 #[tauri::command]
@@ -702,6 +708,29 @@ mod tests {
                 })
                 .collect(),
         ))
+    }
+
+    #[test]
+    fn output_notification_excludes_earlier_and_failed_items() {
+        let item = |index, state, output: Option<&str>| Item {
+            index,
+            path: format!("{index}.raw"),
+            state,
+            output: output.map(PathBuf::from),
+            error: None,
+            attempts: 1,
+            started_ms: None,
+            finished_ms: None,
+        };
+        let items = vec![
+            item(0, ItemState::Done, Some("old.jpg")),
+            item(1, ItemState::Done, Some("new.jpg")),
+            item(2, ItemState::Failed, Some("failed.jpg")),
+        ];
+        assert_eq!(
+            new_outputs(items, &HashSet::from([1, 2])),
+            vec![PathBuf::from("new.jpg")]
+        );
     }
 
     #[test]

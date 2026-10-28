@@ -182,6 +182,10 @@ interface EditorState {
   showMaskWithSelectTool: boolean;
   /** Lightroom's automatic mask overlay (`MaskOverlayAuto`). */
   maskOverlayAuto: MaskOverlayAuto;
+  /** Develop shows a tab that does not edit masks (Color, Detail, Crop,
+   * Retouch): the overlay shows only while a mask is drawn there. Kept
+   * apart from `maskOverlayAuto`, which edits in those tabs still move. */
+  maskOverlayOutsideMaskTab: boolean;
   /** The layer whose luma range the eyedropper sets from the photo, or null
    * when it is off (Lightroom's Luminance Range sampling). */
   lumaPickerLayer: string | null;
@@ -308,6 +312,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   nativeMaskOverlay: null,
   showMaskWithSelectTool: false,
   maskOverlayAuto: 'auto',
+  maskOverlayOutsideMaskTab: false,
   lumaPickerLayer: null,
   shapeDrawTarget: null,
   patchesSentToBackend: new Set<string>(),

@@ -3,15 +3,18 @@ import i18n from 'i18next';
 import { toast } from 'react-toastify';
 import { Invokes } from '../components/ui/AppProperties';
 import { useSettingsStore } from '../store/useSettingsStore';
-import type { RecipeDraft } from './exportRecipes';
+import { exportSettingsFromDraft, type RecipeDraft } from './exportRecipes';
 
 /** A durable description of the settings chosen when the job was queued. */
-export function exportJobLabel(name: string, draft: RecipeDraft, format: string, destination: string): string {
-  const size = draft.resize
-    ? `${i18n.t(`studio.export.sizing.modes.${draft.resizeMode}`)} ${draft.resizeValue}${draft.resizeMode === 'dimensions' ? ` × ${draft.resizeValue2}` : ''} ${draft.resizeMode === 'percentage' ? '%' : draft.resizeMode === 'megapixels' ? 'MP' : 'px'}`
+export function exportJobLabel(name: string, draft: RecipeDraft, format: string, destination: string, paths: string[] = []): string {
+  const resize = exportSettingsFromDraft(draft).settings.resize;
+  const size = resize
+    ? `${i18n.t(`studio.export.sizing.modes.${draft.resizeMode}`)} ${resize.value}${resize.mode === 'dimensions' ? ` × ${resize.secondValue}` : ''} ${resize.mode === 'percentage' ? '%' : resize.mode === 'megapixels' ? 'MP' : 'px'}`
     : i18n.t('studio.export.queue.fullResolution');
   const folder = draft.where === 'original' ? i18n.t('studio.export.queue.originalFolder') : destination;
-  return [name, format.toUpperCase(), size, draft.subfolder ? `${folder} / ${draft.subfolder}` : folder].join(' · ');
+  const sourcePath = paths[0]?.split('?vc=')[0];
+  const source = paths.length === 1 ? sourcePath?.split(/[\\/]/).pop() : paths.length ? i18n.t('studio.export.queue.photos', { count: paths.length }) : null;
+  return [source, name, format.toUpperCase(), size, draft.subfolder ? `${folder} / ${draft.subfolder.trim()}` : folder].filter(Boolean).join(' · ');
 }
 
 /** The containing folder, accepting both native path separators. */

@@ -139,6 +139,7 @@
       "flag_unflag": "플래그 해제",
       "import_photos": "사진 가져오기…",
       "keyboard_shortcuts": "키보드 단축키",
+      "match_light": "빛 맞추기…",
       "move_to_selects": "선택 항목으로 이동",
       "new_session": "새 프로젝트 또는 카탈로그…",
       "open_session": "프로젝트 또는 카탈로그 열기…",
@@ -161,6 +162,7 @@
       "sync_settings": "설정 동기화",
       "tether_capture": "촬영(테더링 카메라)",
       "toggle_all_panels": "모든 패널과 막대",
+      "toggle_auto_advance": "자동 넘기기",
       "toggle_bottom_panel": "필름 스트립",
       "toggle_clipping": "클리핑 경고",
       "toggle_export": "내보내기…",
@@ -221,7 +223,10 @@
     "empty": "일치하는 명령이 없습니다. 다른 검색어를 입력하세요.",
     "keys": "↑ ↓ 선택 · Enter 실행 · Esc 닫기",
     "recent": "최근 명령 우선 · ↑ ↓ 선택 · Enter 실행 · Esc 닫기",
-    "search": "명령 검색…"
+    "search": "명령 검색…",
+    "selectAtMostPhotos": "사진을 최대 {{max}}장 선택하세요",
+    "selectFourPhotos": "사진을 네 장 이상 선택하세요",
+    "selectTwoPhotos": "사진을 두 장 이상 선택하세요"
   },
   "contextMenus": {
     "album": {
@@ -1496,7 +1501,7 @@
     },
     "general": {
       "autoAdvance": "자동 넘기기",
-      "autoAdvanceDesc": "현상에서 별점, 선택, 거부, 플래그 해제 키를 누르면 다음 사진으로 넘어가므로 사진 한 장에 키 하나로 골라낼 수 있습니다.",
+      "autoAdvanceDesc": "평가하거나 플래그를 지정하면 표시된 사진 또는 격자에서 하나 선택한 사진 다음으로 이동합니다. Caps Lock 또는 사진 메뉴에서 전환합니다.",
       "builtinPresets": "기본 제공 프리셋",
       "builtinPresetsDesc": "스타일 및 프리셋과 도구의 프리셋 메뉴에 Rawtonic 자체 스타일과 프리셋을 표시합니다.",
       "createXmp": "누락된 XMP 파일 생성",
@@ -1512,7 +1517,7 @@
       "nativeTitlebar": "네이티브 제목 표시줄",
       "nativeTitlebarDesc": "Rawtonic의 사용자 지정 제목 표시줄 대신 시스템 기본 창 제목 표시줄을 사용합니다.",
       "proofMargin": "교정 여백",
-      "proofMarginDesc": "교정 여백이 켜져 있을 때(X) 맞춤 사진 주위의 여백으로, 뷰어 짧은 변에 대한 비율입니다.",
+      "proofMarginDesc": "교정 여백이 켜져 있을 때(Alt+X) 맞춤 사진 주위의 여백으로, 뷰어 짧은 변에 대한 비율입니다.",
       "showBuiltinPresets": "기본 제공 프리셋 표시",
       "title": "일반 설정",
       "uiScale": "인터페이스 크기",
@@ -2135,7 +2140,8 @@
         "channel": "커브 채널",
         "input": "입력",
         "maxPoints": "채널당 최대 {{max}}개의 점을 사용할 수 있습니다. 점을 이동하거나 제거하여 커브를 다듬으세요.",
-        "output": "출력"
+        "output": "출력",
+        "point": "점 {{index}}, 입력 {{input}}, 출력 {{output}}. 화살표 키로 이동하고 A로 추가, Delete로 삭제합니다."
       },
       "effects": {
         "grainColor": "그레인 색상",
@@ -3729,6 +3735,7 @@
       "whiteBalanceTo": "화이트 밸런스 {{to}} K"
     },
     "spot": {
+      "start": "스팟 제거 시작",
       "withShortcut": "{{text}}({{key}})"
     },
     "tone": {

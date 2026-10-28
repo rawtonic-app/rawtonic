@@ -27,9 +27,10 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
   { action: 'view_grid', description: 'appMenu.items.view_grid', defaultCombo: ['KeyG'], section: 'view' },
   { action: 'view_loupe', description: 'appMenu.items.view_loupe', defaultCombo: ['KeyE'], section: 'library' },
   { action: 'view_develop', description: 'appMenu.items.view_develop', defaultCombo: ['KeyD'], section: 'view' },
+  { action: 'toggle_auto_advance', description: 'settings.general.autoAdvance', defaultCombo: ['CapsLock'], section: 'rating' },
   { action: 'flag_pick', description: 'appMenu.items.flag_pick', defaultCombo: ['KeyP'], section: 'rating' },
   { action: 'flag_unflag', description: 'appMenu.items.flag_unflag', defaultCombo: ['KeyU'], section: 'rating' },
-  { action: 'flag_reject', description: 'appMenu.items.flag_reject', defaultCombo: ['shift', 'KeyX'], section: 'rating' },
+  { action: 'flag_reject', description: 'appMenu.items.flag_reject', defaultCombo: ['KeyX'], aliasCombos: [['shift', 'KeyX']], section: 'rating' },
 
   {
     action: 'open_image',
@@ -133,10 +134,10 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     section: 'view',
   },
   {
-    // Capture One's proof margin (X): fit leaves a margin around the photograph.
+    // Fit leaves a margin around the photograph.
     action: 'toggle_proof_margin',
     description: 'settings.keybinds.actions.toggle_proof_margin',
-    defaultCombo: ['KeyX'],
+    defaultCombo: ['alt', 'KeyX'],
     section: 'view',
   },
   {
@@ -253,25 +254,29 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
   {
     action: 'color_label_red',
     description: 'settings.keybinds.actions.color_label_red',
-    defaultCombo: ['shift', 'Digit1'],
+    defaultCombo: ['Digit6'],
+    aliasCombos: [['shift', 'Digit1']],
     section: 'rating',
   },
   {
     action: 'color_label_yellow',
     description: 'settings.keybinds.actions.color_label_yellow',
-    defaultCombo: ['shift', 'Digit2'],
+    defaultCombo: ['Digit7'],
+    aliasCombos: [['shift', 'Digit2']],
     section: 'rating',
   },
   {
     action: 'color_label_green',
     description: 'settings.keybinds.actions.color_label_green',
-    defaultCombo: ['shift', 'Digit3'],
+    defaultCombo: ['Digit8'],
+    aliasCombos: [['shift', 'Digit3']],
     section: 'rating',
   },
   {
     action: 'color_label_blue',
     description: 'settings.keybinds.actions.color_label_blue',
-    defaultCombo: ['shift', 'Digit4'],
+    defaultCombo: ['Digit9'],
+    aliasCombos: [['shift', 'Digit4']],
     section: 'rating',
   },
   {

@@ -73,6 +73,9 @@ export default function StudioSnapshots() {
     <ToolGroup
       title="Snapshots"
       label={t("studio.develop.snapshots.title")}
+      // Folded at first, so the dock takes two header rows from the tools
+      // on a laptop screen; it remembers being opened.
+      open={false}
       actions={
         <button
           type="button"

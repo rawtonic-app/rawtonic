@@ -289,7 +289,7 @@ it("restores AI bitmaps under ids of their own, also while the renderer is still
   expect(restored.aiPatches[0].patchData).toMatchObject({ color: "c" });
 });
 
-it("is open from the start and compares a snapshot with the current edit in Before/After", async () => {
+it("is folded at first and compares a snapshot with the current edit in Before/After", async () => {
   const crop = { x: 1, y: 2, width: 30, height: 20 };
   const framed = (exposure: number) => ({ ...recipe(exposure), crop }) as Adjustments;
   kept[PHOTO] = [
@@ -300,7 +300,8 @@ it("is open from the start and compares a snapshot with the current edit in Befo
   useEditorStore.setState({ adjustments: framed(0.5) });
   render(<StudioSnapshots />);
   await screen.findByText("Bright");
-  expect(document.querySelector<HTMLDetailsElement>('[data-tool-title="Snapshots"]')!.open).toBe(true);
+  // Folded, so the dock leaves the column to the tools on a laptop screen.
+  expect(document.querySelector<HTMLDetailsElement>('[data-tool-title="Snapshots"]')!.open).toBe(false);
   // One framed otherwise cannot be the before beside the edit.
   const uncropped = screen.getByRole("button", { name: "Compare Uncropped with the current edit (Before/After's before)" });
   expect(uncropped).toHaveProperty("disabled", true);

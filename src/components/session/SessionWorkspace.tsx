@@ -900,7 +900,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   }, [mark, session]);
 
   // The File and Photo menus' commands (useAppMenu) run what the identity
-  // menu, the Import button and P/U/⇧X run; the latest closures, by ref.
+  // menu, the Import button and P/U/X run; the latest closures, by ref.
   const menuCommands = useRef({
     flag: (_flag: number) => {},
     newSession: () => {},
@@ -914,7 +914,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   menuCommands.current = {
     flag: (flag: number) => {
       void mark(flag);
-      if (viewerShown(useUIStore.getState())) requestAutoAdvance(useEditorStore.getState().selectedImage?.path);
+      const ui = useUIStore.getState();
+      requestAutoAdvance(viewerShown(ui) ? useEditorStore.getState().selectedImage?.path : useLibraryStore.getState().libraryActivePath ?? undefined);
     },
     newSession: () => {
       setImportAfterCreate(false);
