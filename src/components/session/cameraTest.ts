@@ -145,6 +145,9 @@ const STEP_NAMES: Record<StepId, string> = {
   release: "Transfer queue freed after commit",
 };
 
+/** Steps whose photos are matched to shots (`buildReport`'s "not certain"). */
+const PHOTO_STEPS: StepId[] = ["shots", "burst", "bodyShot", "replug"];
+
 const timings = (name: string, values: number[] | undefined) => {
   if (!values?.length) return null;
   return `${name} median ${median(values)} ms, p95 ${percentile(values, 95)} ms (n=${values.length})`;
@@ -202,10 +205,21 @@ export const buildReport = (info: ReportInfo, results: Partial<Record<StepId, St
   ];
   for (const id of STEPS) {
     const result = results[id];
-    const state = result ? { passed: "pass", failed: "FAIL", skipped: "skipped", inconclusive: "inconclusive" }[result.state] : "not run";
+    const state = result
+      ? info.experimental && result.state === "passed" && PHOTO_STEPS.includes(id)
+        ? "pass (not certain)"
+        : { passed: "pass", failed: "FAIL", skipped: "skipped", inconclusive: "inconclusive" }[result.state]
+      : "not run";
     const measured = result ? describe(result).replace(/\|/g, "/") : "";
     lines.push(`| ${STEP_NAMES[id]} | ${state} | ${measured} |`);
   }
+  if (info.experimental)
+    lines.push(
+      "",
+      "Not certain: on the experimental path photos are matched to shots in the order they come, and a photo's " +
+        "notice can be lost; a photo taken on the camera meanwhile can then stand in for a missing one. Compare the " +
+        "photos on the memory card with the library.",
+    );
   lines.push(
     "",
     "Photo on screen: from the test's shutter request to the first Develop frame of the new photo rendered " +

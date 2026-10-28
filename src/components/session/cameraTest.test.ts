@@ -68,11 +68,19 @@ it("writes an anonymous report with the camera, its firmware, the driver and eve
 });
 
 it("marks a report from an experimental driver path and counts shots not received", () => {
-  const report = buildReport({ ...INFO, model: "Canon EOS R6", experimental: true, failures: 2, notReceived: 1 }, {});
+  const report = buildReport(
+    { ...INFO, model: "Canon EOS R6", experimental: true, failures: 2, notReceived: 1 },
+    { shots: { state: "passed", asked: 5, arrived: 5 }, settings: { state: "passed", settings: 3, changeable: 2 } },
+  );
+  // Photo steps never count as a clean pass there.
+  expect(report).toContain("| Shots from Rawtonic | pass (not certain) | 5/5 in the library |");
+  expect(report).toContain("| Read settings | pass |");
+  expect(report).toContain("Not certain: on the experimental path photos are matched to shots in the order they come");
   expect(report).toContain("- Compatibility list: experimental, testers wanted");
   expect(report).toContain("- Driver path: experimental (Canon EOS");
   expect(report).toContain("- Shots not received (on the memory card if the camera took them): 1");
   expect(buildReport(INFO, {})).not.toContain("Driver path");
+  expect(buildReport(INFO, { shots: { state: "passed", asked: 5, arrived: 5 } })).toContain("| Shots from Rawtonic | pass |");
 });
 
 it("finds a camera's entry by its model name or its maker", () => {

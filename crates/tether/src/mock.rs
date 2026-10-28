@@ -115,6 +115,9 @@ pub struct MockSpec {
     /// (`camera::CANON_DESTINATION`, "4" = the computer), if not what Save
     /// to says (empty: the camera does not tell).
     pub capture_destination: Option<String>,
+    /// A file a line is appended to at every settings or status read (a
+    /// test sees whether the camera was read at all).
+    pub config_reads: Option<std::path::PathBuf>,
     /// ISO's value and choices, if not the default 100 of 100–800 (e.g. a
     /// Sony list: "Auto ISO", numbers, "… Multi Frame Noise Reduction").
     pub iso: Option<(String, Vec<String>)>,
@@ -174,6 +177,7 @@ impl Default for MockSpec {
             experimental: false,
             storages: None,
             capture_destination: None,
+            config_reads: None,
             raw_and_jpeg: false,
             jpeg_late_ms: 0,
             jpeg_from_shot: None,
@@ -516,8 +520,28 @@ impl MockCamera {
     }
 }
 
+impl MockCamera {
+    fn note_config_read(&self) {
+        if let Some(path) = &self.spec.config_reads {
+            use std::io::Write;
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+            {
+                let _ = writeln!(file, "read");
+            }
+        }
+    }
+}
+
 impl Camera for MockCamera {
+    fn experimental(&self) -> bool {
+        self.spec.experimental
+    }
+
     fn status(&mut self) -> CameraStatus {
+        self.note_config_read();
         CameraStatus {
             model: self.spec.model.clone(),
             port: self.spec.port.clone(),
@@ -537,6 +561,7 @@ impl Camera for MockCamera {
     }
 
     fn settings(&mut self) -> Result<Vec<Setting>, TetherError> {
+        self.note_config_read();
         if self.unplugged() {
             return Err(Self::gone());
         }

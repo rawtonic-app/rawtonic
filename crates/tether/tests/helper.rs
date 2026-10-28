@@ -583,12 +583,17 @@ fn canon() -> MockSpec {
 #[test]
 fn an_experimental_camera_is_not_opened_without_the_opt_in() {
     let dir = tempfile::tempdir().unwrap();
+    // Nothing of the camera is read before the refusal (a settings read
+    // prepares an EOS body for capture).
+    let reads = dir.path().join("config-reads");
     let spec = MockSpec {
         body_shots_ms: vec![0],
+        config_reads: Some(reads.clone()),
         ..canon()
     };
     let helper = start(&spec, dir.path());
     let refused = helper.connect().unwrap_err();
+    assert!(!reads.exists(), "the camera was read before the refusal");
     assert_eq!(refused.kind, ErrorKind::Unsupported);
     assert!(
         refused.message.contains("Preferences"),
@@ -749,6 +754,31 @@ fn an_experimental_shot_without_its_photo_is_reported_as_kept_on_the_card() {
         }
         other => panic!("{other:?}"),
     }
+}
+
+/// A known limit, said in the UI and the docs: libgphoto2 gives no exposure
+/// identity, so photos answer the app's shots in order. When an app shot's
+/// report is lost and a photo taken on the body arrives before its timeout,
+/// that photo is taken as the app shot's and no "not received" follows (the
+/// camera test reports such steps as not certain on the experimental path).
+#[test]
+fn an_experimental_lost_shot_is_hidden_by_a_body_photo_arriving_meanwhile() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        lost_shots: vec![1],
+        body_shots_ms: vec![400],
+        ..canon()
+    };
+    let helper = start_with(&spec, dir.path(), 2000);
+    helper.connect_with(true).unwrap();
+    let request = helper.capture();
+    let (photos, _) = helper.photos(1);
+    assert_eq!(photos[0].request, Some(request));
+    std::thread::sleep(Duration::from_millis(2300));
+    assert!(
+        helper.next_event(Duration::from_millis(200)).is_none(),
+        "no shot reported as not received"
+    );
 }
 
 #[test]

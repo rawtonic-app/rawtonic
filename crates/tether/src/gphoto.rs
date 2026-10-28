@@ -741,6 +741,10 @@ impl Camera for GphotoCamera {
         self.one_at_a_time
     }
 
+    fn experimental(&self) -> bool {
+        self.canon
+    }
+
     fn release(&mut self, file: &CameraFile) -> Result<bool, TetherError> {
         // Never on the Canon path: there is no transfer queue, and a delete
         // would reach the photo on the card.

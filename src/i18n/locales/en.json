@@ -1307,7 +1307,7 @@
       "camera": "Camera",
       "canon": {
         "badge": "Experimental",
-        "connectedNote": "Experimental: if a shot does not show up here, it is not lost — it is on the memory card. Keep the card in the camera. Rawtonic tells you when a shot fired from Rawtonic does not arrive; for shots taken with the camera’s own shutter button, check the card.",
+        "connectedNote": "Experimental: if a shot does not show up here, it is not lost — it is on the memory card. Keep the card in the camera. Rawtonic tells you when a shot fired from Rawtonic does not arrive — unless a photo taken on the camera arrives meanwhile and takes its place. After a session, compare the card with the library.",
         "notReceived": "Shot {{n}} was not received. If the camera took it, it is on the memory card.",
         "openPreferences": "Open Tethering preferences",
         "optInNeeded": "Canon cameras have not been tested with Rawtonic yet. To try yours and help test it, turn on “Experimental: Canon cameras” in Preferences > Tethering."

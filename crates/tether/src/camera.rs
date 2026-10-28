@@ -96,6 +96,13 @@ pub trait Camera {
     fn one_shot_at_a_time(&self) -> bool {
         false
     }
+    /// Whether the camera is driven on a path no body was tested on yet
+    /// (libgphoto2's Canon EOS path), as the driver knows it from opening
+    /// the camera — without reading its settings: on that path a settings
+    /// read already prepares the camera for capture.
+    fn experimental(&self) -> bool {
+        false
+    }
     /// Test hook: whether the helper should stop dead at `point` while
     /// handling the camera's `shot`-th file (1-based). Only the mock says yes.
     fn abort_at(&self, _point: AbortPoint, _shot: u64) -> bool {

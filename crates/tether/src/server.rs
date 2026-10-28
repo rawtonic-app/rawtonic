@@ -366,6 +366,12 @@ impl<W: Write> Server<W> {
                 }
                 self.open = None;
                 let mut camera = self.driver.open(port.as_deref())?;
+                // Before any read of the camera: on libgphoto2's Canon path a
+                // settings read already prepares it for capture (and may
+                // apply a capture target), which the opt-in must precede.
+                if camera.experimental() && !experimental {
+                    return Err(TetherError::new(ErrorKind::Unsupported, EXPERIMENTAL_OFF));
+                }
                 let status = camera.status();
                 if serial.is_some() && status.serial != serial {
                     // Closed (dropped) before any event or download.
@@ -379,10 +385,7 @@ impl<W: Write> Server<W> {
                 // photo kept on the memory card: its trigger can discard a
                 // photo's report, and the card copy is then the only one.
                 // notes: reference/tether.md
-                if status.experimental {
-                    if !experimental {
-                        return Err(TetherError::new(ErrorKind::Unsupported, EXPERIMENTAL_OFF));
-                    }
+                if camera.experimental() {
                     if !camera.prefer_card() {
                         return Err(TetherError::new(
                             ErrorKind::Unsupported,
@@ -427,6 +430,7 @@ impl<W: Write> Server<W> {
                 };
                 // Save to may have changed since the first look.
                 let status = camera.status();
+                let on_experimental_path = camera.experimental();
                 self.connections += 1;
                 log::info!(
                     "connection {}: {} (firmware {})",
@@ -448,7 +452,7 @@ impl<W: Write> Server<W> {
                     exposures_by_stem: Default::default(),
                     exposures: 0,
                     memory_only: false,
-                    experimental: status.experimental,
+                    experimental: on_experimental_path,
                     connection: self.connections,
                     held: false,
                     transferring: false,
