@@ -154,7 +154,7 @@ describe("Dropping photographs onto the window", () => {
     const picker = await screen.findByLabelText("Metadata preset");
     expect((picker as HTMLSelectElement).value).toBe("");
     await user.selectOptions(picker, "rights");
-    await user.click(screen.getByRole("button", { name: "Copy 2 photographs" }));
+    await user.click(screen.getByRole("button", { name: "Copy 2 photos" }));
     await waitFor(() => expect(ingestCall()).toBeTruthy());
     expect(ingestCall()![1]).toMatchObject({ metadata: { creator: "Photographer", copyright: "© {year}", keywords: ["harbour"], includeCreatorContact: false, overwrite: [] } });
   });
@@ -172,7 +172,7 @@ describe("Dropping photographs onto the window", () => {
     expect(ingestCall()).toBeUndefined();
     expect(screen.getByRole("checkbox", { name: "B.ARW" }).getAttribute("aria-checked")).toBe("false");
     await user.click(screen.getByRole("checkbox", { name: "C.ARW" }));
-    await user.click(screen.getByRole("button", { name: "Copy 1 photograph" }));
+    await user.click(screen.getByRole("button", { name: "Copy 1 photo" }));
     await waitFor(() => expect(ingestCall()).toBeTruthy());
     expect(ingestCall()![1]).toMatchObject({
       directory: "/jobs/Acme",
@@ -219,7 +219,7 @@ describe("Dropping photographs onto the window", () => {
     drop(["/Volumes/CARD/DCIM/A.ARW"], row);
     const label = await screen.findByLabelText("Add to album “Client picks” after import");
     expect((label as HTMLInputElement).checked).toBe(true);
-    await user.click(screen.getByRole("button", { name: "Copy 2 photographs" }));
+    await user.click(screen.getByRole("button", { name: "Copy 2 photos" }));
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith("session_album_add", {
         directory: "/jobs/Acme",
@@ -260,7 +260,7 @@ describe("Dropping photographs onto the window", () => {
     drop(["/Volumes/CARD/DCIM"], row);
     const separate = await screen.findByLabelText("Import JPEGs next to RAW files as separate photos");
     expect((separate as HTMLInputElement).checked).toBe(false);
-    await user.click(screen.getByRole("button", { name: "Copy 3 photographs" }));
+    await user.click(screen.getByRole("button", { name: "Copy 3 photos" }));
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith("session_album_add", {
         directory: "/jobs/Acme",
@@ -357,7 +357,7 @@ describe("Dropping photographs onto the window", () => {
     drop(["/Volumes/CARD/DCIM"], row);
     await screen.findByRole("button", { name: "Use Capture instead" });
     expect(screen.getAllByText("Acme / Selects").length).toBeGreaterThan(0);
-    await user.click(screen.getByRole("button", { name: "Copy 2 photographs" }));
+    await user.click(screen.getByRole("button", { name: "Copy 2 photos" }));
     await waitFor(() => expect(ingestCall()).toBeTruthy());
     expect(ingestCall()![1]).toMatchObject({ folder: "/jobs/Acme/Selects" });
     expect(navigate).toHaveBeenLastCalledWith("/jobs/Acme/Selects");
@@ -372,7 +372,7 @@ describe("Dropping photographs onto the window", () => {
     drop(["/Volumes/CARD/DCIM"], row);
     await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(3));
     expect(screen.queryByRole("button", { name: "Use Capture instead" })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Copy 2 photographs" }));
+    await user.click(screen.getByRole("button", { name: "Copy 2 photos" }));
     await waitFor(() => expect(ingestCall()).toBeTruthy());
     expect(ingestCall()![1]).toMatchObject({ folder: null });
   });
@@ -388,7 +388,7 @@ describe("Dropping photographs onto the window", () => {
     // A.ARW was listed already: it stays unchecked; the new D.ARW is checked.
     expect(screen.getByRole("checkbox", { name: "A.ARW" }).getAttribute("aria-checked")).toBe("false");
     expect(screen.getByRole("checkbox", { name: "D.ARW" }).getAttribute("aria-checked")).toBe("true");
-    await user.click(screen.getByRole("button", { name: "Copy 2 photographs" }));
+    await user.click(screen.getByRole("button", { name: "Copy 2 photos" }));
     await waitFor(() => expect(ingestCall()).toBeTruthy());
     expect(ingestCall()![1]).toMatchObject({ sources: ["/Volumes/CARD/DCIM/C.ARW", "/Volumes/CARD2/D.ARW"] });
   });
@@ -416,7 +416,7 @@ describe("Dropping photographs onto the window", () => {
     drop(["/Volumes/CARD/DCIM"], row);
     await screen.findByText("/Volumes/Shoots/2026/Day 2");
     expect(screen.getByText("On the drive “Shoots”")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Copy 2 photographs" }));
+    await user.click(screen.getByRole("button", { name: "Copy 2 photos" }));
     await waitFor(() => expect(ingestCall()).toBeTruthy());
     expect(ingestCall()![1]).toMatchObject({ folder: "/Volumes/Shoots/2026/Day 2" });
   });
@@ -430,7 +430,7 @@ describe("Dropping photographs onto the window", () => {
     expect(screen.getAllByText("Acme / Selects").length).toBeGreaterThan(0);
     expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
     expect(invoke).not.toHaveBeenCalledWith("session_ingest_scan", expect.anything());
-    expect(screen.getByText(/Drop photographs or folders here/)).toBeTruthy();
+    expect(screen.getByText(/Drop photos or folders here/)).toBeTruthy();
   });
 
   it("does not open the ingest dialog over Synchronize Folder", async () => {
@@ -452,7 +452,7 @@ describe("Dropping photographs onto the window", () => {
     drop(["/Volumes/CARD/DCIM"]);
     await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(3));
     hold = true;
-    await user.click(screen.getByRole("button", { name: "Copy 2 photographs" }));
+    await user.click(screen.getByRole("button", { name: "Copy 2 photos" }));
     const cancel = await waitFor(() => {
       const button = document.querySelector<HTMLButtonElement>(".session-progress button");
       expect(button).not.toBeNull();
@@ -524,7 +524,7 @@ describe("Copy or add where they are (catalogs)", () => {
     expect(screen.getByText(/stay where they are/)).toBeTruthy();
     // No naming or second copy for photographs that stay where they are.
     expect(screen.queryByText("Second copy")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Add 2 photographs" }));
+    await user.click(screen.getByRole("button", { name: "Add 2 photos" }));
     await waitFor(() => expect(ingestCall()).toBeTruthy());
     expect(ingestCall()![1]).toMatchObject({ mode: "add", folder: null, sources: onDrive.map((f) => f.path) });
     expect(navigate).toHaveBeenLastCalledWith("/Volumes/Archive/2026");
@@ -538,7 +538,7 @@ describe("Copy or add where they are (catalogs)", () => {
     expect(radio(/Copy to/).checked).toBe(true);
     expect(radio(/Add where they are/).disabled).toBe(true);
     expect(screen.getAllByText(/must be copied off it/).length).toBeGreaterThan(0);
-    await user.click(screen.getByRole("button", { name: "Copy 1 photograph" }));
+    await user.click(screen.getByRole("button", { name: "Copy 1 photo" }));
     await waitFor(() => expect(ingestCall()).toBeTruthy());
     expect(ingestCall()![1]).toMatchObject({ mode: "copy" });
   });
@@ -583,6 +583,6 @@ describe("Copy or add where they are (catalogs)", () => {
     drop(["/Volumes/Archive/2026"]);
     await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(2));
     expect(screen.queryAllByRole("radio")).toHaveLength(0);
-    expect(screen.getByRole("button", { name: "Copy 2 photographs" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy 2 photos" })).toBeTruthy();
   });
 });

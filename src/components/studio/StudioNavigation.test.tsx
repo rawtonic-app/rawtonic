@@ -328,7 +328,7 @@ describe("offline photographs in the Folders tool", () => {
     const missing = screen.getByText("Day 2").closest("button")!;
     expect(missing.textContent).toContain("?2");
     expect(missing.getAttribute("title")).toBe(
-      "/job/Day 2 is missing (renamed, moved or deleted). Its photographs keep their edits; right-click one › Locate Folder…",
+      "/job/Day 2 is missing (renamed, moved or deleted). Its photos keep their edits; right-click one › Locate Folder…",
     );
     expect(missing.closest(".studio-folder")!.className).toContain("is-offline");
     fireEvent.click(missing);
