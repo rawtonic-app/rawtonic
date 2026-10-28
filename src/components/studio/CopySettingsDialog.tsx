@@ -149,6 +149,7 @@ function CopySettingsDialog({ request }: { request: PickerRequest }) {
         <div className="studio-copy-settings-quick">
           <button
             type="button"
+            className="studio-button"
             onClick={() => {
               setGroups(new Set(SETTINGS_GROUPS.map((g) => g.label)));
               setLayerIds(new Set(layers.map((layer) => layer.id)));
@@ -156,11 +157,16 @@ function CopySettingsDialog({ request }: { request: PickerRequest }) {
           >
             {t("studio.copySettings.all")}
           </button>
-          <button type="button" onClick={() => (setGroups(new Set()), setLayerIds(new Set()), setResponses(false))}>
+          <button
+            type="button"
+            className="studio-button"
+            onClick={() => (setGroups(new Set()), setLayerIds(new Set()), setResponses(false))}
+          >
             {t("studio.copySettings.none")}
           </button>
           <button
             type="button"
+            className="studio-button"
             title={t("studio.copySettings.modifiedTitle")}
             onClick={() => {
               setGroups(new Set(modified));
@@ -245,8 +251,10 @@ function CopySettingsDialog({ request }: { request: PickerRequest }) {
         </div>
         <p className="studio-help">{t("studio.copySettings.rules")}</p>
         <footer>
-          <button onClick={close}>{t("studio.copySettings.cancel")}</button>
-          <button className="is-primary" disabled={nothing} onClick={choose}>
+          <button className="studio-button" onClick={close}>
+            {t("studio.copySettings.cancel")}
+          </button>
+          <button className="studio-button is-primary" disabled={nothing} onClick={choose}>
             {request.mode === "copy"
               ? t("studio.copySettings.copy")
               : t("studio.copySettings.sync", { n: request.targets.length })}

@@ -4324,6 +4324,7 @@
     "download": "Transferir",
     "failed": "Não foi possível verificar as atualizações. Tente novamente mais tarde.",
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "manual": "Procurar atualizações",
     "noFile": "Esta versão não tem transferência para este computador; a página da versão lista todos os ficheiros.",
     "noNotes": "Sem notas de versão. A página da versão pode ter mais.",
     "notesTitle": "Novidades do Rawtonic {{version}}",

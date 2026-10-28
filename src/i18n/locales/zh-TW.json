@@ -4125,6 +4125,7 @@
     "download": "下載",
     "failed": "無法檢查更新。請稍後再試。",
     "fileWithSize": "{{file}}（{{size}} MB）",
+    "manual": "檢查更新",
     "noFile": "此版本沒有適用於這台電腦的下載；發布頁面列出了所有檔案。",
     "noNotes": "沒有發布說明。發布頁面可能有更多資訊。",
     "notesTitle": "Rawtonic {{version}} 的新功能",

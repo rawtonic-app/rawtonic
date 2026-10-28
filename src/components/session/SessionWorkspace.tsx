@@ -25,8 +25,6 @@ import {
   ChevronDown,
   Database,
   FolderOpen,
-  FileWarning,
-  RefreshCw,
   FolderPlus,
   FolderSync,
   FolderPlus as FolderAdd,
@@ -886,10 +884,6 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     (center: HTMLDivElement | null) => useSessionBar.getState().set({ center }),
     [],
   );
-  const setLibrarySlot = useCallback(
-    (library: HTMLDivElement | null) => useSessionBar.getState().set({ library }),
-    [],
-  );
   const setEndSlot = useCallback(
     (end: HTMLDivElement | null) => useSessionBar.getState().set({ end }),
     [],
@@ -1384,7 +1378,6 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 <span className="session-count-offline" role="img"
                   aria-label={t("offline.sessionCount", { count: session.missing })}
                   title={t("offline.sessionCountTitle")}>
-                  <FileWarning className="session-count-status-icon" size={13} aria-hidden />
                   <span className="session-count-status-text" aria-hidden>{` · ${t("offline.sessionCount", { count: session.missing })}`}</span>
                 </span>
               )}
@@ -1392,7 +1385,6 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 <span className="session-count-pending" role="img"
                   aria-label={t("session.bar.xmpPending", { count: session.xmp_pending })}
                   title={t("session.bar.xmpPendingTitle")}>
-                  <RefreshCw className="session-count-status-icon" size={13} aria-hidden />
                   <span className="session-count-status-text" aria-hidden>{` · ${t("session.bar.xmpPending", { count: session.xmp_pending })}`}</span>
                 </span>
               )}
@@ -1403,7 +1395,6 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           className="session-bar-center"
           ref={setCenterSlot}
         />
-        <div className="session-library-slot" ref={setLibrarySlot} />
         <div className="session-bar-end" data-tauri-drag-region={nativeTitlebar || undefined}>
           <button
             className="session-action"

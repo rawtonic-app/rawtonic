@@ -9,18 +9,13 @@ import {
   SlidersHorizontal,
   Keyboard,
   Bookmark,
-  Scaling,
-  Image as ImageIcon,
   Images,
-  Mouse,
-  Touchpad,
   HardDrive,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
-import clsx from 'clsx';
 import Button from '../ui/Button';
 import ConfirmModal from '../modals/ConfirmModal';
 import Dropdown, { OptionItem } from '../ui/Dropdown';
@@ -266,103 +261,30 @@ const DataActionItem = ({
   );
 };
 
-interface CanvasInputModeSwitchProps {
-  mode: 'mouse' | 'trackpad';
-  onModeChange: (mode: 'mouse' | 'trackpad') => void;
-}
-
-const CanvasInputModeSwitch = ({ mode, onModeChange }: CanvasInputModeSwitchProps) => {
-  const { t } = useTranslation();
-
-  const canvasInputModes = useMemo(
-    () => [
-      { id: 'mouse', label: t('settings.controls.modes.mouse'), icon: Mouse },
-      { id: 'trackpad', label: t('settings.controls.modes.trackpad'), icon: Touchpad },
-    ],
-    [t],
-  );
-
+/** A two-way choice in a preference row, as the studio's segmented control
+ * (Develop tools Left | Right). */
+function PrefSegments<T extends string>({ label, onChange, options, value }: {
+  label: string;
+  onChange(value: T): void;
+  options: { label: string; value: T }[];
+  value: T;
+}) {
   return (
-    <div className="relative flex w-full p-1 bg-bg-primary rounded-md border border-border-color">
-      {canvasInputModes.map((item) => (
+    <div className="studio-segments pref-segments" role="radiogroup" aria-label={label}>
+      {options.map((option) => (
         <button
-          key={item.id}
-          onClick={() => onModeChange(item.id as 'mouse' | 'trackpad')}
-          className={clsx(
-            'relative flex-1 flex items-center justify-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
-            {
-              'text-text-primary hover:bg-surface': mode !== item.id,
-              'text-button-text': mode === item.id,
-            },
-          )}
-          style={{ WebkitTapHighlightColor: 'transparent' }}
+          key={option.value}
+          type="button"
+          role="radio"
+          aria-checked={value === option.value}
+          onClick={() => onChange(option.value)}
         >
-          {mode === item.id && (
-            <motion.span
-              layoutId="canvas-input-mode-switch-bubble"
-              className="absolute inset-0 z-0 bg-accent"
-              style={{ borderRadius: 6 }}
-              transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
-            />
-          )}
-          <span className="relative z-10 flex items-center">
-            <item.icon size={16} className="mr-2" />
-            {item.label}
-          </span>
+          {option.label}
         </button>
       ))}
     </div>
   );
-};
-
-interface PreviewModeSwitchProps {
-  mode: 'static' | 'dynamic';
-  onModeChange: (mode: 'static' | 'dynamic') => void;
 }
-
-const PreviewModeSwitch = ({ mode, onModeChange }: PreviewModeSwitchProps) => {
-  const { t } = useTranslation();
-
-  const previewModes = useMemo(
-    () => [
-      { id: 'static', label: t('settings.processing.modes.static'), icon: ImageIcon },
-      { id: 'dynamic', label: t('settings.processing.modes.dynamic'), icon: Scaling },
-    ],
-    [t],
-  );
-
-  return (
-    <div className="relative flex w-full p-1 bg-bg-primary rounded-md border border-border-color">
-      {previewModes.map((item) => (
-        <button
-          key={item.id}
-          onClick={() => onModeChange(item.id as 'static' | 'dynamic')}
-          className={clsx(
-            'relative flex-1 flex items-center justify-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
-            {
-              'text-text-primary hover:bg-surface': mode !== item.id,
-              'text-button-text': mode === item.id,
-            },
-          )}
-          style={{ WebkitTapHighlightColor: 'transparent' }}
-        >
-          {mode === item.id && (
-            <motion.span
-              layoutId="preview-mode-switch-bubble"
-              className="absolute inset-0 z-0 bg-accent"
-              style={{ borderRadius: 6 }}
-              transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
-            />
-          )}
-          <span className="relative z-10 flex items-center">
-            <item.icon size={16} className="mr-2" />
-            {item.label}
-          </span>
-        </button>
-      ))}
-    </div>
-  );
-};
 
 export default function SettingsPanel({
   appSettings,
@@ -1354,13 +1276,17 @@ export default function SettingsPanel({
                     </Text>
                     <div className="space-y-8">
                       <div>
-                        <Text variant={TextVariants.heading} className="mb-2">
-                          {t('settings.processing.previewStrategy')}
-                        </Text>
-                        <PreviewModeSwitch
-                          mode={appSettings?.enableZoomHifi ? 'dynamic' : 'static'}
-                          onModeChange={handlePreviewModeChange}
-                        />
+                        <SettingItem label={t('settings.processing.previewStrategy')}>
+                          <PrefSegments
+                            label={t('settings.processing.previewStrategy')}
+                            options={[
+                              { value: 'static', label: t('settings.processing.modes.static') },
+                              { value: 'dynamic', label: t('settings.processing.modes.dynamic') },
+                            ]}
+                            value={appSettings?.enableZoomHifi ? 'dynamic' : 'static'}
+                            onChange={handlePreviewModeChange}
+                          />
+                        </SettingItem>
 
                         <div className="mt-3">
                           <AnimatePresence mode="wait">
@@ -1895,18 +1821,20 @@ export default function SettingsPanel({
                       {t('settings.controls.title')}
                     </Text>
                     <div className="space-y-8">
-                      <div>
-                        <Text variant={TextVariants.heading} className="mb-2">
-                          {t('settings.controls.optimization')}
-                        </Text>
-                        <Text variant={TextVariants.small} className="mb-4">
-                          {t('settings.controls.optimizationDesc')}
-                        </Text>
-                        <CanvasInputModeSwitch
-                          mode={(appSettings?.canvasInputMode as 'mouse' | 'trackpad') || 'mouse'}
-                          onModeChange={(value) => onSettingsChange({ ...appSettings, canvasInputMode: value })}
+                      <SettingItem
+                        label={t('settings.controls.optimization')}
+                        description={t('settings.controls.optimizationDesc')}
+                      >
+                        <PrefSegments
+                          label={t('settings.controls.optimization')}
+                          options={[
+                            { value: 'mouse', label: t('settings.controls.modes.mouse') },
+                            { value: 'trackpad', label: t('settings.controls.modes.trackpad') },
+                          ]}
+                          value={(appSettings?.canvasInputMode as 'mouse' | 'trackpad') || 'mouse'}
+                          onChange={(value) => onSettingsChange({ ...appSettings, canvasInputMode: value })}
                         />
-                      </div>
+                      </SettingItem>
 
                       <SettingItem label={t('settings.controls.zoom')} description={t('settings.controls.zoomDesc')}>
                         <Slider
