@@ -138,3 +138,20 @@ fn an_offline_photograph_is_not_tried() {
     assert_eq!(retry.unsaved[0].problem, XmpProblem::Offline);
     assert!(!paths[0].with_extension("xmp").exists());
 }
+
+#[test]
+fn a_folder_with_the_sidecar_s_name_is_reported_until_it_is_gone() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, paths) = session(d.path(), &["A.ARW"]);
+    let sidecar = paths[0].with_extension("xmp");
+    fs::create_dir(&sidecar).unwrap();
+    let mut meta = lib.metadata(&ids[0]).unwrap();
+    meta.rating = 2;
+    lib.set_metadata(&ids[0], &meta).unwrap();
+    let retry = lib.write_pending_xmp().unwrap();
+    assert_eq!(retry.unsaved[0].problem, XmpProblem::ChangedElsewhere);
+    assert!(sidecar.is_dir());
+    fs::remove_dir(&sidecar).unwrap();
+    assert_eq!(lib.write_pending_xmp().unwrap().written, 1);
+    assert_eq!(lib.summary().unwrap().xmp_pending, 0);
+}

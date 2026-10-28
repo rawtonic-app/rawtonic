@@ -83,9 +83,14 @@ impl Library {
         Ok(retry)
     }
 
-    /// Whether a sidecar is there that the library did not write or read last.
+    /// Whether a sidecar is there that the library did not write or read last
+    /// (or something else that is not a file has its name).
     fn sidecar_changed_elsewhere(&self, id: &str, path: &std::path::Path) -> Result<bool> {
-        let Ok(bytes) = std::fs::read(path.with_extension("xmp")) else {
+        let sidecar = path.with_extension("xmp");
+        if sidecar.exists() && !sidecar.is_file() {
+            return Ok(true);
+        }
+        let Ok(bytes) = std::fs::read(sidecar) else {
             return Ok(false);
         };
         let hash: Option<String> = self.conn.query_row(
