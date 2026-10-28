@@ -1700,7 +1700,10 @@
   flex-shrink: 0;
 }
 .studio-photo-copy {
-  color: #8b9097;
+  color: var(--studio-muted);
+}
+.studio-photo.is-selected .studio-photo-copy {
+  color: #c8cbcf;
 }
 .studio-photo-rating {
   display: flex;
@@ -3807,7 +3810,7 @@ body.is-dragging.is-drop-refused * {
   font-size: 9px;
   min-height: 14px;
   padding: 0 4px;
-  color: #8e939a;
+  color: var(--studio-muted);
   border: 1px solid transparent;
   border-radius: 2px;
   background: transparent;
@@ -4957,7 +4960,7 @@ img.relight-pattern-preview { object-fit: cover; }
   display: grid;
   place-items: center;
   padding: 2px;
-  color: #7c848d;
+  color: var(--studio-muted);
   background: none;
   border: none;
 }
