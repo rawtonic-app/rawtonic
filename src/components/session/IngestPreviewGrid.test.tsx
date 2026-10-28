@@ -49,7 +49,7 @@ describe("Ingest preview grid", () => {
     expect(tiles).toHaveLength(3);
     expect(tiles.map((tile) => tile.getAttribute("aria-checked"))).toEqual(["true", "false", "true"]);
     expect(screen.getByText("In library")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toContain("2 of 3 photographs selected · 50.0 MB · 1 already in the library");
+    expect(screen.getByRole("status").textContent).toContain("2 of 3 photos selected · 50.0 MB · 1 already in the library");
     await waitFor(() => expect(document.querySelectorAll("img")).toHaveLength(3));
     expect(document.querySelector("img")?.getAttribute("src")).toMatch(/^blob:/);
   });
@@ -59,7 +59,7 @@ describe("Ingest preview grid", () => {
     const onChange = vi.fn();
     render(<Harness list={files(5, [4])} load={async () => null} onChange={onChange} />);
     await user.click(screen.getByRole("button", { name: "Select none" }));
-    expect(screen.getByRole("status").textContent).toContain("0 of 5 photographs selected");
+    expect(screen.getByRole("status").textContent).toContain("0 of 5 photos selected");
     await user.click(screen.getByRole("checkbox", { name: "DSC00001.ARW" }));
     await user.keyboard("{Shift>}");
     await user.click(screen.getByRole("checkbox", { name: "DSC00003.ARW" }));
@@ -71,11 +71,11 @@ describe("Ingest preview grid", () => {
       "true",
       "false",
     ]);
-    expect(screen.getByRole("status").textContent).toContain("3 of 5 photographs selected · 75.0 MB");
+    expect(screen.getByRole("status").textContent).toContain("3 of 5 photos selected · 75.0 MB");
     await user.click(screen.getByRole("checkbox", { name: "DSC00002.ARW" }));
     expect(screen.getByRole("checkbox", { name: "DSC00002.ARW" }).getAttribute("aria-checked")).toBe("false");
     await user.click(screen.getByRole("button", { name: "Select all" }));
-    expect(screen.getByRole("status").textContent).toContain("5 of 5 photographs selected · 125 MB");
+    expect(screen.getByRole("status").textContent).toContain("5 of 5 photos selected · 125 MB");
     expect([...onChange.mock.calls.at(-1)![0]]).toHaveLength(5);
   });
 
@@ -86,7 +86,7 @@ describe("Ingest preview grid", () => {
     expect(drawn).toBeGreaterThan(0);
     expect(drawn).toBeLessThan(60);
     await waitFor(() => expect(load).toHaveBeenCalledTimes(drawn));
-    expect(screen.getByRole("status").textContent).toContain("600 of 600 photographs selected · 15.0 GB");
+    expect(screen.getByRole("status").textContent).toContain("600 of 600 photos selected · 15.0 GB");
   });
 });
 

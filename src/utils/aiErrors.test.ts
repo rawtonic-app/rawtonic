@@ -28,9 +28,7 @@ describe('AI errors', () => {
     expect(isAiRuntimeError(runtimeError)).toBe(true);
     expect(isAiRuntimeError(new Error(runtimeError))).toBe(true);
     expect(isAiRuntimeError('Task cancelled')).toBe(false);
-    expect(aiErrorMessage(runtimeError)).toBe(
-      'The AI runtime could not be loaded, so AI tools are unavailable. Everything else works as usual.',
-    );
+    expect(aiErrorMessage(runtimeError)).toMatch(/reinstall Rawtonic.*report a problem/i);
     void i18n.changeLanguage('de');
     expect(aiErrorMessage(runtimeError)).toMatch(/^Die KI-Laufzeitumgebung/);
     // Other errors keep the tool's own text.

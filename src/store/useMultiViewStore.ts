@@ -24,6 +24,8 @@ interface MultiViewState {
   /** Show several selected photographs side by side in Develop (N);
    * remembered. With one photograph selected Develop shows it alone. */
   enabled: boolean;
+  /** Library survey is temporary; opening the loupe normally stays single. */
+  libraryEnabled: boolean;
   /** Whether the multi view is on screen now (enabled, Develop, more than
    * one photograph shown). */
   active: boolean;
@@ -51,6 +53,7 @@ interface MultiViewState {
    * primary; set by the multi view while the zoom lock is off. */
   zoomHoveredCell: ((kind: CellZoomKey) => boolean) | null;
   setEnabled(enabled: boolean): void;
+  setLibraryEnabled(enabled: boolean): void;
   toggle(): void;
   setActive(active: boolean): void;
   setEditAll(editAll: boolean): void;
@@ -70,6 +73,7 @@ export type CellZoomKey = 'in' | 'out' | 'stepIn' | 'stepOut' | 'cycle' | 'fit' 
 
 export const useMultiViewStore = create<MultiViewState>((set, get) => ({
   enabled: stored(ENABLED_KEY),
+  libraryEnabled: false,
   active: false,
   editAll: false,
   unavailable: false,
@@ -84,6 +88,7 @@ export const useMultiViewStore = create<MultiViewState>((set, get) => ({
     set({ enabled });
   },
   toggle: () => get().setEnabled(!get().enabled),
+  setLibraryEnabled: (libraryEnabled) => set({ libraryEnabled }),
   setActive: (active) => set(active ? { active } : { active, editAll: false, cellZooms: {} }),
   setEditAll: (editAll) => set({ editAll }),
   setUnavailable: (unavailable) => set({ unavailable }),

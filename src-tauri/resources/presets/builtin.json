@@ -338,7 +338,7 @@
     {
       "id": "muted-colour",
       "version": 1,
-      "name": "Muted colour",
+      "name": "Muted color",
       "presetType": "style",
       "adjustments": {
         "saturation": -25,
@@ -349,7 +349,7 @@
     {
       "id": "crisp-colour",
       "version": 1,
-      "name": "Crisp colour",
+      "name": "Crisp color",
       "presetType": "style",
       "adjustments": {
         "contrast": 15,
@@ -387,7 +387,7 @@
     {
       "id": "grain-colour-400",
       "version": 1,
-      "name": "Colour negative 400",
+      "name": "Color negative 400",
       "presetType": "tool",
       "adjustments": {
         "grainAmount": 72,
@@ -400,7 +400,7 @@
     {
       "id": "grain-colour-100",
       "version": 1,
-      "name": "Colour negative 100 subtle",
+      "name": "Color negative 100 subtle",
       "presetType": "tool",
       "adjustments": {
         "grainAmount": 45,

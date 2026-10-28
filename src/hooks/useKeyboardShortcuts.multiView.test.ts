@@ -44,6 +44,49 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('multi view keys', () => {
+  it('opens survey from the Library grid on the active selection', () => {
+    useUIStore.setState({ activeView: 'library', libraryLoupe: false });
+    useLibraryStore.setState({ libraryActivePath: '/s/b.CR3', multiSelectedPaths: ['/s/b.CR3', '/s/d.CR3'] });
+    useEditorStore.setState({ selectedImage: null });
+    useMultiViewStore.setState({ enabled: false, libraryEnabled: false, unavailable: false });
+    press('KeyN');
+    expect(props.handleImageSelect).toHaveBeenCalledWith('/s/b.CR3', false);
+    expect(useUIStore.getState().libraryLoupe).toBe(true);
+    expect(useMultiViewStore.getState().libraryEnabled).toBe(true);
+    expect(useMultiViewStore.getState().enabled).toBe(false);
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual(['/s/b.CR3', '/s/d.CR3']);
+  });
+
+  it('N toggles the Library loupe survey without changing the Develop preference', () => {
+    useUIStore.setState({ activeView: 'library', libraryLoupe: true });
+    useLibraryStore.setState({ libraryActivePath: '/s/b.CR3', multiSelectedPaths: ['/s/b.CR3', '/s/d.CR3'] });
+    useEditorStore.setState({ selectedImage: { path: '/s/b.CR3', isReady: true } as never });
+    useMultiViewStore.setState({ enabled: false, libraryEnabled: false, unavailable: false });
+    press('KeyN');
+    expect(useMultiViewStore.getState().libraryEnabled).toBe(true);
+    expect(useMultiViewStore.getState().enabled).toBe(false);
+    press('KeyN');
+    expect(useMultiViewStore.getState().libraryEnabled).toBe(false);
+  });
+
+  it('keeps the selection when auto-advance fires in a Library survey', async () => {
+    const { requestAutoAdvance } = await import('../utils/photoStepping');
+    useSettingsStore.setState({ appSettings: { keybinds: {}, autoAdvance: true } as unknown as AppSettings });
+    useUIStore.setState({ activeView: 'library', libraryLoupe: true });
+    develop('/s/b.CR3', ['/s/b.CR3', '/s/d.CR3'], true);
+    requestAutoAdvance('/s/b.CR3');
+    expect(props.handleImageSelect).not.toHaveBeenCalled();
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual(['/s/b.CR3', '/s/d.CR3']);
+  });
+
+  it('steps within a Library survey without leaving it or clearing the selection', () => {
+    useUIStore.setState({ activeView: 'library', libraryLoupe: true });
+    develop('/s/b.CR3', ['/s/b.CR3', '/s/d.CR3'], true);
+    press('ArrowRight');
+    expect(props.handleImageSelect).toHaveBeenCalledWith('/s/d.CR3', false);
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual(['/s/b.CR3', '/s/d.CR3']);
+  });
+
   it('N switches the multi view on and off (remembered)', () => {
     develop('/s/b.CR3', ['/s/b.CR3', '/s/d.CR3'], true);
     press('KeyN');
