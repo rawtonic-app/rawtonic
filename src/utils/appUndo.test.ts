@@ -9,6 +9,9 @@ import { useUIStore } from "../store/useUIStore";
 import { INITIAL_ADJUSTMENTS } from "./adjustments";
 import {
   catalogAction,
+  recipeAction,
+  registerRecipeWriter,
+  type RecipeValues,
   undo,
   redo,
   canRedo,
@@ -870,4 +873,57 @@ it("an obsolete failure callback cannot invalidate the current Skip action", asy
   } finally {
     currentView.unmount();
   }
+});
+
+it("a batch recipe change (series match) is one undo step for all its photos", async () => {
+  // A backend of recipes: the writer returns what it replaced.
+  const recipes: Record<string, Record<string, unknown>> = {
+    "/a.nef": { exposure: 0.5 },
+    "/b.nef": {},
+    "/c.nef": { exposure: -1, whiteBalance: "auto", wbTemperature: 5000, wbTint: 4 },
+  };
+  const writes: RecipeValues[][] = [];
+  registerRecipeWriter(async (values) => {
+    writes.push(values);
+    return values.map(({ path, values: next }) => {
+      const before = Object.fromEntries(Object.keys(next).map((key) => [key, recipes[path][key] ?? null]));
+      for (const [key, value] of Object.entries(next)) {
+        if (value === null) delete recipes[path][key];
+        else recipes[path][key] = value;
+      }
+      return { path, values: before };
+    });
+  });
+  useUIStore.setState({ activeView: "library" });
+  const original = structuredClone(recipes);
+  const written = await recipeAction([
+    { path: "/a.nef", values: { exposure: 1.2 } },
+    { path: "/b.nef", values: { exposure: 0.4, whiteBalance: "custom", wbTemperature: 3400, wbTint: 6 } },
+    { path: "/c.nef", values: { whiteBalance: "custom", wbTemperature: 4100, wbTint: 2 } },
+  ]);
+  expect(written).toEqual(["/a.nef", "/b.nef", "/c.nef"]);
+  const matched = structuredClone(recipes);
+  expect(getUndoLabel()).toBe("Undo Match Light");
+  await undo();
+  expect(writes).toHaveLength(2);
+  expect(recipes).toEqual(original);
+  expect(canRedo()).toBe(true);
+  await redo();
+  expect(recipes).toEqual(matched);
+});
+
+it("photos not written by a batch recipe change are not part of its undo", async () => {
+  registerRecipeWriter(async (values) =>
+    values.filter(({ path }) => path !== "/b.nef").map(({ path }) => ({ path, values: { exposure: 0 } })),
+  );
+  useUIStore.setState({ activeView: "library" });
+  const written = await recipeAction([
+    { path: "/a.nef", values: { exposure: 1 } },
+    { path: "/b.nef", values: { exposure: 2 } },
+  ]);
+  expect(written).toEqual(["/a.nef"]);
+  const writer = vi.fn(async (values: RecipeValues[]) => values);
+  registerRecipeWriter(writer);
+  await undo();
+  expect(writer).toHaveBeenCalledWith([{ path: "/a.nef", values: { exposure: 0 } }]);
 });

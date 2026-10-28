@@ -47,6 +47,28 @@ describe("spot removal settings", () => {
   });
 });
 
+describe("show removals", () => {
+  it("hides and shows every removal, and only when there are some", () => {
+    render(<StudioSpotControls />);
+    expect(screen.queryByLabelText("spotRemoval.showRemovals")).toBeNull();
+    cleanup();
+    const patch = (id: string, name: string) => ({
+      id, name, isLoading: false, invert: false, visible: true, prompt: "", patchData: null, subMasks: [],
+    });
+    useEditorStore.setState({
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), aiPatches: [patch("a", "Remove"), patch("b", "Other")] },
+    });
+    render(<StudioSpotControls />);
+    const box = screen.getByLabelText("spotRemoval.showRemovals") as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    fireEvent.click(box);
+    const visible = () => useEditorStore.getState().adjustments.aiPatches!.map((p) => p.visible);
+    expect(visible()).toEqual([false, true]);
+    fireEvent.click(screen.getByLabelText("spotRemoval.showRemovals"));
+    expect(visible()).toEqual([true, true]);
+  });
+});
+
 describe("Shift+Q (remove objects)", () => {
   it("is a tools keybind of its own", () => {
     const def = KEYBIND_DEFINITIONS.find((d) => d.action === "remove_objects");

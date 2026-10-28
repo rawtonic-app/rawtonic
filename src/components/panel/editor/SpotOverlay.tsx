@@ -8,7 +8,7 @@ import type { AiPatch, AiPatchData, Spot } from '../../../utils/adjustments';
 import { Invokes } from '../../ui/AppProperties';
 import { Mask, SubMaskMode, ToolType } from '../right/Masks';
 import { useProcessStore } from '../../../store/useProcessStore';
-import { toastAiError } from '../../../utils/aiErrors';
+import { isAiTaskCancelled, toastAiError } from '../../../utils/aiErrors';
 import { toast } from 'react-toastify';
 import { getTransformAdjustments } from '../../../hooks/useAiMasking';
 import { createSubMask } from '../../../utils/maskUtils';
@@ -250,7 +250,9 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
       });
       useEditorStore.getState().setEditor({ activeSpotId: patch.id });
     } catch (error) {
-      console.error('Remove failed:', error);
+      // A cancel is the user's choice, not a failure.
+      if (isAiTaskCancelled(error)) console.info('Remove cancelled');
+      else console.error('Remove failed:', error);
       toastAiError(error, `Remove failed: ${error}`);
     } finally {
       unregisterAiTask(patch.id);
@@ -599,16 +601,31 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
         if (payload.taskId && filling.current.includes(payload.taskId))
           report({ taskId: payload.taskId, done: payload.done, total: payload.total });
       }),
+      listen<{ received: number; total: number; batchReceived?: number; batchTotal?: number }>(
+        'ai-model-download-progress',
+        ({ payload }) => {
+          // A download serves the newest removal waiting for it; a model of
+          // several files reports its progress over all of them.
+          const id = filling.current.at(-1);
+          const received = payload.batchReceived ?? payload.received;
+          const total = payload.batchTotal ?? payload.total;
+          if (id && total > 0) report({ taskId: id, download: Math.min(100, Math.floor((received / total) * 100)) });
+        },
+      ),
+      // Moebius could not be used for a large hole: MI-GAN filled it, and
+      // the user is told why the fill is weaker.
       // The GPU took too long per network run: large holes use the fast
       // method for the rest of the session (inpainting::MOEBIUS_TOO_SLOW).
-      listen<string>('ai-fill-notice', ({ payload }) => {
-        if (payload === 'moebiusTooSlow') toast.info(t('spotRemoval.largeHoleTooSlow'));
-      }),
-      listen<{ received: number; total: number }>('ai-model-download-progress', ({ payload }) => {
-        // A download serves the newest removal waiting for it.
-        const id = filling.current.at(-1);
-        if (id && payload.total > 0)
-          report({ taskId: id, download: Math.floor((payload.received / payload.total) * 100) });
+      listen<{ taskId: string | null; reason: 'download' | 'unavailable' | 'tooSlow' }>('ai-fill-notice', ({ payload }) => {
+        if (payload.reason === 'tooSlow') {
+          toast.info(t('spotRemoval.largeHoleTooSlow'));
+          return;
+        }
+        if (!payload.taskId || !filling.current.includes(payload.taskId)) return;
+        toast.warn(
+          t(payload.reason === 'download' ? 'spotRemoval.fallbackDownload' : 'spotRemoval.fallbackUnavailable'),
+          { toastId: `ai-fill-notice-${payload.reason}` },
+        );
       }),
     ].map((p) => p.catch(() => null));
     return () => unlisten.forEach((p) => p.then((stop) => stop?.()));

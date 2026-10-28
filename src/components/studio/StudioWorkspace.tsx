@@ -105,6 +105,7 @@ import "./studio.css";
 import StudioMetadataFilter from "./StudioMetadataFilter";
 import { SmartAlbumEditorHost } from "./SmartAlbumEditor";
 import { CopySettingsDialogHost } from "./CopySettingsDialog";
+import { SeriesMatchDialogHost } from "./SeriesMatchDialog";
 import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
 import { clearLibrarySelection, focusWorkspaceControl, reselectForDevelop } from "./workspaceInteractions";
 import { registerAppCommands, runAppCommand } from "../../utils/appCommands";
@@ -357,6 +358,8 @@ export default function StudioWorkspace(props: Props) {
     component: string | null;
     spot: boolean;
     faces: boolean;
+    protecting: boolean;
+    protection: boolean;
     relightHandles: boolean;
   } | null>(null);
   // A ⌘/Ctrl held down, followed from the start, so the wheel guard below
@@ -390,6 +393,8 @@ export default function StudioWorkspace(props: Props) {
         component: editor.activeMaskId,
         spot: editor.isSpotToolActive,
         faces: editor.showFaceBlemishes,
+        protecting: editor.faceProtect.painting,
+        protection: editor.showFaceProtection,
         relightHandles: relight.showHandles,
       };
       if (ui.activePanel === Panel.Crop || ui.activePanel === Panel.Masks) ui.setPanel(Panel.Adjustments);
@@ -406,6 +411,8 @@ export default function StudioWorkspace(props: Props) {
         isGuidedPerspectiveActive: false,
         isSpotToolActive: false,
         showFaceBlemishes: false,
+        showFaceProtection: false,
+        faceProtect: { ...editor.faceProtect, painting: false },
       });
       useRelightStore.setState({ showHandles: false });
       // A menu or tool popover opened before offers edits: it closes.
@@ -435,6 +442,8 @@ export default function StudioWorkspace(props: Props) {
       ...(component ? { activeMaskId: component } : {}),
       isSpotToolActive: saved.spot,
       showFaceBlemishes: saved.faces,
+      showFaceProtection: saved.protection,
+      faceProtect: { ...editor.faceProtect, painting: saved.protecting },
     });
   }, [viewOnly, develop]);
   // In the Library a photograph that stops matching the filter (rated
@@ -1144,6 +1153,7 @@ export default function StudioWorkspace(props: Props) {
       {/* Library and Develop both show the Albums tool (it opens the editor). */}
       <SmartAlbumEditorHost />
       <CopySettingsDialogHost />
+      <SeriesMatchDialogHost />
       {sessionBar.center && sessionBar.end ? (
         <>
           {createPortal(modules, sessionBar.center)}

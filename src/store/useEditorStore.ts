@@ -116,6 +116,12 @@ interface EditorState {
   };
   /** The face retouch's blemishes on the photograph (Retouch tab). */
   showFaceBlemishes: boolean;
+  /** The face retouch's protection brush (Retouch tab): painting on the
+   * photograph, erasing, and what new strokes get (`size`: radius in
+   * mask-frame pixels; `feather`: 0–100 % of it). */
+  faceProtect: { painting: boolean; erase: boolean; size: number; feather: number };
+  /** The protected areas shown on the photograph (always while painting). */
+  showFaceProtection: boolean;
   /** Colour editor picker: 'new' adds a range, an id re-samples that range. */
   colorPickerTarget: string | null;
   /** The mask layer the picker edits, or null for the photo. */
@@ -267,6 +273,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   spotVisualize: { on: false, sensitivity: 50 },
   redEyeSettings: { kind: 'red', size: 40, pupilSize: 50, darken: 50, catchlight: true },
   showFaceBlemishes: false,
+  faceProtect: { painting: false, erase: false, size: 30, feather: 50 },
+  showFaceProtection: false,
   colorPickerTarget: null,
   colorPickerLayer: null,
   activeColorRangeId: null,

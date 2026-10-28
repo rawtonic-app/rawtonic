@@ -381,6 +381,19 @@ export interface RetouchFace {
   thumbnail?: string;
 }
 
+/** A stroke of the face retouch's protection brush: the area it covers
+ * keeps its pixels from before the retouch (mask-frame pixels, full
+ * resolution, in the geometry of the faces). */
+export interface FaceProtectStroke {
+  /** The brush centre's path; one point is a dab. */
+  points: { x: number; y: number }[];
+  radius: number;
+  /** Soft edge, 0–100 % of the radius. */
+  feather: number;
+  /** Takes protection away. */
+  erase?: boolean;
+}
+
 export interface FaceRetouch {
   settings: FaceRetouchSettings;
   faces: RetouchFace[];
@@ -389,6 +402,8 @@ export interface FaceRetouch {
   /** The same for the panel: the transform adjustments it analysed with. */
   geometry: string;
   enabled?: boolean;
+  /** The protection brush's strokes, in the order painted (for every face). */
+  protect?: FaceProtectStroke[];
 }
 
 /** Grain structures (shader `grain_structure_noise`, notes: reference/grain.md). */

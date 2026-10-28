@@ -208,6 +208,10 @@ const MOEBIUS_MAX_SECONDS_PER_RUN: f64 = 1.5;
 /// than `MOEBIUS_MAX_SECONDS_PER_RUN`: large holes go to MI-GAN.
 static MOEBIUS_TOO_SLOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Set once Remove has said Moebius cannot run on this computer.
+static MOEBIUS_UNAVAILABLE_SAID: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 /// Moebius fills (running now, started so far). Overlapping removals wait
 /// for each other's network runs (one session per model), so a fill's time
 /// per run counts for `MOEBIUS_TOO_SLOW` only when it ran alone: none was
@@ -300,6 +304,128 @@ fn complete_with_guide(
     out
 }
 
+/// The completion (`filled`) with the guide's shading and colour: below
+/// the guide's own detail (a Gaussian of `sigma` pixels, the size of one of
+/// its pixels; below about 0.75 px, a crop under ~384 px, the guide is at
+/// full resolution and the hole takes it as it is) the hole takes the guide's values, above it the
+/// completion's texture. Where the photo around a large hole has no patch
+/// of the shade the guide asks for (a shadow inside a bowl), the completion
+/// copies the nearest ones (the dark wall behind it) in blocks; that
+/// difference is a few codes in the fill's dim base image but plain after
+/// the develop settings lift it.
+fn keep_guide_shading(
+    mut filled: RgbaImage,
+    guided: &RgbaImage,
+    hole_mask: &image::GrayImage,
+    sigma: f32,
+) -> RgbaImage {
+    let Ok((min_x, max_x, min_y, max_y)) = calculate_mask_bounds(hole_mask) else {
+        return filled;
+    };
+    let (w, h) = hole_mask.dimensions();
+    let reach = (3.0 * sigma).ceil() as usize;
+    let x0 = min_x.saturating_sub(reach);
+    let y0 = min_y.saturating_sub(reach);
+    let x1 = (max_x + reach + 1).min(w as usize);
+    let y1 = (max_y + reach + 1).min(h as usize);
+    let (cw, ch) = (x1 - x0, y1 - y0);
+    // Planes of the hole's weight and of its weighted difference
+    // guide − completion (only hole pixels count, so the photo around it
+    // does not pull the shading).
+    let mut planes = vec![vec![0.0f32; cw * ch]; 4];
+    for y in 0..ch {
+        for x in 0..cw {
+            let (px, py) = ((x0 + x) as u32, (y0 + y) as u32);
+            if hole_mask.get_pixel(px, py)[0] == 0 {
+                continue;
+            }
+            let (g, f) = (guided.get_pixel(px, py).0, filled.get_pixel(px, py).0);
+            let i = y * cw + x;
+            planes[3][i] = 1.0;
+            for c in 0..3 {
+                planes[c][i] = g[c] as f32 - f[c] as f32;
+            }
+        }
+    }
+    {
+        use rayon::prelude::*;
+        planes
+            .par_iter_mut()
+            .for_each(|plane| blur_plane(plane, cw, ch, sigma));
+    }
+    for y in 0..ch {
+        for x in 0..cw {
+            let (px, py) = ((x0 + x) as u32, (y0 + y) as u32);
+            let i = y * cw + x;
+            if hole_mask.get_pixel(px, py)[0] == 0 || planes[3][i] <= 1e-6 {
+                continue;
+            }
+            let p = filled.get_pixel_mut(px, py);
+            for c in 0..3 {
+                let v = p[c] as f32 + planes[c][i] / planes[3][i];
+                p[c] = v.round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+    filled
+}
+
+/// Blurs a `w` × `h` plane by about a Gaussian of `sigma` pixels: three
+/// box passes along rows, then along columns (zero outside).
+fn blur_plane(plane: &mut [f32], w: usize, h: usize, sigma: f32) {
+    // The box radius whose three passes have the Gaussian's variance.
+    let r = (((12.0 * sigma * sigma / 3.0 + 1.0).sqrt() - 1.0) / 2.0).round() as usize;
+    if r == 0 {
+        return;
+    }
+    let mut line = Vec::new();
+    for _ in 0..3 {
+        for row in plane.chunks_mut(w) {
+            box_line(row, r, &mut line);
+        }
+        // Columns: running sums over rows, all columns at once.
+        let mut sums = vec![0.0f32; w];
+        let mut out = vec![0.0f32; w * h];
+        for y in 0..h + r {
+            if y < h {
+                for (s, v) in sums.iter_mut().zip(&plane[y * w..(y + 1) * w]) {
+                    *s += v;
+                }
+            }
+            if y > 2 * r {
+                let gone = y - 2 * r - 1;
+                for (s, v) in sums.iter_mut().zip(&plane[gone * w..(gone + 1) * w]) {
+                    *s -= v;
+                }
+            }
+            if y >= r {
+                let at = y - r;
+                for (o, s) in out[at * w..(at + 1) * w].iter_mut().zip(&sums) {
+                    *o = s / (2 * r + 1) as f32;
+                }
+            }
+        }
+        plane.copy_from_slice(&out);
+    }
+}
+
+/// One box pass of radius `r` along `row` (zero outside); `line` is scratch.
+fn box_line(row: &mut [f32], r: usize, line: &mut Vec<f32>) {
+    line.clear();
+    line.extend_from_slice(row);
+    let n = row.len();
+    let mut sum: f32 = line[..r.min(n)].iter().sum();
+    for x in 0..n {
+        if x + r < n {
+            sum += line[x + r];
+        }
+        if x > r {
+            sum -= line[x - r - 1];
+        }
+        row[x] = sum / (2 * r + 1) as f32;
+    }
+}
+
 /// The completion's settings for Remove, chosen on the object-removal set
 /// (docs/MODELS.md): 5 × 5 patches follow thin structure (rails, joints)
 /// better than 7 × 7, a strong guide keeps MI-GAN's layout, and weighted
@@ -356,10 +482,28 @@ async fn fill_large_hole(
         },
         None => loading.await,
     };
+    // MI-GAN fills when Moebius cannot: the user is told why the fill is
+    // weaker (`ai-fill-notice`: the download failed, or the model did not
+    // run).
+    let notice = |reason: &str| {
+        // "unavailable" does not change within a session (no GPU provider,
+        // Core ML fails): said once, not on every large removal.
+        if reason == "unavailable"
+            && MOEBIUS_UNAVAILABLE_SAID.swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            return;
+        }
+        let _ = app_handle.emit(
+            "ai-fill-notice",
+            serde_json::json!({ "taskId": task_id, "reason": reason }),
+        );
+    };
     let model = match loaded {
         Ok(model) => model,
         Err(e) => {
-            log::warn!("AI fill: Moebius unavailable ({e}); MI-GAN guides the fill");
+            log::warn!("AI fill: Moebius unavailable ({e:#}); MI-GAN guides the fill");
+            let offline = e.downcast_ref::<ai_processing::DownloadFailed>().is_some();
+            notice(if offline { "download" } else { "unavailable" });
             return Ok(None);
         }
     };
@@ -418,7 +562,10 @@ async fn fill_large_hole(
         log::warn!(
             "AI fill: Moebius took {per_run:.2} s per network run (limit {MOEBIUS_MAX_SECONDS_PER_RUN} s); MI-GAN guides large holes for the rest of the session"
         );
-        let _ = app_handle.emit("ai-fill-notice", "moebiusTooSlow");
+        let _ = app_handle.emit(
+            "ai-fill-notice",
+            serde_json::json!({ "taskId": task_id, "reason": "tooSlow" }),
+        );
     }
     let guide_ms = start.elapsed().as_millis() - load_ms;
     let (guided, hole_mask) = match guided {
@@ -434,10 +581,17 @@ async fn fill_large_hole(
         }
         Err(e) => {
             log::warn!("AI fill: Moebius failed ({e}); MI-GAN guides the fill");
+            notice("unavailable");
             return Ok(None);
         }
     };
-    let filled = complete_with_guide(source, &hole_mask, guided);
+    // The guide's own detail is a pixel of its 512 px square.
+    let side = crate::moebius::crop_square((x0 as u32, y0 as u32, x1 as u32, y1 as u32), w, h)
+        .map_or(1.0, |(_, _, side)| {
+            side as f32 / crate::moebius::SIZE as f32
+        });
+    let filled = complete_with_guide(source, &hole_mask, guided.clone());
+    let filled = keep_guide_shading(filled, &guided, &hole_mask, side);
     log::info!(
         "AI fill: Moebius guide: load {load_ms} ms, network {guide_ms} ms, completion {} ms",
         start.elapsed().as_millis() - load_ms - guide_ms
@@ -983,10 +1137,25 @@ mod removal_timing {
                 },
                 &|| false,
             )
-            .unwrap()
-            .expect("the hole fits the square");
+            .unwrap();
+            let Some(guided) = guided else {
+                println!("{}: the hole does not fit the square", f[2]);
+                continue;
+            };
             let guide_done = started.elapsed();
+            let (_, _, side) = crate::moebius::crop_square(
+                (min_x as u32, min_y as u32, max_x as u32, max_y as u32),
+                photo.width(),
+                photo.height(),
+            )
+            .unwrap();
             let fill = super::complete_with_guide(&photo, &hole_mask, guided.clone());
+            let fill = super::keep_guide_shading(
+                fill,
+                &guided,
+                &hole_mask,
+                side as f32 / crate::moebius::SIZE as f32,
+            );
             let total = started.elapsed();
             let (w, h) = mask.dimensions();
             let side = crate::moebius::crop_square(
@@ -1031,6 +1200,45 @@ mod removal_timing {
                 total.as_millis(),
                 footprint()
             );
+        }
+    }
+
+    /// A completion that copied a darker block into a smooth guide takes
+    /// the guide's shade back but keeps its own fine texture; nothing
+    /// outside the hole changes.
+    #[test]
+    fn keeps_the_guides_shading_and_the_completions_texture() {
+        let (w, h) = (200u32, 160u32);
+        let hole = image::GrayImage::from_fn(w, h, |x, y| {
+            image::Luma([if (40..160).contains(&x) && (30..130).contains(&y) {
+                255
+            } else {
+                0
+            }])
+        });
+        let guide = image::RgbaImage::from_pixel(w, h, image::Rgba([60, 80, 50, 255]));
+        // Grain ±4 everywhere; a block 20 codes darker in the hole.
+        let grain = |x: u32, y: u32| if (x + y).is_multiple_of(2) { 4i32 } else { -4 };
+        let filled = image::RgbaImage::from_fn(w, h, |x, y| {
+            let dark = if (60..110).contains(&x) && (50..100).contains(&y) {
+                20
+            } else {
+                0
+            };
+            let v = |c: i32| (c - dark + grain(x, y)) as u8;
+            image::Rgba([v(60), v(80), v(50), 255])
+        });
+        let out = super::keep_guide_shading(filled.clone(), &guide, &hole, 4.0);
+        // The block's centre is back at the guide's shade, grain kept.
+        let p = out.get_pixel(85, 75).0;
+        assert!((p[1] as i32 - 80 - grain(85, 75)).abs() <= 2, "{p:?}");
+        let q = out.get_pixel(86, 75).0;
+        assert!(
+            (p[1] as i32 - q[1] as i32).abs() >= 6,
+            "grain kept: {p:?} {q:?}"
+        );
+        for (x, y) in [(5, 5), (199, 159), (39, 80)] {
+            assert_eq!(out.get_pixel(x, y), filled.get_pixel(x, y));
         }
     }
 

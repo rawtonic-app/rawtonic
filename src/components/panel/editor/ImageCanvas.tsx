@@ -110,6 +110,15 @@ import { objectSelectionBusy } from '../../../hooks/useAiMasking';
 
 /** Screen pixels outside the crop frame where a drag rotates the photo. */
 const CROP_ROTATE_BAND = 36;
+/** The white balance picker's cursor: an eyedropper (Lightroom, Capture One)
+ * whose tip, the sampled point, is the hotspot; dark outline under a light
+ * stroke so it reads on any photo. */
+const PIPETTE_CURSOR = `url("data:image/svg+xml;utf8,${encodeURIComponent(
+  `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'>` +
+    `<g stroke='black' stroke-width='3.5'><path d='m2 22 1-1h3l9-9'/><path d='M3 21v-3l9-9'/><path d='m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z'/></g>` +
+    `<g stroke='white' stroke-width='1.5'><path d='m2 22 1-1h3l9-9'/><path d='M3 21v-3l9-9'/><path d='m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z'/></g>` +
+    `</svg>`,
+)}") 2 22, crosshair`;
 
 interface CursorPreview {
   visible: boolean;
@@ -1327,7 +1336,9 @@ const ImageCanvas = memo(
     const relightHandles = useRelightStore((s) => s.panelOpen && s.showHandles);
     const isSpotToolActive = useEditorStore((state) => state.isSpotToolActive);
     const redEyeMode = useEditorStore((state) => state.spotSettings.mode === 'redEye');
-    const showFaceBlemishes = useEditorStore((state) => state.showFaceBlemishes);
+    const showFaceOverlay = useEditorStore(
+      (state) => state.showFaceBlemishes || state.showFaceProtection || state.faceProtect.painting,
+    );
     const [draftGuideLine, setDraftGuideLine] = useState<{ p1: Coord; p2: Coord } | null>(null);
     const [localDragLines, setLocalDragLines] = useState<GuideLine[] | null>(null);
     const [selectedGuideId, setSelectedGuideId] = useState<string | null>(null);
@@ -3130,7 +3141,7 @@ const ImageCanvas = memo(
 
     const effectiveCursor = useMemo(() => {
       if (isGuidedPerspectiveActive && isCropping) return 'crosshair';
-      if (isWbPickerActive) return 'crosshair';
+      if (isWbPickerActive) return PIPETTE_CURSOR;
       if (isParametricActive) return 'crosshair';
       if (isInitialDrawing) return 'crosshair';
 
@@ -3369,7 +3380,7 @@ const ImageCanvas = memo(
               zoom={effectiveZoomScale}
             />
           )}
-          {showFaceBlemishes &&
+          {showFaceOverlay &&
             !isSpotToolActive &&
             !isCropping &&
             !isMasking &&
@@ -3389,7 +3400,7 @@ const ImageCanvas = memo(
               />
             )}
           {relightHandles && selectedImage.isReady && !holdingNativeFrame && adjustments.sectionVisibility?.relight !== false
-            && !isCropping && !isMasking && !isWbPickerActive && !isShowingOriginal && !isSpotToolActive && !tatTarget && !showFaceBlemishes && (
+            && !isCropping && !isMasking && !isWbPickerActive && !isShowingOriginal && !isSpotToolActive && !tatTarget && !showFaceOverlay && (
             <RelightOverlay key={selectedImage.path} rect={{ left: imageRenderSize.offsetX, top: imageRenderSize.offsetY,
               width: imageRenderSize.width, height: imageRenderSize.height }} zoom={effectiveZoomScale} />
           )}

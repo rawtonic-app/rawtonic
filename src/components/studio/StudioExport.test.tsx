@@ -174,6 +174,46 @@ it("exports a session into its Output folder without asking, like Capture One", 
   expect(save).not.toHaveBeenCalled();
 });
 
+it("asks for the export folder when it is chosen, not again on Export", async () => {
+  const { open, save } = await import("@tauri-apps/plugin-dialog");
+  vi.mocked(open).mockClear();
+  vi.mocked(save).mockClear();
+  render(<StudioExport />);
+  // Without a session the form starts on "Choose a folder…": its button asks now.
+  fireEvent.click(screen.getByRole("button", { name: "Choose a folder…" }));
+  await vi.waitFor(() =>
+    expect(open).toHaveBeenCalledWith(expect.objectContaining({ directory: true })),
+  );
+  await vi.waitFor(() =>
+    expect(screen.getByRole("option", { name: "out" })).toBeTruthy(),
+  );
+  vi.mocked(open).mockClear();
+  fireEvent.click(document.querySelector(".studio-export-submit") as HTMLButtonElement);
+  await vi.waitFor(() =>
+    expect(exported()).toContainEqual(
+      expect.objectContaining({ outputFolderOrFile: "/out", isExplicitFilePath: false }),
+    ),
+  );
+  expect(open).not.toHaveBeenCalled();
+  expect(save).not.toHaveBeenCalled();
+});
+
+it("keeps the destination when the folder dialog is cancelled", async () => {
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  vi.mocked(open).mockResolvedValueOnce(null);
+  render(<StudioExport />);
+  fireEvent.change(screen.getByRole("combobox", { name: "Export destination" }), {
+    target: { value: "original" },
+  });
+  fireEvent.change(screen.getByRole("combobox", { name: "Export destination" }), {
+    target: { value: "choose" },
+  });
+  await vi.waitFor(() => expect(open).toHaveBeenCalled());
+  expect(
+    (screen.getByRole("combobox", { name: "Export destination" }) as HTMLSelectElement).value,
+  ).toBe("original");
+});
+
 it("sends the open photograph's recipe only once it is that photograph's", async () => {
   // Switching from a to b: b is not ready yet and the store still holds a's adjustments.
   const previous = useEditorStore.getState();

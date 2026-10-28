@@ -48,7 +48,8 @@ export default function StudioLayerControls({
   if (!layer) return null;
   const onInteraction = (active: boolean) =>
     setEditor({ isSliderDragging: active });
-  // Luma range sliders show the mask while dragged (Capture One).
+  // Sliders that shape the mask (luma range, refine edge, feather) show the
+  // mask while dragged (Capture One); effect sliders show the effect.
   const onRangeInteraction = (active: boolean) =>
     setEditor({ isSliderDragging: active, isMaskRangeDragging: active });
   const setBrush = (patch: Partial<NonNullable<typeof brushSettings>>) =>
@@ -109,7 +110,7 @@ export default function StudioLayerControls({
             unit="px"
             value={layer.refineEdge ?? 0}
             defaultValue={0}
-            onInteraction={onInteraction}
+            onInteraction={onRangeInteraction}
             onChange={(radius) =>
               setAdjustments((prev) => ({
                 ...prev,
@@ -133,6 +134,7 @@ export default function StudioLayerControls({
           min={0}
           max={100}
           unit="%"
+          onInteraction={onRangeInteraction}
           value={Math.round(
             featherOf(radialMask.parameters as RadialParams) * 100,
           )}

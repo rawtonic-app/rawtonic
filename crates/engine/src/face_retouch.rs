@@ -22,6 +22,9 @@
 //!   surroundings and pull its colour towards theirs.
 //! - **Shine** lowers specular highlights on the skin.
 //!
+//! - **Protect** (`protect`): areas the user paints keep their pixels from
+//!   before the retouch (freckles, moles, beauty marks).
+//!
 //! Scales follow the face: the eye distance in base pixels.
 
 use std::io::Cursor;
@@ -33,6 +36,9 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::spot_removal::{mask_frame, to_base};
+
+mod protect;
+pub use protect::ProtectStroke;
 
 /// Slider values, 0–100 (Texture −100–100); unset values of a face take
 /// the values for all faces.
@@ -164,6 +170,9 @@ pub struct FaceRetouch {
     /// Set by the app for the quick preview while a control is dragged:
     /// crowded blemishes are healed once, not three times. Never stored.
     pub draft: bool,
+    /// The protection brush's strokes (mask-frame pixels), for every face.
+    #[serde(deserialize_with = "protect::deserialize_strokes")]
+    pub protect: Vec<ProtectStroke>,
 }
 
 /// Geometry keys (cache_utils) that correct colour, not where a pixel is:
@@ -218,7 +227,7 @@ fn keys_json<'a>(adjustments: &Value, geometry: impl Iterator<Item = &'a &'a str
 }
 
 /// Whether faces found in `frame` belong to the geometry of `adjustments`.
-fn frame_matches(frame: &str, adjustments: &Value) -> bool {
+pub fn frame_matches(frame: &str, adjustments: &Value) -> bool {
     if frame.starts_with(FRAME_VERSION_2) {
         frame == frame_key(adjustments)
     } else {
@@ -283,6 +292,24 @@ pub fn scaled_recipe(adjustments: &Value, scale: f64) -> Value {
                 for key in ["x", "y", "r"] {
                     scale_value(b, key);
                 }
+            }
+        }
+    }
+    if let Some(strokes) = recipe
+        .get_mut("faceRetouch")
+        .and_then(|r| r.get_mut("protect"))
+        .and_then(Value::as_array_mut)
+    {
+        for stroke in strokes {
+            scale_value(stroke, "radius");
+            for point in stroke
+                .get_mut("points")
+                .and_then(Value::as_array_mut)
+                .into_iter()
+                .flatten()
+            {
+                scale_value(point, "x");
+                scale_value(point, "y");
             }
         }
     }
@@ -1244,6 +1271,7 @@ pub fn apply_face_retouch(image: &mut Rgb32FImage, adjustments: &Value) -> bool 
         return false;
     };
     let frame = mask_frame(adjustments, image.width(), image.height());
+    let protection = protect::Protection::new(image, &retouch.protect, adjustments, frame);
     let mut changed = false;
     for face in retouch.faces.iter().filter(|f| f.enabled) {
         let amounts = face.settings.over(retouch.settings).amounts();
@@ -1276,6 +1304,9 @@ pub fn apply_face_retouch(image: &mut Rgb32FImage, adjustments: &Value) -> bool 
             amounts,
         );
         changed = true;
+    }
+    if changed && let Some(protection) = protection {
+        protection.restore(image);
     }
     changed
 }
@@ -1514,6 +1545,126 @@ mod tests {
             let (a, b) = (image.get_pixel(10, 10)[c], original.get_pixel(10, 10)[c]);
             assert!((a - b).abs() < 1e-3 * b, "{a} vs {b}");
         }
+    }
+
+    /// A photo with two dark spots (at (60, 100) and (140, 100), radius 5)
+    /// and the recipe that heals both and evens the skin.
+    fn two_spots_and_recipe() -> (Rgb32FImage, Value) {
+        let mut image = skin_image(200, 200);
+        for (x, y, p) in image.enumerate_pixels_mut() {
+            for cx in [60.0, 140.0] {
+                let d = ((x as f32 - cx).powi(2) + (y as f32 - 100.0).powi(2)).sqrt();
+                if d < 5.0 {
+                    p[0] -= 0.05;
+                    p[1] -= 0.07;
+                    p[2] -= 0.06;
+                }
+            }
+        }
+        let spot = |id, x| Blemish {
+            id,
+            x,
+            y: 100.0,
+            r: 5.0,
+            score: 0.4,
+            neck: false,
+        };
+        let r = recipe(
+            vec![face(
+                vec![spot(1, 60.0), spot(2, 140.0)],
+                Settings::default(),
+            )],
+            json!({"blemishes": 50, "evenSkin": 60, "texture": -40}),
+        );
+        (image, r)
+    }
+
+    #[test]
+    fn protected_pixels_keep_their_values_and_the_rest_is_retouched() {
+        let (original, mut r) = two_spots_and_recipe();
+        let mut unprotected = original.clone();
+        assert!(apply_face_retouch(&mut unprotected, &r));
+        // A hard dab of radius 12 over the left spot.
+        r["faceRetouch"]["protect"] =
+            json!([{"points": [{"x": 60, "y": 100}], "radius": 12, "feather": 0}]);
+        let mut image = original.clone();
+        assert!(apply_face_retouch(&mut image, &r));
+        for (x, y, p) in image.enumerate_pixels() {
+            let d = (x as f64 - 60.0).hypot(y as f64 - 100.0);
+            if d <= 11.5 {
+                assert_eq!(p, original.get_pixel(x, y), "({x}, {y}) protected");
+            } else if d >= 12.5 {
+                assert_eq!(p, unprotected.get_pixel(x, y), "({x}, {y}) outside");
+            }
+        }
+        // The other spot is still healed.
+        assert!(image.get_pixel(140, 100)[1] > original.get_pixel(140, 100)[1] + 0.03);
+        // Protection alone retouches nothing.
+        let mut only = r.clone();
+        only["faceRetouch"]["settings"] = json!({});
+        assert!(!is_active(&only));
+        // An empty list renders as no list (old recipes).
+        let mut empty = r.clone();
+        empty["faceRetouch"]["protect"] = json!([]);
+        let mut image = original.clone();
+        apply_face_retouch(&mut image, &empty);
+        assert_eq!(image, unprotected);
+    }
+
+    #[test]
+    fn malformed_protection_does_not_disable_the_retouch_or_valid_strokes() {
+        let (original, mut r) = two_spots_and_recipe();
+        let valid = json!({"points": [{"x": 60, "y": 100}], "radius": 12, "feather": 0});
+        r["faceRetouch"]["protect"] = json!([valid]);
+        let mut expected = original.clone();
+        assert!(apply_face_retouch(&mut expected, &r));
+        r["faceRetouch"]["protect"] = json!([
+            {"points": [{"x": null, "y": 100}], "radius": 12},
+            valid,
+            {"points": [{"x": 140, "y": 100}]}
+        ]);
+        let mut actual = original;
+        assert!(apply_face_retouch(&mut actual, &r));
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn a_feathered_stroke_blends_and_erasing_takes_protection_away() {
+        let (original, mut r) = two_spots_and_recipe();
+        let mut unprotected = original.clone();
+        apply_face_retouch(&mut unprotected, &r);
+        // A stroke along the row through both spots, soft over its outer
+        // half; then its right half erased.
+        r["faceRetouch"]["protect"] = json!([
+            {"points": [{"x": 40, "y": 100}, {"x": 160, "y": 100}], "radius": 20, "feather": 50},
+            {"points": [{"x": 100, "y": 100}, {"x": 190, "y": 100}], "radius": 25, "feather": 0, "erase": true},
+        ]);
+        let mut image = original.clone();
+        apply_face_retouch(&mut image, &r);
+        // The left spot: inside the solid core, as it was.
+        assert_eq!(image.get_pixel(60, 100), original.get_pixel(60, 100));
+        // In the feathered edge, between the two.
+        let (o, u, m) = (
+            original.get_pixel(60, 116)[1],
+            unprotected.get_pixel(60, 116)[1],
+            image.get_pixel(60, 116)[1],
+        );
+        assert!((o - u).abs() > 1e-4, "the retouch changes the edge");
+        assert!(m > o.min(u) && m < o.max(u), "{m} between {o} and {u}");
+        // The erased right half is retouched as without protection.
+        assert_eq!(image.get_pixel(140, 100), unprotected.get_pixel(140, 100));
+    }
+
+    #[test]
+    fn previews_scale_the_protection_with_the_faces() {
+        let (_, mut r) = two_spots_and_recipe();
+        r["faceRetouch"]["protect"] =
+            json!([{"points": [{"x": 60, "y": 100}, {"x": 80, "y": 90}], "radius": 12}]);
+        let scaled = scaled_recipe(&r, 0.5);
+        assert_eq!(
+            scaled["faceRetouch"]["protect"],
+            json!([{"points": [{"x": 30.0, "y": 50.0}, {"x": 40.0, "y": 45.0}], "radius": 6.0}])
+        );
     }
 
     #[test]

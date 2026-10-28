@@ -889,6 +889,50 @@ pub(crate) async fn download_verified(
     expected_hash: &str,
     model_name: &str,
 ) -> Result<()> {
+    download_verified_in(
+        app_handle,
+        models_dir,
+        file,
+        expected_hash,
+        model_name,
+        None,
+    )
+    .await
+}
+
+/// The bytes of a model of several pack files being downloaded: its
+/// progress events report all of them (`batchReceived` of `batchTotal`),
+/// so the percent runs once from 0 to 100 instead of once per file.
+#[derive(Default)]
+pub(crate) struct DownloadBatch {
+    pub done: u64,
+    pub total: u64,
+}
+
+/// A model file could not be downloaded or did not match its SHA-256
+/// (offline, server unreachable): the context of `download_verified`'s
+/// error, so a tool can say why it fell back to another model.
+/// Its text is the download's own error (URL, status, hint).
+#[derive(Debug)]
+pub struct DownloadFailed(pub String);
+
+impl std::fmt::Display for DownloadFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for DownloadFailed {}
+
+/// `download_verified`, counting the download into `batch`.
+pub(crate) async fn download_verified_in(
+    app_handle: &tauri::AppHandle,
+    models_dir: &Path,
+    file: &str,
+    expected_hash: &str,
+    model_name: &str,
+    batch: Option<&mut DownloadBatch>,
+) -> Result<()> {
     let dest_path = models_dir.join(file);
     let is_valid = verify_sha256(&dest_path, expected_hash)?;
 
@@ -897,22 +941,43 @@ pub(crate) async fn download_verified(
             println!("Model {} has incorrect hash. Re-downloading.", model_name);
         }
         let _ = app_handle.emit("ai-model-download-start", model_name);
-        // At most one event per percent.
+        // The finish event also when the download is dropped (a cancelled
+        // removal stops waiting for it).
+        struct Finish<'a>(&'a tauri::AppHandle, &'a str);
+        impl Drop for Finish<'_> {
+            fn drop(&mut self) {
+                let _ = self.0.emit("ai-model-download-finish", self.1);
+            }
+        }
+        let _finish = Finish(app_handle, model_name);
+        let (before, batch_total) = batch.as_ref().map_or((0, 0), |b| (b.done, b.total));
+        let mut fetched = 0;
+        // At most one event per percent (of the batch, when there is one).
         let mut shown = u64::MAX;
         let mut progress = |received: u64, total: u64| {
-            let percent = (received * 100).checked_div(total).unwrap_or(0);
+            fetched = received;
+            let percent = if batch_total > 0 {
+                ((before + received) * 100).checked_div(batch_total)
+            } else {
+                (received * 100).checked_div(total)
+            }
+            .unwrap_or(0);
             if percent != shown {
                 shown = percent;
-                let _ = app_handle.emit(
-                    "ai-model-download-progress",
-                    serde_json::json!({ "model": model_name, "file": file, "received": received, "total": total }),
-                );
+                let mut payload = serde_json::json!({ "model": model_name, "file": file, "received": received, "total": total });
+                if batch_total > 0 {
+                    payload["batchReceived"] = (before + received).into();
+                    payload["batchTotal"] = batch_total.into();
+                }
+                let _ = app_handle.emit("ai-model-download-progress", payload);
             }
         };
         let download_result =
             download_verified_model(file, &dest_path, expected_hash, &mut progress).await;
-        let _ = app_handle.emit("ai-model-download-finish", model_name);
-        download_result?;
+        if let Some(batch) = batch {
+            batch.done += fetched;
+        }
+        download_result.map_err(|e| anyhow::Error::new(DownloadFailed(format!("{e:#}"))))?;
     }
     Ok(())
 }
@@ -1255,6 +1320,7 @@ pub(crate) async fn assemble_package(
     files: &[(&str, &str, &str)],
     download: bool,
     model_name: &str,
+    mut batch: Option<&mut DownloadBatch>,
 ) -> Result<bool> {
     for &(file, inner, sha) in files {
         let source = models_dir.join(file);
@@ -1262,7 +1328,15 @@ pub(crate) async fn assemble_package(
             if !download {
                 return Ok(false);
             }
-            download_verified(app_handle, models_dir, file, sha, model_name).await?;
+            download_verified_in(
+                app_handle,
+                models_dir,
+                file,
+                sha,
+                model_name,
+                batch.as_deref_mut(),
+            )
+            .await?;
         }
         // A new hard link changes the file's status-change time: keep the
         // check just made, or the next launch hashes it again.
@@ -1290,7 +1364,7 @@ async fn load_core_ml(
     let package = models_dir.join(package);
     let start = std::time::Instant::now();
     match assemble_package(
-        app_handle, models_dir, &package, files, download, model_name,
+        app_handle, models_dir, &package, files, download, model_name, None,
     )
     .await
     {

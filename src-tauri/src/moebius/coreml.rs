@@ -78,6 +78,21 @@ pub const PACKAGES: [Package; 3] = [
         ],
     ),
 ];
+/// The size of each pack file in bytes (fixed by its SHA-256), for one
+/// progress over the whole download.
+const FILE_BYTES: [(&str, u64); 10] = [
+    (EMBEDDINGS_FILE.0, 245_760),
+    ("moebius_unet_fp16_coreml_Manifest.json", 617),
+    ("moebius_unet_fp16_coreml_model.mlmodel", 1_115_957),
+    ("moebius_unet_fp16_coreml_weight.bin", 451_903_552),
+    ("sdxl_vae_encoder_fp16_coreml_Manifest.json", 617),
+    ("sdxl_vae_encoder_fp16_coreml_model.mlmodel", 131_252),
+    ("sdxl_vae_encoder_fp16_coreml_weight.bin", 68_338_112),
+    ("sdxl_vae_decoder_fp16_coreml_Manifest.json", 617),
+    ("sdxl_vae_decoder_fp16_coreml_model.mlmodel", 170_867),
+    ("sdxl_vae_decoder_fp16_coreml_weight.bin", 98_993_280),
+];
+
 /// Moebius on Core ML (CPU and GPU: with the Neural Engine as well the
 /// UNet's results were wrong, 110 % error; on the Neural Engine alone it
 /// took 3 s per step).
@@ -145,16 +160,35 @@ pub async fn load(
     download: bool,
 ) -> Result<Option<Moebius>> {
     let (file, sha) = EMBEDDINGS_FILE;
+    // The bytes still to download, so the progress runs once over all of
+    // them.
+    let mut batch = crate::ai_processing::DownloadBatch::default();
+    if download {
+        let wanted = std::iter::once((file, sha)).chain(
+            PACKAGES
+                .iter()
+                .flat_map(|(_, files)| files.iter().map(|&(f, _, s)| (f, s))),
+        );
+        for (f, s) in wanted {
+            if !crate::ai_processing::verify_sha256(&models_dir.join(f), s).unwrap_or(false) {
+                batch.total += FILE_BYTES
+                    .iter()
+                    .find(|(name, _)| *name == f)
+                    .map_or(0, |&(_, n)| n);
+            }
+        }
+    }
     if !crate::ai_processing::verify_sha256(&models_dir.join(file), sha)? {
         if !download {
             return Ok(None);
         }
-        crate::ai_processing::download_verified(
+        crate::ai_processing::download_verified_in(
             app_handle,
             models_dir,
             file,
             sha,
             "Object removal model",
+            Some(&mut batch),
         )
         .await?;
     }
@@ -166,6 +200,7 @@ pub async fn load(
             files,
             download,
             "Object removal model",
+            Some(&mut batch),
         )
         .await?
         {
@@ -177,4 +212,23 @@ pub async fn load(
         .await
         .map_err(|e| anyhow!("Moebius load: {e}"))?
         .map(Some)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every pack file has its size for the download's progress.
+    #[test]
+    fn every_pack_file_has_its_size() {
+        let files: Vec<&str> = std::iter::once(EMBEDDINGS_FILE.0)
+            .chain(
+                PACKAGES
+                    .iter()
+                    .flat_map(|(_, files)| files.iter().map(|f| f.0)),
+            )
+            .collect();
+        let sized: Vec<&str> = FILE_BYTES.iter().map(|f| f.0).collect();
+        assert_eq!(files, sized);
+    }
 }

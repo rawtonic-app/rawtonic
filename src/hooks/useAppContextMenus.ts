@@ -41,6 +41,7 @@ import {
   Album as AlbumIcon,
   PencilSparkles,
   Ruler,
+  SunMedium,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { loadPresetLibrary, usePresetStore, type UserPreset } from './usePresets';
@@ -75,6 +76,7 @@ import TaggingSubMenu from '../context/TaggingSubMenu';
 import SessionAlbumSubMenu from '../components/studio/SessionAlbumSubMenu';
 import { SESSION_ALBUM_PREFIX, SESSION_ALBUMS_CHANGED } from '../components/studio/StudioAlbums';
 import { isCurrentEditorImage, useEditorActions } from './useEditorActions';
+import { useSeriesMatchDialog } from '../components/studio/SeriesMatchDialog';
 import { saveFailure, useLibraryActions } from './useLibraryActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { runAutoStraighten } from '../utils/autoStraighten';
@@ -666,6 +668,19 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           onClick: () => handlePasteAdjustments(finalSelection),
         },
         presetMenu(usePresetStore.getState().presets, finalSelection),
+        {
+          // The open (Develop) or active (Library) photograph is the
+          // reference, else the right-clicked one; more can be chosen there.
+          disabled: selectionCount < 2,
+          icon: SunMedium,
+          label: t('contextMenus.thumbnail.matchLight', { count: selectionCount }),
+          onClick: () => {
+            const candidates =
+              activeView === 'editor' ? [selectedImage?.path, libraryActivePath, path] : [libraryActivePath, path];
+            const reference = candidates.find((p) => p && finalSelection.includes(p)) ?? finalSelection[0];
+            useSeriesMatchDialog.getState().open({ paths: finalSelection, references: [reference] });
+          },
+        },
         {
           label: t('contextMenus.editor.productivity'),
           icon: Gauge,

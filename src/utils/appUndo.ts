@@ -22,10 +22,30 @@ export interface CullingChange {
 }
 const changedValue = ({ before, after }: CullingChange) =>
   before.kind !== after.kind || before.value !== after.value;
+/** Top-level recipe values of one photo (`set_recipe_values`); `null`
+ * removes a key. */
+export interface RecipeValues {
+  path: string;
+  values: Record<string, unknown>;
+}
+interface RecipeChange {
+  path: string;
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+}
+/** Writes recipe values and returns each written photo's values before
+ * (registered by useEditorActions, which knows the open photo's saves). */
+type RecipeWriter = (values: RecipeValues[]) => Promise<RecipeValues[]>;
+let recipeWriter: RecipeWriter | null = null;
+export function registerRecipeWriter(writer: RecipeWriter) {
+  recipeWriter = writer;
+}
 interface Step {
   order: number;
-  action: CullingValue["kind"];
+  action: CullingValue["kind"] | "recipes";
   changes: CullingChange[];
+  /** A batch recipe change (series match): one step for all its photos. */
+  recipes?: RecipeChange[];
   directory: string | null;
 }
 interface FileStep {
@@ -220,6 +240,49 @@ export function catalogAction(
   }, "catalog", paths);
 }
 
+/** Writes per-photo recipe values (series match) as one undoable step for
+ * all photos written. Resolves with the photos written. */
+export function recipeAction(values: RecipeValues[]): Promise<string[]> {
+  debouncedSetHistory.flush();
+  branch++;
+  const editor = useEditorStore.getState();
+  editor.setEditor({
+    history: editor.history.slice(0, editor.historyIndex + 1),
+  });
+  const step: Step = {
+    order: nextUndoOrder(),
+    action: "recipes",
+    changes: [],
+    recipes: [],
+    directory: useLibraryStore.getState().sessionDirectory,
+  };
+  const paths = values.map((value) => value.path);
+  currentTargets.set(step, paths);
+  useCatalogUndoStore.setState((s) => ({
+    past: [...s.past, step].slice(-100),
+    future: [],
+    filesFuture: [],
+    fileRedoBlocked: true,
+  }));
+  return enqueue(async () => {
+    try {
+      const before = recipeWriter ? await recipeWriter(values) : [];
+      step.recipes = before.map(({ path, values: old }) => ({
+        path,
+        before: old,
+        after: values.find((value) => value.path === path)?.values ?? {},
+      }));
+      return step.recipes.map((change) => change.path);
+    } finally {
+      currentTargets.set(step, step.recipes!.map((change) => change.path));
+      if (!step.recipes!.length)
+        useCatalogUndoStore.setState((s) => ({
+          past: s.past.filter((item) => item !== step),
+        }));
+    }
+  }, "catalog", paths);
+}
+
 /** The file journal stays native; these small markers order its successful
  * commands with metadata in this window. Native history predating the window
  * is reached only after the tracked newer steps. */
@@ -407,6 +470,7 @@ function actionLabel(direction: "undo" | "redo") {
     if (action === "rating") return i18n.t("undoHistory.rating");
     if (action === "flag") return i18n.t("undoHistory.flag");
     if (action === "color") return i18n.t("undoHistory.color");
+    if (action === "recipes") return i18n.t("undoHistory.matchLight");
     return null;
   }
   return null;
@@ -596,6 +660,14 @@ async function travel(
   const step = useCatalogUndoStore.getState()[from].at(-1)!;
   const label = direction === "undo" ? getUndoLabel() : getRedoLabel();
   useCatalogUndoStore.setState({ busy: true });
+  if (step.recipes) {
+    try {
+      await travelRecipes(step, direction, startedOnBranch);
+    } finally {
+      useCatalogUndoStore.setState({ busy: false });
+    }
+    return;
+  }
   try {
     await enqueue(async () => {
       if (
@@ -694,6 +766,41 @@ async function travel(
     else toast.error(content, { toastId, autoClose: false });
   } finally {
     useCatalogUndoStore.setState({ busy: false });
+  }
+}
+/** Undo/redo of a recipe step: writes every photo's values back (or again).
+ * Writing is idempotent, so a partly failed step stays in place to retry. */
+async function travelRecipes(
+  step: Step,
+  direction: "undo" | "redo",
+  startedOnBranch: number,
+) {
+  const from = direction === "undo" ? "past" : "future";
+  const to = direction === "undo" ? "future" : "past";
+  const recipes = step.recipes ?? [];
+  try {
+    await enqueue(async () => {
+      if (!recipes.length || !useCatalogUndoStore.getState()[from].includes(step))
+        return;
+      const values = recipes.map(({ path, before, after }) => ({
+        path,
+        values: direction === "undo" ? before : after,
+      }));
+      const written = recipeWriter ? await recipeWriter(values) : [];
+      if (written.length < values.length) throw new Error(i18n.t("undoHistory.recipesNotAll"));
+      if (useCatalogUndoStore.getState()[from].includes(step))
+        useCatalogUndoStore.setState((s) => ({
+          [from]: s[from].filter((item) => item !== step),
+          [to]: branch === startedOnBranch ? [...s[to], step] : s[to],
+        }));
+    }, "catalog", currentTargets.get(step));
+  } catch (error) {
+    const detail = String((error as { message?: string })?.message ?? error);
+    toast.error(
+      direction === "undo"
+        ? i18n.t("studio.library.fileOperations.undoFailed", { error: detail })
+        : i18n.t("studio.library.fileOperations.redoFailed", { error: detail }),
+    );
   }
 }
 export const undo = (fallback?: () => void | Promise<void>) =>
