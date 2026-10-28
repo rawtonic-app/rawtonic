@@ -1283,7 +1283,7 @@
         "errors": "Übersprungen.",
         "newFiles": "Werden mit dem Inhalt ihrer XMP- oder Editor-Begleitdateien hinzugefügt.",
         "probableMoves": "Größe und Stichproben des Inhalts stimmen, aber keine vollständige Prüfsumme belegt es. Hake die an, die du erkennst.",
-        "removed": "Deine Dateien fehlen und es wurde nichts für sie gefunden. Angehakte werden mit Bearbeitungen, Bewertungen und Albumzugehörigkeit aus der Bibliothek entfernt. Dateien werden nie gelöscht.",
+        "removed": "Die Dateien dieser Fotos fehlen und es wurde nichts für sie gefunden. Angehakte werden mit Bearbeitungen, Bewertungen und Albumzugehörigkeit aus der Bibliothek entfernt. Dateien werden nie gelöscht.",
         "unavailable": "Auf einem nicht verbundenen Laufwerk oder in einem nicht lesbaren Ordner. Sie bleiben, wie sie sind.",
         "verifiedMoves": "Byte für Byte die Datei des Fotos: Es behält Bearbeitungen, Bewertungen, Stichwörter und Alben am neuen Ort."
       },
@@ -1713,7 +1713,7 @@
         "metal": "Metal",
         "vulkan": "Vulkan"
       },
-      "dynamicDesc": "Der Editor rendert die Vorschau passend zur tatsächlichen Pixeldichte Ihres Displays. Dies sorgt für 1:1 Pixelgenauigkeit und maximale Klarheit beim Zoomen.",
+      "dynamicDesc": "Der Editor rendert die Vorschau passend zur tatsächlichen Pixeldichte deines Bildschirms. Dies sorgt für 1:1 Pixelgenauigkeit und maximale Klarheit beim Zoomen.",
       "enableLivePreviews": "Live-Vorschauen aktivieren",
       "highDpi": "High-DPI Rendering",
       "highDpiDesc": "Rendere Vorschauen in der nativen {{dpr}}x-Auflösung deines Bildschirms. Das erzeugt die schärfste Vorschau, verbraucht aber mehr Speicher.",
