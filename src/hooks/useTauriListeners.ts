@@ -21,6 +21,7 @@ import { confirmQuitWithUnsaved, handleQuitRequest } from '../utils/quit';
 import { recountAfterFileOperation } from '../utils/offline';
 import { throttleAsync } from '../utils/throttle';
 import { IMPORTS_CHANGED } from '../utils/folderSync';
+import { notifyExportOutputs } from '../utils/exportFeedback';
 import { metadataWritten } from '../utils/catalogWrites';
 
 type EditorState = ReturnType<typeof useEditorStore.getState>;
@@ -511,6 +512,9 @@ export function useTauriListeners({
         if (!isEffectActive) return;
         refs.current.refreshImageList();
         void recountAfterFileOperation();
+      }),
+      listen<string[]>('export-outputs-written', (event) => {
+        if (isEffectActive) notifyExportOutputs(event.payload);
       }),
       listen('export-complete', () => {
         if (isEffectActive) useProcessStore.getState().setExportState({ status: Status.Success });

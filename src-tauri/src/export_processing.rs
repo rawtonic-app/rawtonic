@@ -1457,6 +1457,7 @@ pub async fn export_images(
         &app_handle,
         crate::export_queue::ExportRequest {
             paths,
+            display_label: None,
             output_folder_or_file,
             is_explicit_file_path,
             base_origin_folders,
