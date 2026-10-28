@@ -11,7 +11,8 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "detail", rename_all = "snake_case")]
 pub enum XmpProblem {
-    /// The file is missing or on a disconnected drive; written when it is back.
+    /// The file is missing, moved away or on a disconnected drive; written
+    /// when it is back.
     Offline,
     /// Another photograph of the same name (a RAW and its JPEG) would share
     /// the sidecar.
@@ -63,7 +64,9 @@ impl Library {
         let mut retry = XmpRetry::default();
         for (id, missing) in self.pending_xmp()? {
             let path = self.asset(&id)?.path;
-            let problem = if missing {
+            // The flag is the last check's: a photograph moved away since
+            // gets no sidecar of its own left behind.
+            let problem = if missing || !path.is_file() {
                 Some(XmpProblem::Offline)
             } else if self.xmp_owners(&path)? > 1 {
                 Some(XmpProblem::SharedName)

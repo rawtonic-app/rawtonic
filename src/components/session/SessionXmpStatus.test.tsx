@@ -91,4 +91,17 @@ describe("SessionXmpStatus", () => {
     expect(shown).toHaveBeenCalledTimes(1);
     expect((shown.mock.calls[0][0] as CustomEvent).detail).toEqual({ refresh: true });
   });
+
+  it("does not show one library's photographs after another one opened", async () => {
+    useLibraryStore.setState({ sessionDirectory: "/a" });
+    let answer: (paths: string[]) => void = () => {};
+    vi.mocked(invoke).mockReturnValue(new Promise((resolve) => { answer = resolve as typeof answer; }));
+    const select = vi.fn();
+    const opening = openPendingXmpView("/a", "XMP not updated", select);
+    useLibraryStore.setState({ sessionDirectory: "/b" });
+    answer(["/a/x.ARW"]);
+    await opening;
+    useLibraryStore.setState({ sessionDirectory: null });
+    expect(select).not.toHaveBeenCalled();
+  });
 });

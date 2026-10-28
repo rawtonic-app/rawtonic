@@ -31,7 +31,10 @@ export async function openPendingXmpView(
   select: (id: string, name: string, paths: string[], preserveEditor?: boolean) => void,
   preserveEditor = false,
 ) {
+  const asked = useLibraryStore.getState().sessionDirectory;
   const paths = await invoke<string[]>(Invokes.SessionPendingXmp, { directory });
+  // Another library opened meanwhile: not its photographs.
+  if (useLibraryStore.getState().sessionDirectory !== asked) return;
   select(PENDING_XMP_VIEW_ID, name, paths, preserveEditor);
 }
 

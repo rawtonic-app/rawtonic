@@ -155,3 +155,17 @@ fn a_folder_with_the_sidecar_s_name_is_reported_until_it_is_gone() {
     assert_eq!(lib.write_pending_xmp().unwrap().written, 1);
     assert_eq!(lib.summary().unwrap().xmp_pending, 0);
 }
+
+#[test]
+fn a_photograph_moved_away_since_the_last_check_gets_no_sidecar() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, paths) = session(d.path(), &["A.ARW"]);
+    let mut meta = lib.metadata(&ids[0]).unwrap();
+    meta.rating = 1;
+    lib.set_metadata(&ids[0], &meta).unwrap();
+    fs::rename(&paths[0], d.path().join("A.ARW")).unwrap();
+    let retry = lib.write_pending_xmp().unwrap();
+    assert_eq!(retry.unsaved[0].problem, XmpProblem::Offline);
+    assert!(!paths[0].with_extension("xmp").exists());
+    assert_eq!(lib.summary().unwrap().xmp_pending, 1);
+}

@@ -136,7 +136,7 @@ describe("Session workspace keyboard flows", () => {
     expect(screen.getByRole("button", { name: "2 XMP not updated" })).toBeTruthy();
   });
 
-  it("re-reads the XMP count after a rating settles and after Develop's last save is written", async () => {
+  it("re-reads the XMP count after a rating settles and after a Develop save is written", async () => {
     const user = userEvent.setup();
     const base = vi.mocked(invoke).getMockImplementation()!;
     let pending = 0;
@@ -160,15 +160,16 @@ describe("Session workspace keyboard flows", () => {
     pending = 1;
     act(() => useCatalogUndoStore.setState((s) => ({ past: [...s.past] })));
     expect(await screen.findByRole("button", { name: "1 XMP not updated" })).toBeTruthy();
+    // Opening an album leaves Develop first and flushes its save after.
     act(() => useUIStore.setState({ activeView: "editor" }));
     debouncedSave("/jobs/Acme/Capture/a.ARW", {} as Adjustments);
-    debouncedSave.flush();
     act(() => useUIStore.setState({ activeView: "library" }));
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    debouncedSave.flush();
+    await new Promise((resolve) => setTimeout(resolve, 1200));
     // Not counted before the save is written.
     expect(screen.getByRole("button", { name: "1 XMP not updated" })).toBeTruthy();
     act(() => finishSave());
-    expect(await screen.findByRole("button", { name: "2 XMP not updated" }, { timeout: 2000 })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "2 XMP not updated" }, { timeout: 3000 })).toBeTruthy();
   });
 
   it("surfaces a failed create without navigating or dismissing the entered name", async () => {

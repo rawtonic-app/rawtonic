@@ -64,11 +64,9 @@ export function waitForPendingMetadataSave(path: string): Promise<Adjustments | 
     ?? (unsavedRecipes.has(path) ? Promise.resolve(unsavedRecipes.get(path)) : undefined);
 }
 
-/** Settles once every recipe save handed to `debouncedSave` so far has
- * (the session bar then counts XMP sidecars those saves could not write). */
-export function allPendingMetadataSaves(): Promise<unknown> {
-  return Promise.all(pendingMetadataSaves.values());
-}
+/** Fired on `window` each time a recipe save settles, written or not (the
+ * session bar then counts the XMP sidecars saves could not write). */
+export const RECIPE_SAVE_SETTLED = 'rawtonic:recipe-save-settled';
 
 const isIdentityCurve = (points?: Array<Coord>) =>
   !points ||
@@ -95,6 +93,7 @@ export const debouncedSave = debounce((path: string, adjustmentsToSave: Adjustme
   pendingMetadataSaves.set(path, pending);
   void pending.then(() => {
     if (pendingMetadataSaves.get(path) === pending) pendingMetadataSaves.delete(path);
+    window.dispatchEvent(new Event(RECIPE_SAVE_SETTLED));
   });
   return pending;
 }, 300);

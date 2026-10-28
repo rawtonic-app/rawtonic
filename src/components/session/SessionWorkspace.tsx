@@ -59,7 +59,7 @@ import {
 } from "./nextCapture";
 import { useContextMenu } from "../../context/ContextMenuContext";
 import { useSessionBar } from "./sessionBar";
-import { allPendingMetadataSaves } from "../../hooks/useEditorActions";
+import { RECIPE_SAVE_SETTLED } from "../../hooks/useEditorActions";
 import { SESSION_ALBUMS_CHANGED } from "../studio/StudioAlbums";
 import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from "../../utils/offline";
 import { requestAutoAdvance } from "../../utils/photoStepping";
@@ -821,21 +821,17 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     if (previous.busy && !state.busy) void refreshRef.current().catch(() => {});
   }), []);
   // A rating, label or Develop edit whose XMP could not be written shows in
-  // the bar once its catalog step settles or Develop's last save is written,
-  // not only after the next flag.
+  // the bar once its catalog step settles or its recipe save is written, not
+  // only after the next flag.
   useEffect(() => {
-    const recount = throttleAsync(() => refreshRef.current().catch(() => {}), 500);
+    const recount = throttleAsync(() => refreshRef.current().catch(() => {}), 1000);
     const stopSteps = useCatalogUndoStore.subscribe((state, previous) => {
       if (state.past !== previous.past) recount();
     });
-    const stopViews = useUIStore.subscribe((state, previous) => {
-      // Leaving Develop flushes its last save: count after it is written.
-      if (previous.activeView === "editor" && state.activeView !== "editor")
-        void allPendingMetadataSaves().then(recount);
-    });
+    window.addEventListener(RECIPE_SAVE_SETTLED, recount);
     return () => {
       stopSteps();
-      stopViews();
+      window.removeEventListener(RECIPE_SAVE_SETTLED, recount);
       recount.cancel();
     };
   }, []);
