@@ -58,7 +58,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = Object.entries(ADJUSTMENT_GROUPS
   .filter(([section]) => section !== 'masks')
   .flatMap(([section, groups]) =>
     groups.map((group) => ({
-      section: group.label === 'modals.copyPaste.groups.clarityDehaze' || group.label === 'modals.copyPaste.groups.presence' ? 'basic' : section,
+      section: group.clipboardSection ?? section,
       label: group.label,
       keys: group.keys.filter((key) => !RESPONSE_KEYS.includes(key)),
     })),
