@@ -63,7 +63,9 @@ this list current.
   same-colour pixels off by 1-3840 codes. All 360 Panasonic/Leica v4 files of
   raw.pixls.us now equal LibRaw 0.22.2 on every sample (none did before); the
   other 1,541 decodable files decode byte-identically. Unit tests
-  `rawtonic_tests` in the same file.
+  `rawtonic_tests` in the same file. No recipe version key (user decision
+  2026-10-28): the fix applies to saved edits too, since the old samples were
+  corrupt sensor data and not a look.
 
 ## Levels and white balance against Adobe DNG Converter (2026-10-05)
 
