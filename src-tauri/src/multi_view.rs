@@ -567,7 +567,8 @@ fn note_measures(
     }
     // Without them a region is not planned and the whole frame renders,
     // which reports a failure of the GPU warp.
-    let measures = RegionMeasures::of(image.as_rgb32f()?, recipe)
+    let is_raw = is_raw_file(parse_virtual_path(path).0);
+    let measures = RegionMeasures::of(image.as_rgb32f()?, recipe, is_raw)
         .inspect_err(|e| log::warn!("[multi_view] {path}: region measures: {e}"))
         .ok()?;
     if let Some(key) = measures_key(path, recipe, on) {
@@ -802,6 +803,7 @@ fn prepare(
                 facts.full_width,
                 facts.full_height,
                 &todo.recipe,
+                facts.is_raw,
                 dim,
                 scale,
             )?;
@@ -1527,6 +1529,7 @@ fn prepare_region(
         facts.full_width,
         facts.full_height,
         recipe,
+        facts.is_raw,
         dim,
         scale,
     )?;
@@ -1665,7 +1668,7 @@ fn prepare_region_from_rows(
             let rgb = decoded.as_rgb32f().ok_or("not float RGB")?;
             let rows = image_processing::SourceRows::whole(rgb.as_raw(), full_w, full_h);
             (
-                image_processing::transformed_region(&rows, recipe, &plan)
+                image_processing::transformed_region(&rows, recipe, &plan, known.is_raw)
                     .ok_or("rows do not cover the region")?,
                 "decoded-rows",
                 0.0,
@@ -1693,7 +1696,7 @@ fn prepare_region_from_rows(
                 cols: read.cols,
             };
             (
-                image_processing::transformed_region(&rows, recipe, &plan)
+                image_processing::transformed_region(&rows, recipe, &plan, known.is_raw)
                     .ok_or("rows do not cover the region")?,
                 "proxy-1:1-rows",
                 read_ms,
@@ -1809,7 +1812,7 @@ fn region_from_full_decode(
     let measured_ms = measuring.elapsed().as_secs_f64() * 1e3;
     let plan = region_plan(facts, area, zoom, recipe, measures).ok()?;
     let rows = image_processing::SourceRows::whole(rgb.as_raw(), full_w, full_h);
-    let image = image_processing::transformed_region(&rows, recipe, &plan)?;
+    let image = image_processing::transformed_region(&rows, recipe, &plan, facts.is_raw)?;
     log::info!(
         "[multi_view] {path}: measured {measured_ms:.1} ms, region rows warped {:.1} ms",
         measuring.elapsed().as_secs_f64() * 1e3 - measured_ms
@@ -2088,6 +2091,7 @@ fn develop_interim_region(
         facts.full_width,
         facts.full_height,
         recipe,
+        facts.is_raw,
         dim,
         scale,
     )?;
@@ -2866,7 +2870,8 @@ mod tests {
                 // As prepare_region: the whole photograph's base, cut.
                 let dim = full_w.max(full_h) + 2;
                 let base =
-                    reduced_preview_base(&source, 1.0, full_w, full_h, &recipe, dim, 1.0).unwrap();
+                    reduced_preview_base(&source, 1.0, full_w, full_h, &recipe, true, dim, 1.0)
+                        .unwrap();
                 let wanted = gpu_processing::multi_view::zoomed_region(
                     area,
                     [shown_w, shown_h],
@@ -2908,7 +2913,8 @@ mod tests {
                     col0: c0,
                     cols: c1 - c0,
                 };
-                let region = image_processing::transformed_region(&rows, &recipe, &plan).unwrap();
+                let region =
+                    image_processing::transformed_region(&rows, &recipe, &plan, true).unwrap();
                 assert_eq!(
                     region.to_rgba32f().as_raw(),
                     cut.to_rgba32f().as_raw(),

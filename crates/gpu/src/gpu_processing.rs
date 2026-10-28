@@ -8644,11 +8644,13 @@ pub fn upload_fringed_render_source(
 /// the warped frame there, so the photo goes up once as decoded and the
 /// warped frame is neither read back nor uploaded again. The texels equal
 /// those of [`upload_fringed_render_source`] of the same warp read back
-/// (`apply_warp`). `None` where any of it does not run on the GPU.
+/// (`apply_warp`). `None` where any of it does not run on the GPU. `is_raw`
+/// as `apply_warp`.
 pub fn upload_warped_render_source(
     context: &GpuContext,
     source: &DynamicImage,
     adjustments: &serde_json::Value,
+    is_raw: bool,
     window: [u32; 4],
     transform_hash: u64,
     color_noise: Option<(bool, color_noise::Tuning)>,
@@ -8669,6 +8671,7 @@ pub fn upload_warped_render_source(
         &context.queue,
         source,
         adjustments,
+        is_raw,
     )?;
     #[cfg(feature = "performance-profiling")]
     drop(warp_stage);

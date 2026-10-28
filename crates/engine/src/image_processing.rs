@@ -171,6 +171,12 @@ pub struct GeometryParams {
     /// on the CPU with `f32_warp` only where `warp_gpu::runs_for` says no.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub gpu_warp: bool,
+    /// The source holds sRGB-encoded values (a non-RAW photograph; the
+    /// shader decodes them, `initial_linear_at`): lens vignetting, a loss of
+    /// linear light, is applied to the decoded values and encoded again. Not
+    /// a recipe key: the caller's `is_raw` ([`geometry_params_for`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub srgb_base: bool,
 }
 
 impl Default for GeometryParams {
@@ -216,6 +222,7 @@ impl Default for GeometryParams {
             keep_negative: false,
             f32_warp: false,
             gpu_warp: false,
+            srgb_base: false,
         }
     }
 }
@@ -334,6 +341,7 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         keep_negative: render_version(adjustments) >= 2,
         f32_warp: render_version(adjustments) >= F32_WARP_RENDER_VERSION,
         gpu_warp: render_version(adjustments) >= GPU_WARP_RENDER_VERSION,
+        srgb_base: false,
     };
     let own = has_own_tca(&params);
     params.auto_ca = crate::lateral_ca::applies(adjustments, own);
@@ -345,6 +353,51 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
     params.auto_ca |= params.auto_ca_versus_own;
     params
 }
+
+/// [`get_geometry_params_from_json`] for a source that is a RAW's linear
+/// decode (`is_raw`) or a photograph's sRGB-encoded values
+/// ([`GeometryParams::srgb_base`]).
+pub fn geometry_params_for(adjustments: &serde_json::Value, is_raw: bool) -> GeometryParams {
+    GeometryParams {
+        srgb_base: !is_raw,
+        ..get_geometry_params_from_json(adjustments)
+    }
+}
+
+/// Whether the warp of `params` shades pixels (lens vignetting).
+pub fn shades_lens_vignetting(params: &GeometryParams) -> bool {
+    params.lens_vignette_enabled
+        && (params.vig_k1.abs() > 1e-6 || params.vig_k2.abs() > 1e-6 || params.vig_k3.abs() > 1e-6)
+        && (params.lens_vignette_amount as f64) * lens_strength(params).1 > 0.01
+}
+
+/// The sRGB transfer function's decode and its inverse in f32 and f64:
+/// the decode as the shader's `srgb_to_linear` (linear below the knee,
+/// negative values included), the encode its inverse on every value (not
+/// clamped, so values above 1 and negative ones survive the round trip).
+macro_rules! srgb_transfer {
+    ($decode:ident, $encode:ident, $t:ty) => {
+        #[inline(always)]
+        fn $decode(value: $t) -> $t {
+            if value <= 0.04045 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        }
+
+        #[inline(always)]
+        fn $encode(value: $t) -> $t {
+            if value <= 0.0031308 {
+                value * 12.92
+            } else {
+                1.055 * value.powf(1.0 / 2.4) - 0.055
+            }
+        }
+    };
+}
+srgb_transfer!(srgb_decode, srgb_encode, f32);
+srgb_transfer!(srgb_decode64, srgb_encode64, f64);
 
 /// Whether the lens correction carries a lateral CA correction of its own
 /// (camera data or a profile's TCA), which the automatic default leaves
@@ -1327,6 +1380,8 @@ struct WarpKernel {
     f32_warp: bool,
     /// `GeometryParams::gpu_warp`.
     gpu_warp: bool,
+    /// `GeometryParams::srgb_base`.
+    srgb_base: bool,
 }
 
 impl WarpKernel {
@@ -1411,9 +1466,7 @@ impl WarpKernel {
         let vk2 = params.vig_k2 as f64;
         let vk3 = params.vig_k3 as f64;
         let lens_vig_amt = (params.lens_vignette_amount as f64) * lens_strength(params).1;
-        let has_vignetting = params.lens_vignette_enabled
-            && (vk1.abs() > 1e-6 || vk2.abs() > 1e-6 || vk3.abs() > 1e-6)
-            && lens_vig_amt > 0.01;
+        let has_vignetting = shades_lens_vignetting(params);
 
         Self {
             step_vec_x,
@@ -1449,6 +1502,7 @@ impl WarpKernel {
             keep_negative: params.keep_negative,
             f32_warp: params.f32_warp,
             gpu_warp: params.gpu_warp,
+            srgb_base: params.srgb_base,
         }
     }
 
@@ -1638,7 +1692,9 @@ impl WarpKernel {
         (area[0] <= area[1]).then_some(area)
     }
 
-    /// Lens vignetting of the pixel sampled at (`src_x`, `src_y`).
+    /// Lens vignetting of the pixel sampled at (`src_x`, `src_y`): a gain on
+    /// linear light, so on the decoded values of an sRGB-encoded source
+    /// (`srgb_base`).
     #[inline(always)]
     fn shade(&self, src_x: f32, src_y: f32, pixel: &mut [f32]) {
         if !self.has_vignetting {
@@ -1654,9 +1710,13 @@ impl WarpKernel {
                 + self.vk3 as f32 * (ru_norm2 * ru_norm2 * ru_norm2);
             if v_factor > 1e-6 {
                 let gain = 1.0 + (1.0 / v_factor - 1.0) * self.lens_vig_amt as f32;
-                pixel[0] *= gain;
-                pixel[1] *= gain;
-                pixel[2] *= gain;
+                for value in &mut pixel[..3] {
+                    *value = if self.srgb_base {
+                        srgb_encode(srgb_decode(*value) * gain)
+                    } else {
+                        *value * gain
+                    };
+                }
             }
             return;
         }
@@ -1675,9 +1735,13 @@ impl WarpKernel {
             let correction_gain = 1.0 / v_factor;
             let final_gain = 1.0 + (correction_gain - 1.0) * self.lens_vig_amt;
 
-            pixel[0] *= final_gain as f32;
-            pixel[1] *= final_gain as f32;
-            pixel[2] *= final_gain as f32;
+            for value in &mut pixel[..3] {
+                *value = if self.srgb_base {
+                    srgb_encode64(srgb_decode64(f64::from(*value)) * final_gain) as f32
+                } else {
+                    *value * final_gain as f32
+                };
+            }
         }
     }
 
@@ -1863,6 +1927,8 @@ pub(crate) struct WarpUniforms {
     /// (k1, k2, k3, amount) of the vignetting.
     pub vignetting: Option<[f32; 4]>,
     pub keep_negative: bool,
+    /// `GeometryParams::srgb_base`.
+    pub srgb_base: bool,
 }
 
 impl WarpKernel {
@@ -1900,6 +1966,7 @@ impl WarpKernel {
                 self.lens_vig_amt as f32,
             ]),
             keep_negative: self.keep_negative,
+            srgb_base: self.srgb_base,
         }
     }
 
@@ -1927,8 +1994,9 @@ impl WarpKernel {
 pub(crate) fn gpu_warp_uniforms(
     image: &Rgb32FImage,
     adjustments: &serde_json::Value,
+    is_raw: bool,
 ) -> Option<WarpUniforms> {
-    let params = get_geometry_params_from_json(adjustments);
+    let params = geometry_params_for(adjustments, is_raw);
     let (width, height) = image.dimensions();
     if !params.gpu_warp
         || is_geometry_identity(&params)
@@ -2173,9 +2241,10 @@ pub fn warp_image_geometry_interim(
 pub fn apply_geometry_warp_interim<'a>(
     image: impl IntoCowImage<'a>,
     adjustments: &serde_json::Value,
+    is_raw: bool,
 ) -> Result<Cow<'a, DynamicImage>, String> {
     let image = image.into_cow();
-    let params = get_geometry_params_from_json(adjustments);
+    let params = geometry_params_for(adjustments, is_raw);
     if !is_geometry_identity(&params) {
         warp_image_geometry_interim(image.as_ref(), params).map(Cow::Owned)
     } else {
@@ -2837,13 +2906,15 @@ pub fn apply_linear_to_srgb(mut image: DynamicImage) -> DynamicImage {
 pub use rawtonic_rawdecode::orientation::apply_orientation;
 
 /// The recipe's lens and geometry warp on `image` ([`warp_image_geometry`];
-/// fails only where it runs on the GPU and the GPU fails).
+/// fails only where it runs on the GPU and the GPU fails), a RAW's decode
+/// (`is_raw`) or a photograph's encoded values ([`geometry_params_for`]).
 pub fn apply_geometry_warp<'a>(
     image: impl IntoCowImage<'a>,
     adjustments: &serde_json::Value,
+    is_raw: bool,
 ) -> Result<Cow<'a, DynamicImage>, String> {
     let image = image.into_cow();
-    let params = get_geometry_params_from_json(adjustments);
+    let params = geometry_params_for(adjustments, is_raw);
     if !is_geometry_identity(&params) {
         warp_image_geometry(image.as_ref(), params).map(Cow::Owned)
     } else {
@@ -3335,9 +3406,10 @@ pub struct RegionMeasures {
 
 impl RegionMeasures {
     /// The measures of `image`, a whole decode, for `adjustments`. Fails
-    /// only where the warp runs on the GPU and the GPU fails.
-    pub fn of(image: &Rgb32FImage, adjustments: &Value) -> Result<Self, String> {
-        let params = get_geometry_params_from_json(adjustments);
+    /// only where the warp runs on the GPU and the GPU fails. `is_raw` as
+    /// [`apply_geometry_warp`].
+    pub fn of(image: &Rgb32FImage, adjustments: &Value, is_raw: bool) -> Result<Self, String> {
+        let params = geometry_params_for(adjustments, is_raw);
         let ca = MeasuredCa::of_params(&params, Some(image));
         let (width, height) = image.dimensions();
         let raw = image.as_raw();
@@ -3677,10 +3749,12 @@ pub fn plan_transformed_region_with(
 /// bit-identical to the same pixels of the whole frame warped and
 /// transformed (`apply_geometry_warp`, `apply_spatial_transformations`).
 /// None when `source` does not hold the rows or does not fit the plan.
+/// `is_raw` as [`apply_geometry_warp`].
 pub fn transformed_region(
     source: &SourceRows,
     adjustments: &Value,
     plan: &RegionPlan,
+    is_raw: bool,
 ) -> Option<DynamicImage> {
     let (width, height) = (source.width, source.height);
     let source_rows = source.rows();
@@ -3698,7 +3772,7 @@ pub fn transformed_region(
     // The warped frame's pixels `warped`.
     let mut warped = vec![0.0f32; row_len * wh as usize];
     if plan.warp {
-        let params = get_geometry_params_from_json(adjustments);
+        let params = geometry_params_for(adjustments, is_raw);
         let kernel = WarpKernel::with_estimate(&params, width, height, plan.estimate);
         if kernel.on_gpu(source) {
             let out = crate::warp_gpu::OutputRows {
@@ -8531,6 +8605,42 @@ mod warp_points_tests {
         }
     }
 
+    /// Lens vignetting is a loss of linear light: on a photograph's
+    /// sRGB-encoded values it lifts the decoded light by the model's gain,
+    /// as on a RAW's linear decode, in the f64 and the f32 warp alike. (It
+    /// lifted the encoded values: about the gain to the 2.4th power in light,
+    /// notes: parity-gaps/G71.) Values above 1 are not clamped.
+    #[test]
+    fn vignetting_lifts_encoded_photographs_in_linear_light() {
+        let (w, h) = (64u32, 48u32);
+        let decode = |v: f32| ((v + 0.055) / 1.055).powf(2.4);
+        for version in [1, F32_WARP_RENDER_VERSION] {
+            let recipe = serde_json::json!({
+                "renderVersion": version, "lensDistortionParams": {"vig_k1": -0.3}
+            });
+            for value in [0.5f32, 1.2] {
+                let flat = DynamicImage::ImageRgb32F(image::ImageBuffer::from_pixel(
+                    w,
+                    h,
+                    image::Rgb([value; 3]),
+                ));
+                let linear = apply_geometry_warp(&flat, &recipe, true).unwrap();
+                let encoded = apply_geometry_warp(&flat, &recipe, false).unwrap();
+                let (linear, encoded) = (linear.to_rgb32f(), encoded.to_rgb32f());
+                let corner_gain = linear.get_pixel(0, 0)[0] / value;
+                assert!(corner_gain > 1.2, "{version}: {corner_gain}");
+                for (l, e) in linear.pixels().zip(encoded.pixels()) {
+                    let gain = l[0] / value;
+                    let lifted = decode(e[0]) / decode(value);
+                    assert!(
+                        (lifted / gain - 1.0).abs() < 1e-4,
+                        "{version} {value}: light × {lifted}, gain {gain}"
+                    );
+                }
+            }
+        }
+    }
+
     /// With the camera's framing exact (no margin), a binding edge still
     /// keeps its last row and column (barrel data whose edges move out).
     #[test]
@@ -8984,7 +9094,7 @@ mod region_tests {
         let raw = image.as_rgb32f().unwrap().as_raw().clone();
         let mut checked = 0;
         for adjustments in recipes() {
-            let warped = apply_geometry_warp(&image, &adjustments).unwrap();
+            let warped = apply_geometry_warp(&image, &adjustments, true).unwrap();
             let (whole, _) = apply_spatial_transformations(warped, &adjustments);
             let (fw, fh) = whole.dimensions();
             for rect in [
@@ -9010,7 +9120,7 @@ mod region_tests {
                     col0: c0,
                     cols: c1 - c0,
                 };
-                let region = transformed_region(&source, &adjustments, &plan)
+                let region = transformed_region(&source, &adjustments, &plan, true)
                     .unwrap_or_else(|| panic!("{adjustments} {rect:?} {plan:?}"));
                 assert_eq!(region.color(), expected.color(), "{adjustments} {rect:?}");
                 assert_eq!(
@@ -9021,7 +9131,7 @@ mod region_tests {
                 assert_eq!(bits(&region), bits(&expected), "{adjustments} {rect:?}");
                 // The whole frame as the source gives the same.
                 let all = SourceRows::whole(&raw, w, h);
-                let again = transformed_region(&all, &adjustments, &plan).unwrap();
+                let again = transformed_region(&all, &adjustments, &plan, true).unwrap();
                 assert_eq!(bits(&again), bits(&expected), "{adjustments} {rect:?}");
                 checked += 1;
             }
@@ -9045,10 +9155,10 @@ mod region_tests {
         ] {
             let params = get_geometry_params_from_json(&adjustments);
             assert!(params.auto_ca, "{adjustments}");
-            let measures = RegionMeasures::of(rgb, &adjustments).unwrap();
+            let measures = RegionMeasures::of(rgb, &adjustments, true).unwrap();
             assert!(measures.ca.is_some());
             assert!(RegionMeasures::inputs_key(&adjustments).is_some());
-            let warped = apply_geometry_warp(&image, &adjustments).unwrap();
+            let warped = apply_geometry_warp(&image, &adjustments, true).unwrap();
             let (whole, _) = apply_spatial_transformations(warped, &adjustments);
             let (fw, fh) = whole.dimensions();
             for rect in [[0, 0, fw, fh], [5, 7, 40, 30], [fw - 20, fh - 9, 60, 60]] {
@@ -9068,7 +9178,7 @@ mod region_tests {
                     col0: c0,
                     cols: c1 - c0,
                 };
-                let region = transformed_region(&source, &adjustments, &plan)
+                let region = transformed_region(&source, &adjustments, &plan, true)
                     .unwrap_or_else(|| panic!("{adjustments} {rect:?}"));
                 assert_eq!(bits(&region), bits(&expected), "{adjustments} {rect:?}");
             }
@@ -9123,11 +9233,11 @@ mod region_tests {
                 json!({"fringeVersion": 4, "lensDistortionParams": lens, "rotation": 2.0,
                     "crop": {"x": 31.0, "y": 17.4, "width": 180.0, "height": 120.0}}),
             ] {
-                let measures = RegionMeasures::of(rgb, &adjustments).unwrap();
+                let measures = RegionMeasures::of(rgb, &adjustments, true).unwrap();
                 let fringe = measures.fringe.expect("a fringe plan");
                 radii.insert((fringe.radius, fringe.colour_lines, fringe.axial.is_some()));
                 assert!(RegionMeasures::inputs_key(&adjustments).is_some());
-                let warped = apply_geometry_warp(&image, &adjustments).unwrap();
+                let warped = apply_geometry_warp(&image, &adjustments, true).unwrap();
                 let plain = apply_spatial_transformations(warped.clone(), &adjustments)
                     .0
                     .into_owned();
@@ -9159,7 +9269,7 @@ mod region_tests {
                         col0: c0,
                         cols: c1 - c0,
                     };
-                    let region = transformed_region(&source, &adjustments, &plan)
+                    let region = transformed_region(&source, &adjustments, &plan, true)
                         .unwrap_or_else(|| panic!("{adjustments} {rect:?}"));
                     assert_eq!(bits(&region), bits(&expected), "{adjustments} {rect:?}");
                 }
@@ -9200,7 +9310,7 @@ mod region_tests {
             col0: c0,
             cols: c1 - c0,
         };
-        assert!(transformed_region(&short, &adjustments, &plan).is_none());
+        assert!(transformed_region(&short, &adjustments, &plan, true).is_none());
         let narrow_cols = crop_rows(raw, w, (c0 + 1, c1), (r0, r1));
         let narrow = SourceRows {
             pixels: &narrow_cols,
@@ -9210,7 +9320,7 @@ mod region_tests {
             col0: c0 + 1,
             cols: c1 - c0 - 1,
         };
-        assert!(transformed_region(&narrow, &adjustments, &plan).is_none());
+        assert!(transformed_region(&narrow, &adjustments, &plan, true).is_none());
     }
 
     #[test]
@@ -9445,7 +9555,7 @@ mod render_version_tests {
                 "lensCorrectionMode": "manual", "rotation": 3.0, "renderVersion": version})
         };
         for version in [1, 2] {
-            let warped = apply_geometry_warp(&source, &recipe(version)).unwrap();
+            let warped = apply_geometry_warp(&source, &recipe(version), true).unwrap();
             let (turned, _) =
                 crate::adjustment_utils::apply_spatial_transformations(&source, &recipe(version));
             for (name, image) in [("warp", warped.as_ref()), ("straighten", turned.as_ref())] {
@@ -9466,8 +9576,12 @@ mod render_version_tests {
                 image::Rgb([1.0, 0.9, 0.8])
             }
         }));
-        let v1 = apply_geometry_warp(&plain, &recipe(1)).unwrap().to_rgb32f();
-        let v2 = apply_geometry_warp(&plain, &recipe(2)).unwrap().to_rgb32f();
+        let v1 = apply_geometry_warp(&plain, &recipe(1), true)
+            .unwrap()
+            .to_rgb32f();
+        let v2 = apply_geometry_warp(&plain, &recipe(2), true)
+            .unwrap()
+            .to_rgb32f();
         assert_eq!(v1.as_raw(), v2.as_raw());
         let (t1, _) = crate::adjustment_utils::apply_spatial_transformations(&plain, &recipe(1));
         let (t2, _) = crate::adjustment_utils::apply_spatial_transformations(&plain, &recipe(2));

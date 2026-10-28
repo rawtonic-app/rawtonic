@@ -190,6 +190,17 @@ pub(crate) fn compute_thumbnail_cache_hash(
         {
             hasher.update(b"\0tone-order-v1");
         }
+    } else if serde_json::from_slice::<serde_json::Value>(adjustments_bytes)
+        .ok()
+        .is_some_and(|adjustments| {
+            rawtonic_engine::image_processing::shades_lens_vignetting(
+                &rawtonic_engine::image_processing::get_geometry_params_from_json(&adjustments),
+            )
+        })
+    {
+        // Lens vignetting on a photograph's encoded values applies in
+        // linear light since 2026-10-28 (`GeometryParams::srgb_base`).
+        hasher.update(b"\0encoded-vignetting-v1");
     }
     if serde_json::from_slice::<serde_json::Value>(adjustments_bytes)
         .ok()
@@ -418,7 +429,7 @@ pub(crate) fn develop_thumbnail(
             // imported form, as for exports (`lightroom_masks`).
             let decoded_size = (raw_scale_factor == 1.0).then(|| pristine_source.dimensions());
 
-            let warped_image = apply_geometry_warp(composite_image, &meta.adjustments)
+            let warped_image = apply_geometry_warp(composite_image, &meta.adjustments, is_raw)
                 .map_err(anyhow::Error::msg)?;
 
             let blurred_image = crate::lens_blur::apply_lens_blur(warped_image, &meta.adjustments);

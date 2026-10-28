@@ -68,6 +68,19 @@ const KEEP_NEGATIVE: u32 = 128u;
 // Write each pixel's source position (x, y, and z < 0 where it is left
 // black) instead of sampling (tests of the warp's precision).
 const POSITIONS: u32 = 256u;
+// The source holds sRGB-encoded values: vignetting applies to the decoded
+// values (`GeometryParams::srgb_base`).
+const SRGB_BASE: u32 = 512u;
+
+// The sRGB decode and its unclamped inverse, as `srgb_decode` and
+// `srgb_encode` in image_processing.rs.
+fn srgb_decode(c: vec3<f32>) -> vec3<f32> {
+    return select(pow((c + 0.055) / 1.055, vec3<f32>(2.4)), c / 12.92, c <= vec3<f32>(0.04045));
+}
+
+fn srgb_encode(c: vec3<f32>) -> vec3<f32> {
+    return select(1.055 * pow(c, vec3<f32>(1.0 / 2.4)) - 0.055, c * 12.92, c <= vec3<f32>(0.0031308));
+}
 
 @group(0) @binding(0) var<uniform> P: Params;
 // Source pixels, RGB, rows of `src_cols` pixels.
@@ -316,7 +329,12 @@ fn warp(@builtin(global_invocation_id) id: vec3<u32>) {
             let ru_norm2 = ru_norm * ru_norm;
             let v = 1.0 + P.vk1 * ru_norm2 + P.vk2 * (ru_norm2 * ru_norm2) + P.vk3 * (ru_norm2 * ru_norm2 * ru_norm2);
             if v > 1e-6 {
-                out *= 1.0 + (1.0 / v - 1.0) * P.lens_vig_amt;
+                let gain = 1.0 + (1.0 / v - 1.0) * P.lens_vig_amt;
+                if (P.flags & SRGB_BASE) != 0u {
+                    out = srgb_encode(srgb_decode(out) * gain);
+                } else {
+                    out *= gain;
+                }
             }
         }
     }

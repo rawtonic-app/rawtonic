@@ -76,6 +76,7 @@ const VIGNETTING: u32 = 64;
 const KEEP_NEGATIVE: u32 = 128;
 #[cfg(any(test, feature = "test-support"))]
 const POSITIONS: u32 = 256;
+const SRGB_BASE: u32 = 512;
 
 /// Output pixels per submission: display frames queued meanwhile wait for
 /// one band, not the whole frame, and a band's buffers stay small.
@@ -249,6 +250,9 @@ fn params(u: &WarpUniforms, source: &SourceRows, out: OutputRows) -> (Params, Ve
     if u.keep_negative {
         flags |= KEEP_NEGATIVE;
     }
+    if u.srgb_base {
+        flags |= SRGB_BASE;
+    }
     let four = |v: [f32; 3]| [v[0], v[1], v[2], 0.0];
     let params = Params {
         origin: four(u.origin),
@@ -366,18 +370,20 @@ fn warp_with(
 /// `STORAGE | COPY_SRC`): the pixels [`warp`] gives for the whole frame,
 /// left on the GPU. `None` where this warp does not run on the GPU (a
 /// recipe before `renderVersion` 7 or without a warp, a frame the GPU
-/// cannot hold: [`runs_for`]). Returns once the warp is done.
+/// cannot hold: [`runs_for`]). Returns once the warp is done. `is_raw` as
+/// `image_processing::apply_geometry_warp`.
 pub fn warp_into_buffer(
     device: &Arc<wgpu::Device>,
     queue: &wgpu::Queue,
     image: &image::DynamicImage,
     adjustments: &serde_json::Value,
+    is_raw: bool,
 ) -> Result<Option<wgpu::Buffer>, String> {
     let Some(source) = image.as_rgb32f() else {
         return Ok(None);
     };
     let (width, height) = source.dimensions();
-    let Some(u) = crate::image_processing::gpu_warp_uniforms(source, adjustments) else {
+    let Some(u) = crate::image_processing::gpu_warp_uniforms(source, adjustments, is_raw) else {
         return Ok(None);
     };
     #[cfg(any(test, feature = "test-support"))]

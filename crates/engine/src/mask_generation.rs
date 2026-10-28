@@ -780,7 +780,7 @@ fn prepare_warped_mask_image<'a>(
     } else {
         Cow::Borrowed(source)
     };
-    crate::image_processing::apply_geometry_warp(image, adjustments)
+    crate::image_processing::apply_geometry_warp(image, adjustments, is_raw)
 }
 
 pub fn prepare_parametric_mask_source(
@@ -6723,7 +6723,7 @@ mod mask_bitmap_cache_tests {
         let mut expected = image.clone();
         crate::image_processing::apply_cpu_default_raw_processing(&mut expected);
         let expected =
-            crate::image_processing::apply_geometry_warp(expected, &adjustments).unwrap();
+            crate::image_processing::apply_geometry_warp(expected, &adjustments, true).unwrap();
         assert_eq!(actual.image.as_bytes(), expected.as_bytes());
         assert_eq!(image.as_bytes(), before);
     }
