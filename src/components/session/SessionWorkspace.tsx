@@ -1403,7 +1403,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                   <span className="session-count-status-text" aria-hidden>{` · ${t("offline.sessionCount", { count: session.missing })}`}</span>
                 </span>
               )}
-              <SessionXmpStatus directory={session.directory} count={session.xmp_pending}
+              <SessionXmpStatus key={session.directory} directory={session.directory} count={session.xmp_pending}
                 onChanged={() => refresh().catch(() => {})} />
             </span>
           )}

@@ -93,6 +93,9 @@ export default function SessionXmpStatus({
     const close = (event: Event) => {
       if (event instanceof KeyboardEvent) {
         if (event.key !== "Escape") return;
+        // Only the panel closes: not a crop or a view behind it.
+        event.preventDefault();
+        event.stopPropagation();
         button.current?.focus({ preventScroll: true });
       } else if (
         panel.current?.contains(event.target as Node) ||
@@ -114,8 +117,11 @@ export default function SessionXmpStatus({
 
   const retry = async () => {
     setBusy(true);
+    const current = () => useLibraryStore.getState().sessionDirectory === directory;
     try {
       const done = await invoke<XmpRetry>(Invokes.SessionWritePendingXmp, { directory });
+      // Another library opened meanwhile: its bar is not this one's.
+      if (!current()) return;
       await onChanged();
       // The grid showing these photographs lists the ones still left.
       if (useLibraryStore.getState().activeAlbumId === PENDING_XMP_VIEW_ID)
@@ -128,7 +134,7 @@ export default function SessionXmpStatus({
         setResult(done);
       }
     } catch (e) {
-      toast.error(t("session.xmp.retryFailed", { error: String(e) }));
+      if (current()) toast.error(t("session.xmp.retryFailed", { error: String(e) }));
     } finally {
       setBusy(false);
     }

@@ -38,13 +38,13 @@ pub struct XmpRetry {
 }
 
 impl Library {
-    fn pending_xmp(&self) -> Result<Vec<(String, bool)>> {
+    fn pending_xmp(&self) -> Result<Vec<String>> {
         let mut query = self.conn.prepare(&format!(
-            "SELECT a.id,a.missing FROM assets a JOIN metadata m ON m.asset_id=a.id
+            "SELECT a.id FROM assets a JOIN metadata m ON m.asset_id=a.id
              WHERE m.xmp_status!='synced' AND {} ORDER BY a.rel_path",
             self.visible_assets()
         ))?;
-        let rows = query.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        let rows = query.query_map([], |r| r.get(0))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
@@ -52,7 +52,7 @@ impl Library {
     pub fn pending_xmp_paths(&self) -> Result<Vec<PathBuf>> {
         self.pending_xmp()?
             .into_iter()
-            .map(|(id, _)| Ok(self.asset(&id)?.path))
+            .map(|id| Ok(self.asset(&id)?.path))
             .collect()
     }
 
@@ -62,11 +62,12 @@ impl Library {
     /// are written, never the photographs.
     pub fn write_pending_xmp(&self) -> Result<XmpRetry> {
         let mut retry = XmpRetry::default();
-        for (id, missing) in self.pending_xmp()? {
+        for id in self.pending_xmp()? {
             let path = self.asset(&id)?.path;
-            // The flag is the last check's: a photograph moved away since
-            // gets no sidecar of its own left behind.
-            let problem = if missing || !path.is_file() {
+            // Whether the file is there now, not the last check's flag: a
+            // photograph moved away since gets no sidecar left behind, one
+            // that is back gets its own.
+            let problem = if !path.is_file() {
                 Some(XmpProblem::Offline)
             } else if self.xmp_owners(&path)? > 1 {
                 Some(XmpProblem::SharedName)

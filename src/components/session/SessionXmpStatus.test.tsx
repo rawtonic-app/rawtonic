@@ -1,17 +1,20 @@
 import "../../i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "react-toastify";
 import { useLibraryStore } from "../../store/useLibraryStore";
-import SessionXmpStatus, { openPendingXmpView, PENDING_XMP_VIEW_ID, SHOW_PENDING_XMP_EVENT } from "./SessionXmpStatus";
+import SessionXmpStatus, { openPendingXmpView, PENDING_XMP_VIEW_ID, SHOW_PENDING_XMP_EVENT, type XmpRetry } from "./SessionXmpStatus";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("react-toastify", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 afterEach(() => cleanup());
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  useLibraryStore.setState({ sessionDirectory: "/job" });
+});
 
 describe("SessionXmpStatus", () => {
   it("shows nothing when every XMP is up to date", () => {
@@ -103,5 +106,33 @@ describe("SessionXmpStatus", () => {
     await opening;
     useLibraryStore.setState({ sessionDirectory: null });
     expect(select).not.toHaveBeenCalled();
+  });
+
+  it("closes on Escape without passing the key on (a crop behind it stays)", async () => {
+    const user = userEvent.setup();
+    const behind = vi.fn();
+    window.addEventListener("keydown", behind);
+    render(<SessionXmpStatus directory="/job" count={1} onChanged={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "1 XMP not updated" }));
+    await user.keyboard("{Escape}");
+    window.removeEventListener("keydown", behind);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(behind).not.toHaveBeenCalled();
+  });
+
+  it("ignores a retry that finishes after another library opened", async () => {
+    const user = userEvent.setup();
+    useLibraryStore.setState({ sessionDirectory: "/a" });
+    let finish: (retry: XmpRetry) => void = () => {};
+    vi.mocked(invoke).mockReturnValue(new Promise((resolve) => { finish = resolve as typeof finish; }));
+    const onChanged = vi.fn();
+    render(<SessionXmpStatus directory="/a" count={1} onChanged={onChanged} />);
+    await user.click(screen.getByRole("button", { name: "1 XMP not updated" }));
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    useLibraryStore.setState({ sessionDirectory: "/b" });
+    await act(async () => finish({ written: 1, unsaved: [] }));
+    useLibraryStore.setState({ sessionDirectory: null });
+    expect(onChanged).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
   });
 });

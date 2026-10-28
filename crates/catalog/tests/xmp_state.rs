@@ -169,3 +169,19 @@ fn a_photograph_moved_away_since_the_last_check_gets_no_sidecar() {
     assert!(!paths[0].with_extension("xmp").exists());
     assert_eq!(lib.summary().unwrap().xmp_pending, 1);
 }
+
+#[test]
+fn a_photograph_back_since_the_last_check_gets_its_sidecar() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, paths) = session(d.path(), &["A.ARW"]);
+    let mut meta = lib.metadata(&ids[0]).unwrap();
+    meta.rating = 1;
+    lib.set_metadata(&ids[0], &meta).unwrap();
+    let away = d.path().join("A.ARW");
+    fs::rename(&paths[0], &away).unwrap();
+    lib.check_files().unwrap();
+    assert!(lib.asset(&ids[0]).unwrap().missing);
+    fs::rename(&away, &paths[0]).unwrap();
+    assert_eq!(lib.write_pending_xmp().unwrap().written, 1);
+    assert!(paths[0].with_extension("xmp").is_file());
+}
