@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { AlertCircle } from "lucide-react";
 import { toast } from "react-toastify";
 import { Invokes } from "../ui/AppProperties";
+import { useLibraryStore } from "../../store/useLibraryStore";
 
 /** Why a photograph's XMP sidecar was not written (`rawtonic_catalog::XmpProblem`). */
 type XmpProblem =
@@ -113,6 +114,9 @@ export default function SessionXmpStatus({
     try {
       const done = await invoke<XmpRetry>(Invokes.SessionWritePendingXmp, { directory });
       await onChanged();
+      // The grid showing these photographs lists the ones still left.
+      if (useLibraryStore.getState().activeAlbumId === PENDING_XMP_VIEW_ID)
+        window.dispatchEvent(new CustomEvent(SHOW_PENDING_XMP_EVENT, { detail: { refresh: true } }));
       if (done.unsaved.length === 0) {
         setOpen(false);
         setResult(null);

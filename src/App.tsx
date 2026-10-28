@@ -299,10 +299,12 @@ function App() {
 
   // The session bar's "Show photos" for XMP files that are not up to date.
   useEffect(() => {
-    const show = () => {
+    const show = (event: Event) => {
       const { sessionDirectory } = useLibraryStore.getState();
       if (!sessionDirectory) return;
-      void openPendingXmpView(sessionDirectory, i18n.t('session.xmp.view'), handleSelectAlbum).catch((e) =>
+      // A refresh after Try again keeps an open photograph in Develop.
+      const refresh = Boolean((event as CustomEvent<{ refresh?: boolean } | null>).detail?.refresh);
+      void openPendingXmpView(sessionDirectory, i18n.t('session.xmp.view'), handleSelectAlbum, refresh).catch((e) =>
         toast.error(String(e)),
       );
     };

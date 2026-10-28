@@ -4,6 +4,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "react-toastify";
+import { useLibraryStore } from "../../store/useLibraryStore";
 import SessionXmpStatus, { openPendingXmpView, PENDING_XMP_VIEW_ID, SHOW_PENDING_XMP_EVENT } from "./SessionXmpStatus";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -73,5 +74,21 @@ describe("SessionXmpStatus", () => {
     await openPendingXmpView("/job", "XMP not updated", select);
     expect(invoke).toHaveBeenCalledWith("session_pending_xmp", { directory: "/job" });
     expect(select).toHaveBeenCalledWith(PENDING_XMP_VIEW_ID, "XMP not updated", ["/job/a.ARW"], false);
+  });
+
+  it("lists the photographs again after Try again when they are shown", async () => {
+    const user = userEvent.setup();
+    const shown = vi.fn();
+    window.addEventListener(SHOW_PENDING_XMP_EVENT, shown);
+    useLibraryStore.setState({ activeAlbumId: PENDING_XMP_VIEW_ID });
+    vi.mocked(invoke).mockResolvedValue({ written: 1, unsaved: [{ path: "/job/b.ARW", problem: { kind: "offline" } }] });
+    render(<SessionXmpStatus directory="/job" count={2} onChanged={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "2 XMP not updated" }));
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByRole("listitem");
+    window.removeEventListener(SHOW_PENDING_XMP_EVENT, shown);
+    useLibraryStore.setState({ activeAlbumId: null });
+    expect(shown).toHaveBeenCalledTimes(1);
+    expect((shown.mock.calls[0][0] as CustomEvent).detail).toEqual({ refresh: true });
   });
 });

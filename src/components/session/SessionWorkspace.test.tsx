@@ -13,6 +13,8 @@ import { toast } from "react-toastify";
 import { useUIStore } from "../../store/useUIStore";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
 import { useCatalogUndoStore } from "../../utils/appUndo";
+import { debouncedSave } from "../../hooks/useEditorActions";
+import type { Adjustments } from "../../utils/adjustments";
 
 vi.mock("@tauri-apps/api/core", () => ({
   isTauri: () => false,
@@ -134,13 +136,19 @@ describe("Session workspace keyboard flows", () => {
     expect(screen.getByRole("button", { name: "2 XMP not updated" })).toBeTruthy();
   });
 
-  it("re-reads the XMP count after a rating settles and after leaving Develop", async () => {
+  it("re-reads the XMP count after a rating settles and after Develop's last save is written", async () => {
     const user = userEvent.setup();
     const base = vi.mocked(invoke).getMockImplementation()!;
     let pending = 0;
-    vi.mocked(invoke).mockImplementation(async (command, args) =>
-      command === "session_create" || command === "session_summary"
-        ? { ...summary, xmp_pending: pending } : base(command, args));
+    let finishSave: () => void = () => {};
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "session_create" || command === "session_summary") return { ...summary, xmp_pending: pending };
+      // Develop's last save is still being written when the view changes;
+      // its XMP fails.
+      if (command === "save_metadata_and_update_thumbnail")
+        return new Promise<void>((resolve) => { finishSave = () => { pending = 2; resolve(); }; });
+      return base(command, args);
+    });
     render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
     await user.click(screen.getByRole("button", { name: "Create a project" }));
     await user.type(screen.getByLabelText("Project name"), "Acme");
@@ -152,9 +160,14 @@ describe("Session workspace keyboard flows", () => {
     pending = 1;
     act(() => useCatalogUndoStore.setState((s) => ({ past: [...s.past] })));
     expect(await screen.findByRole("button", { name: "1 XMP not updated" })).toBeTruthy();
-    pending = 2;
     act(() => useUIStore.setState({ activeView: "editor" }));
+    debouncedSave("/jobs/Acme/Capture/a.ARW", {} as Adjustments);
+    debouncedSave.flush();
     act(() => useUIStore.setState({ activeView: "library" }));
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    // Not counted before the save is written.
+    expect(screen.getByRole("button", { name: "1 XMP not updated" })).toBeTruthy();
+    act(() => finishSave());
     expect(await screen.findByRole("button", { name: "2 XMP not updated" }, { timeout: 2000 })).toBeTruthy();
   });
 
