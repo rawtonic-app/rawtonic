@@ -213,10 +213,6 @@ pub fn get_or_init_gpu_context(
     Ok(new_context)
 }
 
-/// Builds the processing pipelines ahead of the first render (shader
-/// compilation: seconds on a cold driver cache), so an export overlaps it
-/// with decoding. A processor that already exists
-/// is kept; the render path creates one itself if this has not finished.
 /// The window's newest size in device pixels (width << 32 | height), for a
 /// resize that waits for the display.
 static WINDOW_SIZE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -265,6 +261,10 @@ pub fn resize_display(context: GpuContext, width: u32, height: u32) {
     }
 }
 
+/// Builds the processing pipelines ahead of the first render (shader
+/// compilation: seconds on a cold driver cache), so an export overlaps it
+/// with decoding. A processor that already exists
+/// is kept; the render path creates one itself if this has not finished.
 pub fn prewarm_gpu_processor(slot: &GpuProcessorSlot, context: &GpuContext) {
     let mut processor_lock = match slot.lock() {
         Ok(guard) => guard,
