@@ -2239,7 +2239,8 @@
         "channel": "Canal de la courbe",
         "input": "Entrée",
         "maxPoints": "{{max}} points maximum par canal. Déplacez ou supprimez un point pour affiner la courbe.",
-        "output": "Sortie"
+        "output": "Sortie",
+        "point": "Point {{index}}, entrée {{input}}, sortie {{output}}. Les flèches déplacent ; A ajoute un point ; Suppr le supprime."
       },
       "effects": {
         "grainColor": "Couleur du grain",

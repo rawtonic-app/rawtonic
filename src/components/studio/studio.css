@@ -5407,3 +5407,8 @@ img.relight-pattern-preview { object-fit: cover; }
   background: #ffffff14;
   opacity: 1;
 }
+.curve-point:focus-visible {
+  outline: none;
+  stroke: #fff;
+  stroke-width: 3;
+}
