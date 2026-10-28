@@ -8,6 +8,30 @@ import { PointCurve } from "./StudioDevelop";
 afterEach(cleanup);
 
 describe("point curve keyboard", () => {
+  it("uses the drawing transform for creation and dragging in every channel", () => {
+    vi.stubGlobal("PointerEvent", MouseEvent);
+    const changed = vi.fn();
+    function Harness() {
+      const [curves, setCurves] = useState(INITIAL_ADJUSTMENTS.curves);
+      return <PointCurve curves={curves} onChange={(next) => { changed(next); setCurves(next); }} disabled={false} onInteraction={() => {}} />;
+    }
+    const { container } = render(<Harness />);
+    const svg = container.querySelector("svg")!;
+    Object.assign(svg, {
+      getScreenCTM: () => ({ inverse: () => ({ a: 255 / 210, b: 0, c: 0, d: 255 / 210, e: -32.5 * 255 / 210, f: 0 }) }),
+      setPointerCapture: () => {},
+      hasPointerCapture: () => false,
+    });
+    for (const [button, channel] of [["RGB", "luma"], ["Luminance", "luminance"], ["R", "red"], ["G", "green"], ["B", "blue"]] as const) {
+      fireEvent.click(screen.getByRole("button", { name: button, exact: true }));
+      fireEvent.pointerDown(svg, { button: 0, clientX: 75, clientY: 105 });
+      expect(changed.mock.lastCall![0][channel][1].x).toBeCloseTo(42.5 * 255 / 210);
+      fireEvent.pointerMove(svg, { buttons: 1, clientX: 100, clientY: 100 });
+      fireEvent.pointerUp(svg);
+      expect(changed.mock.lastCall![0][channel][1].x).toBeCloseTo(67.5 * 255 / 210);
+    }
+    vi.unstubAllGlobals();
+  });
   it("adds, moves and removes a point and keeps endpoint constraints", () => {
     const changed = vi.fn();
     function Harness() {
