@@ -412,16 +412,16 @@ export default function StudioBrowser({
       && focused.classList.contains("studio-photo-open")
       ? { panelShortcut: focused.dataset.panelShortcut } : null;
   }, [currentPath]);
-  const [focusTarget, setFocusTarget] = useState<string | null>(null);
+  const focusTarget = useRef<string | null>(null);
   useLayoutEffect(() => {
-    const target = focusTarget ?? currentPath;
+    const target = focusTarget.current ?? currentPath;
     if (!focusFollows.current || !target) return;
     const tile = Array.from(ref.current?.querySelectorAll<HTMLElement>(".studio-photo-open") ?? [])
       .find((b) => b.dataset.path === target);
     if (!tile) return;
     const { panelShortcut } = focusFollows.current;
     focusFollows.current = null;
-    if (focusTarget) setFocusTarget(null);
+    focusTarget.current = null;
     if (document.activeElement === tile) return;
     tile.focus({ preventScroll: true });
     // The focus moved by key keeps what Tab does (panels after a click).
@@ -438,11 +438,16 @@ export default function StudioBrowser({
     const active = useLibraryStore.getState().libraryActivePath ?? currentPath;
     const index = active ? files.findIndex((f) => f.path === active) : -1;
     if (index < 0 || tile.dataset.path === active) return;
+    const mounted = Array.from(el.querySelectorAll<HTMLElement>(".studio-photo-open")).find((b) => b.dataset.path === active);
+    if (mounted) {
+      mounted.focus();
+      return;
+    }
     focusFollows.current = {};
     if (film) el.scrollLeft = Math.max(0, index * extent - (el.clientWidth - extent) / 2);
     else el.scrollTop = Math.floor(index / columns) * extent;
+    focusTarget.current = active ?? null;
     setOffset(film ? el.scrollLeft : el.scrollTop);
-    setFocusTarget(active);
   };
   return (
     <PerfProfiler id={film ? "filmstrip" : "grid"}>
