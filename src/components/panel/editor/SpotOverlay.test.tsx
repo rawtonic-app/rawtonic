@@ -16,7 +16,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   },
 }));
 
-import SpotOverlay from "./SpotOverlay";
+import SpotOverlay, { pathToBox } from "./SpotOverlay";
 import { useEditorStore } from "../../../store/useEditorStore";
 import { INITIAL_ADJUSTMENTS } from "../../../utils/adjustments";
 
@@ -260,6 +260,39 @@ describe("spot removal overlay", () => {
     expect(useEditorStore.getState().adjustments.aiPatches).toHaveLength(0);
     expect(changes).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("spot-erase-box")).toBeNull();
+  });
+
+  it("deletes by an Alt-drag that starts on a spot, and strokes crossing the box between their points", () => {
+    useEditorStore.setState({
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        spots: [
+          circle("s1", 200, 150),
+          circle("s2", 400, 150),
+          // A stroke with two points only, crossing the box between them.
+          { ...circle("st", 150, 300), points: [{ x: 150, y: 300 }, { x: 480, y: 300 }] },
+          circle("far", 480, 120),
+        ],
+        aiPatches: [{ ...removal("r1", 120, 250), subMasks: [] }] as never,
+      },
+    });
+    const el = overlay();
+    // From s1's centre (box 50, 50) to box (150, 140): mask 200…400 × 150…330.
+    fireEvent.pointerDown(el, { button: 0, altKey: true, clientX: 50, clientY: 50, pointerId: 1 });
+    fireEvent.pointerMove(el, { clientX: 150, clientY: 140, pointerId: 1 });
+    fireEvent.pointerUp(el, { clientX: 150, clientY: 140, pointerId: 1 });
+    expect(useEditorStore.getState().adjustments.spots.map((s) => s.id)).toEqual(["far"]);
+  });
+
+  it("measures a path's distance to a box, zero where a segment crosses it", () => {
+    const lo = { x: 250, y: 150 };
+    const hi = { x: 350, y: 250 };
+    expect(pathToBox([{ x: 100, y: 200 }, { x: 500, y: 200 }], lo, hi)).toBe(0);
+    expect(pathToBox([{ x: 300, y: 200 }], lo, hi)).toBe(0);
+    expect(pathToBox([{ x: 100, y: 300 }, { x: 500, y: 300 }], lo, hi)).toBeCloseTo(50);
+    expect(pathToBox([{ x: 360, y: 100 }], lo, hi)).toBeCloseTo(Math.hypot(10, 50));
+    // A segment passing a corner diagonally.
+    expect(pathToBox([{ x: 340, y: 270 }, { x: 370, y: 240 }], lo, hi)).toBeCloseTo(10 / Math.SQRT2);
   });
 
   it("selects the spot under a right-click for the settings popover, placing nothing", () => {

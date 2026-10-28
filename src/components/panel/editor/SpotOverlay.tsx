@@ -120,6 +120,40 @@ function distanceToPath(x: number, y: number, points: Point[]) {
   return best;
 }
 
+/** Whether the segment a–b meets the box lo–hi (Liang–Barsky clipping). */
+function segmentMeetsBox(a: Point, b: Point, lo: Point, hi: Point) {
+  let t0 = 0;
+  let t1 = 1;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  for (const [p, q] of [
+    [-dx, a.x - lo.x],
+    [dx, hi.x - a.x],
+    [-dy, a.y - lo.y],
+    [dy, hi.y - a.y],
+  ]) {
+    if (p === 0) {
+      if (q < 0) return false;
+    } else if (p < 0) t0 = Math.max(t0, q / p);
+    else t1 = Math.min(t1, q / p);
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+/** Distance from the path `points` (one point or a polyline) to the box
+ * lo–hi: 0 where they meet. */
+export function pathToBox(points: Point[], lo: Point, hi: Point) {
+  const toBox = (p: Point) => Math.hypot(Math.max(lo.x - p.x, 0, p.x - hi.x), Math.max(lo.y - p.y, 0, p.y - hi.y));
+  const segments = points.length > 1 ? points.slice(1).map((b, i) => [points[i], b]) : [[points[0], points[0]]];
+  if (segments.some(([a, b]) => segmentMeetsBox(a, b, lo, hi))) return 0;
+  const corners = [lo, hi, { x: lo.x, y: hi.y }, { x: hi.x, y: lo.y }];
+  return Math.min(
+    ...points.map(toBox),
+    ...(points.length > 1 ? corners.map((c) => distanceToPath(c.x, c.y, points)) : []),
+  );
+}
+
 /** Distance from (x, y) to a spot's area edge-in: negative inside. */
 function distanceToSpot(x: number, y: number, spot: Spot, dx = 0, dy = 0) {
   if (isStroke(spot)) return distanceToPath(x - dx, y - dy, spot.points) - spot.radius;
@@ -436,15 +470,21 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
   };
 
   /** The spots and removals an Alt-drag box from `a` to `b` reaches: a
-   * circle's centre, a stroke's path or an object removal's pin inside it. */
+   * circle or stroke (or painted removal) whose area it touches, an object
+   * removal whose pin it holds. */
   const itemsIn = (a: Point, b: Point) => {
-    const inside = (p: Point) =>
-      p.x >= Math.min(a.x, b.x) && p.x <= Math.max(a.x, b.x) && p.y >= Math.min(a.y, b.y) && p.y <= Math.max(a.y, b.y);
+    const lo = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y) };
+    const hi = { x: Math.max(a.x, b.x), y: Math.max(a.y, b.y) };
+    const touches = (points: Point[], radius: number) => pathToBox(points, lo, hi) < radius;
     return new Set([
-      ...shown.filter((spot) => (isStroke(spot) ? spot.points.some(inside) : inside(spot))).map((spot) => spot.id),
+      ...shown
+        .filter((spot) => touches(isStroke(spot) ? spot.points : [spot], spot.radius))
+        .map((spot) => spot.id),
       ...removals
         .filter((removal) =>
-          removal.kind === 'object' ? inside(pinOf(removal.start, removal.end)) : removal.points.some(inside),
+          removal.kind === 'object'
+            ? pathToBox([pinOf(removal.start, removal.end)], lo, hi) === 0
+            : touches(removal.points, removal.radius),
         )
         .map((removal) => removal.patch.id),
     ]);
@@ -476,13 +516,9 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
       }
     };
     // Alt (unless it refines an object removal): a click deletes the spot
-    // or removal under it, a drag deletes what its box reaches.
+    // or removal under it, a drag (also one starting on a spot) deletes
+    // what its box reaches; which of the two is decided on release.
     if (e.altKey && !refining) {
-      const id = itemAt(x, y);
-      if (id) {
-        deleteItems(new Set([id]));
-        return;
-      }
       capture();
       drag.current = { kind: 'erase', start: { x, y }, end: { x, y } };
       setEraseBox({ start: { x, y }, end: { x, y } });
@@ -597,7 +633,11 @@ export default function SpotOverlay({ rect, cropX, cropY, scale, zoom }: Props) 
     }
     if (d?.kind === 'erase') {
       setEraseBox(null);
-      deleteItems(itemsIn(d.start, d.end));
+      // Travelled less than a few screen pixels: a click on one.
+      if (Math.hypot(d.end.x - d.start.x, d.end.y - d.start.y) < BOX_MIN * pixel) {
+        const id = itemAt(d.start.x, d.start.y);
+        if (id) deleteItems(new Set([id]));
+      } else deleteItems(itemsIn(d.start, d.end));
       return;
     }
     if (d?.kind === 'box') {
