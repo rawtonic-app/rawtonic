@@ -1991,26 +1991,59 @@ pub(crate) mod tests {
         );
     }
 
+    /// The names beside `folder` that spell `name` ignoring ASCII case: on
+    /// a volume that folds case (`H.XMP` there is `H.xmp` here), the name
+    /// as the folder lists it.
+    fn spelling(folder: &Path, name: &str) -> String {
+        fs::read_dir(folder)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .find(|listed| listed.eq_ignore_ascii_case(name))
+            .unwrap_or_else(|| name.to_string())
+    }
+
     #[test]
     fn card_sidecars_are_found_in_any_letter_case() {
         let d = tempfile::tempdir().unwrap();
         let card = d.path();
-        let touch = |name: &str| fs::write(card.join(name), b"x").unwrap();
+        // The folder as it lists a name: a name written in another case
+        // than an earlier one (H.XMP for H.xmp) keeps the earlier spelling
+        // on a volume that folds case (NTFS, a card's FAT), and a copy's
+        // name is the file's as it is (PathBuf equality, also on Windows).
+        let at = |name: &str| card.join(spelling(card, name));
+        // Files are written a second apart: a new file's modification time
+        // can repeat the folder's on NTFS, and a card's FAT keeps whole
+        // seconds, while a folder's listing is kept for the second it was
+        // made (holding what was there at the start of it). Sidecars come
+        // before an import, so spacing them changes nothing real.
+        let mut written = 0;
+        let mut touch = |name: &str| {
+            fs::write(card.join(name), b"x").unwrap();
+            written += 1;
+            let at = SystemTime::now() + std::time::Duration::from_secs(written);
+            fs::File::options()
+                .write(true)
+                .open(card.join(name))
+                .unwrap()
+                .set_times(fs::FileTimes::new().set_modified(at))
+                .unwrap();
+        };
         let found = |photo: &str| card_sidecar(&card.join(photo)).unwrap();
         touch("G.ARW");
         touch("g.arw.XMP");
-        assert_eq!(found("G.ARW"), Some(card.join("g.arw.XMP")));
+        assert_eq!(found("G.ARW"), at("g.arw.XMP"));
         touch("H.ARW");
         touch("H.XMP");
-        assert_eq!(found("H.ARW"), Some(card.join("H.XMP")));
+        assert_eq!(found("H.ARW"), at("H.XMP"));
         touch("i.arw");
         touch("I.Xmp");
-        assert_eq!(found("i.arw"), Some(card.join("I.Xmp")));
+        assert_eq!(found("i.arw"), at("I.Xmp"));
         // RAW+JPEG whose names differ in case: still the RAW's sidecar.
         touch("K.CR3");
         touch("k.jpg");
         touch("K.xmp");
-        assert_eq!(found("K.CR3"), Some(card.join("K.xmp")));
+        assert_eq!(found("K.CR3"), at("K.xmp"));
         assert_eq!(found("k.jpg"), None);
         // Two that differ only in case (a case-sensitive volume): neither.
         // On a volume that folds case (macOS APFS by default) they are one

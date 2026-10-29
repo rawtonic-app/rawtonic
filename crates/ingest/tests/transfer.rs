@@ -387,3 +387,45 @@ fn backups_carry_external_companions() {
     assert_eq!(fs::read(&companion).unwrap(), b"external jpeg");
     assert_eq!(companion.parent(), asset.path.parent());
 }
+
+/// A read-only photograph (a card or archive marked so) backs up and
+/// restores with its bytes and stays unchangeable where it is, and the
+/// copy keeps what it came with: the staged copy is flushed for the
+/// drive on Windows, where a read-only handle cannot be (`FlushFileBuffers`
+/// answers access denied), which made every backup of such a file fail.
+#[test]
+fn read_only_photographs_back_up_and_restore_and_keep_their_attribute() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (lib, id) = catalog(tmp.path());
+    let photo = lib.asset(&id).unwrap().path;
+    let mut read_only = fs::metadata(&photo).unwrap().permissions();
+    read_only.set_readonly(true);
+    fs::set_permissions(&photo, read_only).unwrap();
+    let backup = tmp.path().join("backup");
+    copy_library(&lib.directory, &backup, "backup", &cancel(), |_| {}).unwrap();
+    // The original is untouched (still read-only, still its bytes).
+    let original = fs::metadata(&photo).unwrap().permissions();
+    assert!(original.readonly(), "the original stays read-only");
+    assert_eq!(fs::read(&photo).unwrap(), b"internal original");
+    let backed_up = backup.join("Photos/image.arw");
+    assert_eq!(fs::read(&backed_up).unwrap(), b"internal original");
+    #[cfg(windows)]
+    assert!(
+        fs::metadata(&backed_up).unwrap().permissions().readonly(),
+        "the copy keeps the read-only attribute it was published with"
+    );
+    verify(&backup, &cancel(), |_| {}).unwrap();
+    let restored = tmp.path().join("restored");
+    copy_library(&backup, &restored, "restore", &cancel(), |_| {}).unwrap();
+    let restored_photo = restored.join("Photos/image.arw");
+    assert_eq!(fs::read(&restored_photo).unwrap(), b"internal original");
+    #[cfg(windows)]
+    assert!(
+        fs::metadata(&restored_photo)
+            .unwrap()
+            .permissions()
+            .readonly(),
+        "the restored copy keeps the read-only attribute"
+    );
+    verify(&restored, &cancel(), |_| {}).unwrap();
+}

@@ -636,8 +636,13 @@ mod tests {
         assert_eq!(lib.summary().unwrap().assets, 4);
     }
 
-    /// The card taken out mid-import: the rest waits (interrupted), is
-    /// imported when the card is back, and a cancel is never resumed.
+    /// A card folder taken out of the card reader (renamed away from under
+    /// the import; what unmounting looks like to the files): the rest waits
+    /// (interrupted), is imported when the card is back, and a cancel is
+    /// never resumed. The first photograph's import is over when it is
+    /// reported done (Windows refuses to rename a folder with a file open
+    /// below it, macOS and Linux allow it, and a reader leaves its card
+    /// between two photographs the same way).
     #[test]
     fn a_card_taken_out_is_finished_when_it_is_back_and_a_cancel_is_final() {
         let d = tempfile::tempdir().unwrap();
@@ -652,7 +657,7 @@ mod tests {
             &options("{orig}"),
             &AtomicBool::new(false),
             |done| {
-                if done.index == 1 && !taken {
+                if done.index == 0 && !taken {
                     fs::rename(&card_dir, &away).unwrap();
                     taken = true;
                 }

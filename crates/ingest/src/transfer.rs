@@ -509,9 +509,37 @@ pub fn copy_library(
         .keys()
         .chain(std::iter::once(&RECEIPT.to_string()))
     {
-        fs::File::open(stage_root.join(relative))?.sync_all()?;
+        flush_staged(stage_root.join(relative))?;
     }
     check(cancel)?;
     rawtonic_fileops::rename_no_clobber(&stage_root, &destination)?;
     Ok(receipt)
+}
+
+/// Flushes a staged copy to its drive. The staged files are this
+/// function's own copies made a moment earlier (an original is only ever
+/// read by `copy_file`), so a copy that came along read-only is given the
+/// owner's write bit for the flush, which Windows needs (`FlushFileBuffers`
+/// refuses a handle opened without write access, and `File::open` asks for
+/// none). Nothing written keeps another permission on any system: the copy
+/// ends with what it came with, already before it is published. Other
+/// systems flush the read-only handle as it is.
+fn flush_staged(path: PathBuf) -> Result<()> {
+    let sync = |path: &Path| fs::File::open(path).and_then(|file| file.sync_all());
+    let kept = fs::metadata(&path)?.permissions();
+    let mut writable = kept.clone();
+    writable.set_readonly(false);
+    let widen = cfg!(windows) && writable.readonly();
+    if widen {
+        // A staged copy of ours: read-only keeps nobody's file safe here,
+        // and the attribute comes back below before it is published.
+        fs::set_permissions(&path, writable)
+            .with_context(|| format!("Cannot write the staged copy {}", path.display()))?;
+    }
+    let flushed = sync(&path);
+    if widen {
+        fs::set_permissions(&path, kept)
+            .with_context(|| format!("Cannot restore the permissions of {}", path.display()))?;
+    }
+    flushed.with_context(|| format!("Cannot flush {}", path.display()))
 }
