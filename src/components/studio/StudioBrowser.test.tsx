@@ -489,6 +489,31 @@ describe("library grid keyboard focus", () => {
     }
   });
 
+  it("keeps the focus outside the grid when its target appears only in a later render", () => {
+    // The Library picked B elsewhere while a mounted tile A had the keys'
+    // focus: the focus waits for B's tile (here B is not in the listing yet).
+    // A click in a panel takes the focus away; the later render that lists B
+    // must not take it back.
+    const a = "/s/a.NEF", b = "/s/b.NEF", c = "/s/c.NEF";
+    const before = [a, c].map(file);
+    useLibraryStore.setState({ libraryActivePath: a, multiSelectedPaths: [a] });
+    const { getByRole, queryByRole, rerender } = render(<StudioBrowser {...props} files={before} currentPath={a} />);
+    act(() => getByRole("option", { name: "a.NEF" }).focus());
+    expect(document.activeElement).toBe(getByRole("option", { name: "a.NEF" }));
+    act(() => useLibraryStore.setState({ libraryActivePath: b }));
+    // B is not listed: the focus waits for its tile instead of moving.
+    expect(queryByRole("option", { name: "b.NEF" })).toBeNull();
+    expect(document.activeElement).toBe(getByRole("option", { name: "a.NEF" }));
+    const panel = document.createElement("button");
+    document.body.append(panel);
+    act(() => panel.focus());
+    expect(document.activeElement).toBe(panel);
+    rerender(<StudioBrowser {...props} files={[...before, file(b)].sort((x, y) => x.path.localeCompare(y.path))} currentPath={a} />);
+    expect(getByRole("option", { name: "b.NEF" })).not.toBeNull();
+    expect(document.activeElement).toBe(panel);
+    panel.remove();
+  });
+
   it("stacks the colour word below the stars in 150 px thumbnails, keeping names and targets", () => {
     // jsdom applies no stylesheet: the class says which tiles the studio.css
     // rule below applies to.
