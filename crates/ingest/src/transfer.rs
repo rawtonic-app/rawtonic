@@ -531,13 +531,16 @@ pub fn copy_library(
 /// systems flush a read-only handle as it is.
 #[cfg(windows)]
 fn flush_staged(path: PathBuf) -> Result<()> {
-    let kept = fs::metadata(&path)?.permissions();
-    let mut writable = kept.clone();
-    writable.set_readonly(false);
-    let widened = writable.readonly() != kept.readonly();
+    use std::os::windows::fs::{MetadataExt, PermissionsExt};
+    let metadata = fs::metadata(&path)?;
+    let kept = metadata.permissions();
+    let widened = kept.readonly();
     if widened {
         // A copy of ours: its read-only attribute protects nothing here,
         // and it comes back below, also when the flush fails.
+        const FILE_ATTRIBUTE_READONLY: u32 = 0x1;
+        let writable =
+            fs::Permissions::from_attributes(metadata.file_attributes() & !FILE_ATTRIBUTE_READONLY);
         fs::set_permissions(&path, writable)
             .with_context(|| format!("Cannot write the staged copy {}", path.display()))?;
     }
