@@ -290,3 +290,43 @@ it("recovers an evicted thumbnail when its Library tile becomes visible", async 
   await waitFor(() => expect(view.container.querySelector("img")).toBeNull());
   expect(invoke).toHaveBeenCalledTimes(1);
 });
+
+describe("tile file names", () => {
+  const tileNames = (list: ImageFile[]) => {
+    const view = render(
+      <StudioBrowser
+        files={list}
+        currentPath={list[0]?.path}
+        onSelect={vi.fn()}
+        onOpen={vi.fn()}
+        onRate={vi.fn()}
+        onContextMenu={vi.fn()}
+        requestThumbnails={vi.fn()}
+      />,
+    );
+    sizeBrowser(view.container.querySelector<HTMLElement>(".studio-browser")!);
+    const names = [...view.container.querySelectorAll(".studio-photo-name")].map((el) => el.textContent);
+    const titles = [...view.container.querySelectorAll<HTMLElement>(".studio-photo-open")].map((el) => el.title);
+    view.unmount();
+    return { names, titles };
+  };
+
+  it("shows the file name alone for Unix and Windows paths, mixed separators too", () => {
+    const { names, titles } = tileNames([
+      file("/s/Capture/A.CR2"),
+      file("C:\\Photos\\Capture\\A.CR2"),
+      file("C:/Photos/Capture\\A.CR2"),
+    ]);
+    expect(names).toEqual(["A.CR2", "A.CR2", "A.CR2"]);
+    expect(titles).toEqual(["A.CR2", "A.CR2", "A.CR2"]);
+  });
+
+  it("keeps naming a virtual copy as one, after its own file name", () => {
+    const { names, titles } = tileNames([
+      file("/s/Capture/A.CR2?vc=abc123"),
+      file("C:/Photos/Capture\\A.CR2?vc=abc123"),
+    ]);
+    expect(names).toEqual(["A.CR2 · Virtual copy", "A.CR2 · Virtual copy"]);
+    expect(titles).toEqual(["A.CR2 (virtual copy)", "A.CR2 (virtual copy)"]);
+  });
+});

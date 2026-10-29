@@ -1373,7 +1373,7 @@ export default function StudioWorkspace(props: Props) {
                     className="studio-viewer-filename"
                     title={selectedImage?.path}
                   >
-                    {selectedImage?.path.split("/").pop() || t("studio.workspace.footer.noPhotograph")}
+                    {selectedImage?.path.split("?vc=")[0].split(/[\\/]/).pop() || t("studio.workspace.footer.noPhotograph")}
                     {selectedImage?.width ? (
                       <span className="studio-muted">
                         {` · ${selectedImage.width} × ${selectedImage.height}`}
@@ -1541,7 +1541,7 @@ export default function StudioWorkspace(props: Props) {
                     <ArrowRight size={14} />
                   </button>
                   <span className="studio-viewer-filename" title={selectedImage?.path}>
-                    {selectedImage?.path.split("/").pop()}
+                    {selectedImage?.path.split("?vc=")[0].split(/[\\/]/).pop()}
                     {selectedImage?.width ? (
                       <span className="studio-muted">{` · ${selectedImage.width} × ${selectedImage.height}`}</span>
                     ) : null}

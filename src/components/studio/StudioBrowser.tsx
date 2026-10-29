@@ -78,7 +78,9 @@ const Tile = memo(function Tile({
   const flag = useLibraryStore((s) => imageFlag(s.imageFlags, file.path));
   const color = file.tags?.find((tag) => tag.startsWith("color:"))?.slice(6).toLowerCase();
   // A virtual copy's path carries "?vc=<id>"; show the file name and say it is a copy.
-  const [fileName, copyId] = (file.path.split("/").pop() ?? "").split("?vc=");
+  // Library paths use either separator (Windows listings mix them).
+  const fileName = file.path.split("?vc=")[0].split(/[\\/]/).pop() ?? "";
+  const copyId = file.path.split("?vc=")[1];
   const label = copyId ? t("studio.library.browser.virtualCopyName", { name: fileName }) : fileName;
   const colorLabels = {
     red: t("studio.library.colorLabels.red"),
