@@ -14,9 +14,9 @@
 use crate::file_management::{AlbumItem, add_to_album, get_albums, sync_album_path_changes};
 use crate::formats::is_supported_image_file;
 use rawtonic_catalog::{Library, session_for};
-use rawtonic_fileops::{
-    CopyObserver, Journal, KeptCopy, Operation, State, Step, SystemTrash, Target,
-};
+#[cfg(any(not(windows), test))]
+use rawtonic_fileops::SystemTrash;
+use rawtonic_fileops::{CopyObserver, Journal, KeptCopy, Operation, State, Step, Target};
 use serde::Serialize;
 use std::{
     cell::Cell,
