@@ -72,12 +72,18 @@ fn link_windows_test_resources() {
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
     {
-        // tauri-build links this resource only into binaries. Native tests
-        // also need its Common Controls v6 manifest for TaskDialogIndirect.
-        // Reuse the file intact, including the application's icon/version.
-        let resource =
-            PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR not set")).join("resource.lib");
-        println!("cargo:rustc-link-arg={}", resource.display());
+        // tauri-build already links this intact resource into binaries.
+        // Integration tests need it once, and lib unit tests need a cfg(test)
+        // native link: a generic link arg would duplicate the binary resource.
+        let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR not set"));
+        let resource = out.join("resource.lib");
+        let resource_name = resource.to_str().expect("Build paths must be valid UTF-8");
+        let declaration = format!(
+            "#[link(name = {resource_name:?}, kind = \"dylib\", modifiers = \"+verbatim\")]\nunsafe extern \"C\" {{}}\n"
+        );
+        fs::write(out.join("windows-test-resources.rs"), declaration)
+            .expect("Cannot generate the Windows unit-test resource link");
+        println!("cargo:rustc-link-arg-tests={}", resource.display());
     }
 }
 

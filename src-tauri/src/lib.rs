@@ -5,6 +5,10 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
+// Common Controls v6 is also required by the dialog imports of lib unit tests.
+#[cfg(all(test, target_os = "windows", target_env = "msvc"))]
+include!(concat!(env!("OUT_DIR"), "/windows-test-resources.rs"));
+
 mod adjustment_utils;
 mod ai_commands;
 mod ai_denoise;
