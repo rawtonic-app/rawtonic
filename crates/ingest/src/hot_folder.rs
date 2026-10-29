@@ -15,7 +15,7 @@ use rawtonic_catalog::HotFolderFile;
 use std::{
     collections::HashMap,
     fs, io,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
     time::{Duration, Instant, SystemTime},
 };
 
@@ -86,7 +86,7 @@ impl HotFolder {
             let mut valid = !file.rel_path.is_empty();
             for part in file.rel_path.split('/') {
                 // Only plain names: a stored path never leads elsewhere.
-                if part.is_empty() || part == "." || part == ".." || part.contains('\\') {
+                if part.is_empty() || part == "." || part == ".." {
                     valid = false;
                     break;
                 }
@@ -105,15 +105,9 @@ impl HotFolder {
     pub fn taken_file(&self, path: &Path) -> Option<HotFolderFile> {
         let (size, modified) = *self.taken.get(path)?;
         let relative = path.strip_prefix(&self.folder).ok()?;
-        let mut parts = Vec::new();
-        for component in relative.components() {
-            match component {
-                Component::Normal(name) => parts.push(name.to_str()?),
-                _ => return None,
-            }
-        }
+        let rel_path = rawtonic_catalog::portable_relative(relative).ok()?;
         Some(HotFolderFile {
-            rel_path: parts.join("/"),
+            rel_path,
             size,
             mtime_ns: modified.and_then(to_nanos),
         })
@@ -127,14 +121,7 @@ impl HotFolder {
             .into_iter()
             .filter_map(|path| {
                 let relative = path.strip_prefix(&folder).ok()?;
-                let parts: Option<Vec<&str>> = relative
-                    .components()
-                    .map(|c| match c {
-                        Component::Normal(name) => name.to_str(),
-                        _ => None,
-                    })
-                    .collect();
-                Some(parts?.join("/"))
+                rawtonic_catalog::portable_relative(relative).ok()
             })
             .collect()
     }

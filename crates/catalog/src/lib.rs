@@ -1,6 +1,6 @@
 //! Shared portable session/catalog storage, independent of Tauri and rendering.
 pub mod portable;
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use rawtonic_metadata::{Metadata, atomic_write};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -184,6 +184,36 @@ pub fn validate_relative(path: &Path) -> Result<()> {
         "Backslashes are not portable path separators"
     );
     Ok(())
+}
+
+/// The stored form of the relative path `path` of a file in its root
+/// (`assets.rel_path`): its names joined with `/`, validated. Callers pass
+/// a native path (`strip_prefix` of a canonical path, `Path::join`), whose
+/// separators are then the platform's; stored paths always use `/`, so a
+/// library made on Windows can be reopened on Unix and back. The separator
+/// comes from the path's components, never from replacing characters in
+/// the result: on Unix a backslash is an ordinary character of a file
+/// name and stays one (or is refused, see below). Absolute paths, drive
+/// and UNC prefixes and `.`/`..` are refused, as is a Unix segment
+/// containing a backslash, which would read as two folders on Windows.
+pub fn portable_relative(path: &Path) -> Result<String> {
+    let mut names = Vec::new();
+    for component in path.components() {
+        let Component::Normal(name) = component else {
+            bail!("Path must be relative and cannot traverse parents");
+        };
+        let name = name.to_str().context("Paths must be valid UTF-8")?;
+        ensure!(
+            !name.contains('\\'),
+            "Backslashes are not portable path separators"
+        );
+        names.push(name);
+    }
+    ensure!(
+        !names.is_empty(),
+        "Path must be relative and cannot traverse parents"
+    );
+    Ok(names.join("/"))
 }
 
 pub fn fingerprint(path: &Path) -> Result<String> {
@@ -555,13 +585,18 @@ impl Library {
     pub fn asset_at(&self, path: &Path) -> Result<Option<Asset>> {
         let path = resolve_moved(path);
         let id = if let Ok(relative) = path.strip_prefix(&self.directory) {
-            self.conn
-                .query_row(
-                    "SELECT id FROM assets WHERE root_id='session' AND rel_path=?",
-                    [relative.to_string_lossy().as_ref()],
-                    |r| r.get::<_, String>(0),
-                )
-                .optional()?
+            match portable_relative(relative) {
+                Ok(stored) => self
+                    .conn
+                    .query_row(
+                        "SELECT id FROM assets WHERE root_id='session' AND rel_path=?",
+                        [stored.as_str()],
+                        |r| r.get::<_, String>(0),
+                    )
+                    .optional()?,
+                // Not a path a library can store: no photograph is there.
+                Err(_) => None,
+            }
         } else {
             self.conn.query_row("SELECT a.id FROM assets a JOIN roots r ON a.root_id=r.id WHERE r.external=1 AND r.path=? AND a.rel_path=?", params![path.parent().context("No parent")?.to_string_lossy().as_ref(),path.file_name().context("No filename")?.to_string_lossy().as_ref()], |r| r.get::<_, String>(0)).optional()?
         };
@@ -1270,8 +1305,8 @@ impl Library {
             let Ok(relative) = photo.strip_prefix(base) else {
                 continue;
             };
-            let stem = relative.with_extension("");
-            let stem = stem.to_str().context("Paths must be valid UTF-8")?;
+            let stem = portable_relative(&relative.with_extension(""))?;
+            let stem = stem.as_str();
             // '.' followed by any extension lies before '/' in SQLite's
             // binary collation. Also include an extensionless sibling.
             let lower = format!("{stem}.");
@@ -1546,8 +1581,13 @@ impl Library {
                 tx.execute("UPDATE assets SET missing=1 WHERE id=?", [id])?;
                 continue;
             };
-            validate_relative(&relative)?;
-            let rel = relative.to_str().context("Paths must be valid UTF-8")?;
+            // A place that cannot be stored stays where it was recorded
+            // (and is missing), rather than a native-separator path.
+            let Ok(rel) = portable_relative(&relative) else {
+                tx.execute("UPDATE assets SET missing=1 WHERE id=?", [id])?;
+                continue;
+            };
+            let rel = rel.as_str();
             insert_root(tx, &root, &root_path)?;
             // A stale row for a file that is gone may hold the new place. It
             // keeps its edits under a name no file can have.
@@ -1730,11 +1770,10 @@ impl Library {
             )
         };
         let candidates = if let Ok(relative) = folder.strip_prefix(&self.directory) {
-            let rel = relative.to_string_lossy();
-            let prefix = if rel.is_empty() {
+            let prefix = if relative.as_os_str().is_empty() {
                 String::new()
             } else {
-                format!("{rel}/")
+                format!("{}/", portable_relative(relative)?)
             };
             self.offline_rows(
                 "r.external=0 AND a.rel_path LIKE ? ESCAPE '\\'",
@@ -1907,7 +1946,11 @@ impl Library {
             )
         };
         let changed = if let Ok(relative) = path.strip_prefix(&self.directory) {
-            let rel = relative.to_string_lossy().replace('\\', "/");
+            // Not a place a library can store (a name with a backslash on
+            // Unix): no stored photograph is there.
+            let Ok(rel) = portable_relative(relative) else {
+                return Ok(0);
+            };
             self.conn.execute(
                 &format!(
                     "UPDATE assets SET {status} WHERE root_id='session'
@@ -1961,8 +2004,8 @@ impl Library {
             !relative.as_os_str().is_empty(),
             "The library folder itself cannot be forgotten"
         );
-        validate_relative(relative)?;
-        let rel = relative.to_str().context("Paths must be valid UTF-8")?;
+        let rel = portable_relative(relative)?;
+        let rel = rel.as_str();
         let like = format!(
             "{}/%",
             rel.replace('\\', "\\\\")

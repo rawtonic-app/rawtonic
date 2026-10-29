@@ -5,8 +5,8 @@
 //! (`insert_planned`). A failure keeps none of them, so a retry adds them
 //! complete; nothing is ever written to or beside the files.
 use crate::{
-    Asset, Library, Mode, external_root_key, fingerprint, insert_root, search_text,
-    validate_relative, write_metadata, write_recipe,
+    Asset, Library, Mode, external_root_key, fingerprint, insert_root, search_text, write_metadata,
+    write_recipe,
 };
 use anyhow::{Context, Result, ensure};
 use rawtonic_metadata::Metadata;
@@ -277,11 +277,7 @@ impl Library {
                 parent.to_string_lossy().into_owned(),
             )
         };
-        validate_relative(&relative)?;
-        let rel = relative
-            .to_str()
-            .context("Paths must be valid UTF-8")?
-            .to_string();
+        let rel = crate::portable_relative(&relative)?;
         Ok(Place {
             path,
             root,
