@@ -505,30 +505,93 @@ fn a_scan_can_be_cancelled_and_reports_progress() {
     assert!(lib.sync_scope(Some(d.path())).is_err());
 }
 
+/// A case-only rename on a case-insensitive volume is the photograph's own
+/// file under a new name: a verified move. The file system resolves both
+/// names to one file (on Windows by its file number, whatever the letter
+/// case), so it must never be taken for a copy of the photograph that is
+/// still at its case-variant name, which would leave both listed.
+///
+/// A file number identifies a file on its volume; a file system mounted on
+/// a file image made in memory (a Windows RAM disk) may report 0 for every
+/// file, which identifies none. Only that check is left out there.
 #[test]
 fn a_case_only_rename_is_followed_on_a_case_insensitive_volume() {
+    #[cfg(windows)]
+    fn identifies_files(capture: &Path) -> bool {
+        let first = capture.join("a.arw");
+        let second = capture.join("B.ARW");
+        let index = |path: &Path| {
+            use std::os::windows::fs::MetadataExt;
+            fs::metadata(path).unwrap().file_index()
+        };
+        let a = index(&first);
+        a.is_some_and(|a| a != 0 && index(&second).is_some_and(|b| a != b))
+    }
+    #[cfg(not(windows))]
+    fn identifies_files(_: &Path) -> bool {
+        true
+    }
     let d = tempfile::tempdir().unwrap();
     let lib = session(d.path());
     let capture = lib.directory.join("Capture");
     photo(&capture.join("a.arw"), 1);
+    photo(&capture.join("B.ARW"), 2);
+    let can_tell_files = identifies_files(&capture);
     if !capture.join("A.ARW").exists() {
-        // A case-sensitive file system: a case rename is an ordinary rename.
+        // A case-sensitive file system: a case rename is an ordinary
+        // rename. Its file is identified, so no copy of a photograph still
+        // there can be the same file.
+        if can_tell_files {
+            let a = lib.add_asset(&capture.join("a.arw")).unwrap().id;
+            fs::rename(capture.join("a.arw"), capture.join("A.ARW")).unwrap();
+            let plan = scan(&lib, None);
+            assert_eq!(plan.verified_moves.len(), 1, "{plan:#?}");
+            assert!(plan.copies.is_empty() && plan.new_files.is_empty());
+            lib.apply_folder_sync(&defaults(&plan)).unwrap();
+            let listed: Vec<PathBuf> = lib
+                .assets(None)
+                .unwrap()
+                .into_iter()
+                .map(|x| x.path)
+                .collect();
+            assert_eq!(listed, [capture.join("A.ARW")]);
+            assert_eq!(lib.asset(&a).unwrap().path, capture.join("A.ARW"));
+        }
         return;
     }
     let a = lib.add_asset(&capture.join("a.arw")).unwrap().id;
+    let b = lib.add_asset(&capture.join("B.ARW")).unwrap().id;
     fs::rename(capture.join("a.arw"), capture.join("A.ARW")).unwrap();
     let plan = scan(&lib, None);
-    assert_eq!(plan.verified_moves.len(), 1, "{plan:#?}");
-    assert!(plan.copies.is_empty() && plan.new_files.is_empty());
-    lib.apply_folder_sync(&defaults(&plan)).unwrap();
+    // Before the fix on Windows no file identity was known, so the new name
+    // was `copies` of the photograph still listed as `a.arw`, and
+    // `verified_moves` stayed empty.
+    assert!(
+        plan.copies.is_empty() || !can_tell_files,
+        "a case variant is the photograph's own file: {plan:#?}"
+    );
+    if can_tell_files {
+        assert_eq!(plan.verified_moves.len(), 1, "{plan:#?}");
+        assert_eq!(plan.verified_moves[0].asset_id, a);
+        // A native place: stored as portable relative path by the library
+        // (`portable_relative` refuses an unstored `\`), so a plan that
+        // shows it portably is turned back before it is applied.
+        assert_eq!(plan.verified_moves[0].to, capture.join("A.ARW"));
+        assert!(plan.new_files.is_empty());
+        let applied = lib.apply_folder_sync(&defaults(&plan)).unwrap();
+        assert_eq!(applied.moved.len(), 1, "{applied:#?}");
+    }
+    // Once followed, it is at its new name, listed once.
     let listed: Vec<PathBuf> = lib
         .assets(None)
         .unwrap()
         .into_iter()
         .map(|x| x.path)
         .collect();
-    assert_eq!(listed, [capture.join("A.ARW")]);
+    assert_eq!(listed, [capture.join("A.ARW"), capture.join("B.ARW")]);
     assert_eq!(lib.asset(&a).unwrap().path, capture.join("A.ARW"));
+    assert_eq!(lib.asset(&b).unwrap().path, capture.join("B.ARW"), "B is B");
+    assert!(scan(&lib, None).is_empty(), "reported once");
 }
 
 #[cfg(unix)]
@@ -805,4 +868,123 @@ fn a_failed_addition_still_reports_the_moves_and_removals_applied() {
     assert_eq!(lib.asset(&a).unwrap().path, capture.join("A2.ARW"));
     assert!(lib.asset(&b).is_err());
     assert!(lib.asset_at(&capture.join("N.ARW")).unwrap().is_none());
+}
+
+/// A scan of the whole library, its accepted defaults applied, then a copy
+/// and a removal accepted (no hash on record, so the renamed file is only a
+/// probable move): the library follows it all and the next scan is empty.
+/// Run for both library modes, whose paths are stored and compared
+/// differently (relative inside the session, an external root for a
+/// catalog).
+#[test]
+fn everything_a_scan_finds_is_applied_and_reported_once() {
+    for mode in [Mode::Session, Mode::Catalog] {
+        for hash in [false, true] {
+            let d = tempfile::tempdir().unwrap();
+            let lib = match mode {
+                Mode::Session => session(d.path()),
+                Mode::Catalog => {
+                    Library::create(&d.path().join("Main.catalog"), "Main", mode).unwrap()
+                }
+            };
+            let outer = match mode {
+                Mode::Session => lib.directory.clone(),
+                Mode::Catalog => d.path().to_path_buf(),
+            };
+            let capture = outer.join("Capture");
+            let day = capture.join("Day 1");
+            photo(&capture.join("A.ARW"), 1);
+            photo(&day.join("B.ARW"), 2);
+            photo(&day.join("Gone.ARW"), 3);
+            let report = lib
+                .add_files(&[
+                    capture.join("A.ARW"),
+                    day.join("B.ARW"),
+                    day.join("Gone.ARW"),
+                ])
+                .unwrap();
+            let id = |name: &str| {
+                report
+                    .added
+                    .iter()
+                    .find(|a| a.path.ends_with(name))
+                    .unwrap()
+                    .id
+                    .clone()
+            };
+            let (a, b, gone) = (id("A.ARW"), id("B.ARW"), id("Gone.ARW"));
+            if hash {
+                fill(&lib);
+            }
+            // On disk: A renamed, B moved with its folder, Gone deleted, a
+            // copy of A beside it.
+            fs::rename(capture.join("A.ARW"), capture.join("A final.ARW")).unwrap();
+            fs::rename(capture.join("Day 1"), capture.join("Day one")).unwrap();
+            fs::remove_file(capture.join("Day one/Gone.ARW")).unwrap();
+            fs::copy(capture.join("A final.ARW"), capture.join("A copy.ARW")).unwrap();
+
+            let plan = scan(&lib, None);
+            let folders = match mode {
+                Mode::Session => vec![lib.directory.clone()],
+                // The library's own folder and the catalog folder.
+                Mode::Catalog => vec![d.path().canonicalize().unwrap(), lib.directory.clone()],
+            };
+            assert_eq!(plan.folders, folders, "{plan:#?}");
+            let moves = hash
+                .then_some(&plan.verified_moves)
+                .unwrap_or(&plan.probable_moves);
+            assert_eq!(moves.len(), 2, "{mode:?} hashed {hash}: {plan:#?}");
+            assert!(
+                moves
+                    .iter()
+                    .any(|m| m.asset_id == a && m.to == capture.join("A final.ARW"))
+            );
+            assert!(
+                moves
+                    .iter()
+                    .any(|m| m.asset_id == b && m.to == capture.join("Day one/B.ARW"))
+            );
+            assert_eq!(plan.copies.len(), 1, "{plan:#?}");
+            assert_eq!(plan.copies[0].copy_of, [capture.join("A final.ARW")]);
+            assert_eq!(plan.removed.len(), 1, "{plan:#?}");
+            assert_eq!(plan.removed[0].asset_id, gone);
+            assert!(
+                plan.new_files.is_empty() && plan.contested.is_empty() && plan.errors.is_empty()
+            );
+
+            let mut actions: Vec<SyncAction> = plan
+                .verified_moves
+                .iter()
+                .chain(&plan.probable_moves)
+                .map(SyncAction::from)
+                .collect();
+            actions.push(SyncAction::Add {
+                path: plan.copies[0].path.clone(),
+                identity: plan.copies[0].identity.clone(),
+            });
+            actions.push(SyncAction::Remove {
+                asset_id: gone.clone(),
+                path: plan.removed[0].path.clone(),
+            });
+            let applied = lib.apply_folder_sync(&actions).unwrap();
+            assert!(applied.skipped.is_empty(), "{applied:#?}");
+            assert_eq!(applied.moved.len(), 2);
+            assert_eq!(applied.added, [capture.join("A copy.ARW")]);
+            assert_eq!(applied.removed, [capture.join("Day one/Gone.ARW")]);
+            assert_eq!(lib.asset(&a).unwrap().path, capture.join("A final.ARW"));
+            assert_eq!(lib.asset(&b).unwrap().path, capture.join("Day one/B.ARW"));
+            assert!(lib.asset(&gone).is_err());
+            assert_eq!(lib.assets(None).unwrap().len(), 3);
+            assert!(scan(&lib, None).is_empty(), "{mode:?} hashed {hash}");
+            // Stored relative to the session, `/` between folders: the
+            // follow registered it under the folder's new name on disk.
+            if let Ok(relative) = capture.strip_prefix(&lib.directory) {
+                let day = relative.with_file_name("Day one");
+                assert_eq!(
+                    lib.asset(&b).unwrap().rel_path,
+                    format!("{}/B.ARW", day.display()).replace('\\', "/")
+                );
+            }
+        }
+    }
 }

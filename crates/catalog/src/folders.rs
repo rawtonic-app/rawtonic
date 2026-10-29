@@ -18,6 +18,10 @@ use std::{
 /// A catalog folder in a [`VolumeFolders`] group.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CatalogFolder {
+    /// Its path as a file manager shows it: `/` between folders, with the
+    /// volume's own root (`/Volumes/Share`, `C:\`) as the system spells it.
+    /// Paths reach the UI and the recordings; the system's `\` separators
+    /// (Windows) are for the file system calls only.
     pub path: PathBuf,
     /// Registered photographs in it.
     pub photos: usize,
@@ -31,13 +35,14 @@ pub struct CatalogFolder {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct VolumeFolders {
     /// Stable key: `startup`, `id:<volume uuid>` or, for drives without an identity,
-    /// `path:<mount point>`.
+    /// `path:<mount point>` with `/` between folders (`path:/Volumes/Share`,
+    /// also on Windows, where the panel's recordings and tests compare it).
     pub key: String,
     pub id: Option<String>,
     /// Its name now (when connected) or when its folders were registered.
     pub name: String,
     pub kind: volume::VolumeKind,
-    /// Where it is (or was last) mounted.
+    /// Where it is (or was last) mounted, as a file manager shows it.
     pub mount_point: PathBuf,
     /// Connected now.
     pub online: bool,
@@ -192,7 +197,9 @@ impl Library {
             let volume = observed.or(previous);
             if let Some(volume) = volume {
                 // An identity-only record lets the same grouping logic place
-                // an offline root. It is not a catalog photograph folder.
+                // an offline root. It is not a catalog photograph folder; its
+                // path is kept as stored, so it is compared with `root` (as
+                // recorded) rather than as a file manager shows it.
                 records.push(FolderRecord {
                     path: root.clone(),
                     photos: 0,
@@ -245,6 +252,11 @@ fn underlying_mount(
 /// (`roots`) by drive. Startup first, then local/removable drives by name,
 /// then network shares by name; a drive is listed when it
 /// holds a catalog folder or a root.
+///
+/// Records and roots are native paths, compared with the system's own rules
+/// (where Windows ignores letter case). The groups it returns are as a file
+/// manager shows them ([`portable`]): `/` between folders, the volume root
+/// as the system spells it.
 pub fn by_volume(
     records: &[FolderRecord],
     roots: &[PathBuf],
@@ -280,7 +292,7 @@ pub fn by_volume(
         slots.push((
             at,
             Some(CatalogFolder {
-                path: record.path.clone(),
+                path: portable(&record.path),
                 photos: record.photos,
                 offline: record.missing,
                 exists,
@@ -326,10 +338,11 @@ pub fn by_volume(
         if let Some(folder) = folder {
             group.folders.push(folder);
         }
-        if let Some(root) = root
-            && !group.roots.contains(&root)
-        {
-            group.roots.push(root);
+        if let Some(root) = root {
+            let root = portable(&root);
+            if !group.roots.contains(&root) {
+                group.roots.push(root);
+            }
         }
     }
     for group in &mut groups {
@@ -347,6 +360,28 @@ pub fn by_volume(
             .then_with(|| a.key.cmp(&b.key))
     });
     groups
+}
+
+/// A drive without an identity keeps one group, online or not, as
+/// `unknown_volume` makes it offline.
+fn drive_group(mount_point: PathBuf) -> VolumeFolders {
+    let name = fallback_name(&mount_point);
+    VolumeFolders {
+        key: portable_key(&mount_point),
+        id: None,
+        name,
+        kind: if mount_point == Path::new("/") {
+            volume::VolumeKind::Startup
+        } else {
+            volume::VolumeKind::Local
+        },
+        mount_point,
+        online: false,
+        free_bytes: None,
+        total_bytes: None,
+        folders: Vec::new(),
+        roots: Vec::new(),
+    }
 }
 
 fn volume_group(volume: &Volume, online: bool, probe: &dyn Probe) -> VolumeFolders {
@@ -372,7 +407,7 @@ fn volume_group(volume: &Volume, online: bool, probe: &dyn Probe) -> VolumeFolde
 
 /// How a volume is shown. macOS keeps the user's files on the system's data
 /// volume (`/System/Volumes/Data`), whose folders appear under `/`: it is
-/// shown as the startup disk, at `/`.
+/// shown as the startup disk, at `/`; as a file manager shows it ([`portable`]).
 fn shown(volume: &Volume, probe: &dyn Probe) -> (String, PathBuf) {
     if cfg!(target_os = "macos") && volume.mount_point == Path::new("/System/Volumes/Data") {
         let name = probe
@@ -382,7 +417,36 @@ fn shown(volume: &Volume, probe: &dyn Probe) -> (String, PathBuf) {
             .unwrap_or_else(|| volume.name.clone());
         return (name, PathBuf::from("/"));
     }
-    (volume.name.clone(), volume.mount_point.clone())
+    (volume.name.clone(), portable(&volume.mount_point))
+}
+
+/// The key of the group of a drive without an identity, the same online and
+/// offline: `path:` and the drive's root as a file manager shows it, so that
+/// `/Volumes/Share` stays `/Volumes/Share` on Windows too.
+fn portable_key(root: &Path) -> String {
+    format!("path:{}", portable(root).display())
+}
+
+/// A path as a file manager shows it, for the Folders panel: `/` between
+/// folders, as every other path Rawtonic shows. The drive root keeps the
+/// system's spelling (`C:\` on Windows, `\\server\share` for a share's root)
+/// under `/`; never a bare `/`. Native paths (what the file system is asked)
+/// are unchanged, and so are Unix paths.
+pub fn portable(path: &Path) -> PathBuf {
+    let native = path.to_string_lossy();
+    let shown = native.replace('\\', "/");
+    let shown = shown.trim_end_matches('/');
+    let split = shown.find('/').unwrap_or(shown.len());
+    let (root, rest) = shown.split_at(split);
+    let rest = rest.trim_start_matches('/');
+    let shown = match rest.is_empty() {
+        true => root.to_string(),
+        false => format!("{root}/{rest}"),
+    };
+    if shown == native {
+        return path.to_path_buf();
+    }
+    PathBuf::from(shown)
 }
 
 /// The name the Library shows for the drive `path` is on (macOS's data
@@ -401,6 +465,14 @@ fn known_volume(
     mounted: &[Volume],
     probe: &dyn Probe,
 ) -> VolumeFolders {
+    // The drive as registered is a native path; the name of a disconnected
+    // drive comes from it. A folder called `Volumes` is no root.
+    let mount = || {
+        record
+            .volume_path
+            .clone()
+            .unwrap_or_else(|| drive_root(&record.path))
+    };
     if let Some(volume) = mounted
         .iter()
         .find(|v| v.id == id)
@@ -410,7 +482,7 @@ fn known_volume(
     }
     let volume = Volume {
         kind: record.volume_kind.unwrap_or_else(|| {
-            if record.volume_path.as_deref() == Some(Path::new("/")) {
+            if mount() == Path::new("/") {
                 volume::VolumeKind::Startup
             } else {
                 volume::VolumeKind::Local
@@ -421,13 +493,8 @@ fn known_volume(
             .volume_name
             .clone()
             .filter(|n| !n.is_empty())
-            .unwrap_or_else(|| {
-                fallback_name(record.volume_path.as_deref().unwrap_or(&record.path))
-            }),
-        mount_point: record
-            .volume_path
-            .clone()
-            .unwrap_or_else(|| drive_root(&record.path)),
+            .unwrap_or_else(|| fallback_name(&mount())),
+        mount_point: mount(),
     };
     volume_group(&volume, false, probe)
 }
@@ -445,27 +512,21 @@ fn unknown_volume(
         return volume_group(&volume, true, probe);
     }
     let root = drive_root(path);
-    if let Some(volume) = mounted.iter().find(|v| v.mount_point == root) {
+    // A drive as the system mounted it there (whatever case it spells).
+    let shown_root = portable(&root);
+    if let Some(volume) = mounted
+        .iter()
+        .find(|v| portable(&v.mount_point) == shown_root)
+    {
         return volume_group(volume, true, probe);
     }
     let online = probe.is_dir(&root);
     let space = online.then(|| probe.space(&root)).flatten();
-    VolumeFolders {
-        key: format!("path:{}", root.display()),
-        id: None,
-        name: fallback_name(&root),
-        kind: if root == Path::new("/") {
-            volume::VolumeKind::Startup
-        } else {
-            volume::VolumeKind::Local
-        },
-        mount_point: root,
-        online,
-        free_bytes: space.map(|s| s.0),
-        total_bytes: space.map(|s| s.1),
-        folders: Vec::new(),
-        roots: Vec::new(),
-    }
+    let mut group = drive_group(portable(&root));
+    group.online = online;
+    group.free_bytes = space.map(|s| s.0);
+    group.total_bytes = space.map(|s| s.1);
+    group
 }
 
 fn fallback_name(root: &Path) -> String {
@@ -904,6 +965,103 @@ mod tests {
         );
     }
 
+    /// The grouping, and the panel's entry point, show a drive without a
+    /// name of its own by the drive its folders' paths name (`path:`, `/`
+    /// between folders), online or not, and never lose them.
+    #[test]
+    fn a_drive_without_its_own_group_is_keyed_by_its_shown_root() {
+        let off = Fake {
+            mounted: vec![],
+            dirs: HashSet::new(),
+        };
+        let groups = by_volume(
+            &[
+                record("/Volumes/Share/Jobs/A", None, 1, 1),
+                record("/Volumes/Share/Jobs/B", None, 2, 2),
+            ],
+            &[PathBuf::from("/Volumes/Share/Jobs")],
+            &off,
+        );
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].key, "path:/Volumes/Share");
+        assert_eq!(groups[0].mount_point, Path::new("/Volumes/Share"));
+        assert_eq!(
+            groups[0]
+                .folders
+                .iter()
+                .map(|f| f.path.as_path())
+                .collect::<Vec<_>>(),
+            [
+                Path::new("/Volumes/Share/Jobs/A"),
+                Path::new("/Volumes/Share/Jobs/B")
+            ]
+        );
+        // There, on storage the system does not identify.
+        let on = Fake {
+            mounted: vec![],
+            dirs: [
+                "/Volumes/Share/Jobs/A",
+                "/Volumes/Share/Jobs/B",
+                "/Volumes/Share/Jobs",
+                "/Volumes/Share",
+            ]
+            .into_iter()
+            .map(PathBuf::from)
+            .collect(),
+        };
+        let groups = by_volume(
+            &[record("/Volumes/Share/Jobs/A", None, 1, 0)],
+            &[PathBuf::from("/Volumes/Share/Jobs")],
+            &on,
+        );
+        assert_eq!(groups[0].key, "path:/Volumes/Share", "one group");
+        assert!(groups[0].online);
+
+        let tmp = tempfile::tempdir().unwrap();
+        let lib =
+            Library::create(&tmp.path().join("Library"), "Library", crate::Mode::Catalog).unwrap();
+        let root = PathBuf::from("/Volumes/Share/Jobs");
+        let paths = |groups: &[VolumeFolders]| {
+            groups
+                .iter()
+                .flat_map(|g| g.roots.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            paths(&lib.folder_groups(&[root.clone()], &off).unwrap()),
+            [root.clone()]
+        );
+        assert_eq!(
+            paths(&lib.folder_groups(&[root.clone()], &on).unwrap()),
+            [root.clone()],
+            "listed once, not once for its drive and once for its path"
+        );
+    }
+
+    /// A drive the system mounts is found by where its folder is (the mount
+    /// point as a file manager shows it) and keeps the system's own name.
+    #[test]
+    fn a_mounted_drive_is_found_where_its_folder_is() {
+        let card = volume("CARD", "Card", "/Volumes/Card");
+        let probe = Fake {
+            mounted: vec![card],
+            dirs: HashSet::new(),
+        };
+        let groups = by_volume(
+            &[
+                record("/Volumes/Card/A", None, 1, 1),
+                record("/Volumes/Card/B", None, 1, 1),
+            ],
+            &[],
+            &probe,
+        );
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].key, "id:CARD");
+        assert_eq!(groups[0].name, "Card");
+        assert!(groups[0].online);
+        assert_eq!(groups[0].folders.len(), 2);
+    }
+
     #[test]
     fn drive_roots_follow_the_usual_mount_places() {
         for (path, root) in [
@@ -916,5 +1074,24 @@ mod tests {
         ] {
             assert_eq!(drive_root(Path::new(path)), Path::new(root), "{path}");
         }
+    }
+
+    /// What a folder path and a volume mount point must be shown alike for:
+    /// the panel's keys, paths and names come from paths as a file manager
+    /// shows them.
+    #[test]
+    fn shown_paths_use_slashes_and_keep_the_volumes_own_root() {
+        for (path, shown) in [
+            ("/Users/me/Photos", "/Users/me/Photos"),
+            ("/Volumes/Share/Jobs", "/Volumes/Share/Jobs"),
+            ("/", "/"),
+        ] {
+            assert_eq!(portable(Path::new(path)), Path::new(shown), "{path}");
+        }
+        assert_eq!(
+            portable_key(Path::new("/Volumes/Share")),
+            "path:/Volumes/Share"
+        );
+        assert_eq!(fallback_name(Path::new("/Volumes/Share")), "Share");
     }
 }

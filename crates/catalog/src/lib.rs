@@ -1,5 +1,12 @@
 //! Shared portable session/catalog storage, independent of Tauri and rendering.
+// Windows identifies a file by its volume and file number (`file_index`),
+// which std still marks unstable (`windows_by_handle`); a case-only rename on
+// an NTFS volume is recognised by it in `folder_sync`. The gate is Windows-
+// only and `#![feature]` is rejected as unused when nothing needs it
+// (`unused_features`), so it stays scoped to the one API that does.
+#![cfg_attr(windows, feature(windows_by_handle))]
 pub mod portable;
+
 use anyhow::{Context, Result, bail, ensure};
 use rawtonic_metadata::{Metadata, atomic_write};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
@@ -1759,8 +1766,17 @@ impl Library {
     /// The photographs registered in `folder` (with `recursive`, also below
     /// it) whose file is not there now, so a folder listing keeps showing
     /// them. Reads only (the missing flags follow at the next check).
+    ///
+    /// The folder is a native path. A session's stored relative paths use
+    /// `/` as their separator on every platform, so the folder text the
+    /// query compares with is the portable form of a native path (Windows
+    /// would otherwise store `Capture\Day 1` and never match `Capture/Day
+    /// 1`); and a session's candidates must also be in the folder, as their
+    /// like pattern alone would also match names it is a prefix of.
     pub fn offline_in(&self, folder: &Path, recursive: bool) -> Result<Vec<OfflineAsset>> {
         let folder = resolve_moved(folder);
+        // A stored path and a folder as file managers show it use `/`.
+        let shown = |path: &Path| path.to_string_lossy().replace('\\', "/");
         let like = |prefix: &str| {
             format!(
                 "{}%",
@@ -1770,31 +1786,39 @@ impl Library {
                     .replace('_', "\\_")
             )
         };
-        let candidates = if let Ok(relative) = folder.strip_prefix(&self.directory) {
+        let inside = if let Ok(relative) = folder.strip_prefix(&self.directory) {
             let prefix = if relative.as_os_str().is_empty() {
                 String::new()
             } else {
                 format!("{}/", portable_relative(relative)?)
             };
-            self.offline_rows(
+            let candidates = self.offline_rows(
                 "r.external=0 AND a.rel_path LIKE ? ESCAPE '\\'",
                 &[&like(&prefix)],
-            )?
+            )?;
+            candidates
+                .into_iter()
+                .filter(|asset| {
+                    let file = shown(&asset.path);
+                    file.starts_with(&prefix)
+                        && (recursive
+                            || file
+                                .strip_prefix(&prefix)
+                                .is_ok_and(|rest| !rest.contains('/')))
+                })
+                .collect()
         } else {
-            let path = folder.to_string_lossy().into_owned();
+            let path = shown(&folder);
             self.offline_rows(
                 "r.external=1 AND (r.path=? OR r.path LIKE ? ESCAPE '\\')",
                 &[&path, &like(&format!("{path}/"))],
             )?
         };
-        Ok(candidates
+        Ok(inside
             .into_iter()
             .filter(|asset| {
-                (if recursive {
-                    asset.path.starts_with(&folder)
-                } else {
-                    asset.path.parent() == Some(folder.as_path())
-                }) && !asset.path.is_file()
+                (recursive || asset.path.parent() == Some(folder.as_path()))
+                    && !asset.path.is_file()
             })
             .collect())
     }
@@ -2496,4 +2520,44 @@ pub fn session_for(path: &Path) -> Option<PathBuf> {
         .ancestors()
         .find(|p| p.join("session.json").is_file() || p.join("catalog.json").is_file())
         .map(Path::to_path_buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A folder listing compares a native folder with stored relative paths,
+    /// which use `/` on every platform, including a session folder's own
+    /// name in them (Windows: a session named `Job 1` under `C:` stores
+    /// `Capture/Day 1`, never `Capture\Day 1`).
+    #[test]
+    fn folder_listings_match_stored_paths_that_use_slashes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("Job 1");
+        let lib = Library::create(&dir, "Job 1", Mode::Session).unwrap();
+        let day = lib.directory.join("Capture").join("Day 1");
+        fs::create_dir_all(&day).unwrap();
+        let a = day.join("A.ARW");
+        let b = day.join("B.ARW");
+        fs::write(&a, b"a").unwrap();
+        fs::write(&b, b"b").unwrap();
+        lib.add_asset(&a).unwrap();
+        lib.add_asset(&b).unwrap();
+        fs::remove_file(&b).unwrap();
+        assert_eq!(
+            lib.asset_at(&b).unwrap().unwrap().rel_path,
+            "Capture/Day 1/B.ARW"
+        );
+        assert_eq!(lib.offline_in(&day, false).unwrap().len(), 1, "{day:?}");
+        let capture = lib.directory.join("Capture");
+        assert_eq!(lib.offline_in(&capture, true).unwrap().len(), 1);
+        assert_eq!(lib.offline_in(&lib.directory, true).unwrap().len(), 1);
+        assert!(lib.offline_in(&capture, false).unwrap().is_empty());
+        // A folder whose name only begins like another's is another folder.
+        assert!(
+            lib.offline_in(&lib.directory.join("Cap"), true)
+                .unwrap()
+                .is_empty()
+        );
+    }
 }
