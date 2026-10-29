@@ -135,7 +135,7 @@ export default function ReviewSendDialog({
     <div
       aria-labelledby="review-send-title"
       aria-modal="true"
-      className="fixed inset-0 flex items-center justify-center z-[9999] bg-black/30 backdrop-blur-xs"
+      className="studio-dialog-backdrop"
       onClick={close}
       onKeyDown={(e) => {
         // Enter never sends: only a click on Send (or Space/Enter on the
@@ -149,14 +149,14 @@ export default function ReviewSendDialog({
       role="dialog"
     >
       <div
-        className="bg-surface rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[85vh] flex flex-col text-text-primary"
+        className="studio-dialog is-wide"
         onClick={(e) => e.stopPropagation()}
         ref={panel}
         tabIndex={-1}
       >
-        <Text variant={TextVariants.title} id="review-send-title" className="mb-2">
+        <h2 className="studio-dialog-title" id="review-send-title">
           {title}
-        </Text>
+        </h2>
         {phase.kind === "sent" ? (
           <div className="flex flex-col gap-3">
             <Text>{t("contribute.review.sent")}</Text>
@@ -168,11 +168,11 @@ export default function ReviewSendDialog({
             {id && (
               <>
                 <div className="flex items-center gap-2">
-                  <code className="select-all rounded bg-bg-primary px-2 py-1 font-mono text-sm" data-testid="report-id">
+                  <code className="select-all rounded bg-[#1f2022] px-2 py-1 font-mono text-sm" data-testid="report-id">
                     {id}
                   </code>
                   <Button variant="ghost" onClick={() => void copyId()} aria-label={t("contribute.review.copyId")}>
-                    {copied ? <Check size={16} /> : <ClipboardCopy size={16} />}
+                    {copied ? <Check size={14} /> : <ClipboardCopy size={14} />}
                   </Button>
                 </div>
                 <Text color="secondary">{t("contribute.review.idHint")}</Text>
@@ -199,21 +199,21 @@ export default function ReviewSendDialog({
           </div>
         ) : (
           <>
-            <Text color="secondary" className="mb-3">
+            <Text color="secondary">
               {t("contribute.review.intro")}
             </Text>
             <pre
               aria-label={t("contribute.review.bodyLabel")}
-              className="min-h-0 flex-1 overflow-auto rounded bg-bg-primary p-3 font-mono text-xs whitespace-pre-wrap wrap-anywhere"
+              className="min-h-0 flex-1 overflow-auto p-3 font-mono text-xs whitespace-pre-wrap wrap-anywhere"
               tabIndex={0}
             >
               {prepared.body}
             </pre>
             {view.screenshot && (
-              <figure className="mt-3">
+              <figure>
                 <img
                   alt={t("contribute.review.screenshot")}
-                  className="max-h-48 rounded border border-surface"
+                  className="max-h-48 rounded border border-[#3c3f43]"
                   src={view.screenshot.src}
                 />
                 <figcaption className="text-text-secondary text-xs mt-1">
@@ -222,21 +222,21 @@ export default function ReviewSendDialog({
               </figure>
             )}
             {view.photo && (
-              <Text variant={TextVariants.small} color="secondary" className="mt-2">
+              <Text variant={TextVariants.small} color="secondary">
                 {t("contribute.review.photoFile", { size: formatFileSize(view.photo.bytes) })}
               </Text>
             )}
-            <Text variant={TextVariants.small} color="secondary" className="mt-2">
+            <Text variant={TextVariants.small} color="secondary">
               {t("contribute.review.size", { size: formatFileSize(size) })}
             </Text>
             {phase.kind === "failed" && (
-              <Text color="error" className="mt-2" role="alert">
+              <Text color="error" role="alert">
                 {errorText(phase.code)}
               </Text>
             )}
           </>
         )}
-        <div className="flex justify-end gap-3 mt-5">
+        <div className="studio-dialog-footer">
           {phase.kind === "sent" ? (
             <Button onClick={onClose} data-autofocus>
               {t("contribute.review.close")}
@@ -248,25 +248,21 @@ export default function ReviewSendDialog({
                   {t("contribute.review.change")}
                 </Button>
               )}
-              <Button
-                className="bg-bg-primary shadow-transparent hover:bg-bg-primary text-white shadow-none"
-                variant="ghost"
-                onClick={close}
-                disabled={phase.kind === "sending"}
-                data-autofocus
-              >
-                {t("contribute.review.cancel")}
-              </Button>
-              <Button onClick={() => void doSend()} disabled={phase.kind === "sending"}>
-                {phase.kind === "sending" ? (
-                  <span className="flex items-center gap-2">
-                    <LoaderCircle size={16} className="animate-spin" />
-                    {t("contribute.review.sending")}
-                  </span>
-                ) : (
-                  t("contribute.review.send")
-                )}
-              </Button>
+              <div className="studio-dialog-footer-end">
+                <Button variant="ghost" onClick={close} disabled={phase.kind === "sending"} data-autofocus>
+                  {t("contribute.review.cancel")}
+                </Button>
+                <Button onClick={() => void doSend()} disabled={phase.kind === "sending"}>
+                  {phase.kind === "sending" ? (
+                    <>
+                      <LoaderCircle size={14} className="animate-spin" />
+                      {t("contribute.review.sending")}
+                    </>
+                  ) : (
+                    t("contribute.review.send")
+                  )}
+                </Button>
+              </div>
             </>
           )}
         </div>

@@ -1,6 +1,6 @@
 [package]
 name = "rawtonic-app"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9.1"
 license = "AGPL-3.0-or-later"
 default-run = "rawtonic-app"
 description = "Non-destructive photo editor with native GPU rendering and portable sessions (development build)."
@@ -100,7 +100,7 @@ sysinfo = "0.39.6"
 
 [target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = "2.5.4"
-reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "rustls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 
 # The system Trash through `trash` on Windows and Linux; macOS uses
 # NSFileManager directly (file_operations.rs).

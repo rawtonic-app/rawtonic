@@ -499,6 +499,13 @@ describe("applied style (Capture One with Stack Styles off)", () => {
 });
 
 describe("Own styles empty state", () => {
+  it("shows the selection scope when only built-in styles exist", async () => {
+    mockInvoke.mockImplementation(async (command) => command === "load_presets" ? [] : builtins);
+    useLibraryStore.setState({ multiSelectedPaths: ["/job/a.arw", "/job/b.arw"] });
+    await renderTool();
+    expect(screen.getByText(i18n.t("studio.presets.appliesToSelection", { count: 2 }))).toBeTruthy();
+  });
+
   it("limits the own-styles empty message to the user list, alongside built-ins", async () => {
     usePresetStore.setState({ presets: [], isLoading: false });
     mockInvoke.mockImplementation(async (command) => command === "load_presets" ? [] : builtins);

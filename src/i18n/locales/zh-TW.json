@@ -1076,7 +1076,7 @@
       "location": "位置",
       "modeLabel": "整理方式",
       "name": "專案名稱",
-      "namePlaceholder": "2026-10-01_客戶_案子",
+      "namePlaceholder": "{{date}}_客戶_案子",
       "namePreview": "你的案子",
       "originalsUntouched": "原始照片保持不變。",
       "session": "專案",
@@ -1280,6 +1280,13 @@
     "tether": {
       "battery": "電池 {{level}}",
       "camera": "相機",
+      "canon": {
+        "badge": "實驗性",
+        "connectedNote": "實驗性：如果某張照片沒有出現在這裡，它並沒有遺失——它在記憶卡上。請讓記憶卡一直留在相機裡。從 Rawtonic 觸發的照片沒有傳到時，Rawtonic 會告訴你——除非期間有一張在相機上拍的照片傳了過來並佔了它的位置。拍攝結束後，請把記憶卡與圖庫對照一下。",
+        "notReceived": "沒有收到第 {{n}} 張照片。如果相機拍下了它，它就在記憶卡上。",
+        "openPreferences": "開啟連線拍攝偏好設定",
+        "optInNeeded": "Canon 相機還沒有在 Rawtonic 上測試過。要試用你的相機並協助測試，請在「偏好設定」>「連線拍攝」中開啟「實驗性：Canon 相機」。"
+      },
       "capture": "拍攝",
       "captureFailed": "拍攝失敗：{{error}}",
       "captureTitle": "觸發相機（⌘K / Ctrl+K）",
@@ -1296,6 +1303,7 @@
       "lastIn": "{{file}} 已在圖庫中",
       "lastTiming": "{{file}} 在拍攝後 {{ms}} 毫秒進入圖庫",
       "level": {
+        "experimental": "實驗性——徵求測試者。尚未在 Rawtonic 上測試：照片可能不會出現在這裡，那樣它就只在記憶卡上。",
         "notSupported": "尚不支援此相機。",
         "reported": "此相機型號的使用者回報可以使用。",
         "tested": "已在 {{systems}} 上以此相機型號測試（{{date}}）。",
@@ -1313,6 +1321,14 @@
         "bursting": "連續拍攝 {{shots}} 張…",
         "button": "相機測試…",
         "buttonTitle": "逐步測試此相機並產生匿名報告",
+        "canonGuide": {
+          "card": "整個測試期間，請讓相機裡一直插著記憶卡。",
+          "missing": "如果某張照片沒有出現，這同樣有用：它仍在記憶卡上，測試也會把它計入。",
+          "send": "最後點擊「{{button}}」。你會看到將要傳送的全部內容——沒有照片、檔案名稱或序號——在你確認之前，沒有任何內容會離開你的電腦。",
+          "sendNote": "此結果來自實驗性的 Canon 支援。感謝你的測試——每一個結果都有幫助，包括有照片遺失的結果。",
+          "steps": "請依序完成下面的步驟：點擊「執行」，然後照步驟的要求操作。如果你的相機無法完成某一步，請點擊「略過」。",
+          "title": "如何測試你的 Canon 相機"
+        },
         "close": "關閉相機測試",
         "how": {
           "autofocus": "對焦一次。使用手動鏡頭或相機設為 MF 時請略過。",
@@ -1428,7 +1444,54 @@
     }
   },
   "settings": {
+    "about": {
+      "build": "this build",
+      "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
+      "creditDescriptions": {
+        "avif-parse": "Reads the AVIF container.",
+        "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
+        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "darktable": "Reference implementations that guided parts of the inherited editor.",
+        "DAViD": "Surface normals of people for Relight (Microsoft).",
+        "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
+        "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
+        "Depth Anything V2 Small": "Depth masks.",
+        "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
+        "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
+        "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
+        "libjpeg-turbo": "JPEG export.",
+        "MediaPipe Face Mesh V2 and selfie segmentation": "Face landmarks, Relight mesh topology, and skin, hair and clothes for People masks (Google).",
+        "MI-GAN": "Object removal (Picsart AI Research).",
+        "Moebius": "Removal of large objects (Huazhong University of Science and Technology, vivo AI Lab).",
+        "moxcms": "Reads the ICC profiles embedded in JPEG, PNG, TIFF, WebP and AVIF sources.",
+        "NegPy": "Inspiration for the negative conversion.",
+        "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
+        "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft).",
+        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
+        "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
+        "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
+        "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
+        "SigLIP 2": "Automatic keywords (Google).",
+        "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
+      },
+      "credits": "Credits",
+      "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
+      "jpeg": "This software is based in part on the work of the Independent JPEG Group.",
+      "licenseAfter": "; without even the implied warranty of merchantability or fitness for a particular purpose. See the",
+      "licenseEnd": "for details; a copy ships with the app.",
+      "licenseIntro": "This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but",
+      "licenses": "Third-party licenses",
+      "licenseTexts": "Third-party license texts",
+      "noWarranty": "without any warranty",
+      "privacy": "Photos, catalogs, projects and edits stay on your computer and in the folders you choose. The optional startup update check contacts GitHub at most once every 24 hours. AI models download from GitHub when needed and run locally; showing a photo on a map sends its location and your IP address to OpenStreetMap. Problem, crash and camera-test reports are sent only when you review what will be sent and click Send. Copy report sends nothing; Open on GitHub first shows the title and text, which GitHub receives when the page loads. Anonymous usage statistics are off by default; if enabled, weekly counters are sent to Rawtonic's relay. Rawtonic has no accounts or other telemetry. See PRIVACY.md for details.",
+      "showLicenses": "Show the license texts",
+      "source": "Source code:",
+      "trademarks": "Rawtonic is an independent project. It is not affiliated with, endorsed or sponsored by Adobe, Capture One, Fujifilm or any camera or software maker. Product names are trademarks of their owners and are used only to identify their products, for example the catalogs and presets Rawtonic can import."
+    },
     "categories": {
+      "about": "關於",
       "general": "通用",
       "processing": "處理",
       "shortcuts": "控制"
@@ -1770,6 +1833,17 @@
       "shortcutsDesc": "將出現在標籤上下文選單中作為快捷方式的標籤列表。",
       "title": "標籤"
     },
+    "tethering": {
+      "camerasLink": "哪些相機可用，以及如何回報你的相機",
+      "canon": "實驗性：Canon 相機（協助測試）",
+      "canonDesc": "讓 Rawtonic 透過 USB 連接 Canon 相機，這樣你可以試用它並傳送一份簡短的測試結果。",
+      "canonSwitch": "連接 Canon 相機",
+      "howToTest": "協助的方法：在「連線拍攝」面板中連接相機，點擊「相機測試…」，然後依步驟操作。最後，在任何內容離開你的電腦之前，你會看到將要傳送的確切內容。",
+      "title": "連線拍攝",
+      "warningCard": "你拍的照片可能不會出現在 Rawtonic 中。那時它只在相機的記憶卡上，所以請一直讓相機裡插著記憶卡。",
+      "warningNothingDeleted": "Rawtonic 絕不會刪除相機或記憶卡上的任何內容。",
+      "warningUntested": "尚未測試：到目前為止，還沒有 Canon 相機在 Rawtonic 上試過。"
+    },
     "title": "設定",
     "tooltips": {
       "goHome": "返回首頁"
@@ -1777,6 +1851,8 @@
   },
   "spotRemoval": {
     "cancel": "取消",
+    "deleteSelected": "刪除所選",
+    "deleteSelectedHint": "Delete 或 Backspace。在照片上 Alt-按一下刪除一個；Alt-拖曳刪除框選到的全部。",
     "detectObjects": "偵測物件",
     "detectObjectsBoxHint": "圍繞物件拖出矩形或按一下物件即可移除。",
     "detectObjectsHint": "用筆刷大致塗抹物件或按一下物件即可移除。",
@@ -1788,6 +1864,17 @@
     "featherAria": "污點羽化",
     "filling": "正在移除… 第 {{done}}/{{total}} 步",
     "largeHoleTooSlow": "此 GPU 處理大面積移除太慢；本次工作階段中移除將使用快速方法。",
+    "list": {
+      "aria": "污點與移除",
+      "count": "修正 ({{number}})",
+      "delete": "刪除 {{name}}",
+      "deleteAll": "全部刪除",
+      "hideAll": "全部隱藏",
+      "item": "{{kind}} {{number}}",
+      "select": "選取 {{name}}",
+      "showAll": "全部顯示",
+      "toggle": "顯示 {{name}}"
+    },
     "mode": "污點模式",
     "modes": {
       "clone": "仿製",
@@ -3735,6 +3822,7 @@
       "whiteBalanceTo": "白平衡 {{to}} K"
     },
     "spot": {
+      "done": "結束污點移除",
       "start": "開始污點移除",
       "withShortcut": "{{text}}（{{key}}）"
     },
@@ -4125,6 +4213,7 @@
     "download": "下載",
     "failed": "無法檢查更新。請稍後再試。",
     "fileWithSize": "{{file}}（{{size}} MB）",
+    "manual": "檢查更新",
     "noFile": "此版本沒有適用於這台電腦的下載；發布頁面列出了所有檔案。",
     "noNotes": "沒有發布說明。發布頁面可能有更多資訊。",
     "notesTitle": "Rawtonic {{version}} 的新功能",

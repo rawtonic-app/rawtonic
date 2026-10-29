@@ -1076,7 +1076,7 @@
       "location": "위치",
       "modeLabel": "정리 방식",
       "name": "프로젝트 이름",
-      "namePlaceholder": "2026-10-01_고객_작업",
+      "namePlaceholder": "{{date}}_고객_작업",
       "namePreview": "내 작업",
       "originalsUntouched": "원본 사진은 변경되지 않습니다.",
       "session": "프로젝트",
@@ -1280,6 +1280,13 @@
     "tether": {
       "battery": "배터리 {{level}}",
       "camera": "카메라",
+      "canon": {
+        "badge": "실험적",
+        "connectedNote": "실험적 기능: 사진이 여기에 나타나지 않아도 사라진 것이 아닙니다. 메모리 카드에 있습니다. 카드를 카메라에 그대로 두세요. Rawtonic에서 촬영한 사진이 도착하지 않으면 Rawtonic이 알려 드립니다. 다만 그사이 카메라에서 직접 찍은 사진이 도착해 그 자리를 대신하면 알려 드리지 못합니다. 세션이 끝나면 카드와 라이브러리를 비교해 보세요.",
+        "notReceived": "{{n}}번째 사진을 받지 못했습니다. 카메라가 찍었다면 메모리 카드에 있습니다.",
+        "openPreferences": "테더 환경설정 열기",
+        "optInNeeded": "Canon 카메라는 아직 Rawtonic에서 테스트되지 않았습니다. 내 카메라를 사용해 보고 테스트를 돕으려면 환경설정 > 테더에서 “실험적: Canon 카메라”를 켜세요."
+      },
       "capture": "촬영",
       "captureFailed": "촬영 실패: {{error}}",
       "captureTitle": "카메라 셔터 누르기(⌘K / Ctrl+K)",
@@ -1296,6 +1303,7 @@
       "lastIn": "{{file}}이(가) 라이브러리에 있습니다",
       "lastTiming": "{{file}}이(가) 촬영 {{ms}}ms 후 라이브러리에 추가됨",
       "level": {
+        "experimental": "실험적 — 테스터를 찾습니다. 아직 Rawtonic에서 테스트되지 않았습니다. 사진이 여기에 나타나지 않을 수 있으며, 그러면 메모리 카드에만 있습니다.",
         "notSupported": "이 카메라는 아직 지원되지 않습니다.",
         "reported": "이 카메라 모델 사용자들이 작동한다고 보고했습니다.",
         "tested": "이 카메라 모델로 {{systems}}에서 테스트됨({{date}}).",
@@ -1313,6 +1321,14 @@
         "bursting": "{{shots}}장 연속 촬영 중…",
         "button": "카메라 테스트…",
         "buttonTitle": "이 카메라를 단계별로 테스트하고 익명 보고서 만들기",
+        "canonGuide": {
+          "card": "테스트하는 동안 카메라에 메모리 카드를 계속 넣어 두세요.",
+          "missing": "사진이 나타나지 않는 것도 도움이 되는 정보입니다. 사진은 여전히 메모리 카드에 있고, 테스트는 이를 함께 집계합니다.",
+          "send": "마지막에 “{{button}}”을(를) 클릭하세요. 보내는 내용을 정확히 볼 수 있으며(사진, 파일 이름, 시리얼 번호는 포함되지 않습니다), 확인하기 전에는 아무것도 컴퓨터 밖으로 나가지 않습니다.",
+          "sendNote": "이 결과는 실험적인 Canon 지원에서 나온 것입니다. 테스트해 주셔서 감사합니다. 사진이 누락된 결과를 포함해 모든 결과가 도움이 됩니다.",
+          "steps": "아래 단계를 하나씩 따라가세요. 실행을 클릭하고 단계가 요구하는 대로 하세요. 카메라에서 할 수 없는 단계는 건너뛰기를 클릭하세요.",
+          "title": "Canon 카메라 테스트 방법"
+        },
         "close": "카메라 테스트 닫기",
         "how": {
           "autofocus": "한 번 초점을 맞춥니다. 수동 렌즈나 카메라의 MF에서는 건너뛰세요.",
@@ -1428,7 +1444,54 @@
     }
   },
   "settings": {
+    "about": {
+      "build": "this build",
+      "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
+      "creditDescriptions": {
+        "avif-parse": "Reads the AVIF container.",
+        "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
+        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "darktable": "Reference implementations that guided parts of the inherited editor.",
+        "DAViD": "Surface normals of people for Relight (Microsoft).",
+        "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
+        "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
+        "Depth Anything V2 Small": "Depth masks.",
+        "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
+        "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
+        "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
+        "libjpeg-turbo": "JPEG export.",
+        "MediaPipe Face Mesh V2 and selfie segmentation": "Face landmarks, Relight mesh topology, and skin, hair and clothes for People masks (Google).",
+        "MI-GAN": "Object removal (Picsart AI Research).",
+        "Moebius": "Removal of large objects (Huazhong University of Science and Technology, vivo AI Lab).",
+        "moxcms": "Reads the ICC profiles embedded in JPEG, PNG, TIFF, WebP and AVIF sources.",
+        "NegPy": "Inspiration for the negative conversion.",
+        "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
+        "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft).",
+        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
+        "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
+        "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
+        "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
+        "SigLIP 2": "Automatic keywords (Google).",
+        "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
+      },
+      "credits": "Credits",
+      "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
+      "jpeg": "This software is based in part on the work of the Independent JPEG Group.",
+      "licenseAfter": "; without even the implied warranty of merchantability or fitness for a particular purpose. See the",
+      "licenseEnd": "for details; a copy ships with the app.",
+      "licenseIntro": "This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but",
+      "licenses": "Third-party licenses",
+      "licenseTexts": "Third-party license texts",
+      "noWarranty": "without any warranty",
+      "privacy": "Photos, catalogs, projects and edits stay on your computer and in the folders you choose. The optional startup update check contacts GitHub at most once every 24 hours. AI models download from GitHub when needed and run locally; showing a photo on a map sends its location and your IP address to OpenStreetMap. Problem, crash and camera-test reports are sent only when you review what will be sent and click Send. Copy report sends nothing; Open on GitHub first shows the title and text, which GitHub receives when the page loads. Anonymous usage statistics are off by default; if enabled, weekly counters are sent to Rawtonic's relay. Rawtonic has no accounts or other telemetry. See PRIVACY.md for details.",
+      "showLicenses": "Show the license texts",
+      "source": "Source code:",
+      "trademarks": "Rawtonic is an independent project. It is not affiliated with, endorsed or sponsored by Adobe, Capture One, Fujifilm or any camera or software maker. Product names are trademarks of their owners and are used only to identify their products, for example the catalogs and presets Rawtonic can import."
+    },
     "categories": {
+      "about": "정보",
       "general": "일반",
       "processing": "처리",
       "shortcuts": "컨트롤"
@@ -1770,6 +1833,17 @@
       "shortcutsDesc": "태그 지정 컨텍스트 메뉴에 단축키로 표시될 태그 목록입니다.",
       "title": "태그 지정"
     },
+    "tethering": {
+      "camerasLink": "작동하는 카메라와 내 카메라를 보고하는 방법",
+      "canon": "실험적: Canon 카메라 (테스트 돕기)",
+      "canonDesc": "Rawtonic이 USB로 Canon 카메라에 연결하도록 합니다. 카메라를 사용해 보고 간단한 테스트 결과를 보낼 수 있습니다.",
+      "canonSwitch": "Canon 카메라 연결",
+      "howToTest": "도우려면 테더 패널에서 카메라를 연결하고 “카메라 테스트…”를 클릭한 다음 단계를 따르세요. 마지막에, 무언가가 컴퓨터 밖으로 나가기 전에 보낼 내용을 정확히 볼 수 있습니다.",
+      "title": "테더",
+      "warningCard": "찍은 사진이 Rawtonic에 나타나지 않을 수 있습니다. 그러면 카메라의 메모리 카드에만 있으므로, 카메라에 카드를 계속 넣어 두세요.",
+      "warningNothingDeleted": "Rawtonic은 카메라나 카드의 어떤 것도 삭제하지 않습니다.",
+      "warningUntested": "아직 테스트되지 않음: 지금까지 Canon 카메라를 Rawtonic으로 사용해 본 적이 없습니다."
+    },
     "title": "설정",
     "tooltips": {
       "goHome": "홈으로 이동"
@@ -1777,6 +1851,8 @@
   },
   "spotRemoval": {
     "cancel": "취소",
+    "deleteSelected": "선택 항목 삭제",
+    "deleteSelectedHint": "Delete 또는 Backspace. 사진에서 Alt-클릭하면 하나를, Alt-드래그하면 상자에 닿는 모든 항목을 삭제합니다.",
     "detectObjects": "개체 감지",
     "detectObjectsBoxHint": "개체 주위에 사각형을 그리거나 클릭하여 제거합니다.",
     "detectObjectsHint": "개체 위를 대략 브러시로 칠하거나 클릭하여 제거합니다.",
@@ -1788,6 +1864,17 @@
     "featherAria": "스팟 페더",
     "filling": "제거 중… {{total}}단계 중 {{done}}단계",
     "largeHoleTooSlow": "이 GPU는 큰 영역을 제거하기에 너무 느립니다. 이 세션 동안 제거는 빠른 방법을 사용합니다.",
+    "list": {
+      "aria": "스팟 및 제거",
+      "count": "보정 ({{number}})",
+      "delete": "{{name}} 삭제",
+      "deleteAll": "모두 삭제",
+      "hideAll": "모두 숨기기",
+      "item": "{{kind}} {{number}}",
+      "select": "{{name}} 선택",
+      "showAll": "모두 표시",
+      "toggle": "{{name}} 표시"
+    },
     "mode": "스팟 모드",
     "modes": {
       "clone": "복제",
@@ -3735,6 +3822,7 @@
       "whiteBalanceTo": "화이트 밸런스 {{to}} K"
     },
     "spot": {
+      "done": "스팟 제거 끝내기",
       "start": "스팟 제거 시작",
       "withShortcut": "{{text}}({{key}})"
     },
@@ -4125,6 +4213,7 @@
     "download": "다운로드",
     "failed": "업데이트를 확인할 수 없습니다. 나중에 다시 시도하세요.",
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "manual": "업데이트 확인",
     "noFile": "이 릴리스에는 이 컴퓨터용 다운로드가 없습니다. 릴리스 페이지에 모든 파일이 있습니다.",
     "noNotes": "릴리스 노트가 없습니다. 릴리스 페이지에 더 있을 수 있습니다.",
     "notesTitle": "Rawtonic {{version}}의 새로운 기능",

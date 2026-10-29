@@ -70,6 +70,16 @@ it("goes back to the Library on Escape in Develop", () => {
   expect(props.handleBackToLibrary).toHaveBeenCalledOnce();
 });
 
+it("ends the spot tool on Escape in Develop before going back to the Library", () => {
+  useUIStore.setState({ activeView: "editor" });
+  useEditorStore.setState({ isSpotToolActive: true, activeSpotId: null });
+  press("Escape");
+  expect(useEditorStore.getState().isSpotToolActive).toBe(false);
+  expect(props.handleBackToLibrary).not.toHaveBeenCalled();
+  press("Escape");
+  expect(props.handleBackToLibrary).toHaveBeenCalledOnce();
+});
+
 it("closes Preferences on Escape without leaving Develop", () => {
   useUIStore.setState({ activeView: "editor", isSettingsOpen: true });
   // The Preferences overlay, as StudioWorkspace renders it.

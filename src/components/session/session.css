@@ -339,9 +339,6 @@
 .session-mode label:hover {
   background: var(--app-card-active);
 }
-.session-mode input {
-  accent-color: #b4c8d3;
-}
 .session-mode span {
   display: flex;
   flex-direction: column;
@@ -553,7 +550,7 @@
 .session-link-button { padding: 0; border: 0; background: none; color: #b4c8d3; font: inherit; font-size: 12px; cursor: pointer; }
 .session-link-button:hover { text-decoration: underline; }
 .session-ingest-grid { height: min(300px, 38vh); overflow-y: auto; overflow-x: hidden; border: 1px solid var(--app-border-color); border-radius: 8px; background: var(--app-bg-primary, #1b1d1f); padding: 8px; }
-.session-ingest-tiles { display: grid; gap: 8px; justify-content: start; }
+.session-ingest-tiles { display: grid; gap: 8px; justify-content: space-between; }
 .session-ingest-tile { display: grid; gap: 4px; width: var(--ingest-tile, 112px); padding: 0; border: 0; background: none; color: var(--app-text-secondary); text-align: left; cursor: pointer; }
 .session-ingest-thumb { position: relative; display: flex; align-items: center; justify-content: center; width: var(--ingest-tile, 112px); height: var(--ingest-tile, 112px); border-radius: 6px; background: #2b2e31; overflow: hidden; outline: 2px solid transparent; outline-offset: -2px; font-size: 11px; letter-spacing: .04em; color: #8a9096; }
 .session-ingest-thumb img { width: 100%; height: 100%; object-fit: contain; }
@@ -576,7 +573,7 @@
 .session-ingest-files > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-ingest-target { display: grid; gap: 6px; font-size: 12px; overflow-wrap: anywhere; }
 .session-ingest-target span { color: var(--app-text-secondary); }
-.session-ingest-form .session-dialog-footer { position: sticky; bottom: -24px; padding: 16px 0; background: var(--app-bg-secondary, #242628); border-top: 1px solid var(--app-border-color); }
+.session-ingest-form .session-dialog-footer { padding: 16px 0; background: var(--app-bg-secondary, #242628); border-top: 1px solid var(--app-border-color); }
 .session-dialog form > .naming-editor { margin-bottom: 24px; }
 @media (max-width: 650px) {
   .session-ingest-form { display: flex; flex-direction: column; }
@@ -673,5 +670,4 @@
 }
 .session-tools-side-options label:has(:checked) { background: var(--app-card-active); border-color: var(--app-text-secondary); }
 .session-tools-side-options label:hover { background: var(--app-bg-secondary); }
-.session-tools-side-options input { accent-color: var(--app-text-primary); }
 .session-tools-side p { margin-top: 10px; font-size: 12px; }

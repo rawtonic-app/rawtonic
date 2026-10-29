@@ -250,7 +250,7 @@ export const useKeyboardShortcuts = ({
       const rated = (event as CustomEvent<string>).detail;
       if (useSettingsStore.getState().appSettings?.autoAdvance !== true) return;
       const ui = useUIStore.getState();
-      if (ui.activeView === 'editor' && useMultiViewStore.getState().active) return;
+      if (useMultiViewStore.getState().active) return;
       const grid = ui.activeView === 'library' && !viewerShown(ui);
       const library = useLibraryStore.getState();
       if (grid && (library.multiSelectedPaths.length !== 1 || library.multiSelectedPaths[0] !== rated)) return;
@@ -309,14 +309,14 @@ export const useKeyboardShortcuts = ({
     // Multi view: the arrows step the primary through the selection (wrapping)
     // instead of through the folder, and rating keys rate the primary only.
     const multiViewActive = (s: ShortcutState) =>
-      s.ui.activeView === 'editor' && !!s.editor.selectedImage && useMultiViewStore.getState().active;
+      viewerShown(s.ui) && !!s.editor.selectedImage && useMultiViewStore.getState().active;
     const stepMultiView = (s: ShortcutState, step: number) => {
       const selection = orderedSelection(
         sortedListRef.current.map((image) => image.path),
         s.library.multiSelectedPaths,
       );
       const next = stepPrimary(selection, s.editor.selectedImage?.path ?? null, step);
-      if (next && next !== s.editor.selectedImage?.path) handleImageSelect(next, true);
+      if (next && next !== s.editor.selectedImage?.path) handleImageSelect(next, s.ui.activeView === 'editor');
     };
     // The Library's loupe and full screen step through the grid's order, the
     // photograph becoming the Library's selection as a click on it would.
@@ -439,12 +439,12 @@ export const useKeyboardShortcuts = ({
         shouldFire: (s) => viewerShown(s.ui) && !!s.editor.selectedImage,
         execute: (e, s) => {
           e.preventDefault();
-          if (libraryViewer(s.ui)) {
-            stepLibraryViewer(s, -1);
-            return;
-          }
           if (multiViewActive(s)) {
             stepMultiView(s, -1);
+            return;
+          }
+          if (libraryViewer(s.ui)) {
+            stepLibraryViewer(s, -1);
             return;
           }
           const currentIndex = sortedListRef.current.findIndex((img) => img.path === s.editor.selectedImage!.path);
@@ -457,12 +457,12 @@ export const useKeyboardShortcuts = ({
         shouldFire: (s) => viewerShown(s.ui) && !!s.editor.selectedImage,
         execute: (e, s) => {
           e.preventDefault();
-          if (libraryViewer(s.ui)) {
-            stepLibraryViewer(s, 1);
-            return;
-          }
           if (multiViewActive(s)) {
             stepMultiView(s, 1);
+            return;
+          }
+          if (libraryViewer(s.ui)) {
+            stepLibraryViewer(s, 1);
             return;
           }
           const currentIndex = sortedListRef.current.findIndex((img) => img.path === s.editor.selectedImage!.path);
@@ -542,13 +542,20 @@ export const useKeyboardShortcuts = ({
         },
       },
       toggle_multi_view: {
-        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
+        shouldFire: (s) => (s.ui.activeView === 'editor' && !!s.editor.selectedImage) ||
+          (s.ui.activeView === 'library' && !!s.library.libraryActivePath && s.library.multiSelectedPaths.length > 1),
         execute: (e, s) => {
           e.preventDefault();
           const { osPlatform, appSettings } = s.settings;
           const multi = useMultiViewStore.getState();
           if (osPlatform !== 'linux' && (appSettings?.useWgpuRenderer === false || multi.unavailable)) return;
-          multi.toggle();
+          if (s.ui.activeView === 'library' && !s.ui.libraryLoupe) {
+            const path = s.library.libraryActivePath!;
+            if (s.editor.selectedImage?.path !== path) handleImageSelect(path, false);
+            s.ui.setUI({ libraryLoupe: true });
+            multi.setLibraryEnabled(true);
+          } else if (s.ui.activeView === 'library') multi.setLibraryEnabled(!multi.libraryEnabled);
+          else multi.toggle();
         },
       },
       pin_reference: {
@@ -1053,6 +1060,8 @@ export const useKeyboardShortcuts = ({
           else if (s.editor.isStraightenActive) s.editor.setEditor({ isStraightenActive: false });
           else if (s.editor.colorPickerTarget !== null) s.editor.setEditor({ colorPickerTarget: null });
           else if (s.editor.isWbPickerActive) s.editor.setEditor({ isWbPickerActive: false });
+          // The spot tool's overlay deselects first; then Escape ends the tool.
+          else if (s.editor.isSpotToolActive) s.editor.setEditor({ isSpotToolActive: false, activeSpotId: null });
           else if (s.editor.lumaPickerLayer) s.editor.setEditor({ lumaPickerLayer: null });
           else if (s.editor.tatTarget) s.editor.setEditor({ tatTarget: null });
           else if (s.editor.activeMaskId) s.editor.setEditor({ activeMaskId: null });

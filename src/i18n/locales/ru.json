@@ -1150,7 +1150,7 @@
       "location": "Расположение",
       "modeLabel": "Организация",
       "name": "Название проекта",
-      "namePlaceholder": "2026-10-01_Клиент_Заказ",
+      "namePlaceholder": "{{date}}_Клиент_Заказ",
       "namePreview": "Ваш заказ",
       "originalsUntouched": "Исходные фотографии остаются нетронутыми.",
       "session": "Проект",
@@ -1393,6 +1393,13 @@
     "tether": {
       "battery": "Батарея {{level}}",
       "camera": "Камера",
+      "canon": {
+        "badge": "Экспериментально",
+        "connectedNote": "Экспериментально: если снимок не появился здесь, он не потерян — он на карте памяти. Оставьте карту в камере. Rawtonic сообщит вам, если снимок, сделанный из Rawtonic, не дошёл — если только за это время не придёт снимок, сделанный на самой камере, и не займёт его место. После сессии сравните карту с библиотекой.",
+        "notReceived": "Снимок {{n}} не получен. Если камера его сделала, он на карте памяти.",
+        "openPreferences": "Открыть настройки тетеринга",
+        "optInNeeded": "Камеры Canon пока не проверялись с Rawtonic. Чтобы попробовать свою и помочь с тестированием, включите «Экспериментально: камеры Canon» в Настройки > Тетеринг."
+      },
       "capture": "Снять",
       "captureFailed": "Снимок не удался: {{error}}",
       "captureTitle": "Спустить затвор (⌘K / Ctrl+K)",
@@ -1409,6 +1416,7 @@
       "lastIn": "{{file}} в библиотеке",
       "lastTiming": "{{file}} в библиотеке через {{ms}} мс после снимка",
       "level": {
+        "experimental": "Экспериментально — нужны тестеры. С Rawtonic ещё не проверялось: снимок может не появиться здесь, и тогда он есть только на карте памяти.",
         "notSupported": "Эта камера пока не поддерживается.",
         "reported": "По сообщениям пользователей этой модели камеры, работает.",
         "tested": "Проверено с этой моделью камеры в {{systems}} ({{date}}).",
@@ -1426,6 +1434,14 @@
         "bursting": "{{shots}} снимков подряд…",
         "button": "Тест камеры…",
         "buttonTitle": "Проверить эту камеру шаг за шагом и создать анонимный отчёт",
+        "canonGuide": {
+          "card": "Держите карту памяти в камере на протяжении всего теста.",
+          "missing": "Если снимок не появился, это тоже полезно знать: он по-прежнему на карте памяти, и тест его учитывает.",
+          "send": "В конце нажмите «{{button}}». Вы увидите, что именно отправляется — без фото, имён файлов и серийного номера, — и ничто не покинет ваш компьютер, пока вы не подтвердите.",
+          "sendNote": "Этот результат получен от экспериментальной поддержки Canon. Спасибо за тестирование — полезен каждый результат, в том числе тот, где снимки пропали.",
+          "steps": "Пройдите шаги ниже по очереди: нажмите «Запустить» и сделайте то, что просит шаг. Если камера не может выполнить шаг, нажмите «Пропустить».",
+          "title": "Как проверить вашу камеру Canon"
+        },
         "close": "Закрыть тест камеры",
         "how": {
           "autofocus": "Фокусируется один раз. Пропустите с мануальным объективом или режимом MF.",
@@ -1580,7 +1596,54 @@
     }
   },
   "settings": {
+    "about": {
+      "build": "this build",
+      "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
+      "creditDescriptions": {
+        "avif-parse": "Reads the AVIF container.",
+        "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
+        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "darktable": "Reference implementations that guided parts of the inherited editor.",
+        "DAViD": "Surface normals of people for Relight (Microsoft).",
+        "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
+        "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
+        "Depth Anything V2 Small": "Depth masks.",
+        "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
+        "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
+        "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
+        "libjpeg-turbo": "JPEG export.",
+        "MediaPipe Face Mesh V2 and selfie segmentation": "Face landmarks, Relight mesh topology, and skin, hair and clothes for People masks (Google).",
+        "MI-GAN": "Object removal (Picsart AI Research).",
+        "Moebius": "Removal of large objects (Huazhong University of Science and Technology, vivo AI Lab).",
+        "moxcms": "Reads the ICC profiles embedded in JPEG, PNG, TIFF, WebP and AVIF sources.",
+        "NegPy": "Inspiration for the negative conversion.",
+        "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
+        "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft).",
+        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
+        "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
+        "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
+        "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
+        "SigLIP 2": "Automatic keywords (Google).",
+        "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
+      },
+      "credits": "Credits",
+      "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
+      "jpeg": "This software is based in part on the work of the Independent JPEG Group.",
+      "licenseAfter": "; without even the implied warranty of merchantability or fitness for a particular purpose. See the",
+      "licenseEnd": "for details; a copy ships with the app.",
+      "licenseIntro": "This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but",
+      "licenses": "Third-party licenses",
+      "licenseTexts": "Third-party license texts",
+      "noWarranty": "without any warranty",
+      "privacy": "Photos, catalogs, projects and edits stay on your computer and in the folders you choose. The optional startup update check contacts GitHub at most once every 24 hours. AI models download from GitHub when needed and run locally; showing a photo on a map sends its location and your IP address to OpenStreetMap. Problem, crash and camera-test reports are sent only when you review what will be sent and click Send. Copy report sends nothing; Open on GitHub first shows the title and text, which GitHub receives when the page loads. Anonymous usage statistics are off by default; if enabled, weekly counters are sent to Rawtonic's relay. Rawtonic has no accounts or other telemetry. See PRIVACY.md for details.",
+      "showLicenses": "Show the license texts",
+      "source": "Source code:",
+      "trademarks": "Rawtonic is an independent project. It is not affiliated with, endorsed or sponsored by Adobe, Capture One, Fujifilm or any camera or software maker. Product names are trademarks of their owners and are used only to identify their products, for example the catalogs and presets Rawtonic can import."
+    },
     "categories": {
+      "about": "О программе",
       "general": "Общие",
       "processing": "Обработка",
       "shortcuts": "Управление"
@@ -1928,6 +1991,17 @@
       "shortcutsDesc": "Список тегов, которые будут отображаться в качестве кнопок быстрого клика в меню тегирования.",
       "title": "Тегирование"
     },
+    "tethering": {
+      "camerasLink": "Какие камеры работают и как сообщить о своей",
+      "canon": "Экспериментально: камеры Canon (помочь с тестами)",
+      "canonDesc": "Позволяет Rawtonic подключать камеру Canon по USB, чтобы вы могли её попробовать и отправить краткий результат теста.",
+      "canonSwitch": "Подключать камеры Canon",
+      "howToTest": "Чтобы помочь: подключите камеру на панели «Тетеринг», нажмите «Тест камеры…» и выполняйте шаги. В конце вы увидите, что именно было бы отправлено, прежде чем что-либо покинет ваш компьютер.",
+      "title": "Тетеринг",
+      "warningCard": "Снимок, который вы сделаете, может не появиться в Rawtonic. Тогда он только на карте памяти камеры, поэтому всё время держите карту в камере.",
+      "warningNothingDeleted": "Rawtonic никогда ничего не удаляет на камере или карте.",
+      "warningUntested": "Пока не проверено: ни одна камера Canon ещё не пробовалась с Rawtonic."
+    },
     "title": "Настройки",
     "tooltips": {
       "goHome": "На главную"
@@ -1935,6 +2009,8 @@
   },
   "spotRemoval": {
     "cancel": "Отмена",
+    "deleteSelected": "Удалить выбранное",
+    "deleteSelectedHint": "Delete или Backspace. На фото Alt-щелчок удаляет одну, Alt-перетаскивание — все, которых касается рамка.",
     "detectObjects": "Распознавать объекты",
     "detectObjectsBoxHint": "Обведите объект рамкой или щёлкните по нему, чтобы удалить.",
     "detectObjectsHint": "Грубо закрасьте объект кистью или щёлкните по нему, чтобы удалить.",
@@ -1946,6 +2022,17 @@
     "featherAria": "Растушевка пятна",
     "filling": "Удаление… шаг {{done}} из {{total}}",
     "largeHoleTooSlow": "Этот GPU слишком медленный для удаления больших областей; до конца сеанса «Удалить» использует быстрый метод.",
+    "list": {
+      "aria": "Точки и удаления",
+      "count": "Коррекции ({{number}})",
+      "delete": "Удалить {{name}}",
+      "deleteAll": "Удалить все",
+      "hideAll": "Скрыть все",
+      "item": "{{kind}} {{number}}",
+      "select": "Выбрать {{name}}",
+      "showAll": "Показать все",
+      "toggle": "Показать {{name}}"
+    },
     "mode": "Режим удаления пятен",
     "modes": {
       "clone": "Клонировать",
@@ -4029,6 +4116,7 @@
       "whiteBalanceTo": "Баланс белого {{to}} K"
     },
     "spot": {
+      "done": "Завершить удаление пятен",
       "start": "Начать удаление пятен",
       "withShortcut": "{{text}} ({{key}})"
     },
@@ -4437,6 +4525,7 @@
     "download": "Скачать",
     "failed": "Не удалось проверить обновления. Повторите попытку позже.",
     "fileWithSize": "{{file}} ({{size}} МБ)",
+    "manual": "Проверить обновления",
     "noFile": "В этом выпуске нет загрузки для этого компьютера; на странице выпуска есть все файлы.",
     "noNotes": "Нет примечаний к выпуску. На странице выпуска может быть больше.",
     "notesTitle": "Что нового в Rawtonic {{version}}",

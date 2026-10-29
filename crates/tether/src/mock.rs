@@ -101,6 +101,23 @@ pub struct MockSpec {
     pub jpeg_from_shot: Option<u64>,
     /// Its "Save to" (capturetarget: sdram or card+sdram), if it has one.
     pub capture_target: Option<String>,
+    /// Save to's choices, if not sdram, card and card+sdram (a Canon EOS
+    /// body: "Internal RAM", "Memory card").
+    pub capture_target_choices: Vec<String>,
+    /// Driven on a driver path no body was tested on yet, like libgphoto2's
+    /// Canon EOS path (`CameraStatus::experimental`).
+    pub experimental: bool,
+    /// The storages it lists, if not one memory card (none with
+    /// `no_card`); on an experimental path a card is looked for in them
+    /// (`camera::card_in`) as the libgphoto2 driver does.
+    pub storages: Option<Vec<crate::camera::Storage>>,
+    /// On an experimental path, where the camera really puts a capture
+    /// (`camera::CANON_DESTINATION`, "4" = the computer), if not what Save
+    /// to says (empty: the camera does not tell).
+    pub capture_destination: Option<String>,
+    /// A file a line is appended to at every settings or status read (a
+    /// test sees whether the camera was read at all).
+    pub config_reads: Option<std::path::PathBuf>,
     /// ISO's value and choices, if not the default 100 of 100–800 (e.g. a
     /// Sony list: "Auto ISO", numbers, "… Multi Frame Noise Reduction").
     pub iso: Option<(String, Vec<String>)>,
@@ -156,6 +173,11 @@ impl Default for MockSpec {
             serial: Some("MOCK0001".into()),
             firmware: Some("1.00".into()),
             capture_target: None,
+            capture_target_choices: vec![],
+            experimental: false,
+            storages: None,
+            capture_destination: None,
+            config_reads: None,
             raw_and_jpeg: false,
             jpeg_late_ms: 0,
             jpeg_from_shot: None,
@@ -296,12 +318,13 @@ impl Driver for MockDriver {
             ]
             .into_iter()
             .chain(self.spec.capture_target.as_deref().map(|target| {
-                setting(
-                    "capturetarget",
-                    "Save to",
-                    target,
-                    &["sdram", "card", "card+sdram"],
-                )
+                let choices = &self.spec.capture_target_choices;
+                let choices: Vec<&str> = if choices.is_empty() {
+                    vec!["sdram", "card", "card+sdram"]
+                } else {
+                    choices.iter().map(String::as_str).collect()
+                };
+                setting("capturetarget", "Save to", target, &choices)
             }))
             .collect(),
         };
@@ -497,8 +520,28 @@ impl MockCamera {
     }
 }
 
+impl MockCamera {
+    fn note_config_read(&self) {
+        if let Some(path) = &self.spec.config_reads {
+            use std::io::Write;
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+            {
+                let _ = writeln!(file, "read");
+            }
+        }
+    }
+}
+
 impl Camera for MockCamera {
+    fn experimental(&self) -> bool {
+        self.spec.experimental
+    }
+
     fn status(&mut self) -> CameraStatus {
+        self.note_config_read();
         CameraStatus {
             model: self.spec.model.clone(),
             port: self.spec.port.clone(),
@@ -513,10 +556,12 @@ impl Camera for MockCamera {
             transfer_queue: self.spec.queue_limit.is_some(),
             serial: self.spec.serial.clone(),
             firmware: self.spec.firmware.clone(),
+            experimental: self.spec.experimental,
         }
     }
 
     fn settings(&mut self) -> Result<Vec<Setting>, TetherError> {
+        self.note_config_read();
         if self.unplugged() {
             return Err(Self::gone());
         }
@@ -653,6 +698,29 @@ impl Camera for MockCamera {
             .spec
             .card_out_after_ms
             .is_some_and(|ms| self.opened.elapsed() >= Duration::from_millis(ms));
+        if self.spec.experimental && !card_out {
+            let destination = match self.spec.capture_destination.clone() {
+                Some(destination) => Some(destination).filter(|d| !d.is_empty()),
+                // Else it follows Save to.
+                None => {
+                    let target = self.status().capture_target;
+                    let host = crate::camera::memory_only(target.as_deref());
+                    Some(if host { "4" } else { "1" }.to_string())
+                }
+            };
+            if !crate::camera::canon_destination_keeps_card(destination.as_deref()) {
+                return Ok(true);
+            }
+            let card = vec![crate::camera::Storage::card()];
+            let storages = match &self.spec.storages {
+                Some(storages) => storages,
+                None if self.spec.no_card => &Vec::new(),
+                None => &card,
+            };
+            if !crate::camera::card_in(storages) {
+                return Ok(true);
+            }
+        }
         Ok(self.spec.no_card
             || card_out
             || crate::camera::memory_only(self.status().capture_target.as_deref()))

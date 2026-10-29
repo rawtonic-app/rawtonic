@@ -1119,7 +1119,7 @@
       "location": "Posizione",
       "modeLabel": "Organizzazione",
       "name": "Nome del progetto",
-      "namePlaceholder": "2026-10-01_Cliente_Lavoro",
+      "namePlaceholder": "{{date}}_Cliente_Lavoro",
       "namePreview": "Il tuo incarico",
       "originalsUntouched": "Le foto originali restano intatte.",
       "session": "Progetto",
@@ -1349,6 +1349,13 @@
     "tether": {
       "battery": "Batteria {{level}}",
       "camera": "Fotocamera",
+      "canon": {
+        "badge": "Sperimentale",
+        "connectedNote": "Sperimentale: se una foto non compare qui, non è persa — è sulla scheda di memoria. Lascia la scheda nella fotocamera. Rawtonic ti avvisa quando una foto scattata da Rawtonic non arriva — a meno che nel frattempo arrivi una foto scattata sulla fotocamera che ne prende il posto. Dopo una sessione, confronta la scheda con la libreria.",
+        "notReceived": "La foto {{n}} non è arrivata. Se la fotocamera l’ha scattata, è sulla scheda di memoria.",
+        "openPreferences": "Apri le preferenze di Tethering",
+        "optInNeeded": "Le fotocamere Canon non sono ancora state provate con Rawtonic. Per provare la tua e aiutare a testarla, attiva «Sperimentale: fotocamere Canon» in Preferenze > Tethering."
+      },
       "capture": "Scatta",
       "captureFailed": "Scatto non riuscito: {{error}}",
       "captureTitle": "Scatta con la fotocamera (⌘K / Ctrl+K)",
@@ -1365,6 +1372,7 @@
       "lastIn": "{{file}} è nella libreria",
       "lastTiming": "{{file}} nella libreria {{ms}} ms dopo lo scatto",
       "level": {
+        "experimental": "Sperimentale — cerchiamo tester. Non ancora provato con Rawtonic: una foto potrebbe non comparire qui e allora è solo sulla scheda di memoria.",
         "notSupported": "Questa fotocamera non è ancora supportata.",
         "reported": "Funziona secondo gli utenti di questo modello di fotocamera.",
         "tested": "Testato con questo modello di fotocamera su {{systems}} ({{date}}).",
@@ -1382,6 +1390,14 @@
         "bursting": "{{shots}} scatti di fila…",
         "button": "Test della fotocamera…",
         "buttonTitle": "Testa questa fotocamera passo dopo passo e crea un rapporto anonimo",
+        "canonGuide": {
+          "card": "Tieni una scheda di memoria nella fotocamera per tutto il test.",
+          "missing": "Se una foto non compare, è utile saperlo anche questo: è ancora sulla scheda di memoria e il test la conta.",
+          "send": "Alla fine fai clic su «{{button}}». Vedi esattamente cosa viene inviato — niente foto, nomi di file o numero di serie — e nulla lascia il tuo computer prima che tu confermi.",
+          "sendNote": "Questo risultato proviene dal supporto sperimentale per Canon. Grazie per il test — ogni risultato aiuta, anche uno in cui sono mancate delle foto.",
+          "steps": "Segui i passaggi qui sotto uno alla volta: fai clic su Esegui e fai ciò che chiede il passaggio. Se la tua fotocamera non riesce a eseguire un passaggio, fai clic su Salta.",
+          "title": "Come testare la tua fotocamera Canon"
+        },
         "close": "Chiudi il test della fotocamera",
         "how": {
           "autofocus": "Mette a fuoco una volta. Saltalo con un obiettivo manuale o in MF.",
@@ -1523,7 +1539,54 @@
     }
   },
   "settings": {
+    "about": {
+      "build": "this build",
+      "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
+      "creditDescriptions": {
+        "avif-parse": "Reads the AVIF container.",
+        "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
+        "ConvNeXt UperNet": "Sky masks (Meta, ADE20K).",
+        "darktable": "Reference implementations that guided parts of the inherited editor.",
+        "DAViD": "Surface normals of people for Relight (Microsoft).",
+        "Dawn": "WebGPU for the AI models on Windows and Linux, inside ONNX Runtime's WebGPU plugin (Google).",
+        "Depth Anything 3 Base": "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
+        "Depth Anything V2 Small": "Depth masks.",
+        "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
+        "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
+        "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
+        "libjpeg-turbo": "JPEG export.",
+        "MediaPipe Face Mesh V2 and selfie segmentation": "Face landmarks, Relight mesh topology, and skin, hair and clothes for People masks (Google).",
+        "MI-GAN": "Object removal (Picsart AI Research).",
+        "Moebius": "Removal of large objects (Huazhong University of Science and Technology, vivo AI Lab).",
+        "moxcms": "Reads the ICC profiles embedded in JPEG, PNG, TIFF, WebP and AVIF sources.",
+        "NegPy": "Inspiration for the negative conversion.",
+        "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
+        "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft).",
+        "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",
+        "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
+        "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
+        "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
+        "SigLIP 2": "Automatic keywords (Google).",
+        "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
+      },
+      "credits": "Credits",
+      "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
+      "jpeg": "This software is based in part on the work of the Independent JPEG Group.",
+      "licenseAfter": "; without even the implied warranty of merchantability or fitness for a particular purpose. See the",
+      "licenseEnd": "for details; a copy ships with the app.",
+      "licenseIntro": "This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but",
+      "licenses": "Third-party licenses",
+      "licenseTexts": "Third-party license texts",
+      "noWarranty": "without any warranty",
+      "privacy": "Photos, catalogs, projects and edits stay on your computer and in the folders you choose. The optional startup update check contacts GitHub at most once every 24 hours. AI models download from GitHub when needed and run locally; showing a photo on a map sends its location and your IP address to OpenStreetMap. Problem, crash and camera-test reports are sent only when you review what will be sent and click Send. Copy report sends nothing; Open on GitHub first shows the title and text, which GitHub receives when the page loads. Anonymous usage statistics are off by default; if enabled, weekly counters are sent to Rawtonic's relay. Rawtonic has no accounts or other telemetry. See PRIVACY.md for details.",
+      "showLicenses": "Show the license texts",
+      "source": "Source code:",
+      "trademarks": "Rawtonic is an independent project. It is not affiliated with, endorsed or sponsored by Adobe, Capture One, Fujifilm or any camera or software maker. Product names are trademarks of their owners and are used only to identify their products, for example the catalogs and presets Rawtonic can import."
+    },
     "categories": {
+      "about": "Informazioni",
       "general": "Generale",
       "processing": "Elaborazione",
       "shortcuts": "Controlli"
@@ -1868,6 +1931,17 @@
       "shortcutsDesc": "Una lista di tag che appariranno come scorciatoie nel menu contestuale del tagging.",
       "title": "Tagging"
     },
+    "tethering": {
+      "camerasLink": "Quali fotocamere funzionano e come segnalare la tua",
+      "canon": "Sperimentale: fotocamere Canon (aiuta a testare)",
+      "canonDesc": "Permette a Rawtonic di collegare una fotocamera Canon via USB, così puoi provarla e inviare un breve risultato del test.",
+      "canonSwitch": "Collega fotocamere Canon",
+      "howToTest": "Per aiutare: collega la fotocamera nel pannello Tethering, fai clic su Test della fotocamera… e segui i passaggi. Alla fine vedi esattamente cosa verrebbe inviato prima che qualcosa lasci il tuo computer.",
+      "title": "Tethering",
+      "warningCard": "Una foto che scatti potrebbe non comparire in Rawtonic. Allora è solo sulla scheda di memoria della fotocamera, quindi tieni sempre una scheda nella fotocamera.",
+      "warningNothingDeleted": "Rawtonic non elimina mai nulla sulla fotocamera o sulla scheda.",
+      "warningUntested": "Non ancora testato: finora nessuna fotocamera Canon è stata provata con Rawtonic."
+    },
     "title": "Impostazioni",
     "tooltips": {
       "goHome": "Torna alla Home page"
@@ -1875,6 +1949,8 @@
   },
   "spotRemoval": {
     "cancel": "Annulla",
+    "deleteSelected": "Elimina selezione",
+    "deleteSelectedHint": "Canc o Backspace. Sulla foto, Alt-clic ne elimina una; Alt-trascina elimina tutte quelle raggiunte dal riquadro.",
     "detectObjects": "Rileva oggetti",
     "detectObjectsBoxHint": "Trascina un rettangolo attorno a un oggetto o fai clic su di esso per rimuoverlo.",
     "detectObjectsHint": "Dipingi sopra un oggetto o fai clic su di esso per rimuoverlo.",
@@ -1886,6 +1962,17 @@
     "featherAria": "Sfumatura della macchia",
     "filling": "Rimozione… passo {{done}} di {{total}}",
     "largeHoleTooSlow": "Questa GPU è troppo lenta per rimuovere aree grandi; Rimuovi usa il metodo rapido per il resto della sessione.",
+    "list": {
+      "aria": "Macchie e rimozioni",
+      "count": "Correzioni ({{number}})",
+      "delete": "Elimina {{name}}",
+      "deleteAll": "Elimina tutte",
+      "hideAll": "Nascondi tutte",
+      "item": "{{kind}} {{number}}",
+      "select": "Seleziona {{name}}",
+      "showAll": "Mostra tutte",
+      "toggle": "Mostra {{name}}"
+    },
     "mode": "Modalità macchie",
     "modes": {
       "clone": "Clona",
@@ -3922,6 +4009,7 @@
       "whiteBalanceTo": "Bilanciamento del bianco {{to}} K"
     },
     "spot": {
+      "done": "Termina rimozione macchie",
       "start": "Avvia rimozione macchie",
       "withShortcut": "{{text}} ({{key}})"
     },
@@ -4324,6 +4412,7 @@
     "download": "Scarica",
     "failed": "Impossibile verificare gli aggiornamenti. Riprova più tardi.",
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "manual": "Cerca aggiornamenti",
     "noFile": "Questa versione non ha un download per questo computer; la pagina della versione elenca tutti i file.",
     "noNotes": "Nessuna nota di versione. La pagina della versione potrebbe dire di più.",
     "notesTitle": "Novità di Rawtonic {{version}}",

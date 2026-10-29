@@ -6,7 +6,6 @@ import { create } from "zustand";
 interface SessionBarState {
   center: HTMLElement | null;
   end: HTMLElement | null;
-  library: HTMLElement | null;
   /** Pick (1), reject (-1) or clear (0) the targeted photographs, or
    * `paths` (a multi view cell's hover flag). */
   mark: ((flag: number, paths?: string[]) => Promise<void> | undefined) | null;
@@ -16,7 +15,6 @@ interface SessionBarState {
 export const useSessionBar = create<SessionBarState>((set) => ({
   center: null,
   end: null,
-  library: null,
   mark: null,
   set: (patch) => set(patch),
 }));
