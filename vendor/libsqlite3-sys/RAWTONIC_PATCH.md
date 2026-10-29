@@ -29,7 +29,11 @@ Primary references:
 The original catalog regression uses four threads and 1500 synchronized
 open/read/close rounds. A standalone version using only rusqlite reproduced
 SQLITE_PROTOCOL with verbatim paths while ordinary paths passed. Windows
-validation of this candidate is pending; do not treat this note as a pass.
+validation at 9d461878 passed all three concurrency tests in 27.13 seconds:
+the original catalog regression, migration from DELETE to WAL, and a second
+four-thread stress test using a long verbatim path with a literal trailing-dot/
+space directory and an integrity check. This is local Windows VFS evidence,
+not a network-share qualification.
 Remove this vendored patch when the bundled upstream version corrects the
 whole transition and the regression passes without it. The optional SQLCipher
 amalgamation is unchanged; Rawtonic uses bundled SQLite, not SQLCipher.

@@ -65,7 +65,10 @@ impl SystemTrash for PlatformTrash {
     }
 }
 
-#[cfg(any(windows, all(unix, not(target_os = "macos"))))]
+#[cfg(windows)]
+mod windows_trash;
+
+#[cfg(all(unix, not(target_os = "macos")))]
 impl SystemTrash for PlatformTrash {
     fn trash(&self, path: &Path) -> anyhow::Result<String> {
         use trash::os_limited;
