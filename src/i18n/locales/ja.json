@@ -851,6 +851,11 @@
       "zoomInTooltip": "拡大",
       "zoomOutTooltip": "縮小"
     },
+    "quit": {
+      "quitAnyway": "",
+      "unsavedMessage": "",
+      "unsavedTitle": ""
+    },
     "renameFile": {
       "cancel": "キャンセル",
       "fileNamingTemplate": "ファイル命名テンプレート",
@@ -950,6 +955,7 @@
   },
   "notifications": {
     "close": "通知を閉じる",
+    "quitCancelled": "",
     "region": "通知"
   },
   "offline": {

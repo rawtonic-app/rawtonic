@@ -871,6 +871,11 @@
       "zoomInTooltip": "Zoom avant",
       "zoomOutTooltip": "Zoom arrière"
     },
+    "quit": {
+      "quitAnyway": "",
+      "unsavedMessage": "",
+      "unsavedTitle": ""
+    },
     "renameFile": {
       "cancel": "Annuler",
       "fileNamingTemplate": "Modèle de nommage de fichier",
@@ -973,6 +978,7 @@
   },
   "notifications": {
     "close": "Fermer la notification",
+    "quitCancelled": "",
     "region": "Notifications"
   },
   "offline": {

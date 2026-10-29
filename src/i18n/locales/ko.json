@@ -851,6 +851,11 @@
       "zoomInTooltip": "확대",
       "zoomOutTooltip": "축소"
     },
+    "quit": {
+      "quitAnyway": "",
+      "unsavedMessage": "",
+      "unsavedTitle": ""
+    },
     "renameFile": {
       "cancel": "취소",
       "fileNamingTemplate": "파일 이름 템플릿",
@@ -950,6 +955,7 @@
   },
   "notifications": {
     "close": "알림 닫기",
+    "quitCancelled": "",
     "region": "알림"
   },
   "offline": {

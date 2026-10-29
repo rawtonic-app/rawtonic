@@ -851,6 +851,11 @@
       "zoomInTooltip": "放大",
       "zoomOutTooltip": "缩小"
     },
+    "quit": {
+      "quitAnyway": "",
+      "unsavedMessage": "",
+      "unsavedTitle": ""
+    },
     "renameFile": {
       "cancel": "取消",
       "fileNamingTemplate": "文件命名模板",
@@ -950,6 +955,7 @@
   },
   "notifications": {
     "close": "关闭通知",
+    "quitCancelled": "",
     "region": "通知"
   },
   "offline": {

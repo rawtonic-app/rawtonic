@@ -34,6 +34,7 @@ interface ConfirmModalState {
   isOpen: boolean;
   message?: string;
   onConfirm?(): void;
+  onDismiss?(): void;
   title?: string;
 }
 

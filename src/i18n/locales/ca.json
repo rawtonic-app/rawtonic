@@ -871,6 +871,11 @@
       "zoomInTooltip": "Apropar",
       "zoomOutTooltip": "Allunyar"
     },
+    "quit": {
+      "quitAnyway": "",
+      "unsavedMessage": "",
+      "unsavedTitle": ""
+    },
     "renameFile": {
       "cancel": "Cancel·lar",
       "fileNamingTemplate": "Plantilla de nom de fitxer",
@@ -973,6 +978,7 @@
   },
   "notifications": {
     "close": "Tanca la notificació",
+    "quitCancelled": "",
     "region": "Notificacions"
   },
   "offline": {

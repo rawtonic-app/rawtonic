@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import i18n from 'i18next';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Invokes } from '../components/ui/AppProperties';
 import { useUIStore } from '../store/useUIStore';
@@ -26,7 +27,7 @@ export function registerQuitFlush(flush: QuitFlush): () => void {
 
 /** Runs every registered flush; resolves with what could not be saved. */
 export async function flushBeforeQuit(): Promise<string[]> {
-  const results = await Promise.allSettled([...flushes].map((flush) => flush()));
+  const results = await Promise.allSettled([...flushes].map((flush) => Promise.resolve().then(flush)));
   return results.flatMap((result) => (result.status === 'fulfilled' ? result.value : [String(result.reason)]));
 }
 
@@ -120,17 +121,12 @@ class QuitDrain {
   }
 }
 
-/** Records what settles while the quit drains into `kept` (each a progress
- * signal for the backend's save deadline); returns the unsubscribe.
- *
- * A batch's photographs are heard through `rawtonic:batch-photo-settled`
- * (what src-tauri reports as it saves each one). The queue passes that on
- * as `rawtonic:batch-write-settled` once the write settles - with every
- * photograph it did not write named as unreported - so this does not add a
- * second listener that would race the settle: what the queue reported is
- * what a batch run during the quit lost. */
-function hearWrites(kept: QuitDrain): () => void {
-  const progress = () => void invoke(Invokes.QuitSaving).catch(() => undefined);
+/** Records settled queue writes and the real bridge's per-photo events.
+ * Every progress command belongs only to this quit request. */
+function hearWrites(kept: QuitDrain, requestId: number): () => void {
+  const progress = () => {
+    if (handlingQuit === requestId) void invoke(Invokes.QuitSaving, { requestId }).catch(() => undefined);
+  };
   const stopWrites = onPhotoWritesSettled((settled) => {
     kept.record(settled.id, settled.kind, settled.failed);
     progress();
@@ -156,12 +152,15 @@ function hearWrites(kept: QuitDrain): () => void {
  * returning them is not run again (a save that keeps failing must reach the
  * user's decision, never a retry loop). Resolves with what could not be
  * saved (the flushes' failures first), or null when everything is saved. */
-export async function drainBeforeQuit(): Promise<string[] | null> {
+async function drainBeforeQuit(requestId: number): Promise<string[] | null> {
   const kept = new QuitDrain();
   kept.recordRunningBatches();
-  const stopHearing = hearWrites(kept);
-  await invoke(Invokes.QuitSaving).catch(() => undefined);
+  const stopHearing = hearWrites(kept, requestId);
   try {
+    if (await invoke<boolean>(Invokes.QuitSaving, { requestId }) !== true) {
+      cancelQuitRequest(requestId);
+      return null;
+    }
     kept.recordOther(await flushBeforeQuit());
     const items = kept.items();
     return items.length > 0 ? items : null;
@@ -172,68 +171,81 @@ export async function drainBeforeQuit(): Promise<string[] | null> {
 
 /** Asks the user whether to quit although `failures` were not saved;
  * `quit` quits. */
-export type AskToQuitAnyway = (failures: string[], quit: () => void) => void;
+export type AskToQuitAnyway = (failures: string[], quit: () => void, cancel: () => void) => void;
 
 /** The app's confirmation dialog for a quit with unsaved edits. */
-export const confirmQuitWithUnsaved: AskToQuitAnyway = (failures, quit) => {
+export const confirmQuitWithUnsaved: AskToQuitAnyway = (failures, quit, cancel) => {
+  let decided = false;
+  const decide = (action: () => void) => {
+    if (decided) return;
+    decided = true;
+    action();
+  };
   // Quit may come from the menu while the window is minimised or hidden.
   const appWindow = getCurrentWindow();
   void appWindow.unminimize().then(() => appWindow.show()).then(() => appWindow.setFocus()).catch(() => undefined);
   const listed = failures.slice(0, 5).join(', ') + (failures.length > 5 ? `, … (${failures.length} in all)` : '');
   useUIStore.getState().setUI({
     confirmModalState: {
-      confirmText: 'Quit Anyway',
+      confirmText: i18n.t('modals.quit.quitAnyway'),
       confirmVariant: 'destructive',
       isOpen: true,
-      message: `These changes could not be saved: ${listed}. Quitting now loses them; cancel to keep Rawtonic open and try again.`,
-      onConfirm: quit,
-      title: 'Changes Not Saved',
+      message: i18n.t('modals.quit.unsavedMessage', { changes: listed }),
+      onConfirm: () => decide(quit),
+      onDismiss: () => decide(cancel),
+      title: i18n.t('modals.quit.unsavedTitle'),
     },
   });
 };
 
-let handlingQuit = false;
+let handlingQuit: number | null = null;
+let latestQuitRequest: number | null = null;
 
-/**
- * The backend's `app-quit-requested` (src-tauri/src/app_quit.rs): closing the
- * window or Quit waits here until the pending saves are on disk. If one
- * fails, the app stays open and the user decides; a failed save is never
- * dropped silently: every failed write of the drain counts, a batch's
- * failed or unfinished photographs too, not just the editor's saves. Each
- * settled write, and each photograph a batch writes, is progress: the
- * backend's deadline counts from the last one.
- */
-export async function handleQuitRequest(askToQuitAnyway: AskToQuitAnyway): Promise<void> {
-  if (handlingQuit) return;
-  handlingQuit = true;
-  try {
-    let failures: string[] | null;
-    try {
-      // The flushes' own failures are kept by the drain; the prompt lists
-      // them with every failed write of the drain (also one a flush retried).
-      failures = await drainBeforeQuit();
-    } catch (error) {
-      // Still saving: the app stays open, and a new request may come.
-      console.error('Saving before quitting failed:', error);
-      return;
-    }
-    // A failed save reaches the user's decision exactly once: the app stays
-    // open until they answer, and only their "Quit Anyway" ends it.
-    if (!failures) await invoke(Invokes.FinishQuit);
-    else await quitWithFailures(failures, askToQuitAnyway);
-  } finally {
-    handlingQuit = false;
-  }
+/** A native deadline cancelled this request. A stale event cannot clear
+ * a newer request's guard; disk work already submitted keeps running. */
+export function cancelQuitRequest(requestId: number): boolean {
+  if (!Number.isSafeInteger(requestId) || requestId <= 0 || latestQuitRequest !== requestId) return false;
+  latestQuitRequest = null;
+  if (handlingQuit === requestId) handlingQuit = null;
+  return true;
 }
 
-/** The app stays open and the user decides; `quit` (their answer) is the
- * only way it ends. Resolves once the prompt is shown, not once it is
- * answered. */
-async function quitWithFailures(failures: string[], askToQuitAnyway: AskToQuitAnyway): Promise<void> {
-  // A backend that cannot hold the quit open still gets the decision, never
-  // silence.
-  await invoke(Invokes.CancelQuit).catch((error: unknown) => console.error('Cancelling the quit failed:', error));
-  askToQuitAnyway(failures, () => {
-    void invoke(Invokes.FinishQuit).catch((err) => console.error('Failed to quit:', err));
-  });
+/** Saves for one native request. Only that request may finish, and only
+ * explicit confirmation may force a quit after failed saves. */
+export async function handleQuitRequest(askToQuitAnyway: AskToQuitAnyway, requestId: number): Promise<void> {
+  if (!Number.isSafeInteger(requestId) || requestId <= 0 || handlingQuit !== null) return;
+  handlingQuit = requestId;
+  latestQuitRequest = requestId;
+  const request = { requestId };
+  try {
+    const failures = await drainBeforeQuit(requestId);
+    if (handlingQuit !== requestId) return;
+    if (!failures) {
+      await invoke(Invokes.FinishQuit, { ...request, force: false });
+      return;
+    }
+    const allowed = await invoke<boolean>(Invokes.CancelQuit, { ...request, allowQuitAnyway: true });
+    if (allowed !== true || handlingQuit !== requestId) return;
+    let decided = false;
+    const decide = (command: Invokes, args: Record<string, unknown>) => {
+      if (decided || latestQuitRequest !== requestId) return;
+      decided = true;
+      latestQuitRequest = null;
+      void invoke(command, { ...request, ...args }).catch((error) => console.error('Quit decision failed:', error));
+    };
+    askToQuitAnyway(
+      failures,
+      () => decide(Invokes.FinishQuit, { force: true }),
+      () => decide(Invokes.CancelQuit, { allowQuitAnyway: false }),
+    );
+  } catch (error) {
+    // Logging alone leaves the native timeout armed. Cancel it explicitly;
+    // the backend rejects this command if a newer request already owns it.
+    await invoke(Invokes.CancelQuit, { ...request, allowQuitAnyway: false })
+      .catch((cancelError) => console.error('Cancelling the quit failed:', cancelError));
+    cancelQuitRequest(requestId);
+    console.error('Saving before quitting failed:', error);
+  } finally {
+    if (handlingQuit === requestId) handlingQuit = null;
+  }
 }

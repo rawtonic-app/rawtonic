@@ -890,6 +890,11 @@
       "zoomInTooltip": "Przybliż",
       "zoomOutTooltip": "Oddal"
     },
+    "quit": {
+      "quitAnyway": "",
+      "unsavedMessage": "",
+      "unsavedTitle": ""
+    },
     "renameFile": {
       "cancel": "Anuluj",
       "fileNamingTemplate": "Szablon nazywania plików",
@@ -994,6 +999,7 @@
   },
   "notifications": {
     "close": "Zamknij powiadomienie",
+    "quitCancelled": "",
     "region": "Powiadomienia"
   },
   "offline": {

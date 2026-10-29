@@ -890,6 +890,11 @@
       "zoomInTooltip": "Увеличить",
       "zoomOutTooltip": "Уменьшить"
     },
+    "quit": {
+      "quitAnyway": "",
+      "unsavedMessage": "",
+      "unsavedTitle": ""
+    },
     "renameFile": {
       "cancel": "Отмена",
       "fileNamingTemplate": "Шаблон именования файлов",
@@ -994,6 +999,7 @@
   },
   "notifications": {
     "close": "Закрыть уведомление",
+    "quitCancelled": "",
     "region": "Уведомления"
   },
   "offline": {

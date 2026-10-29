@@ -17,7 +17,7 @@ import { useUIStore } from '../store/useUIStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { libraryImageIndex } from '../utils/libraryIndex';
 import { setMergeStateFor } from './useProductivityActions';
-import { confirmQuitWithUnsaved, handleQuitRequest } from '../utils/quit';
+import { cancelQuitRequest, confirmQuitWithUnsaved, handleQuitRequest } from '../utils/quit';
 import { recountAfterFileOperation } from '../utils/offline';
 import { throttleAsync } from '../utils/throttle';
 import { IMPORTS_CHANGED } from '../utils/folderSync';
@@ -638,9 +638,14 @@ export function useTauriListeners({
         }
       }),
       // Closing the window or Quit: save what is pending first.
-      listen('app-quit-requested', () => {
+      listen<{ requestId: number }>('app-quit-requested', (event) => {
         if (isEffectActive) {
-          handleQuitRequest(confirmQuitWithUnsaved).catch((err) => console.error('Quitting failed:', err));
+          handleQuitRequest(confirmQuitWithUnsaved, event.payload?.requestId).catch((err) => console.error('Quitting failed:', err));
+        }
+      }),
+      listen<{ requestId: number; reason: string }>('app-quit-cancelled', (event) => {
+        if (isEffectActive && cancelQuitRequest(event.payload?.requestId)) {
+          toast.error(i18n.t('notifications.quitCancelled'));
         }
       }),
       // Merge events of a run the dialog no longer waits for are ignored.

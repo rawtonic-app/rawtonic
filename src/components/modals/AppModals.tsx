@@ -70,6 +70,7 @@ export default function AppModals(props: AppModalsProps) {
   );
 
   const closeConfirmModal = () => {
+    confirmModalState.onDismiss?.();
     setUI((state) => ({ confirmModalState: { ...state.confirmModalState, isOpen: false } }));
   };
 
