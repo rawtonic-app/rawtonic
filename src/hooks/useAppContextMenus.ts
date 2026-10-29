@@ -574,10 +574,12 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         if (selectedImage && !selectedImage.isReady && finalSelection.includes(selectedImage.path)) return;
         finalSelection.forEach((p) => globalImageCache.delete(p));
 
+        // A long command (a decode per photo): it reports each photo's write,
+        // which quitting counts, instead of one answer at the end.
         recipeWrite(
           finalSelection,
-          () =>
-            invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: finalSelection }).then(
+          (batch) =>
+            invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: finalSelection, ...(batch ? { batch } : {}) }).then(
               () => [] as string[],
               (err) => {
                 // The photos that were saved still update below.
@@ -587,7 +589,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
                 return failed;
               },
             ),
-          { kind: 'auto', failedOf: (failed) => failed },
+          { kind: 'auto', failedOf: (failed) => failed, batch: true },
         )
           .then(async (failed) => {
             const applied = finalSelection.filter((p) => !failed.includes(p));

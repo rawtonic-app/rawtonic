@@ -55,7 +55,14 @@ import { saveFailure } from './useLibraryActions';
 import { clampViewerZoom } from '../utils/viewerDisplay';
 import { noteTool } from '../components/contribute/usageStats';
 import { registerRecipeWriter, type RecipeValues } from '../utils/appUndo';
-import { allPhotoWritesSettled, photoWriteKey, photoWritesSettled, submitPhotoWrite } from '../utils/photoWrites';
+import {
+  allPhotoWritesSettled,
+  batchPhotosReported,
+  photoBatches,
+  photoWriteKey,
+  photoWritesSettled,
+  submitPhotoWrite,
+} from '../utils/photoWrites';
 
 /** Recipes whose editor save failed, kept until a later write supersedes them. */
 const unsavedRecipes = new Map<string, Adjustments>();
@@ -431,6 +438,17 @@ export function isCurrentEditorImage(path: string): boolean {
   return image?.path === path && image.isReady;
 }
 
+/** How a batch recipe write (`recipeWrite`) is submitted. */
+type RecipeWrite<T> = {
+  kind: string;
+  failedOf: (result: T) => string[];
+  preserveUnsaved?: boolean;
+  step?: unknown;
+  /** A long batch command (Auto, face retouch) that reports each photograph
+   * it writes, given its tag (`countedForQuit`). */
+  batch?: boolean;
+};
+
 /**
  * Submits a batch recipe write of `paths` (`mutation`) to their write
  * queues (utils/photoWrites): it runs after every write given before it for
@@ -438,25 +456,26 @@ export function isCurrentEditorImage(path: string): boolean {
  * announced once when settled (with `step`). Resolves as `mutation`;
  * `failedOf` names the photographs it could not write. With
  * `preserveUnsaved`, a recipe whose editor save failed is written first.
+ * With `batch`, it is a long command given its tag (`mutation` takes it)
+ * that reports each photograph it writes.
  */
 export function recipeWrite<T>(
   paths: string[],
-  mutation: () => Promise<T>,
-  {
-    kind,
-    failedOf,
-    preserveUnsaved = true,
-    step,
-  }: { kind: string; failedOf: (result: T) => string[]; preserveUnsaved?: boolean; step?: unknown },
+  mutation: (tag: string) => Promise<T>,
+  { kind, failedOf, preserveUnsaved = true, step, batch = false }: RecipeWrite<T>,
 ): Promise<T> {
   // An edit of one of them made before this write is saved before it.
   if (scheduledSave !== null && paths.some((path) => photoWriteKey(path) === photoWriteKey(scheduledSave!)))
     debouncedSave.flush();
   return submitPhotoWrite(
     paths,
-    () => {
+    (id) => {
+      // Its tag, from its batch entry (the one quitting finds it by).
+      const tag = batch ? (photoBatches().get(id)?.tag ?? '') : '';
+      const run = () => mutation(tag);
+      if (batch) return countedForQuit(id, run());
       const unsaved = preserveUnsaved ? paths.filter((path) => unsavedRecipes.has(path)) : [];
-      if (unsaved.length === 0) return mutation();
+      if (unsaved.length === 0) return run();
       // Every retry settles before this write does (or fails): a write after
       // it must not start beside a retry still running.
       return Promise.allSettled(unsaved.map(async (path) => {
@@ -468,11 +487,26 @@ export function recipeWrite<T>(
       })).then((retries) => {
         const failed = retries.find((retry) => retry.status === 'rejected');
         if (failed) throw failed.reason;
-        return mutation();
+        return run();
       });
     },
-    { kind, failedOf, step },
+    { kind, failedOf, step, batch },
   );
+}
+
+/** A batch command whose photographs it did not write counts for quitting
+ * once it answers (it names some itself; its count holds back its last
+ * ones). A failing one knows only why: then all of them fail, written or
+ * not - quitting must not hide a change that may be lost. */
+async function countedForQuit<T>(entry: number, command: Promise<T>): Promise<T> {
+  try {
+    const result = await command;
+    batchPhotosReported(entry, 'reported no detail by the batch');
+    return result;
+  } catch (error) {
+    batchPhotosReported(entry, `not written (${error instanceof Error ? error.message : String(error)})`);
+    throw error;
+  }
 }
 
 /** A `savedBatch` result: the photographs not saved. */

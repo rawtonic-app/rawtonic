@@ -47,7 +47,113 @@ export type PhotoWrite<T> = {
   after?: Promise<unknown>;
   /** False: a read that must see the writes before it, announced to no one. */
   announce?: boolean;
+  /** A batch command reports its photographs as it writes them; `paths`
+   * are the photographs it writes. */
+  batch?: boolean;
 };
+
+/** A batch command whose progress is reported photo by photo
+ * (`batch_write_settled` in src-tauri: Auto adjustments, face retouch):
+ * quitting then hears each photograph as it is written instead of waiting
+ * blind for the whole command. */
+export type PhotoBatch = {
+  /** The write queue entry it belongs to (what quitting has to wait for). */
+  id: number;
+  /** What it writes (`PhotoWrite.kind`). */
+  kind: string;
+  /** The photographs it writes. */
+  paths: string[];
+  /** How many: `paths.length`, kept plain so this module loads without them. */
+  total: number;
+  /** The tag the command is given, which it reports its photographs with. */
+  tag: string;
+  /** Photographs its command reported failed so far (why), for quitting. */
+  photoFailures?: Map<string, string>;
+};
+
+const batches = new Map<number, PhotoBatch>();
+/** The batch of each queue entry it settled with, for a quit that heard it
+ * (pruned with `batches`). */
+const batchesByEntry = new Map<number, PhotoBatch>();
+/** The batches whose write is still queued. */
+const running = new Set<number>();
+/** The photographs of a batch no progress event reported yet. */
+const unsettled = new WeakMap<PhotoBatch, Set<string>>();
+/** Kept settled batches (beyond twice as many, the oldest finished ones are
+ * dropped; a quit lists the batches after it started). */
+const BATCHES_KEPT = 64;
+/** What a photograph of a batch not written is called when the batch's
+ * count does not name it. */
+const NOT_WRITTEN = 'not written';
+
+/** The write queue entries a batch command runs in, and their batches. */
+export function photoBatches(): Map<number, PhotoBatch> {
+  return batches;
+}
+
+/** What a batch has written so far: its photographs no report reached count
+ * as written (a command's count may hold back its last ones). */
+export function batchPhotoCount(batch: PhotoBatch): { done: number; total: number } {
+  return { done: batch.total - (unsettled.get(batch)?.size ?? 0), total: batch.total };
+}
+
+/** The photographs of `batch` no progress event has reported yet. */
+export function unsettledPhotos(batch: PhotoBatch): string[] {
+  const left = unsettled.get(batch);
+  return left ? batch.paths.filter((path) => left.has(path)) : [];
+}
+
+/** Calls `handler` for each photograph a batch command reports written
+ * (`BATCH_WRITE_SETTLED`, src-tauri/src/file_management/edits.rs);
+ * returns the unsubscribe. */
+export function onBatchWriteSettled(
+  handler: (settled: { tag: string; path: string; ok?: string; also: string[] }) => void,
+): () => void {
+  const listener = (event: Event) => {
+    const detail = (event as CustomEvent<{ tag?: unknown; path?: unknown; ok?: unknown; also?: unknown }>).detail;
+    if (typeof detail?.tag !== 'string' || typeof detail.path !== 'string') return;
+    handler({
+      tag: detail.tag,
+      path: detail.path,
+      ok: typeof detail.ok === 'string' ? detail.ok : undefined,
+      also: Array.isArray(detail.also) ? detail.also.filter((path): path is string => typeof path === 'string') : [],
+    });
+  };
+  window.addEventListener('rawtonic:batch-write-settled', listener);
+  return () => window.removeEventListener('rawtonic:batch-write-settled', listener);
+}
+
+/** A photograph of the batch of queue entry `entry` settled: written, or
+ * not (`failure`). */
+export function batchPhotoSettled(entry: number, path: string, failure?: string): void {
+  const batch = batchesByEntry.get(entry);
+  if (!batch) return;
+  const left = unsettled.get(batch);
+  if (!left?.delete(path)) return;
+  if (failure !== undefined) (batch.photoFailures ??= new Map()).set(path, failure);
+}
+
+/** Reports the unreported photographs of the batch of `entry` (`failure`:
+ * those that did not settle). */
+export function batchPhotosReported(entry: number, failure?: string): void {
+  const batch = batchesByEntry.get(entry);
+  if (!batch) return;
+  for (const path of unsettledPhotos(batch)) batchPhotoSettled(entry, path, failure);
+}
+
+/** The batch a queue entry is, once it settled (null: not a batch). */
+export function batchOfEntry(entry: number): PhotoBatch | null {
+  return batchesByEntry.get(entry) ?? null;
+}
+
+/** What the photographs of `batch` not written failed with (for quitting). */
+export function batchFailures(batch: PhotoBatch): string[] {
+  return [...(batch.photoFailures?.entries() ?? [])].map(([path, failure]) => `${nameOf(path)} (${failure})`);
+}
+
+function nameOf(path: string): string {
+  return path.split(/[\\/]/).pop() ?? path;
+}
 
 /** The photograph a path's sidecar and XMP belong to: virtual copies of one
  * file share its XMP, so they share its queue. */
@@ -57,6 +163,7 @@ export function photoWriteKey(path: string): string {
 
 const tails = new Map<string, Promise<void>>();
 let nextId = 1;
+let nextBatchTag = 1;
 
 /** Paths a rejected write did not write: those its error names
  * (`SaveFailure.failed`), else all of them. */
@@ -70,13 +177,30 @@ function failedOfError(error: unknown, paths: string[]): string[] {
  * and resolves (or rejects) as it does. `run` must not wait for this
  * queue itself (`photoWritesSettled`): it would wait for itself.
  */
-export function submitPhotoWrite<T>(paths: string[], run: () => Promise<T>, write: PhotoWrite<T>): Promise<T> {
+export function submitPhotoWrite<T>(paths: string[], run: (id: number) => Promise<T>, write: PhotoWrite<T>): Promise<T> {
   const id = nextId++;
+  const batch: PhotoBatch | undefined = write.batch
+    ? { id, kind: write.kind, total: paths.length, tag: `batch-${nextBatchTag++}`, paths: [...paths] }
+    : undefined;
+  if (batch) {
+    batches.set(id, batch);
+    batchesByEntry.set(id, batch);
+    unsettled.set(batch, new Set(paths));
+    running.add(id);
+    // (Finished ones go when too many pile up in one session, oldest
+    // first; a running batch is never dropped.)
+    for (const kept of batches.keys()) {
+      if (batches.size <= BATCHES_KEPT * 2) break;
+      if (running.has(kept)) continue;
+      batches.delete(kept);
+    }
+  }
   const keys = [...new Set(paths.map(photoWriteKey))];
   const before = keys.map((key) => tails.get(key)).filter((tail): tail is Promise<void> => !!tail);
   if (write.after) before.push(write.after.then(() => undefined, () => undefined));
   // Nothing to wait for: it starts at once, as a direct invoke would.
-  const result = before.length > 0 ? Promise.all(before).then(run) : new Promise<T>((resolve) => resolve(run()));
+  const start = () => run(id);
+  const result = before.length > 0 ? Promise.all(before).then(start) : new Promise<T>((resolve) => resolve(start()));
   const settled = result.then(
     (value) => (write.failedOf ? write.failedOf(value) : []),
     (error: unknown) => failedOfError(error, paths),
@@ -86,6 +210,10 @@ export function submitPhotoWrite<T>(paths: string[], run: () => Promise<T>, writ
   }).then((failed) => {
     for (const key of keys) if (tails.get(key) === settled) tails.delete(key);
     if (write.announce === false) return;
+    if (batch) {
+      batchPhotosReported(id, NOT_WRITTEN);
+      running.delete(id);
+    }
     const detail: PhotoWritesSettled = { id, kind: write.kind, paths, failed, ...(write.step !== undefined ? { step: write.step } : {}) };
     // (A listener that throws is reported by the browser; it stops nothing here.)
     window.dispatchEvent(new CustomEvent(PHOTO_WRITES_SETTLED, { detail }));

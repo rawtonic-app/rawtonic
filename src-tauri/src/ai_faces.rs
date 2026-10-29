@@ -343,24 +343,56 @@ fn carry_face_settings(
 /// the Retouch tab finds them (in its mask frame, its own geometry), take
 /// `settings` for all faces and, by position, the per-face values, and the
 /// result is written like any applied adjustment (sidecar, XMP, thumbnail).
+/// Each photo's finished write is announced (`BATCH_WRITE_SETTLED`, tagged
+/// `batch`); short of all, the error names every photo that was not written.
 #[tauri::command]
 pub async fn apply_face_retouch_to_paths(
     paths: Vec<String>,
     settings: serde_json::Value,
     face_settings: Vec<FaceSettingsAt>,
+    batch: Option<String>,
     app_handle: tauri::AppHandle,
-) -> Result<usize, String> {
-    let models = models(&app_handle, true).await?;
+) -> Result<usize, crate::file_management::SaveFailure> {
+    let batch = batch.as_deref();
+    let fail = |reason: String| crate::file_management::SaveFailure {
+        message: format!("Face retouch failed: {reason}"),
+        failed: paths.clone(),
+        culling: Vec::new(),
+    };
+    let models = models(&app_handle, true).await.map_err(fail)?;
     let app_settings = crate::app_settings::load_settings(app_handle.clone()).unwrap_or_default();
     let face_settings = Arc::new(face_settings);
     let mut done = 0;
+    let mut failures = Vec::new();
     for path in paths {
+        let announcement = |why: Option<&str>, also: &[String]| {
+            if let Some(batch) = batch {
+                crate::file_management::emit_batch_write_settled(
+                    &app_handle,
+                    batch,
+                    &path,
+                    why,
+                    also,
+                );
+            }
+        };
+        // Its own values are what failed, not a later photo's; it was not
+        // written, so it fails even for one photo.
+        let settled = |failures: &mut Vec<crate::file_management::SaveFailure>, reason: &str| {
+            let failure = crate::file_management::face_retouch_failure(&path, reason);
+            let also = failure.failed.clone();
+            announcement(Some(reason), &also);
+            failures.push(failure);
+        };
         let face_settings = face_settings.clone();
-        let (source_path, sidecar_path) = rawtonic_export::sidecars::parse_virtual_path(&path);
+        // The path is needed again below (its write, its announcement); only
+        // the analysis owns it.
+        let in_photo = path.clone();
+        let (source_path, sidecar_path) = rawtonic_export::sidecars::parse_virtual_path(&in_photo);
         let models = models.clone();
         let app_settings = app_settings.clone();
         let settings = settings.clone();
-        let face_retouch =
+        let face_retouch: Result<serde_json::Value, String> =
             tokio::task::spawn_blocking(move || -> Result<serde_json::Value, String> {
                 let mut recipe =
                     crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path)
@@ -443,14 +475,40 @@ pub async fn apply_face_retouch_to_paths(
                 )
                 .await
                 {
-                    Ok(()) => done += 1,
-                    Err(failure) => log::warn!("Face retouch for {path}: {}", failure.message),
+                    Ok(()) => {
+                        done += 1;
+                        announcement(None, &[]);
+                    }
+                    Err(failure) => {
+                        log::warn!("Face retouch for {path}: {}", failure.message);
+                        settled(&mut failures, &failure.message);
+                    }
                 }
             }
-            Err(error) => log::warn!("Face retouch for {path}: {error}"),
+            Err(error) => {
+                log::warn!("Face retouch for {path}: {error}");
+                settled(&mut failures, &error);
+            }
         }
     }
-    Ok(done)
+    match failures.len() {
+        0 => Ok(done),
+        // Short of all: every photo that was not written is named. Just one
+        // (any may have failed within its photo): it fails for all.
+        1 => Err(failures.pop().expect("one failure")),
+        _ => Err(crate::file_management::SaveFailure {
+            message: format!(
+                "Face retouch failed for {} photos, first: {}",
+                failures.len(),
+                failures[0].message
+            ),
+            failed: failures
+                .into_iter()
+                .flat_map(|failure| failure.failed)
+                .collect(),
+            culling: Vec::new(),
+        }),
+    }
 }
 
 #[cfg(test)]

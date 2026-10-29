@@ -15,6 +15,7 @@ src-tauri/resources/*.so
 src-tauri/resources/*.dll
 artifacts/
 __pycache__/
+.scratch/
 
 # Private maintainer instructions
 CLAUDE.local.md
