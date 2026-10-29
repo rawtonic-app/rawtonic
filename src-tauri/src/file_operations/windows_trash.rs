@@ -6,7 +6,6 @@ use anyhow::{Context, Result, ensure};
 use rawtonic_fileops::SystemTrash;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
     ffi::OsString,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
@@ -22,20 +21,20 @@ use windows::{
         Foundation::HANDLE,
         Storage::EnhancedStorage::PKEY_FileName,
         Storage::FileSystem::{
-            BY_HANDLE_FILE_INFORMATION, FILE_DISPOSITION_INFO, FILE_FLAG_BACKUP_SEMANTICS,
-            FILE_FLAG_OPEN_REPARSE_POINT, FileDispositionInfo, GetFileInformationByHandle,
-            SetFileInformationByHandle,
+            BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_TEMPORARY, FILE_DISPOSITION_INFO,
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_DELETE_ON_CLOSE, FILE_FLAG_OPEN_REPARSE_POINT,
+            FileDispositionInfo, GetFileInformationByHandle, SetFileInformationByHandle,
         },
         System::Com::{
             CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
             CoTaskMemFree, CoUninitialize, StructuredStorage::PropVariantToBSTR,
         },
         UI::Shell::{
-            BHID_EnumItems, FOF_NO_CONNECTED_ELEMENTS, FOF_NO_UI, FOFX_EARLYFAILURE,
-            FOFX_RECYCLEONDELETE, FOLDERID_RecycleBinFolder, FileOperation, IEnumShellItems,
-            IFileOperation, IShellItem, IShellItem2, KF_FLAG_DEFAULT, PID_DISPLACED_FROM,
-            PSGUID_DISPLACED, PropertiesSystem::PROPERTYKEY, SHCreateItemFromParsingName,
-            SHGetKnownFolderItem, SIGDN_DESKTOPABSOLUTEPARSING, SIGDN_FILESYSPATH,
+            BHID_EnumItems, BHID_Transfer, FOF_NO_CONNECTED_ELEMENTS, FOF_NO_UI, FOFX_EARLYFAILURE,
+            FOLDERID_RecycleBinFolder, FileOperation, IEnumShellItems, IFileOperation, IShellItem,
+            IShellItem2, ITransferSource, KF_FLAG_DEFAULT, PID_DISPLACED_FROM, PSGUID_DISPLACED,
+            PropertiesSystem::PROPERTYKEY, SHCreateItemFromParsingName, SHGetKnownFolderItem,
+            SIGDN_DESKTOPABSOLUTEPARSING, SIGDN_FILESYSPATH,
         },
     },
     core::{HSTRING, Interface},
@@ -52,6 +51,26 @@ impl Apartment {
 impl Drop for Apartment {
     fn drop(&mut self) {
         unsafe { CoUninitialize() };
+    }
+}
+
+// Shell objects stay on a fresh STA thread, never a reused Tauri pool
+// thread that another library may already have initialized as MTA.
+fn shell_thread<T: Send>(job: impl FnOnce() -> Result<T> + Send) -> Result<T> {
+    std::thread::scope(|scope| {
+        scope
+            .spawn(job)
+            .join()
+            .map_err(|_| anyhow::anyhow!("Windows Shell worker panicked"))?
+    })
+}
+
+fn desktop_id(item: &IShellItem) -> Result<String> {
+    unsafe {
+        let text = item.GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING)?;
+        let value = text.to_string();
+        CoTaskMemFree(Some(text.0.cast()));
+        Ok(value?)
     }
 }
 
@@ -140,11 +159,9 @@ fn bin_entries() -> Result<Vec<BinEntry>> {
                 Path::new(&name).file_name() == Some(name.as_os_str()),
                 "Invalid Recycle Bin filename"
             );
-            let parsing = item.GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING)?;
-            let id = parsing.to_string();
-            CoTaskMemFree(Some(parsing.0.cast()));
+            let id = desktop_id(&item)?;
             entries.push(BinEntry {
-                id: id?,
+                id,
                 original: parent.join(name),
                 item,
             });
@@ -189,6 +206,72 @@ struct Receipt {
 struct Marker {
     receipt: Receipt,
     directory_identity: Identity,
+}
+
+fn write_stage_marker(path: &Path, marker_path: &Path, data: &Marker) -> Result<()> {
+    let mut temp = tempfile::Builder::new()
+        .prefix(".marker-")
+        .make_in(path, |candidate| {
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .access_mode(0xC001_0000)
+                .share_mode(7)
+                .custom_flags(FILE_FLAG_DELETE_ON_CLOSE.0 | FILE_ATTRIBUTE_TEMPORARY.0)
+                .open(candidate)
+        })?;
+    #[cfg(test)]
+    marker_crash_point("partial", temp.as_file())?;
+    serde_json::to_writer(&mut temp, data)?;
+    temp.flush()?;
+    temp.as_file().sync_all()?;
+    // A separate open (not try_clone) survives closure of the delete-on-close
+    // file object. Until publication, every process-exit path deletes the temp.
+    let keeper = OpenOptions::new()
+        .read(true)
+        .access_mode(0x8001_0000)
+        .share_mode(7)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
+        .open(temp.path())?;
+    ensure!(
+        file_identity(&keeper)? == file_identity(temp.as_file())?,
+        "Marker identity changed"
+    );
+    rawtonic_metadata::no_clobber::persist_in_own_folder(temp, marker_path)?;
+    #[cfg(test)]
+    marker_crash_point("published", &keeper)?;
+    // persist closed the original file object. Cancel its pending deletion on
+    // the separately opened object; FILE_FLAG_DELETE_ON_CLOSE itself is permanent.
+    let info = FILE_DISPOSITION_INFO {
+        DeleteFile: false.into(),
+    };
+    unsafe {
+        SetFileInformationByHandle(
+            HANDLE(keeper.as_raw_handle() as isize),
+            FileDispositionInfo,
+            (&info as *const FILE_DISPOSITION_INFO).cast(),
+            std::mem::size_of_val(&info),
+        )?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+fn marker_crash_point(phase: &str, file: &File) -> Result<()> {
+    if std::env::var("RAWTONIC_MARKER_CRASH_PHASE").ok().as_deref() != Some(phase) {
+        return Ok(());
+    }
+    if phase == "partial" {
+        let mut writer = file;
+        writer.write_all(b"{")?;
+        file.sync_all()?;
+    }
+    println!("RAWTONIC_MARKER_READY");
+    std::io::stdout().flush()?;
+    loop {
+        std::thread::park();
+    }
 }
 
 impl Receipt {
@@ -270,21 +353,14 @@ impl Stage {
                 && !marker_path.try_exists()?
                 && fs::read_dir(&path)?.next().transpose()?.is_none());
         if initialize {
-            // Keep an interrupted marker write outside the stage, so the
-            // stage stays empty and can be retried after process termination.
-            let mut temp = tempfile::Builder::new()
-                .prefix(".rawtonic-restore-marker-")
-                .tempfile_in(receipt.parent()?)?;
-            serde_json::to_writer(
-                &mut temp,
+            write_stage_marker(
+                &path,
+                &marker_path,
                 &Marker {
                     receipt: receipt.clone(),
                     directory_identity,
                 },
             )?;
-            temp.flush()?;
-            temp.as_file().sync_all()?;
-            rawtonic_metadata::no_clobber::persist_in_own_folder(temp, &marker_path)?;
         }
         let mut marker = OpenOptions::new()
             .read(true)
@@ -434,60 +510,54 @@ fn restore_receipt(receipt: &Receipt, original: &Path) -> Result<()> {
 
 impl SystemTrash for PlatformTrash {
     fn trash(&self, path: &Path) -> Result<String> {
-        let _apartment = Apartment::new()?;
-        let (item, plain) = verified_item(path)?;
-        let original = path
-            .parent()
-            .context("Missing parent")?
-            .canonicalize()?
-            .join(path.file_name().context("Missing filename")?);
-        let mut receipt = Receipt {
-            bin_id: String::new(),
-            nonce: uuid::Uuid::new_v4(),
-            identity: identity(&original)?,
-            parent_identity: identity(original.parent().unwrap())?,
-            original,
-        };
-        // Check serialization before any mutation (including non-Unicode paths).
-        serde_json::to_string(&receipt)?;
-        let before: HashSet<_> = bin_entries()?.into_iter().map(|i| i.id).collect();
-        unsafe {
-            let operation: IFileOperation =
-                CoCreateInstance(&FileOperation, None, CLSCTX_INPROC_SERVER)?;
-            // Windows 8+: require recycling, with no connected-file expansion.
-            // Unlike FOF_ALLOWUNDO this requests recycle rather than deletion.
-            operation.SetOperationFlags(
-                FOF_NO_UI | FOF_NO_CONNECTED_ELEMENTS | FOFX_EARLYFAILURE | FOFX_RECYCLEONDELETE,
-            )?;
-            operation.DeleteItem(&item, None)?;
-            operation.PerformOperations()?;
-            ensure!(
-                !operation.GetAnyOperationsAborted()?.as_bool(),
-                "Recycling was aborted"
-            );
-        }
-        let mut matching = Vec::new();
-        for entry in bin_entries()? {
-            if !before.contains(&entry.id) && plain_drive_path(&entry.original)? == plain {
-                matching.push(entry);
+        shell_thread(|| {
+            let _apartment = Apartment::new()?;
+            let (item, _) = verified_item(path)?;
+            let original = path
+                .parent()
+                .context("Missing parent")?
+                .canonicalize()?
+                .join(path.file_name().context("Missing filename")?);
+            let mut receipt = Receipt {
+                bin_id: String::new(),
+                nonce: uuid::Uuid::new_v4(),
+                identity: identity(&original)?,
+                parent_identity: identity(original.parent().unwrap())?,
+                original,
+            };
+            // RecycleItem has no permanent-delete fallback. DeleteItem with recycle
+            // flags still permanently deletes files on media without a Bin.
+            serde_json::to_string(&receipt)?;
+            unsafe {
+                let parent = item.GetParent()?;
+                ensure!(
+                    identity(&item_path(&parent)?)? == receipt.parent_identity,
+                    "Shell resolved another source parent"
+                );
+                let source: ITransferSource = parent.BindToHandler(None, &BHID_Transfer)?;
+                let bin: IShellItem = SHGetKnownFolderItem(
+                    &FOLDERID_RecycleBinFolder,
+                    KF_FLAG_DEFAULT,
+                    HANDLE::default(),
+                )?;
+                let recycled = source.RecycleItem(&item, &bin, 0).context(
+                    "Windows cannot recycle this item; permanent deletion is not supported",
+                )?;
+                ensure!(
+                    identity(&item_path(&recycled)?)? == receipt.identity,
+                    "The recycled entry identity changed"
+                );
+                receipt.bin_id = desktop_id(&recycled)?;
             }
-        }
-        ensure!(
-            matching.len() == 1,
-            "The recycled item's receipt was not uniquely identified"
-        );
-        let bin_entry = matching.pop().unwrap();
-        receipt.bin_id = bin_entry.id;
-        ensure!(
-            receipt.bin_item()?.is_some(),
-            "Recycled entry could not be verified"
-        );
-        Ok(serde_json::to_string(&receipt)?)
+            Ok(serde_json::to_string(&receipt)?)
+        })
     }
 
     fn restore(&self, item: &str, original: &Path) -> Result<()> {
-        let _apartment = Apartment::new()?;
-        restore_receipt(&Receipt::parse(item)?, original)
+        shell_thread(|| {
+            let _apartment = Apartment::new()?;
+            restore_receipt(&Receipt::parse(item)?, original)
+        })
     }
 
     fn restore_for_recovery(&self, item: &str, original: &Path) -> Result<()> {
@@ -495,8 +565,7 @@ impl SystemTrash for PlatformTrash {
     }
 
     fn contains(&self, item: &str) -> bool {
-        (|| -> Result<bool> {
-            let _apartment = Apartment::new()?;
+        shell_thread(|| {
             let receipt = match Receipt::parse(item) {
                 Ok(receipt) => receipt,
                 // Keep old receipts visibly recoverable. restore() explains
@@ -507,6 +576,7 @@ impl SystemTrash for PlatformTrash {
                         .any(|entry| entry.id.to_string_lossy() == item));
                 }
             };
+            let _apartment = Apartment::new()?;
             if receipt.bin_item()?.is_some() {
                 return Ok(true);
             }
@@ -517,7 +587,7 @@ impl SystemTrash for PlatformTrash {
                 }
             }
             Ok(false)
-        })()
+        })
         .unwrap_or(false)
     }
 }
@@ -525,7 +595,7 @@ impl SystemTrash for PlatformTrash {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
+    use std::{collections::HashSet, fs};
 
     fn staged_fixture() -> (tempfile::TempDir, Receipt) {
         let temp = tempfile::tempdir().unwrap();
@@ -552,23 +622,132 @@ mod tests {
         fs::remove_file(path.join("receipt.json")).unwrap();
         fs::remove_dir(&path).unwrap();
         fs::create_dir(&path).unwrap(); // Simulated crash immediately after mkdir.
-        let mut interrupted_marker =
-            tempfile::NamedTempFile::new_in(receipt.parent().unwrap()).unwrap();
-        interrupted_marker.write_all(b"incomplete marker").unwrap();
         assert!(Stage::open(&receipt, false).is_err());
         let stage = Stage::open(&receipt, true).unwrap();
         stage.cleanup().unwrap();
         assert!(!path.exists());
-        assert_eq!(
-            fs::read(interrupted_marker.path()).unwrap(),
-            b"incomplete marker"
-        );
 
         fs::create_dir(&path).unwrap();
         fs::write(path.join("payload"), b"unrelated entry").unwrap();
         assert!(Stage::open(&receipt, true).is_err());
         assert_eq!(fs::read(path.join("payload")).unwrap(), b"unrelated entry");
         assert!(!path.join("receipt.json").exists());
+    }
+
+    #[test]
+    fn marker_process_kill_leaves_no_partial_or_published_orphan() {
+        use std::{
+            io::{BufRead, BufReader},
+            process::{Command, Stdio},
+            sync::mpsc,
+            time::Duration,
+        };
+        if std::env::var_os("RAWTONIC_MARKER_CRASH_PHASE").is_some() {
+            let receipt: Receipt =
+                serde_json::from_str(&std::env::var("RAWTONIC_MARKER_RECEIPT").unwrap()).unwrap();
+            Stage::open(&receipt, true).unwrap();
+            panic!("Marker child did not reach its interruption point");
+        }
+        for phase in ["partial", "published"] {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path().canonicalize().unwrap();
+            let original = root.join("synthetic-original.txt");
+            fs::write(&original, b"untouched synthetic bytes").unwrap();
+            let receipt = Receipt {
+                bin_id: "synthetic-marker-only".into(),
+                nonce: uuid::Uuid::new_v4(),
+                identity: identity(&original).unwrap(),
+                parent_identity: identity(&root).unwrap(),
+                original,
+            };
+            let mut child = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "file_operations::windows_trash::tests::marker_process_kill_leaves_no_partial_or_published_orphan", "--nocapture"])
+                .env("RAWTONIC_MARKER_CRASH_PHASE", phase)
+                .env("RAWTONIC_MARKER_RECEIPT", serde_json::to_string(&receipt).unwrap())
+                .stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+            let stdout = child.stdout.take().unwrap();
+            let (sender, ready) = mpsc::channel();
+            let reader = std::thread::spawn(move || {
+                for line in BufReader::new(stdout)
+                    .lines()
+                    .map_while(std::result::Result::ok)
+                {
+                    if line.contains("RAWTONIC_MARKER_READY") {
+                        let _ = sender.send(());
+                        break;
+                    }
+                }
+            });
+            let reached = ready.recv_timeout(Duration::from_secs(10));
+            let _ = child.kill();
+            let output = child.wait_with_output().unwrap();
+            reader.join().unwrap();
+            assert!(
+                reached.is_ok(),
+                "Marker child failed before {phase}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(!output.status.success());
+            let path = receipt.stage().unwrap();
+            assert_eq!(
+                fs::read_dir(&path).unwrap().count(),
+                0,
+                "orphan after {phase}"
+            );
+            assert_eq!(
+                fs::read(&receipt.original).unwrap(),
+                b"untouched synthetic bytes"
+            );
+            Stage::open(&receipt, true).unwrap().cleanup().unwrap();
+            assert!(!path.exists());
+        }
+    }
+
+    #[test]
+    #[ignore = "Requires a fresh synthetic removable volume with no Recycle Bin"]
+    fn platform_trash_refuses_a_volume_without_a_bin_and_preserves_its_file() {
+        let directory = std::env::var_os("RAWTONIC_TEST_NO_BIN_DIR")
+            .expect("Synthetic no-bin directory required");
+        let temp = tempfile::tempdir_in(directory).unwrap();
+        let source = temp.path().join("synthetic-original.txt");
+        fs::write(&source, b"synthetic no-bin photograph").unwrap();
+        let result = PlatformTrash.trash(&source);
+        let error = match result {
+            Ok(receipt) => {
+                PlatformTrash.restore(&receipt, &source).unwrap();
+                panic!("Test volume unexpectedly supports recycling");
+            }
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("Windows cannot recycle this item")
+        );
+        assert_eq!(fs::read(&source).unwrap(), b"synthetic no-bin photograph");
+    }
+
+    #[test]
+    #[ignore = "Uses only fresh synthetic files in the system Bin to verify an MTA caller"]
+    fn platform_trash_works_from_an_mta_caller() {
+        use windows::Win32::System::Com::COINIT_MULTITHREADED;
+        std::thread::spawn(|| {
+            unsafe {
+                CoInitializeEx(None, COINIT_MULTITHREADED).ok().unwrap();
+            }
+            let temp = tempfile::tempdir().unwrap();
+            let original = temp.path().join("synthetic-mta-probe.txt");
+            fs::write(&original, b"synthetic mta photograph").unwrap();
+            let item = PlatformTrash.trash(&original).unwrap();
+            assert!(PlatformTrash.contains(&item));
+            PlatformTrash.restore(&item, &original).unwrap();
+            assert_eq!(fs::read(&original).unwrap(), b"synthetic mta photograph");
+            unsafe {
+                CoUninitialize();
+            }
+        })
+        .join()
+        .unwrap();
     }
 
     #[test]

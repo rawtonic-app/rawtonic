@@ -452,3 +452,53 @@ fn folder_trash_recovery_finishes_restore_before_commit_and_partial_multi_file_u
         assert!(journal.recover(&trash).unwrap().is_empty());
     }
 }
+
+#[test]
+fn a_legacy_trash_receipt_removed_after_a_crash_finishes_with_a_note() {
+    let (_temp, root, journal) = setup();
+    let trash = FolderTrash::new(&root.join("system-trash"));
+    let source = root.join("synthetic-photo.raw");
+    write(&source, "synthetic bytes");
+    let operation = journal
+        .execute(
+            "trash",
+            "Trash synthetic photo",
+            vec![Step::system_trash(&source)],
+            &trash,
+        )
+        .unwrap();
+    journal.mark_synced(&operation.id).unwrap();
+    drop(journal);
+    let database = root.join("journal/file-operations.sqlite");
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    connection
+        .execute(
+            "UPDATE operations SET state='undoing' WHERE id=?",
+            [&operation.id],
+        )
+        .unwrap();
+    drop(connection);
+    let Target::SystemTrash { item: Some(item) } = &operation.steps[0].to else {
+        panic!("Missing synthetic receipt")
+    };
+    // Simulate the user emptying only this fixture's synthetic Trash item.
+    fs::remove_file(item).unwrap();
+    let journal = Journal::open(&database).unwrap();
+    let pending = journal.recover(&trash).unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].state, State::Undone);
+    assert!(
+        pending[0]
+            .note
+            .as_ref()
+            .unwrap()
+            .contains("no longer available")
+    );
+    assert!(!source.exists());
+    journal.mark_synced(&operation.id).unwrap();
+    assert!(journal.recover(&trash).unwrap().is_empty());
+    assert_eq!(
+        journal.operation(&operation.id).unwrap().state,
+        State::Undone
+    );
+}

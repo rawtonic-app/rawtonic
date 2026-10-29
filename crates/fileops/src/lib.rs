@@ -348,6 +348,11 @@ pub trait SystemTrash {
     fn restore_for_recovery(&self, item: &str, original: &Path) -> Result<()> {
         if exists(original) {
             Ok(())
+        } else if !self.contains(item) {
+            Err(anyhow::Error::new(UnavailableTrashItem).context(format!(
+                "{} may be in the system Trash; put it back from there",
+                original.display()
+            )))
         } else {
             self.restore(item, original)
         }
@@ -355,6 +360,17 @@ pub trait SystemTrash {
     /// Whether the item is still in the Trash.
     fn contains(&self, item: &str) -> bool;
 }
+
+/// Legacy adapters cannot recover a receipt they no longer list. Keep the
+/// recovery note, without retrying that terminal outcome on every startup.
+#[derive(Debug)]
+struct UnavailableTrashItem;
+impl std::fmt::Display for UnavailableTrashItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("The recorded item is no longer available in the system Trash")
+    }
+}
+impl std::error::Error for UnavailableTrashItem {}
 
 /// A trash that refuses: for callers that only rename.
 pub struct NoSystemTrash;
@@ -1329,7 +1345,8 @@ impl Journal {
                 for step in payload.steps.iter().rev() {
                     if let Err(e) = restore_if_moved(step, trash) {
                         receipt_restore_failed |=
-                            matches!(step.to, Target::SystemTrash { item: Some(_) });
+                            matches!(step.to, Target::SystemTrash { item: Some(_) })
+                                && !e.is::<UnavailableTrashItem>();
                         problems.push(format!("{e:#}"));
                     }
                 }
