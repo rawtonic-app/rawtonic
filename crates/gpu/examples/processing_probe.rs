@@ -85,12 +85,16 @@ fn run() -> Result<(), String> {
         Some("display") => ReadbackShader::Display,
         _ => return Err("expected export or display after the size".into()),
     };
+    let tone = std::env::args().nth(3).unwrap_or_else(|| "standard".into());
+    if !matches!(tone.as_str(), "standard" | "basic" | "agx") {
+        return Err("expected standard, basic or agx after the readback mode".into());
+    }
     let adjustments = rawtonic_engine::image_processing::get_all_adjustments_from_json(
-        &serde_json::json!({"renderVersion":7,"sharpness":0,"colorNoiseReduction":0,"lumaNoiseReduction":0}),
+        &serde_json::json!({"renderVersion":7,"toneMapper":tone,"sharpness":0,"colorNoiseReduction":0,"lumaNoiseReduction":0}),
         false,
-        Some(3),
+        None,
     );
-    eprintln!("PROCESSING {size}x{size} {readback:?}");
+    eprintln!("PROCESSING {size}x{size} {readback:?} tone={tone}");
     let output = process_and_get_dynamic_image_inner(
         &context,
         &GpuProcessorSlot::background(None),
