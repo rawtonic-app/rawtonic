@@ -107,13 +107,18 @@ fn excluded(relative: &Path) -> bool {
 fn copy_file(source: &Path, to: &Path, cancel: &AtomicBool) -> Result<()> {
     check(cancel)?;
     fs::create_dir_all(to.parent().context("Missing destination parent")?)?;
-    let modified = fs::metadata(source)?.modified()?;
+    let metadata = fs::metadata(source)?;
+    let modified = metadata.modified()?;
     crate::verified_copy(source, to, cancel, |_| {})
         .with_context(|| format!("Cannot copy {}", source.display()))?;
     fs::File::options()
         .write(true)
         .open(to)?
         .set_times(fs::FileTimes::new().set_modified(modified))?;
+    // Verified copying creates a new file rather than using CopyFileW;
+    // carry the original's read-only attribute to our staged copy explicitly.
+    #[cfg(windows)]
+    fs::set_permissions(to, metadata.permissions())?;
     Ok(())
 }
 
