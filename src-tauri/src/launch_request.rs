@@ -443,21 +443,6 @@ mod tests {
             (abs_source.as_str(), abs_output.as_str())
         );
 
-        // A Unix absolute argument on a Unix folder is kept as given (on
-        // Windows only a drive path such as `C:\` would be).
-        #[cfg(unix)]
-        {
-            let args = strings(&["export", "/abs/a.ARW", "--output", "/abs/out"]);
-            let LaunchRequest::HeadlessExport(session) = parse_launch_args(&args, Some(&base))
-            else {
-                panic!("headless export");
-            };
-            assert_eq!(
-                (session.source.as_str(), session.output.as_str()),
-                ("/abs/a.ARW", "/abs/out")
-            );
-        }
-
         // A missing --output stays empty, not the folder itself.
         let LaunchRequest::HeadlessExport(session) =
             parse_launch_args(&strings(&["export", "a.ARW"]), Some(&base))

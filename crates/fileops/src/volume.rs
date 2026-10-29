@@ -355,9 +355,46 @@ pub fn rename_exclusive(from: &Path, to: &Path) -> io::Result<()> {
         }
         Err(io::Error::last_os_error())
     }
+    // `MoveFileExW` with no flags: no `MOVEFILE_REPLACE_EXISTING` (a taken
+    // name is refused), no `MOVEFILE_COPY_ALLOWED` (the system never copies
+    // and deletes in place of a rename, which would not be atomic).
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn MoveFileExW(from: *const u16, to: *const u16, flags: u32) -> i32;
+        }
+        // ERROR_FILE_EXISTS, ERROR_ALREADY_EXISTS.
+        const ERROR_FILE_EXISTS: i32 = 80;
+        const ERROR_ALREADY_EXISTS: i32 = 183;
+        let wide = |path: &Path| -> io::Result<Vec<u16>> {
+            let bytes: Vec<u16> = path.as_os_str().encode_wide().collect();
+            if bytes.contains(&0) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Path contains a NUL byte",
+                ));
+            }
+            Ok(bytes.into_iter().chain(Some(0)).collect())
+        };
+        let (f, t) = (wide(from)?, wide(to)?);
+        // SAFETY: both are NUL-terminated wide strings that outlive the call.
+        if unsafe { MoveFileExW(f.as_ptr(), t.as_ptr(), 0) } != 0 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        return Err(match error.raw_os_error() {
+            Some(ERROR_FILE_EXISTS | ERROR_ALREADY_EXISTS) => {
+                io::Error::new(io::ErrorKind::AlreadyExists, error)
+            }
+            _ => error,
+        });
+    }
     #[cfg(not(any(
         target_vendor = "apple",
-        all(target_os = "linux", any(target_env = "gnu", target_env = "musl"))
+        all(target_os = "linux", any(target_env = "gnu", target_env = "musl")),
+        windows
     )))]
     {
         let _ = (from, to);
@@ -429,6 +466,9 @@ pub fn publish_mode(folder: &Path) -> Result<Publish> {
         Ok(()) => return Ok(Publish::Rename),
         Err(e) => e,
     };
+    // Unix volumes that answer the rename as unsupported get exclusive
+    // creation below; Windows has no such mode (a volume that refuses the
+    // rename, or a network drive, is refused, never given a weaker way).
     #[cfg(unix)]
     if error.kind() == io::ErrorKind::Unsupported
         || matches!(
@@ -905,6 +945,52 @@ mod tests {
             info.free_bytes > 0,
             "a temporary folder needs free space, got {info:?}"
         );
+    }
+
+    /// A Windows volume renames exclusively by the system's own move that
+    /// never replaces: a free name succeeds and leaves one file, a taken
+    /// name is refused and neither file changes.
+    #[cfg(windows)]
+    #[test]
+    fn windows_renames_never_replace_and_never_copy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let folder = tmp.path().canonicalize().unwrap();
+        let (a, b, c) = (folder.join("a"), folder.join("b"), folder.join("c"));
+        fs::write(&a, "a").unwrap();
+        fs::write(&b, "b").unwrap();
+        fs::write(&c, "c").unwrap();
+        // A free name: the file moves, nothing else appears.
+        rename_exclusive(&c, &folder.join("d")).unwrap();
+        assert_eq!(fs::read(folder.join("d")).unwrap(), b"c");
+        assert!(!c.exists());
+        rename_exclusive(&folder.join("d"), &c).unwrap();
+        // A taken one: refused as taken, the file to move stays where it
+        // is and the target keeps its bytes (never replaced, also by the
+        // system's own semantics).
+        let error = rename_exclusive(&a, &b).unwrap_err();
+        assert!(
+            error.kind() == io::ErrorKind::AlreadyExists
+                || error.kind() == io::ErrorKind::PermissionDenied,
+            "{error:?}"
+        );
+        assert_eq!(fs::read(&a).unwrap(), b"a");
+        assert_eq!(fs::read(&b).unwrap(), b"b");
+        // The probe finds the volume able to publish by exclusive rename.
+        probe_exclusive_rename(&folder).unwrap();
+        assert_eq!(
+            publish_mode(&folder).unwrap(),
+            Publish::Rename,
+            "the probe files are cleaned up"
+        );
+        let mut names: Vec<_> = fs::read_dir(&folder)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        names.sort();
+        assert_eq!(names.len(), 3, "{names:?}");
+        assert_eq!(fs::read(&a).unwrap(), b"a");
+        assert_eq!(fs::read(&b).unwrap(), b"b");
+        assert_eq!(fs::read(&c).unwrap(), b"c");
     }
 
     #[cfg(unix)]
