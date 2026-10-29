@@ -386,18 +386,20 @@ mod tests {
 
     /// Relative arguments are joined to the invocation folder with `Path`,
     /// so the result has that platform's form and separators (literals
-    /// like `/home/u` or `/abs` are not absolute on Windows).
+    /// like `/home/u` are not absolute on Windows), and `Path` itself
+    /// decides what joining leaves (`..` is kept as given; a trailing
+    /// separator is not a new one). The folder is given in the system's
+    /// own form: on Windows a canonical path may be `\\?\C:\…` and one
+    /// joined to it may drop the verbatim prefix.
     #[test]
     fn relative_path_arguments_join_the_invocation_folder() {
         let folder = tempfile::tempdir().unwrap();
-        let base = folder.path().canonicalize().unwrap();
-        let joined = |parts: &[&str]| -> String {
-            parts
-                .iter()
-                .fold(base.clone(), |path, part| path.join(part))
-                .to_string_lossy()
-                .into_owned()
-        };
+        let base = std::path::absolute(folder.path()).unwrap();
+        assert_eq!(
+            parse_launch_args(&strings(&["a.jpg"]), Some(&base)),
+            joined(&base, "a.jpg"),
+            "a relative argument is the folder joined with it"
+        );
         let args = strings(&[
             "export",
             "a.ARW",
@@ -411,28 +413,20 @@ mod tests {
         let LaunchRequest::HeadlessExport(session) = parse_launch_args(&args, Some(&base)) else {
             panic!("headless export");
         };
-        assert_eq!(session.source, joined(&["a.ARW"]));
-        assert_eq!(session.output, joined(&["out", "a.jpg"]));
+        assert_eq!(session.source, joined(&base, "a.ARW"));
+        assert_eq!(session.output, joined(&base, "out/a.jpg"));
         assert_eq!(
             session.adjustments_override.as_deref(),
-            Some(joined(&["..", "look.json"]).as_str())
+            Some(joined(&base, "../look.json").as_str())
         );
         assert_eq!(
             session.recipes.as_deref(),
-            Some(joined(&["recipes.json"]).as_str())
-        );
-        // Joined, not resolved: `..` stays in the path as given.
-        assert!(
-            session
-                .adjustments_override
-                .as_deref()
-                .unwrap()
-                .contains("..")
+            Some(joined(&base, "recipes.json").as_str())
         );
 
         // An absolute argument (the folder's own path, joined) is kept
         // as given, not joined a second time.
-        let absolute = |name: &str| -> String { base.join(name).to_string_lossy().into_owned() };
+        let absolute = |name: &str| -> String { joined(&base, name) };
         let (abs_source, abs_output) = (absolute("abs.ARW"), absolute("abs-out"));
         let args = strings(&["export", &abs_source, "--output", &abs_output]);
         let LaunchRequest::HeadlessExport(session) = parse_launch_args(&args, Some(&base)) else {
@@ -464,14 +458,14 @@ mod tests {
         };
         assert_eq!(
             (edit.source, edit.output),
-            (joined(&["a.tif"]), joined(&["b.tif"]))
+            (joined(&base, "a.tif"), joined(&base, "b.tif"))
         );
         assert_eq!(edit.format, "tiff");
+    }
 
-        let LaunchRequest::OpenFile(path) = parse_launch_args(&strings(&["a.jpg"]), Some(&base))
-        else {
-            panic!("open file");
-        };
-        assert_eq!(path, joined(&["a.jpg"]));
+    /// What a relative argument becomes: the folder joined with it by
+    /// `Path`, which is what the parser does.
+    fn joined(base: &Path, argument: &str) -> String {
+        base.join(argument).to_string_lossy().into_owned()
     }
 }
