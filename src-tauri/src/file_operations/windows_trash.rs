@@ -262,7 +262,14 @@ impl Stage {
         let directory = open_directory(&path)?;
         let directory_identity = file_identity(&directory)?;
         let marker_path = path.join("receipt.json");
-        if created {
+        // A crash can leave mkdir committed before the atomic marker write.
+        // Adopt only an empty, pinned plain directory at this receipt's nonce;
+        // never claim a payload or an unexpected entry without its marker.
+        let initialize = created
+            || (create
+                && !marker_path.try_exists()?
+                && fs::read_dir(&path)?.next().transpose()?.is_none());
+        if initialize {
             let mut temp = tempfile::NamedTempFile::new_in(&path)?;
             serde_json::to_writer(
                 &mut temp,
@@ -397,7 +404,7 @@ fn restore_receipt(receipt: &Receipt, original: &Path) -> Result<()> {
             "Restore destination is occupied; item retained"
         );
         if receipt.stage()?.exists() {
-            let stage = Stage::open(receipt, false)?;
+            let stage = Stage::open(receipt, true)?;
             ensure!(
                 !stage.payload().exists(),
                 "Both destination and stage are occupied"
@@ -479,6 +486,10 @@ impl SystemTrash for PlatformTrash {
         restore_receipt(&Receipt::parse(item)?, original)
     }
 
+    fn restore_for_recovery(&self, item: &str, original: &Path) -> Result<()> {
+        self.restore(item, original)
+    }
+
     fn contains(&self, item: &str) -> bool {
         (|| -> Result<bool> {
             let _apartment = Apartment::new()?;
@@ -492,13 +503,16 @@ impl SystemTrash for PlatformTrash {
                         .any(|entry| entry.id.to_string_lossy() == item));
                 }
             };
+            if receipt.bin_item()?.is_some() {
+                return Ok(true);
+            }
             if receipt.stage()?.exists() {
                 let stage = Stage::open(&receipt, false)?;
                 if stage.payload().exists() {
                     return Ok(identity(&stage.payload())? == receipt.identity);
                 }
             }
-            Ok(receipt.bin_item()?.is_some())
+            Ok(false)
         })()
         .unwrap_or(false)
     }
@@ -524,6 +538,26 @@ mod tests {
         let stage = Stage::open(&receipt, true).unwrap();
         rawtonic_fileops::rename_no_clobber(&receipt.original, &stage.payload()).unwrap();
         (temp, receipt)
+    }
+
+    #[test]
+    fn empty_markerless_stage_can_resume_but_unmarked_payload_is_refused() {
+        let (_temp, receipt) = staged_fixture();
+        let path = receipt.stage().unwrap();
+        rawtonic_fileops::rename_no_clobber(&path.join("payload"), &receipt.original).unwrap();
+        fs::remove_file(path.join("receipt.json")).unwrap();
+        fs::remove_dir(&path).unwrap();
+        fs::create_dir(&path).unwrap(); // Simulated crash immediately after mkdir.
+        assert!(Stage::open(&receipt, false).is_err());
+        let stage = Stage::open(&receipt, true).unwrap();
+        stage.cleanup().unwrap();
+        assert!(!path.exists());
+
+        fs::create_dir(&path).unwrap();
+        fs::write(path.join("payload"), b"unrelated entry").unwrap();
+        assert!(Stage::open(&receipt, true).is_err());
+        assert_eq!(fs::read(path.join("payload")).unwrap(), b"unrelated entry");
+        assert!(!path.join("receipt.json").exists());
     }
 
     #[test]
@@ -659,7 +693,7 @@ mod tests {
             );
             if staged {
                 fs::write(&original, b"unrelated destination").unwrap();
-                assert!(journal.recover(&PlatformTrash).is_err());
+                assert!(journal.recover(&PlatformTrash).unwrap().is_empty());
                 assert_eq!(
                     journal.operation(&operation.id).unwrap().state,
                     State::Undoing

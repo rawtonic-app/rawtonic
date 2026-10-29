@@ -44,11 +44,15 @@ pub fn volume_info(path: &Path) -> Result<VolumeInfo> {
         .with_context(|| format!("Cannot resolve {}", existing.display()))?;
     let (mount_point, file_system, network) = mount_of(&real)?;
     let name = volume_name(&mount_point);
+    // GetDiskFreeSpaceExW requires a directory; statvfs accepts the
+    // resolved file itself, which avoids another mount-table lookup.
+    #[cfg(windows)]
+    let space_path = &mount_point;
+    #[cfg(not(windows))]
+    let space_path = &real;
     Ok(VolumeInfo {
         name,
-        // GetDiskFreeSpaceExW requires a directory, while statvfs also
-        // accepts a file. The queried volume root is valid for both.
-        free_bytes: free_bytes(&mount_point)?,
+        free_bytes: free_bytes(space_path)?,
         mount_point,
         file_system,
         network,

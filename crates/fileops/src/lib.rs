@@ -342,6 +342,16 @@ pub trait SystemTrash {
     fn trash(&self, path: &Path) -> Result<String>;
     /// Puts a trashed item back at `original` without replacing anything.
     fn restore(&self, item: &str, original: &Path) -> Result<()>;
+    /// Completes a restore interrupted before the journal commit. Legacy
+    /// adapters accept an original already back in place. Adapters with
+    /// identity-bearing receipts override this to verify that identity.
+    fn restore_for_recovery(&self, item: &str, original: &Path) -> Result<()> {
+        if exists(original) {
+            Ok(())
+        } else {
+            self.restore(item, original)
+        }
+    }
     /// Whether the item is still in the Trash.
     fn contains(&self, item: &str) -> bool;
 }
@@ -1339,13 +1349,7 @@ impl Journal {
                 // Preserve the receipt and interrupted state for a safe retry.
                 // An occupied path is not proof that its trashed entry returned.
                 self.store(&id, state, &payload)?;
-                bail!(
-                    "{}",
-                    payload
-                        .note
-                        .as_deref()
-                        .unwrap_or("Trash recovery is incomplete")
-                );
+                continue;
             }
             match state {
                 State::Undoing if payload.has_copies() => {
@@ -1891,10 +1895,11 @@ fn restore_if_moved(step: &Step, trash: &dyn SystemTrash) -> Result<()> {
         // copy is taken back.
         return unpublish(step, Direction::Forward);
     }
-    if matches!(step.to, Target::SystemTrash { item: Some(_) }) {
-        // Only the adapter can prove receipt identity, including an idempotent
-        // restore that finished immediately before the journal commit.
-        return reverse(step, trash);
+    if let Target::SystemTrash { item: Some(item) } = &step.to {
+        if let Some(parent) = step.from.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        return trash.restore_for_recovery(item, &step.from);
     }
     if exists(&step.from) {
         return Ok(());
@@ -2900,6 +2905,9 @@ mod tests {
             fn restore(&self, _: &str, _: &Path) -> Result<()> {
                 bail!("occupied by another entry")
             }
+            fn restore_for_recovery(&self, item: &str, original: &Path) -> Result<()> {
+                self.restore(item, original)
+            }
             fn contains(&self, _: &str) -> bool {
                 true
             }
@@ -2912,8 +2920,55 @@ mod tests {
             item: Some("recoverable receipt".into()),
         };
         let (journal, id) = journal_with(temp.path(), State::Undoing, vec![step]);
-        assert!(journal.recover(&RefuseRestore).is_err());
+        let later_source = temp.path().join("later.raw");
+        let later_destination = temp.path().join("renamed.raw");
+        fs::write(&later_source, b"later operation").unwrap();
+        let later = journal
+            .execute(
+                "rename",
+                "Later operation",
+                vec![Step::rename(&later_source, &later_destination)],
+                &NoSystemTrash,
+            )
+            .unwrap();
+        journal
+            .conn
+            .execute(
+                "UPDATE operations SET state='applying' WHERE id=?",
+                [&later.id],
+            )
+            .unwrap();
+        let pending_source = temp.path().join("pending.raw");
+        fs::write(&pending_source, b"awaiting catalog sync").unwrap();
+        let pending = journal
+            .execute(
+                "rename",
+                "Pending sync",
+                vec![Step::rename(
+                    &pending_source,
+                    temp.path().join("pending-renamed.raw"),
+                )],
+                &NoSystemTrash,
+            )
+            .unwrap();
+        let recovered = journal.recover(&RefuseRestore).unwrap();
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(recovered[0].id, pending.id);
+        assert_eq!(
+            journal.operation(&later.id).unwrap().state,
+            State::RolledBack
+        );
+        assert_eq!(fs::read(&later_source).unwrap(), b"later operation");
+        assert!(!later_destination.exists());
         assert_eq!(journal.operation(&id).unwrap().state, State::Undoing);
+        assert!(
+            journal
+                .operation(&id)
+                .unwrap()
+                .note
+                .unwrap()
+                .contains("occupied by another entry")
+        );
         assert_eq!(fs::read(source).unwrap(), b"unrelated original");
     }
 

@@ -1966,8 +1966,6 @@ mod tests {
     /// start without the drive): the journal says it was a folder.
     #[test]
     fn records_follow_a_folder_moved_to_another_drive_while_that_drive_is_offline() {
-        // The drive's free space is checked before anything moves; without a
-        // way to read it the move is refused (fail closed).
         let tmp = tempfile::tempdir().unwrap();
         let dir = session(tmp.path());
         let photo = dir.join("Capture/Day 1/A.RAF");
@@ -1997,8 +1995,6 @@ mod tests {
 
     /// A folder copied to another drive (its original then in the Trash),
     /// its undo and its redo: each summary moves the paths that way.
-    ///
-    /// Also on one volume: `Step::other_volume` asks for the copy path.
     #[test]
     fn summaries_of_a_folder_moved_to_another_drive_and_back_carry_its_move() {
         let tmp = tempfile::tempdir().unwrap();
