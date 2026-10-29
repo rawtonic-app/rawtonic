@@ -407,6 +407,46 @@ describe("library grid keyboard focus", () => {
     expect(useLibraryStore.getState().libraryActivePath).toBeNull();
   });
 
+  it("ends the Tab modality when the focus moves to a panel before a programmatic tile focus", () => {
+    // Tab walked the panels before it ever came near the grid; a click in a
+    // panel (focus outside the grid), then code puts the focus on a tile.
+    // That focus is not a keyboard entry into the grid.
+    useLibraryStore.setState({ libraryActivePath: null, multiSelectedPaths: [] });
+    const { getAllByRole } = render(<StudioBrowser {...props} currentPath="/s/b.NEF" />);
+    const panel = document.createElement("button");
+    document.body.append(panel);
+    fireEvent.keyDown(document.body, { key: "Tab", code: "Tab" });
+    act(() => panel.focus());
+    act(() => getAllByRole("option")[1].focus());
+    expect(useLibraryStore.getState().libraryActivePath).toBeNull();
+    panel.remove();
+  });
+
+  it("ends the Tab modality on a pointer press outside the grid", () => {
+    // A click anywhere that is not the grid (here without moving widget
+    // focus) makes the next focus no keyboard entry.
+    useLibraryStore.setState({ libraryActivePath: null, multiSelectedPaths: [] });
+    const { getAllByRole } = render(<StudioBrowser {...props} currentPath="/s/b.NEF" />);
+    fireEvent.keyDown(document.body, { key: "Tab", code: "Tab" });
+    fireEvent.pointerDown(document.body);
+    act(() => getAllByRole("option")[1].focus());
+    expect(useLibraryStore.getState().libraryActivePath).toBeNull();
+  });
+
+  it("makes the photograph reached by a real Tab press active in a folder that has no active one", () => {
+    // A real Tab keydown on the panel before the grid, the browser's focus
+    // traversal onto the grid's only Tab stop, and no click in between.
+    useLibraryStore.setState({ libraryActivePath: null, multiSelectedPaths: [] });
+    const { getAllByRole } = render(<StudioBrowser {...props} currentPath="/s/b.NEF" />);
+    const panel = document.createElement("button");
+    document.body.append(panel);
+    act(() => panel.focus());
+    fireEvent.keyDown(panel, { key: "Tab", code: "Tab" });
+    act(() => getAllByRole("option")[1].focus());
+    expect(useLibraryStore.getState().libraryActivePath).toBe("/s/b.NEF");
+    panel.remove();
+  });
+
   it("changes nothing when a photograph is picked by mouse in a folder that has no active one", () => {
     useLibraryStore.setState({ libraryActivePath: null });
     const { getAllByRole } = render(<StudioBrowser {...props} currentPath="/s/b.NEF" />);

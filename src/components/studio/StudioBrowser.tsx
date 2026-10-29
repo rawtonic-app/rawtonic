@@ -280,7 +280,10 @@ export default function StudioBrowser({
   const [offset, setOffset] = useState(0);
   // The Tab key moved the focus (by its key code, never by timing): only
   // then is a tile the keyboard entered the grid at. A click, or the focus
-  // put on a tile by code, is not.
+  // put on a tile by code, is not. The modality ends at the first focus or
+  // pointer event outside the grid: the focus reaching a tile directly from
+  // elsewhere (code putting it there) is no keyboard entry, wherever the
+  // last Tab went.
   const tabPressed = useRef(false);
   const selected = useLibraryStore((s) => s.multiSelectedPaths);
   const filter = useLibraryStore((s) => s.filterCriteria);
@@ -347,9 +350,22 @@ export default function StudioBrowser({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Tab" || event.code === "Tab") tabPressed.current = true;
     };
+    const endsModality = (event: Event) => {
+      const target = event.target;
+      const grid = ref.current;
+      if (!grid || (target instanceof Node && grid.contains(target))) return;
+      tabPressed.current = false;
+    };
     // Capture: the focus moves right after the key, before React's handlers.
+    // focusin and not focus: focus does not bubble.
     window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    window.addEventListener("focusin", endsModality, true);
+    window.addEventListener("pointerdown", endsModality, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("focusin", endsModality, true);
+      window.removeEventListener("pointerdown", endsModality, true);
+    };
   }, []);
   const columns = film ? 1 : Math.max(1, Math.floor(box.width / size));
   const extent = film ? 112 : Math.round((box.width / columns) * 0.72) + 57;
@@ -502,7 +518,12 @@ export default function StudioBrowser({
         if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
         focusFollows.current = null;
         focusTarget.current = null;
+        // A Tab out of the grid ends the key's modality where the focus
+        // lands; this covers the focus that lands nowhere (the window).
+        const next = e.relatedTarget as Node | null;
+        if (!next || next === document.body) tabPressed.current = false;
       }}
+      // A press in the grid is a mouse (or touch) gesture.
       onPointerDownCapture={() => {
         tabPressed.current = false;
       }}
