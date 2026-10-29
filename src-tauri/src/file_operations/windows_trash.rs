@@ -28,15 +28,17 @@ use windows::{
         },
         System::Com::{
             CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
-            CoTaskMemFree, CoUninitialize,
+            CoTaskMemFree, CoUninitialize, StructuredStorage::PropVariantToBSTR,
         },
         UI::Shell::{
-            FOF_NO_CONNECTED_ELEMENTS, FOF_NO_UI, FOFX_EARLYFAILURE, FOFX_RECYCLEONDELETE,
-            FileOperation, IFileOperation, IShellItem, IShellItem2, SHCreateItemFromParsingName,
-            SIGDN_FILESYSPATH,
+            BHID_EnumItems, FOF_NO_CONNECTED_ELEMENTS, FOF_NO_UI, FOFX_EARLYFAILURE,
+            FOFX_RECYCLEONDELETE, FOLDERID_RecycleBinFolder, FileOperation, IEnumShellItems,
+            IFileOperation, IShellItem, IShellItem2, KF_FLAG_DEFAULT, PID_DISPLACED_FROM,
+            PSGUID_DISPLACED, PropertiesSystem::PROPERTYKEY, SHCreateItemFromParsingName,
+            SHGetKnownFolderItem, SIGDN_DESKTOPABSOLUTEPARSING, SIGDN_FILESYSPATH,
         },
     },
-    core::HSTRING,
+    core::{HSTRING, Interface},
 };
 
 struct Apartment;
@@ -99,21 +101,55 @@ fn item_path(item: &IShellItem) -> Result<PathBuf> {
     }
 }
 
-fn bin_original_path(entry: &trash::TrashItem) -> Result<PathBuf> {
-    // trash::list uses a display name, which can omit a known extension.
-    // Read the Shell's full filename property instead of changing Explorer
-    // settings or guessing an extension from the recycled physical filename.
+struct BinEntry {
+    id: String,
+    original: PathBuf,
+    item: IShellItem,
+}
+
+fn bin_entries() -> Result<Vec<BinEntry>> {
+    // Keep the virtual Bin item while reading properties. Re-parsing its
+    // desktop parsing name yields the physical $R file, whose filename is
+    // different; display names can also omit known extensions.
     unsafe {
-        let item: IShellItem2 =
-            SHCreateItemFromParsingName(&HSTRING::from(entry.id.as_os_str()), None)?;
-        let text = item.GetString(&PKEY_FileName)?;
-        let name = OsString::from_wide(text.as_wide());
-        CoTaskMemFree(Some(text.0.cast()));
-        ensure!(
-            Path::new(&name).file_name() == Some(name.as_os_str()),
-            "Invalid Recycle Bin filename"
-        );
-        Ok(entry.original_parent.join(name))
+        let bin: IShellItem = SHGetKnownFolderItem(
+            &FOLDERID_RecycleBinFolder,
+            KF_FLAG_DEFAULT,
+            HANDLE::default(),
+        )?;
+        let enumeration: IEnumShellItems = bin.BindToHandler(None, &BHID_EnumItems)?;
+        let mut entries = Vec::new();
+        loop {
+            let mut fetched = 0;
+            let mut slot = [None];
+            enumeration.Next(&mut slot, Some(&mut fetched))?;
+            if fetched == 0 {
+                break;
+            }
+            let item = slot[0].take().context("Missing enumerated Bin item")?;
+            let properties: IShellItem2 = item.cast()?;
+            let original_parent = PropVariantToBSTR(&properties.GetProperty(&PROPERTYKEY {
+                fmtid: PSGUID_DISPLACED,
+                pid: PID_DISPLACED_FROM,
+            })?)?;
+            let parent = PathBuf::from(OsString::from_wide(original_parent.as_wide()));
+            let full_name = properties.GetString(&PKEY_FileName)?;
+            let name = OsString::from_wide(full_name.as_wide());
+            CoTaskMemFree(Some(full_name.0.cast()));
+            ensure!(
+                Path::new(&name).file_name() == Some(name.as_os_str()),
+                "Invalid Recycle Bin filename"
+            );
+            let parsing = item.GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING)?;
+            let id = parsing.to_string();
+            CoTaskMemFree(Some(parsing.0.cast()));
+            entries.push(BinEntry {
+                id: id?,
+                original: parent.join(name),
+                item,
+            });
+        }
+        Ok(entries)
     }
 }
 
@@ -171,23 +207,21 @@ impl Receipt {
             .join(format!(".rawtonic-restore-{}", self.nonce)))
     }
     fn bin_item(&self) -> Result<Option<IShellItem>> {
-        let Some(found) = trash::os_limited::list()?
+        let Some(found) = bin_entries()?
             .into_iter()
-            .find(|i| i.id.to_string_lossy() == self.bin_id)
+            .find(|entry| entry.id == self.bin_id)
         else {
             return Ok(None);
         };
         ensure!(
-            plain_drive_path(&bin_original_path(&found)?)? == plain_drive_path(&self.original)?,
+            plain_drive_path(&found.original)? == plain_drive_path(&self.original)?,
             "Recycle Bin receipt names another original"
         );
-        let item: IShellItem =
-            unsafe { SHCreateItemFromParsingName(&HSTRING::from(found.id.as_os_str()), None)? };
         ensure!(
-            identity(&item_path(&item)?)? == self.identity,
+            identity(&item_path(&found.item)?)? == self.identity,
             "Recycle Bin item identity changed"
         );
-        Ok(Some(item))
+        Ok(Some(found.item))
     }
 }
 
@@ -405,10 +439,7 @@ impl SystemTrash for PlatformTrash {
         };
         // Check serialization before any mutation (including non-Unicode paths).
         serde_json::to_string(&receipt)?;
-        let before: HashSet<_> = trash::os_limited::list()?
-            .into_iter()
-            .map(|i| i.id)
-            .collect();
+        let before: HashSet<_> = bin_entries()?.into_iter().map(|i| i.id).collect();
         unsafe {
             let operation: IFileOperation =
                 CoCreateInstance(&FileOperation, None, CLSCTX_INPROC_SERVER)?;
@@ -425,10 +456,8 @@ impl SystemTrash for PlatformTrash {
             );
         }
         let mut matching = Vec::new();
-        for entry in trash::os_limited::list()? {
-            if !before.contains(&entry.id)
-                && plain_drive_path(&bin_original_path(&entry)?)? == plain
-            {
+        for entry in bin_entries()? {
+            if !before.contains(&entry.id) && plain_drive_path(&entry.original)? == plain {
                 matching.push(entry);
             }
         }
@@ -437,7 +466,7 @@ impl SystemTrash for PlatformTrash {
             "The recycled item's receipt was not uniquely identified"
         );
         let bin_entry = matching.pop().unwrap();
-        receipt.bin_id = bin_entry.id.to_string_lossy().into_owned();
+        receipt.bin_id = bin_entry.id;
         ensure!(
             receipt.bin_item()?.is_some(),
             "Recycled entry could not be verified"
@@ -453,7 +482,16 @@ impl SystemTrash for PlatformTrash {
     fn contains(&self, item: &str) -> bool {
         (|| -> Result<bool> {
             let _apartment = Apartment::new()?;
-            let receipt = Receipt::parse(item)?;
+            let receipt = match Receipt::parse(item) {
+                Ok(receipt) => receipt,
+                // Keep old receipts visibly recoverable. restore() explains
+                // that their identity cannot be proven and requires Windows.
+                Err(_) => {
+                    return Ok(trash::os_limited::list()?
+                        .iter()
+                        .any(|entry| entry.id.to_string_lossy() == item));
+                }
+            };
             if receipt.stage()?.exists() {
                 let stage = Stage::open(&receipt, false)?;
                 if stage.payload().exists() {

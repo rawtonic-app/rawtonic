@@ -91,6 +91,7 @@ fn link_windows_test_resources() {
 /// Cargo propagates native search paths to workspace doctests, but not those
 /// arguments: an empty msvcrt.lib in OUT_DIR hides the doctests' real CRT.
 fn build_tauri() {
+    println!("cargo:rerun-if-env-changed=STATIC_VCRUNTIME");
     let msvc = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR not set"));
