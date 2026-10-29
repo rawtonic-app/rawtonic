@@ -272,6 +272,17 @@ mod tests {
         std::os::windows::fs::symlink_dir(original, link).unwrap();
     }
 
+    /// Removes a link made by `link_dir`, leaving its target alone. Windows
+    /// refuses `remove_file` on a directory symlink (PermissionDenied, error
+    /// 5) and wants `remove_dir`; Unix has no separate call and `remove_dir`
+    /// would follow the link and delete the target's contents.
+    fn unlink_dir(link: &Path) {
+        #[cfg(unix)]
+        fs::remove_file(link).unwrap();
+        #[cfg(windows)]
+        fs::remove_dir(link).unwrap();
+    }
+
     #[test]
     fn a_download_appears_only_complete_and_keeps_its_name() {
         let dir = tempfile::tempdir().unwrap();
@@ -326,7 +337,7 @@ mod tests {
             .join("ORIGINAL.ARW");
         assert!(finish(&root(&session), &through).is_err());
         // Only its incoming folder is a link.
-        fs::remove_file(root(&session)).unwrap();
+        unlink_dir(&root(&session));
         fs::create_dir(root(&session)).unwrap();
         link_dir(&elsewhere.join(INCOMING), &root(&session).join(INCOMING));
         assert!(recover(&root(&session)).is_err());
@@ -343,7 +354,7 @@ mod tests {
         fs::create_dir(&session).unwrap();
         link_dir(&elsewhere, &root(&session));
         assert!(Partial::create(&root(&session), 1, "A.ARW").is_err());
-        fs::remove_file(root(&session)).unwrap();
+        unlink_dir(&root(&session));
         fs::create_dir(root(&session)).unwrap();
         link_dir(&elsewhere, &root(&session).join(INCOMING));
         assert!(Partial::create(&root(&session), 1, "A.ARW").is_err());
