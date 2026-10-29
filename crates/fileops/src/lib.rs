@@ -2052,13 +2052,20 @@ pub fn copy_needs(pairs: &[(PathBuf, PathBuf)]) -> Result<Vec<CopyNeed>> {
             "{} is a network drive; moving photos to network drives is not supported yet",
             to.name
         );
-        let need = needs
-            .entry(to.mount_point.clone())
-            .or_insert_with(|| CopyNeed {
-                volume: to,
-                bytes: 0,
-                files: 0,
-            });
+        // One need per volume: a folder a volume is mounted into makes a
+        // different mount point for the same drive, so the root decides.
+        let key = match needs
+            .iter()
+            .find(|(mount, _)| volume::same_mount(mount, &to.mount_point))
+        {
+            Some((mount, _)) => mount.clone(),
+            None => to.mount_point.clone(),
+        };
+        let need = needs.entry(key).or_insert_with(|| CopyNeed {
+            volume: to,
+            bytes: 0,
+            files: 0,
+        });
         need.bytes += bytes;
         need.files += files;
     }

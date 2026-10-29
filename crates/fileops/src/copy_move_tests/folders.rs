@@ -545,50 +545,58 @@ fn a_folder_moves_to_another_drive_on_its_own() {
     assert!(exists(&world.source.join("A.xmp")));
 }
 
-/// The space a folder move needs is the space it reports it will copy
-/// (`copy_needs`: its files, not its folders) on the volume it goes to;
-/// the free space there is the system's own figure (a real query, asked
-/// for a path that does not exist yet through its nearest existing
-/// folder), never an invented one. The move of that folder then fits.
+/// The space a folder move needs is the bytes it will copy (`copy_needs`:
+/// its files, not its folders) on the volume it goes to, asked for the
+/// folder before it exists there: the target with the system's own file
+/// system and network report, and a free figure it really measured. Free
+/// space changes between two calls, so the figure is never compared with a
+/// second one; a sparse stand-in below any copy's need (it costs nothing on
+/// APFS/ext4/NTFS and statvfs reports it) is visible to the system, so a
+/// need that did not come from the system would report too little.
 #[test]
 fn a_folder_move_needs_its_bytes_on_the_target_volume() {
-    if std::env::var_os("RAWTONIC_TEST_OTHER_VOLUME").is_some() {
-        World::new();
-        eprintln!("SKIP: the target is the one volume given, asked separately");
-        return;
-    }
     let world = World::new();
     let (from, to) = world.folder();
     let bytes: u64 = TREE.iter().map(|(_, len)| *len as u64).sum();
+    let stand_in = world.target.join("stand-in");
+    let file = fs::File::create(&stand_in).unwrap();
+    assert!(file.set_len(SPACE_RESERVE / 4).is_ok(), "sparse stand-in");
+    drop(file);
     let needs = copy_needs(&[(from.clone(), to.clone())]).unwrap();
     assert_eq!(needs.len(), 1, "{needs:?}");
     let need = &needs[0];
     assert_eq!((need.bytes, need.files), (bytes, TREE.len()));
-    // The target volume, before the folder exists there.
+    let target = volume_info(&world.target).unwrap();
+    assert!(
+        volume::same_mount(&need.volume.mount_point, &target.mount_point),
+        "{:?} and {target:?} are the volume of {to:?}",
+        need.volume
+    );
     assert_eq!(
-        need.volume,
-        volume_info(&world.target).unwrap(),
-        "asked for {to:?}"
+        (&need.volume.file_system, need.volume.network),
+        (&target.file_system, target.network),
+        "{need:?}"
     );
     assert!(need.volume.mount_point.is_absolute(), "{need:?}");
     assert!(
-        need.volume.free_bytes < u64::MAX,
-        "free space comes from the system: {need:?}"
+        need.volume.free_bytes >= bytes + SPACE_RESERVE,
+        "the figure is the system's, so the move fits: {:?}",
+        need.volume
     );
-    if world.publishes_in_place() {
-        return;
+    if !world.publishes_in_place() {
+        let op = world
+            .journal()
+            .execute(
+                "move",
+                "Move folder",
+                vec![Step::other_volume(&from, &to)],
+                &world.trash,
+            )
+            .unwrap();
+        assert_eq!(op.state, State::Done);
+        assert!(!exists(&from));
     }
-    let op = world
-        .journal()
-        .execute(
-            "move",
-            "Move folder",
-            vec![Step::other_volume(&from, &to)],
-            &world.trash,
-        )
-        .unwrap();
-    assert_eq!(op.state, State::Done);
-    assert!(!exists(&from));
+    fs::remove_file(&stand_in).unwrap();
 }
 
 /// Permission bits travel with the folder and back (owner access kept),
