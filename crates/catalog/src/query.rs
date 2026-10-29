@@ -176,6 +176,13 @@ pub fn file_type(extension: &str) -> &'static str {
 
 const LABELS: &[&str] = &["red", "yellow", "green", "blue", "purple"];
 
+/// What `Rule::relative_to` stores for a folder inside the library that has
+/// no portable relative form (a not valid Unicode name, or a Unix name with
+/// a backslash): a name with a backslash, which no stored library path can
+/// have (`portable_relative` refuses one), so the rule matches nothing
+/// instead of silently naming another folder.
+const UNREPRESENTABLE_FOLDER: &str = "\\";
+
 impl Rule {
     /// Every word of `text` in any searchable text (the search box).
     pub fn text(text: &str) -> Self {
@@ -216,7 +223,15 @@ impl Rule {
                         ".".to_string()
                     }
                     Ok(relative) if Path::new(folder).is_absolute() => {
-                        relative.to_string_lossy().into_owned()
+                        // A rule is read back with `directory.join`, so its
+                        // relative value is the stored `/` form (`Day 2`,
+                        // never a native `Day 2\` separator). A folder this
+                        // library cannot name relative to itself is stored
+                        // fail-closed, never silently replaced.
+                        match crate::portable_relative(relative) {
+                            Ok(relative) => relative,
+                            Err(_) => UNREPRESENTABLE_FOLDER.to_string(),
+                        }
                     }
                     _ => folder.clone(),
                 };

@@ -868,11 +868,15 @@ fn case_is_folded_beyond_ascii_whichever_way_a_word_is_found() {
 fn a_smart_album_of_a_folder_moves_with_its_session() {
     let d = tempfile::tempdir().unwrap();
     let (lib, _) = library(d.path());
-    let day2 = lib.directory.join("Capture/Day 2");
+    // The folder as the filter sends it: joined natively, as a folder path
+    // arrives (`Capture\Day 2` on Windows).
+    let day2 = lib.directory.join("Capture").join("Day 2");
     let rules = rule(json!({"field":"folder","op":"is","value":day2.to_string_lossy()}));
     let smart = lib.create_smart_collection("Day 2", None, &rules).unwrap();
     assert_eq!(smart.count, 1);
-    // Kept relative to the library; a folder outside it stays absolute.
+    // Kept relative to the library, in the stored form (never a native
+    // separator: the rule is read back with `directory.join`), and a folder
+    // outside it stays absolute.
     let kept = lib
         .collections()
         .unwrap()
