@@ -5,6 +5,7 @@ import { Invokes } from '../components/ui/AppProperties';
 import { useUIStore } from '../store/useUIStore';
 import {
   batchFailures,
+  batchOfEntry,
   batchPhotoCount,
   onBatchWriteSettled,
   onPhotoWritesSettled,
@@ -78,6 +79,10 @@ class QuitDrain {
 
   /** A settled write (`failed`: the photographs it did not write). */
   record(id: number, kind: string, failed: string[]): void {
+    // A whole-command failure can name every photo, including ones whose
+    // successful per-photo report already arrived. The batch registry has
+    // the precise failures and conservatively marks any unreported photo.
+    if (batchOfEntry(id)) return;
     if (failed.length === 0) this.identified.delete(id);
     else this.identified.set(id, { kind, failed });
   }
@@ -111,10 +116,10 @@ class QuitDrain {
           items: [`${WRITE_NAMES[batch.kind] ?? 'Batch'} not finished (${done} of ${total} photos saved)`],
         });
       }
-      const failed = batchFailures(batch);
+      // The registry and this drain may both have heard the same report.
+      // De-duplicate within this batch, without hiding another write's loss.
+      const failed = [...new Set([...batchFailures(batch), ...(this.batches.get(batch.id) ?? [])])];
       if (failed.length > 0) identified.push({ order: batch.id, items: failed });
-      const heard = this.batches.get(batch.id);
-      if (heard?.length) identified.push({ order: batch.id, items: heard });
     }
     identified.sort((a, b) => a.order - b.order);
     return [...identified.flatMap((failure) => failure.items), ...this.unidentified];
