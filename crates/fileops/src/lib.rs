@@ -54,7 +54,7 @@ pub enum Target {
     OtherVolume {
         path: PathBuf,
         #[serde(default)]
-        copy: CopyState,
+        copy: Box<CopyState>,
     },
 }
 
@@ -155,7 +155,7 @@ impl Step {
             from: from.into(),
             to: Target::OtherVolume {
                 path: to.into(),
-                copy: CopyState::default(),
+                copy: Box::default(),
             },
         }
     }
@@ -1058,7 +1058,7 @@ impl Journal {
                         && is_kind(path, copy.folder)
                         && is_kind(&from, copy.folder)
                         && same_entry(&from, path, copy.folder).unwrap_or(false);
-                    *copy = CopyState {
+                    **copy = CopyState {
                         original_mode: copy.original_mode,
                         folder: copy.folder,
                         modes: std::mem::take(&mut copy.modes),
@@ -2748,6 +2748,33 @@ pub(crate) mod crash {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn copy_journal_records_keep_their_existing_object_shape() {
+        let legacy = serde_json::json!({
+            "kind": "otherVolume",
+            "path": "destination.RAF",
+            "copy": {"folder": true, "kept": true, "trashed": "saved-item"}
+        });
+        let target: Target = serde_json::from_value(legacy).unwrap();
+        let Target::OtherVolume { copy, .. } = &target else {
+            panic!("copy target");
+        };
+        assert!(copy.folder && copy.kept);
+        assert_eq!(copy.trashed.as_deref(), Some("saved-item"));
+        let saved = serde_json::to_value(target).unwrap();
+        assert!(saved["copy"].is_object());
+        assert_eq!(saved["copy"]["trashed"], "saved-item");
+        // Journals from before copy progress was recorded omit this object.
+        let target: Target = serde_json::from_value(serde_json::json!({
+            "kind": "otherVolume", "path": "destination.RAF"
+        }))
+        .unwrap();
+        let Target::OtherVolume { copy, .. } = target else {
+            panic!("copy target");
+        };
+        assert_eq!(*copy, CopyState::default());
+    }
 
     fn journal_with(root: &Path, state: State, steps: Vec<Step>) -> (Journal, String) {
         let journal = Journal::open(&root.join("journal.sqlite")).unwrap();

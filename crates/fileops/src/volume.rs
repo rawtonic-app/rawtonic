@@ -405,12 +405,12 @@ pub fn rename_exclusive(from: &Path, to: &Path) -> io::Result<()> {
             return Ok(());
         }
         let error = io::Error::last_os_error();
-        return Err(match error.raw_os_error() {
+        Err(match error.raw_os_error() {
             Some(ERROR_FILE_EXISTS | ERROR_ALREADY_EXISTS) => {
                 io::Error::new(io::ErrorKind::AlreadyExists, error)
             }
             _ => error,
-        });
+        })
     }
     #[cfg(not(any(
         target_vendor = "apple",
