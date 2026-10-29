@@ -270,7 +270,11 @@ impl Stage {
                 && !marker_path.try_exists()?
                 && fs::read_dir(&path)?.next().transpose()?.is_none());
         if initialize {
-            let mut temp = tempfile::NamedTempFile::new_in(&path)?;
+            // Keep an interrupted marker write outside the stage, so the
+            // stage stays empty and can be retried after process termination.
+            let mut temp = tempfile::Builder::new()
+                .prefix(".rawtonic-restore-marker-")
+                .tempfile_in(receipt.parent()?)?;
             serde_json::to_writer(
                 &mut temp,
                 &Marker {
@@ -548,10 +552,17 @@ mod tests {
         fs::remove_file(path.join("receipt.json")).unwrap();
         fs::remove_dir(&path).unwrap();
         fs::create_dir(&path).unwrap(); // Simulated crash immediately after mkdir.
+        let mut interrupted_marker =
+            tempfile::NamedTempFile::new_in(receipt.parent().unwrap()).unwrap();
+        interrupted_marker.write_all(b"incomplete marker").unwrap();
         assert!(Stage::open(&receipt, false).is_err());
         let stage = Stage::open(&receipt, true).unwrap();
         stage.cleanup().unwrap();
         assert!(!path.exists());
+        assert_eq!(
+            fs::read(interrupted_marker.path()).unwrap(),
+            b"incomplete marker"
+        );
 
         fs::create_dir(&path).unwrap();
         fs::write(path.join("payload"), b"unrelated entry").unwrap();
