@@ -2601,7 +2601,7 @@ fn same_volume(from: &Path, to: &Path) -> Result<bool> {
 }
 
 /// Renames `from` to `to`, failing if `to` exists (except for a case-only
-/// rename of the same file). Atomic on macOS and Linux.
+/// rename of the same file). Atomic on macOS, Linux and Windows.
 pub fn rename_no_clobber(from: &Path, to: &Path) -> io::Result<()> {
     if same_file(from, to) {
         return fs::rename(from, to);
@@ -2638,6 +2638,11 @@ pub fn rename_no_clobber(from: &Path, to: &Path) -> io::Result<()> {
         if !matches!(error.raw_os_error(), Some(libc::EINVAL | libc::ENOSYS)) {
             return Err(error);
         }
+    }
+    // Windows: the system's own move without replacement, atomic there.
+    #[cfg(windows)]
+    {
+        return volume::rename_exclusive(from, to);
     }
     // Volumes without an exclusive rename: check, then rename.
     if exists(to) {
