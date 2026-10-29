@@ -1304,6 +1304,7 @@ impl Journal {
             }
             payload.note = None;
             let mut problems = Vec::new();
+            let mut receipt_restore_failed = false;
             if state == State::Undoing && payload.has_copies() {
                 // An undo copying back is rolled back: the move stays done.
                 for step in &payload.steps {
@@ -1317,6 +1318,8 @@ impl Journal {
             } else {
                 for step in payload.steps.iter().rev() {
                     if let Err(e) = restore_if_moved(step, trash) {
+                        receipt_restore_failed |=
+                            matches!(step.to, Target::SystemTrash { item: Some(_) });
                         problems.push(format!("{e:#}"));
                     }
                 }
@@ -1331,6 +1334,18 @@ impl Journal {
             }
             if !problems.is_empty() {
                 payload.note = Some(format!("Recovery: {}", problems.join("; ")));
+            }
+            if receipt_restore_failed {
+                // Preserve the receipt and interrupted state for a safe retry.
+                // An occupied path is not proof that its trashed entry returned.
+                self.store(&id, state, &payload)?;
+                bail!(
+                    "{}",
+                    payload
+                        .note
+                        .as_deref()
+                        .unwrap_or("Trash recovery is incomplete")
+                );
             }
             match state {
                 State::Undoing if payload.has_copies() => {
@@ -1875,6 +1890,11 @@ fn restore_if_moved(step: &Step, trash: &dyn SystemTrash) -> Result<()> {
         // The source stays until the operation finishes; only a published
         // copy is taken back.
         return unpublish(step, Direction::Forward);
+    }
+    if matches!(step.to, Target::SystemTrash { item: Some(_) }) {
+        // Only the adapter can prove receipt identity, including an idempotent
+        // restore that finished immediately before the journal commit.
+        return reverse(step, trash);
     }
     if exists(&step.from) {
         return Ok(());
@@ -2610,6 +2630,10 @@ fn same_volume(from: &Path, to: &Path) -> Result<bool> {
 /// Renames `from` to `to`, failing if `to` exists (except for a case-only
 /// rename of the same file). Atomic on macOS, Linux and Windows.
 pub fn rename_no_clobber(from: &Path, to: &Path) -> io::Result<()> {
+    // Windows MoveFileExW handles case-only renames itself. Never select a
+    // replacing rename using a case-folded spelling: NTFS directories can be
+    // case-sensitive, with two different entries named a.RAF and A.RAF.
+    #[cfg(not(windows))]
     if same_file(from, to) {
         return fs::rename(from, to);
     }
@@ -2796,6 +2820,74 @@ mod tests {
         assert_eq!(pending[0].id, id);
         assert_eq!(pending[0].state, State::Undone);
         assert!(root.join("a").is_file() && root.join("b").is_file());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn native_no_clobber_retains_case_only_rename_on_ordinary_windows_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("a.RAF");
+        let destination = temp.path().join("A.RAF");
+        fs::write(&source, b"synthetic original").unwrap();
+        rename_no_clobber(&source, &destination).unwrap();
+        assert_eq!(fs::read(&destination).unwrap(), b"synthetic original");
+        let names: Vec<_> = fs::read_dir(temp.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, [std::ffi::OsString::from("A.RAF")]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "Enables case sensitivity only on a fresh synthetic directory; run explicitly on NTFS"]
+    fn native_no_clobber_refuses_distinct_case_sensitive_windows_entries() {
+        let temp = tempfile::tempdir().unwrap();
+        let enabled = std::process::Command::new("fsutil.exe")
+            .args(["file", "setCaseSensitiveInfo"])
+            .arg(temp.path())
+            .arg("enable")
+            .output()
+            .unwrap();
+        assert!(
+            enabled.status.success(),
+            "Case-sensitive NTFS setup is unavailable: {}",
+            String::from_utf8_lossy(&enabled.stdout)
+        );
+        let source = temp.path().join("a.RAF");
+        let destination = temp.path().join("A.RAF");
+        fs::write(&source, b"source").unwrap();
+        fs::write(&destination, b"occupied").unwrap();
+        assert!(rename_no_clobber(&source, &destination).is_err());
+        assert_eq!(fs::read(&source).unwrap(), b"source");
+        assert_eq!(fs::read(&destination).unwrap(), b"occupied");
+    }
+
+    #[test]
+    fn receipt_recovery_does_not_certify_an_unrelated_existing_original() {
+        struct RefuseRestore;
+        impl SystemTrash for RefuseRestore {
+            fn trash(&self, _: &Path) -> Result<String> {
+                unreachable!()
+            }
+            fn restore(&self, _: &str, _: &Path) -> Result<()> {
+                bail!("occupied by another entry")
+            }
+            fn contains(&self, _: &str) -> bool {
+                true
+            }
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("photo.raw");
+        fs::write(&source, b"unrelated original").unwrap();
+        let mut step = Step::system_trash(source.clone());
+        step.to = Target::SystemTrash {
+            item: Some("recoverable receipt".into()),
+        };
+        let (journal, id) = journal_with(temp.path(), State::Undoing, vec![step]);
+        assert!(journal.recover(&RefuseRestore).is_err());
+        assert_eq!(journal.operation(&id).unwrap().state, State::Undoing);
+        assert_eq!(fs::read(source).unwrap(), b"unrelated original");
     }
 
     #[test]

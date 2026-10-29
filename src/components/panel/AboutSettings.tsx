@@ -26,6 +26,12 @@ interface Credit {
 
 export const CREDITS: Credit[] = [
   {
+    name: "SQLite / rusqlite",
+    url: "https://github.com/rusqlite/rusqlite",
+    what: "Library database, with a Rawtonic Windows WAL locking correction.",
+    license: "SQLite: public domain; bindings: MIT; Rawtonic correction: AGPL-3.0-or-later",
+  },
+  {
     name: "RapidRAW",
     url: "https://github.com/CyberTimon/RapidRAW",
     what: "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f).",

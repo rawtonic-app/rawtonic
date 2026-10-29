@@ -14,9 +14,9 @@
 use crate::file_management::{AlbumItem, add_to_album, get_albums, sync_album_path_changes};
 use crate::formats::is_supported_image_file;
 use rawtonic_catalog::{Library, session_for};
-use rawtonic_fileops::{
-    CopyObserver, Journal, KeptCopy, Operation, State, Step, SystemTrash, Target,
-};
+#[cfg(any(not(windows), test))]
+use rawtonic_fileops::SystemTrash;
+use rawtonic_fileops::{CopyObserver, Journal, KeptCopy, Operation, State, Step, Target};
 use serde::Serialize;
 use std::{
     cell::Cell,
@@ -65,7 +65,10 @@ impl SystemTrash for PlatformTrash {
     }
 }
 
-#[cfg(any(windows, all(unix, not(target_os = "macos"))))]
+#[cfg(windows)]
+mod windows_trash;
+
+#[cfg(all(unix, not(target_os = "macos")))]
 impl SystemTrash for PlatformTrash {
     fn trash(&self, path: &Path) -> anyhow::Result<String> {
         use trash::os_limited;

@@ -2,6 +2,8 @@
 
 Rawtonic additions: Copyright 2026 Rawtonic contributors, AGPL-3.0-or-later.
 
+`vendor/libsqlite3-sys` contains libsqlite3-sys 0.38.2 (Copyright the rusqlite developers, MIT) and its public-domain SQLite 3.53.2 amalgamation. Original notices are preserved. Rawtonic's Windows shared-handle WAL locking correction is AGPL-3.0-or-later; see `RAWTONIC_PATCH.md` and `LICENSE_RAWTONIC_AGPL-3.0` in that directory.
+
 ## RapidRAW
 The initial `src/`, `src-tauri/`, `public/`, `data/` and frontend tooling derive from [CyberTimon/RapidRAW](https://github.com/CyberTimon/RapidRAW), snapshot a82251f699333daf3648292c756485272be86187, Copyright Timon Käch and contributors. Engine modules moved out of `src-tauri/` into `crates/` (ADR 0009, e.g. `crates/rawdecode`) keep that origin and license. Distributed under its preserved GNU AGPL v3 license (`licenses/RapidRAW-AGPL-3.0.txt`). Rawtonic is an independent derivative, not an official RapidRAW release. Existing third-party notices and data licenses remain applicable. No claim is made that upstream owners endorse Rawtonic.
 
@@ -434,7 +436,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | libm | 0.2.16 | MIT |
 | libmimalloc-sys | 0.1.49 | MIT |
 | libredox | 0.1.20 | MIT |
-| libsqlite3-sys | 0.38.2 | MIT |
+| libsqlite3-sys | 0.38.2 | AGPL-3.0-or-later AND MIT |
 | libwebp-sys | 0.9.6 | MIT |
 | linear-srgb | 0.6.12 | MIT OR Apache-2.0 |
 | linux-raw-sys | 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
