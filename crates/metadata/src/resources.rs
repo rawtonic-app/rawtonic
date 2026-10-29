@@ -62,14 +62,18 @@ mod tests {
             "masks": [{"cameraProfile": "rawtonic-resource:resources/camera.dcp"}]},
             "caption": "rawtonic-resource:resources/look.cube"});
         let stored = value.clone();
-        resolve(&mut value, Path::new("/moved"));
+        // The resolved path is the folder joined with the relative one in
+        // the platform's own form (`/moved/resources/look.cube`,
+        // `\moved\resources\look.cube` on Windows).
+        let moved = Path::new("/moved");
+        resolve(&mut value, moved);
         assert_eq!(
             value["adjustments"]["lutPath"],
-            "/moved/resources/look.cube"
+            moved.join("resources").join("look.cube").to_str().unwrap()
         );
         assert_eq!(
             value["adjustments"]["masks"][0]["cameraProfile"],
-            "/moved/resources/camera.dcp"
+            moved.join("resources").join("camera.dcp").to_str().unwrap()
         );
         assert_eq!(value["caption"], stored["caption"]);
         localize(&mut value, Path::new("/moved"));
