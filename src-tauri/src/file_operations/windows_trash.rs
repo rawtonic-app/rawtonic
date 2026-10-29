@@ -251,7 +251,7 @@ fn write_stage_marker(path: &Path, marker_path: &Path, data: &Marker) -> Result<
             HANDLE(keeper.as_raw_handle() as isize),
             FileDispositionInfo,
             (&info as *const FILE_DISPOSITION_INFO).cast(),
-            std::mem::size_of_val(&info),
+            std::mem::size_of_val(&info) as u32,
         )?;
     }
     Ok(())
