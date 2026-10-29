@@ -21,7 +21,6 @@ use std::{
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::Arc,
-    time::SystemTime,
 };
 
 mod late_ifds;

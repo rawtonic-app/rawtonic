@@ -83,6 +83,7 @@ fn volume_name(mount_point: &Path) -> String {
 
 /// File systems whose sync and read-back do not prove what reached the
 /// disk, by the names Linux and macOS give them.
+#[cfg(any(target_os = "linux", target_vendor = "apple", test))]
 fn is_network_fs(name: &str) -> bool {
     const NETWORK: &[&str] = &[
         "nfs",

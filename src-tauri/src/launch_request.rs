@@ -262,6 +262,7 @@ pub fn emit_launch_request(app_handle: &tauri::AppHandle, request: LaunchRequest
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::ffi::OsString;
 
     #[test]
