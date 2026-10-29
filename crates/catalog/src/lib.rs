@@ -1796,9 +1796,12 @@ impl Library {
             )?
         } else {
             let path = folder.to_string_lossy().into_owned();
+            // External roots store native absolute paths, unlike portable
+            // session-relative paths. Use their native descendant separator.
+            let descendants = folder.join("").to_string_lossy().into_owned();
             self.offline_rows(
                 "r.external=1 AND (r.path=? OR r.path LIKE ? ESCAPE '\\')",
-                &[&path, &like(&format!("{path}/"))],
+                &[&path, &like(&descendants)],
             )?
         };
         Ok(candidates
