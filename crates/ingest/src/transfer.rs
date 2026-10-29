@@ -516,30 +516,40 @@ pub fn copy_library(
     Ok(receipt)
 }
 
-/// Flushes a staged copy to its drive. The staged files are this
-/// function's own copies made a moment earlier (an original is only ever
-/// read by `copy_file`), so a copy that came along read-only is given the
-/// owner's write bit for the flush, which Windows needs (`FlushFileBuffers`
-/// refuses a handle opened without write access, and `File::open` asks for
-/// none). Nothing written keeps another permission on any system: the copy
-/// ends with what it came with, already before it is published. Other
-/// systems flush the read-only handle as it is.
+/// Flushes a staged copy to its drive, opened for writing: Windows flushes
+/// only a handle with write access (`FlushFileBuffers` answers access
+/// denied to a read-only one, which `File::open` asks for). The staged
+/// files are this function's own copies made a moment earlier (an original
+/// is only ever read by `copy_file`), so a copy that came along read-only
+/// is made writable for the flush, and always gets its permissions back,
+/// whether the flush worked or not, before it can be published. Other
+/// systems flush a read-only handle as it is.
+#[cfg(windows)]
 fn flush_staged(path: PathBuf) -> Result<()> {
-    let sync = |path: &Path| fs::File::open(path).and_then(|file| file.sync_all());
     let kept = fs::metadata(&path)?.permissions();
     let mut writable = kept.clone();
     writable.set_readonly(false);
-    let widen = cfg!(windows) && writable.readonly();
-    if widen {
-        // A staged copy of ours: read-only keeps nobody's file safe here,
-        // and the attribute comes back below before it is published.
+    let widened = writable.readonly() != kept.readonly();
+    if widened {
+        // A copy of ours: its read-only attribute protects nothing here,
+        // and it comes back below, also when the flush fails.
         fs::set_permissions(&path, writable)
             .with_context(|| format!("Cannot write the staged copy {}", path.display()))?;
     }
-    let flushed = sync(&path);
-    if widen {
+    let flushed = fs::File::options()
+        .write(true)
+        .open(&path)
+        .and_then(|file| file.sync_all());
+    if widened {
         fs::set_permissions(&path, kept)
             .with_context(|| format!("Cannot restore the permissions of {}", path.display()))?;
     }
     flushed.with_context(|| format!("Cannot flush {}", path.display()))
+}
+
+#[cfg(not(windows))]
+fn flush_staged(path: PathBuf) -> Result<()> {
+    fs::File::open(&path)
+        .and_then(|file| file.sync_all())
+        .with_context(|| format!("Cannot flush {}", path.display()))
 }

@@ -637,12 +637,15 @@ mod tests {
     }
 
     /// A card folder taken out of the card reader (renamed away from under
-    /// the import; what unmounting looks like to the files): the rest waits
-    /// (interrupted), is imported when the card is back, and a cancel is
-    /// never resumed. The first photograph's import is over when it is
-    /// reported done (Windows refuses to rename a folder with a file open
-    /// below it, macOS and Linux allow it, and a reader leaves its card
-    /// between two photographs the same way).
+    /// the import, what unmounting looks like to the files). The reader is
+    /// emptied after the first photograph has been imported (its copy is
+    /// published and registered when its event arrives, which is when the
+    /// reader's light goes out); the import has that file's handles open
+    /// then, and Windows refuses to rename a folder with open files below
+    /// it, so there the card is renamed at the next event, once the last
+    /// handle of the first photograph is closed. Either way files after it
+    /// are gone. The rest waits (interrupted), is imported when the card is
+    /// back, and a cancel is never resumed.
     #[test]
     fn a_card_taken_out_is_finished_when_it_is_back_and_a_cancel_is_final() {
         let d = tempfile::tempdir().unwrap();
@@ -657,7 +660,11 @@ mod tests {
             &options("{orig}"),
             &AtomicBool::new(false),
             |done| {
-                if done.index == 0 && !taken {
+                // The first photograph is in the library (or the card is
+                // already gone) and its handles are closed, as with the
+                // press that empties a reader: every event from there on
+                // is after the pressed card.
+                if done.index >= 1 && !taken {
                     fs::rename(&card_dir, &away).unwrap();
                     taken = true;
                 }

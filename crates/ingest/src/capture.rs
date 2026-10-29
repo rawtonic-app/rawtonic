@@ -1071,17 +1071,34 @@ struct FolderFiles {
     stems: HashMap<String, usize>,
 }
 
-/// `folder`'s files (`FolderFiles`), listed once per version of the folder
-/// (its modification time): an import of a card folder's photographs reads
-/// it once, not once per photograph. `None` when it cannot be listed.
+/// How long a folder's listing serves, from when it was made: until that
+/// second is over, every call lists the folder again. NTFS and FAT keep a
+/// folder's time in whole seconds, and its change can lag until the
+/// folder's handles close (the import reads files in it), so an unchanged
+/// folder time is no proof that no file was added inside a second (the
+/// sidecar of the next photograph). A card's sidecars come before an
+/// import, so this costs a listing per second of an import, not one per
+/// photograph.
+const LISTING_SECONDS: u64 = 1;
+
+/// The listings made so far: each folder's time as listed, when the listing
+/// was made, and the files.
+type Listed = HashMap<PathBuf, (SystemTime, SystemTime, Arc<FolderFiles>)>;
+static LISTED: LazyLock<Mutex<Listed>> = LazyLock::new(Default::default);
+
+/// `folder`'s files (`FolderFiles`): the listing of the last
+/// `LISTING_SECONDS`, or one made now when the folder's time changed or
+/// that second is over. `None` when it cannot be listed.
 fn folder_files(folder: &Path) -> Option<Arc<FolderFiles>> {
-    type Listed = HashMap<PathBuf, (SystemTime, Arc<FolderFiles>)>;
-    static LISTED: LazyLock<Mutex<Listed>> = LazyLock::new(Default::default);
+    let taken = SystemTime::now();
     let modified = fs::metadata(folder).ok()?.modified().ok();
     let mut listed = LISTED.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(modified) = modified
-        && let Some((at, files)) = listed.get(folder)
+        && let Some((at, made, files)) = listed.get(folder)
         && *at == modified
+        && !made
+            .elapsed()
+            .is_ok_and(|age| age >= std::time::Duration::from_secs(LISTING_SECONDS))
     {
         return Some(files.clone());
     }
@@ -1112,7 +1129,9 @@ fn folder_files(folder: &Path) -> Option<Arc<FolderFiles>> {
         if listed.len() >= 64 {
             listed.clear();
         }
-        listed.insert(folder.to_path_buf(), (modified, files.clone()));
+        // A later listing of the same folder, or of its changed time,
+        // replaces it.
+        listed.insert(folder.to_path_buf(), (modified, taken, files.clone()));
     }
     Some(files)
 }
@@ -2003,46 +2022,48 @@ pub(crate) mod tests {
             .unwrap_or_else(|| name.to_string())
     }
 
+    /// A folder, a card's, that gets a file seconds after the import first
+    /// listed it: the listing is not kept past the second it was made, so
+    /// the new sidecar is found (NTFS keeps a folder's time in whole
+    /// seconds, and it can lag until the folder's handles close, so its
+    /// change is no proof that nothing was added).
+    #[test]
+    fn a_sidecar_added_a_moment_after_the_folder_was_listed_is_found() {
+        let d = tempfile::tempdir().unwrap();
+        let card = d.path();
+        fs::write(card.join("H.ARW"), b"x").unwrap();
+        assert_eq!(card_sidecar(&card.join("H.ARW")).unwrap(), None);
+        fs::write(card.join("H.XMP"), b"x").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        let expected = Some(card.join(spelling(card, "H.XMP")));
+        assert_eq!(card_sidecar(&card.join("H.ARW")).unwrap(), expected);
+    }
+
     #[test]
     fn card_sidecars_are_found_in_any_letter_case() {
         let d = tempfile::tempdir().unwrap();
         let card = d.path();
-        // The folder as it lists a name: a name written in another case
-        // than an earlier one (H.XMP for H.xmp) keeps the earlier spelling
-        // on a volume that folds case (NTFS, a card's FAT), and a copy's
-        // name is the file's as it is (PathBuf equality, also on Windows).
-        let at = |name: &str| card.join(spelling(card, name));
-        // Files are written a second apart: a new file's modification time
-        // can repeat the folder's on NTFS, and a card's FAT keeps whole
-        // seconds, while a folder's listing is kept for the second it was
-        // made (holding what was there at the start of it). Sidecars come
-        // before an import, so spacing them changes nothing real.
-        let mut written = 0;
-        let mut touch = |name: &str| {
-            fs::write(card.join(name), b"x").unwrap();
-            written += 1;
-            let at = SystemTime::now() + std::time::Duration::from_secs(written);
-            fs::File::options()
-                .write(true)
-                .open(card.join(name))
-                .unwrap()
-                .set_times(fs::FileTimes::new().set_modified(at))
-                .unwrap();
-        };
+        // A name written in another case than an earlier one keeps the
+        // earlier spelling where the volume folds case (NTFS, a card's
+        // FAT): the copy is named as the folder lists it.
         let found = |photo: &str| card_sidecar(&card.join(photo)).unwrap();
-        touch("G.ARW");
+        let at = |name: &str| Some(card.join(spelling(card, name)));
+        // A form's sidecar comes before its photograph: the folder is
+        // listed once the sidecars are there, as on a card.
+        let touch = |name: &str| fs::write(card.join(name), b"x").unwrap();
         touch("g.arw.XMP");
+        touch("G.ARW");
         assert_eq!(found("G.ARW"), at("g.arw.XMP"));
-        touch("H.ARW");
         touch("H.XMP");
+        touch("H.ARW");
         assert_eq!(found("H.ARW"), at("H.XMP"));
-        touch("i.arw");
         touch("I.Xmp");
+        touch("i.arw");
         assert_eq!(found("i.arw"), at("I.Xmp"));
         // RAW+JPEG whose names differ in case: still the RAW's sidecar.
-        touch("K.CR3");
-        touch("k.jpg");
         touch("K.xmp");
+        touch("k.jpg");
+        touch("K.CR3");
         assert_eq!(found("K.CR3"), at("K.xmp"));
         assert_eq!(found("k.jpg"), None);
         // Two that differ only in case (a case-sensitive volume): neither.
