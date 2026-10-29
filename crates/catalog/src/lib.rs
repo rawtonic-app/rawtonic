@@ -462,9 +462,10 @@ impl Library {
 
     fn configure(conn: &Connection) -> Result<()> {
         conn.busy_timeout(Duration::from_secs(5))?;
-        conn.execute_batch(
-            "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
-        )?;
+        conn.execute_batch("PRAGMA journal_mode=WAL;")
+            .context("Set the library database journal mode")?;
+        conn.execute_batch("PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;")
+            .context("Configure library database durability and constraints")?;
         // The search's case folding (`query`, `fold`): the text index holds
         // folded text (its triggers call it), and every search that scans
         // rows folds with it too, so both find the same.
