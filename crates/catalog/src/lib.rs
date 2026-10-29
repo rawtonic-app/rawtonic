@@ -197,11 +197,9 @@ pub fn validate_relative(path: &Path) -> Result<()> {
 ///
 /// Absolute paths, drive and UNC prefixes and `..` are refused, as is an
 /// empty path and a Unix name containing a backslash, which would read as
-/// two folders on Windows. `.` is not a component `Path` reports: interior
-/// `.` segments (`Capture/./A.RAF`) are normalised away by `components`,
-/// which names the same file, and a leading `.` on Unix is part of a
-/// hidden name (`./A.RAF` stays the name `.`). This does not reject a
-/// name that merely starts with a dot.
+/// two folders on Windows. `Path::components` normalises interior `.` and
+/// repeated separators in these native paths. A remaining `CurDir`
+/// component is refused; dot-prefixed file names are allowed.
 pub fn portable_relative(path: &Path) -> Result<String> {
     let mut names = Vec::new();
     for component in path.components() {
@@ -802,7 +800,7 @@ impl Library {
         rules: &Rule,
     ) -> Result<Collection> {
         let name = Self::collection_name(name)?;
-        let rules = &rules.relative_to(&self.directory);
+        let rules = &rules.relative_to(&self.directory)?;
         rules.validate()?;
         self.ensure_group(parent)?;
         let id = Uuid::new_v4().to_string();
@@ -836,7 +834,7 @@ impl Library {
     /// Replaces a smart album's rules (folders inside the library kept
     /// relative to it, as `create_smart_collection` does).
     pub fn set_collection_rules(&self, id: &str, rules: &Rule) -> Result<()> {
-        let rules = &rules.relative_to(&self.directory);
+        let rules = &rules.relative_to(&self.directory)?;
         rules.validate()?;
         ensure!(
             self.conn.execute(

@@ -176,13 +176,6 @@ pub fn file_type(extension: &str) -> &'static str {
 
 const LABELS: &[&str] = &["red", "yellow", "green", "blue", "purple"];
 
-/// What `Rule::relative_to` stores for a folder inside the library that has
-/// no portable relative form (a not valid Unicode name, or a Unix name with
-/// a backslash): a name with a backslash, which no stored library path can
-/// have (`portable_relative` refuses one), so the rule matches nothing
-/// instead of silently naming another folder.
-const UNREPRESENTABLE_FOLDER: &str = "\\";
-
 impl Rule {
     /// Every word of `text` in any searchable text (the search box).
     pub fn text(text: &str) -> Self {
@@ -204,11 +197,14 @@ impl Rule {
 
     /// The rule as a library keeps it: folders inside `directory` relative
     /// to it, so a session moved while closed keeps its smart albums.
-    pub fn relative_to(&self, directory: &Path) -> Self {
-        match self {
+    pub fn relative_to(&self, directory: &Path) -> Result<Self> {
+        Ok(match self {
             Self::Group { combine, rules } => Self::Group {
                 combine: *combine,
-                rules: rules.iter().map(|r| r.relative_to(directory)).collect(),
+                rules: rules
+                    .iter()
+                    .map(|r| r.relative_to(directory))
+                    .collect::<Result<_>>()?,
             },
             Self::Condition {
                 field: Field::Folder,
@@ -226,12 +222,8 @@ impl Rule {
                         // A rule is read back with `directory.join`, so its
                         // relative value is the stored `/` form (`Day 2`,
                         // never a native `Day 2\` separator). A folder this
-                        // library cannot name relative to itself is stored
-                        // fail-closed, never silently replaced.
-                        match crate::portable_relative(relative) {
-                            Ok(relative) => relative,
-                            Err(_) => UNREPRESENTABLE_FOLDER.to_string(),
-                        }
+                        // library cannot name is rejected before saving.
+                        crate::portable_relative(relative)?
                     }
                     _ => folder.clone(),
                 };
@@ -242,7 +234,7 @@ impl Rule {
                 }
             }
             other => other.clone(),
-        }
+        })
     }
 
     /// Every photograph.

@@ -271,6 +271,30 @@ fn move_rename_and_trash_keep_stored_paths_portable() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn an_unrepresentable_folder_rule_does_not_create_or_replace_an_album() -> Result<()> {
+    let (_d, lib) = session(&["Capture/A.RAF"]);
+    let folder = lib.directory.join("Capture");
+    let good = rule("folder", "contains", folder.to_string_lossy());
+    let album = lib.create_smart_collection("Kept", None, &good)?;
+    let invalid = rule(
+        "folder",
+        "contains",
+        folder.join("..").join("Selects").to_string_lossy(),
+    );
+    assert!(
+        lib.create_smart_collection("Refused", None, &invalid)
+            .is_err()
+    );
+    assert!(lib.set_collection_rules(&album.id, &invalid).is_err());
+    let albums = lib.collections()?;
+    assert_eq!(albums.len(), 1);
+    assert_eq!(albums[0].id, album.id);
+    assert_eq!(albums[0].rules, album.rules);
+    assert_eq!(albums[0].count, 1);
+    Ok(())
+}
+
 /// A move to a place the library cannot store is refused and its records
 /// rolled back, rather than written wrong or silently "missing": the
 /// photograph keeps its place, id, fingerprint and visible state.

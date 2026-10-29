@@ -88,7 +88,12 @@ impl HotFolder {
             // push each name as one component. Pushing the raw string would
             // let a stored `nested\..\outside` leave the watched folder on
             // Windows, where `\` separates.
-            if file.rel_path.is_empty() || validate_relative(Path::new(&file.rel_path)).is_err() {
+            if validate_relative(Path::new(&file.rel_path)).is_err()
+                || file
+                    .rel_path
+                    .split('/')
+                    .any(|part| part.is_empty() || part == "." || part == "..")
+            {
                 continue;
             }
             let mut path = self.folder.clone();
