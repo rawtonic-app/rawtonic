@@ -46,7 +46,9 @@ pub fn volume_info(path: &Path) -> Result<VolumeInfo> {
     let name = volume_name(&mount_point);
     Ok(VolumeInfo {
         name,
-        free_bytes: free_bytes(&real)?,
+        // GetDiskFreeSpaceExW requires a directory, while statvfs also
+        // accepts a file. The queried volume root is valid for both.
+        free_bytes: free_bytes(&mount_point)?,
         mount_point,
         file_system,
         network,
