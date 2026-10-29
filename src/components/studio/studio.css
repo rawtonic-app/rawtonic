@@ -1759,6 +1759,15 @@
   flex-wrap: wrap;
   row-gap: 2px;
 }
+/* One star line, drawn as the 24 px targets: the inherited -4 px inset
+   would make the wrapped first line 16 px and let the colour word below it
+   cover the stars' bottom 2 px (the fifth star's edge click missed). The
+   line takes the target's height, its inset still reaches into the tile's
+   padding, and the word sits below with a 2 px gap. */
+.studio-photo.is-narrow .studio-photo-rating button {
+  margin-top: 0;
+  margin-bottom: 0;
+}
 .studio-photo.is-narrow .studio-photo-rating .studio-photo-color {
   flex-basis: 100%;
 }
