@@ -277,10 +277,12 @@ fn an_unrepresentable_folder_rule_does_not_create_or_replace_an_album() -> Resul
     let folder = lib.directory.join("Capture");
     let good = rule("folder", "contains", folder.to_string_lossy());
     let album = lib.create_smart_collection("Kept", None, &good)?;
+    // Keep the parent component in the supplied rule. Joining onto a Windows
+    // verbatim path would resolve `..` before the validator ever sees it.
     let invalid = rule(
         "folder",
         "contains",
-        folder.join("..").join("Selects").to_string_lossy(),
+        format!("{}/../Selects", folder.display()),
     );
     assert!(
         lib.create_smart_collection("Refused", None, &invalid)
