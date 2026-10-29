@@ -1282,12 +1282,48 @@ mod tests {
 
     #[test]
     fn virtual_copy_sidecars_name_their_copy() {
+        // Paths in the platform's own form, as the library stores them: the
+        // key is the image's path, not a string taken apart.
+        let folder = tempfile::tempdir().unwrap();
+        let photo = folder.path().join("DSCF0135.RAF");
+        let key = album_key(&folder.path().join("DSCF0135.RAF.9b8208.rrdata"));
+        assert_eq!(key, Some(format!("{}?vc=9b8208", photo.to_string_lossy())));
+        assert_eq!(album_key(&folder.path().join("DSCF0135.RAF.rrdata")), None);
+        assert_eq!(album_key(&folder.path().join("DSCF0135.xmp")), None);
+        // A key and a photo path compare equal only in the same form, so
+        // the library's native path matches its virtual copy's key.
+        let key_path = key.unwrap();
+        let (image, id) = key_path.rsplit_once("?vc=").unwrap();
+        assert_eq!(Path::new(image), photo);
+        assert!(is_supported_image_file(image));
+        assert_eq!(id, "9b8208");
+    }
+
+    /// A session photo's virtual copy is named after the photo's native
+    /// path, and that key parses back to the photo beside it on every
+    /// platform (a literal such as `/p/…` would need the platform's
+    /// separators); a key that is not one of an image is still refused.
+    #[test]
+    fn a_virtual_copy_key_names_the_photo_beside_its_sidecar() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = session(tmp.path());
+        let photo = dir.join("Capture/B.NEF");
+        fs::create_dir_all(photo.parent().unwrap()).unwrap();
+        fs::write(&photo, "b").unwrap();
+        let sidecar = dir.join("Capture/B.NEF.a1b2c3.rrdata");
+        fs::write(&sidecar, "{}").unwrap();
+        let key = album_key(&sidecar).unwrap();
+        let (image, id) = key.rsplit_once("?vc=").unwrap();
+        assert_eq!((Path::new(image), id), (photo.as_path(), "a1b2c3"));
+        // The sidecar is a virtual copy of the photo in the same folder.
         assert_eq!(
-            album_key(Path::new("/p/DSCF0135.RAF.9b8208.rrdata")).as_deref(),
-            Some("/p/DSCF0135.RAF?vc=9b8208")
+            Path::new(image).parent(),
+            sidecar.parent(),
+            "the key names the photo beside the sidecar, not the sidecar"
         );
-        assert_eq!(album_key(Path::new("/p/DSCF0135.RAF.rrdata")), None);
-        assert_eq!(album_key(Path::new("/p/DSCF0135.xmp")), None);
+        // Still refused: a copy id must follow an image name.
+        assert_eq!(album_key(&dir.join("Capture/B.NEF..rrdata")), None);
+        assert_eq!(album_key(&dir.join("Capture/B.NEF.notes.txt.rrdata")), None);
     }
 
     /// A RAW's recorded companion JPEG moves and goes to the Trash with it,
@@ -1927,6 +1963,8 @@ mod tests {
     /// start without the drive): the journal says it was a folder.
     #[test]
     fn records_follow_a_folder_moved_to_another_drive_while_that_drive_is_offline() {
+        // The drive's free space is checked before anything moves; without a
+        // way to read it the move is refused (fail closed).
         let tmp = tempfile::tempdir().unwrap();
         let dir = session(tmp.path());
         let photo = dir.join("Capture/Day 1/A.RAF");
@@ -1956,6 +1994,8 @@ mod tests {
 
     /// A folder copied to another drive (its original then in the Trash),
     /// its undo and its redo: each summary moves the paths that way.
+    ///
+    /// Also on one volume: `Step::other_volume` asks for the copy path.
     #[test]
     fn summaries_of_a_folder_moved_to_another_drive_and_back_carry_its_move() {
         let tmp = tempfile::tempdir().unwrap();
