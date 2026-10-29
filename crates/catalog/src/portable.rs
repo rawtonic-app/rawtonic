@@ -169,7 +169,10 @@ impl Library {
     pub fn internalize_assets(&self, paths: &[(String, PathBuf)]) -> Result<()> {
         let tx = self.conn.unchecked_transaction()?;
         for (id, relative) in paths {
-            validate_relative(relative)?;
+            // `relative` is a native path (the copied file's place below the
+            // library folder): it becomes the stored form once, here, and
+            // that form is what the row holds.
+            let stored = portable_relative(relative)?;
             ensure!(
                 self.directory.join(relative).is_file(),
                 "Copied original missing: {}",
@@ -177,7 +180,7 @@ impl Library {
             );
             tx.execute(
                 "UPDATE assets SET root_id='session',rel_path=?,missing=0 WHERE id=?",
-                params![portable_relative(relative)?, id],
+                params![stored, id],
             )?;
         }
         tx.execute("DELETE FROM roots WHERE external=1", [])?;

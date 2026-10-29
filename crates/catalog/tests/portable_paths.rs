@@ -58,18 +58,62 @@ fn a_native_relative_path_is_stored_with_forward_slashes() {
         "Capture/Day 2"
     );
     assert_eq!(portable_relative(Path::new("A.RAF")).unwrap(), "A.RAF");
-    // Nothing a library cannot store.
-    for refused in ["", "..", "Capture/..", "/absolute", "Capture\\A.RAF"] {
-        assert!(
-            portable_relative(Path::new(refused)).is_err(),
-            "{refused:?} is not a relative portable path"
-        );
+    // Nothing a library cannot store: empty, parent, absolute.
+    for refused in ["", "..", "Capture/..", "/absolute"] {
+        assert_refused(refused);
     }
+    // A drive or UNC path is never relative, where the platform has them.
+    #[cfg(windows)]
+    for refused in [
+        r"C:\Capture\A.RAF",
+        r"C:Capture\A.RAF",
+        r"\\server\share\A.RAF",
+    ] {
+        assert_refused(refused);
+    }
+    // On Unix a backslash is an ordinary character of a name.
     #[cfg(unix)]
+    assert_refused("Cam\\A.RAF");
+}
+
+fn assert_refused(path: &str) {
     assert!(
-        portable_relative(Path::new("Cam\\A.RAF")).is_err(),
-        "a Unix name with a backslash would be two folders on Windows"
+        portable_relative(Path::new(path)).is_err(),
+        "{path:?} is not a relative portable path"
     );
+}
+
+/// A backslash in a native relative path is a separator on Windows: the
+/// `Path::join` of a folder there stores `/`, exactly like on Unix.
+#[cfg(windows)]
+#[test]
+fn a_windows_native_backslash_path_is_stored_with_forward_slashes() {
+    assert_eq!(
+        portable_relative(Path::new("Capture").join("A.RAF").as_path()).unwrap(),
+        "Capture/A.RAF"
+    );
+    assert_eq!(
+        portable_relative(Path::new("Capture").join("Day 2").join("B.RAF").as_path()).unwrap(),
+        "Capture/Day 2/B.RAF"
+    );
+    // A photograph added below a subfolder is registered under the stored
+    // form, though its place on disk is `Capture\Cam1\A.RAF`.
+    let (d, lib) = session(&["Capture/Cam1/A.RAF"]);
+    assert_eq!(stored(&lib), ["Capture/Cam1/A.RAF"]);
+    let photo = lib
+        .directory
+        .canonicalize()
+        .unwrap()
+        .join("Capture")
+        .join("Cam1")
+        .join("A.RAF");
+    let nested = photo
+        .strip_prefix(lib.directory.canonicalize().unwrap())
+        .unwrap();
+    assert!(nested.to_str().unwrap().contains('\\'));
+    assert_eq!(portable_relative(nested).unwrap(), "Capture/Cam1/A.RAF");
+    assert!(lib.asset_at(&photo).unwrap().is_some());
+    drop(d);
 }
 
 #[test]
@@ -224,5 +268,47 @@ fn move_rename_and_trash_keep_stored_paths_portable() -> Result<()> {
         .is_empty(),
         "a trashed photograph is not in its folder"
     );
+    Ok(())
+}
+
+/// A move to a place the library cannot store is refused and its records
+/// rolled back, rather than written wrong or silently "missing": the
+/// photograph keeps its place, id, fingerprint and visible state.
+#[cfg(unix)]
+#[test]
+fn a_place_that_cannot_be_stored_rolls_the_move_back() -> Result<()> {
+    let (d, lib) = session(&["Capture/A.RAF"]);
+    let directory = lib.directory.canonicalize()?;
+    let photo = directory.join("Capture").join("A.RAF");
+    let before = lib.assets(None)?;
+    let [before] = before.as_slice() else {
+        panic!("one photograph");
+    };
+    assert!(!before.missing);
+    // A destination below the library that has no stored form: a Unix name
+    // with a backslash (two folders on Windows).
+    let odd_folder = directory.join("Cam\\1");
+    fs::create_dir_all(&odd_folder)?;
+    let odd = odd_folder.join("A.RAF");
+    fs::rename(&photo, &odd)?;
+    assert!(lib.relocate(&photo, &odd).is_err());
+    let after = lib.assets(None)?;
+    assert_eq!(after.len(), 1);
+    assert_eq!(
+        (
+            &after[0].id,
+            &after[0].rel_path,
+            after[0].missing,
+            &after[0].fingerprint,
+        ),
+        (&before.id, &before.rel_path, false, &before.fingerprint),
+    );
+    assert_eq!(stored(&lib), ["Capture/A.RAF"], "the place is unchanged");
+    assert_eq!(
+        names(&lib, "is", &directory.join("Capture")),
+        ["A.RAF"],
+        "it is still in its folder"
+    );
+    drop(d);
     Ok(())
 }

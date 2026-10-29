@@ -254,7 +254,11 @@ pub fn copy_library(
                     .join(asset.path.file_name().context("Original has no filename")?),
             ),
         };
-        rawtonic_catalog::validate_relative(&relative)?;
+        // `relative` is native (a `strip_prefix` of the staged library, or a
+        // `Path::join`): validate it as the perhaps non-portable path it is,
+        // not as the stored string. Stored fields are still checked by
+        // `validate_relative` where they are read.
+        rawtonic_catalog::portable_relative(&relative)?;
         if !from.is_file() {
             missing.push(from.display().to_string());
         }

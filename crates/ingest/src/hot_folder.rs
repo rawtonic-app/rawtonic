@@ -11,7 +11,7 @@
 //! watch goes on when it is back. The files taken can be kept
 //! (`taken_file`) and given to a later watch (`restore_taken`), so files
 //! that arrived in between are taken once and the earlier ones not again.
-use rawtonic_catalog::HotFolderFile;
+use rawtonic_catalog::{HotFolderFile, validate_relative};
 use std::{
     collections::HashMap,
     fs, io,
@@ -82,20 +82,21 @@ impl HotFolder {
     /// again unless they changed since.
     pub fn restore_taken(&mut self, files: impl IntoIterator<Item = HotFolderFile>) {
         for file in files {
+            // Stored paths come back from a database row, not from a disk
+            // walk: validate them as the stored strings they are (`/`
+            // separators, no `\\`, no drive or UNC prefix, no `.`/`..`), then
+            // push each name as one component. Pushing the raw string would
+            // let a stored `nested\..\outside` leave the watched folder on
+            // Windows, where `\` separates.
+            if file.rel_path.is_empty() || validate_relative(Path::new(&file.rel_path)).is_err() {
+                continue;
+            }
             let mut path = self.folder.clone();
-            let mut valid = !file.rel_path.is_empty();
             for part in file.rel_path.split('/') {
-                // Only plain names: a stored path never leads elsewhere.
-                if part.is_empty() || part == "." || part == ".." {
-                    valid = false;
-                    break;
-                }
                 path.push(part);
             }
-            if valid {
-                self.taken
-                    .insert(path, (file.size, file.mtime_ns.map(from_nanos)));
-            }
+            self.taken
+                .insert(path, (file.size, file.mtime_ns.map(from_nanos)));
         }
     }
 
@@ -556,6 +557,60 @@ mod tests {
             mtime_ns: None,
         }]);
         assert!(third.taken.is_empty());
+    }
+
+    /// Stored paths come from the database, so `restore_taken` treats them as
+    /// untrusted: a backslash (which on Windows separates components) or a
+    /// drive/UNC prefix never becomes a path outside the watched folder.
+    /// Legitimate stored paths, nested ones included, still restore.
+    #[test]
+    fn a_restored_watch_ignores_stored_paths_that_lead_out_of_the_folder() {
+        let parent = tempfile::tempdir().unwrap();
+        let folder = parent.path().join("Watched");
+        fs::create_dir_all(&folder).unwrap();
+        // Something outside the watched folder a stored path could name.
+        fs::write(parent.path().join("outside.ARW"), b"outside").unwrap();
+        let file = |rel_path: &str| HotFolderFile {
+            rel_path: rel_path.into(),
+            size: 1,
+            mtime_ns: None,
+        };
+        let mut hot = HotFolder::new(&folder, Duration::ZERO).with_subfolders(true);
+        hot.restore_taken([
+            // A backslash would push a Windows component out of the folder.
+            file(r"nested\..\outside.ARW"),
+            file(r"..\outside.ARW"),
+            file(r"C:\outside.ARW"),
+            file(r"\\server\share\outside.ARW"),
+            // Empty, dot and parent parts were refused before, too.
+            file(""),
+            file("."),
+            file(".."),
+            file("nested/../../outside.ARW"),
+            file("nested//A.ARW"),
+            file("nested/./A.ARW"),
+            file("/outside.ARW"),
+        ]);
+        assert!(hot.taken.is_empty(), "{:?}", hot.taken.keys());
+        assert!(
+            hot.taken
+                .keys()
+                .all(|path| path.starts_with(&folder) && path != &folder)
+        );
+        // Legitimate restoration stays.
+        hot.restore_taken([file("A.ARW"), file("nested/Day 2/B.ARW")]);
+        assert_eq!(
+            hot.taken
+                .keys()
+                .map(|path| path.strip_prefix(&folder).unwrap().to_path_buf())
+                .collect::<std::collections::BTreeSet<_>>(),
+            [
+                PathBuf::from("A.ARW"),
+                PathBuf::from("nested").join("Day 2").join("B.ARW")
+            ]
+            .into_iter()
+            .collect()
+        );
     }
 
     #[test]

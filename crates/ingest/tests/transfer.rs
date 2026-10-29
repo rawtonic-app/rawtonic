@@ -327,6 +327,36 @@ fn project_layout_and_file_dates_survive_full_backup_restore() {
     assert_eq!(fs::metadata(path).unwrap().modified().unwrap(), modified);
 }
 
+/// A photograph in a subfolder of the library is internalized under its
+/// stored `Capture/…` form: the internalized relative path is native
+/// (`Capture\\Nested\\b.arw` on Windows) and is never validated as a
+/// stored string.
+#[test]
+fn a_restored_nested_photograph_is_stored_with_forward_slashes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let lib = Library::create(&tmp.path().join("project"), "Shoot", Mode::Session).unwrap();
+    let photo = lib.directory.join("Capture").join("Nested").join("b.arw");
+    fs::create_dir_all(photo.parent().unwrap()).unwrap();
+    fs::write(&photo, b"nested original").unwrap();
+    let asset = lib.add_asset(&photo).unwrap();
+    assert_eq!(asset.rel_path, "Capture/Nested/b.arw");
+    let backup = tmp.path().join("backup");
+    copy_library(&lib.directory, &backup, "backup", &cancel(), |_| {}).unwrap();
+    let restore = tmp.path().join("restored");
+    copy_library(&backup, &restore, "restore", &cancel(), |_| {}).unwrap();
+    let restored = Library::open(&restore).unwrap();
+    let stored = restored.asset(&asset.id).unwrap();
+    assert_eq!(stored.rel_path, "Capture/Nested/b.arw");
+    assert_eq!(
+        stored.path,
+        restored
+            .directory
+            .join("Capture")
+            .join("Nested")
+            .join("b.arw")
+    );
+}
+
 /// A RAW+JPEG pair added where it is: a backup carries the JPEG beside the
 /// RAW's copy, and the restored library still has it as the companion
 /// after the external files are gone.

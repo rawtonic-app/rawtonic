@@ -193,9 +193,15 @@ pub fn validate_relative(path: &Path) -> Result<()> {
 /// library made on Windows can be reopened on Unix and back. The separator
 /// comes from the path's components, never from replacing characters in
 /// the result: on Unix a backslash is an ordinary character of a file
-/// name and stays one (or is refused, see below). Absolute paths, drive
-/// and UNC prefixes and `.`/`..` are refused, as is a Unix segment
-/// containing a backslash, which would read as two folders on Windows.
+/// name and stays one (or is refused, see below).
+///
+/// Absolute paths, drive and UNC prefixes and `..` are refused, as is an
+/// empty path and a Unix name containing a backslash, which would read as
+/// two folders on Windows. `.` is not a component `Path` reports: interior
+/// `.` segments (`Capture/./A.RAF`) are normalised away by `components`,
+/// which names the same file, and a leading `.` on Unix is part of a
+/// hidden name (`./A.RAF` stays the name `.`). This does not reject a
+/// name that merely starts with a dot.
 pub fn portable_relative(path: &Path) -> Result<String> {
     let mut names = Vec::new();
     for component in path.components() {
@@ -1581,12 +1587,9 @@ impl Library {
                 tx.execute("UPDATE assets SET missing=1 WHERE id=?", [id])?;
                 continue;
             };
-            // A place that cannot be stored stays where it was recorded
-            // (and is missing), rather than a native-separator path.
-            let Ok(rel) = portable_relative(&relative) else {
-                tx.execute("UPDATE assets SET missing=1 WHERE id=?", [id])?;
-                continue;
-            };
+            // A place the library cannot store fails the whole move, and the
+            // transaction rolls back: the records stay where they were.
+            let rel = portable_relative(&relative)?;
             let rel = rel.as_str();
             insert_root(tx, &root, &root_path)?;
             // A stale row for a file that is gone may hold the new place. It
