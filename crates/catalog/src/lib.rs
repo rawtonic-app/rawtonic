@@ -462,8 +462,21 @@ impl Library {
 
     fn configure(conn: &Connection) -> Result<()> {
         conn.busy_timeout(Duration::from_secs(5))?;
-        conn.execute_batch("PRAGMA journal_mode=WAL;")
-            .context("Set the library database journal mode")?;
+        // WAL is persistent. Reopening a library should read its mode rather
+        // than request a journal-mode change on every thumbnail connection.
+        let mode: String = conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .context("Read the library database journal mode")?;
+        let mode = if mode.eq_ignore_ascii_case("wal") {
+            mode
+        } else {
+            conn.query_row("PRAGMA journal_mode=WAL", [], |row| row.get::<_, String>(0))
+                .context("Set the library database journal mode")?
+        };
+        ensure!(
+            mode.eq_ignore_ascii_case("wal"),
+            "The library database volume does not support WAL journal mode"
+        );
         conn.execute_batch("PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;")
             .context("Configure library database durability and constraints")?;
         // The search's case folding (`query`, `fold`): the text index holds

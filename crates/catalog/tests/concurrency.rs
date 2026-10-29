@@ -3,6 +3,32 @@ use serde_json::json;
 use std::sync::{Arc, Barrier, mpsc};
 use std::time::{Duration, Instant};
 
+#[test]
+fn opening_an_existing_library_enables_wal_without_losing_its_photographs() {
+    let temp = tempfile::tempdir().unwrap();
+    let photo = temp.path().join("Capture/frame.jpg");
+    let id = {
+        let lib = Library::create(temp.path(), "Existing", Mode::Session).unwrap();
+        std::fs::write(&photo, b"synthetic source").unwrap();
+        lib.add_asset(&photo).unwrap().id
+    };
+    let db = temp.path().join("session.sqlite");
+    {
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        let mode: String = conn
+            .query_row("PRAGMA journal_mode=DELETE", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(mode, "delete");
+    }
+    let lib = Library::open(temp.path()).unwrap();
+    assert_eq!(lib.asset_at(&photo).unwrap().unwrap().id, id);
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let mode: String = conn
+        .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(mode, "wal");
+}
+
 /// The editor opens a short-lived connection per sidecar read, from the main
 /// thread and from every thumbnail worker at once. SQLite 3.51.1 could
 /// deadlock when one thread closed the last connection of a WAL database
