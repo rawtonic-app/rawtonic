@@ -282,7 +282,11 @@ fn an_unrepresentable_folder_rule_does_not_create_or_replace_an_album() -> Resul
     let invalid = rule(
         "folder",
         "contains",
-        format!("{}/../Selects", folder.display()),
+        format!(
+            "{}{sep}..{sep}Selects",
+            folder.display(),
+            sep = std::path::MAIN_SEPARATOR,
+        ),
     );
     assert!(
         lib.create_smart_collection("Refused", None, &invalid)
