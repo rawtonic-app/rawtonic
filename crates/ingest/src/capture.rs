@@ -20,7 +20,7 @@ use std::{
     fs,
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
-    sync::{Arc, LazyLock, Mutex},
+    sync::Arc,
     time::SystemTime,
 };
 
@@ -1071,19 +1071,48 @@ struct FolderFiles {
     stems: HashMap<String, usize>,
 }
 
-/// `folder`'s files (`FolderFiles`), listed once per version of the folder
-/// (its modification time): an import of a card folder's photographs reads
-/// it once, not once per photograph. `None` when it cannot be listed.
+type ListedFolders = HashMap<PathBuf, Arc<FolderFiles>>;
+
+thread_local! {
+    static LISTED: std::cell::RefCell<Option<ListedFolders>> = const {
+        std::cell::RefCell::new(None)
+    };
+}
+
+/// One import's snapshot of sidecar filenames, discarded before another
+/// import can observe it. Folder modification times are not change tokens:
+/// NTFS can keep them unchanged across new entries; FAT has coarse clocks.
+pub(crate) struct SidecarScope {
+    previous: Option<ListedFolders>,
+    // The guard must be dropped on the thread whose cache it owns.
+    _thread: std::marker::PhantomData<std::rc::Rc<()>>,
+}
+
+impl SidecarScope {
+    pub(crate) fn new() -> Self {
+        Self {
+            previous: LISTED.with(|listed| listed.replace(Some(HashMap::new()))),
+            _thread: std::marker::PhantomData,
+        }
+    }
+}
+
+impl Drop for SidecarScope {
+    fn drop(&mut self) {
+        LISTED.with(|listed| listed.replace(self.previous.take()));
+    }
+}
+
+/// An import lists each folder once. A standalone query always lists it
+/// afresh, as does the next import. `None` when it cannot be listed.
 fn folder_files(folder: &Path) -> Option<Arc<FolderFiles>> {
-    type Listed = HashMap<PathBuf, (SystemTime, Arc<FolderFiles>)>;
-    static LISTED: LazyLock<Mutex<Listed>> = LazyLock::new(Default::default);
-    let modified = fs::metadata(folder).ok()?.modified().ok();
-    let mut listed = LISTED.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(modified) = modified
-        && let Some((at, files)) = listed.get(folder)
-        && *at == modified
-    {
-        return Some(files.clone());
+    if let Some(files) = LISTED.with(|listed| {
+        listed
+            .borrow()
+            .as_ref()
+            .and_then(|files| files.get(folder).cloned())
+    }) {
+        return Some(files);
     }
     let mut files = FolderFiles::default();
     for entry in fs::read_dir(folder).ok()?.flatten() {
@@ -1108,12 +1137,14 @@ fn folder_files(folder: &Path) -> Option<Arc<FolderFiles>> {
             .push(name);
     }
     let files = Arc::new(files);
-    if let Some(modified) = modified {
-        if listed.len() >= 64 {
-            listed.clear();
+    LISTED.with(|listed| {
+        if let Some(listed) = listed.borrow_mut().as_mut() {
+            if listed.len() >= 64 {
+                listed.clear();
+            }
+            listed.insert(folder.to_path_buf(), files.clone());
         }
-        listed.insert(folder.to_path_buf(), (modified, files.clone()));
-    }
+    });
     Some(files)
 }
 
@@ -1944,6 +1975,54 @@ pub(crate) mod tests {
         );
         data[0] = b'M';
         assert_eq!(from_bytes(&data).captured, None);
+    }
+
+    #[test]
+    fn sidecar_snapshots_are_reused_only_within_their_import() {
+        let d = tempfile::tempdir().unwrap();
+        let photo = d.path().join("A.ARW");
+        let sidecar = d.path().join("A.xmp");
+        fs::write(&photo, b"synthetic").unwrap();
+        {
+            let _scope = SidecarScope::new();
+            let first = folder_files(d.path()).unwrap();
+            assert_eq!(card_sidecar(&photo).unwrap(), None);
+            fs::write(&sidecar, b"synthetic sidecar").unwrap();
+            for _ in 0..1000 {
+                let next = folder_files(d.path()).unwrap();
+                assert!(Arc::ptr_eq(&first, &next), "one listing per import folder");
+            }
+        }
+        {
+            let _scope = SidecarScope::new();
+            assert_eq!(card_sidecar(&photo).unwrap(), Some(sidecar.clone()));
+        }
+        // A standalone query must not inherit the preceding import's index.
+        fs::remove_file(&sidecar).unwrap();
+        assert_eq!(card_sidecar(&photo).unwrap(), None);
+    }
+
+    #[test]
+    fn a_nested_or_panicking_import_does_not_leak_its_sidecar_snapshot() {
+        let d = tempfile::tempdir().unwrap();
+        let photo = d.path().join("A.ARW");
+        let sidecar = d.path().join("A.xmp");
+        fs::write(&photo, b"synthetic").unwrap();
+        {
+            let _outer = SidecarScope::new();
+            assert_eq!(card_sidecar(&photo).unwrap(), None);
+            fs::write(&sidecar, b"synthetic sidecar").unwrap();
+            assert!(
+                std::panic::catch_unwind(|| {
+                    let _nested = SidecarScope::new();
+                    assert_eq!(card_sidecar(&photo).unwrap(), Some(sidecar.clone()));
+                    panic!("synthetic interrupted import");
+                })
+                .is_err()
+            );
+            assert_eq!(card_sidecar(&photo).unwrap(), None);
+        }
+        assert_eq!(card_sidecar(&photo).unwrap(), Some(sidecar));
     }
 
     #[test]

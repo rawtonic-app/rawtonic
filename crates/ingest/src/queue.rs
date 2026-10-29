@@ -125,6 +125,7 @@ pub fn run_job(
     cancel: &AtomicBool,
     mut on_file: impl FnMut(FileDone<'_>),
 ) -> Result<Vec<ImportResult>> {
+    let _sidecars = crate::capture::SidecarScope::new();
     let job = library.ingest_job(id)?;
     let options: JobOptions = serde_json::from_value(job.options.clone())?;
     let folder = options
