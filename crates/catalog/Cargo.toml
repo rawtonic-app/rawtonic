@@ -23,6 +23,11 @@ chrono.workspace = true
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.189"
 
+# The file identity of a photograph (volume serial and file index), as Unix
+# takes it from `stat`.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+
 [dev-dependencies]
 tempfile.workspace = true
 proptest = "1"

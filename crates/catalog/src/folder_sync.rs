@@ -40,9 +40,7 @@
 //! Files on disk are never moved, modified or deleted; a removal only
 //! removes the library's entry.
 use crate::checksum::{sha256_file, stamp};
-use crate::{
-    Library, Mode, RelinkReport, add::ImportKind, fingerprint, folders::drive_root, resolve_moved,
-};
+use crate::{Library, Mode, RelinkReport, add::ImportKind, fingerprint, resolve_moved};
 use anyhow::{Context, Result, bail, ensure};
 use rusqlite::TransactionBehavior;
 use serde::{Deserialize, Serialize};
@@ -287,44 +285,6 @@ impl SyncApplied {
     }
 }
 
-/// A place a plan names (a photograph's, a file's): on the platform that
-/// stores relative paths portably (`/`; Windows, see
-/// [`Library::sync_place`]) as it is stored, the native path otherwise.
-fn shown(path: &Path) -> PathBuf {
-    #[cfg(windows)]
-    {
-        crate::folders::portable(path)
-    }
-    #[cfg(not(windows))]
-    {
-        path.to_path_buf()
-    }
-}
-
-/// The native place of a path a plan shows portably: its first component
-/// is the volume's own root as the system spells it (`C:\`,
-/// `\\server\share`), which `Path::join` keeps, the drive holding `library`
-/// when the shown root is a bare `/`.
-fn native_place(library: &Path, path: &Path) -> PathBuf {
-    #[cfg(windows)]
-    {
-        let shown = path.to_string_lossy();
-        let (root, rest) = match shown.find('/') {
-            Some(at) => (&shown[..at], shown[at + 1..].trim_start_matches('/')),
-            None => (&shown[..], ""),
-        };
-        if !rest.is_empty() && !root.is_empty() {
-            return PathBuf::from(root).join(rest.replace('/', "\\"));
-        }
-        if root.is_empty() {
-            return drive_root(library).join(rest.replace('/', "\\"));
-        }
-    }
-    #[cfg(not(windows))]
-    let _ = library;
-    path.to_path_buf()
-}
-
 /// A registered photograph as a scan sees it.
 struct Known {
     id: String,
@@ -376,43 +336,87 @@ fn cancelled(cancel: &AtomicBool) -> Result<()> {
 }
 
 /// The same file under two names (a case-only rename on a case-insensitive
-/// volume, or a hard link): one place on disk (device and file number on
-/// Unix), which the file system resolves like a name, so letter case does
-/// not matter there.
+/// volume, or a hard link): the volume it is on and its number there, which
+/// the system tells without regard to letter case.
 fn same_file(a: &Path, b: &Path) -> bool {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        match (fs::metadata(a), fs::metadata(b)) {
-            (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
-            _ => false,
+    let identity = |path: &Path| {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let meta = fs::metadata(path).ok()?;
+            Some((meta.dev(), meta.ino()))
         }
-    }
-    #[cfg(windows)]
-    {
-        match (file_index(a), file_index(b)) {
-            (Some(a), Some(b)) => a == b,
-            _ => false,
+        // The file handle's information: the index alone would collide
+        // across volumes, so the volume's serial number comes with it. The
+        // handle is opened by the name the scan sees it under (a link is
+        // followed, as `stat` does on Unix; a link is never its target's
+        // file).
+        #[cfg(windows)]
+        {
+            use windows::Win32::Foundation::CloseHandle;
+            use windows::Win32::Storage::FileSystem::{
+                BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_FLAG_BACKUP_SEMANTICS,
+                FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+                GetFileInformationByHandle, OPEN_EXISTING,
+            };
+            use windows::core::HSTRING;
+            let handle = unsafe {
+                CreateFileW(
+                    &HSTRING::from(path.as_os_str()),
+                    FILE_READ_ATTRIBUTES.0,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    None,
+                    OPEN_EXISTING,
+                    FILE_FLAG_BACKUP_SEMANTICS,
+                    None,
+                )
+            }
+            .ok()?;
+            let mut info = BY_HANDLE_FILE_INFORMATION::default();
+            let read = unsafe { GetFileInformationByHandle(handle, &mut info) }.is_ok();
+            unsafe {
+                _ = CloseHandle(handle);
+            }
+            read.then(|| {
+                (
+                    u64::from(info.dwVolumeSerialNumber),
+                    u64::from(info.nFileIndexHigh) << 32 | u64::from(info.nFileIndexLow),
+                )
+            })
         }
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = (a, b);
-        false
-    }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = path;
+            Option::<(u64, u64)>::None
+        }
+    };
+    identity(a).is_some_and(|a| identity(b) == Some(a))
 }
 
-/// The file number (`file_index`) of a native path on its volume; Windows
-/// identifies one file by that number and the volume it is on, whatever its
-/// name's letter case. (A file system that keeps no numbers, a FAT stick,
-/// reports none for every file.) `file_index` is still unstable in std
-/// (`windows_by_handle`), gated at the crate root (`lib.rs`).
-#[cfg(windows)]
-fn file_index(path: &Path) -> Option<u64> {
-    use std::os::windows::fs::MetadataExt;
-    fs::metadata(path)
-        .ok()
-        .and_then(|metadata| metadata.file_index())
+#[cfg(test)]
+mod tests {
+    /// A case-only rename is the same file, whatever the letter case (the
+    /// file system is case-insensitive, so `A.ARW` is `a.arw` there): the
+    /// handle's volume serial and file index say so. Another photograph's
+    /// file, a copy of it and a name whose file does not exist are not.
+    #[cfg(windows)]
+    #[test]
+    fn file_identity_tells_a_case_variant_from_another_file() {
+        let d = tempfile::tempdir().unwrap();
+        let a = d.path().join("a.arw");
+        let b = d.path().join("B.ARW");
+        let copy = d.path().join("a copy.arw");
+        fs::write(&a, b"alpha").unwrap();
+        fs::write(&b, b"bravo").unwrap();
+        fs::copy(&a, &copy).unwrap();
+        let upper = d.path().join("A.ARW");
+        assert!(upper.exists(), "a case-insensitive volume");
+        assert!(same_file(&a, &upper));
+        assert!(!same_file(&a, &b), "another file, one volume");
+        assert!(!same_file(&a, &copy), "same bytes, another file");
+        assert!(!same_file(&a, &d.path().join("Missing.ARW")));
+        assert!(!same_file(&a, &d.path()), "a file is not its folder");
+    }
 }
 
 /// `a` and `b` differ in letter case only.
@@ -693,7 +697,7 @@ impl Library {
             failed,
         } = scanned;
         let mut plan = SyncPlan {
-            folders: folders.iter().map(|f| shown(f)).collect(),
+            folders: folders.to_vec(),
             ..SyncPlan::default()
         };
         let in_scope = |path: &Path| folders.iter().any(|f| below(path, f));
@@ -838,23 +842,23 @@ impl Library {
         let to_move = |i: usize, verified: bool, file: &Path, identity: &FileIdentity| SyncMove {
             asset_id: known[i].id.clone(),
             from: known[i].path.clone(),
-            to: shown(file),
+            to: file.to_path_buf(),
             identity: identity.clone(),
             verified,
         };
         let paths_of = |indices: &[usize]| -> Vec<PathBuf> {
-            indices.iter().map(|&i| shown(&known[i].path)).collect()
+            indices.iter().map(|&i| known[i].path.clone()).collect()
         };
         for (file, identity, what) in found {
             match what {
                 Found::New => plan.new_files.push(SyncNewFile {
-                    path: shown(&file),
+                    path: file,
                     identity,
                     copy_of: Vec::new(),
                 }),
                 Found::Copy(of) => plan.copies.push(SyncNewFile {
                     copy_of: paths_of(&of),
-                    path: shown(&file),
+                    path: file,
                     identity,
                 }),
                 Found::Moved(moves) if moves.len() == 1 && claims[&moves[0].0] == 1 => {
@@ -872,7 +876,7 @@ impl Library {
                         .map(|&(i, verified)| to_move(i, verified, &file, &identity))
                         .collect(),
                     copy_of: Vec::new(),
-                    path: shown(&file),
+                    path: file,
                     identity,
                 }),
                 Found::Contested(moves, of) => plan.contested.push(SyncContested {
@@ -881,7 +885,7 @@ impl Library {
                         .map(|&(i, verified)| to_move(i, verified, &file, &identity))
                         .collect(),
                     copy_of: paths_of(&of),
-                    path: shown(&file),
+                    path: file,
                     identity,
                 }),
             }
@@ -906,7 +910,7 @@ impl Library {
             let state = *states[i].get_or_insert_with(|| state_of(k, &disconnected, &failed));
             let entry = || SyncMissing {
                 asset_id: k.id.clone(),
-                path: shown(&k.path),
+                path: k.path.clone(),
                 volume: disconnected.get(&k.id).cloned(),
             };
             match state {
@@ -972,14 +976,16 @@ impl Library {
             })
         };
         let mut anchors = self.anchors()?;
-        // The internal places: what the file system and the library's
-        // stored paths are asked. A plan names them as they are shown.
-        let actions: Vec<SyncAction> = actions.iter().map(|a| self.sync_place(a)).collect();
         // Moves first: a file a move takes is not added as well.
-        let (moves_first, others): (Vec<&SyncAction>, Vec<&SyncAction>) = actions
+        let mut ordered: Vec<&SyncAction> = actions
             .iter()
-            .partition(|a| matches!(a, SyncAction::Move { .. }));
-        let ordered: Vec<&SyncAction> = moves_first.into_iter().chain(others).collect();
+            .filter(|a| matches!(a, SyncAction::Move { .. }))
+            .collect();
+        ordered.extend(
+            actions
+                .iter()
+                .filter(|a| !matches!(a, SyncAction::Move { .. })),
+        );
         for action in ordered {
             match action {
                 SyncAction::Move {
@@ -1071,37 +1077,6 @@ impl Library {
         }
         applied.skipped = skipped;
         Ok(applied)
-    }
-
-    /// An accepted action as the library and the file system take it: paths
-    /// a plan shows portably (`/`; see `shown`) become native again
-    /// (Windows: `\` and the drive's own root), so that a stored relative
-    /// path is validated and made portable once (`portable_relative`), and
-    /// comparing it with the registered path can still see that a file is
-    /// back at its place. Everything else is unchanged.
-    fn sync_place(&self, action: &SyncAction) -> SyncAction {
-        let native = |path: &Path| native_place(&self.directory, path);
-        match action {
-            SyncAction::Move {
-                asset_id,
-                from,
-                to,
-                identity,
-            } => SyncAction::Move {
-                asset_id: asset_id.clone(),
-                from: native(from),
-                to: native(to),
-                identity: identity.clone(),
-            },
-            SyncAction::Add { path, identity } => SyncAction::Add {
-                path: native(path),
-                identity: identity.clone(),
-            },
-            SyncAction::Remove { asset_id, path } => SyncAction::Remove {
-                asset_id: asset_id.clone(),
-                path: native(path),
-            },
-        }
     }
 
     fn check_move(
