@@ -95,6 +95,15 @@ fn build_tauri() {
         && env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR not set"));
     let shim = out.join("msvcrt.lib");
+    if msvc {
+        // A previous build may have enabled static VC. Only a newly generated
+        // override proves that Tauri selected it for the current configuration.
+        match fs::remove_file(&shim) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => panic!("Cannot clear the generated VC runtime override: {e}"),
+        }
+    }
     tauri_build::build();
     if msvc && shim.exists() {
         // Move only Tauri's generated override, keeping resource.lib intact.
