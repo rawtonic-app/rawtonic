@@ -852,9 +852,9 @@
       "zoomOutTooltip": "縮小"
     },
     "quit": {
-      "quitAnyway": "",
-      "unsavedMessage": "",
-      "unsavedTitle": ""
+      "quitAnyway": "終了する",
+      "unsavedMessage": "次の変更を保存できませんでした: {{changes}}。今終了すると、これらの変更は失われます。キャンセルすると Rawtonic を開いたまま再試行できます。",
+      "unsavedTitle": "未保存の変更"
     },
     "renameFile": {
       "cancel": "キャンセル",
@@ -955,7 +955,7 @@
   },
   "notifications": {
     "close": "通知を閉じる",
-    "quitCancelled": "",
+    "quitCancelled": "保存が完了しなかったため、Rawtonic は終了しませんでした。保留中の変更は引き続き保存されています。",
     "region": "通知"
   },
   "offline": {

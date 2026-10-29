@@ -852,9 +852,9 @@
       "zoomOutTooltip": "축소"
     },
     "quit": {
-      "quitAnyway": "",
-      "unsavedMessage": "",
-      "unsavedTitle": ""
+      "quitAnyway": "그래도 종료",
+      "unsavedMessage": "다음 변경 사항을 저장하지 못했습니다: {{changes}}. 지금 종료하면 이 변경 사항이 손실됩니다. 취소하면 Rawtonic을 열어 둔 채로 다시 시도할 수 있습니다.",
+      "unsavedTitle": "저장되지 않은 변경 사항"
     },
     "renameFile": {
       "cancel": "취소",
@@ -955,7 +955,7 @@
   },
   "notifications": {
     "close": "알림 닫기",
-    "quitCancelled": "",
+    "quitCancelled": "저장이 완료되지 않아 Rawtonic이 종료되지 않았습니다. 보류 중인 변경 사항은 계속 저장되고 있습니다.",
     "region": "알림"
   },
   "offline": {
