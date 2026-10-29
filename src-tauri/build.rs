@@ -68,10 +68,24 @@ fn download_and_verify(
     }
 }
 
+fn link_windows_test_resources() {
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+        && env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
+    {
+        // tauri-build links this resource only into binaries. Native tests
+        // also need its Common Controls v6 manifest for TaskDialogIndirect.
+        // Reuse the file intact, including the application's icon/version.
+        let resource =
+            PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR not set")).join("resource.lib");
+        println!("cargo:rustc-link-arg={}", resource.display());
+    }
+}
+
 fn main() {
     println!("cargo:rerun-if-env-changed=RAWTONIC_BUNDLE_ONNX");
     if std::env::var("RAWTONIC_BUNDLE_ONNX").as_deref() != Ok("1") {
         tauri_build::build();
+        link_windows_test_resources();
         return;
     }
 
@@ -237,5 +251,6 @@ fn main() {
 
     println!("cargo:rerun-if-changed=build.rs");
 
-    tauri_build::build()
+    tauri_build::build();
+    link_windows_test_resources();
 }
