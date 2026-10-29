@@ -545,6 +545,52 @@ fn a_folder_moves_to_another_drive_on_its_own() {
     assert!(exists(&world.source.join("A.xmp")));
 }
 
+/// The space a folder move needs is the space it reports it will copy
+/// (`copy_needs`: its files, not its folders) on the volume it goes to;
+/// the free space there is the system's own figure (a real query, asked
+/// for a path that does not exist yet through its nearest existing
+/// folder), never an invented one. The move of that folder then fits.
+#[test]
+fn a_folder_move_needs_its_bytes_on_the_target_volume() {
+    if std::env::var_os("RAWTONIC_TEST_OTHER_VOLUME").is_some() {
+        World::new();
+        eprintln!("SKIP: the target is the one volume given, asked separately");
+        return;
+    }
+    let world = World::new();
+    let (from, to) = world.folder();
+    let bytes: u64 = TREE.iter().map(|(_, len)| *len as u64).sum();
+    let needs = copy_needs(&[(from.clone(), to.clone())]).unwrap();
+    assert_eq!(needs.len(), 1, "{needs:?}");
+    let need = &needs[0];
+    assert_eq!((need.bytes, need.files), (bytes, TREE.len()));
+    // The target volume, before the folder exists there.
+    assert_eq!(
+        need.volume,
+        volume_info(&world.target).unwrap(),
+        "asked for {to:?}"
+    );
+    assert!(need.volume.mount_point.is_absolute(), "{need:?}");
+    assert!(
+        need.volume.free_bytes < u64::MAX,
+        "free space comes from the system: {need:?}"
+    );
+    if world.publishes_in_place() {
+        return;
+    }
+    let op = world
+        .journal()
+        .execute(
+            "move",
+            "Move folder",
+            vec![Step::other_volume(&from, &to)],
+            &world.trash,
+        )
+        .unwrap();
+    assert_eq!(op.state, State::Done);
+    assert!(!exists(&from));
+}
+
 /// Permission bits travel with the folder and back (owner access kept),
 /// on volumes that keep them.
 #[cfg(unix)]
