@@ -384,22 +384,16 @@ mod tests {
         }
     }
 
-    /// Relative arguments are joined to the invocation folder with `Path`,
-    /// so the result has that platform's form and separators (literals
-    /// like `/home/u` are not absolute on Windows), and `Path` itself
-    /// decides what joining leaves (`..` is kept as given; a trailing
-    /// separator is not a new one). The folder is given in the system's
-    /// own form: on Windows a canonical path may be `\\?\C:\…` and one
-    /// joined to it may drop the verbatim prefix.
+    /// Relative arguments use the platform's native Path::join semantics.
     #[test]
     fn relative_path_arguments_join_the_invocation_folder() {
         let folder = tempfile::tempdir().unwrap();
         let base = std::path::absolute(folder.path()).unwrap();
-        assert_eq!(
-            parse_launch_args(&strings(&["a.jpg"]), Some(&base)),
-            joined(&base, "a.jpg"),
-            "a relative argument is the folder joined with it"
-        );
+        let LaunchRequest::OpenFile(path) = parse_launch_args(&strings(&["a.jpg"]), Some(&base))
+        else {
+            panic!("open file");
+        };
+        assert_eq!(path, joined(&base, "a.jpg"));
         let args = strings(&[
             "export",
             "a.ARW",

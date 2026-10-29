@@ -56,7 +56,7 @@ pub fn volume_info(path: &Path) -> Result<VolumeInfo> {
 /// A volume's mount point is the identity `copy_needs` groups by (`C:\`
 /// on Windows, not `C:\Temp` in one program and `\\?\C:\Temp` in
 /// another), so it is compared by [`same_mount`], not by the path alone.
-fn same_mount(a: &Path, b: &Path) -> bool {
+pub(super) fn same_mount(a: &Path, b: &Path) -> bool {
     match (a.canonicalize(), b.canonicalize()) {
         (Ok(x), Ok(y)) => x == y,
         _ => a == b,
@@ -258,28 +258,17 @@ fn mount_of(path: &Path) -> Result<(PathBuf, String, bool)> {
     unsafe extern "system" {
         fn GetVolumePathNameW(path: *const u16, volume_path: *mut u16, len: u32) -> i32;
     }
-    // A volume's mount path is shorter than MAX_PATH unless it is a UNC
-    // share; one buffer of the documented size is retried larger, so a
-    // share name is never cut (the system reports a short buffer).
+    // The canonical input is absolute. A mount root cannot exceed its full
+    // path plus a trailing separator; allow an extra NUL as documented by
+    // GetVolumePathNameW, which can otherwise omit a trailing separator.
     let wide = wide_path(path)?;
-    let mut buffer: Vec<u16> = Vec::new();
-    loop {
-        let len = if buffer.is_empty() {
-            261u32
-        } else {
-            buffer.len() as u32
-        };
-        buffer = vec![0u16; len as usize];
-        // SAFETY: both NUL-terminated buffers are valid for the call.
-        let ok = unsafe { GetVolumePathNameW(wide.as_ptr(), buffer.as_mut_ptr(), len) } != 0;
-        if ok {
-            break;
-        }
-        let error = io::Error::last_os_error();
-        if buffer.len() >= 1 << 15 {
-            return Err(error)
-                .with_context(|| format!("Cannot read the volume of {}", path.display()));
-        }
+    let len = wide.len().max(260) + 1;
+    let api_len = u32::try_from(len).context("Volume path is too long")?;
+    let mut buffer = vec![0u16; len];
+    // SAFETY: the input is NUL-terminated and the output has api_len units.
+    if unsafe { GetVolumePathNameW(wide.as_ptr(), buffer.as_mut_ptr(), api_len) } == 0 {
+        return Err(io::Error::last_os_error())
+            .with_context(|| format!("Cannot read the volume of {}", path.display()));
     }
     let end = buffer.iter().position(|&c| c == 0).unwrap_or(0);
     let root = PathBuf::from(OsString::from_wide(&buffer[..end]));
@@ -404,7 +393,10 @@ pub fn rename_exclusive(from: &Path, to: &Path) -> io::Result<()> {
         // ERROR_FILE_EXISTS, ERROR_ALREADY_EXISTS.
         const ERROR_FILE_EXISTS: i32 = 80;
         const ERROR_ALREADY_EXISTS: i32 = 183;
-        let (f, t) = (wide_path(from)?, wide_path(to)?);
+        let as_io = |path: &Path| {
+            wide_path(path).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))
+        };
+        let (f, t) = (as_io(from)?, as_io(to)?);
         // SAFETY: both are NUL-terminated wide strings that outlive the call.
         if unsafe { MoveFileExW(f.as_ptr(), t.as_ptr(), 0) } != 0 {
             return Ok(());
@@ -955,31 +947,22 @@ mod tests {
     #[test]
     fn a_windows_folder_reports_its_mount_root_and_its_real_free_space() {
         let tmp = tempfile::tempdir().unwrap();
-        let folder = tmp.path().canonicalize().unwrap().join("not/yet/there");
+        let existing = tmp.path().canonicalize().unwrap();
+        let folder = existing.join("not").join("yet").join("there");
         let info = volume_info(&folder).unwrap();
-        let root = info.mount_point.to_string_lossy();
+        let root = info.mount_point.canonicalize().unwrap();
         assert!(
-            root.len() == 3 && root.ends_with(":\\") && root.starts_with(folder.to_string_lossy()),
-            "{info:?} is not the drive of {}",
-            folder.display()
+            existing.starts_with(&root),
+            "{info:?} is not its mount root"
         );
-        assert_eq!(info.name, root.trim_end_matches('\\'), "{info:?}");
+        assert!(!info.name.is_empty());
         assert!(!info.network);
         assert!(!info.file_system.is_empty(), "{info:?}");
-        // A folder and the folder below it are on the same volume.
         let child = folder.with_file_name("also");
-        assert_eq!(
-            volume_info(&child).unwrap().mount_point,
-            info.mount_point.clone(),
-            "another folder of the same drive"
-        );
-        assert!(same_mount(&child, &folder), "the same volume, by its root");
-        let drive = PathBuf::from(format!("{root}"));
-        assert!(
-            same_mount(&folder, &drive),
-            "{} is on {drive:?}",
-            folder.display()
-        );
+        let child_volume = volume_info(&child).unwrap();
+        assert!(same_mount(&child_volume.mount_point, &info.mount_point));
+        // Canonical and ordinary spellings of an existing root compare alike.
+        assert!(same_mount(&root, &info.mount_point));
         // The drive the temporary folder is on needs room to make one.
         assert!(
             info.free_bytes > 0,

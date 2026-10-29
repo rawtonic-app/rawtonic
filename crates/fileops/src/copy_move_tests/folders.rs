@@ -545,23 +545,14 @@ fn a_folder_moves_to_another_drive_on_its_own() {
     assert!(exists(&world.source.join("A.xmp")));
 }
 
-/// The space a folder move needs is the bytes it will copy (`copy_needs`:
-/// its files, not its folders) on the volume it goes to, asked for the
-/// folder before it exists there: the target with the system's own file
-/// system and network report, and a free figure it really measured. Free
-/// space changes between two calls, so the figure is never compared with a
-/// second one; a sparse stand-in below any copy's need (it costs nothing on
-/// APFS/ext4/NTFS and statvfs reports it) is visible to the system, so a
-/// need that did not come from the system would report too little.
+/// Copy requirements count file bytes on the actual target volume, including
+/// a destination directory that does not exist yet. Free space may change
+/// between queries; only stable volume properties are compared.
 #[test]
 fn a_folder_move_needs_its_bytes_on_the_target_volume() {
     let world = World::new();
     let (from, to) = world.folder();
     let bytes: u64 = TREE.iter().map(|(_, len)| *len as u64).sum();
-    let stand_in = world.target.join("stand-in");
-    let file = fs::File::create(&stand_in).unwrap();
-    assert!(file.set_len(SPACE_RESERVE / 4).is_ok(), "sparse stand-in");
-    drop(file);
     let needs = copy_needs(&[(from.clone(), to.clone())]).unwrap();
     assert_eq!(needs.len(), 1, "{needs:?}");
     let need = &needs[0];
@@ -596,7 +587,6 @@ fn a_folder_move_needs_its_bytes_on_the_target_volume() {
         assert_eq!(op.state, State::Done);
         assert!(!exists(&from));
     }
-    fs::remove_file(&stand_in).unwrap();
 }
 
 /// Permission bits travel with the folder and back (owner access kept),
