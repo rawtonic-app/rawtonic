@@ -68,10 +68,62 @@ fn download_and_verify(
     }
 }
 
+/// Links a Common Controls v6 manifest into every Rust test executable.
+///
+/// tauri-build embeds the app manifest (windows-app-manifest.xml) only into
+/// the `[[bin]]` targets (`rustc-link-arg-bins`). Test binaries would start
+/// without one, load Common Controls v5 through a side-by-side dependency and
+/// fail to resolve comctl32.dll!TaskDialogIndirect (imported by the tauri
+/// dialog plugin, v6 only): the lib unit-test binary (`rapidraw_lib-<hash>.exe`)
+/// aborts at startup with 0xc0000139. This links the same manifest into them:
+///
+/// - Integration test and bench executables get their own manifest through
+///   `rustc-link-arg-tests`, which never reaches the lib unit-test binary.
+/// - That binary is linked outside the target kinds `-tests` covers, so the
+///   plain `rustc-link-arg` adds it there; it applies to every artifact
+///   rustc links, which is why the manifest is separate from the app icon
+///   and version resources of the real binaries. The app's rlib carries no
+///   resources either way.
+#[cfg(all(target_os = "windows", target_env = "msvc"))]
+fn link_test_manifest() {
+    use tauri_winres::WindowsResource;
+
+    let manifest = tauri_build::Attributes::new()
+        .windows_attributes
+        .app_manifest
+        .unwrap_or_default();
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+
+    let mut tests = WindowsResource::new();
+    tests.set_manifest(&manifest);
+    tests
+        .compile()
+        .unwrap_or_else(|e| panic!("failed to compile the Windows test manifest: {e}"));
+    let tests_lib = out_dir.join("win-tests.lib");
+    fs::rename(out_dir.join("resource.lib"), &tests_lib)
+        .unwrap_or_else(|e| panic!("failed to place {}: {e}", tests_lib.display()));
+    println!("cargo:rustc-link-arg-tests={}", tests_lib.display());
+
+    // Second manifest under its own name, because rustc would otherwise see
+    // the same input file twice.
+    let mut unit = WindowsResource::new();
+    unit.set_manifest(&manifest);
+    unit.compile()
+        .unwrap_or_else(|e| panic!("failed to compile the Windows test manifest: {e}"));
+    println!(
+        "cargo:rustc-link-arg={}",
+        out_dir.join("resource.lib").display()
+    );
+}
+
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+fn link_test_manifest() {}
+
 fn main() {
     println!("cargo:rerun-if-env-changed=RAWTONIC_BUNDLE_ONNX");
     if std::env::var("RAWTONIC_BUNDLE_ONNX").as_deref() != Ok("1") {
         tauri_build::build();
+        link_test_manifest();
         return;
     }
 
@@ -237,5 +289,6 @@ fn main() {
 
     println!("cargo:rerun-if-changed=build.rs");
 
-    tauri_build::build()
+    tauri_build::build();
+    link_test_manifest();
 }
