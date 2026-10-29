@@ -56,6 +56,7 @@ const Tile = memo(function Tile({
   file,
   selected,
   current,
+  narrow,
   onSelect,
   onOpen,
   onRate,
@@ -68,6 +69,9 @@ const Tile = memo(function Tile({
   file: ImageFile;
   selected: boolean;
   current: boolean;
+  /** A grid tile too narrow for the five 24 px stars and the colour word
+   * in one row. */
+  narrow: boolean;
   /** 1-based place in the listing and its length (most tiles are not mounted). */
   position: number;
   total: number;
@@ -112,7 +116,7 @@ const Tile = memo(function Tile({
   };
   return (
     <div
-      className={`studio-photo ${selected ? "is-selected" : ""} ${current ? "is-current" : ""} ${flag === -1 ? "is-rejected" : ""} ${file.is_offline ? "is-offline" : ""}`}
+      className={`studio-photo ${selected ? "is-selected" : ""} ${current ? "is-current" : ""} ${flag === -1 ? "is-rejected" : ""} ${file.is_offline ? "is-offline" : ""} ${narrow ? "is-narrow" : ""}`}
       onContextMenu={(e) => onContextMenu(e, file.path)}
       onPointerDown={(e) => startTileDrag(e, file.path)}
     >
@@ -274,6 +278,10 @@ export default function StudioBrowser({
   }, [film]);
   const [box, setBox] = useState({ width: 800, height: 500 });
   const [offset, setOffset] = useState(0);
+  // The Tab key moved the focus (by its key code, never by timing): only
+  // then is a tile the keyboard entered the grid at. A click, or the focus
+  // put on a tile by code, is not.
+  const tabPressed = useRef(false);
   const selected = useLibraryStore((s) => s.multiSelectedPaths);
   const filter = useLibraryStore((s) => s.filterCriteria);
   const search = useLibraryStore((s) => s.searchCriteria);
@@ -335,8 +343,19 @@ export default function StudioBrowser({
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Tab" || event.code === "Tab") tabPressed.current = true;
+    };
+    // Capture: the focus moves right after the key, before React's handlers.
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, []);
   const columns = film ? 1 : Math.max(1, Math.floor(box.width / size));
   const extent = film ? 112 : Math.round((box.width / columns) * 0.72) + 57;
+  // A 150 px thumbnail leaves no room beside the five 24 px stars for the
+  // colour word: the tile stacks them (studio.css, `.is-narrow`).
+  const narrow = !film && size <= 150;
   const range = visibleRange(
     files.length,
     offset,
@@ -440,6 +459,20 @@ export default function StudioBrowser({
     const el = ref.current;
     if (!el || !(tile instanceof HTMLElement) || !tile.classList.contains("studio-photo-open")) return;
     if (tile.dataset.panelShortcut === "true" || el.contains(e.relatedTarget as Node | null)) return;
+    // Tab entered the grid of a folder or album just opened, which has no
+    // active photograph (useAppNavigation publishes the listing without
+    // one): the photograph entered becomes the active one, so the arrows
+    // step from it.
+    if (tabPressed.current) {
+      tabPressed.current = false;
+      if (!film && !libraryActivePath && tile.dataset.path) {
+        useLibraryStore.getState().setLibrary({
+          libraryActivePath: tile.dataset.path,
+          multiSelectedPaths: [tile.dataset.path],
+        });
+        return;
+      }
+    }
     const active = focusPath;
     const index = active ? files.findIndex((f) => f.path === active) : -1;
     if (index < 0 || tile.dataset.path === active) return;
@@ -463,6 +496,16 @@ export default function StudioBrowser({
       aria-label={film ? t("studio.library.browser.filmstrip") : t("studio.library.browser.photographs")}
       aria-multiselectable="true"
       onFocus={onTileFocus}
+      // The focus left the grid (Tab out, a click in a panel): a focus that
+      // waited for a tile to mount no longer takes it back later.
+      onBlur={(e) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+        focusFollows.current = null;
+        focusTarget.current = null;
+      }}
+      onPointerDownCapture={() => {
+        tabPressed.current = false;
+      }}
       onPointerDown={onBackgroundDown}
       onPointerUp={onBackgroundUp}
       onScroll={(e) =>
@@ -509,6 +552,7 @@ export default function StudioBrowser({
                   // selected: an emptied selection shows no photograph marked.
                   current={file.path === currentPath && (film || selectedSet.has(file.path))}
                   selected={selectedSet.has(file.path)}
+                  narrow={narrow}
                   onSelect={onSelect}
                   onOpen={onOpen}
                   onRate={onRate}

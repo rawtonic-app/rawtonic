@@ -373,6 +373,111 @@ describe("library grid keyboard focus", () => {
     useLibraryStore.setState({ libraryActivePath: null });
   });
 
+  it("makes the photograph entered by keyboard active in a folder that has none", () => {
+    // A folder just opened: the listing arrives with no active photograph
+    // (useAppNavigation publishes it that way). Tab presses the key, then
+    // the browser moves the focus to the grid's first stop.
+    useLibraryStore.setState({ libraryActivePath: null, multiSelectedPaths: [] });
+    const { getByRole } = render(<StudioBrowser {...props} currentPath="/s/b.NEF" />);
+    fireEvent.keyDown(document.body, { key: "Tab", code: "Tab" });
+    // Tab reaches the grid's only Tab stop: the open photograph's tile.
+    act(() => getByRole("option", { name: "b.NEF" }).focus());
+    expect(useLibraryStore.getState()).toMatchObject({
+      libraryActivePath: "/s/b.NEF",
+      multiSelectedPaths: ["/s/b.NEF"],
+    });
+    // From here it is the grid's active photograph: the focus follows the
+    // photographs picked elsewhere (that Tab does not hide the panels is
+    // the keyboard entry the existing tests cover).
+    act(() => useLibraryStore.setState({ libraryActivePath: "/s/c.NEF" }));
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("c.NEF");
+    useLibraryStore.setState({ libraryActivePath: null });
+  });
+
+  it("takes no programmatic or clicked focus of a folder without an active photo as Tab entry", () => {
+    // Not a Tab key (the focus put on a tile by code): nothing becomes active.
+    useLibraryStore.setState({ libraryActivePath: null, multiSelectedPaths: [] });
+    const { getAllByRole } = render(<StudioBrowser {...props} currentPath="/s/b.NEF" />);
+    act(() => getAllByRole("option")[1].focus());
+    expect(useLibraryStore.getState().libraryActivePath).toBeNull();
+    // A click ends the keyboard entry path, even after a Tab.
+    fireEvent.pointerDown(getAllByRole("option")[0]);
+    fireEvent.keyDown(document.body, { key: "Tab", code: "Tab" });
+    act(() => getAllByRole("option")[2].focus());
+    expect(useLibraryStore.getState().libraryActivePath).toBeNull();
+  });
+
+  it("changes nothing when a photograph is picked by mouse in a folder that has no active one", () => {
+    useLibraryStore.setState({ libraryActivePath: null });
+    const { getAllByRole } = render(<StudioBrowser {...props} currentPath="/s/b.NEF" />);
+    const [first] = getAllByRole("option");
+    fireEvent.pointerDown(first);
+    fireEvent.click(first);
+    act(() => first.focus());
+    expect(useLibraryStore.getState().libraryActivePath).toBeNull();
+  });
+
+  it("forgets a pending focus when the focus leaves the grid before the target's tile mounts", () => {
+    // The active photograph is far above the grid's window: Tab onto the
+    // stop in view scrolls to it and waits for its tile to mount.
+    const many = Array.from({ length: 400 }, (_, n) => `/qa/photo-${n}.jpg`).map(file);
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 500 });
+    useLibraryStore.setState({ libraryActivePath: "/qa/photo-0.jpg" });
+    try {
+      render(<StudioBrowser {...props} files={many} currentPath="/qa/photo-0.jpg" />);
+      const grid = screen.getByRole("listbox");
+      grid.scrollTop = 201 * 13;
+      fireEvent.scroll(grid);
+      const stop = Array.from(grid.querySelectorAll<HTMLElement>("[role=option]")).find((o) => o.tabIndex === 0)!;
+      expect(stop.getAttribute("aria-label")).not.toBe("a.NEF");
+      act(() => stop.focus());
+      expect(grid.scrollTop).toBe(0);
+      // A click in a panel takes the focus away before that tile shows.
+      const panel = document.createElement("button");
+      document.body.append(panel);
+      act(() => panel.focus());
+      expect(document.activeElement).toBe(panel);
+      // Keys picked meanwhile and later never take the grid's focus back.
+      act(() => useLibraryStore.setState({ libraryActivePath: many[1].path }));
+      expect(document.activeElement).toBe(panel);
+      act(() => useLibraryStore.setState({ libraryActivePath: many[2].path }));
+      expect(document.activeElement).toBe(panel);
+      panel.remove();
+    } finally {
+      delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+      useLibraryStore.setState({ libraryActivePath: null });
+    }
+  });
+
+  it("stacks the colour word below the stars in 150 px thumbnails, keeping names and targets", () => {
+    // jsdom applies no stylesheet: the class says which tiles the studio.css
+    // rule below applies to.
+    const { container } = render(
+      <StudioBrowser
+        files={files}
+        size={150}
+        currentPath="/s/b.NEF"
+        onSelect={vi.fn()}
+        onOpen={vi.fn()}
+        onRate={vi.fn()}
+        onContextMenu={vi.fn()}
+        requestThumbnails={vi.fn()}
+        onClearSelection={vi.fn()}
+      />,
+    );
+    expect(container.querySelectorAll(".studio-photo")).toHaveLength(files.length);
+    expect(container.querySelectorAll(".studio-photo.is-narrow")).toHaveLength(files.length);
+    // The rating controls keep their targets and names…
+    const stars = Array.from(container.querySelectorAll<HTMLElement>(".studio-photo-rating button"));
+    expect(stars).toHaveLength(5 * files.length);
+    expect(stars[0].getAttribute("aria-label")).toBe("Rate a.NEF 1 star");
+  });
+
+  it("keeps the one row of stars and colour word above 150 px thumbnails, and in the filmstrip", () => {
+    expect(grid().container.querySelectorAll(".is-narrow")).toHaveLength(0);
+    expect(grid(vi.fn(), true).container.querySelectorAll(".is-narrow")).toHaveLength(0);
+  });
+
   it("leaves the focus alone when no tile has it", () => {
     const outside = document.createElement("button");
     document.body.append(outside);
