@@ -17,8 +17,7 @@
  * - Windows: `py -3` (the launcher installed with Python 3 chooses the real
  *   `python.exe`), then `python` (a PATH that carries only `python.exe`).
  *   `python3` is not tried there: it is the Store alias that exits 9009 when
- *   the Store app is not installed. `RAW_TOOLCHAIN_LICENSES_PYTHON` names one
- *   other command to try first, for unusual installations.
+ *   the Store app is not installed.
  *
  * A candidate counts only if `-c` reports a Python 3, so an alias or an old
  * Python 2 falls through to the next one instead of failing confusingly.
@@ -26,8 +25,7 @@
  * stay streamed), and its exit status (or killing signal) becomes ours.
  * Args pass through unchanged: `--check` from scripts/check.sh, `--out FILE`.
  *
- * The output must not depend on the launcher: see refs/windows-portability/
- * for the byte-identical comparisons.
+ * The launcher must not change the collector's generated output.
  */
 "use strict";
 
@@ -82,10 +80,6 @@ function findPython() {
 }
 
 function main() {
-  if (process.env.RAW_TOOLCHAIN_LICENSES_PYTHON) {
-    // Escape hatch for unusual installations; one command without a shell.
-    CANDIDATES.unshift([process.env.RAW_TOOLCHAIN_LICENSES_PYTHON]);
-  }
   const python = findPython();
   if (!python) {
     return 1;

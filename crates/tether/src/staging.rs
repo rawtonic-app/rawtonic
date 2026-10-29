@@ -274,8 +274,8 @@ mod tests {
 
     /// Removes a link made by `link_dir`, leaving its target alone. Windows
     /// refuses `remove_file` on a directory symlink (PermissionDenied, error
-    /// 5) and wants `remove_dir`; Unix has no separate call and `remove_dir`
-    /// would follow the link and delete the target's contents.
+    /// 5) and wants `remove_dir`; on Unix `remove_dir` rejects a symlink,
+    /// so `remove_file` unlinks it instead.
     fn unlink_dir(link: &Path) {
         #[cfg(unix)]
         fs::remove_file(link).unwrap();
