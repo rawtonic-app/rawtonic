@@ -349,7 +349,9 @@ fn restore_receipt(receipt: &Receipt, original: &Path) -> Result<()> {
                 !stage.payload().exists(),
                 "Both destination and stage are occupied"
             );
-            stage.cleanup()?;
+            if let Err(error) = stage.cleanup() {
+                log::warn!("Restored entry verified; owned staging cleanup remains: {error:#}");
+            }
         }
         return Ok(());
     }
@@ -358,7 +360,11 @@ fn restore_receipt(receipt: &Receipt, original: &Path) -> Result<()> {
     rawtonic_fileops::rename_no_clobber(&stage.payload(), original).context(
         "Restore destination became occupied; item remains in its recoverable staging directory",
     )?;
-    stage.cleanup()?;
+    // The original has been restored at this point. A cleanup failure must
+    // not make the journal claim that the undo failed after its file moved.
+    if let Err(error) = stage.cleanup() {
+        log::warn!("Entry restored; owned staging cleanup remains: {error:#}");
+    }
     Ok(())
 }
 
@@ -556,8 +562,16 @@ mod tests {
                 panic!("simulated process interruption before journal commit");
             }
         }
+        let before: HashSet<_> = trash::os_limited::list()
+            .unwrap()
+            .into_iter()
+            .map(|i| i.id)
+            .collect();
         for staged in [true, false] {
-            let temp = tempfile::tempdir().unwrap();
+            let temp = match std::env::var_os("RAWTONIC_TEST_TRASH_DIR") {
+                Some(directory) => tempfile::tempdir_in(directory).unwrap(),
+                None => tempfile::tempdir().unwrap(),
+            };
             let root = temp.path().canonicalize().unwrap();
             let original = root.join("rawtonic-recovery-probe.txt");
             fs::write(&original, b"synthetic photograph").unwrap();
@@ -597,6 +611,15 @@ mod tests {
             );
             assert_eq!(fs::read(&original).unwrap(), b"synthetic photograph");
         }
+        let after: HashSet<_> = trash::os_limited::list()
+            .unwrap()
+            .into_iter()
+            .map(|i| i.id)
+            .collect();
+        assert_eq!(
+            before, after,
+            "Qualification must leave unrelated bin entries unchanged"
+        );
     }
 
     #[test]

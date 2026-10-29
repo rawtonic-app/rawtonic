@@ -2630,6 +2630,10 @@ fn same_volume(from: &Path, to: &Path) -> Result<bool> {
 /// Renames `from` to `to`, failing if `to` exists (except for a case-only
 /// rename of the same file). Atomic on macOS, Linux and Windows.
 pub fn rename_no_clobber(from: &Path, to: &Path) -> io::Result<()> {
+    // Windows MoveFileExW handles case-only renames itself. Never select a
+    // replacing rename using a case-folded spelling: NTFS directories can be
+    // case-sensitive, with two different entries named a.RAF and A.RAF.
+    #[cfg(not(windows))]
     if same_file(from, to) {
         return fs::rename(from, to);
     }
@@ -2816,6 +2820,47 @@ mod tests {
         assert_eq!(pending[0].id, id);
         assert_eq!(pending[0].state, State::Undone);
         assert!(root.join("a").is_file() && root.join("b").is_file());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn native_no_clobber_retains_case_only_rename_on_ordinary_windows_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("a.RAF");
+        let destination = temp.path().join("A.RAF");
+        fs::write(&source, b"synthetic original").unwrap();
+        rename_no_clobber(&source, &destination).unwrap();
+        assert_eq!(fs::read(&destination).unwrap(), b"synthetic original");
+        let names: Vec<_> = fs::read_dir(temp.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, [std::ffi::OsString::from("A.RAF")]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "Enables case sensitivity only on a fresh synthetic directory; run explicitly on NTFS"]
+    fn native_no_clobber_refuses_distinct_case_sensitive_windows_entries() {
+        let temp = tempfile::tempdir().unwrap();
+        let enabled = std::process::Command::new("fsutil.exe")
+            .args(["file", "setCaseSensitiveInfo"])
+            .arg(temp.path())
+            .arg("enable")
+            .output()
+            .unwrap();
+        assert!(
+            enabled.status.success(),
+            "Case-sensitive NTFS setup is unavailable: {}",
+            String::from_utf8_lossy(&enabled.stdout)
+        );
+        let source = temp.path().join("a.RAF");
+        let destination = temp.path().join("A.RAF");
+        fs::write(&source, b"source").unwrap();
+        fs::write(&destination, b"occupied").unwrap();
+        assert!(rename_no_clobber(&source, &destination).is_err());
+        assert_eq!(fs::read(&source).unwrap(), b"source");
+        assert_eq!(fs::read(&destination).unwrap(), b"occupied");
     }
 
     #[test]
