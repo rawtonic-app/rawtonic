@@ -380,6 +380,8 @@ pub(crate) fn gpu_crash_check(flag: &std::path::Path, backend: Option<&str>) -> 
     }
 }
 
+/// Whether a process with `pid` runs now (`gpu_crash_check`, crash
+/// records).
 pub(crate) fn process_alive(pid: u32) -> bool {
     #[cfg(unix)]
     {
@@ -394,6 +396,35 @@ pub(crate) fn process_alive(pid: u32) -> bool {
         let pid = sysinfo::Pid::from_u32(pid);
         system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
         system.process(pid).is_some()
+    }
+}
+
+#[cfg(test)]
+mod process_alive_tests {
+    use super::process_alive;
+
+    #[test]
+    fn the_running_test_process_is_alive() {
+        assert!(process_alive(std::process::id()));
+    }
+
+    /// A child of this process runs before `wait` and is gone after it (a
+    /// child the system keeps no more says so as surely as a zombie does).
+    #[test]
+    fn a_running_child_is_alive_and_a_finished_one_is_not() {
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--list")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        assert!(process_alive(pid), "the running child {pid} is not listed");
+        child.wait().unwrap();
+        assert!(
+            !process_alive(pid),
+            "the finished child {pid} is still listed"
+        );
     }
 }
 

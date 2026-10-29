@@ -92,17 +92,41 @@ fn refused() -> io::Error {
 }
 
 /// Files and directories may disappear between read_dir and stat when an
-/// atomic cache writer publishes or drops its staging file.
+/// atomic cache writer publishes or drops its staging file. On Windows a
+/// concurrent writer also makes a listed entry vanish before its stat
+/// (ERROR_FILE_INVALID) and closes a folder being replaced to others
+/// (ERROR_ACCESS_DENIED), which hides the entry; skipping it is no error.
+/// A folder that cannot be listed at all still is one.
 fn if_present<T>(result: io::Result<T>) -> io::Result<Option<T>> {
     match result {
         Ok(value) => Ok(Some(value)),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        #[cfg(windows)]
+        Err(error) if a_concurrent_writer_hides(error.kind()) => Ok(None),
         Err(error) => Err(error),
     }
 }
 
+/// `if_present` for the folder a walk starts from: none once it is gone.
+#[cfg(windows)]
+fn if_vanished<T>(result: io::Result<T>) -> io::Result<Option<T>> {
+    if_present(result)
+}
+
+/// The Windows errors a concurrent cache writer causes on paths it
+/// publishes to (a definitive answer is still `NotFound`).
+#[cfg(windows)]
+fn a_concurrent_writer_hides(kind: io::ErrorKind) -> bool {
+    matches!(kind, io::ErrorKind::PermissionDenied | io::ErrorKind::Other)
+        || kind == io::ErrorKind::InvalidData // ERROR_FILE_INVALID: deleted meanwhile
+}
+
 pub fn usage(directory: &Path, cancelled: &AtomicBool, budget: Duration) -> io::Result<Usage> {
     if !directory.exists() {
+        return Ok(Usage::default());
+    }
+    #[cfg(windows)]
+    if if_vanished(fs::symlink_metadata(directory))?.is_none() {
         return Ok(Usage::default());
     }
     if fs::symlink_metadata(directory)?.file_type().is_symlink() {
@@ -266,6 +290,10 @@ fn remove_owned_file(root: &Path, directory: &Path, name: &std::ffi::OsStr) -> i
     let relative = directory.strip_prefix(&root).map_err(|_| refused())?;
     let mut current = root.clone();
     let mut handles = Vec::new();
+    // Somebody else (another maintenance pass finished first) may drop the
+    // folder with its files between the checks above and here: then there
+    // is nothing left to remove. All other errors are reported.
+    let gone = |error: &io::Error| error.kind() == io::ErrorKind::NotFound;
     let pin_directory = |path: &Path| -> io::Result<fs::File> {
         // OPEN_REPARSE_POINT + BACKUP_SEMANTICS; omit FILE_SHARE_DELETE so
         // ancestors cannot be renamed while a child is removed.
@@ -280,14 +308,26 @@ fn remove_owned_file(root: &Path, directory: &Path, name: &std::ffi::OsStr) -> i
         }
         Ok(file)
     };
-    handles.push(pin_directory(&current)?);
+    match pin_directory(&current) {
+        Ok(handle) => handles.push(handle),
+        Err(error) if gone(&error) => return Ok(()),
+        Err(error) => return Err(error),
+    }
     for part in relative.components() {
         let Component::Normal(part) = part else {
             return Err(refused());
         };
         current.push(part);
-        handles.push(pin_directory(&current)?);
+        match pin_directory(&current) {
+            Ok(handle) => handles.push(handle),
+            Err(error) if gone(&error) => return Ok(()),
+            Err(error) => return Err(error),
+        }
     }
+    // Anything but "already gone" is reported: the folder is pinned and
+    // the entry sits in it, so a denial is the entry's own (Windows reports
+    // a read-only attribute that way), a file a reader still holds is a
+    // sharing violation, and the count of files left says so.
     match fs::remove_file(current.join(name)) {
         Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
         _ => Ok(()),
@@ -466,6 +506,31 @@ mod tests {
         });
     }
 
+    /// A folder fulfilling every rule removes itself just before its files
+    /// are: as a concurrent writer's publish-and-replace does on Windows,
+    /// where the removal then meets a folder that is gone. That is not a
+    /// failure; what is there is removed, as `storage_clear`'s own pinned
+    /// check keeps a folder that is still there.
+    #[test]
+    fn an_entry_of_a_folder_that_vanishes_first_is_not_a_failure() {
+        let (_temp, root, cache) = fixture();
+        let nested = cache.join("nested");
+        fs::create_dir(&nested).unwrap();
+        fs::write(nested.join("result"), b"pixels").unwrap();
+        let vanished = |path: &Path| {
+            path.parent() == Some(nested.as_path()) && fs::remove_dir_all(&nested).is_ok()
+        };
+        let remaining = evict(&root, &cache, 0, vanished, |_| false).unwrap();
+        assert!(!remaining.incomplete, "{remaining:?}");
+        assert!(!nested.exists());
+        assert_eq!(
+            usage(&cache, &AtomicBool::new(false), Duration::from_secs(2))
+                .unwrap()
+                .bytes,
+            0
+        );
+    }
+
     #[test]
     fn clear_refuses_root_parent_and_outside_paths() {
         let (_temp, root, cache) = fixture();
@@ -506,16 +571,15 @@ mod tests {
             b"original"
         );
     }
-    #[cfg(unix)]
     #[test]
     fn lru_keeps_recent_pinned_inflight_and_staging_files() {
         let (_temp, root, cache) = fixture();
         for (name, used) in [
-            ("old.jpg", 1),
-            ("recent.jpg", 3),
-            ("pinned.jpg", 0),
-            ("busy.jpg", 0),
-            (".staging", 0),
+            ("old.jpg", 2),
+            ("recent.jpg", 6),
+            ("pinned.jpg", 1),
+            ("busy.jpg", 1),
+            (".staging", 1),
         ] {
             let path = cache.join(name);
             fs::write(&path, [0; 4]).unwrap();
@@ -631,7 +695,6 @@ mod tests {
         assert!(path.exists());
     }
 
-    #[cfg(unix)]
     #[test]
     fn an_unremovable_entry_does_not_prevent_evicting_other_files() {
         let temp = tempfile::tempdir().unwrap();
@@ -653,8 +716,10 @@ mod tests {
             4,
             |path| {
                 if path == old {
+                    // Dropped only just before both remove it: a deletion
+                    // Windows still carries would reject the new folder.
                     fs::remove_file(path).unwrap();
-                    fs::create_dir(path).unwrap(); // Replacement cannot be unlinked as a file.
+                    fs::create_dir(path).unwrap();
                 }
                 true
             },

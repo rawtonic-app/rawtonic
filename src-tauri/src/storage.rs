@@ -88,13 +88,41 @@ fn app_owned(app: &tauri::AppHandle, category: Category) -> Result<Option<OwnedD
 fn pinned(path: &Path) -> bool {
     // Atomic writers' staging names and entries just handed to the webview or
     // read by a worker remain protected. A later maintenance pass retries.
+    // On Windows a deletion it finishes stays carried a moment longer than
+    // `tempfile`'s next name after it avoids; such a name is protected too.
     path.file_name()
-        .is_some_and(|n| n.to_string_lossy().starts_with('.'))
+        .is_some_and(|n| n.to_string_lossy().starts_with('.') || is_atomic_staging_name(n))
         || std::fs::metadata(path)
             .and_then(|m| m.modified())
             .ok()
             .and_then(|used| used.elapsed().ok())
             .is_none_or(|age| age < Duration::from_secs(60))
+}
+
+/// Whether `path` carries a `tempfile` staging name (`.tmpAbC12d`) on
+/// Windows, which does not allow replacing a name that an earlier deletion
+/// still carries (POSIX deletes at once).
+///
+/// `tempfile` creates a staging file, writes it and deletes it (a preview
+/// written atomically outlives it that way by a rename); a finished write
+/// may leave it for the deletion to complete. `tempfile` then avoids its
+/// name for its next one (a name in use is retried), so such a file is
+/// never written again; a later maintenance pass takes it.
+#[cfg(windows)]
+fn is_atomic_staging_name(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    let Some(rest) = name.strip_prefix(".tmp") else {
+        return false;
+    };
+    // `tempfile`'s random characters (six). A shorter name is not one.
+    rest.len() >= 4 && rest.bytes().all(|byte| byte.is_ascii_alphanumeric())
+}
+
+#[cfg(not(windows))]
+fn is_atomic_staging_name(_path: &Path) -> bool {
+    false
 }
 
 fn touch_thumbnails_at(root: &Path, keys: &[String]) -> std::io::Result<()> {
@@ -448,17 +476,32 @@ mod tests {
         let key = "a".repeat(64);
         let thumbnail = cache.join(format!("{key}_small.jpg"));
         fs::write(&thumbnail, b"thumbnail").unwrap();
-        fs::File::open(&thumbnail)
-            .unwrap()
-            .set_times(fs::FileTimes::new().set_modified(std::time::UNIX_EPOCH))
-            .unwrap();
+        // Backdate to a time that reads back as itself on every platform:
+        // NTFS keeps the last write time to 100 ns (macOS to the second).
+        let past = UNIX_EPOCH + Duration::from_nanos(1_700_000_000_123_456_700);
+        let backdate = |path: &Path| {
+            fs::File::open(path)
+                .unwrap()
+                .set_times(fs::FileTimes::new().set_modified(past))
+                .unwrap();
+            assert_eq!(fs::metadata(path).unwrap().modified().unwrap(), past);
+        };
+        backdate(&thumbnail);
         touch_thumbnails_at(&root, &[key]).unwrap();
-        assert!(fs::metadata(&thumbnail).unwrap().modified().unwrap() > std::time::UNIX_EPOCH);
+        assert!(fs::metadata(&thumbnail).unwrap().modified().unwrap() > past);
         let original = root.join("original.RAW");
         fs::write(&original, b"original").unwrap();
         let before = fs::metadata(&original).unwrap().modified().unwrap();
         assert!(touch_thumbnails_at(&root, &["../original.RAW".into()]).is_err());
         assert_eq!(fs::metadata(original).unwrap().modified().unwrap(), before);
+    }
+
+    #[test]
+    fn only_tempfile_staging_names_get_the_windows_grace() {
+        let staging = |name: &str| is_atomic_staging_name(&Path::new("cache").join(name));
+        for name in [".tmpAbC12d", ".tmpabcd12", ".staging", "a.rtpx", ".tmp"] {
+            assert_eq!(staging(name), cfg!(windows), "{name}");
+        }
     }
 
     #[test]
@@ -474,7 +517,9 @@ mod tests {
             fs::write(path, b"cache").unwrap();
             fs::File::open(path)
                 .unwrap()
-                .set_times(fs::FileTimes::new().set_modified(std::time::UNIX_EPOCH))
+                .set_times(fs::FileTimes::new().set_modified(
+                    UNIX_EPOCH + std::time::Duration::from_nanos(1_700_000_000_123_456_700),
+                ))
                 .unwrap();
         }
         let protected = [

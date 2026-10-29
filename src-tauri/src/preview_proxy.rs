@@ -262,13 +262,17 @@ fn location_with(source: &Path, outside: Option<&Path>) -> Option<(PathBuf, Stri
 }
 
 /// The file stem of the previews of the photograph `source_label` names
-/// (its path in the session, or its absolute path outside sessions).
+/// (as `source_label` wrote it).
 fn file_stem_for(label: &str) -> String {
     blake3::hash(label.as_bytes()).to_hex()[..32].to_string()
 }
 
 /// How a proxy header names `source`: its path inside its session (so a
-/// moved session still finds it), else its absolute path.
+/// moved session still finds it), else its absolute path. It is the
+/// platform's own path text, as earlier builds wrote it (`Capture\A.RAF`
+/// on Windows): a build hashes the names it writes, so the previews of a
+/// session copied to another system (or of a session moved between drives)
+/// still name their photographs.
 fn source_label(source: &Path) -> String {
     session_root(source)
         .and_then(|root| source.strip_prefix(root).ok().map(Path::to_path_buf))
@@ -279,7 +283,8 @@ fn source_label(source: &Path) -> String {
 
 /// The photograph a proxy in `dir` was made from, by its header's label: a
 /// relative label lies in the session two levels above `dir`
-/// (`<session>/.cache/previews`).
+/// (`<session>/.cache/previews`). The label is that platform's path text, so
+/// a listing of a Windows session's previews done elsewhere names nothing.
 fn labelled_source(dir: &Path, label: &str) -> Option<PathBuf> {
     let path = Path::new(label);
     if path.is_absolute() {
@@ -291,9 +296,10 @@ fn labelled_source(dir: &Path, label: &str) -> Option<PathBuf> {
 /// Whether a header label names the proxy file at `path` (its file stem is
 /// the label's hash, as `location` names it).
 fn labels_file(label: &str, path: &Path) -> bool {
+    let stem = file_stem_for(label);
     path.file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| name.split('.').next() == Some(file_stem_for(label).as_str()))
+        .is_some_and(|name| name.split('.').next() == Some(stem.as_str()))
 }
 
 /// The previews folder of photographs outside sessions, once set.
@@ -328,6 +334,16 @@ pub fn proxy_path_of(source: &Path, kind: ProxyKind) -> Option<PathBuf> {
 /// Otherwise the photograph is offline and opens on its proxies.
 pub fn source_available(source: &Path) -> bool {
     source_readable(source) && !crate::file_management::is_cloud_placeholder(source)
+}
+
+/// `source_available`, with the reading a proxy header's offline test
+/// relies on (`header_matches_source`).
+fn source_available_for_header(source: &Path) -> bool {
+    #[cfg(windows)]
+    let readable = source.is_file();
+    #[cfg(not(windows))]
+    let readable = source_readable(source);
+    readable && !crate::file_management::is_cloud_placeholder(source)
 }
 
 /// Whether the RAW exists and can be opened (a cloud file not downloaded
@@ -438,8 +454,41 @@ fn variant_of_key(decoder: &str) -> DecodeVariant {
 /// (no decode can follow to replace it: previews made before a recipe reset
 /// or before never-edited photographs moved to a newer variant must still
 /// open). Online, the decode must also have been made for the decode
-/// variant of the photograph's stored (master) recipe.
+/// variant of the photograph's stored (master) recipe. Its label must name
+/// the file it is in (`labels_file`): a proxy carried over for another
+/// photograph before `carry_over` relabelled it, or copied to another name,
+/// holds that other photograph's pixels whatever its key says.
 fn header_is_current(header: &Header, source: &Path, settings: &AppSettings) -> bool {
+    header.source.as_deref().is_none_or(|label| {
+        proxy_path_of(source, ProxyKind::Standard).is_some_and(|path| labels_file(label, &path))
+    }) && header_matches_source(header, source, settings)
+}
+
+/// `header_is_current` for the proxy at `path` (whose location `path` is).
+fn header_is_current_at(
+    path: &Path,
+    header: &Header,
+    source: &Path,
+    settings: &AppSettings,
+) -> bool {
+    header
+        .source
+        .as_deref()
+        .is_none_or(|label| labels_file(label, path))
+        && header_matches_source(header, source, settings)
+}
+
+/// `header_is_current` without its label check.
+///
+/// "Offline" is what the app cannot open (`source_available`). Reading
+/// photographs is how the app opens them everywhere, so that is asked
+/// there; on Windows a photograph another program has open (the app finds
+/// a sidecar, then gets "permission denied" on the RAW's replace) or one on
+/// a read-only archive volume is read exactly as well as a free file, and
+/// asking to open it for writing would call it offline (its preview kept
+/// as the last known state instead of being replaced). Windows asks about
+/// the file's presence instead.
+fn header_matches_source(header: &Header, source: &Path, settings: &AppSettings) -> bool {
     let variant = crate::image_loader::stored_decode_variant(&source.to_string_lossy());
     let decoder_matches =
         header.key.engine == ENGINE_VERSION && header.key.decoder == decoder_key(settings, variant);
@@ -456,7 +505,7 @@ fn header_is_current(header: &Header, source: &Path, settings: &AppSettings) -> 
     }
     // Offline with its metadata still there (a cloud placeholder, a file
     // that cannot be opened): the same file's preview, any variant.
-    if !source_available(source) {
+    if !source_available_for_header(source) {
         return settings_match()
             && header.key.file_size == key.file_size
             && header.key.modified_ns == key.modified_ns;
@@ -739,7 +788,7 @@ pub fn read_kind(source: &Path, kind: ProxyKind, settings: &AppSettings) -> Opti
     let _file_use = crate::storage_fs::pin_file(&path);
     let bytes = fs::read(&path).ok()?;
     let proxy = decode_checked(&bytes, |header| {
-        let current = header_is_current(header, source, settings);
+        let current = header_is_current_at(&path, header, source, settings);
         if current && !source_available(source) {
             register_facts(source, header);
         }
@@ -752,15 +801,17 @@ pub fn read_kind(source: &Path, kind: ProxyKind, settings: &AppSettings) -> Opti
 /// The size of the current 1:1 proxy of `source` (its full decode's), read
 /// from its header.
 pub fn full_size(source: &Path, settings: &AppSettings) -> Option<(u32, u32)> {
-    let header = read_header(&proxy_path_of(source, ProxyKind::Full)?)?;
+    let path = proxy_path_of(source, ProxyKind::Full)?;
+    let header = read_header(&path)?;
     (header.width == header.full_width
         && header.height == header.full_height
-        && header_is_current(&header, source, settings))
+        && header_is_current_at(&path, &header, source, settings))
     .then_some((header.width, header.height))
 }
 
 /// Part of a 1:1 proxy: columns `col0..col0 + cols` of RGB rows `row0..`
 /// of the full-resolution frame `width` × `height`.
+#[derive(Debug)]
 pub struct ProxyRows {
     /// What the proxy read was made from (its header's key).
     pub key: ProxyKey,
@@ -790,7 +841,7 @@ pub fn read_full_rows(
     let _file_use = crate::storage_fs::pin_file(&path);
     let bytes = fs::read(&path).ok()?;
     let proxy = decode_rows(&bytes, rows, cols, |header| {
-        let current = header_is_current(header, source, settings);
+        let current = header_is_current_at(&path, header, source, settings);
         if current && !source_available(source) {
             register_facts(source, header);
         }
@@ -927,8 +978,9 @@ fn read_header(path: &Path) -> Option<Header> {
 /// The long edge of the Standard proxy stored for `source`, if current
 /// (made from the photograph as it is now, in the current encoding).
 pub fn stored_size(source: &Path, settings: &AppSettings) -> Option<u32> {
-    let header = read_header(&proxy_path(source)?)?;
-    (header.is_current_encoding() && header_is_current(&header, source, settings))
+    let path = proxy_path(source)?;
+    let header = read_header(&path)?;
+    (header.is_current_encoding() && header_is_current_at(&path, &header, source, settings))
         .then_some(header.width.max(header.height))
 }
 
@@ -937,17 +989,18 @@ pub fn stored_size(source: &Path, settings: &AppSettings) -> Option<u32> {
 /// What the current 1:1 proxy of `source` was made from (its header's
 /// key), as reading it validates it; None without a current one.
 pub fn full_key(source: &Path, settings: &AppSettings) -> Option<ProxyKey> {
-    let header = read_header(&proxy_path_of(source, ProxyKind::Full)?)?;
-    (header.is_current_encoding() && header_is_current(&header, source, settings))
+    let path = proxy_path_of(source, ProxyKind::Full)?;
+    let header = read_header(&path)?;
+    (header.is_current_encoding() && header_is_current_at(&path, &header, source, settings))
         .then_some(header.key)
 }
 
 pub fn has_full(source: &Path, settings: &AppSettings) -> bool {
-    proxy_path_of(source, ProxyKind::Full)
-        .and_then(|path| read_header(&path))
-        .is_some_and(|header| {
-            header.is_current_encoding() && header_is_current(&header, source, settings)
+    proxy_path_of(source, ProxyKind::Full).is_some_and(|path| {
+        read_header(&path).is_some_and(|header| {
+            header.is_current_encoding() && header_is_current_at(&path, &header, source, settings)
         })
+    })
 }
 
 /// Writes the Standard proxy of `source` from its full decode, at `size` on
@@ -1411,6 +1464,18 @@ mod tests {
         assert_eq!(header.encoding, Encoding::Jxl);
         assert_eq!(header.transfer, Some(proxy_codec::TRANSFER));
         assert_eq!(header.source.as_deref(), Some("Capture/A.RAF"));
+        // The label is this platform's own path text (`Capture\A.RAF` on
+        // Windows), which is what its preview names are hashed from.
+        let root = photo.parent().unwrap().parent().unwrap();
+        let relative = photo.strip_prefix(root).unwrap().to_string_lossy();
+        assert_eq!(header.source.as_deref(), Some(relative.as_ref()));
+        assert!(labels_file(relative.as_ref(), &path));
+        // The photograph a label names lies in the session above `dir`.
+        let previews = root.join(".cache").join("previews");
+        assert_eq!(
+            labelled_source(&previews, relative.as_ref()),
+            Some(photo.clone())
+        );
     }
 
     /// A proxy file as format 2 wrote it (linear JPEG XL at distance 0.25,
@@ -2036,6 +2101,48 @@ mod tests {
         assert_eq!(enforce_standard_limit(&previews, 1), 1);
         assert!(!proxy_path(&moved).unwrap().exists());
         assert!(read(&offline, &settings).is_some());
+    }
+
+    /// Places `bytes` as the Standard preview of `photo`.
+    fn put_preview(photo: &Path, bytes: &[u8]) {
+        let path = proxy_path(photo).unwrap();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn a_preview_is_read_only_under_its_own_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let settings = AppSettings::default();
+        let image = gradient(40, 30);
+        // A 1:1 preview of another photograph placed under this one's full
+        // name (`cp`, a restored file): its key fits, its label does not.
+        let other = photo.with_file_name("B.RAF");
+        fs::write(&other, b"raw bytes").unwrap();
+        write_full(&other, &image, &settings, NEW_EDIT, None).unwrap();
+        let full = fs::read(proxy_path_of(&other, ProxyKind::Full).unwrap()).unwrap();
+        let full_path = proxy_path_of(&other, ProxyKind::Full).unwrap();
+        assert_eq!(
+            read_header(&full_path).unwrap().key,
+            current_key(&photo, &settings, NEW_EDIT).unwrap()
+        );
+        fs::write(proxy_path_of(&photo, ProxyKind::Full).unwrap(), full).unwrap();
+        assert!(read_kind(&photo, ProxyKind::Full, &settings).is_none());
+        assert!(!has_full(&photo, &settings));
+        assert_eq!(read_full_rows(&photo, &settings, (0, 8), (0, 8)), None);
+        assert_eq!(full_size(&photo, &settings), None);
+        // A Standard preview without a label (format 1, half floats) opens
+        // its photograph offline as ever (and gives way to format 3 at the
+        // next write); the copy here holds another photograph's pixels.
+        write(&photo, &image, 40, &settings, NEW_EDIT, None).unwrap();
+        assert!(read(&photo, &settings).is_some());
+        assert_eq!(stored_size(&photo, &settings), Some(40));
+        let path = proxy_path(&photo).unwrap();
+        assert!(labels_file(
+            read_header(&path).unwrap().source.as_deref().unwrap(),
+            &path
+        ));
     }
 
     #[test]
