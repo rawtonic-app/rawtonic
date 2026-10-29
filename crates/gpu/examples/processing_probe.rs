@@ -3,12 +3,10 @@
 // deliberately not a performance benchmark or a replacement rendering path.
 use std::sync::{Arc, Mutex};
 
-use half::f16;
 use rawtonic_gpu::gpu_processing::{
-    GpuContext, GpuProcessor, RenderOutputPrecision, RenderRequest, RenderedPixels,
-    processing_device_descriptor,
+    GpuContext, GpuProcessorSlot, ReadbackShader, RenderOutputPrecision, RenderRequest,
+    RenderSource, process_and_get_dynamic_image_inner, processing_device_descriptor,
 };
-use wgpu::util::{DeviceExt, TextureDataOrder};
 
 struct Logger;
 impl log::Log for Logger {
@@ -65,51 +63,44 @@ fn main() -> Result<(), String> {
         display: Arc::new(Mutex::new(None)),
         display_space: Default::default(),
     };
-    let pixels: Vec<f16> = (0..size * size)
-        .flat_map(|_| [0.2, 0.4, 0.6, 1.0].map(f16::from_f32))
-        .collect();
-    let texture = context.device.create_texture_with_data(
-        &context.queue,
-        &wgpu::TextureDescriptor {
-            label: Some("processing probe input"),
-            size: wgpu::Extent3d {
-                width: size,
-                height: size,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba16Float,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        },
-        TextureDataOrder::MipMajor,
-        bytemuck::cast_slice(&pixels),
-    );
-    let processor = GpuProcessor::new(context.clone(), size, size)?;
+    let source = image::DynamicImage::ImageRgb32F(image::ImageBuffer::from_pixel(
+        size,
+        size,
+        image::Rgb([0.2, 0.4, 0.6]),
+    ));
+    let readback = match std::env::args().nth(2).as_deref() {
+        None | Some("export") => ReadbackShader::Export,
+        Some("display") => ReadbackShader::Display,
+        _ => return Err("expected export or display after the size".into()),
+    };
     let adjustments = rawtonic_engine::image_processing::get_all_adjustments_from_json(
-        &serde_json::json!({"sharpness":0,"colorNoiseReduction":0,"lumaNoiseReduction":0}),
+        &serde_json::json!({"renderVersion":7,"sharpness":0,"colorNoiseReduction":0,"lumaNoiseReduction":0}),
         false,
         Some(3),
     );
-    eprintln!("PROCESSING {size}x{size}");
-    let (pixels, ..) = processor.run(
-        &texture.create_view(&Default::default()),
-        size,
-        size,
+    eprintln!("PROCESSING {size}x{size} {readback:?}");
+    let output = process_and_get_dynamic_image_inner(
+        &context,
+        &GpuProcessorSlot::background(None),
+        &Mutex::new(None),
+        RenderSource::Image {
+            image: &source,
+            transform_hash: 1,
+        },
         RenderRequest {
             adjustments,
             mask_bitmaps: &[],
             lut: None,
             roi: None,
         },
-        false,
+        "processing-probe",
         RenderOutputPrecision::EightBit,
+        false,
+        None,
+        None,
+        readback,
     )?;
-    let RenderedPixels::U8(pixels) = pixels else {
-        return Err("unexpected output precision".into());
-    };
+    let pixels = output.to_rgba8().into_raw();
     let rgb_max = pixels
         .chunks_exact(4)
         .flat_map(|pixel| pixel[..3].iter().copied())
