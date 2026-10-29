@@ -20,6 +20,7 @@ use std::{
 use windows::{
     Win32::{
         Foundation::HANDLE,
+        Storage::EnhancedStorage::PKEY_FileName,
         Storage::FileSystem::{
             BY_HANDLE_FILE_INFORMATION, FILE_DISPOSITION_INFO, FILE_FLAG_BACKUP_SEMANTICS,
             FILE_FLAG_OPEN_REPARSE_POINT, FileDispositionInfo, GetFileInformationByHandle,
@@ -31,7 +32,7 @@ use windows::{
         },
         UI::Shell::{
             FOF_NO_CONNECTED_ELEMENTS, FOF_NO_UI, FOFX_EARLYFAILURE, FOFX_RECYCLEONDELETE,
-            FileOperation, IFileOperation, IShellItem, SHCreateItemFromParsingName,
+            FileOperation, IFileOperation, IShellItem, IShellItem2, SHCreateItemFromParsingName,
             SIGDN_FILESYSPATH,
         },
     },
@@ -98,6 +99,24 @@ fn item_path(item: &IShellItem) -> Result<PathBuf> {
     }
 }
 
+fn bin_original_path(entry: &trash::TrashItem) -> Result<PathBuf> {
+    // trash::list uses a display name, which can omit a known extension.
+    // Read the Shell's full filename property instead of changing Explorer
+    // settings or guessing an extension from the recycled physical filename.
+    unsafe {
+        let item: IShellItem2 =
+            SHCreateItemFromParsingName(&HSTRING::from(entry.id.as_os_str()), None)?;
+        let text = item.GetString(&PKEY_FileName)?;
+        let name = OsString::from_wide(text.as_wide());
+        CoTaskMemFree(Some(text.0.cast()));
+        ensure!(
+            Path::new(&name).file_name() == Some(name.as_os_str()),
+            "Invalid Recycle Bin filename"
+        );
+        Ok(entry.original_parent.join(name))
+    }
+}
+
 fn verified_item(path: &Path) -> Result<(IShellItem, PathBuf)> {
     let name = path.file_name().context("Cannot recycle a drive root")?;
     let source = path
@@ -159,7 +178,7 @@ impl Receipt {
             return Ok(None);
         };
         ensure!(
-            plain_drive_path(&found.original_path())? == plain_drive_path(&self.original)?,
+            plain_drive_path(&bin_original_path(&found)?)? == plain_drive_path(&self.original)?,
             "Recycle Bin receipt names another original"
         );
         let item: IShellItem =
@@ -405,13 +424,19 @@ impl SystemTrash for PlatformTrash {
                 "Recycling was aborted"
             );
         }
-        let bin_entry = trash::os_limited::list()?
-            .into_iter()
-            .find(|i| {
-                !before.contains(&i.id)
-                    && plain_drive_path(&i.original_path()).is_ok_and(|p| p == plain)
-            })
-            .context("The recycled item's receipt was not found")?;
+        let mut matching = Vec::new();
+        for entry in trash::os_limited::list()? {
+            if !before.contains(&entry.id)
+                && plain_drive_path(&bin_original_path(&entry)?)? == plain
+            {
+                matching.push(entry);
+            }
+        }
+        ensure!(
+            matching.len() == 1,
+            "The recycled item's receipt was not uniquely identified"
+        );
+        let bin_entry = matching.pop().unwrap();
         receipt.bin_id = bin_entry.id.to_string_lossy().into_owned();
         ensure!(
             receipt.bin_item()?.is_some(),
