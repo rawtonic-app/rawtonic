@@ -41,6 +41,29 @@ it('keeps the app open and lets the user decide when a save failed', async () =>
   expect(commands()).toEqual([Invokes.QuitSaving, Invokes.CancelQuit, Invokes.FinishQuit]);
 });
 
+it('runs each flush once for a save that keeps failing, and never quits without the user\'s choice', async () => {
+  const failing = vi.fn(async () => ['Edits of a.dng']);
+  const saved = vi.fn(async () => []);
+  register(failing);
+  register(saved);
+  const ask = vi.fn();
+  await handleQuitRequest(ask);
+  // Its failures are not pending work: no flush is run again.
+  expect(failing).toHaveBeenCalledTimes(1);
+  expect(saved).toHaveBeenCalledTimes(1);
+  expect(commands()).toEqual([Invokes.QuitSaving, Invokes.CancelQuit]);
+  expect(ask).toHaveBeenCalledTimes(1);
+  expect(ask.mock.calls[0][0]).toEqual(['Edits of a.dng']);
+  // Stayed open: nothing asked for more saves or quit on its own.
+  await new Promise((done) => setTimeout(done, 0));
+  expect(failing).toHaveBeenCalledTimes(1);
+  expect(commands()).toEqual([Invokes.QuitSaving, Invokes.CancelQuit]);
+  // The user decides: quit anyway.
+  ask.mock.calls[0][1]();
+  await new Promise((done) => setTimeout(done, 0));
+  expect(commands()).toEqual([Invokes.QuitSaving, Invokes.CancelQuit, Invokes.FinishQuit]);
+});
+
 it('ignores a second request while the first one saves', async () => {
   let finishSave!: (failures: string[]) => void;
   const flush = vi.fn(() => new Promise<string[]>((resolve) => { finishSave = resolve; }));

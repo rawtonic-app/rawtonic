@@ -4,7 +4,6 @@ import { Invokes } from '../components/ui/AppProperties';
 import { useUIStore } from '../store/useUIStore';
 import {
   batchFailures,
-  batchOfEntry,
   batchPhotoCount,
   onBatchWriteSettled,
   onPhotoWritesSettled,
@@ -121,16 +120,16 @@ class QuitDrain {
   }
 }
 
-/** Runs the registered flushes (the editor's recipe drain awaits every
- * queued photo write, utils/photoWrites) as the quit drain, hearing each
- * photograph a batch command writes (so quitting waits for a long command
- * photo by photo) and each settled write's failure meanwhile. Resolves with
- * what could not be saved (the flushes' failures first), or null when
- * everything is saved. */
-async function drainBeforeQuit(): Promise<string[] | null> {
-  await invoke(Invokes.QuitSaving).catch(() => undefined);
-  const kept = new QuitDrain();
-  kept.recordRunningBatches();
+/** Records what settles while the quit drains into `kept` (each a progress
+ * signal for the backend's save deadline); returns the unsubscribe.
+ *
+ * A batch's photographs are heard through `rawtonic:batch-photo-settled`
+ * (what src-tauri reports as it saves each one). The queue passes that on
+ * as `rawtonic:batch-write-settled` once the write settles - with every
+ * photograph it did not write named as unreported - so this does not add a
+ * second listener that would race the settle: what the queue reported is
+ * what a batch run during the quit lost. */
+function hearWrites(kept: QuitDrain): () => void {
   const progress = () => void invoke(Invokes.QuitSaving).catch(() => undefined);
   const stopWrites = onPhotoWritesSettled((settled) => {
     kept.record(settled.id, settled.kind, settled.failed);
@@ -145,21 +144,29 @@ async function drainBeforeQuit(): Promise<string[] | null> {
     for (const extra of also) kept.recordBatchPhoto(batch.id, `${fileName(extra)} (not written with ${fileName(path)})`);
     progress();
   });
+  return () => {
+    stopBatches();
+    stopWrites();
+  };
+}
+
+/** Drains the pending saves once. Each flush (`QuitFlush`) waits for the
+ * writes already queued, then writes what it has and returns what it could
+ * not save - its own retry; its failures are not pending work, so a flush
+ * returning them is not run again (a save that keeps failing must reach the
+ * user's decision, never a retry loop). Resolves with what could not be
+ * saved (the flushes' failures first), or null when everything is saved. */
+export async function drainBeforeQuit(): Promise<string[] | null> {
+  const kept = new QuitDrain();
+  kept.recordRunningBatches();
+  const stopHearing = hearWrites(kept);
+  await invoke(Invokes.QuitSaving).catch(() => undefined);
   try {
-    // The editor's flushes run again until one writes nothing new (its
-    // drain drip-feeds the photograph-by-photograph retries); every round's
-    // failures are kept.
-    let emptied = false;
-    while (!emptied) {
-      const round = await flushBeforeQuit();
-      kept.recordOther(round);
-      emptied = round.length === 0;
-    }
+    kept.recordOther(await flushBeforeQuit());
     const items = kept.items();
     return items.length > 0 ? items : null;
   } finally {
-    stopBatches();
-    stopWrites();
+    stopHearing();
   }
 }
 
@@ -200,18 +207,33 @@ export async function handleQuitRequest(askToQuitAnyway: AskToQuitAnyway): Promi
   if (handlingQuit) return;
   handlingQuit = true;
   try {
-    // The flushes' own failures are kept by the drain; the prompt lists them
-    // with every failed write of the drain (also one a flush retried).
-    const failures = await drainBeforeQuit();
-    if (!failures) {
-      await invoke(Invokes.FinishQuit);
+    let failures: string[] | null;
+    try {
+      // The flushes' own failures are kept by the drain; the prompt lists
+      // them with every failed write of the drain (also one a flush retried).
+      failures = await drainBeforeQuit();
+    } catch (error) {
+      // Still saving: the app stays open, and a new request may come.
+      console.error('Saving before quitting failed:', error);
       return;
     }
-    await invoke(Invokes.CancelQuit);
-    askToQuitAnyway(failures, () => {
-      invoke(Invokes.FinishQuit).catch((err) => console.error('Failed to quit:', err));
-    });
+    // A failed save reaches the user's decision exactly once: the app stays
+    // open until they answer, and only their "Quit Anyway" ends it.
+    if (!failures) await invoke(Invokes.FinishQuit);
+    else await quitWithFailures(failures, askToQuitAnyway);
   } finally {
     handlingQuit = false;
   }
+}
+
+/** The app stays open and the user decides; `quit` (their answer) is the
+ * only way it ends. Resolves once the prompt is shown, not once it is
+ * answered. */
+async function quitWithFailures(failures: string[], askToQuitAnyway: AskToQuitAnyway): Promise<void> {
+  // A backend that cannot hold the quit open still gets the decision, never
+  // silence.
+  await invoke(Invokes.CancelQuit).catch((error: unknown) => console.error('Cancelling the quit failed:', error));
+  askToQuitAnyway(failures, () => {
+    void invoke(Invokes.FinishQuit).catch((err) => console.error('Failed to quit:', err));
+  });
 }

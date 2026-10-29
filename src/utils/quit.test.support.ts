@@ -1,13 +1,13 @@
 // Helpers for the quit tests (quitBatch.test.ts): what the webview told the
 // backend; a long batch command as the app runs one (its write goes through
-// the queue as a batch, it is given the batch's tag and reports each
-// photograph it writes with `batch_write_settled`); and a registered drain
-// flush, so a test can take the command through photographs while the
+// the queue as a batch, it is given the batch's tag and settles its
+// photographs one after the other, each reported as src-tauri reports it,
+// `rawtonic:batch-photo-settled`); and a drain flush registered the app's
+// way, so a test can take the command through its photographs while the
 // quit's drain listens. A test support file, not app code.
 import { expect, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { flushBeforeQuit } from './quit';
-import { photoBatches, submitPhotoWrite } from './photoWrites';
+import { allPhotoWritesSettled, photoBatches, submitPhotoWrite } from './photoWrites';
 
 /** The commands the webview sent the backend (`invoke` is a mock). */
 export function COMMANDS(): string[] {
@@ -31,94 +31,120 @@ export async function waitFor(done: () => boolean, what = 'the condition'): Prom
 }
 
 /** Registers the quit's drain flush for a test through the app's own
- * registry (`registerQuitFlush`, `flushBeforeQuit`): the flushes already
- * there run (as in the app), then `whileDraining` runs while the quit's
- * drain listens (the command writing its photographs), then the drain ends.
- * Returns it to remove (or put it in `unregistered`). */
+ * registry (`registerQuitFlush`): the flushes already there settle, waiting
+ * for the queued writes as the app's drain does (`allPhotoWritesSettled`),
+ * then `whileDraining` runs while the quit's drain listens - once, as the
+ * drain runs each flush once. Returns it to remove (or put it in
+ * `unregistered`). */
 export function registerDrain(
   registerQuitFlush: (flush: () => Promise<string[]>) => () => void,
   whileDraining: () => Promise<unknown> = async () => [],
 ): () => void {
-  // (Once: the quit's saves submitted meanwhile call the flushes again -
-  // their writes are what it waits for, not this step.)
   let ran = false;
   return registerQuitFlush(async () => {
-    await flushBeforeQuit();
     if (!ran) {
       ran = true;
+      await allPhotoWritesSettled();
       await whileDraining();
     }
     return [];
   });
 }
 
-/** A long batch command as the app runs one on `photos`: its write goes
- * through the queue as a batch (`kind`: Auto adjustments, face retouch), it
- * is given the batch's tag, and the test lets each photograph be written
- * (`next`) or not (`next(why)`), then gives its answer (`finish`: how many
- * it wrote, `failWith`: why its photos may not be). */
+/** A long batch command as the app runs one on `photos` (`kind`: Auto
+ * adjustments, face retouch): its write goes through the queue as a batch
+ * and is given the batch's tag; it settles its photographs one after the
+ * other, reporting each as src-tauri reports it (`rawtonic:batch-photo-
+ * settled`: the entry, the photograph, and why it was not written), and
+ * then answers counted (`finish`: how many it wrote; `failWith`: why its
+ * photographs may not be). The test takes a photograph through it with
+ * `next` (written) or `next(why)` (not). A photograph it settles without a
+ * report is reported not written, so none is lost silently. */
 export class BatchCommand {
-  /** The tag the command was given (its batch's). */
+  /** The tag it was given (its batch's). */
   tag = '';
-  /** Its write (settles when it answers). */
+  /** The write queue entry it is (`rawtonic:batch-photo-settled` names it). */
+  entry = 0;
+  /** Its write (settles when its photographs are settled, or it failed). */
   readonly opened: Promise<unknown>;
   private readonly photos: string[];
-  private readonly written = new Set<string>();
-  private ahead!: () => void;
-  private step: Promise<void> = new Promise((resolve) => { this.ahead = resolve; });
-  private readonly answer: (written: number) => void;
-  private readonly fail: (why: Error) => void;
+  /** The photographs its own reports covered. */
+  private readonly told = new Set<string>();
+  /** Its count (`finish`) or failure (`failWith`). */
+  private count: { written: number; fail?: string } | undefined;
+  /** Its write runs (what waits for it). */
+  private starting: Array<() => void> = [];
 
-  constructor(photos: string[], kind = 'auto') {
-    this.photos = photos;
-    const answering = new Promise<number>((resolve, reject) => {
-      this.answer = resolve;
-      this.fail = reject;
-    });
-    this.opened = submitPhotoWrite(
-      photos,
-      (id) => {
-        this.tag = photoBatches().get(id)?.tag ?? '';
-        return this.walk(answering);
-      },
-      { kind, batch: true },
-    );
+  constructor(photos: string[], readonly kind = 'auto') {
+    this.photos = [...photos];
+    this.opened = submitPhotoWrite(photos, (id) => this.run(id), { kind, batch: true });
     this.opened.catch(() => undefined);
   }
 
-  private async walk(answering: Promise<number>) {
-    for (const photo of this.photos) {
-      await this.step;
-      this.step = new Promise((resolve) => { this.ahead = resolve; });
-      this.written.add(photo);
+  /** Whether its write runs (a write waits for those before it). */
+  get running(): boolean {
+    return this.entry > 0;
+  }
+
+  /** Settles once its write runs (a write waits for those before it). */
+  started(): Promise<void> {
+    return this.running ? Promise.resolve() : new Promise((resolve) => { this.starting.push(resolve); });
+  }
+
+  private async run(id: number): Promise<void> {
+    this.entry = id;
+    this.tag = photoBatches().get(id)?.tag ?? '';
+    for (const resolve of this.starting.splice(0)) resolve();
+    for (const [at, photo] of this.photos.entries()) {
+      // Reported not written unless its count says written: a photograph no
+      // report covered is never lost silently.
+      await this.report(photo, at < (this.count?.written ?? 0) ? 'written' : 'not written');
     }
-    const count = await answering;
-    return { failed: count < this.photos.length ? this.photos.slice(count) : [] };
+    if (this.count?.fail !== undefined) throw new Error(this.count.fail);
   }
 
-  /** The command wrote its next photograph (`why`: it did not) - reported in
-   * a task, as Tauri delivers it - and goes on to the next. */
+  /** The photograph settles now, reported as src-tauri reports it - passed
+   * on by the queue in a task. */
+  private async report(photo: string, why: string): Promise<void> {
+    const { entry } = this;
+    window.dispatchEvent(
+      new CustomEvent('rawtonic:batch-photo-settled', {
+        detail: { entry, path: photo, ...(why !== 'written' ? { failure: why } : {}) },
+      }),
+    );
+    this.told.add(photo);
+    await turn();
+  }
+
+  /** The command wrote its next photograph (`why`: it did not), reported
+   * before the queue's write settles. */
   async next(why?: string): Promise<void> {
-    const photo = this.photos.find((each) => !this.written.has(each))!;
-    const tag = this.tag;
-    await new Promise<void>((done) => {
-      setTimeout(() => {
-        window.dispatchEvent(
-          new CustomEvent('rawtonic:batch-write-settled', { detail: { tag, path: photo, ...(why ? { ok: why } : {}), also: [] } }),
-        );
-        done();
-      }, 0);
-    });
-    this.ahead();
+    await this.started();
+    const photo = this.photos.find((each) => !this.told.has(each));
+    if (photo === undefined) return;
+    await this.report(photo, why ?? 'written');
   }
 
-  /** It answers now (`written`: how many photographs it wrote; its answer
-   * is the photograph it had to hold back to its last report). */
+  /** It answers counted (as `finish`) and the test writes its photographs
+   * one after the other, as `how` lets them be written (`why`: not), while
+   * the quit's drain listens - settles once it answered. */
+  async drive(how: (photo: string, at: number) => Promise<string | undefined>, written = this.photos.length): Promise<void> {
+    this.finish(written);
+    for (const [at, photo] of this.photos.entries()) {
+      if (at >= written || this.told.has(photo)) continue;
+      await this.report(photo, (await how(photo, at)) ?? 'written');
+    }
+    await this.opened.catch(() => undefined);
+    await turn();
+  }
+
+  /** It answers counted: `written` how many it wrote (the others not), or
+   * its failure (`failWith`). */
   finish(written = this.photos.length) {
-    this.answer(written);
+    this.count = { written };
   }
 
   failWith(why: string) {
-    this.fail(new Error(why));
+    this.count = { written: 0, fail: why };
   }
 }
