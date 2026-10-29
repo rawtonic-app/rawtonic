@@ -1,29 +1,43 @@
 //! Quitting waits for the editor's pending saves. The editor saves recipes
 //! shortly after an edit (debounced), so closing the main window, the
 //! title bar's close button and Quit (Cmd+Q) first ask the webview
-//! (`app-quit-requested`) to write what is pending; it answers with
-//! `quit_saving` at once and `finish_quit` when everything is on disk, or
-//! with `cancel_quit` when a save failed and the user keeps the app open. A
-//! webview that does not answer cannot keep the app open: it quits after
-//! `ACK_TIMEOUT` without an answer and after `SAVE_TIMEOUT` without
-//! progress: the webview answers `quit_saving` again each time one of its
-//! queued photo writes settles (a long batch keeps it saving, a hung write
-//! does not).
+//! (`app-quit-requested`, payload `{requestId}`) to write what is pending;
+//! it answers with `quit_saving(requestId)` at once and
+//! `finish_quit(requestId, false)` when everything is on disk, or with
+//! `cancel_quit(requestId, allowQuitAnyway)` when a save failed.
+//!
+//! No elapsed time ends the app (decision 2026-10-29,
+//! QUIT-CONTRACT-DECISION.md). A request the editor did not take within
+//! `ACK_TIMEOUT`, or that made no saving progress for `SAVE_TIMEOUT`, is
+//! cancelled instead: the app stays open, keeps saving what is queued, and
+//! the editor is told (`app-quit-cancelled`, payload
+//! `{requestId, reason}`) to show a keep-open warning. The editor answers
+//! `quit_saving` again each time one of its queued photo writes settles (a
+//! long batch keeps it saving, a hung write does not).
+//!
+//! The app quits only when the editor says so for its own request: a normal
+//! `finish_quit` while it is saving, or a forced one after the user chose
+//! "Quit Anyway". All transitions run under one lock (`QuitState`), which
+//! also owns the request ids, so an answer, a deadline or a new request
+//! cannot interleave. Every call names its request; an answer to a
+//! cancelled or replaced request changes nothing, not even after a newer
+//! request started. The commands return whether they accepted the call.
 //!
 //! macOS terminating the app from outside its menu (Dock Quit, log out,
 //! restart, shut down) asks the app delegate `applicationShouldTerminate:`,
 //! which tao does not implement; `hold_system_terminate` adds it to tao's
-//! delegate class (`system_terminate`). It answers "later", runs the same
-//! request, and the process ends when the editor finished (or the timeouts
-//! ran out); a save that failed cancels the termination (`cancel_quit`; a
-//! log out then stops, as with any app holding unsaved work) and the user
-//! decides as after Cmd+Q. When the editor is done the app answers AppKit
+//! delegate class (`system_terminate`). It answers "later" and runs the same
+//! request; the process ends when the editor finished. A cancellation, also
+//! one with `allowQuitAnyway` (the user then decides as after Cmd+Q),
+//! answers AppKit "cancel": a log out stops, as with any app holding
+//! unsaved work. When the editor is done the app answers AppKit
 //! (`replyToApplicationShouldTerminate:`), which replies to the quit Apple
 //! event and ends the app through `RunEvent::Exit`: ending the process
 //! without that reply (`_exit` alone) left the sender (AppleScript, the
 //! Dock, log out) waiting about half a second for an answer that never came.
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(target_os = "macos")]
+use std::sync::atomic::Ordering;
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
@@ -31,21 +45,212 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 const ACK_TIMEOUT: Duration = Duration::from_secs(3);
 /// Saving made no progress for longer than any recipe write should take.
 const SAVE_TIMEOUT: Duration = Duration::from_secs(30);
-/// When the webview last answered that it is saving (`quit_saving`).
-static PROGRESS: Mutex<Option<Instant>> = Mutex::new(None);
 
-/// How long to wait yet before quitting without the webview: `None` once
-/// `SAVE_TIMEOUT` passed since its last progress (or the request).
-fn save_time_left(progress: Instant, now: Instant) -> Option<Duration> {
-    SAVE_TIMEOUT
-        .checked_sub(now.saturating_duration_since(progress))
-        .filter(|left| !left.is_zero())
+/// Why a request ended without the app quitting (`app-quit-cancelled`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CancelReason {
+    /// The editor did not take the request in time.
+    NotAcknowledged,
+    /// Saving made no progress in time.
+    SavingStalled,
 }
 
-fn last_progress() -> Option<Instant> {
-    *PROGRESS
-        .lock()
+impl CancelReason {
+    /// The webview's `reason`, which it shows as a keep-open warning.
+    fn as_str(self) -> &'static str {
+        match self {
+            CancelReason::NotAcknowledged => "notAcknowledged",
+            CancelReason::SavingStalled => "savingStalled",
+        }
+    }
+}
+
+/// `app-quit-cancelled`: request `request_id` ended without a quit; the
+/// editor drops that request's guard (only if it is still the active one)
+/// and shows that the app stays open.
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct QuitCancelled {
+    request_id: u64,
+    reason: &'static str,
+}
+
+/// Where the one quit request is (see the module). Every phase but `Idle`
+/// is a live request; only `Quitting` ends the app.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Phase {
+    /// No request.
+    Idle,
+    /// Asked (`app-quit-requested`); the editor has not answered yet. The
+    /// acknowledgement deadline runs from `at`.
+    WaitingAck { id: u64, at: Instant },
+    /// The editor saves; its last `quit_saving` (or the request) was `last`.
+    Saving { id: u64, last: Instant },
+    /// A save failed and `cancel_quit(id, true)` armed the user's "Quit
+    /// Anyway" decision: only `finish_quit(id, true)` ends the app, and no
+    /// deadline ends the request.
+    Decision { id: u64 },
+    /// The app is on its way out.
+    Quitting,
+}
+
+impl Phase {
+    /// The id of the request this phase is (not `Quitting`, which has
+    /// none).
+    fn live_id(self) -> Option<u64> {
+        match self {
+            Phase::Idle | Phase::Quitting => None,
+            Phase::WaitingAck { id, .. } | Phase::Saving { id, .. } | Phase::Decision { id } => {
+                Some(id)
+            }
+        }
+    }
+
+    /// Saves or waits for the acknowledgement: a normal finish may quit.
+    fn is_saving(self, id: u64) -> bool {
+        match self {
+            Phase::WaitingAck { id: other, .. } | Phase::Saving { id: other, .. } => other == id,
+            _ => false,
+        }
+    }
+
+    /// When the deadline running from now ends the request: the
+    /// acknowledgement deadline until the editor answered, the save
+    /// deadline after (a "Quit Anyway" decision has none).
+    fn deadline(self) -> Option<Instant> {
+        match self {
+            Phase::WaitingAck { at, .. } => Some(at + ACK_TIMEOUT),
+            Phase::Saving { last, .. } => Some(last + SAVE_TIMEOUT),
+            Phase::Idle | Phase::Decision { .. } | Phase::Quitting => None,
+        }
+    }
+}
+
+/// The one quit state: the generation and the phase, changed only under
+/// `QUIT.lock()` (see the module).
+#[derive(Debug)]
+struct QuitState {
+    /// The id of the latest request; every transition that ends or replaces
+    /// a request takes a new one (an older `app-quit-requested` payload
+    /// stays unique). `0` before the first request.
+    generation: u64,
+    phase: Phase,
+}
+
+impl QuitState {
+    const fn new() -> QuitState {
+        QuitState {
+            generation: 0,
+            phase: Phase::Idle,
+        }
+    }
+
+    /// The id of the next request.
+    fn next_id(&mut self) -> u64 {
+        self.generation += 1;
+        self.generation
+    }
+
+    /// A new request from the menu, Cmd+Q or a close. It replaces an idle
+    /// request or a "Quit Anyway" decision (its authorization is gone, the
+    /// new id invalidates its answers); requests that are being asked or
+    /// are saving, and quitting, keep theirs. Returns the requested id if
+    /// the editor must be asked.
+    fn begin(&mut self, now: Instant) -> Option<u64> {
+        if !matches!(self.phase, Phase::Idle | Phase::Decision { .. }) {
+            return None;
+        }
+        let id = self.next_id();
+        self.phase = Phase::WaitingAck { id, at: now };
+        Some(id)
+    }
+
+    /// `quit_saving`: the editor took the request, or a photo write
+    /// settled. Only its own request that is waiting or saving makes
+    /// progress; returns whether the call was accepted.
+    fn saving(&mut self, id: u64, now: Instant) -> bool {
+        if !self.phase.is_saving(id) {
+            return false;
+        }
+        self.phase = Phase::Saving { id, last: now };
+        true
+    }
+
+    /// `finish_quit`: everything is saved (`force` false: only a request
+    /// that is waiting or saving; force true: only the "Quit Anyway"
+    /// decision of this request). True: the app quits.
+    fn finish(&mut self, id: u64, force: bool) -> bool {
+        let allowed = if force {
+            self.phase == Phase::Decision { id }
+        } else {
+            self.phase.is_saving(id)
+        };
+        if !allowed {
+            return false;
+        }
+        self.next_id();
+        self.phase = Phase::Quitting;
+        true
+    }
+
+    /// `cancel_quit`, after a failed save: with `allow_quit_anyway` this
+    /// request waits for the user's "Quit Anyway" decision, without it the
+    /// request ends. Only a live request of this id; returns whether the
+    /// call was accepted.
+    fn cancel(&mut self, id: u64, allow_quit_anyway: bool) -> bool {
+        if self.phase.live_id() != Some(id) {
+            return false;
+        }
+        self.next_id();
+        self.phase = if allow_quit_anyway {
+            Phase::Decision { id }
+        } else {
+            Phase::Idle
+        };
+        true
+    }
+
+    /// The deadline of request `id` ran out at `now` (evaluated only while
+    /// `id` is the waiting or saving request, see `expire`): it ends, and
+    /// the app stays open. `None`: nothing to tell the editor.
+    fn timed_out(&mut self, id: u64, now: Instant) -> Option<CancelReason> {
+        let reason = match self.phase {
+            Phase::WaitingAck { id: other, .. } if other == id => CancelReason::NotAcknowledged,
+            Phase::Saving { id: other, .. } if other == id => CancelReason::SavingStalled,
+            _ => return None,
+        };
+        if self.phase.deadline().is_none_or(|deadline| now < deadline) {
+            return None;
+        }
+        self.next_id();
+        self.phase = Phase::Idle;
+        Some(reason)
+    }
+
+    /// The editor could not be asked (the event did not go out): its
+    /// request ends, and nothing quits.
+    fn abort(&mut self, id: u64) -> bool {
+        if !matches!(self.phase, Phase::WaitingAck { id: other, .. } if other == id) {
+            return false;
+        }
+        self.next_id();
+        self.phase = Phase::Idle;
+        true
+    }
+}
+
+fn lock() -> MutexGuard<'static, QuitState> {
+    QUIT.lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// The quit state (see the module).
+static QUIT: Mutex<QuitState> = Mutex::new(QuitState::new());
+
+/// Whether the app is on its way out (`app_quit::is_quitting`; a
+/// `Quitting` can never be undone, so this only reads the truth).
+pub fn is_quitting() -> bool {
+    lock().phase == Phase::Quitting
 }
 
 /// The custom Quit menu item (macOS) that replaces AppKit's predefined one.
@@ -59,18 +264,11 @@ const REPORT_MENU_ID: &str = "rawtonic-report-problem";
 #[cfg(target_os = "macos")]
 const REPORT_EVENT: &str = "report-problem-requested";
 
-/// The quit was decided: the window may close and the app exit.
-static QUITTING: AtomicBool = AtomicBool::new(false);
-/// A request waits for the webview; further requests are ignored meanwhile.
-static PENDING: AtomicBool = AtomicBool::new(false);
-static ACKNOWLEDGED: AtomicBool = AtomicBool::new(false);
-/// Identifies the request a timeout belongs to (`cancel_quit` ends it).
-static GENERATION: AtomicU64 = AtomicU64::new(0);
-
 /// A close of the main window: returns whether it must be held while the
-/// webview saves (the close then becomes a quit request).
+/// webview saves (the close then becomes a quit request). Once the app
+/// quits, it closes.
 pub fn intercept_close<R: Runtime>(app: &AppHandle<R>) -> bool {
-    if QUITTING.load(Ordering::SeqCst) {
+    if is_quitting() {
         return false;
     }
     request_quit(app);
@@ -79,44 +277,112 @@ pub fn intercept_close<R: Runtime>(app: &AppHandle<R>) -> bool {
 
 /// Asks the webview to save what is pending and quit (see the module).
 pub fn request_quit<R: Runtime>(app: &AppHandle<R>) {
-    if QUITTING.load(Ordering::SeqCst) || PENDING.swap(true, Ordering::SeqCst) {
+    let Some(id) = lock().begin(Instant::now()) else {
         return;
-    }
-    ACKNOWLEDGED.store(false, Ordering::SeqCst);
-    *PROGRESS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Instant::now());
-    let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
-    if let Err(e) = app.emit_to("main", "app-quit-requested", ()) {
+    };
+    let asked = app.emit_to(
+        "main",
+        "app-quit-requested",
+        serde_json::json!({ "requestId": id }),
+    );
+    if let Err(e) = asked {
         log::warn!("Could not ask the editor to save before quitting: {e}");
-        exit(app);
-        return;
+        // Nobody can answer it: the request ends, and the app stays open.
+        if lock().abort(id) {
+            emit_cancelled(app, id, CancelReason::NotAcknowledged);
+        }
+    } else {
+        run_deadline(app, id);
     }
-    let app = app.clone();
-    std::thread::spawn(move || {
-        let waiting =
-            || PENDING.load(Ordering::SeqCst) && GENERATION.load(Ordering::SeqCst) == generation;
-        std::thread::sleep(ACK_TIMEOUT);
-        if waiting() && !ACKNOWLEDGED.load(Ordering::SeqCst) {
-            log::warn!("The editor did not answer the quit request; quitting without it.");
-            exit(&app);
-            return;
-        }
-        while waiting() {
-            match last_progress().and_then(|progress| save_time_left(progress, Instant::now())) {
-                Some(left) => std::thread::sleep(left),
-                None => {
-                    log::warn!("The editor made no saving progress in time; quitting.");
-                    exit(&app);
-                    return;
-                }
-            }
-        }
-    });
 }
 
+/// Watches request `id`'s deadline in the existing sleep loop (see
+/// `expire`). It ends only its own request.
+fn run_deadline<R: Runtime>(app: &AppHandle<R>, id: u64) {
+    let app = app.clone();
+    std::thread::spawn(move || expire(&app, id));
+}
+
+/// Sleeps request `id`'s deadline and cancels it when it runs out: the app
+/// stays open and the editor is told why. It never exits, and never touches
+/// another request.
+fn expire<R: Runtime>(app: &AppHandle<R>, id: u64) {
+    // A new progress report may move the deadline while this thread sleeps.
+    // Recheck it after waking; cancellation and newer ids make it return.
+    loop {
+        let phase = lock().phase;
+        let Some(deadline) = phase.deadline().filter(|_| phase.live_id() == Some(id)) else {
+            return;
+        };
+        let now = Instant::now();
+        if now >= deadline {
+            if let Some(reason) = lock().timed_out(id, now) {
+                log::warn!(
+                    "The quit request ended without quitting: {}",
+                    reason.as_str()
+                );
+                emit_cancelled(app, id, reason);
+            }
+            return;
+        }
+        std::thread::sleep(deadline.saturating_duration_since(now));
+    }
+}
+
+/// Tells the editor that request `id` ended without a quit; a termination
+/// AppKit waits for is cancelled with it.
+fn emit_cancelled<R: Runtime>(app: &AppHandle<R>, id: u64, reason: CancelReason) {
+    #[cfg(target_os = "macos")]
+    system_terminate::cancel(app);
+    let told = app.emit_to(
+        "main",
+        "app-quit-cancelled",
+        QuitCancelled {
+            request_id: id,
+            reason: reason.as_str(),
+        },
+    );
+    if let Err(e) = told {
+        log::warn!("Could not tell the editor that the quit was cancelled: {e}");
+    }
+}
+
+/// The webview took the quit request and is saving (again: a write
+/// settled): returns whether the request was the live one.
+#[tauri::command]
+pub(crate) fn quit_saving(request_id: u64) -> bool {
+    lock().saving(request_id, Instant::now())
+}
+
+/// Everything is saved (or the user quits anyway): quit now. Returns
+/// whether the app quits.
+#[tauri::command]
+pub(crate) fn finish_quit(app_handle: AppHandle, request_id: u64, force: bool) -> bool {
+    if !lock().finish(request_id, force) {
+        return false;
+    }
+    exit(&app_handle);
+    true
+}
+
+/// The editor does not quit (a save failed): the app stays open, and with
+/// `allow_quit_anyway` only this request's "Quit Anyway" may end it. A
+/// termination AppKit waits for is cancelled either way. Returns whether
+/// the request was the live one.
+#[tauri::command]
+pub(crate) fn cancel_quit(app_handle: AppHandle, request_id: u64, allow_quit_anyway: bool) -> bool {
+    let accepted = lock().cancel(request_id, allow_quit_anyway);
+    if accepted {
+        #[cfg(target_os = "macos")]
+        system_terminate::cancel(&app_handle);
+        #[cfg(not(target_os = "macos"))]
+        let _ = &app_handle;
+    }
+    accepted
+}
+
+/// Ends the app now; its phase is `Quitting` already.
 fn exit<R: Runtime>(app: &AppHandle<R>) {
-    QUITTING.store(true, Ordering::SeqCst);
     // AppKit waits for its termination: let it go on (system_terminate).
     #[cfg(target_os = "macos")]
     if system_terminate::WAITING.load(Ordering::SeqCst) {
@@ -125,33 +391,6 @@ fn exit<R: Runtime>(app: &AppHandle<R>) {
     }
     // ExitRequested with a code: lib.rs ends the process at once.
     app.exit(0);
-}
-
-/// The webview took the quit request and is saving (again: a write settled).
-#[tauri::command]
-pub(crate) fn quit_saving() {
-    ACKNOWLEDGED.store(true, Ordering::SeqCst);
-    *PROGRESS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Instant::now());
-}
-
-/// Everything is saved (or the user quits anyway): quit now.
-#[tauri::command]
-pub(crate) fn finish_quit(app_handle: AppHandle) {
-    exit(&app_handle);
-}
-
-/// A save failed and the user decides: the app stays open meanwhile (and a
-/// termination AppKit waits for is cancelled).
-#[tauri::command]
-pub(crate) fn cancel_quit(app_handle: AppHandle) {
-    GENERATION.fetch_add(1, Ordering::SeqCst);
-    PENDING.store(false, Ordering::SeqCst);
-    #[cfg(target_os = "macos")]
-    system_terminate::cancel(&app_handle);
-    #[cfg(not(target_os = "macos"))]
-    let _ = app_handle;
 }
 
 /// Whether an exit request asks for a restart (`relaunch()` in the webview,
@@ -185,22 +424,215 @@ pub use system_terminate::hold_system_terminate;
 mod tests {
     use super::*;
 
+    /// One fixed start for every `t(…)` of a test: nothing else yaws.
+    fn t(seconds: u64) -> Instant {
+        static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+        *START.get_or_init(Instant::now) + Duration::from_secs(seconds)
+    }
+
+    /// A request made at `t(0)`; `saving`: the editor answered it.
+    fn requested(saving: bool) -> QuitState {
+        let mut state = QuitState::new();
+        assert_eq!(state.begin(t(0)), Some(1));
+        if saving {
+            assert!(state.saving(1, t(0)));
+        }
+        state
+    }
+
+    /// A request whose save failed and who waits for "Quit Anyway".
+    fn decided() -> QuitState {
+        let mut state = requested(true);
+        assert!(state.cancel(1, true));
+        state
+    }
+
     #[test]
-    fn quits_only_after_save_timeout_without_progress() {
-        let start = Instant::now();
-        assert_eq!(save_time_left(start, start), Some(SAVE_TIMEOUT));
+    fn a_new_request_is_not_started_while_one_is_asked_or_saving_or_quitting() {
+        let mut state = requested(false);
+        assert_eq!(state.begin(t(1)), None);
+        assert_eq!(state.phase, Phase::WaitingAck { id: 1, at: t(0) });
+        let mut state = requested(true);
+        assert_eq!(state.begin(t(1)), None);
+        assert_eq!(state.phase, Phase::Saving { id: 1, last: t(0) });
+        assert!(state.finish(1, false));
+        assert_eq!(state.begin(t(1)), None);
+        assert_eq!(state.phase, Phase::Quitting);
+    }
+
+    /// The rejected implementation kept the decision and ignored every
+    /// newer request; here the new request replaces it: asked, and the old
+    /// request's forced finish does not quit.
+    #[test]
+    fn a_new_request_replaces_a_quit_anyway_decision() {
+        let mut state = decided();
+        let new = state.begin(t(5));
+        assert!(new.is_some(), "a newer request is asked");
+        let new = new.unwrap();
+        assert_ne!(new, 1, "the new request has its own id");
+        assert_eq!(state.phase, Phase::WaitingAck { id: new, at: t(5) });
+        // The replaced authorization: no forced quit, and the new request's
+        // answers do not start it either.
+        assert!(!state.finish(1, true));
+        assert!(!state.finish(1, false));
+        assert!(!state.cancel(1, false));
+        assert!(!state.finish(new, true), "force needs a decision");
+        assert_ne!(state.phase, Phase::Quitting);
+        assert_eq!(state.phase, Phase::WaitingAck { id: new, at: t(5) });
+    }
+
+    /// The rejected implementation's `finish(id, false)` also accepted a
+    /// decision (`!force` was always true); here only a forced finish ends
+    /// it, and a request without a decision is never forced.
+    #[test]
+    fn a_normal_finish_never_accepts_a_decision_and_only_a_decision_is_forced() {
+        let mut state = decided();
+        assert!(!state.finish(1, false), "a normal finish is not a decision");
+        assert_eq!(state.phase, Phase::Decision { id: 1 });
+        // The user's answer to the prompt: the forced finish quits, once.
+        assert!(state.finish(1, true));
+        assert_eq!(state.phase, Phase::Quitting);
+        assert!(!state.finish(1, true));
+        let mut state = requested(true);
+        assert!(!state.finish(1, true), "no decision: no forced quit");
+        assert_eq!(state.phase, Phase::Saving { id: 1, last: t(0) });
+        assert!(state.finish(1, false), "the request that saves quits");
+        assert_eq!(state.phase, Phase::Quitting);
+        assert!(!state.cancel(1, false), "decided once");
+        assert!(!state.finish(1, true), "force has no decision to accept");
+    }
+
+    #[test]
+    fn only_the_matching_waiting_or_saving_request_is_accepted() {
+        let mut state = requested(false);
+        assert!(!state.saving(2, t(1)));
+        assert!(!state.finish(2, false));
+        assert!(!state.cancel(2, false));
+        assert_eq!(state.phase, Phase::WaitingAck { id: 1, at: t(0) });
+        assert!(state.saving(1, t(1)));
+        assert_eq!(state.phase, Phase::Saving { id: 1, last: t(1) });
+        assert!(state.finish(1, false));
+        // Done: late answers of anyone change nothing.
+        assert!(!state.saving(1, t(2)));
+        assert!(!state.finish(1, false));
+        assert!(!state.finish(1, true));
+        assert!(!state.cancel(1, true));
+        assert_eq!(state.phase, Phase::Quitting);
+    }
+
+    #[test]
+    fn a_cancel_of_a_live_request_ends_it_or_arms_its_decision() {
+        let mut state = requested(true);
+        assert!(!state.cancel(9, true));
+        // A save failed: the prompt waits for the user, so does this request
+        // (it takes an id of its own: the decision belongs to this one).
+        assert!(state.cancel(1, true));
+        assert_eq!(state.phase, Phase::Decision { id: 1 });
+        assert!(state.cancel(1, true), "asked again while the prompt shows");
+        assert_eq!(state.phase, Phase::Decision { id: 1 });
+        assert!(!state.finish(1, false));
+        // Refused (user keeps the app open): the request ends and quits
+        // nothing (AppKit's termination too, see `cancel_quit`).
+        assert!(state.cancel(1, false));
+        assert_eq!(state.phase, Phase::Idle);
+        assert!(!state.finish(1, true));
+        assert!(!state.saving(1, t(1)));
+        assert!(!state.cancel(1, false), "ended once");
+        // A decision ends the same way, true or false.
+        let mut state = decided();
+        assert!(state.cancel(1, false));
+        assert_eq!(state.phase, Phase::Idle);
+        assert!(state.begin(t(9)).is_some());
+        let mut state = decided();
+        assert!(state.cancel(1, true));
+        assert_eq!(state.phase, Phase::Decision { id: 1 });
+    }
+
+    #[test]
+    fn the_acknowledgement_deadline_ends_a_waiting_request_without_quitting() {
+        let mut state = requested(false);
+        assert_eq!(state.timed_out(7, t(ACK_TIMEOUT.as_secs() + 1)), None);
+        assert_eq!(state.timed_out(1, t(ACK_TIMEOUT.as_secs() - 1)), None);
         assert_eq!(
-            save_time_left(start, start + Duration::from_secs(20)),
-            Some(Duration::from_secs(10))
+            state.timed_out(1, t(ACK_TIMEOUT.as_secs())),
+            Some(CancelReason::NotAcknowledged)
         );
-        assert_eq!(save_time_left(start, start + SAVE_TIMEOUT), None);
-        // Progress 25 s in: still saving at 50 s, quitting at 55 s.
-        let progress = start + Duration::from_secs(25);
-        assert!(save_time_left(progress, start + Duration::from_secs(50)).is_some());
+        assert_eq!(state.phase, Phase::Idle);
+        // Late answers change nothing.
+        assert!(!state.saving(1, t(4)));
+        assert!(!state.finish(1, false));
+        assert!(!state.cancel(1, true));
+        assert_eq!(state.phase, Phase::Idle);
+    }
+
+    #[test]
+    fn each_settled_photo_write_extends_the_save_deadline() {
+        let mut state = requested(true);
+        assert_eq!(state.timed_out(1, t(29)), None);
+        assert!(state.saving(1, t(29)));
+        assert_eq!(state.timed_out(1, t(40)), None);
         assert_eq!(
-            save_time_left(progress, start + Duration::from_secs(55)),
-            None
+            state.timed_out(1, t(29 + SAVE_TIMEOUT.as_secs())),
+            Some(CancelReason::SavingStalled)
         );
+        assert_eq!(state.phase, Phase::Idle);
+    }
+
+    #[test]
+    fn a_decision_has_no_deadline() {
+        let mut state = decided();
+        assert_eq!(state.timed_out(1, t(10_000)), None);
+        assert_eq!(state.phase, Phase::Decision { id: 1 });
+    }
+
+    #[test]
+    fn a_stale_deadline_cannot_end_a_newer_request() {
+        let mut state = requested(true);
+        assert!(state.timed_out(1, t(SAVE_TIMEOUT.as_secs())).is_some());
+        let next = state.begin(t(31)).unwrap();
+        assert!(state.saving(next, t(31)));
+        // Request 1's deadline and answers arriving late.
+        assert_eq!(state.timed_out(1, t(31 + SAVE_TIMEOUT.as_secs())), None);
+        assert!(!state.saving(1, t(32)));
+        assert!(!state.finish(1, false));
+        assert!(!state.finish(1, true));
+        assert!(!state.cancel(1, true));
+        assert_eq!(
+            state.phase,
+            Phase::Saving {
+                id: next,
+                last: t(31)
+            }
+        );
+        // Its own deadline still applies.
+        assert_eq!(
+            state.timed_out(next, t(31 + SAVE_TIMEOUT.as_secs())),
+            Some(CancelReason::SavingStalled)
+        );
+    }
+
+    #[test]
+    fn ids_never_repeat_so_an_old_answer_cannot_match_a_new_request() {
+        let mut state = requested(true);
+        assert!(state.cancel(1, false));
+        let next = state.begin(t(2)).unwrap();
+        assert!(state.saving(next, t(3)));
+        assert!(state.finish(next, false));
+        assert_eq!(state.generation, 4);
+        assert_eq!(state.phase, Phase::Quitting);
+    }
+
+    #[test]
+    fn a_request_a_failed_emit_could_not_ask_ends_without_quitting() {
+        let mut state = requested(false);
+        assert!(!state.abort(2));
+        assert!(state.abort(1));
+        assert_eq!(state.phase, Phase::Idle);
+        assert!(!state.abort(1));
+        // Not once the editor answered it.
+        let mut state = requested(true);
+        assert!(!state.abort(1));
+        assert_eq!(state.phase, Phase::Saving { id: 1, last: t(0) });
     }
 
     #[test]
@@ -216,7 +648,7 @@ mod tests {
 /// its own (Dock Quit, log out, restart, shut down).
 #[cfg(target_os = "macos")]
 mod system_terminate {
-    use super::{QUITTING, request_quit};
+    use super::{is_quitting, request_quit};
     use objc2::runtime::{AnyClass, AnyObject, Bool, Imp, Sel};
     use objc2::{class, msg_send, sel};
     use std::sync::OnceLock;
@@ -246,7 +678,7 @@ mod system_terminate {
         let Some(request) = REQUEST.get() else {
             return TERMINATE_NOW;
         };
-        if QUITTING.load(Ordering::SeqCst) {
+        if is_quitting() {
             return TERMINATE_NOW;
         }
         WAITING.store(true, Ordering::SeqCst);
@@ -256,7 +688,7 @@ mod system_terminate {
         request();
         DECIDING.store(false, Ordering::SeqCst);
         // The editor could not be asked: quit at once.
-        if QUITTING.load(Ordering::SeqCst) {
+        if is_quitting() {
             WAITING.store(false, Ordering::SeqCst);
             return TERMINATE_NOW;
         }
