@@ -68,12 +68,16 @@ mod tests {
         let moved = Path::new("/moved");
         resolve(&mut value, moved);
         assert_eq!(
-            value["adjustments"]["lutPath"],
-            moved.join("resources").join("look.cube").to_str().unwrap()
+            Path::new(value["adjustments"]["lutPath"].as_str().unwrap()),
+            moved.join("resources/look.cube")
         );
         assert_eq!(
-            value["adjustments"]["masks"][0]["cameraProfile"],
-            moved.join("resources").join("camera.dcp").to_str().unwrap()
+            Path::new(
+                value["adjustments"]["masks"][0]["cameraProfile"]
+                    .as_str()
+                    .unwrap()
+            ),
+            moved.join("resources/camera.dcp")
         );
         assert_eq!(value["caption"], stored["caption"]);
         localize(&mut value, Path::new("/moved"));
