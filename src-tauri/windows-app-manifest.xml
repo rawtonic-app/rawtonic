@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  Manifest of the application and of its Rust test executables (build.rs):
+  the Common Controls v6 dependency that tauri's dialog plugin needs, so
+  TaskDialogIndirect resolves. tauri-build embeds it in the application
+  binaries; the test executables, which tauri-build leaves without one, link
+  it too. Keep it minimal: test binaries run without a window or installer.
+-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity
+        type="win32"
+        name="Microsoft.Windows.Common-Controls"
+        version="6.0.0.0"
+        processorArchitecture="*"
+        publicKeyToken="6595b64144ccf1df"
+        language="*"
+      />
+    </dependentAssembly>
+  </dependency>
+</assembly>
