@@ -23,6 +23,18 @@ impl log::Log for Logger {
 static LOGGER: Logger = Logger;
 
 fn main() -> Result<(), String> {
+    // Match the larger stacks used by rendering workers. Windows' default main
+    // stack can overflow inside the software driver's shader compilation.
+    std::thread::Builder::new()
+        .name("processing-probe".into())
+        .stack_size(32 * 1024 * 1024)
+        .spawn(run)
+        .map_err(|error| error.to_string())?
+        .join()
+        .map_err(|_| "processing probe panicked".to_string())?
+}
+
+fn run() -> Result<(), String> {
     log::set_logger(&LOGGER).map_err(|error| error.to_string())?;
     log::set_max_level(log::LevelFilter::Info);
     let size: u32 = std::env::args()
