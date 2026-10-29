@@ -872,9 +872,9 @@
       "zoomOutTooltip": "Zoom arrière"
     },
     "quit": {
-      "quitAnyway": "",
-      "unsavedMessage": "",
-      "unsavedTitle": ""
+      "quitAnyway": "Quitter quand même",
+      "unsavedMessage": "Ces modifications n’ont pas pu être enregistrées : {{changes}}. En quittant maintenant, vous les perdrez ; annulez pour garder Rawtonic ouvert et réessayer.",
+      "unsavedTitle": "Modifications non enregistrées"
     },
     "renameFile": {
       "cancel": "Annuler",
@@ -978,7 +978,7 @@
   },
   "notifications": {
     "close": "Fermer la notification",
-    "quitCancelled": "",
+    "quitCancelled": "Rawtonic est resté ouvert car l’enregistrement n’est pas terminé. Les modifications en attente sont toujours en cours d’enregistrement.",
     "region": "Notifications"
   },
   "offline": {

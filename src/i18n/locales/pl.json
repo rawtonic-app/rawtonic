@@ -891,9 +891,9 @@
       "zoomOutTooltip": "Oddal"
     },
     "quit": {
-      "quitAnyway": "",
-      "unsavedMessage": "",
-      "unsavedTitle": ""
+      "quitAnyway": "Mimo to zakończ",
+      "unsavedMessage": "Nie udało się zapisać tych zmian: {{changes}}. Po zakończeniu zostaną utracone; wybierz „Anuluj”, aby pozostawić Rawtonic otwarty i spróbować ponownie.",
+      "unsavedTitle": "Zmiany niezapisane"
     },
     "renameFile": {
       "cancel": "Anuluj",
@@ -999,7 +999,7 @@
   },
   "notifications": {
     "close": "Zamknij powiadomienie",
-    "quitCancelled": "",
+    "quitCancelled": "Rawtonic pozostał otwarty, ponieważ zapisywanie nie zostało ukończone. Oczekujące zmiany są nadal zapisywane.",
     "region": "Powiadomienia"
   },
   "offline": {

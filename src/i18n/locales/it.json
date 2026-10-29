@@ -872,9 +872,9 @@
       "zoomOutTooltip": "Riduci"
     },
     "quit": {
-      "quitAnyway": "",
-      "unsavedMessage": "",
-      "unsavedTitle": ""
+      "quitAnyway": "Esci comunque",
+      "unsavedMessage": "Impossibile salvare queste modifiche: {{changes}}. Uscendo ora andranno perse; annulla per mantenere Rawtonic aperto e riprovare.",
+      "unsavedTitle": "Modifiche non salvate"
     },
     "renameFile": {
       "cancel": "Annulla",
@@ -978,7 +978,7 @@
   },
   "notifications": {
     "close": "Chiudi notifica",
-    "quitCancelled": "",
+    "quitCancelled": "Rawtonic è rimasto aperto perché il salvataggio non è terminato. Le modifiche in sospeso vengono ancora salvate.",
     "region": "Notifiche"
   },
   "offline": {

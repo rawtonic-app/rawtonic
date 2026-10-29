@@ -852,9 +852,9 @@
       "zoomOutTooltip": "縮小"
     },
     "quit": {
-      "quitAnyway": "",
-      "unsavedMessage": "",
-      "unsavedTitle": ""
+      "quitAnyway": "仍要結束",
+      "unsavedMessage": "下列變更無法儲存：{{changes}}。現在結束將遺失這些變更；取消可讓 Rawtonic 保持開啟並重試。",
+      "unsavedTitle": "變更未儲存"
     },
     "renameFile": {
       "cancel": "取消",
@@ -955,7 +955,7 @@
   },
   "notifications": {
     "close": "關閉通知",
-    "quitCancelled": "",
+    "quitCancelled": "儲存尚未完成，Rawtonic 保持開啟。待處理的變更仍在儲存中。",
     "region": "通知"
   },
   "offline": {

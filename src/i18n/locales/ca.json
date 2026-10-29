@@ -872,9 +872,9 @@
       "zoomOutTooltip": "Allunyar"
     },
     "quit": {
-      "quitAnyway": "",
-      "unsavedMessage": "",
-      "unsavedTitle": ""
+      "quitAnyway": "Surt igualment",
+      "unsavedMessage": "Aquests canvis no s’han pogut desar: {{changes}}. Si surts ara, els perdràs; cancel·la per mantenir el Rawtonic obert i torna-ho a provar.",
+      "unsavedTitle": "Canvis sense desar"
     },
     "renameFile": {
       "cancel": "Cancel·lar",
@@ -978,7 +978,7 @@
   },
   "notifications": {
     "close": "Tanca la notificació",
-    "quitCancelled": "",
+    "quitCancelled": "El Rawtonic ha romàs obert perquè el desat no ha acabat. Els canvis pendents encara s’estan desant.",
     "region": "Notificacions"
   },
   "offline": {

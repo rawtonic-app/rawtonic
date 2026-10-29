@@ -891,9 +891,9 @@
       "zoomOutTooltip": "Уменьшить"
     },
     "quit": {
-      "quitAnyway": "",
-      "unsavedMessage": "",
-      "unsavedTitle": ""
+      "quitAnyway": "Всё равно выйти",
+      "unsavedMessage": "Не удалось сохранить эти изменения: {{changes}}. При выходе они будут потеряны; выберите «Отмена», чтобы оставить Rawtonic открытым и повторить попытку.",
+      "unsavedTitle": "Изменения не сохранены"
     },
     "renameFile": {
       "cancel": "Отмена",
@@ -999,7 +999,7 @@
   },
   "notifications": {
     "close": "Закрыть уведомление",
-    "quitCancelled": "",
+    "quitCancelled": "Rawtonic остался открытым, поскольку сохранение не завершено. Отложенные изменения всё ещё сохраняются.",
     "region": "Уведомления"
   },
   "offline": {
