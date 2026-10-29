@@ -754,8 +754,9 @@ pub(crate) fn emit_batch_write_settled(
     );
 }
 
-/// The `SaveFailure` of a face retouch that did not write `path`.
-fn face_retouch_failure(path: &str, reason: &str) -> SaveFailure {
+/// The `SaveFailure` of a face retouch that did not write `path`
+/// (`ai_faces::apply_face_retouch_to_paths` reports each photo with it).
+pub(crate) fn face_retouch_failure(path: &str, reason: &str) -> SaveFailure {
     SaveFailure {
         message: format!("Face retouch of {path} failed: {reason}"),
         failed: vec![path.to_string()],

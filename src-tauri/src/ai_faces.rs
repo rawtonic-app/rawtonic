@@ -16,6 +16,7 @@ use tauri::Manager;
 use crate::ai_processing::AiPeopleMaskParameters;
 use crate::app_state::{AiTaskGuard, AppState};
 use crate::editor_preview::get_cached_full_warped_image;
+use crate::file_management::SaveFailure;
 
 /// Files of the model pack (docs/MODELS.md) and their SHA-256.
 const MODEL_FILES: [(&str, &str); 3] = [
@@ -352,9 +353,9 @@ pub async fn apply_face_retouch_to_paths(
     face_settings: Vec<FaceSettingsAt>,
     batch: Option<String>,
     app_handle: tauri::AppHandle,
-) -> Result<usize, crate::file_management::SaveFailure> {
+) -> Result<usize, SaveFailure> {
     let batch = batch.as_deref();
-    let fail = |reason: String| crate::file_management::SaveFailure {
+    let fail = |reason: String| SaveFailure {
         message: format!("Face retouch failed: {reason}"),
         failed: paths.clone(),
         culling: Vec::new(),
@@ -378,7 +379,7 @@ pub async fn apply_face_retouch_to_paths(
         };
         // Its own values are what failed, not a later photo's; it was not
         // written, so it fails even for one photo.
-        let settled = |failures: &mut Vec<crate::file_management::SaveFailure>, reason: &str| {
+        let settled = |failures: &mut Vec<SaveFailure>, reason: &str| {
             let failure = crate::file_management::face_retouch_failure(&path, reason);
             let also = failure.failed.clone();
             announcement(Some(reason), &also);
@@ -392,6 +393,9 @@ pub async fn apply_face_retouch_to_paths(
         let models = models.clone();
         let app_settings = app_settings.clone();
         let settings = settings.clone();
+        // Both layers flattened into this one: a panicking (or cancelled)
+        // analysis is this photo's failure, reported like a failed one, and
+        // the Ok value is the value itself, never a `Result` to serialize.
         let face_retouch: Result<serde_json::Value, String> =
             tokio::task::spawn_blocking(move || -> Result<serde_json::Value, String> {
                 let mut recipe =
@@ -462,8 +466,11 @@ pub async fn apply_face_retouch_to_paths(
                 Ok(value)
             })
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|join| format!("photo analysis failed: {join}"))
+            .and_then(|analysis| analysis);
         match face_retouch {
+            // (The recipe gets the value itself: the type above rules out
+            // an `{Ok: …}`/`{Err: …}` wrapper ever reaching the sidecar.)
             Ok(value) => {
                 // A recipe not saved does not count as done.
                 match crate::file_management::apply_adjustments_to_paths(
@@ -496,7 +503,7 @@ pub async fn apply_face_retouch_to_paths(
         // Short of all: every photo that was not written is named. Just one
         // (any may have failed within its photo): it fails for all.
         1 => Err(failures.pop().expect("one failure")),
-        _ => Err(crate::file_management::SaveFailure {
+        _ => Err(SaveFailure {
             message: format!(
                 "Face retouch failed for {} photos, first: {}",
                 failures.len(),

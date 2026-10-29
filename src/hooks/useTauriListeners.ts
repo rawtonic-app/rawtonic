@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { UnlistenFn, listen } from '@tauri-apps/api/event';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { toast } from 'react-toastify';
 import i18n from 'i18next';
@@ -24,6 +24,7 @@ import { IMPORTS_CHANGED } from '../utils/folderSync';
 import { notifyExportOutputs } from '../utils/exportFeedback';
 import { metadataWritten } from '../utils/catalogWrites';
 import { notDeliveredToast } from '../components/session/tether';
+import { PhotoBatch, batchPhotoSettled, photoBatches, unsettledPhotos } from '../utils/photoWrites';
 
 type EditorState = ReturnType<typeof useEditorStore.getState>;
 
@@ -86,6 +87,97 @@ interface TauriListenerProps {
   markGenerated: (path: string) => void;
   /** Opens a photograph (in Develop with `openInEditor`). */
   handleImageSelect?: (path: string, openInEditor?: boolean) => void;
+}
+
+interface BatchWriteSettledPayload {
+  /** The tag the webview gave the command (its write queue entry's batch). */
+  batch?: unknown;
+  /** The photograph it finished. */
+  path?: unknown;
+  /** Why it was not written (`null`: it was). */
+  ok?: unknown;
+  /** Photographs the command writes besides `path` (also settled by it). */
+  also?: unknown;
+}
+
+/** A photograph of a batch command that finished, as the backend reports it
+ * (`BatchWriteSettled` in src-tauri/src/file_management/edits.rs, emitted by
+ * edits.rs and ai_faces.rs) in the webview's form of it
+ * (`rawtonic:batch-write-settled`, `photoWrites.onBatchWriteSettled`):
+ * `ok` is set only for a photograph not written. Null for no report or an
+ * unreadable one (a shape the backend never sends is no progress): no tag
+ * or photo, an empty one, or an `ok` that is neither a reason nor null. */
+function normalizedBatchWriteSettled(payload: BatchWriteSettledPayload | null | undefined): {
+  tag: string;
+  path: string;
+  ok?: string;
+  also: string[];
+} | null {
+  const { batch, path, ok, also } = payload ?? {};
+  if (typeof batch !== 'string' || !batch || typeof path !== 'string' || !path) return null;
+  // Rust serializes successful writes as an explicit null. A missing
+  // result is malformed, so it cannot count as a successful write.
+  if (ok !== null && typeof ok !== 'string') return null;
+  return {
+    tag: batch,
+    path,
+    ...(typeof ok === 'string' ? { ok } : {}),
+    also: Array.isArray(also) ? also.filter((each): each is string => typeof each === 'string') : [],
+  };
+}
+
+/** The batch a report of `tag` is about: a queued batch command
+ * (`photoBatches`), never another queued write. */
+function batchNamed(tag: string): PhotoBatch | null {
+  for (const batch of photoBatches().values()) if (batch.tag === tag) return batch;
+  return null;
+}
+
+/**
+ * The photographs one report settles for `batch`, in its order: `path` and
+ * those in `also`, each once, each in the batch, and only those the batch
+ * still waits for (`unsettledPhotos`). The report's own photograph must be
+ * one of them: a repeated, late or foreign photograph is dropped whole (also
+ * as a duplicate or late primary: what it names is the primary's to say).
+ * `path` comes first so a failure first reaches the batch as itself; `also`
+ * never carries the same failure twice. Null when the report settles no
+ * photograph.
+ */
+function reportSettles(batch: PhotoBatch, path: string, also: string[]): string[] | null {
+  const waiting = new Set(unsettledPhotos(batch));
+  if (!waiting.delete(path)) return null;
+  const settled = [path];
+  for (const extra of also) if (waiting.delete(extra)) settled.push(extra);
+  return settled;
+}
+
+/**
+ * The backend's photographs of a batch command as the webview hears them: it
+ * passes each report on, normalized, as the webview's own
+ * `rawtonic:batch-write-settled` - once per photograph it settled, so
+ * quitting (`utils/quit`, via `onBatchWriteSettled`) answers the backend
+ * (`quit_saving`) photo by photo and keeps each photograph a command failed
+ * for its prompt. A report of no queued batch, of a photograph it no longer
+ * waits for (repeated, late, of another batch) or unreadable is dropped
+ * before that: it is no progress and no new failure. Returns its unlisten.
+ */
+function batchWriteSettledListener(): Promise<UnlistenFn> {
+  return listen<BatchWriteSettledPayload>('batch-write-settled', (event) => {
+    const settled = normalizedBatchWriteSettled(event.payload);
+    const batch = settled && batchNamed(settled.tag);
+    const photos = settled && batch && reportSettles(batch, settled.path, settled.also);
+    if (!settled || !batch || !photos) return;
+    for (const photo of photos) {
+      batchPhotoSettled(batch.id, photo, settled.ok);
+      // (The photograph settled, not the batch: quitting forgets the batch
+      // once its write settles, while these reports still come.)
+      window.dispatchEvent(
+        new CustomEvent('rawtonic:batch-write-settled', {
+          detail: { tag: settled.tag, path: photo, ...(settled.ok !== undefined ? { ok: settled.ok } : {}), also: [] },
+        }),
+      );
+    }
+  });
 }
 
 /** How often the grid lists its folder again while an ingest copies
@@ -292,6 +384,10 @@ export function useTauriListeners({
     );
 
     const listeners = [
+      // A long batch command (Auto adjustments, face retouch) reports each
+      // photograph as it finishes (`batch-write-settled` in src-tauri); the
+      // webview's own form follows its photographs, never on a timer.
+      batchWriteSettledListener(),
       listen<{ destination: string | null; skipped: boolean; error: string | null }>(
         'session-ingest-imported',
         (event) => {
