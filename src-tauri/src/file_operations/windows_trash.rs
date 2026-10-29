@@ -170,13 +170,17 @@ fn bin_entries() -> Result<Vec<BinEntry>> {
     }
 }
 
-fn verified_item(path: &Path) -> Result<(IShellItem, PathBuf)> {
-    let name = path.file_name().context("Cannot recycle a drive root")?;
-    let source = path
+fn canonical_entry(path: &Path) -> Result<PathBuf> {
+    Ok(path
         .parent()
         .context("Missing parent")?
         .canonicalize()?
-        .join(name);
+        .join(path.file_name().context("Missing filename")?))
+}
+
+fn verified_item(path: &Path) -> Result<(IShellItem, PathBuf)> {
+    path.file_name().context("Cannot recycle a drive root")?;
+    let source = canonical_entry(path)?;
     let plain = plain_drive_path(&source)?;
     let item: IShellItem =
         unsafe { SHCreateItemFromParsingName(&HSTRING::from(plain.as_os_str()), None)? };
@@ -469,9 +473,12 @@ fn restore_to_stage(receipt: &Receipt, stage: &Stage) -> Result<()> {
 
 fn restore_receipt(receipt: &Receipt, original: &Path) -> Result<()> {
     ensure!(
-        original == receipt.original,
+        canonical_entry(original)? == receipt.original,
         "Receipt belongs to another destination"
     );
+    // Use the recorded native spelling after checking the caller's parent and
+    // leaf, so plain and verbatim aliases have the same no-clobber guarantees.
+    let original = receipt.original.as_path();
     let parent = open_directory(receipt.parent()?)?;
     ensure!(
         file_identity(&parent)? == receipt.parent_identity,
@@ -513,11 +520,7 @@ impl SystemTrash for PlatformTrash {
         shell_thread(|| {
             let _apartment = Apartment::new()?;
             let (item, _) = verified_item(path)?;
-            let original = path
-                .parent()
-                .context("Missing parent")?
-                .canonicalize()?
-                .join(path.file_name().context("Missing filename")?);
+            let original = canonical_entry(path)?;
             let mut receipt = Receipt {
                 bin_id: String::new(),
                 nonce: uuid::Uuid::new_v4(),
@@ -774,6 +777,27 @@ mod tests {
         );
         assert!(!PlatformTrash.contains(&text));
         assert!(!receipt.stage().unwrap().exists());
+    }
+
+    #[test]
+    fn plain_and_verbatim_destinations_keep_the_same_receipt_and_collision_checks() {
+        let (_temp, receipt) = staged_fixture();
+        let plain = plain_drive_path(&receipt.original).unwrap();
+        let text = serde_json::to_string(&receipt).unwrap();
+        fs::write(&plain, b"unrelated destination").unwrap();
+        assert!(PlatformTrash.restore(&text, &plain).is_err());
+        assert_eq!(fs::read(&plain).unwrap(), b"unrelated destination");
+        assert_eq!(
+            fs::read(receipt.stage().unwrap().join("payload")).unwrap(),
+            b"synthetic photograph"
+        );
+        fs::remove_file(&plain).unwrap(); // Only this fixture's synthetic collision.
+        PlatformTrash.restore(&text, &plain).unwrap();
+        PlatformTrash.restore(&text, &receipt.original).unwrap();
+        assert_eq!(fs::read(&plain).unwrap(), b"synthetic photograph");
+        let other = plain.with_file_name("another-destination.txt");
+        assert!(PlatformTrash.restore(&text, &other).is_err());
+        assert!(!other.exists());
     }
 
     #[test]
