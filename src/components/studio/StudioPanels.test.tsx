@@ -5,9 +5,10 @@ import StudioWorkspace from "./StudioWorkspace";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useUIStore } from "../../store/useUIStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
-import type { AppSettings, SelectedImage } from "../ui/AppProperties";
+import type { AppSettings, ImageFile, SelectedImage } from "../ui/AppProperties";
 import { readModuleLayout } from "../../utils/panelLayout";
 import { PEEK_HOLD_MS, PEEK_LEAVE_MS } from "./useEdgePeek";
+import { ContextMenuProvider } from "../../context/ContextMenuContext";
 
 vi.mock("../panel/Editor", () => ({ default: () => null }));
 vi.mock("./StudioDevelop", () => ({
@@ -55,11 +56,11 @@ afterEach(() => {
 });
 
 const noop = () => {};
-const workspace = () =>
+const workspace = (files: ImageFile[] = []) =>
   render(
     <StudioWorkspace
-      files={[]}
-      flagCounts={{ all: 0, picked: 0, rejected: 0, unflagged: 0 }}
+      files={files}
+      flagCounts={{ all: files.length, picked: 0, rejected: 0, unflagged: files.length }}
       transformWrapperRef={{ current: null }}
       onSelect={noop}
       onFilmSelect={noop}
@@ -77,6 +78,7 @@ const workspace = () =>
       settings={null}
       onSettings={noop}
     />,
+    { wrapper: ContextMenuProvider },
   );
 
 it("hides everything but the photograph and its tool bar with Shift+Tab, with strips on the edges", () => {
@@ -278,4 +280,30 @@ describe("hidden side panels on the window edge (Auto Hide & Show)", () => {
     expect(panel?.classList.contains("is-peek")).toBe(false);
     expect(readModuleLayout(useUIStore.getState().uiVisibility.modules, "develop").right).toBe(true);
   });
+});
+
+it("names the open photograph in the Develop and Library footers by its file, on either separator", () => {
+  const listFile = (path: string) =>
+    ({ path, is_raw: true, rating: 0, is_edited: false, tags: null, exif: null, modified: 0,
+      is_virtual_copy: false, is_cloud_placeholder: false, group_id: null }) as ImageFile;
+  const footerName = (container: HTMLElement) =>
+    container.querySelector(".studio-viewer-filename")?.firstChild?.textContent ?? null;
+  const cases = [
+    ["/qa/Capture/A.CR2", "A.CR2"],
+    ["C:\\Photos\\Capture\\A.CR2", "A.CR2"],
+    ["C:/Photos/Capture\\A.CR2", "A.CR2"],
+    ["C:/Photos/Capture\\A.CR2?vc=abc123", "A.CR2"],
+  ] as const;
+  for (const [path, name] of cases) {
+    const files = [listFile(path), listFile("/qa/other.dng")];
+    useEditorStore.setState({ selectedImage: { ...useEditorStore.getState().selectedImage!, path } });
+    const view = workspace(files);
+    expect(footerName(view.container)).toBe(name);
+    // The Library's viewer beside the grid (E) shares the footer with Develop.
+    act(() => useUIStore.setState({ activeView: "library", libraryLoupe: true }));
+    expect(footerName(view.container)).toBe(name);
+    // The full path stays the footer's tooltip, untouched.
+    expect(view.container.querySelector<HTMLElement>(".studio-viewer-filename")?.title).toBe(path);
+    view.unmount();
+  }
 });

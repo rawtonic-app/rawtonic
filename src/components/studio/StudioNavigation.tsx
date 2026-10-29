@@ -749,14 +749,14 @@ export default function StudioNavigation({
       <ToolGroup key="navigator" title="Navigator" label={t("studio.library.navigator.title")}>
         <div className="studio-navigator">
           {preview ? (
-            <CachedThumbnail sourcePath={image!.path} src={preview} alt={image?.path.split("/").pop()} />
+            <CachedThumbnail sourcePath={image!.path} src={preview} alt={image?.path.split("?vc=")[0].split(/[\\/]/).pop()} />
           ) : (
             <span>{t("studio.library.navigator.empty")}</span>
           )}
         </div>
         {image && (
           <div className="studio-nav-caption">
-            {image.path.split("/").pop()}
+            {image.path.split("?vc=")[0].split(/[\\/]/).pop()}
           </div>
         )}
       </ToolGroup>
