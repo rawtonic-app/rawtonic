@@ -3,7 +3,6 @@
 // photo by photo - never on a timer - and each one not written is kept for
 // the unsaved-changes prompt.
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { invoke } from '@tauri-apps/api/core';
 import { BatchCommand, COMMANDS, registerDrain, sent, turn, waitFor } from './quit.test.support';
 import { handleQuitRequest, registerQuitFlush } from './quit';
 import { flushRecipeSaves } from '../hooks/useEditorActions';
@@ -16,7 +15,6 @@ vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: vi.fn() }));
 const unregistered: Array<() => void> = [];
 let open: BatchCommand | undefined;
 beforeEach(() => {
-  // The app's drain (the editor's recipe flush, registered at import).
   // The app's editor drain (its recipe flush, which waits for every queued
   // write), registered as the app registers it.
   unregistered.push(registerQuitFlush(async () => (await flushRecipeSaves()).map((path) => `Edits of ${path}`)));
@@ -31,30 +29,36 @@ afterEach(async () => {
   await allPhotoWritesSettled().catch(() => undefined);
 });
 
-/** A long Auto batch on `photos`, its write started. */
+/** A long Auto batch on `photos`, its write started and waiting for the
+ * test's next photograph. */
 async function autoBatch(photos: string[], kind = 'auto'): Promise<BatchCommand> {
   const command = new BatchCommand(photos, kind);
   open = command;
-  await waitFor(() => command.tag !== '', 'the batch tag');
+  await command.started();
+  await turn();
   return command;
 }
 
 it('tells the backend it is saving after every photograph a long batch wrote', async () => {
   const command = await autoBatch(['/1.dng', '/2.dng', '/3.dng']);
+  const progressAfter = vi.fn();
   // The command writes its photographs while the quit's drain listens: each
   // report is the quit's progress ("still saving"), no timer is.
   unregistered.push(
     registerDrain(registerQuitFlush, async () => {
-      for (const photo of ['/1.dng', '/2.dng', '/3.dng']) {
-        const before = sent(Invokes.QuitSaving);
+      for (const [at, photo] of ['/1.dng', '/2.dng', '/3.dng'].entries()) {
         await command.next();
-        await waitFor(() => sent(Invokes.QuitSaving) > before, `progress after ${photo}`);
+        // Each report crossed: the quit answered the backend's save signal
+        // once more.
+        await waitFor(() => sent(Invokes.QuitSaving) >= at + 2, `progress after ${photo}`);
+        progressAfter(photo);
+        await turn();
       }
       command.finish(3);
     }),
   );
   await handleQuitRequest(vi.fn());
-  await turn();
+  expect(progressAfter.mock.calls).toEqual([['/1.dng'], ['/2.dng'], ['/3.dng']]);
   expect(COMMANDS()).toEqual([...Array<number>(4).fill(0)].map(() => Invokes.QuitSaving).concat(Invokes.FinishQuit));
 });
 
@@ -67,6 +71,8 @@ it('never counts a timer as progress', async () => {
   vi.useRealTimers();
   // Nothing reported: no second answer, though two minutes passed.
   expect(COMMANDS()).toEqual([Invokes.QuitSaving]);
+  // Its photograph was written before it answered (its count holds its last
+  // ones back to one a command may report later).
   command.finish(1);
   await quit;
   await command.opened;
@@ -88,12 +94,8 @@ it('reports a batch photograph that failed, though the batch goes on and ends wi
   const command = await autoBatch(['/x.dng', '/y.dng']);
   const ask = vi.fn();
   unregistered.push(
-    registerDrain(registerQuitFlush, async () => {
-      await command.next();
-      await command.next('disk full');
-      // Its answer counts one written (the photograph it could not write).
-      command.finish(1);
-    }),
+    // Its answer counts one written (the photograph it could not write).
+    registerDrain(registerQuitFlush, () => command.drive(async (photo) => (photo === '/y.dng' ? 'disk full' : undefined), 1)),
   );
   await handleQuitRequest(ask);
   await turn();
@@ -106,6 +108,7 @@ it('counts a batch whose command failed as not written though it reported some, 
   const command = await autoBatch(['/m.dng', '/n.dng']);
   const ask = vi.fn();
   unregistered.push(
+    // The test writes the first photograph; the command fails on the next.
     registerDrain(registerQuitFlush, async () => {
       await command.next();
       command.failWith('Auto adjustments failed: the photos are gone');
@@ -121,13 +124,20 @@ it('counts a batch whose command failed as not written though it reported some, 
 it('reports a batch still running when the quit starts as far as it got', async () => {
   const command = await autoBatch(['/p.dng', '/q.dng']);
   // A photograph written a while ago (reported before the quit), the next
-  // not yet: the quit counts what it heard.
+  // not yet - and the command still writing it when the quit starts: the
+  // quit counts what it heard (the drain waits for the command).
   await command.next();
   await turn();
   const ask = vi.fn();
-  unregistered.push(registerDrain(registerQuitFlush));
+  unregistered.push(
+    registerDrain(registerQuitFlush, () => {
+      // (It writes its last one now, as a slow command may.)
+      command.finish(2);
+      return command.opened;
+    }),
+  );
   await handleQuitRequest(ask);
+  await turn();
+  expect(ask).toHaveBeenCalledTimes(1);
   expect(ask.mock.calls[0][0]).toEqual(['Auto adjustments not finished (1 of 2 photos saved)']);
-  command.finish(2);
-  await command.opened;
 });
