@@ -2649,16 +2649,19 @@ pub fn rename_no_clobber(from: &Path, to: &Path) -> io::Result<()> {
     // Windows: the system's own move without replacement, atomic there.
     #[cfg(windows)]
     {
-        return volume::rename_exclusive(from, to);
+        volume::rename_exclusive(from, to)
     }
-    // Volumes without an exclusive rename: check, then rename.
-    if exists(to) {
-        return Err(io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            format!("{} already exists", to.display()),
-        ));
+    #[cfg(not(windows))]
+    {
+        // Volumes without an exclusive rename: check, then rename.
+        if exists(to) {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!("{} already exists", to.display()),
+            ));
+        }
+        fs::rename(from, to)
     }
-    fs::rename(from, to)
 }
 
 #[cfg(unix)]

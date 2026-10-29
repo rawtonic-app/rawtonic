@@ -448,7 +448,9 @@ mod tests {
         let key = "a".repeat(64);
         let thumbnail = cache.join(format!("{key}_small.jpg"));
         fs::write(&thumbnail, b"thumbnail").unwrap();
-        fs::File::open(&thumbnail)
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&thumbnail)
             .unwrap()
             .set_times(fs::FileTimes::new().set_modified(std::time::UNIX_EPOCH))
             .unwrap();
@@ -472,7 +474,9 @@ mod tests {
         let analysis = cache.join("analysis.bin");
         for path in [&standard, &full, &analysis] {
             fs::write(path, b"cache").unwrap();
-            fs::File::open(path)
+            fs::OpenOptions::new()
+                .write(true)
+                .open(path)
                 .unwrap()
                 .set_times(fs::FileTimes::new().set_modified(std::time::UNIX_EPOCH))
                 .unwrap();
