@@ -65,7 +65,9 @@ fn encoded(source: &Path, exif: Option<HashMap<String, String>>) -> Vec<u8> {
 fn exported(source: &Path, exif: Option<HashMap<String, String>>) -> [Option<String>; 4] {
     let bytes = encoded(source, exif);
     let read = Metadata::new_from_vec(&bytes, FileExtension::JPEG).unwrap();
-    let read = exif::Reader::new().read_raw(read.encode().unwrap()).unwrap();
+    let read = exif::Reader::new()
+        .read_raw(read.encode().unwrap())
+        .unwrap();
     let text = |tag| {
         read.get_field(tag, exif::In::PRIMARY)
             .map(|f| f.display_value().to_string().trim_matches('"').to_string())
@@ -110,7 +112,10 @@ fn a_raw_source_read_through_its_map_takes_the_corrected_time() {
     // Not decodable: the export reads the library's map, as for a RAW.
     let source = dir.path().join("camera.ARW");
     std::fs::write(&source, b"raw").unwrap();
-    let plain = map(&[("DateTimeOriginal", "2026-10-30 23:30:00"), ("Make", "Maker")]);
+    let plain = map(&[
+        ("DateTimeOriginal", "2026-10-30 23:30:00"),
+        ("Make", "Maker"),
+    ]);
     let before = exported(&source, Some(plain));
     assert_eq!(before[0].as_deref(), Some("2026-10-30 23:30:00"));
     assert_eq!(before[1], None, "no fraction is added without a correction");

@@ -386,9 +386,9 @@ impl Library {
 
     /// The corrected capture times of those of `ids` that have one.
     pub fn capture_overrides(&self, ids: &[String]) -> Result<HashMap<String, CaptureTime>> {
-        let mut query = self
-            .conn
-            .prepare_cached("SELECT captured,subsec,offset FROM capture_overrides WHERE asset_id=?")?;
+        let mut query = self.conn.prepare_cached(
+            "SELECT captured,subsec,offset FROM capture_overrides WHERE asset_id=?",
+        )?;
         let mut found = HashMap::new();
         for id in ids {
             let time = query
@@ -424,9 +424,11 @@ impl Library {
         let mut conflicts = Vec::new();
         for (change, _) in &checked {
             let exists: bool = tx
-                .query_row("SELECT 1 FROM assets WHERE id=?", [&change.asset_id], |_| {
-                    Ok(true)
-                })
+                .query_row(
+                    "SELECT 1 FROM assets WHERE id=?",
+                    [&change.asset_id],
+                    |_| Ok(true),
+                )
                 .optional()?
                 .unwrap_or(false);
             let current = self.capture_override(&change.asset_id)?;
@@ -627,7 +629,10 @@ mod tests {
             (parts(false, "-1", "", "", ""), ShiftField::Days),
             (parts(false, "", "1.5", "", ""), ShiftField::Hours),
             (parts(false, "", "", "x", ""), ShiftField::Minutes),
-            (parts(false, "", "", "", "1.1234567891"), ShiftField::Seconds),
+            (
+                parts(false, "", "", "", "1.1234567891"),
+                ShiftField::Seconds,
+            ),
             (parts(false, "", "", "", "1."), ShiftField::Seconds),
             (parts(false, "999999999", "", "", ""), ShiftField::Days),
         ] {
@@ -652,7 +657,10 @@ mod tests {
         let s = reference.shift_to("2026-10-30 13:02:03").unwrap();
         assert_eq!(s.nanos, 3723 * NANOS);
         assert_eq!(s.digits, 0);
-        assert_eq!(reference.shifted(&s).unwrap().subsec.as_deref(), Some("345"));
+        assert_eq!(
+            reference.shifted(&s).unwrap().subsec.as_deref(),
+            Some("345")
+        );
         // With a fraction: exactly that.
         let s = reference.shift_to("2026-10-30 11:59:59.5").unwrap();
         assert_eq!(s.nanos, -845_000_000);
@@ -661,7 +669,10 @@ mod tests {
             (moved.local.as_str(), moved.subsec.as_deref()),
             ("2026-10-30 11:59:59", Some("500"))
         );
-        assert_eq!(reference.shift_to("2026-02-30 00:00:00"), Err(TimeError::Invalid));
+        assert_eq!(
+            reference.shift_to("2026-02-30 00:00:00"),
+            Err(TimeError::Invalid)
+        );
     }
 
     #[test]
@@ -678,7 +689,12 @@ mod tests {
             CaptureTime::new("0000:00:00 00:00:00", None, None),
             Err(TimeError::Invalid)
         );
-        assert_eq!(CaptureTime::new("2026:10:30 14:05:09", Some(""), Some("")).unwrap().subsec, None);
+        assert_eq!(
+            CaptureTime::new("2026:10:30 14:05:09", Some(""), Some(""))
+                .unwrap()
+                .subsec,
+            None
+        );
     }
 
     #[test]

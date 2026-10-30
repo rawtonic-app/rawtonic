@@ -59,15 +59,18 @@ fn on_day(day: &str) -> Rule {
 fn a_correction_outlives_a_reread_of_the_file_and_reset_gives_it_back() {
     let d = tempfile::tempdir().unwrap();
     let (lib, ids, _) = session(d.path(), &["A.ARW", "B.ARW"]);
-    lib.record_facts(&ids[0], &facts("2026-10-30 23:30:00")).unwrap();
-    lib.record_facts(&ids[1], &facts("2026-10-30 12:00:00")).unwrap();
+    lib.record_facts(&ids[0], &facts("2026-10-30 23:30:00"))
+        .unwrap();
+    lib.record_facts(&ids[1], &facts("2026-10-30 12:00:00"))
+        .unwrap();
     assert!(
         lib.set_capture_times(&[change(&ids[0], None, Some("2026-10-31 00:30:00"))])
             .unwrap()
             .is_empty()
     );
     // The facts pass (or a relink) records the file's time again.
-    lib.record_facts(&ids[0], &facts("2026-10-30 23:30:00")).unwrap();
+    lib.record_facts(&ids[0], &facts("2026-10-30 23:30:00"))
+        .unwrap();
     assert_eq!(
         lib.facts(&ids[0]).unwrap().unwrap().0.captured.as_deref(),
         Some("2026-10-30 23:30:00"),
@@ -80,7 +83,9 @@ fn a_correction_outlives_a_reread_of_the_file_and_reset_gives_it_back() {
     // Search and value lists see the corrected day.
     assert_eq!(names(lib.search(&on_day("2026-10-31")).unwrap()), ["A.ARW"]);
     assert_eq!(names(lib.search(&on_day("2026-10-30")).unwrap()), ["B.ARW"]);
-    let months = lib.facets(&Rule::everything(), &[Field::CaptureDate]).unwrap();
+    let months = lib
+        .facets(&Rule::everything(), &[Field::CaptureDate])
+        .unwrap();
     assert_eq!(months[&Field::CaptureDate].len(), 1);
     // Reset: the file's time again.
     assert!(
@@ -138,7 +143,10 @@ fn the_editor_state_s_exif_carries_the_correction_also_when_saved_stale() {
     assert_eq!(read["exif"]["Make"], "Maker");
     // An editor that read the state before the correction saves over it.
     lib.save_editor_state(&ids[0], &stale).unwrap();
-    let stored = lib.recipe(&lib.primary_version(&ids[0]).unwrap()).unwrap().unwrap();
+    let stored = lib
+        .recipe(&lib.primary_version(&ids[0]).unwrap())
+        .unwrap()
+        .unwrap();
     assert_eq!(
         stored["editor_state"]["exif"]["DateTimeOriginal"],
         "2026-10-31 00:30:00"
@@ -151,7 +159,8 @@ fn the_editor_state_s_exif_carries_the_correction_also_when_saved_stale() {
 fn a_library_of_schema_18_opens_with_no_corrections_and_takes_them() {
     let d = tempfile::tempdir().unwrap();
     let (lib, ids, _) = session(d.path(), &["A.ARW"]);
-    lib.record_facts(&ids[0], &facts("2026-10-30 12:00:00")).unwrap();
+    lib.record_facts(&ids[0], &facts("2026-10-30 12:00:00"))
+        .unwrap();
     drop(lib);
     let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
     db.execute_batch(include_str!("undo_0019.sql")).unwrap();

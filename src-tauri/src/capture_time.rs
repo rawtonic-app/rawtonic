@@ -77,7 +77,8 @@ fn source_time(path: &Path) -> Option<(CaptureTime, String)> {
         return None;
     }
     let local = capture.captured?.format("%Y-%m-%d %H:%M:%S").to_string();
-    let time = CaptureTime::new(&local, capture.subsec.as_deref(), capture.offset.as_deref()).ok()?;
+    let time =
+        CaptureTime::new(&local, capture.subsec.as_deref(), capture.offset.as_deref()).ok()?;
     Some((time, capture.camera().unwrap_or_default()))
 }
 
@@ -110,7 +111,10 @@ fn preview(paths: &[String]) -> CapturePreview {
         let lib = libraries
             .entry(directory.clone())
             .or_insert_with(|| Library::open(&directory).ok());
-        let Some(asset) = lib.as_ref().and_then(|lib| lib.asset_at(&source).ok().flatten()) else {
+        let Some(asset) = lib
+            .as_ref()
+            .and_then(|lib| lib.asset_at(&source).ok().flatten())
+        else {
             result.excluded.push(excluded(Excluded::NotInLibrary));
             continue;
         };
@@ -340,7 +344,9 @@ fn apply(library: &Path, changes: &[PlannedChange]) -> Result<Applied, String> {
             new: change.new.clone(),
         })
         .collect();
-    let conflicts = lib.set_capture_times(&written).map_err(|e| format!("{e:#}"))?;
+    let conflicts = lib
+        .set_capture_times(&written)
+        .map_err(|e| format!("{e:#}"))?;
     if !conflicts.is_empty() {
         return Ok(Applied {
             conflicts: changes
@@ -439,10 +445,16 @@ mod tests {
         assert_eq!(plan.changes[0].expected, None);
         // +1 h again from its corrected time, not from the file's.
         assert_eq!(plan.changes[1].after, at("2026-10-30 14:00:00", None));
-        assert_eq!(plan.changes[1].expected, Some(at("2026-10-30 13:00:00", None)));
+        assert_eq!(
+            plan.changes[1].expected,
+            Some(at("2026-10-30 13:00:00", None))
+        );
         assert_eq!(
             plan.before_range,
-            Some((at("2026-10-30 12:00:00", Some("1")), at("2026-10-30 13:00:00", None)))
+            Some((
+                at("2026-10-30 12:00:00", Some("1")),
+                at("2026-10-30 13:00:00", None)
+            ))
         );
     }
 
@@ -557,14 +569,20 @@ mod tests {
         let lib = Library::create(&temp.path().join("Job"), "Job", Mode::Session).unwrap();
         let a = camera_jpeg(&lib, "A.jpg", "2026:10:30 23:30:00");
         let b = camera_jpeg(&lib, "B.jpg", "2026:10:30 23:45:00");
-        let ids: Vec<String> = [&a, &b].iter().map(|p| lib.add_asset(p).unwrap().id).collect();
+        let ids: Vec<String> = [&a, &b]
+            .iter()
+            .map(|p| lib.add_asset(p).unwrap().id)
+            .collect();
         let hashes = [sha256(&a), sha256(&b)];
         let a_path = a.to_string_lossy().into_owned();
         let selection = vec![
             a_path.clone(),
             format!("{a_path}?vc=copy1"),
             b.to_string_lossy().into_owned(),
-            temp.path().join("elsewhere.jpg").to_string_lossy().into_owned(),
+            temp.path()
+                .join("elsewhere.jpg")
+                .to_string_lossy()
+                .into_owned(),
         ];
 
         let found = preview(&selection);
@@ -597,7 +615,10 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(lib.capture_override(&ids[1]).unwrap(), Some(corrected.clone()));
+        assert_eq!(
+            lib.capture_override(&ids[1]).unwrap(),
+            Some(corrected.clone())
+        );
 
         // The .rrdata beside B and what the app reads carry it.
         let shown = crate::exif_processing::read_rrexif_sidecar(&b).unwrap();
