@@ -3743,7 +3743,9 @@
     "multiView": {
       "controls": "Contrassegna, valuta o rimuovi {{name}}",
       "editAll": "Modifica tutte le selezionate",
+      "editAllNotSaved": "«Modifica tutte le selezionate» non ha potuto salvare queste foto: {{names}}. Mantengono le impostazioni precedenti finché non riprovi.",
       "editAllTitle": "Modifica tutte le selezionate: le modifiche alla foto principale vanno anche a ogni altra foto mostrata (cornici arancioni)",
+      "editAllTryAgain": "Riprova",
       "makePrimary": "Modifica {{name}} (rendila la foto principale)",
       "more_one": "e {{n}} altra",
       "more_many": "e altre {{n}}",
@@ -3765,9 +3767,7 @@
       "unsupported": "La vista multipla richiede la visualizzazione nativa delle foto, non disponibile su questo sistema",
       "zoomBadge": "Zoom al {{percent}}",
       "zoomLock": "Blocca zoom",
-      "zoomLockTitle": "Blocca zoom: lo zoom sulla foto principale ingrandisce e sposta tutte le foto nello stesso punto. Disattivato, ogni foto zooma da sola (rotella, pizzico, doppio clic o Spazio sopra di essa)",
-      "editAllNotSaved": "«Modifica tutte le selezionate» non ha potuto salvare queste foto: {{names}}. Mantengono le impostazioni precedenti finché non riprovi.",
-      "editAllTryAgain": "Riprova"
+      "zoomLockTitle": "Blocca zoom: lo zoom sulla foto principale ingrandisce e sposta tutte le foto nello stesso punto. Disattivato, ogni foto zooma da sola (rotella, pizzico, doppio clic o Spazio sopra di essa)"
     },
     "people": {
       "aria": "Maschera persone",

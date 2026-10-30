@@ -3743,7 +3743,9 @@
     "multiView": {
       "controls": "Marcar, classificar ou remover {{name}}",
       "editAll": "Editar todas as selecionadas",
+      "editAllNotSaved": "“Editar todas as selecionadas” não conseguiu salvar estas fotos: {{names}}. Elas mantêm os ajustes anteriores até você tentar de novo.",
       "editAllTitle": "Editar todas as selecionadas: as alterações na foto principal também vão para cada outra foto mostrada (molduras laranja)",
+      "editAllTryAgain": "Tentar de novo",
       "makePrimary": "Editar {{name}} (torná-la a foto principal)",
       "more_one": "e mais {{n}}",
       "more_many": "e mais {{n}}",
@@ -3765,9 +3767,7 @@
       "unsupported": "A vista múltipla precisa da exibição nativa de fotos, que não está disponível neste sistema",
       "zoomBadge": "Zoom a {{percent}}",
       "zoomLock": "Bloquear zoom",
-      "zoomLockTitle": "Bloquear zoom: aplicar zoom à foto principal amplia e desloca todas as fotos para o mesmo ponto. Desativado, cada foto faz zoom sozinha (roda, pinça, duplo clique ou Espaço sobre ela)",
-      "editAllNotSaved": "“Editar todas as selecionadas” não conseguiu salvar estas fotos: {{names}}. Elas mantêm os ajustes anteriores até você tentar de novo.",
-      "editAllTryAgain": "Tentar de novo"
+      "zoomLockTitle": "Bloquear zoom: aplicar zoom à foto principal amplia e desloca todas as fotos para o mesmo ponto. Desativado, cada foto faz zoom sozinha (roda, pinça, duplo clique ou Espaço sobre ela)"
     },
     "people": {
       "aria": "Máscara de pessoas",

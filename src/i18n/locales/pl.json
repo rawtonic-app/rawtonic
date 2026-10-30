@@ -3847,7 +3847,9 @@
     "multiView": {
       "controls": "Oznacz, oceń lub usuń {{name}}",
       "editAll": "Edytuj wszystkie zaznaczone",
+      "editAllNotSaved": "„Edytuj wszystkie zaznaczone” nie mogło zapisać tych zdjęć: {{names}}. Zachowują wcześniejsze ustawienia, dopóki nie spróbujesz ponownie.",
       "editAllTitle": "Edytuj wszystkie zaznaczone: zmiany zdjęcia głównego trafiają też do każdego innego pokazanego zdjęcia (pomarańczowe ramki)",
+      "editAllTryAgain": "Spróbuj ponownie",
       "makePrimary": "Edytuj {{name}} (ustaw jako zdjęcie główne)",
       "more_one": "i {{n}} więcej",
       "more_few": "i {{n}} więcej",
@@ -3872,9 +3874,7 @@
       "unsupported": "Widok wielu zdjęć wymaga natywnego wyświetlania zdjęć, niedostępnego w tym systemie",
       "zoomBadge": "Powiększenie {{percent}}",
       "zoomLock": "Zablokuj powiększenie",
-      "zoomLockTitle": "Zablokuj powiększenie: powiększenie zdjęcia głównego powiększa i przesuwa wszystkie zdjęcia do tego samego miejsca. Wyłączone, każde zdjęcie powiększa się osobno (kółko, gest szczypania, dwuklik lub Spacja nad nim)",
-      "editAllNotSaved": "„Edytuj wszystkie zaznaczone” nie mogło zapisać tych zdjęć: {{names}}. Zachowują wcześniejsze ustawienia, dopóki nie spróbujesz ponownie.",
-      "editAllTryAgain": "Spróbuj ponownie"
+      "zoomLockTitle": "Zablokuj powiększenie: powiększenie zdjęcia głównego powiększa i przesuwa wszystkie zdjęcia do tego samego miejsca. Wyłączone, każde zdjęcie powiększa się osobno (kółko, gest szczypania, dwuklik lub Spacja nad nim)"
     },
     "people": {
       "aria": "Maska osób",

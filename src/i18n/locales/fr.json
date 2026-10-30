@@ -3743,7 +3743,9 @@
     "multiView": {
       "controls": "Marquer, noter ou retirer {{name}}",
       "editAll": "Modifier toutes les sélectionnées",
+      "editAllNotSaved": "« Modifier toutes les sélectionnées » n’a pas pu enregistrer ces photos : {{names}}. Elles gardent leurs réglages précédents jusqu’à ce que vous réessayiez.",
       "editAllTitle": "Modifier toutes les sélectionnées : les réglages de la photo principale s’appliquent aussi à chaque autre photo affichée (cadres orange)",
+      "editAllTryAgain": "Réessayer",
       "makePrimary": "Modifier {{name}} (en faire la photo principale)",
       "more_one": "et {{n}} autre",
       "more_many": "et {{n}} autres",
@@ -3765,9 +3767,7 @@
       "unsupported": "La vue multiple nécessite l'affichage natif des photos, indisponible sur ce système",
       "zoomBadge": "Zoom à {{percent}}",
       "zoomLock": "Verrouiller le zoom",
-      "zoomLockTitle": "Verrouiller le zoom : zoomer sur la photo principale zoome et déplace chaque photo au même endroit. Désactivé, chaque photo zoome seule (molette, pincement, double-clic ou Espace au-dessus)",
-      "editAllNotSaved": "« Modifier toutes les sélectionnées » n’a pas pu enregistrer ces photos : {{names}}. Elles gardent leurs réglages précédents jusqu’à ce que vous réessayiez.",
-      "editAllTryAgain": "Réessayer"
+      "zoomLockTitle": "Verrouiller le zoom : zoomer sur la photo principale zoome et déplace chaque photo au même endroit. Désactivé, chaque photo zoome seule (molette, pincement, double-clic ou Espace au-dessus)"
     },
     "people": {
       "aria": "Masque de personnes",
