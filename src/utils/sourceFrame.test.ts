@@ -25,7 +25,7 @@ describe('the frame of the RAW (ADR 0020, "new photos only")', () => {
     const reset = { ...initialAdjustmentsFor(true) };
     expect(withSourceFrameOf(reset, { sourceFrameVersion: 0 }).sourceFrameVersion).toBe(0);
     expect('sourceFrameVersion' in withSourceFrameOf(reset, {})).toBe(false);
-    expect(withSourceFrameOf({ exposure: 1 }, { sourceFrameVersion: 1 }).sourceFrameVersion).toBe(1);
+    expect(withSourceFrameOf<Partial<Adjustments>>({ exposure: 1 }, { sourceFrameVersion: 1 }).sourceFrameVersion).toBe(1);
   });
 
   it('starts a new edit on what is shown', () => {
