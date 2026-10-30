@@ -814,3 +814,34 @@ describe("auto-advance after a rating", () => {
     expect(useLibraryStore.getState().imageRatings["/s/b.NEF"]).toBeUndefined();
   });
 });
+
+describe("J switches the clipping warnings", () => {
+  const open = () => {
+    cleanup();
+    useUIStore.setState({ activeView: "editor" });
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true } as never,
+      clipHighlights: false,
+      clipShadows: false,
+    });
+    renderHook(() => useKeyboardShortcuts(props));
+  };
+
+  it("switches both on, and both off again", () => {
+    open();
+    press("KeyJ", "j");
+    expect(useEditorStore.getState().clipHighlights).toBe(true);
+    expect(useEditorStore.getState().clipShadows).toBe(true);
+    press("KeyJ", "j");
+    expect(useEditorStore.getState().clipHighlights).toBe(false);
+    expect(useEditorStore.getState().clipShadows).toBe(false);
+  });
+
+  it("switches both off after one side was chosen alone", () => {
+    open();
+    useEditorStore.setState({ clipShadows: true });
+    press("KeyJ", "j");
+    expect(useEditorStore.getState().clipHighlights).toBe(false);
+    expect(useEditorStore.getState().clipShadows).toBe(false);
+  });
+});

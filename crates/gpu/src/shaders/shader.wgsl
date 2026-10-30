@@ -7635,8 +7635,13 @@ fn main(
         default_tonemapped = apply_base_curve(default_tonemapped, u32(adjustments.global.base_curve + 0.5));
     }
     var range_view = -1.0;
+    // `show_clipping`: 0 none, 0x40000001 highlights only, 0x40000002
+    // shadows only, 1 both (below); otherwise `2 + index` shows that colour
+    // range (crates/engine `color_range_view_index`, at most eight). The
+    // side flags stay above any index, so the bound keeps them out.
     if (adjustments.global.show_clipping >= 2u
-        && adjustments.global.show_clipping - 2u < adjustments.global.color_range_count.x) {
+        && adjustments.global.show_clipping - 2u < adjustments.global.color_range_count.x
+        && adjustments.global.show_clipping - 2u < 8u) {
         range_view = color_range_view_weight(default_tonemapped, adjustments.global.show_clipping - 2u);
     }
     if (adjustments.global.color_range_count.x > 0u) {
@@ -7798,14 +7803,20 @@ fn main(
         final_rgb = apply_film_grain(final_rgb, absolute_coord);
     }
 
-    if (adjustments.global.show_clipping == 1u) {
+    // Clipping warnings, each side on its own (`show_clipping` as above):
+    // one side's flag, or 1 for both.
+    let warn_highlights = adjustments.global.show_clipping == 1u
+        || adjustments.global.show_clipping == 0x40000001u;
+    let warn_shadows = adjustments.global.show_clipping == 1u
+        || adjustments.global.show_clipping == 0x40000002u;
+    if (warn_highlights || warn_shadows) {
         let HIGHLIGHT_WARNING_COLOR = vec3<f32>(1.0, 0.0, 0.0);
         let SHADOW_WARNING_COLOR = vec3<f32>(0.0, 0.0, 1.0);
         let HIGHLIGHT_CLIP_THRESHOLD = 0.998;
         let SHADOW_CLIP_THRESHOLD = 0.002;
-        if (any(final_rgb > vec3<f32>(HIGHLIGHT_CLIP_THRESHOLD))) {
+        if (warn_highlights && any(final_rgb > vec3<f32>(HIGHLIGHT_CLIP_THRESHOLD))) {
             final_rgb = HIGHLIGHT_WARNING_COLOR;
-        } else if (any(final_rgb < vec3<f32>(SHADOW_CLIP_THRESHOLD))) {
+        } else if (warn_shadows && any(final_rgb < vec3<f32>(SHADOW_CLIP_THRESHOLD))) {
             final_rgb = SHADOW_WARNING_COLOR;
         }
     }

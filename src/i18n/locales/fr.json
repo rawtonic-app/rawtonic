@@ -2924,16 +2924,21 @@
     },
     "histogram": {
       "aria": "Histogramme de l'image",
-      "clipping": "Écrêtage",
-      "clippingTitle": "Avertissements d'écrêtage : hautes lumières écrêtées en rouge, ombres écrêtées en bleu ({{shortcut}})",
+      "clippingAria": "Alertes d'écrêtage",
       "gamut": "Alerte de gamme",
       "gamutTitle": "Alerte de gamme : couleurs hors de l'espace colorimétrique de l'épreuve en rouge",
       "graphAria": "Répartition RVB de la luminance de la photo sélectionnée",
       "graphEmpty": "Histogramme disponible après l'ouverture d'une photo",
+      "highlightClipping": "Alerte hautes lumières",
+      "highlightClippingLit": "Alerte hautes lumières, écrêtées",
+      "highlightClippingTitle": "Alerte hautes lumières (hautes lumières écrêtées ; {{shortcut}} bascule les deux)",
       "proof": "Épreuve",
       "proofSpace": "Espace colorimétrique de l'épreuve",
       "proofTitle": "Épreuvage écran : afficher la photo telle qu'un export dans l'espace colorimétrique choisi ({{shortcut}})",
       "selectPhoto": "Sélectionnez une photo",
+      "shadowClipping": "Alerte ombres",
+      "shadowClippingLit": "Alerte ombres, écrêtées",
+      "shadowClippingTitle": "Alerte ombres (ombres écrêtées ; {{shortcut}} bascule les deux)",
       "title": "Histogramme"
     },
     "layers": {

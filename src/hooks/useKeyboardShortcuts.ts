@@ -6,6 +6,7 @@ import { buildComboMap, fieldOwnsKey, normalizeCombo } from '../utils/keyboardUt
 import { toggleWindowFullScreen } from '../utils/photoFullScreen';
 import { runAutoStraighten } from '../utils/autoStraighten';
 import { cropEditCancelled } from '../utils/cropGesture';
+import { nextClipSides } from '../utils/clippingWarnings';
 import { isMaskOverlayShown, maskDisplayOf, toggleGrayscaleMask, toggleMaskDisplay } from '../utils/maskDisplay';
 import { Mask } from '../components/panel/right/Masks';
 import { DEFAULT_BRUSH_SIZE, stepBrushSize } from '../utils/brushSize';
@@ -100,7 +101,7 @@ const CHECKED: Record<string, (s: ShortcutState) => boolean> = {
   toggle_metadata: (s) => s.ui.infoOverlay && (s.ui.activeView === 'editor' || s.ui.isFullScreen),
   toggle_split_view: (s) => !!s.editor.splitView,
   toggle_multi_view: () => useMultiViewStore.getState().active,
-  toggle_clipping: (s) => !!s.editor.clippingWarnings,
+  toggle_clipping: (s) => !!s.editor.clipHighlights || !!s.editor.clipShadows,
   toggle_soft_proof: (s) => !!s.editor.softProof,
   toggle_auto_advance: (s) => !!s.settings.appSettings?.autoAdvance,
   toggle_proof_margin: (s) => !!s.settings.appSettings?.viewerProofMargin,
@@ -699,7 +700,9 @@ export const useKeyboardShortcuts = ({
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
         execute: (e, s) => {
           e.preventDefault();
-          s.editor.setEditor({ clippingWarnings: !s.editor.clippingWarnings });
+          // Both on unless one is on already: then both off.
+          const { highlights, shadows } = nextClipSides({ highlights: s.editor.clipHighlights, shadows: s.editor.clipShadows });
+          s.editor.setEditor({ clipHighlights: highlights, clipShadows: shadows });
         },
       },
       toggle_auto_advance: {

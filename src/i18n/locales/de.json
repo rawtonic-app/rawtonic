@@ -2854,16 +2854,21 @@
     },
     "histogram": {
       "aria": "Bildhistogramm",
-      "clipping": "Clipping",
-      "clippingTitle": "Clipping-Warnung: abgeschnittene Lichter rot, abgeschnittene Tiefen blau ({{shortcut}})",
+      "clippingAria": "Warnungen für überstrahlte Lichter und abgesoffene Schatten",
       "gamut": "Farbumfang-Warnung",
       "gamutTitle": "Farbumfang-Warnung: Farben außerhalb des Proof-Farbraums in Rot",
       "graphAria": "RGB-Helligkeitsverteilung des ausgewählten Fotos",
       "graphEmpty": "Histogramm nach dem Öffnen eines Fotos verfügbar",
+      "highlightClipping": "Lichterwarnung",
+      "highlightClippingLit": "Lichterwarnung, ausgefressen",
+      "highlightClippingTitle": "Lichterwarnung (ausgefressene Lichter; {{shortcut}} schaltet beide)",
       "proof": "Proof",
       "proofSpace": "Proof-Farbraum",
       "proofTitle": "Softproof: das Foto so zeigen, wie ein Export im gewählten Farbraum aussieht ({{shortcut}})",
       "selectPhoto": "Wähle ein Foto",
+      "shadowClipping": "Schattenwarnung",
+      "shadowClippingLit": "Schattenwarnung, abgesoffen",
+      "shadowClippingTitle": "Schattenwarnung (abgesoffene Schatten; {{shortcut}} schaltet beide)",
       "title": "Histogramm"
     },
     "layers": {

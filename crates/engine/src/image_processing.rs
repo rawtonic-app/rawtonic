@@ -4066,6 +4066,10 @@ pub struct GlobalAdjustments {
 
     pub chromatic_aberration_red_cyan: f32,
     pub chromatic_aberration_blue_yellow: f32,
+    /// The clipping warnings the shader marks red (highlights) and blue
+    /// (shadows); see `show_clipping_value`. Also carries the colour
+    /// editor's range view (`2 + index`), which `color_range_view_index`
+    /// tells apart from the side flags.
     pub show_clipping: u32,
     pub is_raw_image: u32,
     /// Grain structure (recipe key `grainStructure`, see
@@ -5141,11 +5145,7 @@ fn get_global_adjustments_from_json(
             SCALES.chromatic_aberration,
             None,
         ),
-        show_clipping: if js_adjustments["showClipping"].as_bool().unwrap_or(false) {
-            1
-        } else {
-            0
-        },
+        show_clipping: show_clipping_value(&js_adjustments["showClipping"]),
         is_raw_image: if is_raw { 1 } else { 0 },
         grain_structure: grain_structure_index(js_adjustments["grainStructure"].as_str()),
 
@@ -5477,9 +5477,37 @@ impl GlobalAdjustments {
     }
 }
 
+/// The clipping warnings' values of `show_clipping` besides 0 (none) and the
+/// colour editor's range view (`2 + index`): `SHOW_CLIPPING_HIGHLIGHTS` marks
+/// clipped highlights only, `SHOW_CLIPPING_SHADOWS` clipped shadows only, and
+/// 1 both (`src/utils/clippingWarnings.ts` writes them). The two sides stay
+/// far above any range index, so `color_range_view_index` never reads them as
+/// one.
+pub const SHOW_CLIPPING_HIGHLIGHTS: u32 = 0x4000_0001;
+pub const SHOW_CLIPPING_SHADOWS: u32 = 0x4000_0002;
+/// The most colour ranges the shader holds (shader.wgsl `color_ranges`).
+pub const COLOR_RANGES_LIMIT: usize = 8;
+
+/// `showClipping` from the payload as `show_clipping`: missing or false is
+/// off, true the both-sides value 1, a number as it is (the side flags).
+pub fn show_clipping_value(value: &serde_json::Value) -> u32 {
+    if let Some(flags) = value.as_u64() {
+        return flags as u32;
+    }
+    u32::from(value.as_bool().unwrap_or(false))
+}
+
+/// The index of the colour range whose selection view `show_clipping` shows,
+/// or `None` for no view and for the clipping side flags (shader.wgsl picks
+/// its range view the same way).
+pub fn color_range_view_index(show_clipping: u32) -> Option<u32> {
+    let index = show_clipping.checked_sub(2)?;
+    (usize::try_from(index).ok()? < COLOR_RANGES_LIMIT).then_some(index)
+}
+
 impl GlobalAdjustments {
     /// The colour editor's ranges (`colorRanges`, at most eight) and, when
-    /// `colorRangeShow` names one of them and clipping warnings are off,
+    /// `colorRangeShow` names one of them and no clipping warning is on,
     /// its selection view (`show_clipping` = 2 + index; exports reset it).
     fn apply_color_ranges(&mut self, adjustments: &serde_json::Value) {
         let ranges = pack_color_ranges(&adjustments["colorRanges"], 8);
@@ -5493,6 +5521,7 @@ impl GlobalAdjustments {
                 self.show_clipping = 2 + i as u32;
             }
         }
+        debug_assert!(ranges.len() <= COLOR_RANGES_LIMIT);
         self.color_range_count[0] = ranges.len() as u32;
     }
 }
@@ -8308,6 +8337,41 @@ mod editing_tool_tests {
         assert_eq!(all.mask_adjustments[0].color_range_count, 4);
         assert!((all.mask_adjustments[0].color_ranges[4][0] - 30.0).abs() < 1e-6);
         assert!((all.mask_adjustments[0].color_ranges[2][0] - 25.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn clipping_side_flags_stay_apart_from_the_colour_range_view() {
+        let flags = |value: serde_json::Value| {
+            get_global_adjustments_from_json(&json!({"showClipping": value}), true, None)
+                .show_clipping
+        };
+        assert_eq!(flags(json!(null)), 0);
+        assert_eq!(flags(json!(false)), 0);
+        assert_eq!(flags(json!(true)), 1);
+        assert_eq!(
+            flags(json!(SHOW_CLIPPING_HIGHLIGHTS)),
+            SHOW_CLIPPING_HIGHLIGHTS
+        );
+        assert_eq!(flags(json!(SHOW_CLIPPING_SHADOWS)), SHOW_CLIPPING_SHADOWS);
+        // The range view is 2 + index, and nothing beyond the ranges counts.
+        assert_eq!(color_range_view_index(0), None);
+        assert_eq!(color_range_view_index(1), None);
+        assert_eq!(color_range_view_index(2), Some(0));
+        assert_eq!(color_range_view_index(2 + 7), Some(7));
+        assert_eq!(color_range_view_index(2 + 8), None);
+        assert_eq!(color_range_view_index(SHOW_CLIPPING_HIGHLIGHTS), None);
+        assert_eq!(color_range_view_index(SHOW_CLIPPING_SHADOWS), None);
+        // A warning on takes the view state over; off again, the range shows.
+        let mut ranges = json!({"colorRanges": [{"id": "r1"}], "colorRangeShow": "r1"});
+        assert_eq!(
+            get_global_adjustments_from_json(&ranges, true, None).show_clipping,
+            2
+        );
+        ranges["showClipping"] = json!(SHOW_CLIPPING_SHADOWS);
+        assert_eq!(
+            get_global_adjustments_from_json(&ranges, true, None).show_clipping,
+            SHOW_CLIPPING_SHADOWS
+        );
     }
 
     #[test]
