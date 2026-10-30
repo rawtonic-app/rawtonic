@@ -5,14 +5,14 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { invoke } from "@tauri-apps/api/core";
 import { CaptureTimeDialogHost, useCaptureTimeDialog } from "./CaptureTimeDialog";
 import { canUndo, undo, useCatalogUndoStore } from "../../utils/appUndo";
-import type { PlannedChange, PlanRequest } from "../../utils/captureTime";
+import type { CaptureTime, PlannedChange, PlanRequest } from "../../utils/captureTime";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 const LIBRARY = "/jobs/Wedding";
-const a = { local: "2026-10-30 12:00:00", subsec: "05", offset: "+02:00" };
-const b = { local: "2026-10-30 12:30:00", subsec: null, offset: null };
-const later = (time: typeof a) => ({ ...time, local: time.local.replace(" 12:", " 13:") });
+const a: CaptureTime = { local: "2026-10-30 12:00:00", subsec: "05", offset: "+02:00" };
+const b: CaptureTime = { local: "2026-10-30 12:30:00", subsec: null, offset: null };
+const later = (time: CaptureTime): CaptureTime => ({ ...time, local: time.local.replace(" 12:", " 13:") });
 
 let applies: { library: string; changes: PlannedChange[] }[] = [];
 let plans: PlanRequest[] = [];
