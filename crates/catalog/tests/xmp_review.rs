@@ -2,7 +2,7 @@
 //! failed writes) apart from conflicts (changed outside Rawtonic), and both
 //! ways of resolving a conflict.
 
-use rawtonic_catalog::{Library, Mode, XmpOffline, XmpState};
+use rawtonic_catalog::{Library, Mode, XmpOffline, XmpProblem};
 use serde_json::json;
 use std::{fs, path::PathBuf};
 
@@ -59,14 +59,18 @@ fn external_packet(rating: i8) -> String {
     )
 }
 
-fn state(f: &Fixture) -> Option<(XmpState, bool)> {
+/// Whether the photograph is listed, and why its XMP is not written.
+fn state(f: &Fixture) -> Option<Option<XmpProblem>> {
     f.lib
         .xmp_unsynced()
         .unwrap()
         .into_iter()
         .find(|e| e.id == f.id)
-        .map(|e| (e.state, e.offline))
+        .map(|e| e.problem)
 }
+
+const PENDING: Option<Option<XmpProblem>> = Some(None);
+const CONFLICT: Option<Option<XmpProblem>> = Some(Some(XmpProblem::ChangedElsewhere));
 
 #[test]
 fn an_offline_photo_stays_pending_and_nothing_is_written_beside_it() {
@@ -81,7 +85,7 @@ fn an_offline_photo_stays_pending_and_nothing_is_written_beside_it() {
         before,
         "nothing written beside a missing photograph"
     );
-    assert_eq!(state(&f), Some((XmpState::Pending, true)));
+    assert_eq!(state(&f), Some(Some(XmpProblem::Offline)));
     assert!(
         f.lib
             .keep_library_xmp(&f.id)
@@ -115,7 +119,7 @@ fn a_read_only_sidecar_is_not_replaced_and_stays_pending() {
         before,
         "a locked sidecar stays as it is"
     );
-    assert_eq!(state(&f), Some((XmpState::Pending, false)));
+    assert_eq!(state(&f), PENDING);
     // Unlocked, the next sync writes it.
     fs::set_permissions(&f.xmp, fs::Permissions::from_mode(0o644)).unwrap();
     f.lib.sync_xmp(&f.id).unwrap();
@@ -129,7 +133,7 @@ fn an_external_edit_is_a_conflict_and_keep_library_writes_over_it() {
     fs::write(&f.xmp, external_packet(5)).unwrap();
     set_rating(&f, 3);
     assert!(f.lib.sync_xmp(&f.id).is_err());
-    assert_eq!(state(&f), Some((XmpState::Conflict, false)));
+    assert_eq!(state(&f), CONFLICT);
     assert_eq!(fs::read_to_string(&f.xmp).unwrap(), external_packet(5));
 
     f.lib.keep_library_xmp(&f.id).unwrap();
@@ -155,11 +159,7 @@ fn an_external_edit_is_read_with_use_xmp_written_back_and_undone() {
     let recipe = f.lib.recipe(&version).unwrap();
 
     let undo = f.lib.use_xmp(&f.id).unwrap();
-    assert_eq!(
-        state(&f),
-        Some((XmpState::Pending, false)),
-        "the recipe is still to be written"
-    );
+    assert_eq!(state(&f), PENDING, "the recipe is still to be written");
     f.lib.sync_xmp(&f.id).unwrap();
     let meta = f.lib.metadata(&f.id).unwrap();
     assert_eq!(meta.rating, 5);
@@ -184,11 +184,7 @@ fn an_external_edit_is_read_with_use_xmp_written_back_and_undone() {
         (meta.rating, meta.keywords),
         (3, vec!["Library".to_string()])
     );
-    assert_eq!(
-        state(&f),
-        Some((XmpState::Conflict, false)),
-        "a conflict again"
-    );
+    assert_eq!(state(&f), CONFLICT, "a conflict again");
     assert_eq!(fs::read(&f.photo).unwrap(), b"synthetic original");
 }
 
@@ -218,7 +214,7 @@ fn a_sidecar_removed_outside_is_a_conflict_that_keep_library_writes_again() {
     fs::remove_file(&f.xmp).unwrap();
     set_rating(&f, 4);
     assert!(f.lib.sync_xmp(&f.id).is_err());
-    assert_eq!(state(&f), Some((XmpState::Conflict, false)));
+    assert_eq!(state(&f), CONFLICT);
     assert!(f.lib.use_xmp(&f.id).is_err(), "nothing to read");
     f.lib.keep_library_xmp(&f.id).unwrap();
     assert!(
@@ -309,7 +305,7 @@ fn use_xmp_refuses_a_sidecar_that_is_no_xmp_packet() {
     let listed = f.lib.xmp_unsynced().unwrap();
     assert!(f.lib.use_xmp(&f.id).is_err());
     assert_eq!(f.lib.metadata(&f.id).unwrap(), before, "metadata unchanged");
-    assert_eq!(state(&f), Some((XmpState::Conflict, false)));
+    assert_eq!(state(&f), CONFLICT);
     assert_eq!(f.lib.xmp_unsynced().unwrap().len(), listed.len());
     assert_eq!(fs::read_to_string(&f.xmp).unwrap(), "<oops/>");
 }
@@ -383,7 +379,9 @@ fn every_metadata_write_adopts_an_edit_only_beside_the_photo_first() {
     assert!(written.contains("rawtonic:Recipe"));
 
     let flag = unadopted_edit(&external_packet(5));
-    flag.lib.set_flags(std::slice::from_ref(&flag.id), 1).unwrap();
+    flag.lib
+        .set_flags(std::slice::from_ref(&flag.id), 1)
+        .unwrap();
     assert_eq!(exposure(&flag), Some(1.25));
     assert_eq!(flag.lib.metadata(&flag.id).unwrap().rating, 3);
 

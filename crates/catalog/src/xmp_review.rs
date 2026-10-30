@@ -8,32 +8,22 @@
 //! sidecar is ever written, through `rawtonic_metadata::write_xmp` (atomic,
 //! unowned XMP kept); the photograph itself is never touched.
 
-use crate::{Library, search_text};
+use crate::{Library, XmpProblem, search_text};
 use anyhow::{Result, bail, ensure};
 use rawtonic_metadata::{Metadata, XmpConflict};
 use rusqlite::{TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{fs, path::PathBuf};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum XmpState {
-    /// The library is newer than the sidecar; the next write brings it up to date.
-    Pending,
-    /// The sidecar changed outside Rawtonic; it is not replaced until reviewed.
-    Conflict,
-}
-
-/// A photograph whose XMP sidecar is not in sync with the library.
+/// A photograph whose XMP sidecar does not hold what the library holds.
 #[derive(Debug, Clone, Serialize)]
 pub struct XmpEntry {
     pub id: String,
     pub path: PathBuf,
-    pub state: XmpState,
-    /// The photograph's file is not there (missing, drive disconnected):
-    /// nothing is written beside it until it is back.
-    pub offline: bool,
-    /// The disconnected drive it is on, when known.
+    /// Why it is not written (`Library::xmp_problem`); None: it is pending
+    /// and the next write (Try again) brings it up to date.
+    pub problem: Option<XmpProblem>,
+    /// The disconnected drive an offline photograph is on, when known.
     pub volume: Option<String>,
 }
 
@@ -63,29 +53,9 @@ impl std::fmt::Display for XmpOffline {
 impl std::error::Error for XmpOffline {}
 
 impl Library {
-    /// The visible photographs whose XMP is pending or in conflict, in path order.
+    /// The photographs `Summary::xmp_pending` counts, in path order, with
+    /// why each is not written (the same check as `write_pending_xmp`).
     pub fn xmp_unsynced(&self) -> Result<Vec<XmpEntry>> {
-        let mut query = self.conn.prepare(&format!(
-            "SELECT a.id,m.xmp_status FROM assets a JOIN metadata m ON m.asset_id=a.id
-             WHERE m.xmp_status!='synced' AND {}",
-            self.visible_assets()
-        ))?;
-        let states: HashMap<String, XmpState> = query
-            .query_map([], |row| {
-                let status: String = row.get(1)?;
-                Ok((
-                    row.get::<_, String>(0)?,
-                    if status == "conflict" {
-                        XmpState::Conflict
-                    } else {
-                        XmpState::Pending
-                    },
-                ))
-            })?
-            .collect::<rusqlite::Result<_>>()?;
-        if states.is_empty() {
-            return Ok(Vec::new());
-        }
         let rows = self.offline_rows(
             &format!(
                 "a.id IN (SELECT asset_id FROM metadata WHERE xmp_status!='synced') AND {}",
@@ -93,20 +63,20 @@ impl Library {
             ),
             &[],
         )?;
-        Ok(rows
+        let mut entries = rows
             .into_iter()
-            .filter_map(|row| {
-                let state = *states.get(&row.id)?;
-                let offline = !row.path.is_file();
-                Some(XmpEntry {
+            .map(|row| {
+                let problem = self.xmp_problem(&row.id, &row.path)?;
+                Ok(XmpEntry {
+                    volume: row.volume.filter(|_| problem == Some(XmpProblem::Offline)),
                     id: row.id,
-                    offline,
-                    volume: row.volume.filter(|_| offline),
                     path: row.path,
-                    state,
+                    problem,
                 })
             })
-            .collect())
+            .collect::<Result<Vec<_>>>()?;
+        entries.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(entries)
     }
 
     /// Resolves a conflict for the library: its metadata and recipe replace
@@ -115,6 +85,8 @@ impl Library {
     /// again meanwhile is a conflict again, not overwritten.
     pub fn keep_library_xmp(&self, asset: &str) -> Result<()> {
         let path = self.writable_sidecar(asset)?;
+        // The edit the photograph shows is what the sidecar gets.
+        self.adopt_editor_sidecar(asset)?;
         let current = match fs::read(&path) {
             Ok(bytes) => Some(rawtonic_metadata::digest(&bytes)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
@@ -145,6 +117,10 @@ impl Library {
         // an RDF root) replaces the library's metadata: well-formed XML that
         // is no XMP would read as "everything empty".
         rawtonic_metadata::merge_xmp(Some(&text), &metadata, None)?;
+        // Metadata never changes the look: an edit only in the editor
+        // sidecar is the library's before the sidecar's metadata replaces
+        // its own (the undo then goes back to what the photograph showed).
+        self.adopt_editor_sidecar(asset)?;
         // Read and replaced under one write lock: an edit another
         // connection commits meanwhile is either before (and kept in the
         // undo) or after, never overwritten from a stale read.

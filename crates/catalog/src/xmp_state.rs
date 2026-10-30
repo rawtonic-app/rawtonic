@@ -5,7 +5,7 @@
 use crate::Library;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Why a photograph's XMP sidecar was not written.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,20 +64,13 @@ impl Library {
         let mut retry = XmpRetry::default();
         for id in self.pending_xmp()? {
             let path = self.asset(&id)?.path;
-            // Whether the file is there now, not the last check's flag: a
-            // photograph moved away since gets no sidecar left behind, one
-            // that is back gets its own.
-            let problem = if !path.is_file() {
-                Some(XmpProblem::Offline)
-            } else if self.xmp_owners(&path)? > 1 {
-                Some(XmpProblem::SharedName)
-            } else if self.sidecar_changed_elsewhere(&id, &path)? {
-                // `sync_xmp` refuses it too; it is not even read twice.
-                Some(XmpProblem::ChangedElsewhere)
-            } else {
-                self.sync_xmp(&id)
+            let problem = match self.xmp_problem(&id, &path)? {
+                // `sync_xmp` refuses a changed sidecar too; it is not even read twice.
+                Some(problem) => Some(problem),
+                None => self
+                    .sync_xmp(&id)
                     .err()
-                    .map(|e| XmpProblem::Failed(e.to_string()))
+                    .map(|e| XmpProblem::Failed(e.to_string())),
             };
             match problem {
                 None => retry.written += 1,
@@ -87,21 +80,40 @@ impl Library {
         Ok(retry)
     }
 
+    /// Why the pending XMP of a photograph cannot be written now (None: it
+    /// can be tried). Whether the file is there now, not the last check's
+    /// flag: a photograph moved away since gets no sidecar left behind, one
+    /// that is back gets its own.
+    pub(crate) fn xmp_problem(&self, id: &str, path: &Path) -> Result<Option<XmpProblem>> {
+        Ok(if !path.is_file() {
+            Some(XmpProblem::Offline)
+        } else if self.xmp_owners(path)? > 1 {
+            Some(XmpProblem::SharedName)
+        } else if self.sidecar_changed_elsewhere(id, path)? {
+            Some(XmpProblem::ChangedElsewhere)
+        } else {
+            None
+        })
+    }
+
     /// Whether a sidecar is there that the library did not write or read last
-    /// (or something else that is not a file has its name).
-    fn sidecar_changed_elsewhere(&self, id: &str, path: &std::path::Path) -> Result<bool> {
+    /// (or something else that is not a file has its name), or the one it
+    /// wrote or read is gone: `sync_xmp` replaces neither (Keep library does).
+    fn sidecar_changed_elsewhere(&self, id: &str, path: &Path) -> Result<bool> {
         let sidecar = path.with_extension("xmp");
         if sidecar.exists() && !sidecar.is_file() {
             return Ok(true);
         }
-        let Ok(bytes) = std::fs::read(sidecar) else {
-            return Ok(false);
-        };
         let hash: Option<String> = self.conn.query_row(
             "SELECT xmp_hash FROM metadata WHERE asset_id=?",
             [id],
             |r| r.get(0),
         )?;
-        Ok(hash.as_deref() != Some(rawtonic_metadata::digest(&bytes).as_str()))
+        match std::fs::read(sidecar) {
+            Ok(bytes) => Ok(hash.as_deref() != Some(rawtonic_metadata::digest(&bytes).as_str())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(hash.is_some()),
+            // Unreadable: writing it is tried and fails with why.
+            Err(_) => Ok(false),
+        }
     }
 }

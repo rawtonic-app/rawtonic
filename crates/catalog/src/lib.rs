@@ -33,7 +33,7 @@ pub use hot_folder::{HotFolderConfig, HotFolderFile};
 pub use query::{Combine, Field, Op, Rule};
 pub use snapshots::Snapshot;
 pub use volume::Volume;
-pub use xmp_review::{XmpEntry, XmpOffline, XmpState, XmpUndo};
+pub use xmp_review::{XmpEntry, XmpOffline, XmpUndo};
 pub use xmp_state::{UnsavedXmp, XmpProblem, XmpRetry};
 
 /// Version of the session/catalog manifest (`session.json`).
@@ -732,6 +732,9 @@ impl Library {
     /// A missing asset or invalid value rolls the whole step back. Undo follows
     /// the normal pending-XMP path and preserves all unrelated metadata.
     pub fn set_flag_values(&self, values: &[(String, i8)]) -> Result<Vec<(String, i8)>> {
+        for (id, _) in values {
+            self.adopt_editor_sidecar(id)?;
+        }
         let tx = self.conn.unchecked_transaction()?;
         let mut previous = Vec::new();
         let mut seen = HashSet::new();
@@ -750,8 +753,11 @@ impl Library {
         Ok(previous)
     }
 
+    /// Replaces the photograph's metadata (an edit only in its editor
+    /// sidecar is adopted first: `adopt_editor_sidecar`).
     pub fn set_metadata(&self, id: &str, metadata: &Metadata) -> Result<()> {
         metadata.validate()?;
+        self.adopt_editor_sidecar(id)?;
         let tx = self.conn.unchecked_transaction()?;
         write_metadata(&tx, id, metadata)?;
         tx.commit()?;
