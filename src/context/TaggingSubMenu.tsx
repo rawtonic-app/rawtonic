@@ -14,7 +14,12 @@ import { saveFailure } from '../hooks/useLibraryActions';
 interface TaggingSubMenuProps {
   paths: string[];
   initialTags: { tag: string; isUser: boolean }[];
-  onTagsChanged: (paths: string[], newTags: { tag: string; isUser: boolean }[]) => void;
+  /** `newTags` for `paths` and their grouped variants: every planned photo
+   * saved. */
+  /** The one stored tag (`user:client`, `dog`) a write saved for exactly
+   * `savedPaths`, when the rest failed: only that tag changes on those
+   * photos, every other keyword they have stays as the library saved it. */
+  onTagSaved: (savedPaths: string[], tag: string, change: 'add' | 'remove') => void;
   appSettings: AppSettings | null;
   hideContextMenu: () => void;
 }
@@ -29,7 +34,7 @@ const tagVariants = {
 export default function TaggingSubMenu({
   paths,
   initialTags,
-  onTagsChanged,
+  onTagSaved,
   appSettings,
   hideContextMenu,
 }: TaggingSubMenuProps) {
@@ -49,39 +54,60 @@ export default function TaggingSubMenu({
   const getPathsToUpdate = () =>
     expandGroupedPaths(useLibraryStore.getState().imageList, paths, appSettings?.grouping ?? 'off');
 
+  /** Adds the tag to every photo (and its variants), keeping the menu's
+   * other tags; see `applyTags`. */
   const handleAddTag = async (tagToAdd: string) => {
     const newTagValue = tagToAdd.trim().toLowerCase();
     if (newTagValue && !tags.some((t) => t.tag === newTagValue)) {
-      const prefixedTag = `${USER_TAG_PREFIX}${newTagValue}`;
-      const pathsToUpdate = getPathsToUpdate();
-      try {
-        await invokeInOrder(Invokes.AddTagForPaths, { paths: pathsToUpdate, tag: prefixedTag }, 'keyword');
-        const newTags = [...tags, { tag: newTagValue, isUser: true }].sort((a, b) => a.tag.localeCompare(b.tag));
-        setTags(newTags);
-        onTagsChanged(paths, newTags);
-        setInputValue('');
-      } catch (err) {
-        // Not saved everywhere: the menu stays as it was, so adding the tag
-        // again retries it for every photo (adding is idempotent). The XMP
-        // status follows the photos that failed (photoWrites).
-        toast.error(`Failed to add tag: ${saveFailure(err, pathsToUpdate).message}`);
-      }
+      const added = await applyTags(`${USER_TAG_PREFIX}${newTagValue}`, true, (kept) =>
+        [...kept, { tag: newTagValue, isUser: true }].sort((a, b) => a.tag.localeCompare(b.tag)),
+      );
+      if (added) setInputValue('');
     }
   };
 
+  /** Removes the tag; see `applyTags`. */
   const handleRemoveTag = async (tagToRemove: { tag: string; isUser: boolean }) => {
-    const prefixedTag = tagToRemove.isUser ? `${USER_TAG_PREFIX}${tagToRemove.tag}` : tagToRemove.tag;
+    await applyTags(tagToRemove.isUser ? `${USER_TAG_PREFIX}${tagToRemove.tag}` : tagToRemove.tag, false, (kept) =>
+      kept.filter((t) => t.tag !== tagToRemove.tag),
+    );
+  };
+
+  /**
+   * Writes `tag` to the photos (and their variants), then shows the result.
+   * `next` makes the menu's tags after an attempt from its tags without the
+   * written one: adding the tag leaves every other tag as it was, removing
+   * takes it out.
+   *
+   * The photos that saved show the one tag written and keep their other
+   * keywords (`onTagSaved`, exactly them). Saved everywhere: the menu takes
+   * the new tags. Saved for some: the menu keeps its own tags, and adding
+   * the tag again retries it for every photo (adding is idempotent). The XMP status follows the photos that failed (photoWrites).
+   */
+  const applyTags = async (
+    tag: string,
+    adds: boolean,
+    next: (kept: { tag: string; isUser: boolean }[]) => { tag: string; isUser: boolean }[],
+  ) => {
     const pathsToUpdate = getPathsToUpdate();
     try {
-      await invokeInOrder(Invokes.RemoveTagForPaths, { paths: pathsToUpdate, tag: prefixedTag }, 'keyword');
-      const newTags = tags.filter((t) => t.tag !== tagToRemove.tag);
-      setTags(newTags);
-      onTagsChanged(paths, newTags);
+      await invokeInOrder(
+        adds ? Invokes.AddTagForPaths : Invokes.RemoveTagForPaths,
+        { paths: pathsToUpdate, tag },
+        'keyword',
+      );
     } catch (err) {
-      // Not removed everywhere: the tag stays in the menu so removing it
-      // again retries it for every photo.
-      toast.error(`Failed to remove tag: ${saveFailure(err, pathsToUpdate).message}`);
+      const { message, failed } = saveFailure(err, pathsToUpdate);
+      const saved = pathsToUpdate.filter((path) => !failed.includes(path));
+      if (saved.length > 0) onTagSaved(saved, tag, adds ? 'add' : 'remove');
+      toast.error(`${adds ? 'Failed to add tag' : 'Failed to remove tag'}: ${message}`);
+      return false;
     }
+    // Every photo saved: each shows the one tag written and keeps its other
+    // keywords (the menu lists only the tags all photos share).
+    onTagSaved(pathsToUpdate, tag, adds ? 'add' : 'remove');
+    setTags(next(tags));
+    return true;
   };
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {

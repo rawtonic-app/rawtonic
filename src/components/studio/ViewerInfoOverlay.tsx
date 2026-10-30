@@ -4,7 +4,8 @@ import { Flag, Star, X } from "lucide-react";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { captureInfoParts } from "../../utils/captureInfo";
 import { imageFlag } from "../../utils/culling";
-import { keywordOf, useShownPhoto, useTextMetadataCache } from "./StudioMetadata";
+import { keywordOf } from "../../hooks/useLibraryActions";
+import { useShownPhoto, useTextMetadataCache } from "./StudioMetadata";
 
 /**
  * The photograph's facts over the viewer, read only (Lightroom's info
