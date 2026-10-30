@@ -160,11 +160,23 @@ describe("levels pickers", () => {
     expect([area.red.inBlack, area.green.inBlack, area.blue.inBlack]).toEqual([32, 32, 32]);
   });
 
+  it("rounds a fractional sample toward clipping, so a steep channel gamma leaves no cast", () => {
+    const levels = { ...INITIAL_LEVELS, red: { ...identity, gamma: 4 } };
+    const sample = [40.4, 40.4, 40.4];
+    const pixel = linearFromSrgb(sample as [number, number, number]);
+    const black = pickedLevels(levels, "rgb", "black", [pixel])!;
+    expect([black.red.inBlack, black.green.inBlack, black.blue.inBlack]).toEqual([41, 41, 41]);
+    for (const v of shown(black, sample)) expect(v).toBe(0);
+    const light = [214.6, 214.6, 214.6];
+    const white = pickedLevels(levels, "rgb", "white", [linearFromSrgb(light as [number, number, number])])!;
+    for (const v of shown(white, light)) expect(v).toBe(255);
+  });
+
   it("sets only that channel on a colour tab, from the composite's output", () => {
     const levels = { ...INITIAL_LEVELS, rgb: { ...identity, inBlack: 20, inWhite: 220 } };
     const pixel = linearFromSrgb([120, 60, 80]);
     const picked = pickedLevels(levels, "red", "white", [pixel])!;
-    expect(picked.red.inWhite).toBe(Math.round(levelOutput(levels.rgb, 120)));
+    expect(picked.red.inWhite).toBe(Math.floor(levelOutput(levels.rgb, 120)));
     expect(picked.rgb).toEqual(levels.rgb);
     expect(picked.green).toEqual(INITIAL_LEVELS.green);
     expect(picked.blue).toEqual(INITIAL_LEVELS.blue);

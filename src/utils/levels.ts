@@ -151,7 +151,13 @@ export function pickedLevels(
     if (channel !== "rgb" && channel !== c) return;
     const mean =
       pixels.reduce((sum, p) => sum + toEncoded(p[i]) * 255, 0) / pixels.length;
-    next[c] = withLevelValue(all[c], key, levelOutput(all.rgb, mean));
+    // Levels hold whole codes: round toward clipping (black up, white down)
+    // so the sample really reaches black or white; rounding to the nearest
+    // code would leave a remainder that a steep channel gamma turns into a
+    // cast. (The tolerance keeps a code that round-trips through linear
+    // light on that code.)
+    const value = levelOutput(all.rgb, mean);
+    next[c] = withLevelValue(all[c], key, point === "black" ? Math.ceil(value - 1e-6) : Math.floor(value + 1e-6));
   });
   return next;
 }

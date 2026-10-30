@@ -405,7 +405,8 @@ describe("Levels picker on the photo", () => {
     // The composite stays; each channel takes the composite's output of 30.
     expect(state.adjustments.levels?.rgb).toEqual(adjustments.levels!.rgb);
     for (const c of ["red", "green", "blue"] as const)
-      expect(state.adjustments.levels?.[c]).toMatchObject({ inBlack: 38, inWhite: 255 });
+      // 30 through the composite is 38.25; black rounds toward clipping.
+      expect(state.adjustments.levels?.[c]).toMatchObject({ inBlack: 39, inWhite: 255 });
     expect(state.tatTarget).toBeNull();
     expect(state.isSliderDragging).toBe(false);
     expect(state.history).toHaveLength(2);
@@ -458,7 +459,7 @@ describe("Levels picker on the photo", () => {
     expect(levels.rgb.outWhite).toBe(250);
     // The channels receive the composite's output (white output 250).
     expect([levels.red.inBlack, levels.green.inBlack, levels.blue.inBlack]).toEqual(
-      [40, 60, 80].map((v) => Math.round((v * 250) / 255)),
+      [40, 60, 80].map((v) => Math.ceil((v * 250) / 255 - 1e-6)),
     );
     expect(useEditorStore.getState().tatTarget).toBeNull();
   });
