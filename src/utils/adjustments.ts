@@ -722,7 +722,10 @@ export interface Adjustments {
   sharpenMasking: number;
   /** Capture One's Sharpness Falloff (0–100): more sharpening towards the corners. */
   sharpnessFalloff?: number;
-  showClipping: boolean;
+  /** View state, never saved (`NON_COPYABLE_ADJUSTMENT_KEYS`): the
+   * renderer's clipping warnings, `showClippingValue`
+   * (utils/clippingWarnings). */
+  showClipping: boolean | number;
   structure: number;
   temperature: number;
   tint: number;

@@ -2807,16 +2807,21 @@
     },
     "histogram": {
       "aria": "이미지 히스토그램",
-      "clipping": "클리핑",
-      "clippingTitle": "클리핑 경고: 잘린 하이라이트는 빨강, 잘린 섀도우는 파랑({{shortcut}})",
+      "clippingAria": "클리핑 경고",
       "gamut": "색 영역 경고",
       "gamutTitle": "색 영역 경고: 교정 색 공간 밖의 색상을 빨간색으로 표시",
       "graphAria": "선택한 사진의 RGB 휘도 분포",
       "graphEmpty": "사진을 열면 히스토그램을 사용할 수 있습니다",
+      "highlightClipping": "하이라이트 경고",
+      "highlightClippingLit": "하이라이트 경고, 날아감",
+      "highlightClippingTitle": "하이라이트 경고(날아간 하이라이트, {{shortcut}}로 둘 다 전환)",
       "proof": "교정",
       "proofSpace": "교정 색 공간",
       "proofTitle": "소프트 교정: 선택한 색 공간으로 내보냈을 때의 모습으로 사진 표시({{shortcut}})",
       "selectPhoto": "사진을 선택하세요",
+      "shadowClipping": "그림자 경고",
+      "shadowClippingLit": "그림자 경고, 뭉개짐",
+      "shadowClippingTitle": "그림자 경고(뭉개진 그림자, {{shortcut}}로 둘 다 전환)",
       "title": "히스토그램"
     },
     "layers": {

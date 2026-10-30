@@ -153,7 +153,8 @@ describe("targeted adjustment surface", () => {
   it("reads tones under view overlays from the recipe", async () => {
     useEditorStore.setState({
       tatTarget: "regionCurve",
-      clippingWarnings: true,
+      clipHighlights: true,
+      clipShadows: true,
     });
     invoke.mockResolvedValue([linearFromSrgb([100, 100, 100])]);
     const el = surface();
@@ -168,9 +169,9 @@ describe("targeted adjustment surface", () => {
     fireEvent.pointerMove(el, { clientX: 10, clientY: 90, pointerId: 1 });
     fireEvent.pointerUp(el, { pointerId: 1 });
     // The sample renders without view states: the recipe alone is sent.
-    expect(invoke.mock.calls[0][1].adjustments.showClipping).not.toBe(true);
+    expect(invoke.mock.calls[0][1].adjustments.showClipping).not.toBe(1);
     expect(useEditorStore.getState().adjustments.regionCurve!.darks).toBe(5);
-    useEditorStore.setState({ clippingWarnings: false });
+    useEditorStore.setState({ clipHighlights: false, clipShadows: false });
   });
 
   const press = async (el: HTMLElement, y = 100) => {

@@ -2854,16 +2854,21 @@
     },
     "histogram": {
       "aria": "Photo histogram",
-      "clipping": "Clipping",
-      "clippingTitle": "Clipping warnings: clipped highlights red, clipped shadows blue ({{shortcut}})",
+      "clippingAria": "Clipping warnings",
       "gamut": "Gamut warning",
       "gamutTitle": "Gamut warning: colors outside the proofed color space in red",
       "graphAria": "RGB luminance distribution of the selected photo",
       "graphEmpty": "Histogram available after opening a photo",
+      "highlightClipping": "Highlight clipping",
+      "highlightClippingLit": "Highlight clipping, clipped",
+      "highlightClippingTitle": "Highlight clipping (clipped highlights; {{shortcut}} switches both)",
       "proof": "Proof",
       "proofSpace": "Proof color space",
       "proofTitle": "Soft proofing: show the photo as an export in the chosen color space looks ({{shortcut}})",
       "selectPhoto": "Select a photo",
+      "shadowClipping": "Shadow clipping",
+      "shadowClippingLit": "Shadow clipping, clipped",
+      "shadowClippingTitle": "Shadow clipping (clipped shadows; {{shortcut}} switches both)",
       "title": "Histogram"
     },
     "layers": {

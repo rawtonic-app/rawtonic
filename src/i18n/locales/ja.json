@@ -2807,16 +2807,21 @@
     },
     "histogram": {
       "aria": "画像のヒストグラム",
-      "clipping": "クリッピング",
-      "clippingTitle": "クリッピング警告: 白飛びは赤、黒つぶれは青（{{shortcut}}）",
+      "clippingAria": "クリッピングの警告",
       "gamut": "色域外警告",
       "gamutTitle": "色域外警告: 校正カラースペース外の色を赤で表示",
       "graphAria": "選択した写真の RGB 輝度分布",
       "graphEmpty": "写真を開くとヒストグラムを表示できます",
+      "highlightClipping": "ハイライトの警告",
+      "highlightClippingLit": "ハイライトの警告、白飛び",
+      "highlightClippingTitle": "ハイライトの警告（白飛びしたハイライト。{{shortcut}} で両方を切り替え）",
       "proof": "校正",
       "proofSpace": "校正のカラースペース",
       "proofTitle": "ソフト校正: 選択したカラースペースで書き出したときの見え方で写真を表示（{{shortcut}}）",
       "selectPhoto": "写真を選択してください",
+      "shadowClipping": "シャドウの警告",
+      "shadowClippingLit": "シャドウの警告、黒つぶれ",
+      "shadowClippingTitle": "シャドウの警告（黒つぶれしたシャドウ。{{shortcut}} で両方を切り替え）",
       "title": "ヒストグラム"
     },
     "layers": {

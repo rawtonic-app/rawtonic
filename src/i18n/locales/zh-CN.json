@@ -2807,16 +2807,21 @@
     },
     "histogram": {
       "aria": "图像直方图",
-      "clipping": "剪切",
-      "clippingTitle": "剪切警告：剪切的高光显示为红色，剪切的阴影显示为蓝色（{{shortcut}}）",
+      "clippingAria": "溢色警告",
       "gamut": "色域警告",
       "gamutTitle": "色域警告：超出校样色彩空间的颜色显示为红色",
       "graphAria": "所选照片的 RGB 亮度分布",
       "graphEmpty": "打开照片后可查看直方图",
+      "highlightClipping": "高光警告",
+      "highlightClippingLit": "高光警告，已溢出",
+      "highlightClippingTitle": "高光警告（溢出的高光，{{shortcut}} 同时切换两侧）",
       "proof": "校样",
       "proofSpace": "校样色彩空间",
       "proofTitle": "软校样：按所选色彩空间导出后的效果显示照片（{{shortcut}}）",
       "selectPhoto": "选择一张照片",
+      "shadowClipping": "阴影警告",
+      "shadowClippingLit": "阴影警告，已压暗",
+      "shadowClippingTitle": "阴影警告（压暗的阴影，{{shortcut}} 同时切换两侧）",
       "title": "直方图"
     },
     "layers": {

@@ -2924,16 +2924,21 @@
     },
     "histogram": {
       "aria": "Histograma de la imatge",
-      "clipping": "Retall",
-      "clippingTitle": "Avisos de retall: llums retallades en vermell, ombres retallades en blau ({{shortcut}})",
+      "clippingAria": "Avisos de retallada",
       "gamut": "Avís de gamma",
       "gamutTitle": "Avís de gamma: colors fora de l'espai de color de la prova en vermell",
       "graphAria": "Distribució de luminància RGB de la foto seleccionada",
       "graphEmpty": "Histograma disponible després d'obrir una foto",
+      "highlightClipping": "Avís de llums",
+      "highlightClippingLit": "Avís de llums, retallades",
+      "highlightClippingTitle": "Avís de llums (llums altes retallades; {{shortcut}} activa tots dos)",
       "proof": "Prova",
       "proofSpace": "Espai de color de la prova",
       "proofTitle": "Prova en pantalla: mostra la foto com es veurà una exportació a l'espai de color triat ({{shortcut}})",
       "selectPhoto": "Selecciona una foto",
+      "shadowClipping": "Avís d'ombres",
+      "shadowClippingLit": "Avís d'ombres, retallades",
+      "shadowClippingTitle": "Avís d'ombres (ombres retallades; {{shortcut}} activa tots dos)",
       "title": "Histograma"
     },
     "layers": {

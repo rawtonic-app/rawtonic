@@ -2994,16 +2994,21 @@
     },
     "histogram": {
       "aria": "Histogram obrazu",
-      "clipping": "Przycięcie",
-      "clippingTitle": "Ostrzeżenia o przycięciu: przycięte światła na czerwono, przycięte cienie na niebiesko ({{shortcut}})",
+      "clippingAria": "Ostrzeżenia o prześwietleniach i zadartych cieniach",
       "gamut": "Ostrzeżenie o gamucie",
       "gamutTitle": "Ostrzeżenie o gamucie: kolory spoza przestrzeni próby na czerwono",
       "graphAria": "Rozkład luminancji RGB zaznaczonego zdjęcia",
       "graphEmpty": "Histogram dostępny po otwarciu zdjęcia",
+      "highlightClipping": "Ostrzeżenie o światłach",
+      "highlightClippingLit": "Ostrzeżenie o światłach, prześwietlone",
+      "highlightClippingTitle": "Ostrzeżenie o światłach (prześwietlone światła; {{shortcut}} przełącza oba)",
       "proof": "Próba",
       "proofSpace": "Przestrzeń kolorów próby",
       "proofTitle": "Próba ekranowa: pokazuje zdjęcie tak, jak będzie wyglądał eksport w wybranej przestrzeni kolorów ({{shortcut}})",
       "selectPhoto": "Wybierz zdjęcie",
+      "shadowClipping": "Ostrzeżenie o cieniach",
+      "shadowClippingLit": "Ostrzeżenie o cieniach, zadarte",
+      "shadowClippingTitle": "Ostrzeżenie o cieniach (zadarte cienie; {{shortcut}} przełącza oba)",
       "title": "Histogram"
     },
     "layers": {
