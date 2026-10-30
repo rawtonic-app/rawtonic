@@ -5766,6 +5766,7 @@ button.studio-button.is-destructive:hover:not(:disabled) {
       outline-offset: 2px;
     }
   }
+}
 
 /* A library switch opening the next library (LibrarySwitchShield): the app
    is inert; the note shows only if opening takes a while. */
