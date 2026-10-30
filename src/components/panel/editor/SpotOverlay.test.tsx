@@ -386,11 +386,19 @@ describe("spot removal overlay", () => {
     const fill = invoke.mock.calls.find(([name]) => name === "invoke_generative_replace_with_mask_def")!;
     const { taskId } = fill[1] as { taskId: string };
     expect(screen.queryByTestId("remove-progress")).toBeNull();
+    act(() => listeners.get("ai-fill-progress")!({ payload: { taskId, phase: "preparing", done: 0, total: 0 } }));
+    expect(screen.getByTestId("remove-progress").textContent).toContain("Preparing large-area removal");
     act(() => listeners.get("ai-model-download-progress")!({ payload: { received: 50, total: 200 } }));
     expect(screen.getByTestId("remove-progress").textContent).toContain("25");
+    // Even a task queued behind the loader returns to preparation at 100%.
+    act(() => listeners.get("ai-model-download-progress")!({ payload: { received: 200, total: 200 } }));
+    expect(screen.getByTestId("remove-progress").textContent).toContain("Preparing large-area removal");
+    // The GPU check follows the last download.
+    act(() => listeners.get("ai-fill-progress")!({ payload: { taskId, phase: "preparing", done: 0, total: 0 } }));
+    expect(screen.getByTestId("remove-progress").textContent).toContain("Preparing large-area removal");
     // Another task's steps are not shown.
     act(() => listeners.get("ai-fill-progress")!({ payload: { taskId: "other", done: 1, total: 9 } }));
-    expect(screen.getByTestId("remove-progress").textContent).toContain("25");
+    expect(screen.getByTestId("remove-progress").textContent).toContain("Preparing large-area removal");
     act(() => listeners.get("ai-fill-progress")!({ payload: { taskId, done: 3, total: 9 } }));
     expect(screen.getByTestId("remove-progress").textContent).toMatch(/3\D+9/);
     fireEvent.click(screen.getByRole("button"));
@@ -428,6 +436,33 @@ describe("spot removal overlay", () => {
     toastInfo.mockClear();
     act(() => listeners.get("ai-fill-notice")!({ payload: { taskId: null, reason: "tooSlow" } }));
     expect(toastInfo).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels while preparing the GPU without adding a patch", async () => {
+    let failFill: (error: unknown) => void = () => {};
+    invoke.mockImplementation((command: string) =>
+      command === "invoke_generative_replace_with_mask_def"
+        ? new Promise((_, reject) => {
+            failFill = reject;
+          })
+        : Promise.resolve(),
+    );
+    useEditorStore.setState({ spotSettings: { mode: "remove", size: 20, feather: 0, opacity: 100 } });
+    const el = overlay();
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 50, clientY: 50, pointerId: 1 });
+      fireEvent.pointerUp(el, { clientX: 50, clientY: 50, pointerId: 1 });
+    });
+    const fill = invoke.mock.calls.find(([name]) => name === "invoke_generative_replace_with_mask_def")!;
+    const { taskId } = fill[1] as { taskId: string };
+    expect(screen.queryByTestId("remove-progress")).toBeNull();
+    act(() => listeners.get("ai-fill-progress")!({ payload: { taskId, phase: "preparing", done: 0, total: 0 } }));
+    expect(screen.getByTestId("remove-progress").textContent).toContain("Preparing large-area removal");
+    fireEvent.click(screen.getByRole("button"));
+    expect(invoke).toHaveBeenCalledWith("cancel_ai_task", { taskId });
+    await act(async () => failFill("Task cancelled"));
+    expect(screen.queryByTestId("remove-progress")).toBeNull();
+    expect(useEditorStore.getState().adjustments.aiPatches ?? []).toHaveLength(0);
   });
 
   it("keeps a slow removal's progress and Cancel when a quicker one finishes meanwhile", async () => {

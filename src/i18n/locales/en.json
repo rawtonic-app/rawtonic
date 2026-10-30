@@ -2143,6 +2143,7 @@
     },
     "opacity": "Opacity",
     "opacityAria": "Spot opacity",
+    "preparingGpu": "Preparing large-area removal for this GPU (once)…",
     "redEye": {
       "catchlight": "Add catchlight",
       "darken": "Darken",

@@ -2313,6 +2313,7 @@
     },
     "opacity": "Krycie",
     "opacityAria": "Krycie plamy",
+    "preparingGpu": "Przygotowywanie usuwania dużych obszarów dla tego GPU (jednorazowo)…",
     "redEye": {
       "catchlight": "Dodaj odblask",
       "darken": "Przyciemnienie",

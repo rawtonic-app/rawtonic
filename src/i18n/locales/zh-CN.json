@@ -2088,6 +2088,7 @@
     },
     "opacity": "不透明度",
     "opacityAria": "污点不透明度",
+    "preparingGpu": "正在为此 GPU 准备大面积移除（仅一次）…",
     "redEye": {
       "catchlight": "添加眼神光",
       "darken": "变暗",

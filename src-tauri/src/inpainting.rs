@@ -216,6 +216,37 @@ static MOEBIUS_UNAVAILABLE_SAID: std::sync::atomic::AtomicBool =
 /// running when it started and none started before it ended.
 static MOEBIUS_FILLS: std::sync::Mutex<(usize, u64)> = std::sync::Mutex::new((0, 0));
 
+/// Counts a fill until normal return or panic unwinding, without holding
+/// the mutex across network work.
+struct MoebiusFill<'a> {
+    fills: &'a std::sync::Mutex<(usize, u64)>,
+    alone: bool,
+    started: u64,
+}
+
+impl<'a> MoebiusFill<'a> {
+    fn start(fills: &'a std::sync::Mutex<(usize, u64)>) -> Self {
+        let mut state = fills.lock().unwrap_or_else(|e| e.into_inner());
+        state.0 += 1;
+        state.1 += 1;
+        Self {
+            fills,
+            alone: state.0 == 1,
+            started: state.1,
+        }
+    }
+
+    fn ran_alone(&self) -> bool {
+        self.alone && self.fills.lock().unwrap_or_else(|e| e.into_inner()).1 == self.started
+    }
+}
+
+impl Drop for MoebiusFill<'_> {
+    fn drop(&mut self) {
+        self.fills.lock().unwrap_or_else(|e| e.into_inner()).0 -= 1;
+    }
+}
+
 /// Seconds per network run from the instants each run finished: the mean
 /// gap after the first run (which also holds the encoder and, on the first
 /// use, shader compilation). `None` with fewer than two runs.
@@ -472,7 +503,13 @@ async fn fill_large_hole(
     }
     let start = std::time::Instant::now();
     // The first use downloads the model: Cancel stops waiting for it.
-    let loading = ai_processing::get_or_init_moebius(app_handle, &state.ai_state);
+    let preparing = || {
+        let _ = app_handle.emit(
+            "ai-fill-progress",
+            serde_json::json!({ "taskId": task_id, "phase": "preparing", "done": 0, "total": 0 }),
+        );
+    };
+    let loading = ai_processing::get_or_init_moebius(app_handle, &state.ai_state, &preparing);
     let loaded = match &token {
         Some(token) => tokio::select! {
             loaded = loading => loaded,
@@ -515,12 +552,7 @@ async fn fill_large_hole(
     let task = task_id.map(str::to_string);
     let cancel = token.clone();
     let (guided, per_run) = tokio::task::spawn_blocking(move || {
-        let (alone, started) = {
-            let mut fills = MOEBIUS_FILLS.lock().unwrap_or_else(|e| e.into_inner());
-            fills.0 += 1;
-            fills.1 += 1;
-            (fills.0 == 1, fills.1)
-        };
+        let fill = MoebiusFill::start(&MOEBIUS_FILLS);
         let mut finished = Vec::new();
         let mut progress = |done: usize, total: usize| {
             if done > 0 {
@@ -541,13 +573,8 @@ async fn fill_large_hole(
             &cancelled,
         )
         .map(|guided| guided.map(|g| (g, hole_mask)));
-        let alone = {
-            let mut fills = MOEBIUS_FILLS.lock().unwrap_or_else(|e| e.into_inner());
-            fills.0 -= 1;
-            // Another fill started meanwhile: this one may have waited for it.
-            alone && fills.1 == started
-        };
-        (guided, seconds_per_run(&finished).filter(|_| alone))
+        let per_run = seconds_per_run(&finished).filter(|_| fill.ran_alone());
+        (guided, per_run)
     })
     .await
     .map_err(|e| e.to_string())?;
@@ -1191,6 +1218,36 @@ mod removal_timing {
         for (x, y) in [(5, 5), (199, 159), (39, 80)] {
             assert_eq!(out.get_pixel(x, y), filled.get_pixel(x, y));
         }
+    }
+
+    #[test]
+    fn moebius_fill_count_recovers_after_panic() {
+        let fills = std::sync::Mutex::new((0, 0));
+        assert!(
+            std::panic::catch_unwind(|| {
+                let _fill = super::MoebiusFill::start(&fills);
+                panic!("network panic");
+            })
+            .is_err()
+        );
+        assert_eq!(fills.lock().unwrap().0, 0);
+        let next = super::MoebiusFill::start(&fills);
+        assert!(next.ran_alone());
+        drop(next);
+        assert_eq!(fills.lock().unwrap().0, 0);
+    }
+
+    #[test]
+    fn overlapping_moebius_fills_do_not_measure_speed() {
+        let fills = std::sync::Mutex::new((0, 0));
+        let first = super::MoebiusFill::start(&fills);
+        let second = super::MoebiusFill::start(&fills);
+        assert!(!second.ran_alone());
+        drop(second);
+        assert!(!first.ran_alone());
+        drop(first);
+        assert!(super::MoebiusFill::start(&fills).ran_alone());
+        assert_eq!(fills.lock().unwrap().0, 0);
     }
 
     #[test]
