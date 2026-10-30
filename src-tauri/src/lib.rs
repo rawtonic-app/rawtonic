@@ -538,30 +538,14 @@ pub fn run() {
                         if let Ok(state) = serde_json::from_str::<WindowState>(&contents) {
                             let monitor_bounds = startup::available_monitor_bounds(&window);
                             if startup::saved_window_state_is_usable(&state, &monitor_bounds) {
-                                #[cfg(target_os = "linux")]
-                                let size = startup::linux_restored_window_size(
-                                    state.width,
-                                    state.height,
-                                    state.scale_factor,
-                                )
-                                .unwrap_or_else(|| {
-                                    // Neither GTK nor its monitor reports the final
-                                    // scale before Wayland maps the window. Migrate
-                                    // older files once using the configured size.
-                                    tauri::Size::Logical(tauri::LogicalSize::new(
+                                startup::restore_window_bounds(
+                                    &window,
+                                    &state,
+                                    tauri::LogicalSize::new(
                                         main_window_cfg.width,
                                         main_window_cfg.height,
-                                    ))
-                                });
-                                #[cfg(not(target_os = "linux"))]
-                                let size = tauri::Size::Physical(tauri::PhysicalSize::new(
-                                    state.width,
-                                    state.height,
-                                ));
-                                let _ = window.set_size(size);
-                                let _ = window.set_position(tauri::Position::Physical(
-                                    tauri::PhysicalPosition::new(state.x, state.y),
-                                ));
+                                    ),
+                                );
                             } else {
                                 log::warn!(
                                     "Saved window state was unusable ({}x{} at {},{}), centering instead.",
