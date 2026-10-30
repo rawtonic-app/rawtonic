@@ -322,7 +322,7 @@ it("reopens \"No AI edits\" saved from the Library as the chosen none filter", a
   ]);
 });
 
-it("keeps other old AI rules as stored, with every operator still to choose", async () => {
+it("keeps other old AI rules as stored, with the choice operators to choose", async () => {
   render(<SmartAlbumEditorHost />);
   act(() => useSmartAlbumEditor.getState().open({
     name: "AI work", parent: null,
@@ -332,7 +332,7 @@ it("keeps other old AI rules as stored, with every operator still to choose", as
   const ai = within(screen.getByRole("group", { name: "AI edit" }));
   const comparison = ai.getByLabelText("Comparison") as HTMLSelectElement;
   const ops = Array.from(comparison.options).map((o) => o.value);
-  expect(ops).toEqual(expect.arrayContaining(["is", "isNot", "empty", "notEmpty"]));
+  expect(ops).toEqual(["is", "isNot"]);
   await act(async () => { fireEvent.click(screen.getByText("Create")); });
   expect(mockInvoke).toHaveBeenCalledWith("session_create_smart_album", expect.objectContaining({
     rules: { combine: "all", rules: [{ field: "ai", op: "is", value: "generated" }] },

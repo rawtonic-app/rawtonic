@@ -59,7 +59,7 @@ export const OPS: Record<Kind, Op[]> = {
   text: ["contains", "containsAny", "notContains", "is", "isNot", "startsWith", "endsWith", "empty", "notEmpty"],
   number: ["is", "isNot", "gt", "ge", "lt", "le", "between", "empty", "notEmpty"],
   date: ["is", "isNot", "lt", "gt", "between", "inLast", "notInLast", "empty", "notEmpty"],
-  choice: ["is", "isNot", "empty", "notEmpty"],
+  choice: ["is", "isNot"],
   album: ["is", "isNot"],
   folder: ["contains", "is", "notContains", "isNot"],
   bool: ["is"],
