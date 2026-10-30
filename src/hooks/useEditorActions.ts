@@ -60,6 +60,7 @@ import {
   batchPhotosReported,
   photoBatches,
   photoWriteKey,
+  photoWritesAndStepsSettled,
   photoWritesSettled,
   submitPhotoWrite,
 } from '../utils/photoWrites';
@@ -232,6 +233,13 @@ export async function flushRecipeSaves(): Promise<string[]> {
 registerQuitFlush(async () =>
   (await flushRecipeSaves()).map((path) => `Edits of ${path.split(/[\\/]/).pop() ?? path}`),
 );
+// Quitting and switching library also wait for catalog steps that write
+// later (a rating queued behind a file undo); a file operation's own drain
+// (`flushRecipeSaves`) must not, it would wait for itself.
+registerQuitFlush(async () => {
+  await photoWritesAndStepsSettled();
+  return [];
+});
 
 // Past a library switch's barrier the old library's saves are written or
 // discarded: forget them, and drop every save made until the switch ends

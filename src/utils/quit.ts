@@ -85,22 +85,16 @@ class QuitDrain {
     }
   }
 
-  /** A settled write of `paths` (`failed`: those it did not write). */
-  record(id: number, kind: string, paths: string[], failed: string[]): void {
+  /** A settled write (`failed`: the photographs it did not write). */
+  record(id: number, kind: string, failed: string[]): void {
     // A whole-command failure can name every photo, including ones whose
     // successful per-photo report already arrived. The batch registry has
     // the precise failures and conservatively marks any unreported photo.
     if (batchOfEntry(id)) return;
-    // A whole recipe written supersedes an earlier failed one of that photo
-    // (the flush's retry is a write of its own).
-    if (kind === 'recipe') {
-      const written = paths.filter((path) => !failed.includes(path));
-      for (const [earlier, failure] of this.identified) {
-        if (failure.kind !== 'recipe') continue;
-        failure.failed = failure.failed.filter((path) => !written.includes(path));
-        if (failure.failed.length === 0) this.identified.delete(earlier);
-      }
-    }
+    // Whether a photo's whole recipe is still unsaved is the recipe flush's
+    // answer at the end (`unsavedRecipes` after its retry): a failed save
+    // may be written again by the flush or before a batch write meanwhile.
+    if (kind === 'recipe') return;
     if (failed.length === 0) this.identified.delete(id);
     else this.identified.set(id, { kind, failed });
   }
@@ -188,7 +182,7 @@ function hearWrites(kept: QuitDrain, requestId: number, update: () => void): () 
     if (handlingQuit === requestId) void invoke(Invokes.QuitSaving, { requestId }).catch(() => undefined);
   };
   const stopWrites = onPhotoWritesSettled((settled) => {
-    kept.record(settled.id, settled.kind, settled.paths, settled.failed);
+    kept.record(settled.id, settled.kind, settled.failed);
     progress();
   });
   const stopBatches = onBatchWriteSettled(({ tag, path, ok, also }) => {

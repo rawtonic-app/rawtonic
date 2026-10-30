@@ -3,11 +3,13 @@
 import '../i18n';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { act } from '@testing-library/react';
 import { BatchCommand, COMMANDS, mountAppListeners } from './quit.test.support';
 import { QUIT_NOTICE_ID, QUIT_NOTICE_MS, handleQuitRequest, registerQuitFlush } from './quit';
 import { toast } from 'react-toastify';
-import { allPhotoWritesSettled, photoBatches } from './photoWrites';
-import { debouncedSave, flushRecipeSaves } from '../hooks/useEditorActions';
+import { allPhotoWritesSettled, photoBatches, photoWorkPending } from './photoWrites';
+import { debouncedSave, flushRecipeSaves, recipeWrite } from '../hooks/useEditorActions';
 import { INITIAL_ADJUSTMENTS } from './adjustments';
 import { Invokes } from '../components/ui/AppProperties';
 
@@ -113,6 +115,49 @@ it('does not name an editor save its retry during the quit wrote', async () => {
   expect(COMMANDS().at(-1)).toBe(Invokes.FinishQuit);
   vi.mocked(invoke).mockImplementation(failOnce);
   errorLog.mockRestore();
+});
+
+it('does not name a failed save a batch wrote again before changing that photo', async () => {
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const answer = vi.mocked(invoke).getMockImplementation()!;
+  let saves = 0;
+  vi.mocked(invoke).mockImplementation((name, args) =>
+    name === Invokes.SaveMetadataAndUpdateThumbnail && saves++ === 0 ? Promise.reject(new Error('busy')) : answer(name, args));
+  debouncedSave('/b.dng', { ...INITIAL_ADJUSTMENTS, exposure: 1 });
+  void debouncedSave.flush();
+  // Auto on a selection with it, queued behind the save that fails: it
+  // writes that recipe again first, then its own change.
+  const report = (tag: string, path: string) => {
+    const bridge = vi.mocked(listen).mock.calls.find(([name]) => name === 'batch-write-settled')![1];
+    act(() => bridge({ event: 'batch-write-settled', id: 0, payload: { batch: tag, path, ok: null, also: [] } }));
+  };
+  const auto = recipeWrite(['/b.dng'], async (tag) => {
+    report(tag, '/b.dng');
+    return [] as string[];
+  }, { kind: 'auto', failedOf: (failed) => failed, batch: true });
+  const ask = vi.fn();
+  const done = quit(ask);
+  await auto;
+  await done;
+  expect(saves).toBe(2);
+  expect(ask).not.toHaveBeenCalled();
+  expect(COMMANDS().at(-1)).toBe(Invokes.FinishQuit);
+  vi.mocked(invoke).mockImplementation(answer);
+  errorLog.mockRestore();
+});
+
+it('waits for a catalog step still queued behind other work before it quits', async () => {
+  // A rating made while a file undo runs writes once the undo is done.
+  let undone!: () => void;
+  const rating = photoWorkPending(new Promise<void>((resolve) => { undone = resolve; }));
+  const done = quit();
+  await vi.waitFor(() => expect(progress()).toBe(1));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(COMMANDS()).not.toContain(Invokes.FinishQuit);
+  undone();
+  await rating;
+  await done;
+  expect(COMMANDS().at(-1)).toBe(Invokes.FinishQuit);
 });
 
 it('does not ask again about a batch that failed and settled before this quit', async () => {
