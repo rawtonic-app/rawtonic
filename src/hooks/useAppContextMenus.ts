@@ -49,7 +49,7 @@ import { useTranslation } from 'react-i18next';
 import { useContextMenu } from '../context/ContextMenuContext';
 import { canUndo, canRedo, getUndoLabel,
   getRedoLabel, undo, redo } from '../utils/appUndo';
-import { useEditorStore } from '../store/useEditorStore';
+import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { isRawInLibrary, useLibraryStore } from '../store/useLibraryStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { CLOSED_MERGE_MODAL, useUIStore } from '../store/useUIStore';
@@ -274,7 +274,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       event.preventDefault();
       event.stopPropagation();
 
-      const { selectedImage, resetHistory, copiedAdjustments, setEditor } =
+      const { selectedImage, copiedAdjustments, setEditor } =
         useEditorStore.getState();
       const { appSettings } = useSettingsStore.getState();
       const { setPanel, setUI } = useUIStore.getState();
@@ -412,7 +412,9 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
                   aspectRatio: originalAspectRatio,
                   aiPatches: [],
                 };
-                resetHistory(resetData);
+                // One undoable step; the History before it stays.
+                debouncedSetHistory.flush();
+                useEditorStore.getState().pushHistory(resetData);
                 setEditor({ adjustments: resetData });
               },
             },
