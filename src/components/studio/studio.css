@@ -441,7 +441,6 @@
 .studio-clip-corner.is-on.is-lit .studio-clip-corner-mark {
   stroke: #eef0f3;
 }
-
 .histogram-red {
   fill: #c9676780;
   stroke: #c67d7d;
@@ -5779,7 +5778,6 @@ button.studio-button.is-destructive:hover:not(:disabled) {
       outline-color: Highlight !important;
     }
   }
-
   .studio-dialog {
     border-color: CanvasText;
   }

@@ -23,6 +23,11 @@ it("soft-proofs in a chosen colour space with an optional gamut warning", () => 
   expect(useEditorStore.getState().softProof).toBe(true);
   const space = screen.getByLabelText("Proof color space") as HTMLSelectElement;
   expect(space.value).toBe("srgb");
+  // Enabling Proof inserts its controls below the caption, so its toggle
+  // stays under the pointer for the next click.
+  const header = screen.getByRole("group", { name: "Photo histogram" });
+  expect(header.nextElementSibling).toBe(space.parentElement);
+  expect(space.parentElement?.nextElementSibling?.className).toBe("studio-histogram-plot");
   fireEvent.change(space, { target: { value: "adobeRgb" } });
   expect(useEditorStore.getState().softProofSpace).toBe("adobeRgb");
   fireEvent.click(screen.getByRole("button", { name: "Gamut warning" }));
@@ -59,10 +64,10 @@ it("switches each clipping warning on its own with the histogram corners", () =>
   const highlights = screen.getByRole("button", { name: "Highlight clipping" });
   expect(shadows.getAttribute("aria-pressed")).toBe("false");
   expect(highlights.getAttribute("aria-pressed")).toBe("false");
-  expect(shadows.querySelector("title")?.textContent).toContain("J");
+  expect(shadows.getAttribute("title")).toContain("J");
   expect(shadows.getAttribute("title")).toContain("blue in the photo");
   expect(highlights.getAttribute("title")).toContain("red in the photo");
-  expect(highlights.querySelector("title")?.textContent).toContain("J");
+  expect(highlights.getAttribute("title")).toContain("J");
   fireEvent.click(shadows);
   expect(useEditorStore.getState().clipShadows).toBe(true);
   expect(useEditorStore.getState().clipHighlights).toBe(false);
@@ -175,7 +180,7 @@ it("keeps the lit state when a warning switches for the same histogram", () => {
 it("keeps the corner buttons off the plot's own image role", () => {
   useEditorStore.setState({ histogram: null, softProof: true });
   render(<StudioHistogram />);
-  const group = screen.getByRole("group", { name: "Clipping warnings" });
+  const group = screen.getByRole("group", { name: "Photo histogram" });
   expect(
     within(group).getAllByRole("button", { name: /clipping/ }),
   ).toHaveLength(2);
@@ -281,7 +286,6 @@ it("expresses independent warning and clipping states as control classes", () =>
   expect(shadows.classList.contains("is-on")).toBe(false);
   expect(shadows.classList.contains("is-lit")).toBe(false);
 });
-
 
 it("reserves native activation keys while leaving J to the app shortcut", () => {
   const keys: string[] = [];

@@ -2999,7 +2999,7 @@
       "selectPhoto": "Selecciona una foto",
       "shadowClipping": "Avís d'ombres",
       "shadowClippingLit": "Avís d'ombres, retallades",
-      "shadowClippingTitle": "Avís de retall d’ombres (blau a la foto; {{shortcut}} alterna tots dos)",
+      "shadowClippingTitle": "Avís de retall d'ombres (blau a la foto; {{shortcut}} alterna tots dos)",
       "title": "Histograma"
     },
     "layers": {

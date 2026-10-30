@@ -53,7 +53,6 @@ function ClippingCorner({
       }}
     >
       <svg viewBox="0 0 12 12" aria-hidden="true">
-        <title>{title}</title>
         <polygon className="studio-clip-corner-mark" points="6,0.5 11.5,10.5 0.5,10.5" />
       </svg>
     </button>
@@ -81,36 +80,10 @@ export default memo(function StudioHistogram() {
       className="studio-histogram"
       aria-label={t("studio.histogram.aria")}
     >
-      {proof && (
-        <div className="studio-proof-line">
-          <select
-            aria-label={t("studio.histogram.proofSpace")}
-            value={proofSpace}
-            onChange={(e) =>
-              setEditor({ softProofSpace: e.target.value as OutputColorSpace })
-            }
-          >
-            {COLOR_SPACES.map((space) => (
-              <option key={space} value={space}>
-                {COLOR_SPACE_NAMES[space]}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className="studio-clipping-toggle"
-            aria-pressed={proofWarning}
-            title={t("studio.histogram.gamutTitle")}
-            onClick={() => setEditor({ softProofWarning: !proofWarning })}
-          >
-            {t("studio.histogram.gamut")}
-          </button>
-        </div>
-      )}
       <div
         className="studio-clip-corners"
         role="group"
-        aria-label={t("studio.histogram.clippingAria")}
+        aria-label={t("studio.histogram.aria")}
       >
         <ClippingCorner
           side="shadows"
@@ -163,6 +136,32 @@ export default memo(function StudioHistogram() {
           }
         />
       </div>
+      {proof && (
+        <div className="studio-proof-line">
+          <select
+            aria-label={t("studio.histogram.proofSpace")}
+            value={proofSpace}
+            onChange={(e) =>
+              setEditor({ softProofSpace: e.target.value as OutputColorSpace })
+            }
+          >
+            {COLOR_SPACES.map((space) => (
+              <option key={space} value={space}>
+                {COLOR_SPACE_NAMES[space]}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="studio-clipping-toggle"
+            aria-pressed={proofWarning}
+            title={t("studio.histogram.gamutTitle")}
+            onClick={() => setEditor({ softProofWarning: !proofWarning })}
+          >
+            {t("studio.histogram.gamut")}
+          </button>
+        </div>
+      )}
       <div className="studio-histogram-plot">
         <svg
           viewBox="0 0 256 84"
