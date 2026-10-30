@@ -27,10 +27,9 @@ export function nextClipSides(current: { highlights: boolean; shadows: boolean }
 }
 
 /**
- * Which side of the histogram is clipped, as the backend counts it
- * (crates/engine `calculate_histogram_from_image_with_overlay`): the
- * unsmoothed pixels under the shader's thresholds, with the clipping
- * warnings' overlay colours left out. The bins cannot say it, as they are
+ * Which side of the histogram is clipped, as the renderer finds it
+ * (shader.wgsl `analytics_output`): the clipping warnings' own tests on every
+ * pixel, whether a warning is on or not. The bins cannot say it, as they are
  * smoothed (a value near an end reaches the end's bin). A histogram without
  * the flags lights neither side.
  */

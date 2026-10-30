@@ -1616,19 +1616,12 @@ pub(crate) fn process_preview_job(
         None
     };
 
-    // The analytics image is the display readback, warning colours included:
-    // tell the histogram which warnings drew them (none for a colour-range
-    // view, which replaces no pixel).
-    let clip_overlay = rawtonic_engine::image_processing::clipping_overlay_value(
-        final_adjustments.global.show_clipping,
-    );
     let analytics_config = if wants_analytics {
         state.analytics_worker_tx.lock().unwrap().clone().map(|tx| {
             crate::app_state::AnalyticsConfig {
                 path: loaded_image.path.clone(),
                 compute_waveform,
                 active_waveform_channel: channel_filter,
-                clip_overlay,
                 sender: tx,
             }
         })
@@ -1796,11 +1789,8 @@ pub(crate) fn start_analytics_worker(app_handle: tauri::AppHandle) {
     let sender = gpu_processing::start_latest_job_worker(move |job: AnalyticsJob| {
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("analytics_compute");
-        let histogram_data = image_processing::calculate_histogram_from_image_with_overlay(
-            &job.image,
-            job.clip_overlay,
-        )
-        .ok();
+        let histogram_data =
+            image_processing::calculate_histogram_from_image(&job.image, job.clipped).ok();
         let waveform_data = if job.compute_waveform {
             image_processing::calculate_waveform_from_image(
                 &job.image,
