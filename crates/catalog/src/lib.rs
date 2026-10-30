@@ -1649,7 +1649,7 @@ impl Library {
             })
             .collect();
         drop(query);
-        if self.rename_companion(&from, &to)? {
+        if moved.is_empty() && self.rename_companion(&from, &to)? {
             return Ok(0);
         }
         if moved.is_empty() {
@@ -1669,7 +1669,9 @@ impl Library {
 
     /// A recorded companion renamed beside its photograph (`from` → `to`
     /// in one folder, either way of an undo) keeps being its companion
-    /// under the new name: same size and content, so its identity stays.
+    /// under the new name: the file there must be the recorded one (size
+    /// and SHA-256), so a JPEG that became a photograph of its own, or
+    /// another file, never takes the record.
     fn rename_companion(&self, from: &Path, to: &Path) -> Result<bool> {
         let (Some(name), true) = (
             to.file_name().and_then(|n| n.to_str()),
@@ -1680,7 +1682,7 @@ impl Library {
         let Some(record) = self
             .companion_records()?
             .into_iter()
-            .find(|record| record.path == from)
+            .find(|record| record.path == from && record.matches(to))
         else {
             return Ok(false);
         };

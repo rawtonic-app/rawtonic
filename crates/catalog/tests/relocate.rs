@@ -291,3 +291,36 @@ fn a_renamed_companion_stays_its_photographs_companion() {
         "the JPEG is no photo of its own"
     );
 }
+
+/// A JPEG that left its pair (changed, then registered as a photograph of
+/// its own) and is renamed is relocated as that photograph; the RAW's stale
+/// companion record does not take the rename.
+#[test]
+fn a_former_companion_renamed_as_its_own_photograph_is_relocated() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Job");
+    let lib = Library::create(&dir, "Job", Mode::Session).unwrap();
+    let capture = dir.join("Capture");
+    fs::write(capture.join("A.NEF"), b"raw").unwrap();
+    fs::write(capture.join("A.JPG"), b"jpeg").unwrap();
+    let planned = lib
+        .plan_add(&capture.join("A.NEF"), Default::default())
+        .unwrap()
+        .with_companion("A.JPG")
+        .unwrap();
+    lib.insert_planned(vec![planned]).unwrap();
+    fs::write(capture.join("A.JPG"), b"edited elsewhere").unwrap();
+    let jpeg = lib.add_asset(&capture.join("A.JPG")).unwrap();
+    fs::rename(capture.join("A.JPG"), capture.join("B.JPG")).unwrap();
+    assert_eq!(
+        lib.relocate(&capture.join("A.JPG"), &capture.join("B.JPG"))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        lib.asset_at(&capture.join("B.JPG")).unwrap().unwrap().id,
+        jpeg.id
+    );
+    let raw = lib.asset_at(&capture.join("A.NEF")).unwrap().unwrap();
+    assert_eq!(lib.companion_verified(&raw).unwrap(), None);
+}

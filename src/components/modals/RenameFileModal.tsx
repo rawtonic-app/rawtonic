@@ -182,7 +182,10 @@ export default function RenameFileModal({ filesToRename, isOpen, onClose, onSave
     return null;
   }
 
-  const shown = current ? current.photos.slice(0, PREVIEW_ROWS) : [];
+  // The first rows, and every later one with a problem (it stops Save).
+  const shown = current
+    ? current.photos.filter((photo, i) => i < PREVIEW_ROWS || photo.problems.length > 0)
+    : [];
   const hidden = current ? current.photos.length - shown.length : 0;
   const renamedPhotos = current ? current.photos.filter((photo) => photo.files.length > 0).length : 0;
 

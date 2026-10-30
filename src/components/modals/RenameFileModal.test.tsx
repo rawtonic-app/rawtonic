@@ -99,3 +99,14 @@ it('cannot save when no name changes', async () => {
   expect(screen.getAllByText('keeps its name')).toHaveLength(2);
   await waitFor(() => expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true));
 });
+
+it('always lists a refused photo beyond the first rows', async () => {
+  const paths = Array.from({ length: PREVIEW_ROWS + 7 }, (_, i) => `/s/P${i}.NEF`);
+  const photos = paths.map((p, i) => photo(p, `/s/Job_${i}.NEF`));
+  photos[PREVIEW_ROWS + 3].problems = [{ kind: 'occupied', path: '/s/Taken.NEF' }];
+  open(paths, { photos });
+  const list = await screen.findByTestId('rename-preview');
+  expect(within(list).getAllByRole('listitem')).toHaveLength(PREVIEW_ROWS + 1);
+  expect(screen.getByText('Taken.NEF already exists.')).toBeTruthy();
+  expect(screen.getByText('More photos not listed: 6')).toBeTruthy();
+});
