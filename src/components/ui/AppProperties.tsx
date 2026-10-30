@@ -246,6 +246,7 @@ export enum Invokes {
   SessionDeleteAlbum = 'session_delete_album',
   SessionMoveAlbum = 'session_move_album',
   SessionOffline = 'session_offline',
+  SessionXmpCheck = 'session_xmp_check',
   SessionXmpReview = 'session_xmp_review',
   SessionXmpResolve = 'session_xmp_resolve',
   SessionXmpUndo = 'session_xmp_undo',
