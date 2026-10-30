@@ -539,8 +539,7 @@ export function recipeWrite<T>(
     (id) => {
       // Its tag, from its batch entry (the one quitting finds it by).
       const tag = batch ? (photoBatches().get(id)?.tag ?? '') : '';
-      const run = () => mutation(tag);
-      if (batch) return countedForQuit(id, run());
+      const run = () => (batch ? countedForQuit(id, mutation(tag)) : mutation(tag));
       const unsaved = preserveUnsaved ? paths.filter((path) => unsavedRecipes.has(path)) : [];
       if (unsaved.length === 0) return run();
       // Every retry settles before this write does (or fails): a write after

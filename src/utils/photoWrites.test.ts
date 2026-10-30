@@ -2,7 +2,9 @@ import { afterEach, expect, it, vi } from 'vitest';
 import {
   allPhotoWritesSettled,
   onPhotoWritesSettled,
+  photoWorkPending,
   photoWritePending,
+  photoWritesAndStepsSettled,
   photoWritesSettled,
   submitPhotoWrite,
   type PhotoWritesSettled,
@@ -108,4 +110,25 @@ it('waits for writes submitted while waiting before it reports everything settle
   first.open();
   await all;
   expect(late).toBe(true);
+});
+
+it('drains without waiting for a step that waits for the drain, which an export still waits for', async () => {
+  // A rating queued behind a file undo whose own drain runs first.
+  const behind = gate();
+  const step = photoWorkPending(behind.promise.then(() => submitPhotoWrite(['/r'], async () => 'rated', { kind: 'rating' })));
+  const write = gate();
+  void submitPhotoWrite(['/w'], () => write.promise, { kind: 'recipe' });
+  let drained = false;
+  const drain = allPhotoWritesSettled().then(() => (drained = true));
+  let exported = false;
+  const exporting = photoWritesAndStepsSettled().then(() => (exported = true));
+  write.open();
+  await drain;
+  expect(drained).toBe(true);
+  await tick();
+  expect(exported).toBe(false);
+  behind.open();
+  await step;
+  await exporting;
+  expect(exported).toBe(true);
 });

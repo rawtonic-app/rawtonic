@@ -85,12 +85,22 @@ class QuitDrain {
     }
   }
 
-  /** A settled write (`failed`: the photographs it did not write). */
-  record(id: number, kind: string, failed: string[]): void {
+  /** A settled write of `paths` (`failed`: those it did not write). */
+  record(id: number, kind: string, paths: string[], failed: string[]): void {
     // A whole-command failure can name every photo, including ones whose
     // successful per-photo report already arrived. The batch registry has
     // the precise failures and conservatively marks any unreported photo.
     if (batchOfEntry(id)) return;
+    // A whole recipe written supersedes an earlier failed one of that photo
+    // (the flush's retry is a write of its own).
+    if (kind === 'recipe') {
+      const written = paths.filter((path) => !failed.includes(path));
+      for (const [earlier, failure] of this.identified) {
+        if (failure.kind !== 'recipe') continue;
+        failure.failed = failure.failed.filter((path) => !written.includes(path));
+        if (failure.failed.length === 0) this.identified.delete(earlier);
+      }
+    }
     if (failed.length === 0) this.identified.delete(id);
     else this.identified.set(id, { kind, failed });
   }
@@ -131,7 +141,8 @@ class QuitDrain {
       if (failed.length > 0) identified.push({ order: batch.id, items: failed });
     }
     identified.sort((a, b) => a.order - b.order);
-    return [...identified.flatMap((failure) => failure.items), ...this.unidentified];
+    // A write and the flush that retried it may name the same change.
+    return [...new Set([...identified.flatMap((failure) => failure.items), ...this.unidentified])];
   }
 }
 
@@ -177,7 +188,7 @@ function hearWrites(kept: QuitDrain, requestId: number, update: () => void): () 
     if (handlingQuit === requestId) void invoke(Invokes.QuitSaving, { requestId }).catch(() => undefined);
   };
   const stopWrites = onPhotoWritesSettled((settled) => {
-    kept.record(settled.id, settled.kind, settled.failed);
+    kept.record(settled.id, settled.kind, settled.paths, settled.failed);
     progress();
   });
   const stopBatches = onBatchWriteSettled(({ tag, path, ok, also }) => {

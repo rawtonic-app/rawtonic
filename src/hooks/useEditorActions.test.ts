@@ -6,6 +6,7 @@ import {
   debouncedSetHistory,
   endBeforePeek,
   flushRecipeSaves,
+  recipeWrite,
   registerScheduledRecipe,
   rememberOpenedRecipe,
   startBeforePeek,
@@ -168,6 +169,29 @@ it('persists unrelated unsaved adjustments before applying a partial Library pas
   expect(pending.at(-1)?.command).toBe(Invokes.ApplyAdjustmentsToPaths);
   await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
   expect(waitForPendingMetadataSave('/failed-paste.dng')).toBeUndefined();
+  errorLog.mockRestore();
+});
+
+it('writes a failed autosave before a long batch command changes that photograph', async () => {
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+  vi.mocked(invoke).mockRejectedValueOnce(new Error('disk full'));
+  const unsaved = { ...INITIAL_ADJUSTMENTS, exposure: 2 };
+  debouncedSave('/failed-auto.dng', unsaved);
+  await act(async () => { await debouncedSave.flush(); });
+  const command = vi.fn((tag: string) => invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: ['/failed-auto.dng'], batch: tag }));
+  const written = recipeWrite(['/failed-auto.dng'], command, { kind: 'auto', failedOf: () => [], batch: true });
+  await act(async () => {});
+  // The whole recipe first: the batch then changes it, and no later flush
+  // writes the older recipe over the batch's result.
+  expect(pending.map(({ command: name }) => name)).toEqual([Invokes.SaveMetadataAndUpdateThumbnail]);
+  expect(command).not.toHaveBeenCalled();
+  await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
+  expect(pending.at(-1)?.command).toBe(Invokes.ApplyAutoAdjustmentsToPaths);
+  await finish(Invokes.ApplyAutoAdjustmentsToPaths, undefined);
+  await written;
+  expect(waitForPendingMetadataSave('/failed-auto.dng')).toBeUndefined();
+  expect(await flushRecipeSaves()).toEqual([]);
+  expect(vi.mocked(invoke).mock.calls.at(-1)?.[0]).toBe(Invokes.ApplyAutoAdjustmentsToPaths);
   errorLog.mockRestore();
 });
 

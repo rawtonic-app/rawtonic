@@ -227,6 +227,25 @@ impl QuitState {
         Some(reason)
     }
 
+    /// What request `id`'s deadline watcher does at `now`, decided under
+    /// the one lock (a progress report cannot slip between reading the
+    /// deadline and ending the request): sleep until the deadline of the
+    /// moment, end the request because it ran out, or stop because the
+    /// request is no longer waiting or saving.
+    fn watch(&mut self, id: u64, now: Instant) -> Watch {
+        let Some(deadline) = self
+            .phase
+            .deadline()
+            .filter(|_| self.phase.live_id() == Some(id))
+        else {
+            return Watch::Done;
+        };
+        if now < deadline {
+            return Watch::Until(deadline);
+        }
+        self.timed_out(id, now).map_or(Watch::Done, Watch::Expired)
+    }
+
     /// The editor could not be asked (the event did not go out): its
     /// request ends, and nothing quits.
     fn abort(&mut self, id: u64) -> bool {
@@ -237,6 +256,14 @@ impl QuitState {
         self.phase = Phase::Idle;
         true
     }
+}
+
+/// See `QuitState::watch`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Watch {
+    Until(Instant),
+    Expired(CancelReason),
+    Done,
 }
 
 fn lock() -> MutexGuard<'static, QuitState> {
@@ -307,25 +334,24 @@ fn run_deadline<R: Runtime>(app: &AppHandle<R>, id: u64) {
 /// stays open and the editor is told why. It never exits, and never touches
 /// another request.
 fn expire<R: Runtime>(app: &AppHandle<R>, id: u64) {
-    // A new progress report may move the deadline while this thread sleeps.
-    // Recheck it after waking; cancellation and newer ids make it return.
+    // A new progress report may move the deadline while this thread sleeps:
+    // each wake decides again (`watch`); cancellation and newer ids end it.
     loop {
-        let phase = lock().phase;
-        let Some(deadline) = phase.deadline().filter(|_| phase.live_id() == Some(id)) else {
-            return;
-        };
-        let now = Instant::now();
-        if now >= deadline {
-            if let Some(reason) = lock().timed_out(id, now) {
+        let watch = lock().watch(id, Instant::now());
+        match watch {
+            Watch::Until(deadline) => {
+                std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+            }
+            Watch::Expired(reason) => {
                 log::warn!(
                     "The quit request ended without quitting: {}",
                     reason.as_str()
                 );
                 emit_cancelled(app, id, reason);
+                return;
             }
-            return;
+            Watch::Done => return,
         }
-        std::thread::sleep(deadline.saturating_duration_since(now));
     }
 }
 
@@ -576,6 +602,32 @@ mod tests {
             Some(CancelReason::SavingStalled)
         );
         assert_eq!(state.phase, Phase::Idle);
+    }
+
+    /// Progress that renews the deadline just as it is due keeps the
+    /// watcher on the request (the deadline was read and acted on under
+    /// one lock): it sleeps on and still ends a later stall.
+    #[test]
+    fn the_watcher_follows_a_renewed_deadline_and_ends_a_later_stall() {
+        let mut state = requested(true);
+        assert_eq!(
+            state.watch(1, t(1)),
+            Watch::Until(t(SAVE_TIMEOUT.as_secs()))
+        );
+        assert!(state.saving(1, t(SAVE_TIMEOUT.as_secs())));
+        let renewed = t(2 * SAVE_TIMEOUT.as_secs());
+        assert_eq!(
+            state.watch(1, t(SAVE_TIMEOUT.as_secs())),
+            Watch::Until(renewed)
+        );
+        assert_eq!(
+            state.watch(1, renewed),
+            Watch::Expired(CancelReason::SavingStalled)
+        );
+        assert_eq!(state.phase, Phase::Idle);
+        assert_eq!(state.watch(1, renewed), Watch::Done);
+        let mut state = decided();
+        assert_eq!(state.watch(1, t(10_000)), Watch::Done);
     }
 
     #[test]

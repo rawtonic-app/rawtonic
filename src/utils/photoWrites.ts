@@ -71,10 +71,9 @@ export type PhotoBatch = {
   photoFailures?: Map<string, string>;
 };
 
+/** The batch of each queue entry a batch command runs in (the oldest
+ * finished ones are pruned, `BATCHES_KEPT`). */
 const batches = new Map<number, PhotoBatch>();
-/** The batch of each queue entry it settled with, for a quit that heard it
- * (pruned with `batches`). */
-const batchesByEntry = new Map<number, PhotoBatch>();
 /** The batches whose write is still queued. */
 const running = new Set<number>();
 /** The photographs of a batch no progress event reported yet. */
@@ -126,7 +125,7 @@ export function onBatchWriteSettled(
 /** A photograph of the batch of queue entry `entry` settled: written, or
  * not (`failure`). */
 export function batchPhotoSettled(entry: number, path: string, failure?: string): void {
-  const batch = batchesByEntry.get(entry);
+  const batch = batches.get(entry);
   if (!batch) return;
   const left = unsettled.get(batch);
   if (!left?.delete(path)) return;
@@ -136,14 +135,14 @@ export function batchPhotoSettled(entry: number, path: string, failure?: string)
 /** Reports the unreported photographs of the batch of `entry` (`failure`:
  * those that did not settle). */
 export function batchPhotosReported(entry: number, failure?: string): void {
-  const batch = batchesByEntry.get(entry);
+  const batch = batches.get(entry);
   if (!batch) return;
   for (const path of unsettledPhotos(batch)) batchPhotoSettled(entry, path, failure);
 }
 
 /** The batch a queue entry is, once it settled (null: not a batch). */
 export function batchOfEntry(entry: number): PhotoBatch | null {
-  return batchesByEntry.get(entry) ?? null;
+  return batches.get(entry) ?? null;
 }
 
 /** What the photographs of `batch` not written failed with (for quitting). */
@@ -184,7 +183,6 @@ export function submitPhotoWrite<T>(paths: string[], run: (id: number) => Promis
     : undefined;
   if (batch) {
     batches.set(id, batch);
-    batchesByEntry.set(id, batch);
     unsettled.set(batch, new Set(paths));
     running.add(id);
     // (Finished ones go when too many pile up in one session, oldest
@@ -237,8 +235,8 @@ export function photoWritePending(path: string): boolean {
 const steps = new Set<Promise<void>>();
 
 /** Counts `work`, a step that submits its writes once earlier work is done
- * (a catalog undo step), among what `allPhotoWritesSettled` waits for from
- * now on; returns it. Its writes still join the queue themselves. */
+ * (a catalog undo step), among what `photoWritesAndStepsSettled` waits for
+ * from now on; returns it. Its writes still join the queue themselves. */
 export function photoWorkPending<T>(work: Promise<T>): Promise<T> {
   const settled = work.then(() => undefined, () => undefined);
   steps.add(settled);
@@ -247,8 +245,17 @@ export function photoWorkPending<T>(work: Promise<T>): Promise<T> {
 }
 
 /** Settles once no write is pending for any photograph, also those
- * submitted while waiting (quitting, switching library, exporting). */
+ * submitted while waiting (quitting, switching library, file operations).
+ * Steps not yet writing are not waited for: one may wait for the very
+ * operation that drains (a rating queued behind a file undo). */
 export async function allPhotoWritesSettled(): Promise<void> {
+  while (tails.size > 0) await Promise.all(tails.values());
+}
+
+/** `allPhotoWritesSettled`, and also every step counted with
+ * `photoWorkPending` (an export takes the metadata a rating step given just
+ * before it writes). Never from inside such a step's dependencies. */
+export async function photoWritesAndStepsSettled(): Promise<void> {
   while (tails.size > 0 || steps.size > 0) await Promise.all([...tails.values(), ...steps]);
 }
 

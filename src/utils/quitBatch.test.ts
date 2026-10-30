@@ -7,7 +7,8 @@ import { BatchCommand, COMMANDS, mountAppListeners } from './quit.test.support';
 import { QUIT_NOTICE_ID, QUIT_NOTICE_MS, handleQuitRequest, registerQuitFlush } from './quit';
 import { toast } from 'react-toastify';
 import { allPhotoWritesSettled, photoBatches } from './photoWrites';
-import { flushRecipeSaves } from '../hooks/useEditorActions';
+import { debouncedSave, flushRecipeSaves } from '../hooks/useEditorActions';
+import { INITIAL_ADJUSTMENTS } from './adjustments';
 import { Invokes } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn((name) => Promise.resolve(['quit_saving', 'cancel_quit', 'finish_quit'].includes(String(name)) ? true : [])) }));
@@ -91,6 +92,27 @@ it('does not count photos saved before this quit as failures or new progress', a
   await quit(ask);
   expect(ask).not.toHaveBeenCalled();
   expect(COMMANDS()).toEqual([Invokes.QuitSaving, Invokes.FinishQuit]);
+});
+
+it('does not name an editor save its retry during the quit wrote', async () => {
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const failOnce = vi.mocked(invoke).getMockImplementation()!;
+  const saves: unknown[] = [];
+  vi.mocked(invoke).mockImplementation((name, args) => {
+    if (name !== Invokes.SaveMetadataAndUpdateThumbnail) return failOnce(name, args);
+    saves.push((args as { path: string }).path);
+    return saves.length === 1 ? Promise.reject(new Error('locked')) : failOnce(name, args);
+  });
+  debouncedSave('/a.dng', { ...INITIAL_ADJUSTMENTS, exposure: 1 });
+  const ask = vi.fn();
+  // The quit flushes the save, which fails; the flush's retry writes it.
+  await quit(ask);
+  // (This file registers the recipe flush once more, so it may retry twice.)
+  expect(saves.length).toBeGreaterThanOrEqual(2);
+  expect(ask).not.toHaveBeenCalled();
+  expect(COMMANDS().at(-1)).toBe(Invokes.FinishQuit);
+  vi.mocked(invoke).mockImplementation(failOnce);
+  errorLog.mockRestore();
 });
 
 it('does not ask again about a batch that failed and settled before this quit', async () => {
