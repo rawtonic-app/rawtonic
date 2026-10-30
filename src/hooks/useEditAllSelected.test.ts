@@ -389,6 +389,34 @@ describe('Edit all selected', () => {
       expect(pasted()).toHaveLength(5);
     });
 
+    it('never writes a failed edit over a newer one saved since, also from a later run', async () => {
+      const exposures = () =>
+        pasted()
+          .filter(({ paths }) => paths.includes('/s/c.CR3'))
+          .map(({ adjustments }) => adjustments.exposure);
+      const { rerender } = renderHook(({ on }) => useEditAllSelected(on, selection), { initialProps: { on: true } });
+      failing = true;
+      edit({ exposure: 0.5 });
+      await act(async () => {
+        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+      });
+      rerender({ on: false });
+      failing = false;
+      // Switched on again, a newer Exposure is saved to the others.
+      rerender({ on: true });
+      edit({ exposure: 0.9 });
+      await act(async () => {
+        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+      });
+      let unsaved: string[] = [];
+      await act(async () => {
+        unsaved = await flushRecipeSaves();
+      });
+      expect(unsaved).toEqual([]);
+      // The failed 0.5 is not written again over the saved 0.9.
+      expect(exposures()).toEqual([0.5, 0.9]);
+    });
+
     it('holds the switch while the write failed: Retry writes it into the library it was made in', async () => {
       renderHook(() => useEditAllSelected(true, selection));
       edit({ exposure: 0.5 });

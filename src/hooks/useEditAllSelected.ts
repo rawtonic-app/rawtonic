@@ -5,7 +5,7 @@ import { Invokes } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { registerRecipeFlush, useEditorActions } from './useEditorActions';
+import { onRecipeWritten, registerRecipeFlush, useEditorActions } from './useEditorActions';
 import { changedCopyableKeys } from '../utils/multiView';
 import { samePhotograph, withoutDetections } from '../utils/settingsClipboard';
 import { frameDrawnMasks } from '../utils/maskGeometry';
@@ -41,6 +41,68 @@ export function livePatch(changes: Partial<Adjustments>): Partial<Adjustments> |
 let liveOwner = 0;
 let liveRuns = 0;
 
+type ApplyToOthers = ReturnType<typeof useEditorActions>['applyAdjustmentsToPaths'];
+
+/** Writes not settled yet, of every run. */
+const writing = new Set<Promise<unknown>>();
+/** What failed to be written to which photograph, of every run (also one
+ * switched off since), with the photograph it came from: tried again by
+ * every recipe flush until written, superseded or discarded. */
+const unwritten = new Map<string, { changes: Partial<Adjustments>; from: string; apply: ApplyToOthers }>();
+/** Runs' gathered edits, written at once by a recipe flush. */
+const gathered = new Set<() => void>();
+
+/** Settings written since a failure supersede it. */
+onRecipeWritten((path, keys) => {
+  const left = unwritten.get(path);
+  if (!left) return;
+  const rest = keys
+    ? Object.fromEntries(Object.entries(left.changes).filter(([key]) => !keys.includes(key)))
+    : {};
+  if (Object.keys(rest).length > 0) unwritten.set(path, { ...left, changes: rest });
+  else unwritten.delete(path);
+});
+
+/** Writes `changes` from `from` to `others`; keeps what failed for a retry
+ * (what succeeded supersedes older failures, `onRecipeWritten`). */
+function writeToOthers(apply: ApplyToOthers, changes: Partial<Adjustments>, others: string[], from: string) {
+  const done = apply(changes, others, { openingNow: true, pasteFrom: from, replaceLayers: true });
+  if (!done) return null;
+  const settled = done.then((failed) => {
+    for (const path of others) {
+      if (!failed.includes(path)) continue;
+      const left = unwritten.get(path);
+      unwritten.set(path, { changes: { ...left?.changes, ...changes }, from, apply });
+    }
+  });
+  writing.add(settled);
+  void settled.then(() => writing.delete(settled));
+  return done;
+}
+
+// Exporting, quitting or switching library (`flushRecipeSaves`): what the
+// runs gathered is written now, into the library it was made in; what
+// failed is tried again, and what still fails is named (an export stops; a
+// switch asks Retry, Discard or Cancel, utils/quit.ts).
+registerRecipeFlush(async () => {
+  gathered.forEach((write) => write());
+  while (writing.size > 0) await Promise.all(writing);
+  for (const [path, { changes, from, apply }] of [...unwritten]) {
+    // Superseded meanwhile.
+    if (unwritten.get(path)?.changes !== changes) continue;
+    unwritten.delete(path);
+    const done = writeToOthers(apply, changes, [path], from);
+    if (done) await done;
+  }
+  while (writing.size > 0) await Promise.all(writing);
+  return [...unwritten.keys()];
+});
+// Past a switch's barrier they were written or discarded.
+registerLibrarySwitchReset(() => {
+  unwritten.clear();
+  return () => {};
+});
+
 /**
  * "Edit all selected" in the multi view (Capture One's Edit All Selected
  * Variants, Lightroom's Auto Sync): while `enabled`, each edit of the open
@@ -67,10 +129,6 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
     let inflight: Partial<Adjustments> = {};
     let writes = 0;
     let lastWrite: Promise<unknown> | null = null;
-    // Writes not settled yet, and what failed for which photograph (with
-    // the photograph it came from), tried again by `drain`.
-    const writing = new Set<Promise<unknown>>();
-    const unwritten = new Map<string, { changes: Partial<Adjustments>; from: string }>();
     // A library switch is past its barrier: edits made now belong to the
     // library being left and are not written into the next one.
     let switching = false;
@@ -107,31 +165,6 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       if (wait <= 0) sendLiveNow();
       else liveTimer = setTimeout(sendLiveNow, wait);
     };
-    /** Writes `changes` from `from` to `others`; keeps what failed for a
-     * retry and forgets what a later write superseded. */
-    const write = (changes: Partial<Adjustments>, others: string[], from: string) => {
-      const done = applyRef.current(changes, others, {
-        openingNow: true,
-        pasteFrom: from,
-        replaceLayers: true,
-      });
-      if (!done) return null;
-      const settled = done.then((failed) => {
-        for (const path of others) {
-          const left = unwritten.get(path);
-          if (failed.includes(path)) {
-            unwritten.set(path, { changes: { ...left?.changes, ...changes }, from });
-          } else if (left) {
-            const rest = Object.fromEntries(Object.entries(left.changes).filter(([key]) => !(key in changes)));
-            if (Object.keys(rest).length > 0) unwritten.set(path, { ...left, changes: rest });
-            else unwritten.delete(path);
-          }
-        }
-      });
-      writing.add(settled);
-      void settled.then(() => writing.delete(settled));
-      return done;
-    };
     const flush = debounce(() => {
       if (switching) {
         console.warn('Dropped Edit all selected changes made while the library was switched.');
@@ -156,7 +189,7 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       // be one of the others, still opening.
       // The others get the primary's layers, with their AI detections made
       // on each of them (never the primary's bitmaps).
-      const done = write(withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments), from.adjustments), from.adjustments), others, from.path);
+      const done = writeToOthers(applyRef.current, withClarityVersion(withGrainVersion(withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments), from.adjustments), from.adjustments), others, from.path);
       if (!done) {
         // Nothing was written: the cells show their recipes again.
         if (thisWrite === writes) inflight = shownBefore;
@@ -171,30 +204,8 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
         sendLive();
       });
     }, EDIT_ALL_SETTLE_MS);
-    // Exporting, quitting or switching library (`flushRecipeSaves`): what
-    // was gathered is written now, into the library it was made in; what
-    // failed is tried again, and what still fails is named (an export
-    // stops; a switch asks Retry, Discard or Cancel, utils/quit.ts).
-    const drain = async (): Promise<string[]> => {
-      flush.flush();
-      while (writing.size > 0) await Promise.all(writing);
-      for (const [path, { changes, from }] of [...unwritten]) {
-        const done = write(changes, [path], from);
-        if (done) await done;
-      }
-      while (writing.size > 0) await Promise.all(writing);
-      if (disposed && unwritten.size === 0) release();
-      return [...unwritten.keys()];
-    };
-    // Switched off, it stays registered while a write is in flight or
-    // failed: those edits are still saved (or discarded at a library
-    // switch), never forgotten.
-    let disposed = false;
-    const release = () => {
-      unregisterFlush();
-      unregisterReset();
-    };
-    const unregisterFlush = registerRecipeFlush(drain);
+    const writeGathered = () => flush.flush();
+    gathered.add(writeGathered);
     // Past the barrier: written or discarded; nothing gathered from now
     // until the switch ends is written into the next library.
     const unregisterReset = registerLibrarySwitchReset(() => {
@@ -202,8 +213,6 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       flush.cancel();
       pending = {};
       targets = new Set();
-      unwritten.clear();
-      if (disposed) release();
       return () => {
         switching = false;
       };
@@ -267,14 +276,11 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
     });
     return () => {
       unsubscribe();
-      disposed = true;
       // Switching it off keeps what was already done (for the photographs
-      // selected when it was done).
+      // selected when it was done; what fails is kept for the next flush).
       flush.flush();
-      void (async () => {
-        while (writing.size > 0) await Promise.all(writing);
-        if (unwritten.size === 0) release();
-      })();
+      gathered.delete(writeGathered);
+      unregisterReset();
       if (liveTimer !== null) clearTimeout(liveTimer);
       // The live patch goes once the last write is in (else the cells would
       // show the old recipes for a moment), unless a newer run took over.

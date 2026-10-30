@@ -59,6 +59,24 @@ import { registerRecipeWriter, type RecipeValues } from '../utils/appUndo';
 const pendingMetadataSaves = new Map<string, Promise<Adjustments | undefined>>();
 const unsavedRecipes = new Map<string, Adjustments>();
 
+/** Told when a photograph's recipe was written: `keys` the settings
+ * written, null its whole recipe. */
+export type RecipeWritten = (path: string, keys: string[] | null) => void;
+const recipeWrittenListeners = new Set<RecipeWritten>();
+
+/** Calls `listener` after each recipe write that succeeded (a newer value
+ * supersedes edits still waiting to be written); returns its removal. */
+export function onRecipeWritten(listener: RecipeWritten): () => void {
+  recipeWrittenListeners.add(listener);
+  return () => {
+    recipeWrittenListeners.delete(listener);
+  };
+}
+
+function recipeWritten(paths: string[], keys: string[] | null) {
+  for (const listener of recipeWrittenListeners) for (const path of paths) listener(path, keys);
+}
+
 export function waitForPendingMetadataSave(path: string): Promise<Adjustments | undefined> | undefined {
   return pendingMetadataSaves.get(path)
     ?? (unsavedRecipes.has(path) ? Promise.resolve(unsavedRecipes.get(path)) : undefined);
@@ -93,6 +111,7 @@ const writeRecipe = debounce((path: string, adjustmentsToSave: Adjustments, epoc
   const pending = (previous ? previous.then(save) : save())
     .then(() => {
       if (epoch === libraryEpoch) unsavedRecipes.delete(path);
+      recipeWritten([path], null);
       return undefined;
     })
     .catch((err) => {
@@ -180,6 +199,7 @@ export async function flushRecipeSaves(): Promise<string[]> {
     try {
       await invoke(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments });
       if (unsavedRecipes.get(path) === adjustments) unsavedRecipes.delete(path);
+      recipeWritten([path], null);
     } catch (err) {
       console.error('Saving before quitting failed:', err);
       failed.push(path);
@@ -476,6 +496,7 @@ function afterRecipeSaves<T>(paths: string[], mutation: () => Promise<T>, preser
       // save. Retry that complete recipe first, or leave it intact on failure.
       await invoke(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments: unsaved });
       if (unsavedRecipes.get(path) === unsaved) unsavedRecipes.delete(path);
+      recipeWritten([path], null);
     }
   })).then(mutation);
 }
@@ -494,6 +515,8 @@ async function writeRecipeValues(values: RecipeValues[]): Promise<RecipeValues[]
   if (result.failure) toast.error(i18next.t('studio.seriesMatch.notSaved', { error: result.failure.message }));
   const written = result.before.map((before) => before.path);
   written.forEach((path) => unsavedRecipes.delete(path));
+  for (const value of values)
+    if (written.includes(value.path)) recipeWritten([value.path], Object.keys(value.values));
   const { selectedImage, resetHistory, setEditor } = useEditorStore.getState();
   if (selectedImage && written.includes(selectedImage.path) && isCurrentEditorImage(selectedImage.path)) {
     const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path });
@@ -1009,6 +1032,7 @@ export function useEditorActions() {
         .then((failed) => {
           const updated = others.filter((path) => !failed.includes(path));
           updated.forEach((path) => unsavedRecipes.delete(path));
+          recipeWritten(updated, Object.keys(adjustmentsToApply));
           if (!pastedOntoOpen && selectedImage && updated.includes(selectedImage.path)
             && isCurrentEditorImage(selectedImage.path)) {
             invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path }).then((meta) => {
