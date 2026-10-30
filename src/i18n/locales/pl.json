@@ -255,6 +255,7 @@
       "toggle_all_panels": "Wszystkie panele i paski",
       "toggle_auto_advance": "Automatyczne przejście",
       "toggle_bottom_panel": "Pasek zdjęć",
+      "toggle_camera_preview": "Podgląd z aparatu",
       "toggle_clipping": "Ostrzeżenia o przycięciu",
       "toggle_export": "Eksportuj…",
       "toggle_fullscreen": "Samo zdjęcie (pełny ekran)",
@@ -2067,6 +2068,7 @@
         "toggle_all_panels": "Ukryj lub pokaż wszystkie panele i paski",
         "toggle_analytics": "Przełącz wyświetlanie analityki",
         "toggle_bottom_panel": "Przełącz pasek z klatkami",
+        "toggle_camera_preview": "Przełącz podgląd z aparatu",
         "toggle_clipping": "Pokaż ostrzeżenia o przycięciu",
         "toggle_crop": "Przełącz Kadrowanie / Prostowanie",
         "toggle_crop_panel": "Przełącz panel Kadrowanie",
@@ -4607,6 +4609,15 @@
       }
     },
     "workspace": {
+      "cameraPreview": {
+        "alt": "Podgląd z aparatu",
+        "button": "Podgląd z aparatu",
+        "esc": "Esc",
+        "label": "Podgląd z aparatu",
+        "note": "JPEG z aparatu: jego kolory i kadr, nie Twoja obróbka.",
+        "returnWith": "{{key}} lub {{esc}} wraca do wywołania",
+        "unavailable": "To zdjęcie nie ma podglądu z aparatu."
+      },
       "edges": {
         "showBars": "Pokaż paski",
         "showBarsAndFilmstrip": "Pokaż paski i taśmę zdjęć",

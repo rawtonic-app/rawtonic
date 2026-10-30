@@ -241,6 +241,7 @@
       "toggle_all_panels": "Alle Leisten und Bedienfelder",
       "toggle_auto_advance": "Automatisch weiter",
       "toggle_bottom_panel": "Filmstreifen",
+      "toggle_camera_preview": "Kamera-Vorschau",
       "toggle_clipping": "Clipping-Warnungen",
       "toggle_export": "Exportieren …",
       "toggle_fullscreen": "Foto allein (Vollbild)",
@@ -1897,6 +1898,7 @@
         "toggle_all_panels": "Alle Panels und Leisten aus-/einblenden",
         "toggle_analytics": "Analyseanzeige ein-/ausblenden",
         "toggle_bottom_panel": "Filmstreifen ein-/ausblenden",
+        "toggle_camera_preview": "Kamera-Vorschau ein-/ausschalten",
         "toggle_clipping": "Clipping-Warnungen anzeigen",
         "toggle_crop": "Zuschnitt / Gerade ausrichten umschalten",
         "toggle_crop_panel": "Zuschneiden-Panel ein-/ausblenden",
@@ -4341,6 +4343,15 @@
       }
     },
     "workspace": {
+      "cameraPreview": {
+        "alt": "Kamera-Vorschau des Fotos",
+        "button": "Kamera-Vorschau",
+        "esc": "Esc",
+        "label": "Kamera-Vorschau",
+        "note": "Das JPEG der Kamera: ihre Farbe und ihr Beschnitt, nicht Ihre Bearbeitung.",
+        "returnWith": "{{key}} oder {{esc}} zeigt wieder die Entwicklung",
+        "unavailable": "Dieses Foto hat keine Kamera-Vorschau."
+      },
       "edges": {
         "showBars": "Leisten einblenden",
         "showBarsAndFilmstrip": "Leisten und Filmstreifen einblenden",

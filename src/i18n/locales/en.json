@@ -241,6 +241,7 @@
       "toggle_all_panels": "All Panels and Bars",
       "toggle_auto_advance": "Auto-advance",
       "toggle_bottom_panel": "Filmstrip",
+      "toggle_camera_preview": "Camera Preview",
       "toggle_clipping": "Clipping Warnings",
       "toggle_export": "Export…",
       "toggle_fullscreen": "Photo Alone (Full Screen)",
@@ -1897,6 +1898,7 @@
         "toggle_all_panels": "Hide or show all panels and bars",
         "toggle_analytics": "Toggle Analytics display",
         "toggle_bottom_panel": "Toggle Filmstrip",
+        "toggle_camera_preview": "Toggle camera preview",
         "toggle_clipping": "Show clipping warnings",
         "toggle_crop": "Toggle Crop / Straighten",
         "toggle_crop_panel": "Toggle Crop panel",
@@ -4341,6 +4343,15 @@
       }
     },
     "workspace": {
+      "cameraPreview": {
+        "alt": "Camera preview of the photo",
+        "button": "Camera preview",
+        "esc": "Esc",
+        "label": "Camera preview",
+        "note": "The camera's own JPEG of the photo: its colour and crop, not your edit.",
+        "returnWith": "{{key}} or {{esc}} returns",
+        "unavailable": "This photo has no camera preview."
+      },
       "edges": {
         "showBars": "Show the bars",
         "showBarsAndFilmstrip": "Show the bars and filmstrip",

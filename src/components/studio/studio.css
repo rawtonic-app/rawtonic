@@ -5831,6 +5831,10 @@ button.studio-button.is-destructive:hover:not(:disabled) {
   .studio-dialog {
     border-color: CanvasText;
   }
+  /* The Export dialog's footer buttons are plain buttons, which the studio's
+     button reset gives no border: a contrast theme drew them without an edge
+     (WQ4 of the Windows qualification). */
+  .studio-export-form footer button,
   button.studio-button,
   .studio-dialog textarea,
   .studio-dialog input:not([type="checkbox"], [type="radio"]) {
@@ -5856,11 +5860,72 @@ button.studio-button.is-destructive:hover:not(:disabled) {
     .studio-dialog :focus-visible,
     button.studio-button:focus-visible,
     button.studio-button.is-default:focus,
+    .studio-export-form footer button:focus-visible,
     input[type='checkbox']:focus-visible,
     input[type='radio']:focus-visible {
       outline: 2px solid Highlight !important;
       outline-offset: 2px;
     }
+  }
+}
+
+/* The camera preview (Shift+\, utils/cameraPreview): the native display
+   draws the JPEG the camera wrote into the RAW in the edit's place; over it
+   a transparent layer keeps the pointer from the tools and its label says
+   what it shows: what the camera rendered, not the edit. */
+.studio-camera-preview-blocker {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+}
+.studio-camera-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 16;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  pointer-events: none;
+}
+/* Says what it is, so the camera's colour and crop are not taken for the
+   edit (and a full-screen viewer shows it at once). */
+.studio-camera-preview-note {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  margin: 0;
+  max-width: min(420px, calc(100% - 24px));
+  padding: 6px 9px;
+  border-radius: 3px;
+  border: 1px solid #4b4e53;
+  background: #17181acc;
+  color: #d5d9de;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.studio-camera-preview-note strong {
+  display: block;
+  font-weight: 600;
+  color: #fff;
+}
+/* How to leave it, on its own line under the note. */
+.studio-camera-preview-keys {
+  display: block;
+  margin-top: 2px;
+  color: #aeb3b9;
+}
+/* The system colours of a Windows contrast theme, as the other rules there. */
+@media (forced-colors: active) {
+  .studio-camera-preview-note {
+    border-color: CanvasText;
+    color: CanvasText;
+    background: Canvas;
+    forced-color-adjust: none;
+  }
+  .studio-camera-preview-note strong,
+  .studio-camera-preview-keys {
+    color: CanvasText;
   }
 }
 

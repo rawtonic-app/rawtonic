@@ -248,6 +248,7 @@
       "toggle_all_panels": "Todos los paneles y barras",
       "toggle_auto_advance": "Avance automático",
       "toggle_bottom_panel": "Tira de imágenes",
+      "toggle_camera_preview": "Vista previa de la cámara",
       "toggle_clipping": "Avisos de recorte",
       "toggle_export": "Exportar…",
       "toggle_fullscreen": "Foto sola (pantalla completa)",
@@ -1982,6 +1983,7 @@
         "toggle_all_panels": "Ocultar o mostrar todos los paneles y barras",
         "toggle_analytics": "Alternar vista de análisis",
         "toggle_bottom_panel": "Alternar tira de imágenes",
+        "toggle_camera_preview": "Activar o desactivar la vista previa de la cámara",
         "toggle_clipping": "Mostrar avisos de recorte",
         "toggle_crop": "Alternar Recortar / Enderezar",
         "toggle_crop_panel": "Alternar panel de Recorte",
@@ -4474,6 +4476,15 @@
       }
     },
     "workspace": {
+      "cameraPreview": {
+        "alt": "Vista previa de la cámara de la foto",
+        "button": "Vista previa de la cámara",
+        "esc": "Esc",
+        "label": "Vista previa de la cámara",
+        "note": "El JPEG de la cámara: su color y encuadre, no tu edición.",
+        "returnWith": "{{key}} o {{esc}} vuelve",
+        "unavailable": "Esta foto no tiene vista previa de la cámara."
+      },
       "edges": {
         "showBars": "Mostrar las barras",
         "showBarsAndFilmstrip": "Mostrar las barras y la tira de imágenes",

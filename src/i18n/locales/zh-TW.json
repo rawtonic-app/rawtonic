@@ -234,6 +234,7 @@
       "toggle_all_panels": "所有面板與列",
       "toggle_auto_advance": "自動前進",
       "toggle_bottom_panel": "底片顯示窗格",
+      "toggle_camera_preview": "相機預覽",
       "toggle_clipping": "剪裁警告",
       "toggle_export": "輸出…",
       "toggle_fullscreen": "僅照片（全螢幕）",
@@ -1842,6 +1843,7 @@
         "toggle_all_panels": "隱藏/顯示所有面板和列",
         "toggle_analytics": "切換分析顯示",
         "toggle_bottom_panel": "切換膠片條",
+        "toggle_camera_preview": "切換相機預覽",
         "toggle_clipping": "顯示剪裁警告",
         "toggle_crop": "切換裁剪/拉直",
         "toggle_crop_panel": "切換裁剪面板",
@@ -4243,6 +4245,15 @@
       }
     },
     "workspace": {
+      "cameraPreview": {
+        "alt": "照片的相機預覽",
+        "button": "相機預覽",
+        "esc": "Esc",
+        "label": "相機預覽",
+        "note": "相機自帶的 JPEG：相機的色彩與裁切，而非你的編輯。",
+        "returnWith": "{{key}} 或 {{esc}} 返回",
+        "unavailable": "這張照片沒有相機預覽。"
+      },
       "edges": {
         "showBars": "顯示列",
         "showBarsAndFilmstrip": "顯示列和膠片條",

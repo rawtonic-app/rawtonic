@@ -234,6 +234,7 @@
       "toggle_all_panels": "すべてのパネルとバー",
       "toggle_auto_advance": "自動送り",
       "toggle_bottom_panel": "フィルムストリップ",
+      "toggle_camera_preview": "カメラプレビュー",
       "toggle_clipping": "クリッピング警告",
       "toggle_export": "書き出す…",
       "toggle_fullscreen": "写真のみ（フルスクリーン）",
@@ -1842,6 +1843,7 @@
         "toggle_all_panels": "すべてのパネルとバーの表示/非表示",
         "toggle_analytics": "アナリティクス表示の表示/非表示",
         "toggle_bottom_panel": "フィルムストリップの表示/非表示",
+        "toggle_camera_preview": "カメラプレビューの切り替え",
         "toggle_clipping": "白とび・黒つぶれ警告を表示",
         "toggle_crop": "切り抜き/角度補正の切り替え",
         "toggle_crop_panel": "切り抜きパネルの表示/非表示",
@@ -4243,6 +4245,15 @@
       }
     },
     "workspace": {
+      "cameraPreview": {
+        "alt": "写真のカメラプレビュー",
+        "button": "カメラプレビュー",
+        "esc": "Esc",
+        "label": "カメラプレビュー",
+        "note": "カメラが記録した JPEG：カメラの色と構図で、編集内容は反映されません。",
+        "returnWith": "{{key}} または {{esc}} で戻る",
+        "unavailable": "この写真にはカメラプレビューがありません。"
+      },
       "edges": {
         "showBars": "バーを表示",
         "showBarsAndFilmstrip": "バーとフィルムストリップを表示",

@@ -27,3 +27,23 @@ it("preserves dialog borders, native checked indicators and focus in forced colo
   expect(rule(".studio-clip-corner.is-on.is-lit .studio-clip-corner-mark")).toContain("stroke: ButtonText");
   expect(rule(".studio-clip-corner:focus-visible")).toContain("outline-color: Highlight !important");
 });
+
+it("gives the Export dialog's footer buttons a border and a focus outline in forced colours", () => {
+  const css = readFileSync("src/components/studio/studio.css", "utf8") as string;
+  const forced = css.slice(css.indexOf("@media (forced-colors: active)"));
+  // The rules of one (top-level or @layer) block; comments in the selector
+  // list are ignored.
+  const rule = (selector: string) => {
+    const blocks = [...forced.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+    return blocks.find(([, selectors]) =>
+      selectors.replace(/\/\*[\s\S]*?\*\//g, " ").split(",").some((s) => s.trim() === selector))?.[2] ?? "";
+  };
+  // Cancel and Export (StudioExport's footer) are plain buttons, which the
+  // studio's button reset gives no border: a contrast theme kept that and
+  // drew them without an edge (WQ4 of the Windows qualification).
+  expect(rule(".studio-export-form footer button")).toContain("border: 1px solid ButtonText");
+  expect(rule(".studio-export-form footer button:focus-visible")).toContain("outline: 2px solid Highlight !important");
+  // System colours only: no palette colours left in these rules.
+  expect(rule(".studio-export-form footer button")).not.toMatch(/#|rgba?\(/);
+  expect(rule(".studio-export-form footer button:focus-visible")).not.toMatch(/#|rgba?\(/);
+});

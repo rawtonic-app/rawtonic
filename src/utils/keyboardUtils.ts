@@ -215,6 +215,16 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     section: 'view',
   },
   {
+    // The camera's own JPEG in the edit's place (utils/cameraPreview). A
+    // toggle beside \ (before/after), as Lightroom's \ is one: a long look
+    // needs no held key; the key again or Esc returns to the edit, and it
+    // never edits. Every letter is taken (T the radial tool, U unflag).
+    action: 'toggle_camera_preview',
+    description: 'settings.keybinds.actions.toggle_camera_preview',
+    defaultCombo: ['shift', 'Backslash'],
+    section: 'view',
+  },
+  {
     // Lightroom's soft proofing (S there; S is the crop tool here).
     action: 'toggle_soft_proof',
     description: 'settings.keybinds.actions.toggle_soft_proof',

@@ -1,4 +1,5 @@
 import { cleanup, renderHook } from "@testing-library/react";
+import { invoke } from "@tauri-apps/api/core";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useKeyboardShortcuts } from "./useKeyboardShortcuts";
 import { useLibraryStore } from "../store/useLibraryStore";
@@ -8,6 +9,7 @@ import { useEditorStore } from "../store/useEditorStore";
 import { Panel, type AppSettings, type ImageFile, type SelectedImage } from "../components/ui/AppProperties";
 import { readModuleLayout } from "../utils/panelLayout";
 import { toggleWindowFullScreen } from "../utils/photoFullScreen";
+import { appCommand } from "../utils/appCommands";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve()),
@@ -19,7 +21,7 @@ vi.mock("../utils/photoFullScreen", () => ({
   toggleWindowFullScreen: vi.fn(() => Promise.resolve()),
 }));
 
-const files = ["/s/a.dng", "/s/b.dng", "/s/c.dng"].map((path) => ({ path }) as ImageFile);
+const files = ["/s/a.dng", "/s/b.dng", "/s/c.dng"].map((path) => ({ path, is_raw: true }) as ImageFile);
 const props = {
   sortedImageList: files,
   handleUndoFileOperation: vi.fn(),
@@ -276,4 +278,81 @@ it("ignores F in the middle of a stroke or drag, also with a second pointer rele
     useEditorStore.setState({ activeMaskContainerId: null, activeMaskId: null });
     useUIStore.setState({ isFullScreen: false });
   }
+});
+
+/** The native display shows the camera JPEG (show_camera_preview answers
+ * true) and takes it away again (hide_camera_preview). */
+function nativeCameraPreview() {
+  vi.mocked(invoke).mockImplementation(((command: string) =>
+    Promise.resolve(command === "show_camera_preview" ? true : null)) as never);
+}
+const hides = () => vi.mocked(invoke).mock.calls.filter(([command]) => command === "hide_camera_preview").length;
+const shiftBackslash = () => press("Backslash", { key: "|", shiftKey: true });
+
+it("switches the camera preview on with Shift+\\ and off with it again", async () => {
+  useUIStore.setState({ activeView: "editor", activePanel: Panel.Adjustments });
+  // The camera preview is for RAWs (the JPEG lives in the RAW file).
+  useEditorStore.setState({ selectedImage: { path: "/s/b.dng", isReady: true, isRaw: true } as SelectedImage });
+  nativeCameraPreview();
+  shiftBackslash();
+  await vi.waitFor(() => expect(useEditorStore.getState().cameraPreview?.path).toBe("/s/b.dng"));
+  expect(invoke).toHaveBeenCalledWith("show_camera_preview", { path: "/s/b.dng" });
+  // A toggle: the key again returns to the edit.
+  shiftBackslash();
+  expect(useEditorStore.getState().cameraPreview).toBeNull();
+  expect(hides()).toBe(1);
+  // Plain \ stays the before/after view.
+  press("Backslash", { key: "\\" });
+  expect(useEditorStore.getState().cameraPreview).toBeNull();
+  expect(useEditorStore.getState().showOriginal).toBe(true);
+  useEditorStore.setState({ showOriginal: false });
+});
+
+it("Escape only ends the camera preview: it neither leaves the full screen nor Develop", async () => {
+  useUIStore.setState({ activeView: "editor", activePanel: Panel.Adjustments });
+  useEditorStore.setState({ selectedImage: { path: "/s/b.dng", isReady: true, isRaw: true } as SelectedImage });
+  nativeCameraPreview();
+  const recipe = useEditorStore.getState().adjustments;
+  // In Develop: Escape would go back to the Library.
+  shiftBackslash();
+  await vi.waitFor(() => expect(useEditorStore.getState().cameraPreview).not.toBeNull());
+  press("Escape");
+  expect(useEditorStore.getState().cameraPreview).toBeNull();
+  expect(hides()).toBe(1);
+  expect(props.handleBackToLibrary).not.toHaveBeenCalled();
+  expect(useEditorStore.getState().adjustments).toBe(recipe);
+  // With the photograph alone: the full screen stays; the next Escape leaves it.
+  useUIStore.setState({ isFullScreen: true });
+  shiftBackslash();
+  await vi.waitFor(() => expect(useEditorStore.getState().cameraPreview).not.toBeNull());
+  press("Escape");
+  expect(useEditorStore.getState().cameraPreview).toBeNull();
+  expect(useUIStore.getState().isFullScreen).toBe(true);
+  press("Escape");
+  expect(useUIStore.getState().isFullScreen).toBe(false);
+  expect(props.handleBackToLibrary).not.toHaveBeenCalled();
+});
+
+it("shows Camera Preview in View checked only while it is on screen, enabled for a ready RAW", () => {
+  useUIStore.setState({ activeView: "editor" });
+  useEditorStore.setState({ selectedImage: { path: "/s/b.dng", isReady: true, isRaw: true } as SelectedImage });
+  const command = appCommand("toggle_camera_preview");
+  // A ready RAW can show it, but it is not on: not checked.
+  expect(command?.enabled?.()).toBe(true);
+  expect(command?.checked?.()).toBe(false);
+  useEditorStore.getState().setEditor({ cameraPreview: { path: "/s/b.dng" } });
+  expect(command?.checked?.()).toBe(true);
+  // A preview left for another photograph is not this one's.
+  useEditorStore.setState({ selectedImage: { path: "/s/c.dng", isReady: true, isRaw: true } as SelectedImage });
+  expect(command?.checked?.()).toBe(false);
+  useEditorStore.getState().setEditor({ cameraPreview: null });
+  expect(command?.checked?.()).toBe(false);
+  // A JPEG has no camera JPEG of its own (it lives in a RAW file)…
+  useLibraryStore.setState({ imageList: [...files, { path: "/s/b.jpg", is_raw: false } as ImageFile] });
+  useEditorStore.setState({ selectedImage: { path: "/s/b.jpg", isReady: true, isRaw: false } as SelectedImage });
+  expect(command?.enabled?.()).toBe(false);
+  // …and a RAW that is not opened yet has nothing to show.
+  useLibraryStore.setState({ imageList: files });
+  useEditorStore.setState({ selectedImage: { path: "/s/c.dng", isReady: false, isRaw: true } as SelectedImage });
+  expect(command?.enabled?.()).toBe(false);
 });
