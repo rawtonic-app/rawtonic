@@ -82,9 +82,16 @@ impl Frame {
 }
 
 /// The frame `version` develops of the RAW in `source`, read from its
-/// metadata (no samples decoded). None for files rawler cannot read and
-/// Super CCD layouts (turned by the development).
+/// metadata (no samples decoded). None for files rawler cannot read (also
+/// where its decoder panics on them: decode variants of every CR3 render
+/// ask for it) and Super CCD layouts (turned by the development).
 pub fn frame(source: &RawSource, version: u32) -> Option<Frame> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| read_frame(source, version)))
+        .ok()
+        .flatten()
+}
+
+fn read_frame(source: &RawSource, version: u32) -> Option<Frame> {
     let decoder = rawler::get_decoder(source).ok()?;
     let params = RawDecodeParams::default();
     let mut raw_image = decoder.raw_image(source, &params, true).ok()?;
