@@ -857,14 +857,29 @@
       "unsavedTitle": "未保存の変更"
     },
     "renameFile": {
+      "blocked": "上の問題をすべて解決するまで名前は変更できません。",
       "cancel": "キャンセル",
+      "checking": "名前を確認しています…",
       "fileNamingTemplate": "ファイル命名テンプレート",
+      "more": "一覧に表示されていない写真: {{hidden}}",
       "newName": "新しい名前",
+      "noteXmpStays": "{{xmp}} は名前を変更しない {{owner}} に残ります。",
+      "noteXmpWithRaw": "{{xmp}} はこの RAW と一緒に名前が変わります。{{others}} は XMP なしで元の名前のままです。",
+      "nothingChanges": "名前は変わりません。",
+      "preview": "プレビュー",
+      "previewFailed": "プレビューに失敗しました: {{error}}",
+      "problemInvalidName": "「{{name}}」は有効なファイル名ではありません。",
+      "problemNotFound": "ファイルがもうありません。",
+      "problemOccupied": "{{name}} はすでに存在します。",
+      "problemSameTarget": "この名前変更の別のファイルも {{name}} になります。",
       "save": "保存",
+      "summary": "名前が変わる写真: {{photos}} · ファイル合計: {{files}}",
       "titleMultiple": "{{count}} 件の画像名を変更",
       "titleMultiple_one": "{{count}} 件の画像名を変更",
       "titleMultiple_other": "{{count}} 件の画像名を変更",
-      "titleSingle": "画像名を変更"
+      "titleSingle": "画像名を変更",
+      "unchanged": "名前は変わりません",
+      "withFiles": "一緒に名前が変わるファイル: {{files}}"
     },
     "renameFolder": {
       "cancel": "キャンセル",

@@ -858,14 +858,29 @@
       "unsavedTitle": "Changes Not Saved"
     },
     "renameFile": {
+      "blocked": "Nothing can be renamed until every problem above is solved.",
       "cancel": "Cancel",
+      "checking": "Checking the names…",
       "fileNamingTemplate": "File Naming Template",
+      "more": "More photos not listed: {{hidden}}",
       "newName": "New Name",
+      "noteXmpStays": "{{xmp}} stays with {{owner}}, which is not renamed.",
+      "noteXmpWithRaw": "{{xmp}} is renamed with this RAW; {{others}} keeps its name without it.",
+      "nothingChanges": "No name changes.",
+      "preview": "Preview",
+      "previewFailed": "The preview failed: {{error}}",
+      "problemInvalidName": "\"{{name}}\" is not a valid file name.",
+      "problemNotFound": "The file is no longer there.",
+      "problemOccupied": "{{name}} already exists.",
+      "problemSameTarget": "Another file of this rename would also be named {{name}}.",
       "save": "Save",
+      "summary": "Photos renamed: {{photos}} · files in all: {{files}}",
       "titleMultiple": "Rename {{count}} Photos",
       "titleMultiple_one": "Rename {{count}} Photo",
       "titleMultiple_other": "Rename {{count}} Photos",
-      "titleSingle": "Rename Photo"
+      "titleSingle": "Rename Photo",
+      "unchanged": "keeps its name",
+      "withFiles": "Also renamed: {{files}}"
     },
     "renameFolder": {
       "cancel": "Cancel",

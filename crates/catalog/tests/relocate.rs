@@ -253,3 +253,74 @@ fn forget_at_drops_permanently_deleted_photographs_only() {
     assert!(lib.forget_at(&tmp.path().join("Elsewhere/A.ARW")).is_err());
     assert!(lib.forget_at(&dir).is_err());
 }
+
+/// A RAW+JPEG photograph renamed with its companion (and the rename
+/// undone) keeps the JPEG as its companion under each name.
+#[test]
+fn a_renamed_companion_stays_its_photographs_companion() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Job");
+    let lib = Library::create(&dir, "Job", Mode::Session).unwrap();
+    let capture = dir.join("Capture");
+    fs::write(capture.join("A.NEF"), b"raw").unwrap();
+    fs::write(capture.join("A.JPG"), b"jpeg").unwrap();
+    let planned = lib
+        .plan_add(&capture.join("A.NEF"), Default::default())
+        .unwrap()
+        .with_companion("A.JPG")
+        .unwrap();
+    lib.insert_planned(vec![planned]).unwrap();
+    let companion = |photo: &str| {
+        let asset = lib.asset_at(&capture.join(photo)).unwrap().unwrap();
+        lib.companion_verified(&asset).unwrap()
+    };
+    let rename = |pairs: [(&str, &str); 2]| {
+        for (a, b) in pairs {
+            fs::rename(capture.join(a), capture.join(b)).unwrap();
+            lib.relocate(&capture.join(a), &capture.join(b)).unwrap();
+        }
+    };
+    rename([("A.JPG", "Job.JPG"), ("A.NEF", "Job.NEF")]);
+    assert_eq!(companion("Job.NEF"), Some(capture.join("Job.JPG")));
+    // Undo, the photograph first this time.
+    rename([("Job.NEF", "A.NEF"), ("Job.JPG", "A.JPG")]);
+    assert_eq!(companion("A.NEF"), Some(capture.join("A.JPG")));
+    assert_eq!(
+        lib.assets(None).unwrap().len(),
+        1,
+        "the JPEG is no photo of its own"
+    );
+}
+
+/// A JPEG that left its pair (changed, then registered as a photograph of
+/// its own) and is renamed is relocated as that photograph; the RAW's stale
+/// companion record does not take the rename.
+#[test]
+fn a_former_companion_renamed_as_its_own_photograph_is_relocated() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Job");
+    let lib = Library::create(&dir, "Job", Mode::Session).unwrap();
+    let capture = dir.join("Capture");
+    fs::write(capture.join("A.NEF"), b"raw").unwrap();
+    fs::write(capture.join("A.JPG"), b"jpeg").unwrap();
+    let planned = lib
+        .plan_add(&capture.join("A.NEF"), Default::default())
+        .unwrap()
+        .with_companion("A.JPG")
+        .unwrap();
+    lib.insert_planned(vec![planned]).unwrap();
+    fs::write(capture.join("A.JPG"), b"edited elsewhere").unwrap();
+    let jpeg = lib.add_asset(&capture.join("A.JPG")).unwrap();
+    fs::rename(capture.join("A.JPG"), capture.join("B.JPG")).unwrap();
+    assert_eq!(
+        lib.relocate(&capture.join("A.JPG"), &capture.join("B.JPG"))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        lib.asset_at(&capture.join("B.JPG")).unwrap().unwrap().id,
+        jpeg.id
+    );
+    let raw = lib.asset_at(&capture.join("A.NEF")).unwrap().unwrap();
+    assert_eq!(lib.companion_verified(&raw).unwrap(), None);
+}

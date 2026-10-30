@@ -215,6 +215,7 @@ export enum Invokes {
   PlanMoveFolder = 'plan_move_folder',
   ReadExifForPaths = 'read_exif_for_paths',
   RemoveTagForPaths = 'remove_tag_for_paths',
+  PreviewRename = 'preview_rename',
   RenameFiles = 'rename_files',
   RenameFolder = 'rename_folder',
   UndoFileOperation = 'undo_file_operation',

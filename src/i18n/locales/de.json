@@ -858,14 +858,29 @@
       "unsavedTitle": "Änderungen nicht gespeichert"
     },
     "renameFile": {
+      "blocked": "Nichts kann umbenannt werden, bis jedes Problem oben gelöst ist.",
       "cancel": "Abbrechen",
+      "checking": "Namen werden geprüft…",
       "fileNamingTemplate": "Dateibenennungsvorlage",
+      "more": "Weitere Fotos, nicht aufgeführt: {{hidden}}",
       "newName": "Neuer Name",
+      "noteXmpStays": "{{xmp}} bleibt bei {{owner}}, das nicht umbenannt wird.",
+      "noteXmpWithRaw": "{{xmp}} wird mit diesem RAW umbenannt; {{others}} behält seinen Namen ohne sie.",
+      "nothingChanges": "Kein Name ändert sich.",
+      "preview": "Vorschau",
+      "previewFailed": "Die Vorschau ist fehlgeschlagen: {{error}}",
+      "problemInvalidName": "„{{name}}“ ist kein gültiger Dateiname.",
+      "problemNotFound": "Die Datei ist nicht mehr da.",
+      "problemOccupied": "{{name}} gibt es schon.",
+      "problemSameTarget": "Eine andere Datei dieser Umbenennung hieße ebenfalls {{name}}.",
       "save": "Speichern",
+      "summary": "Umbenannte Fotos: {{photos}} · Dateien insgesamt: {{files}}",
       "titleMultiple": "{{count}} Bilder umbenennen",
       "titleMultiple_one": "{{count}} Bild umbenennen",
       "titleMultiple_other": "{{count}} Bilder umbenennen",
-      "titleSingle": "Bild umbenennen"
+      "titleSingle": "Bild umbenennen",
+      "unchanged": "behält seinen Namen",
+      "withFiles": "Ebenfalls umbenannt: {{files}}"
     },
     "renameFolder": {
       "cancel": "Abbrechen",

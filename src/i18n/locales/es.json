@@ -877,15 +877,30 @@
       "unsavedTitle": "Cambios sin guardar"
     },
     "renameFile": {
+      "blocked": "No se puede renombrar nada hasta resolver cada problema de arriba.",
       "cancel": "Cancelar",
+      "checking": "Comprobando los nombres…",
       "fileNamingTemplate": "Plantilla de nombre de archivo",
+      "more": "Más fotos sin listar: {{hidden}}",
       "newName": "Nuevo nombre",
+      "noteXmpStays": "{{xmp}} se queda con {{owner}}, que no se renombra.",
+      "noteXmpWithRaw": "{{xmp}} se renombra con este RAW; {{others}} conserva su nombre sin él.",
+      "nothingChanges": "Ningún nombre cambia.",
+      "preview": "Vista previa",
+      "previewFailed": "La vista previa falló: {{error}}",
+      "problemInvalidName": "«{{name}}» no es un nombre de archivo válido.",
+      "problemNotFound": "El archivo ya no está.",
+      "problemOccupied": "{{name}} ya existe.",
+      "problemSameTarget": "Otro archivo de este cambio de nombre también se llamaría {{name}}.",
       "save": "Guardar",
+      "summary": "Fotos renombradas: {{photos}} · archivos en total: {{files}}",
       "titleMultiple": "Renombrar {{count}} imágenes",
       "titleMultiple_one": "Renombrar {{count}} imagen",
       "titleMultiple_many": "Renombrar {{count}} imágenes",
       "titleMultiple_other": "Renombrar {{count}} imágenes",
-      "titleSingle": "Renombrar imagen"
+      "titleSingle": "Renombrar imagen",
+      "unchanged": "conserva su nombre",
+      "withFiles": "También se renombran: {{files}}"
     },
     "renameFolder": {
       "cancel": "Cancelar",

@@ -1649,6 +1649,9 @@ impl Library {
             })
             .collect();
         drop(query);
+        if moved.is_empty() && self.rename_companion(&from, &to)? {
+            return Ok(0);
+        }
         if moved.is_empty() {
             // Files coming back to where a missing asset was registered (a
             // move out of the session undone) are found again.
@@ -1662,6 +1665,33 @@ impl Library {
         self.apply_places(&tx, &moved)?;
         tx.commit()?;
         Ok(moved.len())
+    }
+
+    /// A recorded companion renamed beside its photograph (`from` → `to`
+    /// in one folder, either way of an undo) keeps being its companion
+    /// under the new name: the file there must be the recorded one (size
+    /// and SHA-256), so a JPEG that became a photograph of its own, or
+    /// another file, never takes the record.
+    fn rename_companion(&self, from: &Path, to: &Path) -> Result<bool> {
+        let (Some(name), true) = (
+            to.file_name().and_then(|n| n.to_str()),
+            from.parent() == to.parent(),
+        ) else {
+            return Ok(false);
+        };
+        let Some(record) = self
+            .companion_records()?
+            .into_iter()
+            .find(|record| record.path == from && record.matches(to))
+        else {
+            return Ok(false);
+        };
+        companion::validate_name(name)?;
+        self.conn.execute(
+            "UPDATE assets SET raw_jpeg_pair=? WHERE id=?",
+            params![name, record.owner],
+        )?;
+        Ok(true)
     }
 
     /// Every registered photograph whose file is missing (as of the last

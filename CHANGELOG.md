@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Rename shows the final names before it renames.** The Rename dialog lists each photo's new name (with the number a batch adds), the sidecars, XMP and paired JPEG renamed with it, and any name that is taken, and Save runs exactly that list (if the files changed meanwhile, nothing is renamed). A RAW+JPEG imported as one photo now renames its JPEG too; a RAW and a JPEG of one name that share an XMP are renamed as a pair instead of refusing the whole rename (renaming only one of them takes the XMP with the RAW, as the dialog says); renaming `A.NEF` no longer takes the edit of a separate `A.NEF.jpg`, also when moving or deleting it.
 - Queued exports keep to the library they were started from. Each photo's recipe, metadata and EXIF are read once, when the export is added to the queue, from the session or catalog it was started in. Opening another session or catalog while exports wait no longer changes what they render or embed. Virtual copies now embed their own rating, colour label and keywords. A photo moved or deleted before its turn fails on its own and says why. An export whose photos have edits that could not be saved is not started. Exports that an earlier version left in the queue are not run: they show as failed with "export it again".
 
 ## 0.1.0-alpha.9.1 — 2026-10-28
