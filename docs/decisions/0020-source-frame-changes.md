@@ -1,6 +1,6 @@
 # ADR 0020: When the developed source changes its frame
 
-- Status: Accepted 2026-10-26 (decided by the coordinator on the user's behalf, "decide as a professional photographer"); B for R5 II and Sony 16:9, C for the EX2F
+- Status: Accepted 2026-10-26 (decided by the coordinator on the user's behalf, "decide as a professional photographer"); B for R5 II and Sony 16:9, C for the EX2F. Revised 2026-10-30: "new photos only" (below), which supersedes decisions 1, 2 and 4 of 2026-10-26
 
 ## Context
 
@@ -142,3 +142,27 @@ Option B for the R5 II APS-C frame and the Sony 16:9 warp-before-crop, option C 
 3. **EX2F: an initial crop the user may widen to 4:3** (option C). The camera's 16:9 framing is the start; the pixels outside it stay available, as for in-camera aspect ratios in Lightroom.
 4. **AI patches when the frame does not only grow:** the update is never blocked. Patches that cannot be translated are hidden (kept in the recipe, IPTC marking intact, restored by undo) and the photo shows a "regenerate" notice for them; generated content is never moved to a wrong place.
 5. **One own key, `sourceFrameVersion`**, independent of `renderVersion`, so Reset/paste/preset semantics of the look stay as they are.
+
+## Revised decision (2026-10-30): new photos only
+
+Decided by the coordinator on the user's behalf after five review rounds of
+the full option B (each round found another consumer of a frame that changes
+under an open or batch-edited photo): **a photo never changes its size while
+it is edited.**
+
+- Never-edited photos develop the newest frame; their first edit writes it
+  (`sourceFrameVersion`, an own key, decision 5 stands).
+- An edited photo keeps the frame it was edited in — also after Reset, undo,
+  paste, presets, styles and sync. A Reset of an edited photo saves only its
+  key (`source_frame::reset_recipe`) and otherwise renders as a new edit.
+- No "Update frame" action and no batch for now (decisions 1, 2 and 4 of
+  2026-10-26 lapse with it; an update can come later if users ask, then
+  with the migration and reopen design above). Nothing moves a recipe's
+  coordinates to another frame, so the mid-session reopen, the batch hold
+  and the Reset translation are not needed.
+- The remaining work is keying: decodes, caches, thumbnails and previews of
+  never-edited photos, which move to the newest frame, by the frame
+  actually developed (`source_frame::effective`), and an offline
+  never-edited photo whose previews show an older frame edits in that frame.
+- EX2F (option C): the camera's 16:9 as an initial crop on new edits, not a
+  hard frame — a separate change after this one, as the order above says.

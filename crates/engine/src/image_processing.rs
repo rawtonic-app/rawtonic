@@ -5835,17 +5835,20 @@ pub fn render_version(adjustments: &serde_json::Value) -> u64 {
         .clamp(1, RENDER_VERSION)
 }
 
-/// Whether a recipe is new: none, or empty (Library Reset saves `{}`; the
-/// editor's load adds only `lensProfileFor`). It renders as a new edit.
+/// Whether a recipe is new: none, or empty (Library Reset saves `{}`, or
+/// only the photograph's frame, `source_frame::reset_recipe`; the editor's
+/// load adds only `lensProfileFor`). It renders as a new edit.
 pub fn is_new_recipe(adjustments: &serde_json::Value) -> bool {
     adjustments.is_null()
         || adjustments.as_object().is_some_and(|map| {
-            map.keys()
-                .all(|key| key == crate::lens_recipe::LENS_PROFILE_FOR)
+            map.keys().all(|key| {
+                key == crate::lens_recipe::LENS_PROFILE_FOR || key == crate::source_frame::KEY
+            })
         })
 }
 
-/// Sets the current render version and sharpening response on a new recipe
+/// Sets the current render version, sharpening response and frame version
+/// (`source_frame`) on a new recipe
 /// (`is_new_recipe`), as the editor does for new edits (RAW or not): before
 /// a never-edited photo renders, and before a batch edit (paste, preset,
 /// Auto) fills one. Saved recipes, partial ones included, keep the versions
@@ -5866,6 +5869,9 @@ pub fn apply_render_default(adjustments: &mut serde_json::Value) {
             SHARPEN_VERSION_KEY.to_string(),
             serde_json::json!(SHARPEN_VERSION),
         );
+        // A Reset's frame stays (`source_frame::reset_recipe`).
+        map.entry(crate::source_frame::KEY)
+            .or_insert(serde_json::json!(crate::source_frame::VERSION));
     }
 }
 

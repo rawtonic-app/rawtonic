@@ -45,6 +45,9 @@ pub struct LoadImageResult {
     /// The source was developed with `DeadTest::Adjacent` (`renderVersion`
     /// 3); None for preview data.
     pub dead_pixel_adjacent: Option<bool>,
+    /// The `sourceFrameVersion` a first edit made on what is shown carries
+    /// when it is not the newest (`new_edit_frame`); None otherwise.
+    pub new_edit_frame: Option<u32>,
     /// The RAW data could not be developed and the camera's embedded preview
     /// is shown instead (an unsupported camera or RAW mode, a damaged file).
     pub developed_from_preview: bool,
@@ -172,7 +175,7 @@ pub fn load_base_image_for_recipe_measured(
     denoise: Option<rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
     adjustments: &Value,
 ) -> Result<(DynamicImage, Option<DecodeMeasures>)> {
-    let variant = decode_variant(adjustments, is_raw_file(path_for_ext_check));
+    let variant = decode_variant(adjustments, path_for_ext_check);
     load_base_image_measured_for(
         bytes,
         path_for_ext_check,
@@ -192,7 +195,7 @@ pub fn load_base_image_for_recipe_measured(
 pub fn stored_decode_variant(path: &str) -> DecodeVariant {
     let (source, sidecar) = parse_virtual_path(path);
     let metadata = exif_processing::load_sidecar(&sidecar);
-    decode_variant(&metadata.adjustments, is_raw_file(&source))
+    decode_variant(&metadata.adjustments, &source.to_string_lossy())
 }
 
 /// The base image options of the app's preferences for a photograph whose
@@ -439,6 +442,8 @@ pub struct ProxyInfo {
     pub width: u32,
     pub height: u32,
     pub is_raw: bool,
+    /// See `LoadImageResult::new_edit_frame`.
+    pub new_edit_frame: Option<u32>,
 }
 
 /// Makes the photograph's stored preview proxy (preview_proxy.rs) the
@@ -528,6 +533,10 @@ pub async fn load_image_proxy(
         width: loaded.full_width,
         height: loaded.full_height,
         is_raw: true,
+        new_edit_frame: new_edit_frame(
+            &source_path_str,
+            loaded.made_for.map_or(0, |made_for| made_for.frame),
+        ),
     };
     // The preview job renders the proxy, not the previous photograph's
     // decode (`load_image`, which clears it too, may start later).
@@ -582,13 +591,24 @@ fn decode_for_proxy(
 /// the photograph's previews (`preview_proxy::stands_for`).
 const OTHER_VARIANT_OFFLINE: &str = "This copy develops the RAW differently from the photograph's stored previews (another colour noise filter or render version); reconnect the RAW to open it";
 
+/// The `sourceFrameVersion` a first edit of the RAW at `source` carries when
+/// it is made on a source of frame `shown` (`DecodeVariant::frame`): None
+/// where that is the newest version's frame, else `shown` (a version that
+/// develops it). A never-edited photograph shown offline on previews of an
+/// older frame (no decode can follow) is edited in the frame it shows
+/// (src/hooks/useImageLoader.ts), so its edit never lands on another frame.
+pub fn new_edit_frame(source: &str, shown: u32) -> Option<u32> {
+    let newest = rawtonic_engine::source_frame::effective(source, rawtonic_engine::source_frame::VERSION);
+    (shown != newest).then_some(shown)
+}
+
 const NOT_BAYER: &str = "AI Denoise works on Bayer sensors only; this photograph's sensor (X-Trans, Foveon or a linear DNG) is not supported";
 
 /// The decoded-image cache key of a full decode of the source at `path`:
 /// the path, plus the AI Denoise amount and marks for a base developed for
 /// the multi-scale colour noise filter (no decode-time chroma clean-up) and
-/// for the second dead-photosite test, so bases of different variants never
-/// stand for each other. A base of the default variant without AI Denoise
+/// for the second dead-photosite test, and the frame (`source_frame`), so
+/// bases of different variants never stand for each other. A base of the default variant without AI Denoise
 /// keeps the plain path.
 pub fn decoded_cache_key(
     path: &str,
@@ -609,6 +629,9 @@ pub fn decoded_cache_key(
     }
     if variant.dead_test == DeadTest::Adjacent {
         key.push_str("\u{1}dead-adjacent");
+    }
+    if variant.frame > 0 {
+        key.push_str(&format!("\u{1}frame {}", variant.frame));
     }
     key
 }
@@ -694,7 +717,10 @@ fn clear_derived_caches(state: &AppState) {
 /// recipe's), and makes
 /// that the source; returns the AI Denoise amount it was developed with.
 /// The editor calls it when the recipe's AI Denoise amount or colour noise
-/// filter differs from the source's (src/utils/aiDenoise.ts).
+/// filter differs from the source's (src/utils/aiDenoise.ts). The frame
+/// stays the open source's: a source of another frame (another size) is
+/// opened again instead (`load_image`), and a develop that would change the
+/// size fails rather than replace the source under the editor's overlays.
 #[tauri::command]
 pub async fn apply_ai_denoise(
     path: String,
@@ -711,6 +737,13 @@ pub async fn apply_ai_denoise(
         return Err("AI Denoise works on RAW files only".to_string());
     }
     let stored = stored_decode_variant(&path);
+    let open = state
+        .original_image
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .filter(|o| o.path == path)
+        .map(|o| (o.decode.map(|d| d.frame), o.image.dimensions()));
     let variant = DecodeVariant {
         multiscale: multiscale.unwrap_or(stored.multiscale),
         dead_test: match dead_pixel_adjacent {
@@ -718,6 +751,7 @@ pub async fn apply_ai_denoise(
             Some(false) => DeadTest::SameColour,
             None => stored.dead_test,
         },
+        frame: open.and_then(|(frame, _)| frame).unwrap_or(stored.frame),
     };
     let recipe =
         serde_json::json!({ "aiDenoise": amount, "aiDenoiseVersion": version.unwrap_or(1) });
@@ -778,6 +812,17 @@ pub async fn apply_ai_denoise(
         != path
     {
         return Err("Load cancelled".to_string());
+    }
+    // Developed again in the same frame: the same size as the source it
+    // replaces.
+    if let Some((_, size)) = open
+        && image.dimensions() != size
+    {
+        return Err(format!(
+            "Developed again at {:?} instead of the open {:?}: the photograph has to be opened again",
+            image.dimensions(),
+            size
+        ));
     }
     publish_loaded_image(
         &state.original_image,
@@ -955,9 +1000,9 @@ pub async fn load_image(
         rawtonic_engine::image_loader::ai_denoise_settings(&metadata.adjustments)
             .filter(|_| denoise.is_some())
             .map_or(1, |ai| ai.version);
-    // The opened recipe decides the decode-time chroma clean-up and the
-    // dead-photosite test (a virtual copy's own recipe).
-    let variant = decode_variant(&metadata.adjustments, is_raw_file(&source_path_str));
+    // The opened recipe decides the decode-time chroma clean-up, the
+    // dead-photosite test and the frame (a virtual copy's own recipe).
+    let variant = decode_variant(&metadata.adjustments, &source_path_str);
     // A photograph shown on nothing developed yet (no stored proxy) gets a
     // draft from its decode.
     let draft = (is_raw_file(&source_path_str)
@@ -1256,6 +1301,9 @@ pub async fn load_image(
         offline: None,
         color_noise_multiscale: Some(variant.multiscale),
         dead_pixel_adjacent: Some(variant.dead_test == DeadTest::Adjacent),
+        new_edit_frame: is_raw
+            .then(|| new_edit_frame(&source_path_str, variant.frame))
+            .flatten(),
         developed_from_preview: preview_fallback.is_some(),
         camera_help: preview_fallback
             .as_deref()
@@ -1317,6 +1365,7 @@ async fn open_offline(
     .await
     .map_err(|e| e.to_string())?;
     if let Some(full) = full {
+        let proxy_frame = crate::preview_proxy::variant_of_key(&full.key.decoder).frame;
         let (width, height) = full.image.dimensions();
         *state.proxy_image.lock().unwrap_or_else(|e| e.into_inner()) = None;
         // Marks the source as preview data (exports never reuse it).
@@ -1351,6 +1400,7 @@ async fn open_offline(
             offline: Some("full"),
             color_noise_multiscale: None,
             dead_pixel_adjacent: None,
+            new_edit_frame: new_edit_frame(&source.to_string_lossy(), proxy_frame),
             developed_from_preview: false,
             camera_help: false,
         }));
@@ -1382,6 +1432,7 @@ async fn open_offline(
     let Some(standard) = standard else {
         return Ok(None);
     };
+    let proxy_frame = standard.made_for.map_or(0, |made_for| made_for.frame);
     if state.load_image_generation.load(Ordering::SeqCst) != generation {
         return Err("Load cancelled".to_string());
     }
@@ -1404,6 +1455,7 @@ async fn open_offline(
         offline: Some("standard"),
         color_noise_multiscale: None,
         dead_pixel_adjacent: None,
+        new_edit_frame: new_edit_frame(&source.to_string_lossy(), proxy_frame),
         developed_from_preview: false,
         camera_help: false,
     }))
@@ -1500,6 +1552,7 @@ mod activation_tests {
         let ms = |multiscale, dead_test| DecodeVariant {
             multiscale,
             dead_test,
+            frame: 0,
         };
         let plain = decoded_cache_key("/p/A.NEF", None, DecodeVariant::default());
         let multiscale = decoded_cache_key("/p/A.NEF", None, ms(true, DeadTest::SameColour));
@@ -1518,6 +1571,19 @@ mod activation_tests {
             decoded_cache_key("/p/B.NEF", None, ms(true, DeadTest::SameColour)),
             multiscale
         );
+        // Another frame of the RAW is another base.
+        let framed = decoded_cache_key(
+            "/p/A.CR3",
+            None,
+            DecodeVariant {
+                frame: 1,
+                ..ms(true, DeadTest::Adjacent)
+            },
+        );
+        assert_ne!(
+            framed,
+            decoded_cache_key("/p/A.CR3", None, ms(true, DeadTest::Adjacent))
+        );
     }
 
     #[test]
@@ -1532,7 +1598,8 @@ mod activation_tests {
             stored_decode_variant(&raw_str),
             DecodeVariant {
                 multiscale: true,
-                dead_test: DeadTest::Adjacent
+                dead_test: DeadTest::Adjacent,
+                frame: 0,
             }
         );
         let settings = AppSettings::default();
@@ -1547,6 +1614,7 @@ mod activation_tests {
         let variant = |multiscale| DecodeVariant {
             multiscale,
             dead_test: DeadTest::SameColour,
+            frame: 0,
         };
         assert_eq!(base_options(&settings, variant(true)).color_nr_amount, 0.0);
         assert_eq!(

@@ -87,6 +87,7 @@ import { MISSING_VIEW_ID, offlineMenu } from '../utils/offline';
 import { PREVIOUS_IMPORT_VIEW_ID } from '../utils/folderSync';
 import { registerAppCommands } from '../utils/appCommands';
 import { noteTool } from '../components/contribute/usageStats';
+import { withSourceFrameOf } from '../utils/sourceFrame';
 
 const MERGE_LIMITS = { panorama: [2, 30], hdr: [2, 9], hdrPanorama: [4, Infinity], focusStack: [2, Infinity] } as const;
 
@@ -414,11 +415,15 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               onClick: () => {
                 const originalAspectRatio =
                   selectedImage.width && selectedImage.height ? selectedImage.width / selectedImage.height : null;
-                const resetData = {
-                  ...initialAdjustmentsFor(!!selectedImage.isRaw),
-                  aspectRatio: originalAspectRatio,
-                  aiPatches: [],
-                };
+                // The photo keeps the frame it was edited in (src/utils/sourceFrame.ts).
+                const resetData = withSourceFrameOf(
+                  {
+                    ...initialAdjustmentsFor(!!selectedImage.isRaw),
+                    aspectRatio: originalAspectRatio,
+                    aiPatches: [],
+                  },
+                  useEditorStore.getState().adjustments,
+                );
                 // One undoable step; the History before it stays.
                 debouncedSetHistory.flush();
                 useEditorStore.getState().pushHistory(resetData);

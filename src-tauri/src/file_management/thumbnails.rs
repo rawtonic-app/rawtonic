@@ -251,6 +251,20 @@ pub fn generate_thumbnail_data(
     )
 }
 
+/// The stored Standard proxy of the RAW `source` when it stands for a
+/// photograph shown with `adjustments`: made for its decode variant
+/// (`preview_proxy::stands_for`) and, offline, of its frame (read through
+/// `preview_proxy::frame_fits`).
+fn stored_proxy(
+    source: &Path,
+    adjustments: &serde_json::Value,
+    settings: &crate::app_settings::AppSettings,
+) -> Option<crate::preview_proxy::Proxy> {
+    crate::preview_proxy::stands_for(source, adjustments)
+        .then(|| crate::preview_proxy::read(source, settings))
+        .flatten()
+}
+
 /// The thumbnail of `path_str` developed with `metadata`'s adjustments
 /// (none: as a photograph never edited), as the Library shows it. Its
 /// decoded base is cached under `cache_key` (a photograph's own thumbnails
@@ -279,12 +293,9 @@ pub(crate) fn develop_thumbnail(
     // A preview proxy (preview_proxy.rs) develops the thumbnail like the
     // editor does, also for never-edited RAWs (RAW defaults and the camera's
     // lens data), so the Library and the placeholder show the edited look.
-    let proxy = (is_raw
-        && preloaded_image.is_none()
-        && gpu_context.is_some()
-        && crate::preview_proxy::stands_for(&source_path, &adjustments))
-    .then(|| crate::preview_proxy::read(&source_path, &settings))
-    .flatten();
+    let proxy = (is_raw && preloaded_image.is_none() && gpu_context.is_some())
+        .then(|| stored_proxy(&source_path, &adjustments, &settings))
+        .flatten();
     let (metadata, adjustments) = match (&proxy, metadata) {
         (Some(_), metadata) if adjustments.is_null() => {
             let mut recipe = serde_json::json!({});
@@ -1781,6 +1792,22 @@ mod thumbnail_queue_tests {
         // A never-edited photograph's proxies stand for itself.
         fs::remove_file(directory.path().join("A.RAF.rrdata")).unwrap();
         assert!(stands_for(&source, &serde_json::Value::Null));
+    }
+
+    /// Thumbnails never develop an edit (ADR 0020) on offline previews of
+    /// another frame of the RAW.
+    #[test]
+    fn offline_thumbnails_use_previews_of_their_own_frame_only() {
+        use crate::preview_proxy::frame_fixture::{offline_cr3, frame_one_edit};
+        let settings = crate::app_settings::AppSettings::default();
+        for (frame, shown) in [(0, false), (1, true)] {
+            let directory = tempfile::tempdir().unwrap();
+            let photo = offline_cr3(directory.path(), frame_one_edit(), frame);
+            assert_eq!(
+                stored_proxy(&photo, &frame_one_edit(), &settings).is_some(),
+                shown
+            );
+        }
     }
 
     #[test]

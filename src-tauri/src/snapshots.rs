@@ -234,8 +234,7 @@ pub async fn snapshot_thumbnail(
         let gpu = crate::gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
         let (source, _) = parse_virtual_path(&path);
         // Snapshots of one decode variant share a decoded base.
-        let variant =
-            crate::image_loader::decode_variant(&adjustments, crate::formats::is_raw_file(&source));
+        let variant = crate::image_loader::decode_variant(&adjustments, &source.to_string_lossy());
         let mut adjustments = adjustments;
         let _ =
             rawtonic_export::exif_processing::resolve_unresolved_lens(&mut adjustments, &source);

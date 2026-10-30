@@ -1,6 +1,7 @@
 import {
   ADJUSTMENT_GROUPS,
   RENDER_VERSION,
+  SOURCE_FRAME_VERSION,
   initialAdjustmentsFor,
   sameAdjustmentValue,
   type Adjustments,
@@ -175,8 +176,10 @@ export function pasteInto(
   { samePhoto, replaceLayers, newEdit, keepNulls = false }: { samePhoto: boolean; replaceLayers: boolean; newEdit?: Record<string, unknown>; keepNulls?: boolean },
 ): Adjustments | null {
   const out: Record<string, unknown> = { ...(base ?? {}) };
-  if (Object.keys(out).every((key) => key === 'lensProfileFor')) {
+  if (Object.keys(out).every((key) => key === 'lensProfileFor' || key === 'sourceFrameVersion')) {
     out.renderVersion = RENDER_VERSION;
+    // A Reset's frame stays (`source_frame::reset_recipe`).
+    out.sourceFrameVersion ??= SOURCE_FRAME_VERSION;
     for (const [key, value] of Object.entries(newEdit ?? {})) if (!(key in out)) out[key] = value;
   }
   const rendered = (masks: unknown) => ((masks as MaskContainer[] | undefined) ?? []).filter(isRenderedLayer).length;

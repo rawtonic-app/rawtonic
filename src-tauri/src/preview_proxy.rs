@@ -362,8 +362,9 @@ fn content_sample(source: &Path) -> Option<String> {
 /// with `recipe`: a virtual copy whose recipe asks for another variant
 /// (colour noise filter, dead-photosite test) must not be shown from them.
 pub fn stands_for(source: &Path, recipe: &serde_json::Value) -> bool {
-    crate::image_loader::decode_variant(recipe, true)
-        == crate::image_loader::stored_decode_variant(&source.to_string_lossy())
+    let source = source.to_string_lossy();
+    crate::image_loader::decode_variant(recipe, &source)
+        == crate::image_loader::stored_decode_variant(&source)
 }
 
 /// The key a proxy of `source` made now from a decode for `variant` would
@@ -392,7 +393,7 @@ pub fn current_key(
 /// variant (`image_loader::load_base_image_from_bytes_for`): the multi-scale
 /// colour noise filter (no decode-time chroma clean-up) and, appended only
 /// when set so earlier proxies keep their key, the second dead-photosite
-/// test.
+/// test and a frame other than version 0's (`source_frame`).
 fn decoder_key(settings: &AppSettings, variant: DecodeVariant) -> String {
     let key = format!(
         "hl={:?};linear={};cnr={:?};sharp={:?};nonraw={:?};raw9={:?};cnrms={}",
@@ -404,8 +405,13 @@ fn decoder_key(settings: &AppSettings, variant: DecodeVariant) -> String {
         settings.use_apple_raw9.unwrap_or(false),
         u8::from(variant.multiscale),
     );
-    if variant.dead_test == DeadTest::Adjacent {
+    let key = if variant.dead_test == DeadTest::Adjacent {
         key + ";dead=adjacent"
+    } else {
+        key
+    };
+    if variant.frame > 0 {
+        format!("{key};frame={}", variant.frame)
     } else {
         key
     }
@@ -419,15 +425,48 @@ fn decoder_settings(decoder: &str) -> &str {
 
 /// The decode variant a proxy key's `decoder` part was made for (the
 /// inverse of `decoder_key`'s variant fields).
-fn variant_of_key(decoder: &str) -> DecodeVariant {
+pub(crate) fn variant_of_key(decoder: &str) -> DecodeVariant {
     DecodeVariant {
         multiscale: decoder.contains(";cnrms=1"),
-        dead_test: if decoder.ends_with(";dead=adjacent") {
+        dead_test: if decoder.contains(";dead=adjacent") {
             DeadTest::Adjacent
         } else {
             DeadTest::SameColour
         },
+        frame: decoder
+            .split_once(";frame=")
+            .and_then(|(_, frame)| frame.split(';').next()?.parse().ok())
+            .unwrap_or(0),
     }
+}
+
+/// Whether previews made for frame `proxy_frame` (`DecodeVariant::frame`,
+/// ADR 0020) can show the RAW at `source` with its stored recipe `recipe`:
+/// any frame for a never-edited photograph (no coordinates to misplace; its
+/// first edit takes the frame shown, src/utils/sourceFrame.ts), else the
+/// recipe's own. Which frame the recipe's version develops of the file is
+/// read from the previews' own `facts` when they keep it (offline nothing
+/// may be registered yet), else from the file or the registered facts;
+/// where nothing tells it, the version itself, so an edit waits for the RAW
+/// rather than show its coordinates on another frame. The one frame check
+/// of every preview read from disk (`header_is_current`: offline any other
+/// decode variant is read).
+fn frame_fits(
+    proxy_frame: u32,
+    recipe: &serde_json::Value,
+    facts: Option<&SourceFacts>,
+    source: &str,
+) -> bool {
+    use rawtonic_engine::source_frame;
+    if rawtonic_engine::image_processing::is_new_recipe(recipe) {
+        return true;
+    }
+    let requested = source_frame::requested(recipe);
+    let wanted = match facts.and_then(|facts| facts.frames.as_deref()) {
+        Some(frames) if requested > 0 => source_frame::effective_in(frames, requested),
+        _ => source_frame::effective(source, requested),
+    };
+    proxy_frame == wanted
 }
 
 /// Whether a proxy with `header` stands for `source` as it is now. Its key
@@ -437,16 +476,28 @@ fn variant_of_key(decoder: &str) -> DecodeVariant {
 /// known state of the photograph, whatever decode variant it was made for
 /// (no decode can follow to replace it: previews made before a recipe reset
 /// or before never-edited photographs moved to a newer variant must still
-/// open). Online, the decode must also have been made for the decode
-/// variant of the photograph's stored (master) recipe.
+/// open), but of the stored recipe's frame (`frame_fits`). Online, the
+/// decode must also have been made for the decode variant of the
+/// photograph's stored (master) recipe.
 fn header_is_current(header: &Header, source: &Path, settings: &AppSettings) -> bool {
-    let variant = crate::image_loader::stored_decode_variant(&source.to_string_lossy());
+    let source_str = source.to_string_lossy();
+    let recipe = crate::exif_processing::load_sidecar(
+        &crate::file_management::parse_virtual_path(&source_str).1,
+    )
+    .adjustments;
+    let variant = crate::image_loader::decode_variant(&recipe, &source_str);
     let decoder_matches =
         header.key.engine == ENGINE_VERSION && header.key.decoder == decoder_key(settings, variant);
     let settings_match = || {
         header.key.engine == ENGINE_VERSION
             && decoder_settings(&header.key.decoder)
                 == decoder_settings(&decoder_key(settings, variant))
+            && frame_fits(
+                variant_of_key(&header.key.decoder).frame,
+                &recipe,
+                header.facts.as_ref(),
+                &source_str,
+            )
     };
     let Some(key) = current_key(source, settings, variant) else {
         return settings_match();
@@ -1295,6 +1346,47 @@ impl ProxyMemory {
     }
 }
 
+/// Offline photographs whose previews show one frame of the RAW, for the
+/// preview consumers' frame tests.
+#[cfg(test)]
+pub(crate) mod frame_fixture {
+    use super::*;
+
+    /// `A.CR3` of a session under `dir` with the stored recipe `recipe`
+    /// and Standard and 1:1 previews made for frame `frame`, then taken
+    /// offline (moved away).
+    pub(crate) fn offline_cr3(dir: &Path, recipe: serde_json::Value, frame: u32) -> PathBuf {
+        let session = dir.join("Job");
+        fs::create_dir_all(session.join("Capture")).unwrap();
+        fs::write(session.join("session.json"), "{}").unwrap();
+        fs::write(session.join("session.sqlite"), "").unwrap();
+        let photo = session.join("Capture").join("A.CR3");
+        fs::write(&photo, b"raw bytes").unwrap();
+        let metadata = serde_json::json!({ "version": 1, "rating": 0, "adjustments": recipe });
+        fs::write(photo.with_file_name("A.CR3.rrdata"), metadata.to_string()).unwrap();
+        let settings = AppSettings::default();
+        let variant = DecodeVariant {
+            multiscale: true,
+            dead_test: DeadTest::Adjacent,
+            frame,
+        };
+        let image = DynamicImage::ImageRgb32F(Rgb32FImage::from_fn(80, 60, |x, y| {
+            image::Rgb([x as f32 / 80.0, y as f32 / 60.0, 0.25])
+        }));
+        write(&photo, &image, 40, &settings, variant, None).unwrap();
+        write_full(&photo, &image, &settings, variant, None).unwrap();
+        fs::rename(&photo, dir.join("elsewhere.CR3")).unwrap();
+        assert!(!source_available(&photo));
+        photo
+    }
+
+    /// An edit of frame 1 (ADR 0020: a new edit of a CR3 whose frame
+    /// version 1 changes).
+    pub(crate) fn frame_one_edit() -> serde_json::Value {
+        serde_json::json!({"exposure": 1.0, "renderVersion": 4, "sourceFrameVersion": 1})
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1303,11 +1395,13 @@ mod tests {
     const NEW_EDIT: DecodeVariant = DecodeVariant {
         multiscale: true,
         dead_test: DeadTest::Adjacent,
+        frame: 0,
     };
     /// A decode for an edit with the old colour noise filter.
     const LEGACY: DecodeVariant = DecodeVariant {
         multiscale: false,
         dead_test: DeadTest::SameColour,
+        frame: 0,
     };
 
     fn key() -> ProxyKey {
@@ -1654,12 +1748,19 @@ mod tests {
         let settings = AppSettings::default();
         for multiscale in [false, true] {
             for dead_test in [DeadTest::SameColour, DeadTest::Adjacent] {
-                let variant = DecodeVariant {
-                    multiscale,
-                    dead_test,
-                };
-                assert_eq!(variant_of_key(&decoder_key(&settings, variant)), variant);
+                for frame in [0, 1] {
+                    let variant = DecodeVariant {
+                        multiscale,
+                        dead_test,
+                        frame,
+                    };
+                    assert_eq!(variant_of_key(&decoder_key(&settings, variant)), variant);
+                }
             }
+        }
+        // Version 0's frame keeps the keys proxies were made with.
+        for variant in [NEW_EDIT, LEGACY] {
+            assert!(!decoder_key(&settings, variant).contains("frame"));
         }
         // A proxy kept for a photograph whose recipe was reset since (render
         // version 2 → 3) is not handed out for the new variant.
@@ -1669,6 +1770,7 @@ mod tests {
         let old = DecodeVariant {
             multiscale: true,
             dead_test: DeadTest::SameColour,
+            frame: 0,
         };
         let proxy = write(&photo, &gradient(80, 60), 40, &settings, old, None).unwrap();
         let mut memory = ProxyMemory::default();
@@ -1774,10 +1876,17 @@ mod tests {
     /// A proxy file whose header lost its `facts` and `exif` (as previews
     /// made before they were kept).
     fn without_facts(path: &Path) {
+        edit_header(path, |header| {
+            header.facts = None;
+            header.exif = None;
+        });
+    }
+
+    /// Rewrites the header of the proxy file at `path` with `edit`.
+    fn edit_header(path: &Path, edit: impl FnOnce(&mut Header)) {
         let bytes = fs::read(path).unwrap();
         let (mut header, at) = parse_header(&bytes).unwrap();
-        header.facts = None;
-        header.exif = None;
+        edit(&mut header);
         let json = serde_json::to_vec(&header).unwrap();
         let mut out = bytes[..8].to_vec();
         out.extend_from_slice(&(json.len() as u32).to_le_bytes());
@@ -1884,6 +1993,7 @@ mod tests {
         let before_upgrade = DecodeVariant {
             multiscale: true,
             dead_test: DeadTest::SameColour,
+            frame: 0,
         };
         write(
             &photo,
@@ -1917,6 +2027,77 @@ mod tests {
         }
         // Nothing can be written for it.
         assert!(write(&photo, &gradient(80, 60), 40, &settings, NEW_EDIT, None).is_err());
+    }
+
+    /// Offline, previews of any decode variant open, but never those of
+    /// another frame of the RAW than the stored recipe's (ADR 0020): its
+    /// coordinates belong to its own frame. A never-edited photograph takes
+    /// the previews' frame. Every consumer reads through this check (the
+    /// editor's proxy, multi view, thumbnails, the offline open).
+    #[test]
+    fn offline_previews_of_another_frame_are_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = session_with_photo(dir.path(), b"raw bytes");
+        let photo = first.with_file_name("A.CR3");
+        fs::rename(&first, &photo).unwrap();
+        let settings = AppSettings::default();
+        let old_frame = NEW_EDIT;
+        let new_frame = DecodeVariant {
+            frame: 1,
+            ..NEW_EDIT
+        };
+        let sidecar = photo.with_file_name("A.CR3.rrdata");
+        let save = |adjustments: serde_json::Value| {
+            let metadata =
+                serde_json::json!({ "version": 1, "rating": 0, "adjustments": adjustments });
+            fs::write(&sidecar, metadata.to_string()).unwrap();
+        };
+        let away = dir.path().join("elsewhere.CR3");
+        let previews_of = |variant: DecodeVariant| {
+            fs::rename(&away, &photo).ok();
+            write(&photo, &gradient(80, 60), 40, &settings, variant, None).unwrap();
+            write_full(&photo, &gradient(80, 60), &settings, variant, None).unwrap();
+            fs::rename(&photo, &away).unwrap();
+            assert!(!source_available(&photo));
+        };
+        let readable = || {
+            [
+                read(&photo, &settings).is_some(),
+                read_kind(&photo, ProxyKind::Full, &settings).is_some(),
+                read_full_rows(&photo, &settings, (0, 4), (0, 4)).is_some(),
+                has_full(&photo, &settings),
+                full_key(&photo, &settings).is_some(),
+            ]
+        };
+        // An edit of frame 1 on previews of frame 0: none is read.
+        save(serde_json::json!({"exposure": 1.0, "renderVersion": 4, "sourceFrameVersion": 1}));
+        previews_of(old_frame);
+        assert_eq!(readable(), [false; 5]);
+        // Its own frame's previews are.
+        previews_of(new_frame);
+        assert_eq!(readable(), [true; 5]);
+        // An edit of frame 0 on previews of frame 1: not read either.
+        save(serde_json::json!({"exposure": 1.0, "renderVersion": 4}));
+        assert_eq!(readable(), [false; 5]);
+        // A never-edited photograph opens on either.
+        save(serde_json::json!({}));
+        assert_eq!(readable(), [true; 5]);
+        previews_of(old_frame);
+        assert_eq!(readable(), [true; 5]);
+        // A new edit of a file whose newest frame is version 0's (an
+        // unchanged CR3): its frame-0 previews open cold, nothing registered
+        // yet, from the frames their own facts keep; not where those say
+        // the file's frame changed.
+        save(serde_json::json!({"exposure": 1.0, "renderVersion": 4, "sourceFrameVersion": 1}));
+        for (frames, shown) in [(vec![0, 0], true), (vec![0, 1], false)] {
+            for kind in [ProxyKind::Standard, ProxyKind::Full] {
+                edit_header(&proxy_path_of(&photo, kind).unwrap(), |header| {
+                    header.facts.as_mut().unwrap().frames = Some(frames.clone());
+                });
+            }
+            source_facts::forget(&photo.to_string_lossy());
+            assert_eq!(readable(), [shown; 5], "{frames:?}");
+        }
     }
 
     #[test]

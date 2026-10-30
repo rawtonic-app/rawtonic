@@ -3730,12 +3730,13 @@ mod tests {
         std::fs::write(&jpeg, b"not a raw").unwrap();
         let mut never = serde_json::Value::Null;
         apply_default(&mut never, &jpeg);
-        // No camera data: only the current render version and sharpening
-        // response, as a new edit.
+        // No camera data: only the current render version, sharpening
+        // response and frame version, as a new edit.
         assert_eq!(
             never,
             serde_json::json!({"renderVersion": crate::image_processing::RENDER_VERSION,
-                "sharpenVersion": crate::image_processing::SHARPEN_VERSION})
+                "sharpenVersion": crate::image_processing::SHARPEN_VERSION,
+                "sourceFrameVersion": crate::source_frame::VERSION})
         );
         let mut saved = serde_json::json!({"lensCorrectionMode": "manual", "exposure": 1});
         let before = saved.clone();

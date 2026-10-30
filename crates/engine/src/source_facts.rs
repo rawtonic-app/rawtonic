@@ -43,7 +43,9 @@ use crate::lens_correction::LensDistortionParams;
 /// framing).
 /// 12: `camera_lens` at camera geometry version 6 (Sony's knot table).
 /// 13: `camera_lens` at camera geometry version 7 (Fujifilm's knot table).
-pub const VERSION: u32 = 13;
+/// 14: `frames` (`source_frame::frames`), so that an offline photograph
+/// opens only on previews of its recipe's frame.
+pub const VERSION: u32 = 14;
 
 /// The file facts the rendering of one photograph uses.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
@@ -87,6 +89,11 @@ pub struct SourceFacts {
     /// `embedded_lens::lensfun_default`: maker, model and parameters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lensfun_default: Option<(String, String, LensDistortionParams)>,
+    /// `source_frame::frames`: which frame versions frame the RAW alike
+    /// (absent in facts from before them: an offline photograph then opens
+    /// on its previews whatever frame they show).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frames: Option<Vec<u32>>,
 }
 
 /// `BaseLook` in a serializable form (its curve as a list).
@@ -269,6 +276,7 @@ pub fn collect(path: &str) -> SourceFacts {
         camera_lens,
         camera_lens_geometry,
         lensfun_default: crate::embedded_lens::lensfun_default(source),
+        frames: crate::source_frame::frames(path),
     };
     facts.set_image_key(crate::image_key::for_path(path));
     if let Some(key) = key {
@@ -367,6 +375,7 @@ mod tests {
             camera_lens: None,
             camera_lens_geometry: Default::default(),
             lensfun_default: None,
+            frames: Some(vec![0, 1]),
         };
         let json = serde_json::to_string(&facts).unwrap();
         let back: SourceFacts = serde_json::from_str(&json).unwrap();
