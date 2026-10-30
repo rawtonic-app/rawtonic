@@ -24,9 +24,11 @@ it("soft-proofs in a chosen colour space with an optional gamut warning", () => 
   const space = screen.getByLabelText("Proof color space") as HTMLSelectElement;
   expect(space.value).toBe("srgb");
   // Enabling Proof inserts its controls below the caption, so its toggle
-  // stays under the pointer for the next click.
-  const header = screen.getByRole("group", { name: "Photo histogram" });
-  expect(header.nextElementSibling).toBe(space.parentElement);
+  // stays under the pointer for the next click. The header names no control,
+  // so it is found by its class.
+  const header = document.querySelector<HTMLElement>(".studio-clip-corners");
+  expect(header).not.toBeNull();
+  expect(header!.nextElementSibling).toBe(space.parentElement);
   expect(space.parentElement?.nextElementSibling?.className).toBe("studio-histogram-plot");
   fireEvent.change(space, { target: { value: "adobeRgb" } });
   expect(useEditorStore.getState().softProofSpace).toBe("adobeRgb");
@@ -180,10 +182,13 @@ it("keeps the lit state when a warning switches for the same histogram", () => {
 it("keeps the corner buttons off the plot's own image role", () => {
   useEditorStore.setState({ histogram: null, softProof: true });
   render(<StudioHistogram />);
-  const group = screen.getByRole("group", { name: "Photo histogram" });
+  // The photo histogram section names the corners' home; the triangles carry
+  // no second group label of their own.
+  const region = screen.getByRole("region", { name: "Photo histogram" });
   expect(
-    within(group).getAllByRole("button", { name: /clipping/ }),
+    within(region).getAllByRole("button", { name: /clipping/ }),
   ).toHaveLength(2);
+  expect(screen.queryByRole("group", { name: "Photo histogram" })).toBeNull();
   useEditorStore.setState({ softProof: false });
 });
 

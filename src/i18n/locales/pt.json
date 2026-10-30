@@ -2985,7 +2985,6 @@
     },
     "histogram": {
       "aria": "Histograma da imagem",
-      "clippingAria": "Avisos de corte",
       "gamut": "Aviso de gama",
       "gamutTitle": "Aviso de gama: cores fora do espaço de cor da prova em vermelho",
       "graphAria": "Distribuição de luminância RGB da foto selecionada",

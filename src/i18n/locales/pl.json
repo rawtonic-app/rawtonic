@@ -3061,7 +3061,6 @@
     },
     "histogram": {
       "aria": "Histogram obrazu",
-      "clippingAria": "Ostrzeżenia o prześwietleniach i zadartych cieniach",
       "gamut": "Ostrzeżenie o gamucie",
       "gamutTitle": "Ostrzeżenie o gamucie: kolory spoza przestrzeni próby na czerwono",
       "graphAria": "Rozkład luminancji RGB zaznaczonego zdjęcia",

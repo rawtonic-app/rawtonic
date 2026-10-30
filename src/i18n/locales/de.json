@@ -2909,7 +2909,6 @@
     },
     "histogram": {
       "aria": "Bildhistogramm",
-      "clippingAria": "Warnungen für überstrahlte Lichter und abgesoffene Schatten",
       "gamut": "Farbumfang-Warnung",
       "gamutTitle": "Farbumfang-Warnung: Farben außerhalb des Proof-Farbraums in Rot",
       "graphAria": "RGB-Helligkeitsverteilung des ausgewählten Fotos",

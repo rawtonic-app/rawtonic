@@ -2856,7 +2856,6 @@
     },
     "histogram": {
       "aria": "画像のヒストグラム",
-      "clippingAria": "クリッピングの警告",
       "gamut": "色域外警告",
       "gamutTitle": "色域外警告: 校正カラースペース外の色を赤で表示",
       "graphAria": "選択した写真の RGB 輝度分布",

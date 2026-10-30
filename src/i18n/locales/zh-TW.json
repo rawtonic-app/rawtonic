@@ -2856,7 +2856,6 @@
     },
     "histogram": {
       "aria": "影像色階分佈圖",
-      "clippingAria": "溢色警告",
       "gamut": "色域警告",
       "gamutTitle": "色域警告：超出校樣色彩空間的顏色顯示為紅色",
       "graphAria": "所選照片的 RGB 亮度分佈",

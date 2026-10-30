@@ -2985,7 +2985,6 @@
     },
     "histogram": {
       "aria": "Histograma de la imatge",
-      "clippingAria": "Avisos de retallada",
       "gamut": "Avís de gamma",
       "gamutTitle": "Avís de gamma: colors fora de l'espai de color de la prova en vermell",
       "graphAria": "Distribució de luminància RGB de la foto seleccionada",
