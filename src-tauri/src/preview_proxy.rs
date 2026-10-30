@@ -362,6 +362,11 @@ fn content_sample(source: &Path) -> Option<String> {
 /// with `recipe`: a virtual copy whose recipe asks for another variant
 /// (colour noise filter, dead-photosite test) must not be shown from them.
 pub fn stands_for(source: &Path, recipe: &serde_json::Value) -> bool {
+    // Offline, the frames the file's versions develop are the ones its
+    // previews keep (`source_frame::frames` reads the registered facts).
+    if source_facts::registered(&source.to_string_lossy()).is_none() {
+        prepare_offline(source);
+    }
     let source = source.to_string_lossy();
     crate::image_loader::decode_variant(recipe, &source)
         == crate::image_loader::stored_decode_variant(&source)
@@ -444,7 +449,7 @@ pub(crate) fn variant_of_key(decoder: &str) -> DecodeVariant {
 /// ADR 0020) can show the RAW at `source` with its stored recipe `recipe`:
 /// any frame for a never-edited photograph (no coordinates to misplace; its
 /// first edit takes the frame shown, src/utils/sourceFrame.ts), else the
-/// recipe's own. Which frame the recipe's version develops of the file is
+/// recipe's own (a Reset's recipe states it: `source_frame::reset_recipe`). Which frame the recipe's version develops of the file is
 /// read from the previews' own `facts` when they keep it (offline nothing
 /// may be registered yet), else from the file or the registered facts;
 /// where nothing tells it, the version itself, so an edit waits for the RAW
@@ -458,7 +463,9 @@ fn frame_fits(
     source: &str,
 ) -> bool {
     use rawtonic_engine::source_frame;
-    if rawtonic_engine::image_processing::is_new_recipe(recipe) {
+    if rawtonic_engine::image_processing::is_new_recipe(recipe)
+        && recipe.get(source_frame::KEY).is_none()
+    {
         return true;
     }
     let requested = source_frame::requested(recipe);
@@ -2079,10 +2086,15 @@ mod tests {
         // An edit of frame 0 on previews of frame 1: not read either.
         save(serde_json::json!({"exposure": 1.0, "renderVersion": 4}));
         assert_eq!(readable(), [false; 5]);
-        // A never-edited photograph opens on either.
+        // A never-edited photograph opens on either; a Reset's recipe of
+        // frame 1 (its key only) on its own frame only.
         save(serde_json::json!({}));
         assert_eq!(readable(), [true; 5]);
+        save(serde_json::json!({"sourceFrameVersion": 1}));
+        assert_eq!(readable(), [true; 5]);
         previews_of(old_frame);
+        assert_eq!(readable(), [false; 5]);
+        save(serde_json::json!({}));
         assert_eq!(readable(), [true; 5]);
         // A new edit of a file whose newest frame is version 0's (an
         // unchanged CR3): its frame-0 previews open cold, nothing registered
@@ -2097,6 +2109,28 @@ mod tests {
             }
             source_facts::forget(&photo.to_string_lossy());
             assert_eq!(readable(), [shown; 5], "{frames:?}");
+        }
+    }
+
+    /// Offline and cold (nothing registered), a virtual copy of an edit from
+    /// before the key stands for its master's previews of a new edit where
+    /// the previews' facts say both frame versions develop the file alike.
+    #[test]
+    fn an_offline_copy_resolves_frames_from_the_previews() {
+        use frame_fixture::{frame_one_edit, offline_cr3};
+        let legacy = serde_json::json!({"exposure": 0.5, "renderVersion": 4});
+        for (frames, shared) in [(vec![0, 0], true), (vec![0, 1], false)] {
+            let dir = tempfile::tempdir().unwrap();
+            let photo = offline_cr3(dir.path(), frame_one_edit(), frames[1]);
+            for kind in [ProxyKind::Standard, ProxyKind::Full] {
+                edit_header(&proxy_path_of(&photo, kind).unwrap(), |header| {
+                    header.facts.as_mut().unwrap().frames = Some(frames.clone());
+                });
+            }
+            source_facts::forget(&photo.to_string_lossy());
+            assert_eq!(stands_for(&photo, &legacy), shared, "{frames:?}");
+            assert!(stands_for(&photo, &frame_one_edit()));
+            source_facts::forget(&photo.to_string_lossy());
         }
     }
 
