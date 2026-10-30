@@ -512,6 +512,13 @@
         },
         {
           "kind": "item",
+          "id": "cmd:toggle_camera_preview",
+          "label": "Camera Preview",
+          "enabled": false,
+          "checked": false
+        },
+        {
+          "kind": "item",
           "id": "cmd:toggle_soft_proof",
           "label": "Soft Proofing",
           "enabled": false,

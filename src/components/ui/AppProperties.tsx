@@ -194,6 +194,8 @@ export enum Invokes {
   DiscardPreviews = 'discard_previews',
   ApplyPreviewLimits = 'apply_preview_limits',
   LoadEmbeddedPreview = 'load_embedded_preview',
+  ShowCameraPreview = 'show_camera_preview',
+  HideCameraPreview = 'hide_camera_preview',
   LoadMetadata = 'load_metadata',
   LoadPresets = 'load_presets',
   LoadBuiltinPresets = 'load_builtin_presets',

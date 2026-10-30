@@ -26,6 +26,7 @@ mod auto_white_balance;
 mod browser_preview_transport;
 mod bw_auto;
 mod cache_utils;
+mod camera_preview;
 mod camera_profile;
 mod camera_tethering;
 mod capture_time;
@@ -739,6 +740,8 @@ pub fn run() {
             startup::frontend_ready,
             editor_preview::cancel_thumbnail_generation,
             editor_preview::update_wgpu_transform,
+            camera_preview::show_camera_preview,
+            camera_preview::hide_camera_preview,
             editor_preview::render_split_before,
             editor_preview::prewarm_mask_source,
             cache_utils::clear_image_caches,

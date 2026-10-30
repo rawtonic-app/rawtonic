@@ -234,6 +234,7 @@
       "toggle_all_panels": "所有面板和栏",
       "toggle_auto_advance": "自动前进",
       "toggle_bottom_panel": "胶片栏",
+      "toggle_camera_preview": "相机预览",
       "toggle_clipping": "剪切警告",
       "toggle_export": "导出…",
       "toggle_fullscreen": "仅照片（全屏）",
@@ -1842,6 +1843,7 @@
         "toggle_all_panels": "隐藏/显示所有面板和栏",
         "toggle_analytics": "切换分析显示",
         "toggle_bottom_panel": "切换胶片条",
+        "toggle_camera_preview": "切换相机预览",
         "toggle_clipping": "显示剪切警告",
         "toggle_crop": "切换裁剪/拉直",
         "toggle_crop_panel": "切换裁剪面板",
@@ -4243,6 +4245,15 @@
       }
     },
     "workspace": {
+      "cameraPreview": {
+        "alt": "照片的相机预览",
+        "button": "相机预览",
+        "esc": "Esc",
+        "label": "相机预览",
+        "note": "相机自带的 JPEG：相机的色彩与裁切，而非你的编辑。",
+        "returnWith": "{{key}} 或 {{esc}} 返回",
+        "unavailable": "这张照片没有相机预览。"
+      },
       "edges": {
         "showBars": "显示栏",
         "showBarsAndFilmstrip": "显示栏和胶片条",

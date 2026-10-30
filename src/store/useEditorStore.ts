@@ -180,6 +180,10 @@ interface EditorState {
   /** The native display shows this photograph's cached thumbnail (a still
    * preview, marked as such) until its first developed frame. */
   stillPreview: string | null;
+  /** View only (Shift+\): the native display shows this photograph's
+   * camera JPEG in place of the edit (`utils/cameraPreview`); null: the
+   * edit. Never in the recipe or the history. */
+  cameraPreview: { path: string } | null;
   /** Stepping from one ready photograph to the next: the tool panels keep
    * their look (not dimmed, histogram kept) until the next photograph's
    * values arrive and replace them in place; they stay inert meanwhile.
@@ -329,6 +333,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   hasRenderedFirstFrame: false,
   holdingNativeFrame: false,
   stillPreview: null,
+  cameraPreview: null,
   panelsHeld: false,
   nativeCropFrame: false,
   toolClipboard: null,

@@ -20,6 +20,7 @@ import {
   zoomCrop,
 } from '../../utils/cropUtils';
 import ImageCanvas, { type LiveMaskDefinition } from './editor/ImageCanvas';
+import { CameraPreview, cameraPreviewOnScreen } from '../studio/CameraPreview';
 import { Mask, SubMask } from './right/Masks';
 import { Panel, TransformState, Invokes, canRenderSource } from '../ui/AppProperties';
 import { useEditorStore } from '../../store/useEditorStore';
@@ -784,6 +785,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
     const handleNativeWheel = (e: WheelEvent) => {
       e.preventDefault();
+      // The camera preview shows the camera JPEG to fit: no zoom or pan of
+      // the edit underneath.
+      if (cameraPreviewOnScreen(useEditorStore.getState())) return;
       cancelAnimation();
       if (physicsFrameId.current) cancelAnimationFrame(physicsFrameId.current);
 
@@ -1409,6 +1413,10 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     croppedDimensionsRef.current = croppedDimensions;
   }, [croppedDimensions]);
 
+  // View only (Shift+\): the native display shows the camera JPEG in the
+  // edit's place (utils/cameraPreview); the edit's gestures are inert.
+  const cameraPreviewShown = useEditorStore(cameraPreviewOnScreen);
+
   const wgpuStateRef = useRef<WgpuRenderState>({
     useWgpuRenderer: appSettings?.useWgpuRenderer,
     isReady: canRenderSource(selectedImage),
@@ -1621,7 +1629,17 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       const { splitView, splitPosition, splitOrientation, showOriginal: peeking } = useEditorStore.getState();
       const split = splitView && !state.isCropping && !peeking ? splitScreenX(splitOrientation === 'top-bottom' ? { left: currentRect.top, width: currentRect.height } : currentRect, splitPosition, dpr) : null;
 
-      const currentTransform = `${windowWidth},${windowHeight},${screenX},${screenY},${screenW},${screenH},${clipX},${clipY},${clipW},${clipH},${state.bgPrimary?.join(',')},${state.bgSecondary?.join(',')},${cropRect?.join(',')},${state.cropRotation},${holding},${state.isCropping},${split},${splitOrientation}`;
+      // The viewer's area at any zoom (the proof margin left out): where the
+      // camera preview fits natively.
+      const margin = irs.margin ?? 0;
+      const viewerArea: [number, number, number, number] = [
+        (currentRect.left + margin) * dpr,
+        (currentRect.top + margin) * dpr,
+        Math.max(cw - 2 * margin, 1) * dpr,
+        Math.max(ch - 2 * margin, 1) * dpr,
+      ];
+
+      const currentTransform = `${windowWidth},${windowHeight},${screenX},${screenY},${screenW},${screenH},${clipX},${clipY},${clipW},${clipH},${state.bgPrimary?.join(',')},${state.bgSecondary?.join(',')},${cropRect?.join(',')},${state.cropRotation},${holding},${state.isCropping},${split},${splitOrientation},${viewerArea.join(',')}`;
 
       if (lastWgpuTransformRef.current !== currentTransform && !isInvoking) {
         lastWgpuTransformRef.current = currentTransform;
@@ -1653,13 +1671,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
             // (native activation, contained and centred like irs).
             viewport:
               !state.isCropping && Math.abs(scale - 1) < 1e-3 && Math.abs(posX) < 0.5 && Math.abs(posY) < 0.5
-                ? [
-                    (currentRect.left + (irs.margin ?? 0)) * dpr,
-                    (currentRect.top + (irs.margin ?? 0)) * dpr,
-                    Math.max(cw - 2 * (irs.margin ?? 0), 1) * dpr,
-                    Math.max(ch - 2 * (irs.margin ?? 0), 1) * dpr,
-                  ]
+                ? viewerArea
                 : null,
+            viewerArea,
           },
         })
           .catch((err) => console.warn('WGPU Sync Error:', err))
@@ -2414,12 +2428,17 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         }}
         onContextMenu={handleViewerContextMenu}
         ref={imageContainerRef}
-        onPointerDownCapture={handlePointerDown}
-        onPointerMove={handlePointerMove}
+        onPointerDownCapture={cameraPreviewShown ? undefined : handlePointerDown}
+        onPointerMove={cameraPreviewShown ? undefined : handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
-        onClick={handleClick}
+        onClick={cameraPreviewShown ? undefined : handleClick}
       >
+        {/* View only (Shift+\): the pointer never reaches the tools on the
+            edit while its camera JPEG is in its place (the container's own
+            gestures are off too). */}
+        {cameraPreviewShown && <div className="studio-camera-preview-blocker" aria-hidden="true" />}
+        <CameraPreview />
         {showSpinner && (
           <div
             className={clsx(

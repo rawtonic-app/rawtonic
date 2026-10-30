@@ -248,6 +248,7 @@
       "toggle_all_panels": "Tots els taulers i barres",
       "toggle_auto_advance": "Avanç automàtic",
       "toggle_bottom_panel": "Tira de fotos",
+      "toggle_camera_preview": "Vista prèvia de la càmera",
       "toggle_clipping": "Avisos de retall",
       "toggle_export": "Exporta…",
       "toggle_fullscreen": "Només la foto (pantalla completa)",
@@ -1982,6 +1983,7 @@
         "toggle_all_panels": "Amaga o mostra tots els panells i barres",
         "toggle_analytics": "Alternar visualització d'anàlisi",
         "toggle_bottom_panel": "Commutar la tira d'imatges",
+        "toggle_camera_preview": "Commuta la vista prèvia de la càmera",
         "toggle_clipping": "Mostra els avisos de retall",
         "toggle_crop": "Alternar Retallar / Redreçar",
         "toggle_crop_panel": "Alternar tauler de Retall",
@@ -4474,6 +4476,15 @@
       }
     },
     "workspace": {
+      "cameraPreview": {
+        "alt": "Vista prèvia de la càmera de la foto",
+        "button": "Vista prèvia de la càmera",
+        "esc": "Esc",
+        "label": "Vista prèvia de la càmera",
+        "note": "El JPEG de la càmera: el seu color i el seu enquadrament, no la teva edició.",
+        "returnWith": "{{key}} o {{esc}} torna",
+        "unavailable": "Aquesta foto no té vista prèvia de la càmera."
+      },
       "edges": {
         "showBars": "Mostra les barres",
         "showBarsAndFilmstrip": "Mostra les barres i la tira d'imatges",

@@ -92,6 +92,9 @@ pub struct WgpuTransformPayload {
     /// `WgpuDisplay::viewport`).
     #[serde(default)]
     pub viewport: Option<[f32; 4]>,
+    /// The viewer's area at any zoom (see `WgpuDisplay::viewer_area`).
+    #[serde(default)]
+    pub viewer_area: Option<[f32; 4]>,
     /// The before/after split's divider, screen coordinate in device pixels (the unit
     /// of `x`); `None` while the split view is off.
     #[serde(default)]
@@ -933,6 +936,7 @@ pub(crate) async fn update_wgpu_transform(
                 crop_rotation: payload.crop_rotation.to_radians(),
             };
             display.viewport = payload.viewport;
+            display.viewer_area = payload.viewer_area.or(display.viewer_area);
             display.split_x = payload.split;
             display.split_vertical = payload.split_vertical;
             if payload.split.is_none() {

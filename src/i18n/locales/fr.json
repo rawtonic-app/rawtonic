@@ -248,6 +248,7 @@
       "toggle_all_panels": "Tous les panneaux et barres",
       "toggle_auto_advance": "Avance automatique",
       "toggle_bottom_panel": "Pellicule",
+      "toggle_camera_preview": "Aperçu de l’appareil",
       "toggle_clipping": "Avertissements d'écrêtage",
       "toggle_export": "Exporter…",
       "toggle_fullscreen": "Photo seule (plein écran)",
@@ -1982,6 +1983,7 @@
         "toggle_all_panels": "Masquer ou afficher tous les panneaux et barres",
         "toggle_analytics": "Basculer l'affichage des analyses",
         "toggle_bottom_panel": "Afficher/Masquer la bande de film",
+        "toggle_camera_preview": "Activer ou désactiver l’aperçu de l’appareil",
         "toggle_clipping": "Afficher les avertissements d'écrêtage",
         "toggle_crop": "Basculer Recadrer / Redresser",
         "toggle_crop_panel": "Basculer le panneau de recadrage",
@@ -4474,6 +4476,15 @@
       }
     },
     "workspace": {
+      "cameraPreview": {
+        "alt": "Aperçu de l’appareil de la photo",
+        "button": "Aperçu de l’appareil",
+        "esc": "Échap",
+        "label": "Aperçu de l’appareil",
+        "note": "Le JPEG de l’appareil : ses couleurs et son cadrage, pas votre retouche.",
+        "returnWith": "{{key}} ou {{esc}} revient",
+        "unavailable": "Cette photo n’a pas d’aperçu de l’appareil."
+      },
       "edges": {
         "showBars": "Afficher les barres",
         "showBarsAndFilmstrip": "Afficher les barres et la bande de film",

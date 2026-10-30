@@ -42,7 +42,7 @@ pub struct CellExtent {
 }
 
 /// A secondary photograph's developed frame (display-encoded RGBA8).
-struct CellTexture {
+pub(crate) struct CellTexture {
     /// What it was rendered from (recipe and size); 0 for a stand-in that
     /// waits for its own render (see [`MultiView::adopt_live_frame`]).
     key: u64,
@@ -157,6 +157,20 @@ pub enum CellLayer {
     Whole,
     /// The visible region at the zoom's magnification.
     Region,
+}
+
+impl CellTexture {
+    pub(crate) fn bind_group(&self) -> &wgpu::BindGroup {
+        &self.bind_group
+    }
+
+    pub(crate) fn uniforms(&self) -> &wgpu::Buffer {
+        &self.uniforms
+    }
+
+    pub(crate) fn size(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
 }
 
 impl MultiView {
@@ -336,6 +350,39 @@ impl MultiView {
         })
     }
 
+    /// `rgba` (display-encoded RGBA8, `width` × `height`) on the GPU with
+    /// its own transform, bound like a cell (a stand-in, key 0).
+    pub(crate) fn uploaded_texture(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        bindings: &DisplayBindings,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) -> CellTexture {
+        let texture = Self::cell_texture(device, width, height);
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 4),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        Self::make_texture(device, bindings, 0, None, texture)
+    }
+
     /// Keeps `rgba` (display-encoded RGBA8, `width` × `height`) as `path`'s
     /// whole photograph or zoomed region (`layer`), rendered for `key`.
     /// Ignored when `path` is not shown, and a region when no longer zoomed.
@@ -360,27 +407,9 @@ impl MultiView {
         {
             return;
         }
-        let texture = Self::cell_texture(device, width, height);
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            rgba,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(width * 4),
-                rows_per_image: Some(height),
-            },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-        );
-        let texture = Self::make_texture(device, bindings, key.max(1), Some(extent), texture);
+        let mut texture = Self::uploaded_texture(device, queue, bindings, width, height, rgba);
+        texture.key = key.max(1);
+        texture.extent = Some(extent);
         match layer {
             CellLayer::Whole => self.textures.insert(path.to_string(), texture),
             CellLayer::Region => self.regions.insert(path.to_string(), texture),

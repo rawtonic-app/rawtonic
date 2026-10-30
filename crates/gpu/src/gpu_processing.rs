@@ -19,6 +19,8 @@ use rayon::prelude::*;
 #[path = "gpu_processing_tests.rs"]
 mod preview_tests;
 
+#[path = "camera_cover.rs"]
+pub mod camera_cover;
 #[path = "multi_view.rs"]
 pub mod multi_view;
 #[path = "preview_layers.rs"]
@@ -2038,6 +2040,11 @@ pub struct WgpuDisplay {
     /// asked for or its developed frame arrives: no developed frame of
     /// another photograph (one still in flight) replaces it.
     still_of: Option<String>,
+    /// The viewer's area (device pixels, the proof margin left out) at any
+    /// zoom: where the camera preview fits.
+    pub viewer_area: Option<[f32; 4]>,
+    /// The camera preview drawn in place of the live frame (camera_cover.rs).
+    camera_cover: Option<camera_cover::CameraCover>,
     /// Other photographs shown beside the live one (multi_view.rs).
     multi: MultiView,
 }
@@ -2286,6 +2293,8 @@ impl WgpuDisplay {
             frame_path: None,
             frame_texture: None,
             still_of: None,
+            viewer_area: None,
+            camera_cover: None,
             multi: MultiView::default(),
             sampler,
             current_bind_group: None,
@@ -2492,6 +2501,49 @@ impl WgpuDisplay {
     /// holds back developed frames.
     pub fn release_still_for(&mut self, path: &str) {
         self.still_of = still_after_asking(self.still_of.take(), path);
+        // The camera preview shows one photograph only.
+        if self.camera_cover_of().is_some_and(|shown| shown != path) {
+            self.camera_cover = None;
+        }
+    }
+
+    /// Shows `image` (display-encoded RGBA, the camera JPEG standing for a
+    /// frame of `shown`) as the camera preview of `path` in place of the
+    /// live frame, to fit the viewer area. Whether it is shown: not in the
+    /// multi view, nor before the webview has placed the viewer.
+    pub fn show_camera_cover(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        image: &image::RgbaImage,
+        path: &str,
+        shown: (u32, u32),
+    ) -> bool {
+        if self.multi.is_active() || self.viewer_area.is_none() {
+            return false;
+        }
+        let cover =
+            camera_cover::CameraCover::new(device, queue, &self.bindings(), path, image, shown);
+        let Some(cover) = cover else {
+            return false;
+        };
+        self.camera_cover = Some(cover);
+        self.render(device, queue);
+        true
+    }
+
+    /// Back to the live frame (bound underneath all along).
+    pub fn hide_camera_cover(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        if self.camera_cover.take().is_some() {
+            self.render(device, queue);
+        }
+    }
+
+    /// The photograph whose camera preview is shown.
+    pub fn camera_cover_of(&self) -> Option<&str> {
+        self.camera_cover
+            .as_ref()
+            .map(camera_cover::CameraCover::path)
     }
 
     /// Whether a developed frame of `frame` (its identity's photograph) may
@@ -2684,7 +2736,7 @@ impl WgpuDisplay {
 
     pub fn render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         let multi = self.multi.is_active();
-        if self.current_bind_group.is_none() && !multi {
+        if self.current_bind_group.is_none() && self.camera_cover.is_none() && !multi {
             return;
         }
         #[cfg(feature = "performance-profiling")]
@@ -2743,15 +2795,31 @@ impl WgpuDisplay {
             (Some(before), true) => &before.bind_group,
             _ => &self.empty_split_bind_group,
         };
-        let primary = self
-            .current_bind_group
+        // The camera preview, in the single view, in place of the live frame.
+        let cover = self
+            .camera_cover
             .as_ref()
-            .filter(|_| self.live_frame_shown())
-            .map(|bind_group| PrimaryDraw {
-                bind_group,
-                before,
-                clip: transform.clip,
-            });
+            .filter(|_| !multi)
+            .zip(self.viewer_area);
+        let primary = match cover {
+            Some((cover, area)) => {
+                cover.prepare(queue, &transform, area);
+                Some(PrimaryDraw {
+                    bind_group: cover.bind_group(),
+                    before: &self.empty_split_bind_group,
+                    clip: transform.clip,
+                })
+            }
+            None => self
+                .current_bind_group
+                .as_ref()
+                .filter(|_| self.live_frame_shown())
+                .map(|bind_group| PrimaryDraw {
+                    bind_group,
+                    before,
+                    clip: transform.clip,
+                }),
+        };
         encode_display_pass(
             &mut encoder,
             &view,
@@ -2806,6 +2874,7 @@ impl WgpuDisplay {
             self.multi.clear();
             return;
         }
+        self.camera_cover = None;
         let old_primary = self.multi.primary().map(str::to_string);
         let mut multi = std::mem::take(&mut self.multi);
         multi.set_layout(primary.clone(), cells);

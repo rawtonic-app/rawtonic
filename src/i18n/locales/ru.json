@@ -255,6 +255,7 @@
       "toggle_all_panels": "Все панели и полосы",
       "toggle_auto_advance": "Автопереход",
       "toggle_bottom_panel": "Лента кадров",
+      "toggle_camera_preview": "Снимок с камеры",
       "toggle_clipping": "Предупреждения об отсечении",
       "toggle_export": "Экспортировать…",
       "toggle_fullscreen": "Только фото (полный экран)",
@@ -2067,6 +2068,7 @@
         "toggle_all_panels": "Скрыть/показать все панели и полосы",
         "toggle_analytics": "Показать/скрыть панель гистограммы",
         "toggle_bottom_panel": "Показать/скрыть ленту кадров",
+        "toggle_camera_preview": "Переключить снимок с камеры",
         "toggle_clipping": "Показать предупреждения об отсечении",
         "toggle_crop": "Режим обрезки / выравнивания",
         "toggle_crop_panel": "Панель обрезки",
@@ -4607,6 +4609,15 @@
       }
     },
     "workspace": {
+      "cameraPreview": {
+        "alt": "Снимок с камеры",
+        "button": "Снимок с камеры",
+        "esc": "Esc",
+        "label": "Снимок с камеры",
+        "note": "JPEG самой камеры: её цвета и кадрирование, без вашей обработки.",
+        "returnWith": "{{key}} или {{esc}} — обратно",
+        "unavailable": "У этого снимка нет вида с камеры."
+      },
       "edges": {
         "showBars": "Показать панели",
         "showBarsAndFilmstrip": "Показать панели и ленту кадров",

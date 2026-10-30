@@ -27,6 +27,7 @@ import { flagTargets, libraryViewer, viewerOnly, viewerShown } from '../utils/vi
 import { canUndo, canRedo, undo, redo, catalogUndoAvailable, useCatalogUndoStore } from '../utils/appUndo';
 import { pointerHeld } from '../utils/heldPointer';
 import { COMMAND_DIALOG_SELECTOR, registerAppCommands, runAppCommand, type AppCommand } from '../utils/appCommands';
+import { cameraPreviewShown, cameraPreviewTarget, hideCameraPreview, toggleCameraPreview } from '../utils/cameraPreview';
 
 function showMaskDisplayNotice(mode: ReturnType<typeof maskDisplayOf>): void {
   notify.info(i18n.t('studio.develop.maskOverlay.currentMode', {
@@ -103,6 +104,9 @@ const CHECKED: Record<string, (s: ShortcutState) => boolean> = {
   toggle_multi_view: () => useMultiViewStore.getState().active,
   toggle_clipping: (s) => !!s.editor.clipHighlights || !!s.editor.clipShadows,
   toggle_soft_proof: (s) => !!s.editor.softProof,
+  // Checked only while the camera JPEG is on screen (`enabled` says
+  // whether it can be switched on).
+  toggle_camera_preview: () => cameraPreviewShown(),
   toggle_auto_advance: (s) => !!s.settings.appSettings?.autoAdvance,
   toggle_proof_margin: (s) => !!s.settings.appSettings?.viewerProofMargin,
 };
@@ -729,6 +733,16 @@ export const useKeyboardShortcuts = ({
           s.editor.setEditor({ softProof: !s.editor.softProof });
         },
       },
+      toggle_camera_preview: {
+        // A view that never edits, in Develop (the full screen too). With
+        // another view of the photograph (the multi view, before/after) or a
+        // tool that edits it cannot switch on.
+        shouldFire: () => cameraPreviewShown() || cameraPreviewTarget() !== null,
+        execute: (e) => {
+          e.preventDefault();
+          toggleCameraPreview();
+        },
+      },
       toggle_mask_overlay: {
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
         execute: (e, s) => {
@@ -1058,8 +1072,11 @@ export const useKeyboardShortcuts = ({
         match: (e: KeyboardEvent) => e.code === 'Escape',
         execute: (e: KeyboardEvent, s: ShortcutState) => {
           e.preventDefault();
-          // The full screen first: its tools are put aside (StudioWorkspace).
-          if (s.ui.isFullScreen) s.ui.toggleFullScreen();
+          // The camera preview (Shift+\) returns to the edit, and only that:
+          // Escape does not also leave the view it was switched on in.
+          if (cameraPreviewShown()) hideCameraPreview();
+          // The full screen next: its tools are put aside (StudioWorkspace).
+          else if (s.ui.isFullScreen) s.ui.toggleFullScreen();
           else if (s.editor.isStraightenActive) s.editor.setEditor({ isStraightenActive: false });
           else if (s.editor.colorPickerTarget !== null) s.editor.setEditor({ colorPickerTarget: null });
           else if (s.editor.isWbPickerActive) s.editor.setEditor({ isWbPickerActive: false });

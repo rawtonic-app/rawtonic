@@ -62,6 +62,7 @@ import { ExportQueuePanel } from "./StudioExportQueue";
 import PreviewBuildStatus from "./PreviewBuildStatus";
 import PreferencesDialog from "./PreferencesDialog";
 import { ProofMarginButton, ViewerCaptureInfo, ZoomPresetOptions } from "./ViewerControls";
+import { CameraPreviewButton } from "./CameraPreview";
 import OfflineBadge, { OfflineCount } from "./OfflineBadge";
 import StillPreviewBadge from "./StillPreviewBadge";
 import ErrorBoundary from "../ui/ErrorBoundary";
@@ -1298,6 +1299,7 @@ export default function StudioWorkspace(props: Props) {
                 <StudioToolBar />
                 <StudioLayerSelect />
                 <div className="studio-viewer-side is-end">
+                  <CameraPreviewButton />
                   <ProofMarginButton />
                   <button
                     title={withShortcut(t("studio.workspace.viewer.fitTitle"), ",")}

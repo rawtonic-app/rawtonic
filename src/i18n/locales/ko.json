@@ -234,6 +234,7 @@
       "toggle_all_panels": "모든 패널과 막대",
       "toggle_auto_advance": "자동 넘기기",
       "toggle_bottom_panel": "필름 스트립",
+      "toggle_camera_preview": "카메라 미리 보기",
       "toggle_clipping": "클리핑 경고",
       "toggle_export": "내보내기…",
       "toggle_fullscreen": "사진만(전체 화면)",
@@ -1842,6 +1843,7 @@
         "toggle_all_panels": "모든 패널과 막대 숨기기/표시",
         "toggle_analytics": "분석 표시 전환",
         "toggle_bottom_panel": "필름스트립 토글",
+        "toggle_camera_preview": "카메라 미리 보기 전환",
         "toggle_clipping": "클리핑 경고 표시",
         "toggle_crop": "자르기 / 수평 맞추기 전환",
         "toggle_crop_panel": "자르기 패널 전환",
@@ -4243,6 +4245,15 @@
       }
     },
     "workspace": {
+      "cameraPreview": {
+        "alt": "사진의 카메라 미리 보기",
+        "button": "카메라 미리 보기",
+        "esc": "Esc",
+        "label": "카메라 미리 보기",
+        "note": "카메라가 기록한 JPEG: 카메라의 색과 구도이며 편집 내용은 반영되지 않습니다.",
+        "returnWith": "{{key}} 또는 {{esc}}로 돌아가기",
+        "unavailable": "이 사진에는 카메라 미리 보기가 없습니다."
+      },
       "edges": {
         "showBars": "막대 표시",
         "showBarsAndFilmstrip": "막대와 필름스트립 표시",
