@@ -264,6 +264,19 @@ describe("targeted adjustment surface", () => {
     fireEvent.pointerLeave(el);
     await act(async () => resolve([linearFromSrgb([100, 100, 100])]));
     expect(useEditorStore.getState().tatCurveMarker).toBeNull();
+    // Nor does a press sampled after a quick release and leave (the flick
+    // still applies).
+    fireEvent.pointerDown(el, {
+      button: 0,
+      clientX: 10,
+      clientY: 100,
+      pointerId: 1,
+    });
+    fireEvent.pointerUp(el, { pointerId: 1 });
+    fireEvent.pointerLeave(el);
+    await act(async () => resolve([linearFromSrgb([100, 100, 100])]));
+    expect(useEditorStore.getState().tatCurveMarker).toBeNull();
+    expect(useEditorStore.getState().adjustments.curves.red).toHaveLength(3);
     // Other targets do not sample on hover.
     invoke.mockClear();
     useEditorStore.setState({ tatTarget: "regionCurve" });

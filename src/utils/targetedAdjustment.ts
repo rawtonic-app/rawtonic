@@ -207,7 +207,10 @@ function curveInputLevel(
   const carried = gamutUnit(
     shown.map((v, c) => v + (pixel[c] - clipped[c]) * ratio),
   );
-  const levels = wide ? wideCurveLevels(carried) : regioned;
+  // Display-value curves see the carried colour clipped to the sRGB cube.
+  const levels = wide
+    ? wideCurveLevels(carried)
+    : carried.map((v) => toEncoded(v) * 255);
   if (channel === "luma") return tone(levels, wide);
   const whole = version >= LONG_CURVE_VERSION;
   const rgb = levels.map((v) =>
@@ -218,10 +221,8 @@ function curveInputLevel(
   // The Luminance curve: after the colour curves, back in display values.
   const curved = rgb.map((v, c) =>
     toLinear(
-      pointCurveValue(
-        renderedPoints(base.curves[COLOUR_CURVES[c]], whole),
-        v,
-      ) / 255,
+      pointCurveValue(renderedPoints(base.curves[COLOUR_CURVES[c]], whole), v) /
+        255,
     ),
   );
   let linear: number[];

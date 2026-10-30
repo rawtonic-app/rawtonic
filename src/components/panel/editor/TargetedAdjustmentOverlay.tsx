@@ -90,7 +90,8 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
         pixels,
         now.curveChannel,
       );
-      if (marker !== now.tatCurveMarker) now.setEditor({ tatCurveMarker: marker });
+      if (marker !== now.tatCurveMarker)
+        now.setEditor({ tatCurveMarker: marker });
     }
     if (h.next) void sampleHover();
   };
@@ -111,6 +112,7 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
     const { selectedImage, adjustments, tatTarget, curveChannel, setEditor } =
       view;
     if (!selectedImage?.isReady || !tatTarget) return;
+    hover.current.inside = true;
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {
@@ -160,7 +162,8 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
     if (record.start)
       setEditor({
         tatFocus: dominantChannel(record.start),
-        ...(tatTarget === "curve"
+        // Marked while the pointer is still over the photo.
+        ...(tatTarget === "curve" && hover.current.inside && !hover.current.gone
           ? { tatCurveMarker: record.start.curveX ?? null }
           : {}),
       });
@@ -197,7 +200,8 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
   const onPointerLeave = () => {
     hover.current.inside = false;
     hover.current.next = null;
-    if (!drag.current) useEditorStore.getState().setEditor({ tatCurveMarker: null });
+    if (!drag.current)
+      useEditorStore.getState().setEditor({ tatCurveMarker: null });
   };
 
   const end = (e: PointerEvent<HTMLDivElement>) => {

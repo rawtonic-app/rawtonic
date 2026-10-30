@@ -338,10 +338,19 @@ describe("targeted adjustment", () => {
       [-0.2288135, 1.2317302, -0.0029169],
       [-0.0085698, -0.1532866, 1.1618565],
     ];
-    const saturated = toSrgb.map((row) =>
-      row.reduce((sum, m, c) => sum + m * prophoto[c], 0),
-    ) as [number, number, number];
+    const matrixOf = (m: number[][], v: number[]) =>
+      m.map((row) => row.reduce((sum, k, c) => sum + k * v[c], 0)) as [
+        number,
+        number,
+        number,
+      ];
+    const saturated = matrixOf(toSrgb, prophoto);
     expect(curveInputMean("curve", old, [saturated], "luminance")).toBe(217);
+    // With a region curve the carried colour is clipped to the gamut before
+    // the display-value curves, which moves even channels inside sRGB.
+    old.regionCurve = { ...old.regionCurve!, darks: 100, lights: 100 };
+    const blue = matrixOf(toSrgb, [0.3, 0.3, 1]);
+    expect(curveInputMean("curve", old, [blue], "red")).toBe(229);
   });
 
   it("sets an anchor on a click and moves a nearby point instead of adding one", () => {
