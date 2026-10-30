@@ -5534,10 +5534,12 @@ dependencies = [
  "log",
  "pollster",
  "rawtonic-engine",
+ "rawtonic-metadata",
  "rawtonic-rawdecode",
  "rawtonic-runtime",
  "rayon",
  "serde_json",
+ "tempfile",
  "wgpu",
 ]
 

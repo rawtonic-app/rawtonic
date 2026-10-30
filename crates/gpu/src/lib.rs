@@ -4,6 +4,7 @@
 //! RapidRAW (commit a82251f, AGPL-3.0); no Tauri dependencies.
 
 pub mod gpu_processing;
+pub mod pipeline_cache;
 
 use rawtonic_engine::{camera_profile, image_processing, lut, mask_generation};
 #[cfg(feature = "performance-profiling")]
