@@ -11,6 +11,7 @@ import { useLibraryStore } from "../../store/useLibraryStore";
 import { useMultiViewStore } from "../../store/useMultiViewStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { useUIStore } from "../../store/useUIStore";
+import { useRelightStore } from "../../store/useRelightStore";
 import { Panel, type AppSettings, type ImageFile, type SelectedImage } from "../ui/AppProperties";
 import { INITIAL_ADJUSTMENTS, type Adjustments } from "../../utils/adjustments";
 import {
@@ -67,7 +68,16 @@ beforeEach(() => {
     showOriginal: false,
     cameraPreview: null,
     isWbPickerActive: false,
+    colorPickerTarget: null,
+    tatTarget: null,
+    lumaPickerLayer: null,
+    isGuidedPerspectiveActive: false,
   });
+  useEditorStore.setState((s) => ({ faceProtect: { ...s.faceProtect, painting: false } }));
+  useRelightStore.setState({ panelOpen: false });
+  // No show or hide of an earlier test is still wanted.
+  hideCameraPreview();
+  vi.clearAllMocks();
 });
 afterEach(() => {
   cleanup();
@@ -170,12 +180,54 @@ it("a camera JPEG that arrives after a step is taken away, not shown for the nex
   expect(calls("hide_camera_preview")).toHaveLength(1);
 });
 
+it("the key again while the camera JPEG is on its way cancels it", async () => {
+  let answer!: (shown: boolean) => void;
+  nativeShows(() => new Promise((resolve) => (answer = resolve)));
+  act(() => toggleCameraPreview());
+  act(() => toggleCameraPreview());
+  await act(async () => {
+    answer(true);
+  });
+  await vi.waitFor(() => expect(calls("hide_camera_preview")).toHaveLength(2));
+  expect(useEditorStore.getState().cameraPreview).toBeNull();
+});
+
+it("a late answer of a cancelled show never hides a newer show's preview", async () => {
+  const answers: Array<(shown: boolean) => void> = [];
+  nativeShows(() => new Promise((resolve) => answers.push(resolve)));
+  // On, off and on again before the first answer.
+  act(() => toggleCameraPreview());
+  act(() => toggleCameraPreview());
+  act(() => toggleCameraPreview());
+  expect(answers).toHaveLength(2);
+  expect(calls("hide_camera_preview")).toHaveLength(1);
+  // The newer one answers first, then the cancelled one.
+  await act(async () => {
+    answers[1](true);
+  });
+  await vi.waitFor(() => expect(useEditorStore.getState().cameraPreview?.path).toBe("/p/a.dng"));
+  await act(async () => {
+    answers[0](true);
+  });
+  await act(async () => {});
+  expect(calls("hide_camera_preview")).toHaveLength(1);
+  expect(useEditorStore.getState().cameraPreview?.path).toBe("/p/a.dng");
+});
+
 it.each([
   ["a tool that edits (masks)", () => useUIStore.getState().setPanel(Panel.Masks)],
   ["the crop tool", () => useUIStore.getState().setPanel(Panel.Crop)],
   ["leaving Develop", () => useUIStore.setState({ activeView: "library" })],
   ["the split view", () => useEditorStore.setState({ splitView: true })],
   ["the multi view", () => useMultiViewStore.setState({ active: true })],
+  ["the colour picker", () => useEditorStore.setState({ colorPickerTarget: "hsl" })],
+  ["a Levels picker", () => useEditorStore.setState({ tatTarget: "levelsWhite" })],
+  ["targeted adjustment", () => useEditorStore.setState({ tatTarget: "curve" })],
+  ["the luminance picker", () => useEditorStore.setState({ lumaPickerLayer: "layer" })],
+  ["the protection brush", () =>
+    useEditorStore.setState((s) => ({ faceProtect: { ...s.faceProtect, painting: true } }))],
+  ["Relight's handles", () => useRelightStore.setState({ panelOpen: true, showHandles: true })],
+  ["guided perspective", () => useEditorStore.setState({ isGuidedPerspectiveActive: true })],
 ])("%s brings the edit back through the native hide", async (_, leave) => {
   nativeShows(true);
   render(<GuardProbe />);

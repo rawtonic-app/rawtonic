@@ -5,6 +5,7 @@ import { Invokes, Panel } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
+import { useRelightStore } from '../store/useRelightStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useUIStore } from '../store/useUIStore';
 
@@ -49,20 +50,34 @@ export function cameraPreviewPossible(path: string | null | undefined): boolean 
 }
 
 /**
- * The camera preview is a view of the edit's photograph, so a tool that has
- * to edit it (crop and straighten, a mask, the WB picker, the spot tool)
- * brings the edit back instead of drawing under the JPEG.
+ * The camera preview is a view of the edit's photograph, so a tool that
+ * works on the photo (crop and straighten, a mask, the WB, colour, Levels
+ * and luminance pickers, targeted adjustment, the spot tool, the face
+ * retouch's brush and overlays, Relight's handles, guided perspective)
+ * brings the edit back instead of acting under the JPEG.
  */
 export function editingToolOnScreen(): boolean {
   const state = useEditorStore.getState();
   const panel = useUIStore.getState().activePanel;
+  const relight = useRelightStore.getState();
   return (
     panel === Panel.Crop ||
     panel === Panel.Masks ||
     !!state.isWbPickerActive ||
     !!state.isStraightenActive ||
+    !!state.isRotationActive ||
     !!state.isSpotToolActive ||
-    !!state.activeMaskContainerId
+    !!state.isGuidedPerspectiveActive ||
+    !!state.activeMaskContainerId ||
+    !!state.shapeDrawTarget ||
+    state.colorPickerTarget != null ||
+    !!state.lumaPickerLayer ||
+    // Levels' pickers and the on-photo curve/HSL drags.
+    !!state.tatTarget ||
+    !!state.faceProtect?.painting ||
+    !!state.showFaceBlemishes ||
+    !!state.showFaceProtection ||
+    (relight.panelOpen && relight.showHandles)
   );
 }
 
@@ -91,6 +106,8 @@ export function cameraPreviewShown(path?: string | null): boolean {
 /** Counts requests: a hide (or another show) after a show was sent makes
  *  its late answer void. */
 let request = 0;
+/** The show that is wanted now (sent or on screen); null after a hide. */
+let live: number | null = null;
 
 /**
  * Switches the camera preview on for the open photograph (a no-op when it
@@ -102,15 +119,28 @@ export async function showCameraPreview(): Promise<{ shown: boolean; missing: bo
   if (!path) return { shown: false, missing: false };
   if (cameraPreviewShown(path)) return { shown: true, missing: false };
   const asked = ++request;
+  live = asked;
   // Optional view: a read that failed shows the edit.
   const shown = await invoke<boolean>(Invokes.ShowCameraPreview, { path }).then(
     (answer) => answer === true,
     () => false,
   );
-  if (!shown) return { shown: false, missing: asked === request };
-  // Still wanted, for the same photograph, and still showable?
-  if (asked !== request || cameraPreviewTarget() !== path) {
+  if (asked !== request) {
+    // Voided. Its cover only goes when no newer show is wanted: a newer one
+    // shows the same photograph's cover (the native side refuses another
+    // photograph's), so taking it away would hide the newer preview.
+    if (shown && live === null) void invoke(Invokes.HideCameraPreview).catch(() => {});
+    return { shown: false, missing: false };
+  }
+  if (!shown) {
+    live = null;
+    // An earlier voided show may have put its cover up meanwhile.
     void invoke(Invokes.HideCameraPreview).catch(() => {});
+    return { shown: false, missing: true };
+  }
+  // Still showable (a view or tool switched on meanwhile)?
+  if (cameraPreviewTarget() !== path) {
+    hideCameraPreview();
     return { shown: false, missing: false };
   }
   useEditorStore.getState().setEditor({ cameraPreview: { path } });
@@ -121,6 +151,7 @@ export async function showCameraPreview(): Promise<{ shown: boolean; missing: bo
  *  that edits, leaving Develop) ends here. */
 export function hideCameraPreview(): void {
   request += 1;
+  live = null;
   if (useEditorStore.getState().cameraPreview) useEditorStore.getState().setEditor({ cameraPreview: null });
   void invoke(Invokes.HideCameraPreview).catch(() => {});
 }
@@ -128,7 +159,8 @@ export function hideCameraPreview(): void {
 /** The toggle (Shift+\, View ▸ Camera Preview, the toolbar button). A
  *  RAW without a camera JPEG says so instead of doing nothing. */
 export function toggleCameraPreview(): void {
-  if (cameraPreviewShown()) hideCameraPreview();
+  // On screen, or asked for and not answered yet: the key again cancels.
+  if (cameraPreviewShown() || live !== null) hideCameraPreview();
   else
     void showCameraPreview().then(({ missing }) => {
       if (missing) notify.info(i18n.t('studio.workspace.cameraPreview.unavailable'));

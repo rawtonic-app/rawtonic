@@ -5,6 +5,7 @@ import { useSettingsStore } from "../../store/useSettingsStore";
 import { useUIStore } from "../../store/useUIStore";
 import type { SelectedImage } from "../ui/AppProperties";
 import { useMultiViewStore } from "../../store/useMultiViewStore";
+import { useRelightStore } from "../../store/useRelightStore";
 import {
   TOGGLE_CAMERA_PREVIEW,
   cameraPreviewTarget,
@@ -32,7 +33,12 @@ export function useCameraPreviewGuard(): void {
         hideCameraPreview();
       }
     };
-    const stops = [useEditorStore.subscribe(check), useUIStore.subscribe(check), useMultiViewStore.subscribe(check)];
+    const stops = [
+      useEditorStore.subscribe(check),
+      useUIStore.subscribe(check),
+      useMultiViewStore.subscribe(check),
+      useRelightStore.subscribe(check),
+    ];
     return () => {
       stops.forEach((stop) => stop());
       // Develop's viewer goes: so does its camera preview.
