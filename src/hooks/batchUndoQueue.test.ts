@@ -6,7 +6,7 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'react-toastify';
-import { debouncedSave, debouncedSetHistory, flushRecipeSaves, useEditorActions } from './useEditorActions';
+import { debouncedSave, debouncedSetHistory, flushRecipeSaves, useEditorActions, waitForPendingMetadataSave } from './useEditorActions';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { INITIAL_ADJUSTMENTS } from '../utils/adjustments';
@@ -72,6 +72,11 @@ afterEach(async () => {
   debouncedSetHistory.cancel();
   for (const request of pending) if (!request.settled) request.resolve({ changes: [] });
   await act(async () => {});
+  // Recipes a test left unsaved are written, so the next starts clean.
+  vi.mocked(invoke).mockImplementation(() => Promise.resolve({ changes: [] }));
+  await act(async () => {
+    await flushRecipeSaves();
+  });
   vi.clearAllMocks();
 });
 
@@ -133,4 +138,41 @@ it('reports a restore that failed for one photograph and keeps it unsaved for qu
   const retry = await answer(Invokes.SaveMetadataAndUpdateThumbnail, new Error('disk full'), true);
   expect(retry.args).toEqual({ path: '/b.dng', adjustments: before('/b.dng') });
   expect(await unsaved).toEqual(['/b.dng']);
+});
+
+it('makes a photograph opened meanwhile wait for a batch still waiting for an earlier step', async () => {
+  const { result } = renderHook(useEditorActions);
+  await sync();
+  // The undo waits for nothing; a Reset of B given after it waits for the undo.
+  const undone = act(() => undo());
+  act(() => result.current.handleResetAdjustments(['/b.dng']));
+  let read = false;
+  void waitForPendingMetadataSave('/b.dng')!.then(() => { read = true; });
+  await answer(Invokes.ReplaceRecipes, { changes: synced.changes });
+  await undone;
+  await act(async () => {});
+  // Opening B reads its recipe only after the Reset wrote it.
+  expect(read).toBe(false);
+  await answer(Invokes.ResetAdjustmentsForPaths, { changes: [] });
+  await vi.waitFor(() => expect(read).toBe(true));
+});
+
+it('keeps a failed restore of a never-edited recipe unsaved and tries it again when quitting', async () => {
+  const { result } = renderHook(useEditorActions);
+  let done!: Promise<unknown>;
+  act(() => {
+    done = result.current.applyAdjustmentsToPaths({ contrast: 20 }, ['/new.dng'], { pasteFrom: '/open.dng' })!;
+  });
+  await answer(Invokes.ApplyAdjustmentsToPaths, { changes: [{ path: '/new.dng', before: null, after: after('/new.dng') }] });
+  await act(async () => { await done; });
+  const undone = act(() => undo());
+  await answer(Invokes.ReplaceRecipes, { changes: [], failure: { message: 'disk full', failed: ['/new.dng'] } });
+  await undone;
+  let unsaved!: Promise<string[]>;
+  await act(async () => {
+    unsaved = flushRecipeSaves();
+  });
+  const retry = await answer(Invokes.ReplaceRecipes, { changes: [], failure: { message: 'disk full', failed: ['/new.dng'] } });
+  expect(retry.args).toEqual({ changes: [{ path: '/new.dng', adjustments: null }] });
+  expect(await unsaved).toEqual(['/new.dng']);
 });

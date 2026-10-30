@@ -73,8 +73,18 @@ import {
   submitPhotoWrite,
 } from '../utils/photoWrites';
 
-/** Recipes whose editor save failed, kept until a later write supersedes them. */
-const unsavedRecipes = new Map<string, Adjustments>();
+/** Recipes whose editor save (or batch undo's restore) failed, kept until a
+ * later write supersedes them; null: its never-edited recipe (a restore). */
+const unsavedRecipes = new Map<string, Adjustments | null>();
+
+/** Writes a recipe kept in `unsavedRecipes` (not through the queue: the
+ * caller is a queued write or waits for it). */
+function writeUnsaved(path: string, recipe: Adjustments | null): Promise<unknown> {
+  if (recipe !== null) return invoke(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments: recipe });
+  return invoke<RecipeBatch>(Invokes.ReplaceRecipes, { changes: [{ path, adjustments: null }] }).then((batch) => {
+    if (batch?.failure) throw new Error(batch.failure.message);
+  });
+}
 
 /** Told when a photograph's recipe was written: `keys` the settings
  * written, null its whole recipe. */
@@ -97,7 +107,7 @@ function recipeWritten(paths: string[], keys: string[] | null) {
 /** Settles after every write submitted for `path` (utils/photoWrites) with
  * its recipe no save could write, if any; undefined when there is nothing
  * to wait for or keep (its recipe may be read at once). */
-export function waitForPendingMetadataSave(path: string): Promise<Adjustments | undefined> | undefined {
+export function waitForPendingMetadataSave(path: string): Promise<Adjustments | null | undefined> | undefined {
   const writes = photoWritesSettled(path);
   if (writes) return writes.then(() => unsavedRecipes.get(path));
   return unsavedRecipes.has(path) ? Promise.resolve(unsavedRecipes.get(path)) : undefined;
@@ -225,7 +235,7 @@ export async function flushRecipeSaves(): Promise<string[]> {
     // Gone meanwhile: saved, superseded or left with a switched library.
     if (unsavedRecipes.get(path) !== adjustments) continue;
     try {
-      await submitPhotoWrite([path], () => invoke(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments }), {
+      await submitPhotoWrite([path], () => writeUnsaved(path, adjustments), {
         kind: 'recipe',
       });
       if (unsavedRecipes.get(path) === adjustments) unsavedRecipes.delete(path);
@@ -481,6 +491,7 @@ async function settingsSource(path?: string): Promise<(SettingsSource & { width?
     // edit a failed save kept.
     debouncedSave.flush();
     const unsaved = await waitForPendingMetadataSave(from);
+    if (unsaved === null) return { path: from, adjustments: initialAdjustmentsFor(isRaw), isRaw, ...size };
     if (unsaved) return { path: from, adjustments: unsaved, isRaw, ...size };
     const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: from });
     // As the editor shows it: a never-edited RAW with its camera's lens data.
@@ -599,7 +610,7 @@ export function recipeWrite<T>(
         const recipe = unsavedRecipes.get(path)!;
         // A partial batch edit must not overwrite unrelated edits from a failed
         // save. Retry that complete recipe first, or leave it intact on failure.
-        await invoke(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments: recipe });
+        await writeUnsaved(path, recipe);
         if (unsavedRecipes.get(path) === recipe) unsavedRecipes.delete(path);
         recipeWritten([path], null);
       })).then((retries) => {
@@ -720,8 +731,7 @@ async function replaceRecipes(recipes: { path: string; adjustments: unknown }[],
   written.forEach((path) => unsavedRecipes.delete(path));
   recipeWritten(written, null);
   for (const { path, adjustments } of recipes)
-    if (failed.includes(path) && adjustments && typeof adjustments === 'object')
-      unsavedRecipes.set(path, adjustments as Adjustments);
+    if (failed.includes(path)) unsavedRecipes.set(path, (adjustments ?? null) as Adjustments | null);
   await showWrittenRecipes(written, shown);
   return written;
 }

@@ -118,7 +118,8 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
           // loading does not depend on decoding, so do both in the same round.
           const readMetadata = () => invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path });
           const pendingSave = waitForPendingMetadataSave(selectedImage.path);
-          let unsavedAdjustments: Adjustments | undefined;
+          // (null: a failed restore of its never-edited recipe.)
+          let unsavedAdjustments: Adjustments | null | undefined;
           const metadataRequest = (pendingSave
             ? pendingSave.then((unsaved) => {
                 unsavedAdjustments = unsaved;
@@ -145,7 +146,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
               metadataRequest,
             ]).then(([bytes, metadata]: [ArrayBuffer, ImageMetadata | null]) => {
               if (!isEffectActive || !metadata || !bytes.byteLength ||
-                  !canShowCameraPreview(unsavedAdjustments ?? metadata?.adjustments)) return;
+                  !canShowCameraPreview(unsavedAdjustments !== undefined ? unsavedAdjustments : metadata?.adjustments)) return;
               const current = useEditorStore.getState();
               if (current.selectedImage?.path !== selectedImage.path || current.selectedImage.isReady ||
                   current.selectedImage.thumbnailUrl || current.hasRenderedFirstFrame || current.finalPreviewUrl) return;
@@ -168,7 +169,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
           let batches: { order: number; recipe: Adjustments }[] = [];
           // The recipe to render: saved, or the defaults for a never-edited photo.
           const recipeFor = async (metadata: ImageMetadata | null, isRaw: boolean, width: number, height: number) => {
-            const savedAdjustments = unsavedAdjustments ?? metadata?.adjustments;
+            const savedAdjustments = unsavedAdjustments !== undefined ? unsavedAdjustments : metadata?.adjustments;
             // Profile corrections are on by default: a never-edited RAW (its
             // recipe has no lens mode at all) starts with the camera's own lens
             // data, the edge-fringe pass and the automatic lateral CA, as its

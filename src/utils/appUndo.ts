@@ -8,7 +8,7 @@ import { useLibraryStore } from "../store/useLibraryStore";
 import { useUIStore } from "../store/useUIStore";
 import { movedPath, type PathMove } from "./pathKeyedState";
 import { invokeInOrder } from "./catalogWrites";
-import { photoWorkPending } from "./photoWrites";
+import { photoWorkPending, reservePhotoWrites } from "./photoWrites";
 import { editUndoOrder, nextUndoOrder, onNewEdit } from "./undoOrder";
 import { registerWrittenSteps, travelKeptHistory } from "./photoHistory";
 
@@ -131,8 +131,9 @@ interface PendingWork {
   lane: "catalog" | "file";
   paths?: readonly string[];
   done: Promise<unknown>;
-  /** A batch recipe write whose writes joined the photos' write queues
-   * (utils/photoWrites), which order a later one behind them. */
+  /** A catalog step that has started: it gives its writes to the photos'
+   * write queues (utils/photoWrites) before its first wait, so they order a
+   * later batch write behind them. */
   submitted?: boolean;
 }
 const pendingWork = new Set<PendingWork>();
@@ -186,8 +187,9 @@ function enqueue<T>(
   work: (job: PendingWork) => Promise<T>,
   lane: "catalog" | "file" = "file",
   paths?: readonly string[],
-  /** Not waiting for a batch recipe write already submitted: the photos'
-   * write queues order this one's writes behind it. */
+  /** Not waiting for a catalog step already started: the photos' write
+   * queues order this one's writes behind its. One still waiting reserves
+   * this one's photographs (a read of their recipes waits for it). */
   passSubmitted = false,
 ): Promise<T> {
   // Writes to the same paths stay in input order. Independent metadata can
@@ -216,11 +218,17 @@ function enqueue<T>(
   const job: PendingWork = { lane, paths, done: Promise.resolve() };
   // Nothing to wait for: it starts at once, so its writes join the photos'
   // write queues before anything given after it (utils/photoWrites).
+  const start = () => {
+    const started = work(job);
+    if (lane === "catalog") job.submitted = true;
+    return started;
+  };
   const run =
     dependencies.size > 0
-      ? Promise.all([...dependencies].map((job) => job.done)).then(() => work(job))
-      : new Promise<T>((resolve) => resolve(work(job)));
+      ? Promise.all([...dependencies].map((job) => job.done)).then(start)
+      : new Promise<T>((resolve) => resolve(start()));
   job.done = run.catch(() => undefined);
+  if (passSubmitted && dependencies.size > 0 && paths) reservePhotoWrites([...paths], run);
   pendingWork.add(job);
   void job.done.then(() => pendingWork.delete(job));
   // A catalog step waits for earlier work before it writes: an export,
@@ -381,11 +389,9 @@ export function recipeBatchAction(
     filesFuture: [],
     fileRedoBlocked: true,
   }));
-  return enqueue(async (job) => {
+  return enqueue(async () => {
     try {
-      const written = work(step.order);
-      job.submitted = true;
-      const { failed, changes } = await written;
+      const { failed, changes } = await work(step.order);
       step.snapshots = changes;
       return failed;
     } finally {
