@@ -104,6 +104,7 @@ import StudioMetadataFilter from "./StudioMetadataFilter";
 import { SmartAlbumEditorHost } from "./SmartAlbumEditor";
 import { CopySettingsDialogHost } from "./CopySettingsDialog";
 import { SeriesMatchDialogHost } from "./SeriesMatchDialog";
+import { CaptureTimeDialogHost } from "./CaptureTimeDialog";
 import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
 import { clearLibrarySelection, focusWorkspaceControl, reselectForDevelop } from "./workspaceInteractions";
 import { registerAppCommands, runAppCommand } from "../../utils/appCommands";
@@ -1142,6 +1143,7 @@ export default function StudioWorkspace(props: Props) {
       <SmartAlbumEditorHost />
       <CopySettingsDialogHost />
       <SeriesMatchDialogHost />
+      <CaptureTimeDialogHost />
       {sessionBar.center && sessionBar.end ? (
         <>
           {createPortal(modules, sessionBar.center)}

@@ -54,6 +54,15 @@ const parseFocalLength = (val: string | undefined): number => {
   return isNaN(numVal) ? 0 : numVal;
 };
 
+/** A capture time as sortable text, to the fraction of a second the camera
+ * wrote (bursts within one second keep their order); empty without one. */
+function captureSortKey(exif: Record<string, string> | null | undefined): string {
+  const local = exif?.DateTimeOriginal;
+  if (!local) return '';
+  const fraction = (exif.SubSecTimeOriginal ?? '').trim();
+  return `${local}.${/^\d{1,9}$/.test(fraction) ? fraction.padEnd(9, '0') : '000000000'}`;
+}
+
 export interface GroupedLibrary {
   displayList: ImageFile[];
   badges: Map<GroupId, GroupBadgeInfo> | null;
@@ -130,8 +139,8 @@ function orderedImages(images: ImageFile[], imageRatings: Record<string, number>
     let comparison: number;
     if (isNameSort) comparison = nameCollator.compare(a.name, b.name);
     else if (key === 'date_taken') {
-      const dateA = a.image.exif?.DateTimeOriginal || '';
-      const dateB = b.image.exif?.DateTimeOriginal || '';
+      const dateA = captureSortKey(a.image.exif);
+      const dateB = captureSortKey(b.image.exif);
       comparison = dateA !== dateB ? (dateA < dateB ? -1 : 1) : a.image.modified - b.image.modified;
     } else comparison = a.value - b.value;
     // Existing secondary filename ordering is ascending in either direction.

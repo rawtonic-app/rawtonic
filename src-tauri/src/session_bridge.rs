@@ -123,6 +123,16 @@ pub fn catalog_metadata(source: &Path) -> Option<rawtonic_metadata::Metadata> {
     lib.metadata(&asset.id).ok()
 }
 
+/// The corrected capture time of a managed source (Shift Capture Time),
+/// `None` elsewhere.
+pub(crate) fn capture_override(
+    source: &Path,
+) -> Option<rawtonic_catalog::capture_time::CaptureTime> {
+    let lib = Library::open(&library_for(source)?).ok()?;
+    let asset = lib.asset_at(source).ok()??;
+    lib.capture_override(&asset.id).ok()?
+}
+
 /// Whether a virtual copy's sidecar (`<photo>.<copy>.rrdata`) is taken: its
 /// file is there, or the library keeps that copy (an offline photograph's).
 pub(crate) fn copy_exists(sidecar: &Path) -> bool {

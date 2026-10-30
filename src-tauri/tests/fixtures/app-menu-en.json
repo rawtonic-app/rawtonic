@@ -381,6 +381,12 @@
         },
         {
           "kind": "item",
+          "id": "cmd:shift_capture_time",
+          "label": "Shift Capture Time…",
+          "enabled": false
+        },
+        {
+          "kind": "item",
           "id": "cmd:auto_adjust",
           "label": "Auto Adjust",
           "enabled": false,
