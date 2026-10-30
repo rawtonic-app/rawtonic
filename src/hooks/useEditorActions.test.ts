@@ -6,6 +6,7 @@ import {
   debouncedSetHistory,
   endBeforePeek,
   flushRecipeSaves,
+  RECIPE_SAVE_SETTLED,
   registerScheduledRecipe,
   rememberOpenedRecipe,
   startBeforePeek,
@@ -167,6 +168,40 @@ it('persists unrelated unsaved adjustments before applying a partial Library pas
   await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
   expect(waitForPendingMetadataSave('/failed-paste.dng')).toBeUndefined();
   errorLog.mockRestore();
+});
+
+describe('the session bar recounts the XMP sidecars after a batch recipe write', () => {
+  const settled = vi.fn();
+  beforeEach(() => window.addEventListener(RECIPE_SAVE_SETTLED, settled));
+  afterEach(() => {
+    window.removeEventListener(RECIPE_SAVE_SETTLED, settled);
+    settled.mockReset();
+  });
+
+  it.each([
+    ['paste', Invokes.ApplyAdjustmentsToPaths],
+    ['reset', Invokes.ResetAdjustmentsForPaths],
+  ] as const)('after a %s onto closed photographs', async (kind, command) => {
+    const { result } = renderHook(useEditorActions);
+    act(() => {
+      if (kind === 'paste') result.current.handlePasteAdjustments(['/second.dng', '/third.dng']);
+      else result.current.handleResetAdjustments(['/second.dng', '/third.dng']);
+    });
+    await act(async () => {});
+    expect(settled).not.toHaveBeenCalled();
+    await finish(command, undefined);
+    expect(settled).toHaveBeenCalledTimes(1);
+  });
+
+  it('also when the write failed', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(invoke).mockRejectedValueOnce(new Error('disk full'));
+    const { result } = renderHook(useEditorActions);
+    await act(async () => result.current.applyAdjustmentsToPaths({ exposure: 1 }, ['/second.dng']));
+    expect(invoke).toHaveBeenCalledWith(Invokes.ApplyAdjustmentsToPaths, expect.anything());
+    expect(settled).toHaveBeenCalledTimes(1);
+    errorLog.mockRestore();
+  });
 });
 
 it.each([

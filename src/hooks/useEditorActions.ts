@@ -67,6 +67,7 @@ export function waitForPendingMetadataSave(path: string): Promise<Adjustments | 
 /** Fired on `window` each time a recipe save settles, written or not (the
  * session bar then counts the XMP sidecars saves could not write). */
 export const RECIPE_SAVE_SETTLED = 'rawtonic:recipe-save-settled';
+export const recipeSaveSettled = () => window.dispatchEvent(new Event(RECIPE_SAVE_SETTLED));
 
 const isIdentityCurve = (points?: Array<Coord>) =>
   !points ||
@@ -93,7 +94,7 @@ export const debouncedSave = debounce((path: string, adjustmentsToSave: Adjustme
   pendingMetadataSaves.set(path, pending);
   void pending.then(() => {
     if (pendingMetadataSaves.get(path) === pending) pendingMetadataSaves.delete(path);
-    window.dispatchEvent(new Event(RECIPE_SAVE_SETTLED));
+    recipeSaveSettled();
   });
   return pending;
 }, 300);
@@ -156,15 +157,17 @@ registerQuitFlush(async () =>
  * was not saved and resolves with those paths, so the saved ones still
  * update. */
 function savedBatch(command: Promise<unknown>, paths: string[], what: string): Promise<string[]> {
-  return command.then(
-    () => [],
-    (err) => {
-      console.error(`Failed to ${what}:`, err);
-      const { message, failed } = saveFailure(err, paths);
-      toast.error(`Failed to ${what}: ${message}`);
-      return failed;
-    },
-  );
+  return command
+    .then(
+      () => [],
+      (err) => {
+        console.error(`Failed to ${what}:`, err);
+        const { message, failed } = saveFailure(err, paths);
+        toast.error(`Failed to ${what}: ${message}`);
+        return failed;
+      },
+    )
+    .finally(recipeSaveSettled);
 }
 
 /** The saved recipe the open photograph was opened from (with the camera
@@ -433,7 +436,7 @@ async function writeRecipeValues(values: RecipeValues[]): Promise<RecipeValues[]
   const result = await afterRecipeSaves(paths, () =>
     invoke<{ before: RecipeValues[]; failure?: { message: string; failed: string[] } }>(Invokes.SetRecipeValues, {
       changes: values,
-    }),
+    }).finally(recipeSaveSettled),
   );
   if (result.failure) toast.error(i18next.t('studio.seriesMatch.notSaved', { error: result.failure.message }));
   const written = result.before.map((before) => before.path);
