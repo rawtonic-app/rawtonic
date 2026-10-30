@@ -61,17 +61,10 @@ export default function TaggingSubMenu({
         onTagsChanged(paths, newTags);
         setInputValue('');
       } catch (err) {
-        // Saved for the photographs the library does not name
-        // (`SaveFailure.failed`): they get the tag, the named ones do not.
-        const { message, failed } = saveFailure(err, pathsToUpdate);
-        const saved = paths.filter((path) => !failed.includes(path));
-        if (saved.length) {
-          const newTags = [...tags, { tag: newTagValue, isUser: true }].sort((a, b) => a.tag.localeCompare(b.tag));
-          setTags(newTags);
-          onTagsChanged(saved, newTags);
-          setInputValue('');
-        }
-        toast.error(`Failed to add tag: ${message}`);
+        // Not saved everywhere: the menu stays as it was, so adding the tag
+        // again retries it for every photo (adding is idempotent). The XMP
+        // status follows the photos that failed (photoWrites).
+        toast.error(`Failed to add tag: ${saveFailure(err, pathsToUpdate).message}`);
       }
     }
   };
@@ -85,16 +78,9 @@ export default function TaggingSubMenu({
       setTags(newTags);
       onTagsChanged(paths, newTags);
     } catch (err) {
-      // Removed from the photographs the library does not name; the named
-      // ones keep the tag.
-      const { message, failed } = saveFailure(err, pathsToUpdate);
-      const saved = paths.filter((path) => !failed.includes(path));
-      if (saved.length) {
-        const newTags = tags.filter((t) => t.tag !== tagToRemove.tag);
-        setTags(newTags);
-        onTagsChanged(saved, newTags);
-      }
-      toast.error(`Failed to remove tag: ${message}`);
+      // Not removed everywhere: the tag stays in the menu so removing it
+      // again retries it for every photo.
+      toast.error(`Failed to remove tag: ${saveFailure(err, pathsToUpdate).message}`);
     }
   };
 
