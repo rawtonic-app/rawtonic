@@ -1,11 +1,54 @@
 import "../../i18n";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { INITIAL_ADJUSTMENTS } from "../../utils/adjustments";
+import { useEditorStore } from "../../store/useEditorStore";
 import { PointCurve } from "./StudioDevelop";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  useEditorStore.setState({
+    curveChannel: "luma",
+    tatTarget: null,
+    tatCurveMarker: null,
+  });
+});
+
+describe("point curve targeted marker", () => {
+  it("marks the sampled input on the shown channel's curve, only for the targeted curve", () => {
+    const curves = {
+      ...INITIAL_ADJUSTMENTS.curves,
+      red: [
+        { x: 0, y: 0 },
+        { x: 100, y: 140 },
+        { x: 255, y: 255 },
+      ],
+    };
+    useEditorStore.setState({
+      curveChannel: "red",
+      tatTarget: "curve",
+      tatCurveMarker: 100,
+    });
+    const { container, rerender } = render(
+      <PointCurve curves={curves} onChange={() => {}} disabled={false} onInteraction={() => {}} targeted />,
+    );
+    // The channel tab is the store's (the targeted curve moves that one).
+    expect(screen.getByRole("button", { name: "R" }).getAttribute("aria-pressed")).toBe("true");
+    const marker = screen.getByTestId("curve-target-marker");
+    expect(marker.querySelector("line")!.getAttribute("x1")).toBe("100");
+    expect(marker.querySelector("circle")!.getAttribute("cy")).toBe(String(255 - 140));
+    fireEvent.click(screen.getByRole("button", { name: "G" }));
+    expect(useEditorStore.getState().curveChannel).toBe("green");
+    expect(screen.getByTestId("curve-target-marker").querySelector("circle")!.getAttribute("cy")).toBe("155");
+    // A layer's curves (not the targeted ones) and other targets: no marker.
+    rerender(<PointCurve curves={curves} onChange={() => {}} disabled={false} onInteraction={() => {}} />);
+    expect(container.querySelector(".curve-target")).toBeNull();
+    rerender(<PointCurve curves={curves} onChange={() => {}} disabled={false} onInteraction={() => {}} targeted />);
+    act(() => useEditorStore.setState({ tatTarget: "regionCurve" }));
+    expect(container.querySelector(".curve-target")).toBeNull();
+  });
+});
 
 describe("point curve keyboard", () => {
   it("uses the drawing transform for creation and dragging in every channel", () => {
