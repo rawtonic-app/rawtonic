@@ -158,6 +158,7 @@
       "rotate_right": "Ruota a destra",
       "select_all": "Seleziona tutto",
       "select_none": "Deseleziona tutto",
+      "shift_capture_time": "Sposta ora di scatto…",
       "show_in_finder": "Mostra nel Finder",
       "sync_settings": "Sincronizza impostazioni",
       "tether_capture": "Scatta (fotocamera collegata)",
@@ -218,6 +219,75 @@
       "recipes": "Esporta con ricetta"
     }
   },
+  "captureTime": {
+    "applied_one": "Ora di scatto corretta per {{count}} foto",
+    "applied_many": "Ora di scatto corretta per {{count}} foto",
+    "applied_other": "Ora di scatto corretta per {{count}} foto",
+    "apply_one": "Applica a {{count}} foto",
+    "apply_many": "Applica a {{count}} foto",
+    "apply_other": "Applica a {{count}} foto",
+    "cameraCount": "{{name}} ({{n}})",
+    "cancel": "Annulla",
+    "conflict_one": "{{count}} foto è cambiata da questa anteprima. Non è stato scritto nulla; controlla la nuova anteprima e applica di nuovo.",
+    "conflict_many": "{{count}} foto sono cambiate da questa anteprima. Non è stato scritto nulla; controlla la nuova anteprima e applica di nuovo.",
+    "conflict_other": "{{count}} foto sono cambiate da questa anteprima. Non è stato scritto nulla; controlla la nuova anteprima e applica di nuovo.",
+    "correctedHelp": "AAAA-MM-GG HH:MM:SS, con frazione facoltativa (.250). Senza, la foto mantiene la sua frazione di secondo.",
+    "correctedTime": "La sua ora corretta",
+    "direction": "Direzione",
+    "earlier": "Prima",
+    "errors": {
+      "field": "Inserisci un numero intero (i secondi accettano fino a nove decimali).",
+      "fraction": "La frazione di secondo può avere al massimo nove cifre.",
+      "invalid": "Data e ora non valide (AAAA-MM-GG HH:MM:SS).",
+      "outOfRange": "L'ora deve essere compresa tra gli anni 0001 e 9999."
+    },
+    "excluded": {
+      "noCaptureTime": "il file non ha un'ora di scatto",
+      "notInLibrary": "non è in questo progetto o catalogo",
+      "offline": "offline: impossibile leggere l'ora di scatto",
+      "otherLibrary": "è in un altro progetto o catalogo"
+    },
+    "excludedCount_one": "{{count}} foto esclusa",
+    "excludedCount_many": "{{count}} foto escluse",
+    "excludedCount_other": "{{count}} foto escluse",
+    "failed": "Impossibile modificare l'ora di scatto: {{error}}",
+    "filesUnchanged": "I file delle foto e le loro date di file non vengono modificati. Ordinamento, ricerca, nomi ed esportazioni usano l'ora corretta.",
+    "how": "Correzione",
+    "intro": "Corregge un orologio della fotocamera impostato male: ogni foto viene spostata della stessa durata, così le foto di più fotocamere si ordinano come sono state scattate.",
+    "later": "Più tardi",
+    "modes": {
+      "reference": "Imposta l'ora di una foto",
+      "reset_one": "Torna all'ora del file ({{count}} corretta)",
+      "reset_many": "Torna all'ora del file ({{count}} corrette)",
+      "reset_other": "Torna all'ora del file ({{count}} corrette)",
+      "shift": "Sposta di"
+    },
+    "nothingToChange": "Niente da cambiare.",
+    "notInLibrary": "Sposta ora di scatto agisce sulle foto di un progetto o catalogo. Aggiungi prima queste foto a uno di essi.",
+    "outOfRange_one": "{{name}} uscirebbe dagli anni 0001–9999. Non si può applicare nulla.",
+    "outOfRange_many": "{{count}} foto, come {{name}}, uscirebbero dagli anni 0001–9999. Non si può applicare nulla.",
+    "outOfRange_other": "{{count}} foto, come {{name}}, uscirebbero dagli anni 0001–9999. Non si può applicare nulla.",
+    "parts": {
+      "days": "Giorni",
+      "hours": "Ore",
+      "minutes": "Minuti",
+      "seconds": "Secondi"
+    },
+    "rangeChange": "Da {{from}} – {{to}} a {{newFrom}} – {{newTo}}",
+    "reading": "Lettura delle ore di scatto…",
+    "referenceChange": "{{name}}: {{before}} → {{after}}",
+    "referencePhoto": "Foto di riferimento",
+    "shiftEarlier": "Spostamento: {{days}} g {{hours}} h {{minutes}} min {{seconds}} s prima",
+    "shiftLater": "Spostamento: {{days}} g {{hours}} h {{minutes}} min {{seconds}} s più tardi",
+    "sidecarsFailed_one": "La libreria ha la correzione; il file delle impostazioni di {{count}} foto non è ancora stato scritto e seguirà con la sua prossima modifica.",
+    "sidecarsFailed_many": "La libreria ha la correzione; i file delle impostazioni di {{count}} foto non sono ancora stati scritti e seguiranno con la loro prossima modifica.",
+    "sidecarsFailed_other": "La libreria ha la correzione; i file delle impostazioni di {{count}} foto non sono ancora stati scritti e seguiranno con la loro prossima modifica.",
+    "summary_one": "{{count}} foto",
+    "summary_many": "{{count}} foto",
+    "summary_other": "{{count}} foto",
+    "title": "Sposta ora di scatto",
+    "unknownCamera": "Fotocamera sconosciuta"
+  },
   "commandPalette": {
     "close": "Chiudi la tavolozza comandi",
     "empty": "Nessun comando corrispondente. Prova un’altra ricerca.",
@@ -226,6 +296,7 @@
     "search": "Cerca comandi…",
     "selectAtMostPhotos": "Seleziona al massimo {{max}} fotografie",
     "selectFourPhotos": "Seleziona almeno quattro fotografie",
+    "selectPhotos": "Seleziona una o più foto",
     "selectTwoPhotos": "Seleziona almeno due fotografie"
   },
   "contextMenus": {
@@ -343,6 +414,7 @@
       "resetAdjustments_one": "Ripristina Regolazioni",
       "resetAdjustments_many": "Ripristina Regolazioni su {{count}} Immagini",
       "resetAdjustments_other": "Ripristina Regolazioni su {{count}} Immagini",
+      "shiftCaptureTime": "Sposta ora di scatto…",
       "showExplorer": "Mostra in Esplora File",
       "showFinder": "Mostra nel Finder",
       "virtualCopy": "Copia Virtuale"
@@ -3755,6 +3827,7 @@
       "notInSession": "Alcune foto selezionate non fanno parte di questo progetto.",
       "outsideSessions": "Fuori da un progetto, descrizione, autore, copyright e commento vengono salvati con le modifiche di ogni foto; il titolo e i campi IPTC vengono salvati nei progetti.",
       "selectToSee": "Seleziona delle foto per vederne i metadati.",
+      "shiftCaptureTime": "Sposta ora di scatto…",
       "title": "Metadati",
       "toasts": {
         "keywordsRemoveFailed": "Impossibile rimuovere le parole chiave: {{error}}",
@@ -4358,6 +4431,7 @@
         "searchLabel": "Cerca foto",
         "sort": "Ordina foto",
         "sortBy": {
+          "captured": "Ora di scatto",
           "date": "Modifica",
           "name": "Nome file",
           "rating": "Valutazione"
@@ -4462,6 +4536,7 @@
   },
   "undoHistory": {
     "apply": "Applica impostazioni",
+    "captureTime": "Sposta ora di scatto",
     "color": "Imposta etichetta colore",
     "edit": "Modifica",
     "file": "Modifica file",

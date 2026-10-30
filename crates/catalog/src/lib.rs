@@ -15,6 +15,7 @@ use std::{
 use uuid::Uuid;
 
 pub mod add;
+pub mod capture_time;
 pub mod checksum;
 pub mod companion;
 pub mod facts;
@@ -41,7 +42,7 @@ pub const SCHEMA_VERSION: u32 = 1;
 const VISIBLE_ASSETS: &str = "a.trashed=0 AND NOT (a.root_id='session' AND (a.rel_path='Trash' OR substr(replace(a.rel_path,char(92),'/'),1,6)='Trash/'))";
 
 /// Version of the SQLite schema; older databases are migrated when opened.
-pub const DB_SCHEMA_VERSION: u32 = 18;
+pub const DB_SCHEMA_VERSION: u32 = 19;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -329,6 +330,7 @@ impl Library {
         conn.execute_batch(include_str!("../migrations/0016.sql"))?;
         conn.execute_batch(include_str!("../migrations/0017.sql"))?;
         conn.execute_batch(include_str!("../migrations/0018.sql"))?;
+        conn.execute_batch(include_str!("../migrations/0019.sql"))?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],
@@ -461,6 +463,9 @@ impl Library {
         }
         if version < 18 {
             tx.execute_batch(include_str!("../migrations/0018.sql"))?;
+        }
+        if version < 19 {
+            tx.execute_batch(include_str!("../migrations/0019.sql"))?;
         }
         tx.commit()?;
         Ok(())
@@ -1158,6 +1163,18 @@ impl Library {
     /// loaded from that sidecar): then they are taken over, in the same
     /// transaction.
     pub fn save_editor_state(&self, asset: &str, legacy: &Value) -> Result<()> {
+        // A state read before its capture time was corrected (an editor
+        // still open) keeps the correction in its EXIF.
+        let corrected;
+        let legacy = match self.capture_override(asset)? {
+            Some(time) => {
+                let mut state = legacy.clone();
+                capture_time::overlay(&mut state, &time);
+                corrected = state;
+                &corrected
+            }
+            None => legacy,
+        };
         let version = self.primary_version(asset)?;
         let (bytes, meta) = self.editor_recipe(legacy, self.metadata(asset)?)?;
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
@@ -1226,6 +1243,10 @@ impl Library {
             rawtonic_metadata::resources::resolve(state, &self.directory);
             if !snapshots.is_empty() {
                 snapshots::set_in_state(state, &snapshots)?;
+            }
+            // The EXIF it shows and exports carries a corrected capture time.
+            if let Some(time) = self.capture_override(asset)? {
+                capture_time::overlay(state, &time);
             }
         }
         Ok(state)

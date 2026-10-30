@@ -56,6 +56,7 @@ fn export(exporter: &FileExporter, source: &Path, output: &Path) -> Vec<u8> {
             settings: settings(),
             base: BaseImageOptions::default(),
             catalog: None,
+            capture: None,
         })
         .unwrap();
     fs::read(output).unwrap()

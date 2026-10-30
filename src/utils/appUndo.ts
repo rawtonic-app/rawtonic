@@ -9,6 +9,7 @@ import { useUIStore } from "../store/useUIStore";
 import { movedPath, type PathMove } from "./pathKeyedState";
 import { invokeInOrder } from "./catalogWrites";
 import { photoWorkPending, reservePhotoWrites } from "./photoWrites";
+import { writeCaptureTimes, type PlannedChange } from "./captureTime";
 import { editUndoOrder, nextUndoOrder, onNewEdit } from "./undoOrder";
 import { registerWrittenSteps, travelKeptHistory } from "./photoHistory";
 
@@ -80,10 +81,13 @@ export type BatchLabel =
   | "apply";
 interface Step {
   order: number;
-  action: CullingValue["kind"] | "recipes";
+  action: CullingValue["kind"] | "recipes" | "captureTime";
   changes: CullingChange[];
   /** A batch recipe change (series match): one step for all its photos. */
   recipes?: RecipeChange[];
+  /** A capture-time correction: the changes that take it back (undo) or
+   * do it again (redo), and the library it was written to. */
+  captureTime?: { library: string; undo: PlannedChange[]; redo: PlannedChange[] };
   /** A batch edit of whole recipes (paste, sync, reset, …). */
   snapshots?: RecipeSnapshot[];
   label?: BatchLabel;
@@ -352,6 +356,36 @@ export function recipeAction(values: RecipeValues[]): Promise<string[]> {
         }));
     }
   }, "catalog", paths);
+}
+
+/** Writes a capture-time correction (Shift Capture Time) to `library` as
+ * one undoable step for all its photos. Resolves with what was written;
+ * a conflict writes nothing and makes no step. */
+export async function captureTimeAction(library: string, changes: PlannedChange[]) {
+  debouncedSetHistory.flush();
+  const paths = changes.map((change) => change.path);
+  const applied = await enqueue(() => writeCaptureTimes(library, changes), "catalog", paths);
+  if (applied.conflicts.length || !applied.undo.length) return applied;
+  branch++;
+  const editor = useEditorStore.getState();
+  editor.setEditor({
+    history: editor.history.slice(0, editor.historyIndex + 1),
+  });
+  const step: Step = {
+    order: nextUndoOrder(),
+    action: "captureTime",
+    changes: [],
+    captureTime: { library, undo: applied.undo, redo: changes },
+    directory: useLibraryStore.getState().sessionDirectory,
+  };
+  currentTargets.set(step, paths);
+  useCatalogUndoStore.setState((s) => ({
+    past: [...s.past, step].slice(-100),
+    future: [],
+    filesFuture: [],
+    fileRedoBlocked: true,
+  }));
+  return applied;
 }
 
 /** Runs a batch recipe edit of `paths` (paste, sync, reset, …) as one
@@ -650,6 +684,7 @@ function actionLabel(direction: "undo" | "redo") {
     if (action === "color") return i18n.t("undoHistory.color");
     if (action === "recipes")
       return batchLabel(catalogStep(direction)!.label);
+    if (action === "captureTime") return i18n.t("undoHistory.captureTime");
     return null;
   }
   return null;
@@ -856,6 +891,14 @@ async function travel(
   const step = useCatalogUndoStore.getState()[from].at(-1)!;
   const label = direction === "undo" ? getUndoLabel() : getRedoLabel();
   useCatalogUndoStore.setState({ busy: true });
+  if (step.captureTime) {
+    try {
+      await travelCaptureTime(step, direction, startedOnBranch);
+    } finally {
+      useCatalogUndoStore.setState({ busy: false });
+    }
+    return;
+  }
   if (step.recipes || step.snapshots) {
     try {
       await travelRecipes(step, direction, startedOnBranch);
@@ -1004,6 +1047,39 @@ async function travelRecipes(
       for (const { path } of step.snapshots ?? step.recipes ?? [])
         if (path !== open) travelKeptHistory(path, step.order, direction);
       if (missing) throw new Error(i18n.t("undoHistory.recipesNotAll"));
+      if (useCatalogUndoStore.getState()[from].includes(step))
+        useCatalogUndoStore.setState((s) => ({
+          [from]: s[from].filter((item) => item !== step),
+          [to]: branch === startedOnBranch ? [...s[to], step] : s[to],
+        }));
+    }, "catalog", currentTargets.get(step));
+  } catch (error) {
+    const detail = String((error as { message?: string })?.message ?? error);
+    toast.error(
+      direction === "undo"
+        ? i18n.t("studio.library.fileOperations.undoFailed", { error: detail })
+        : i18n.t("studio.library.fileOperations.redoFailed", { error: detail }),
+    );
+  }
+}
+/** Undo/redo of a capture-time correction: all its photos or none (a
+ * photo corrected since conflicts and the step stays to look at again). */
+async function travelCaptureTime(
+  step: Step,
+  direction: "undo" | "redo",
+  startedOnBranch: number,
+) {
+  const from = direction === "undo" ? "past" : "future";
+  const to = direction === "undo" ? "future" : "past";
+  const { library, undo: back, redo: again } = step.captureTime!;
+  try {
+    await enqueue(async () => {
+      if (!useCatalogUndoStore.getState()[from].includes(step)) return;
+      const applied = await writeCaptureTimes(library, direction === "undo" ? back : again);
+      if (applied.conflicts.length)
+        throw new Error(i18n.t("captureTime.conflict", { count: applied.conflicts.length }));
+      if (applied.failed.length)
+        toast.warning(i18n.t("captureTime.sidecarsFailed", { count: applied.failed.length }));
       if (useCatalogUndoStore.getState()[from].includes(step))
         useCatalogUndoStore.setState((s) => ({
           [from]: s[from].filter((item) => item !== step),

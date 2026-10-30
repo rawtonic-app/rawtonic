@@ -944,7 +944,7 @@ impl<'a> Compiler<'a> {
             Field::Exposure => {
                 self.number_column("a.exposure", op, value, Tolerance::Relative(0.03))
             }
-            Field::CaptureDate => self.date_column("a.capture_time", op, value),
+            Field::CaptureDate => self.date_column(crate::capture_time::EFFECTIVE, op, value),
             Field::ImportDate => self.date_column(
                 "(SELECT datetime(b.created_at,'localtime') FROM asset_imports i \
                   JOIN import_batches b ON b.id=i.batch_id WHERE i.asset_id=a.id)",
@@ -1514,9 +1514,10 @@ impl Library {
             .any(|f| matches!(f, Field::Rating | Field::Flag | Field::Label));
         if !tallies.is_empty() {
             let mut query = self.conn.prepare(&format!(
-                "SELECT substr(a.capture_time,1,7), a.camera, a.lens, a.kind, a.iso, a.focal_length, a.aperture, {},
+                "SELECT substr({},1,7), a.camera, a.lens, a.kind, a.iso, a.focal_length, a.aperture, {},
                         a.source_type
                  FROM {} WHERE {}",
+                crate::capture_time::EFFECTIVE,
                 if culling { "m.rating, m.flag, m.label" } else { "0, 0, ''" },
                 compiled.from(culling, false),
                 compiled.condition

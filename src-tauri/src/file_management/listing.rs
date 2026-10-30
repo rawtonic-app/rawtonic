@@ -439,7 +439,7 @@ pub async fn update_exif_fields(
 /// Applies `updates` to one photo's EXIF fields in its sidecar (an empty value
 /// removes the field). Takes its turn with the other sidecar field edits, so a
 /// rating or recipe saved meanwhile is not overwritten.
-fn update_exif_of(path: &str, updates: &HashMap<String, String>) -> Result<(), String> {
+pub(crate) fn update_exif_of(path: &str, updates: &HashMap<String, String>) -> Result<(), String> {
     let original_path = Path::new(path);
     let primary_path = crate::exif_processing::get_primary_sidecar_path(original_path);
     let _turn = super::sidecar_field_edit();

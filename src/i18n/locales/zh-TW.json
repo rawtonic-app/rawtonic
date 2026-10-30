@@ -158,6 +158,7 @@
       "rotate_right": "向右旋轉",
       "select_all": "全選",
       "select_none": "取消選取",
+      "shift_capture_time": "調整拍攝時間…",
       "show_in_finder": "在 Finder 中顯示",
       "sync_settings": "同步設定",
       "tether_capture": "拍攝（連線相機）",
@@ -218,6 +219,67 @@
       "recipes": "使用配方匯出"
     }
   },
+  "captureTime": {
+    "applied_one": "已校正 {{count}} 張照片的拍攝時間",
+    "applied_other": "已校正 {{count}} 張照片的拍攝時間",
+    "apply_one": "套用到 {{count}} 張照片",
+    "apply_other": "套用到 {{count}} 張照片",
+    "cameraCount": "{{name}}（{{n}}）",
+    "cancel": "取消",
+    "conflict_one": "自此預覽後有 {{count}} 張照片被變更。未寫入任何內容；請檢查新的預覽後重新套用。",
+    "conflict_other": "自此預覽後有 {{count}} 張照片被變更。未寫入任何內容；請檢查新的預覽後重新套用。",
+    "correctedHelp": "YYYY-MM-DD HH:MM:SS，可帶小數（.250）。不帶小數時，照片保留其秒以下部分。",
+    "correctedTime": "其正確時間",
+    "direction": "方向",
+    "earlier": "提前",
+    "errors": {
+      "field": "請輸入整數（秒最多可有九位小數）。",
+      "fraction": "秒的小數部分最多九位。",
+      "invalid": "日期和時間無效（YYYY-MM-DD HH:MM:SS）。",
+      "outOfRange": "時間必須在 0001 年至 9999 年之間。"
+    },
+    "excluded": {
+      "noCaptureTime": "檔案沒有拍攝時間",
+      "notInLibrary": "不在此專案或目錄中",
+      "offline": "離線：無法讀取拍攝時間",
+      "otherLibrary": "在另一個專案或目錄中"
+    },
+    "excludedCount_one": "已排除 {{count}} 張照片",
+    "excludedCount_other": "已排除 {{count}} 張照片",
+    "failed": "無法變更拍攝時間：{{error}}",
+    "filesUnchanged": "照片檔案及其檔案日期不會變更。排序、搜尋、命名和輸出使用校正後的時間。",
+    "how": "校正方式",
+    "intro": "校正設定錯誤的相機時鐘：所有照片移動相同的時間，讓多台相機的照片依拍攝順序排列。",
+    "later": "延後",
+    "modes": {
+      "reference": "設定一張照片的時間",
+      "reset_one": "恢復為檔案中的時間（已校正 {{count}} 張）",
+      "reset_other": "恢復為檔案中的時間（已校正 {{count}} 張）",
+      "shift": "移動"
+    },
+    "nothingToChange": "沒有需要變更的內容。",
+    "notInLibrary": "調整拍攝時間適用於專案或目錄中的照片。請先將這些照片加入其中。",
+    "outOfRange_one": "{{name}} 將超出 0001–9999 年範圍。無法套用。",
+    "outOfRange_other": "{{name}} 等 {{count}} 張照片將超出 0001–9999 年範圍。無法套用。",
+    "parts": {
+      "days": "天",
+      "hours": "小時",
+      "minutes": "分鐘",
+      "seconds": "秒"
+    },
+    "rangeChange": "從 {{from}} – {{to}} 變為 {{newFrom}} – {{newTo}}",
+    "reading": "正在讀取拍攝時間…",
+    "referenceChange": "{{name}}：{{before}} → {{after}}",
+    "referencePhoto": "參考照片",
+    "shiftEarlier": "移動：提前 {{days}} 天 {{hours}} 小時 {{minutes}} 分 {{seconds}} 秒",
+    "shiftLater": "移動：延後 {{days}} 天 {{hours}} 小時 {{minutes}} 分 {{seconds}} 秒",
+    "sidecarsFailed_one": "校正已儲存在資料庫中；{{count}} 張照片的設定檔暫未寫入，將在其下次變更時寫入。",
+    "sidecarsFailed_other": "校正已儲存在資料庫中；{{count}} 張照片的設定檔暫未寫入，將在其下次變更時寫入。",
+    "summary_one": "{{count}} 張照片",
+    "summary_other": "{{count}} 張照片",
+    "title": "調整拍攝時間",
+    "unknownCamera": "未知相機"
+  },
   "commandPalette": {
     "close": "關閉命令面板",
     "empty": "沒有符合的命令。請嘗試其他搜尋詞。",
@@ -226,6 +288,7 @@
     "search": "搜尋命令…",
     "selectAtMostPhotos": "最多選取 {{max}} 張相片",
     "selectFourPhotos": "請至少選取四張照片",
+    "selectPhotos": "請選擇一張或多張照片",
     "selectTwoPhotos": "請至少選取兩張照片"
   },
   "contextMenus": {
@@ -329,6 +392,7 @@
       "renameImage_other": "重新命名 {{count}} 張影像",
       "resetAdjustments_one": "重置調整",
       "resetAdjustments_other": "重置 {{count}} 張影像的調整",
+      "shiftCaptureTime": "調整拍攝時間…",
       "showExplorer": "在檔案資源管理器中顯示",
       "showFinder": "在 Finder 中顯示",
       "virtualCopy": "虛擬副本"
@@ -3571,6 +3635,7 @@
       "notInSession": "部分選取的照片不屬於此專案。",
       "outsideSessions": "在專案之外，描述、創作者、版權和註解會隨每張照片的編輯一起儲存；標題和 IPTC 欄位儲存在專案中。",
       "selectToSee": "選取照片以檢視其後設資料。",
+      "shiftCaptureTime": "調整拍攝時間…",
       "title": "後設資料",
       "toasts": {
         "keywordsRemoveFailed": "無法移除關鍵字：{{error}}",
@@ -4149,6 +4214,7 @@
         "searchLabel": "搜尋照片",
         "sort": "照片排序",
         "sortBy": {
+          "captured": "拍攝時間",
           "date": "修改日期",
           "name": "檔案名稱",
           "rating": "星級"
@@ -4251,6 +4317,7 @@
   },
   "undoHistory": {
     "apply": "套用設定",
+    "captureTime": "調整拍攝時間",
     "color": "設定色彩標籤",
     "edit": "編輯",
     "file": "檔案變更",

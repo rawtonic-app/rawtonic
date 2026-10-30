@@ -28,6 +28,7 @@ mod bw_auto;
 mod cache_utils;
 mod camera_profile;
 mod camera_tethering;
+mod capture_time;
 mod collage;
 mod contribute;
 mod costyle;
@@ -799,6 +800,9 @@ pub fn run() {
             mask_generation::sample_luma_range,
             mask_generation::generate_mask_thumbnails,
             file_management::update_exif_fields,
+            capture_time::capture_time_preview,
+            capture_time::capture_time_plan,
+            capture_time::capture_time_apply,
             file_management::file_size,
             file_management::get_supported_file_types,
             file_management::read_exif_for_paths,
