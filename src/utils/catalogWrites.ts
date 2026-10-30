@@ -31,8 +31,11 @@ export function metadataWritten(path: string): boolean {
  * catalog may be locked for seconds; the main thread must not wait), so two
  * quick key presses would otherwise race and the older value could land
  * last. A failed write does not stop the ones after it.
+ *
+ * `kind` names the write in its `PHOTO_WRITES_SETTLED` announcement (default:
+ * the command), which the session bar's XMP count follows — also a failed one.
  */
-export function invokeInOrder<T>(command: string, args: InvokeArgs): Promise<T> {
+export function invokeInOrder<T>(command: string, args: InvokeArgs, kind = command): Promise<T> {
   const paths = (args as { paths?: unknown }).paths;
   const ratedPaths =
     command === 'set_rating_for_paths' && Array.isArray(paths)
@@ -41,7 +44,7 @@ export function invokeInOrder<T>(command: string, args: InvokeArgs): Promise<T> 
   for (const path of ratedPaths) rated.set(path, (rated.get(path) ?? 0) + 1);
   // Also after the photographs' recipe writes given before (their XMP
   // carries rating, label and keywords too).
-  const run = submitPhotoWrite(writtenPaths(args), () => invoke<T>(command, args), { kind: command, after: last });
+  const run = submitPhotoWrite(writtenPaths(args), () => invoke<T>(command, args), { kind, after: last });
   run.catch((error: unknown) => {
     // A save that failed for some photographs names them; the others were
     // rated.
