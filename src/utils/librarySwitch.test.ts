@@ -103,6 +103,34 @@ it('drops a debounced save made during the switch instead of writing it to the n
   }
 });
 
+it('makes the app inert from the first save, but not while asking', async () => {
+  let saved: () => void = () => {};
+  vi.mocked(invoke).mockImplementationOnce(() => new Promise<undefined>((resolve) => (saved = () => resolve(undefined))));
+  debouncedSave(PHOTO, edit(3));
+  const asked: boolean[] = [];
+  const switched = switchLibraryAfterSaves(open('B'), async () => {
+    asked.push(useUIStore.getState().switchingLibrary);
+    return 'retry';
+  });
+  // The save is being written: nothing can be edited meanwhile.
+  await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith(Invokes.SaveMetadataAndUpdateThumbnail, expect.anything()));
+  expect(useUIStore.getState().switchingLibrary).toBe(true);
+  saved();
+  expect(await switched).toBe('B');
+  expect(asked).toEqual([]);
+  expect(useUIStore.getState().switchingLibrary).toBe(false);
+  // Asked after a failure: the question holds the app, the shield does not.
+  await failedEditInA();
+  failing = true;
+  const cancelled = await switchLibraryAfterSaves(open('B'), async () => {
+    asked.push(useUIStore.getState().switchingLibrary);
+    return 'cancel';
+  });
+  expect(cancelled).toBeNull();
+  expect(asked).toEqual([false]);
+  expect(useUIStore.getState().switchingLibrary).toBe(false);
+});
+
 it('makes the app inert while the next library opens, and only then', async () => {
   const during: boolean[] = [];
   const opened = await switchLibraryAfterSaves(async () => {

@@ -362,6 +362,33 @@ describe('Edit all selected', () => {
       expect(written.A).toEqual(['/s/a.CR3', '/s/c.CR3', '/s/a.CR3', '/s/c.CR3']);
     });
 
+    it('keeps a failed write after it is switched off, until it is saved', async () => {
+      const { rerender } = renderHook(({ on }) => useEditAllSelected(on, selection), { initialProps: { on: true } });
+      failing = true;
+      edit({ exposure: 0.5 });
+      await act(async () => {
+        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+      });
+      rerender({ on: false });
+      // Back in the Library, the selection is exported: the export is told.
+      let unsaved: string[] = [];
+      await act(async () => {
+        unsaved = await flushRecipeSaves();
+      });
+      expect(unsaved).toEqual(['/s/a.CR3', '/s/c.CR3']);
+      failing = false;
+      await act(async () => {
+        unsaved = await flushRecipeSaves();
+      });
+      expect(unsaved).toEqual([]);
+      expect(written.A).toEqual(['/s/a.CR3', '/s/c.CR3']);
+      // Saved: nothing is written again.
+      await act(async () => {
+        await flushRecipeSaves();
+      });
+      expect(pasted()).toHaveLength(5);
+    });
+
     it('holds the switch while the write failed: Retry writes it into the library it was made in', async () => {
       renderHook(() => useEditAllSelected(true, selection));
       edit({ exposure: 0.5 });

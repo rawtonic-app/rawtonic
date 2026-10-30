@@ -78,22 +78,28 @@ export async function switchLibraryAfterSaves<T>(
   open: () => Promise<T>,
   ask: AskBeforeSwitch = confirmSwitchWithUnsaved,
 ): Promise<T | null> {
-  for (;;) {
-    const failures = await flushBeforeQuit();
-    if (!failures.length) break;
-    const choice = await ask(failures);
-    if (choice === 'cancel') return null;
-    if (choice === 'discard') break;
-  }
-  const ends = [...resets].map((reset) => reset());
-  // Until the next library is open the photo shown is still the old one's:
-  // an edit made now could be saved in neither, so none can be made.
-  useUIStore.getState().setUI({ switchingLibrary: true });
+  // From the first save until the next library is open nothing can be
+  // edited: an edit made while the saves are written could miss them, and
+  // one made later could be saved in neither library. While the user is
+  // asked, the question holds the app instead.
+  const hold = (holding: boolean) => useUIStore.getState().setUI({ switchingLibrary: holding });
+  hold(true);
+  let ends: (() => void)[] = [];
   try {
+    for (;;) {
+      const failures = await flushBeforeQuit();
+      if (!failures.length) break;
+      hold(false);
+      const choice = await ask(failures);
+      if (choice === 'cancel') return null;
+      hold(true);
+      if (choice === 'discard') break;
+    }
+    ends = [...resets].map((reset) => reset());
     return await open();
   } finally {
     ends.forEach((end) => end());
-    useUIStore.getState().setUI({ switchingLibrary: false });
+    hold(false);
   }
 }
 

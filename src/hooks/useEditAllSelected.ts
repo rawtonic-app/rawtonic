@@ -183,7 +183,16 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
         if (done) await done;
       }
       while (writing.size > 0) await Promise.all(writing);
+      if (disposed && unwritten.size === 0) release();
       return [...unwritten.keys()];
+    };
+    // Switched off, it stays registered while a write is in flight or
+    // failed: those edits are still saved (or discarded at a library
+    // switch), never forgotten.
+    let disposed = false;
+    const release = () => {
+      unregisterFlush();
+      unregisterReset();
     };
     const unregisterFlush = registerRecipeFlush(drain);
     // Past the barrier: written or discarded; nothing gathered from now
@@ -194,6 +203,7 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       pending = {};
       targets = new Set();
       unwritten.clear();
+      if (disposed) release();
       return () => {
         switching = false;
       };
@@ -257,11 +267,14 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
     });
     return () => {
       unsubscribe();
-      unregisterFlush();
-      unregisterReset();
+      disposed = true;
       // Switching it off keeps what was already done (for the photographs
       // selected when it was done).
       flush.flush();
+      void (async () => {
+        while (writing.size > 0) await Promise.all(writing);
+        if (unwritten.size === 0) release();
+      })();
       if (liveTimer !== null) clearTimeout(liveTimer);
       // The live patch goes once the last write is in (else the cells would
       // show the old recipes for a moment), unless a newer run took over.
