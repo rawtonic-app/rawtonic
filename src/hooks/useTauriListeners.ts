@@ -720,8 +720,10 @@ export function useTauriListeners({
         if (isEffectActive) showGpuStartError(event.payload);
       }),
     ];
-    // The GPU may have failed before this window listened.
-    invoke<string | null>(Invokes.GetGpuStartError)
+    // The GPU may have failed before this window listened: asked once the
+    // listeners are registered, so the event or the answer carries it.
+    Promise.all(listeners)
+      .then(() => invoke<string | null>(Invokes.GetGpuStartError))
       .then((error) => {
         if (isEffectActive && typeof error === 'string' && error) showGpuStartError(error);
       })

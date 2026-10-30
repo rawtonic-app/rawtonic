@@ -13,9 +13,14 @@
 //! pipeline cache (Metal, DX12, GL) there is nothing to fill and it exits
 //! after creating the device. Bounded by `LIMIT`; whatever compiled by then
 //! is in the file (each compile is written as it finishes). It logs to
-//! `gpu-warmup.log` beside `app.log` and never touches the user's photos,
-//! settings or the app's own log. Exit code 0 when the file is filled or
-//! nothing was needed, 1 otherwise; the installer ignores it.
+//! `gpu-warmup.log` beside `app.log`; it reads the backend choice from the
+//! settings file without the migrations of `load_settings` and writes
+//! nothing but the cache file and that log (no photos, settings, app log or
+//! crash flag). Only the one-time carry-over from the former identity
+//! (`identity_migration`, a no-clobber copy) runs before it, as at every
+//! start: the warm-up's log folder must not make that look done. Exit code
+//! 0 when the file is filled or nothing was needed, 1 otherwise; the
+//! installer ignores it.
 
 use std::time::{Duration, Instant};
 
@@ -31,8 +36,9 @@ pub const ARG: &str = "--warm-gpu-cache";
 const LIMIT: Duration = Duration::from_secs(120);
 
 pub fn start(app_handle: &tauri::AppHandle) {
-    let settings = crate::app_settings::load_settings(app_handle.clone()).unwrap_or_default();
-    crate::startup::apply_processing_backend(settings.processing_backend.as_deref());
+    crate::startup::apply_processing_backend(
+        crate::app_settings::read_processing_backend(app_handle).as_deref(),
+    );
     crate::startup::setup_logging(app_handle, "gpu-warmup.log");
     let started = Instant::now();
     // A compile stuck in the driver must not hold the installer.

@@ -77,8 +77,9 @@ static START_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(Non
 
 fn record_start_error(app_handle: &tauri::AppHandle, error: String) {
     use tauri::Emitter;
+    // Stored first: a window that asks after missing the event finds it.
+    *START_ERROR.lock().unwrap_or_else(|e| e.into_inner()) = Some(error.clone());
     let _ = app_handle.emit("gpu-start-failed", &error);
-    *START_ERROR.lock().unwrap_or_else(|e| e.into_inner()) = Some(error);
 }
 
 /// The reason the GPU did not start, if it did not: the window shows it
