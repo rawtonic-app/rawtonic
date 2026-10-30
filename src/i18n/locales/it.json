@@ -216,6 +216,7 @@
       "copy_adjustments": "Copia impostazioni",
       "copy_image_path": "Copia percorso",
       "delete_selected": "Sposta nel cestino",
+      "edit_with": "Modifica con…",
       "flag_pick": "Scegli",
       "flag_reject": "Scarta",
       "flag_unflag": "Senza contrassegno",
@@ -226,6 +227,7 @@
       "new_session": "Nuovo progetto o catalogo…",
       "open_session": "Apri progetto o catalogo…",
       "open_settings": "Preferenze…",
+      "open_with": "Apri con…",
       "paste_adjustments": "Incolla impostazioni",
       "paste_from_previous": "Incolla impostazioni della foto precedente",
       "rate_0": "Nessuna stella",
@@ -438,10 +440,32 @@
       "tagging": "Tagging",
       "undo": "Annulla"
     },
+    "editWith": {
+      "failed": "Modifica con non riuscito: {{error}}",
+      "generatedAreas": "Modifica con non è ancora disponibile per le foto con aree generate: {{names}}",
+      "label": "Modifica con",
+      "notLinked": "Rendering eseguito, ma non aggiunto alla libreria: {{error}}",
+      "openIn": "Apri in",
+      "recipe": "Ricetta",
+      "rendering": "Rendering per {{app}}…",
+      "someFailed": "Impossibile eseguire il rendering di {{failed}} foto su {{total}}.",
+      "tiffAdobe": "TIFF 16 bit · Adobe RGB",
+      "tiffProPhoto": "TIFF 16 bit · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "Focus Stacking",
       "hdrPanorama": "Panorama HDR",
       "title": "Unisci"
+    },
+    "openWith": {
+      "chooseTitle": "Scegli un’applicazione",
+      "default": "Predefinita",
+      "failed": "Impossibile aprire i file: {{error}}",
+      "label": "Apri con",
+      "none": "Nessuna applicazione apre questi file",
+      "other": "Altro…",
+      "reading": "Ricerca delle applicazioni…",
+      "unsupported": "Disponibile solo su macOS"
     },
     "tagging": {
       "addTagTooltip": "Aggiungi tag",

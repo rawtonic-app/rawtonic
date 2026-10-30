@@ -12,7 +12,7 @@ import {
   useProcessStore,
 } from '../store/useProcessStore';
 import { followsExportItems, loadExportItems } from '../components/studio/StudioExportQueue';
-import { useEditorStore } from '../store/useEditorStore';
+import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { libraryImageIndex } from '../utils/libraryIndex';
@@ -25,6 +25,8 @@ import { notifyExportOutputs } from '../utils/exportFeedback';
 import { metadataWritten } from '../utils/catalogWrites';
 import { notDeliveredToast } from '../components/session/tether';
 import { PhotoBatch, batchPhotoSettled, photoBatches, unsettledPhotos } from '../utils/photoWrites';
+import { globalImageCache } from '../utils/ImageLRUCache';
+import { debouncedSave } from './useEditorActions';
 
 type EditorState = ReturnType<typeof useEditorStore.getState>;
 
@@ -413,6 +415,48 @@ export function useTauriListeners({
       }),
       listen<ExternalEditSession>('external-edit-session', (event) => {
         if (isEffectActive) useProcessStore.getState().setProcess({ externalEditSession: event.payload });
+      }),
+      // Another program saved an Edit With render (open_with.rs): its kept
+      // previews are stale (the new thumbnail follows as thumbnail-generated),
+      // and the viewer decodes it again when it shows it.
+      listen<{ path: string }>('edit-with-saved', (event) => {
+        if (!isEffectActive) return;
+        const { path } = event.payload;
+        globalImageCache.deleteByPrefix(path);
+        // Selecting it again does nothing; decoding it again shows the new
+        // pixels. The recipe in the editor is saved first (after a slider
+        // drag under way ends), so the decode reads it back unchanged.
+        // Its undo history stays: the load starts a new one, which is
+        // replaced by the kept one once the photograph is ready again.
+        const reload = () => {
+          const shown = useEditorStore.getState().selectedImage;
+          if (!shown?.isDecoded || shown.path.split('?vc=')[0] !== path) return;
+          // An undo step still waiting for its debounce goes into the
+          // history kept, not into the loader's new one.
+          debouncedSetHistory.flush();
+          const { selectedImage, adjustments, history, historyIndex, setEditor } = useEditorStore.getState();
+          if (!selectedImage) return;
+          // No thumbnail from this save: the decode still loaded is the
+          // render before the save (the watcher made the new thumbnail).
+          debouncedSave(selectedImage.path, adjustments, false);
+          debouncedSave.flush();
+          setEditor({ selectedImage: { ...selectedImage, isDecoded: false, isReady: false } });
+          const shownPath = selectedImage.path;
+          const stop = useEditorStore.subscribe((state) => {
+            if (state.selectedImage?.path !== shownPath) return stop();
+            if (!state.selectedImage.isReady) return;
+            stop();
+            if (isEffectActive) state.setEditor({ history, historyIndex });
+          });
+        };
+        if (!useEditorStore.getState().isSliderDragging) reload();
+        else {
+          const stop = useEditorStore.subscribe((state) => {
+            if (state.isSliderDragging) return;
+            stop();
+            if (isEffectActive) reload();
+          });
+        }
       }),
       listen<Progress>('thumbnail-progress', (event) => {
         if (isEffectActive)

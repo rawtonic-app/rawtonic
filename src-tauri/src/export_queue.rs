@@ -7,7 +7,8 @@
 //! resumes single jobs and follows each photo (`export-item-progress`).
 use crate::app_state::AppState;
 use crate::export_processing::{
-    ExportPhotos, ExportSettings, ExportTarget, denoise_models, export_images_impl, pin_photos,
+    ExportPhotos, ExportSettings, ExportTarget, PinnedPhoto, denoise_models, export_images_impl,
+    pin_photos,
 };
 use rawtonic_export::queue::{ExportQueue, Item, ItemState, Job, JobState, RunEnd};
 use serde::{Deserialize, Serialize};
@@ -135,12 +136,15 @@ impl ExportRequest {
     /// keeps it with the photo in each of `jobs` (requests that read their
     /// photos alike). Returns what the snapshots amount to; their digest
     /// covers their JSON, which has a fixed order, so equal snapshots read
-    /// independently digest alike.
-    fn pin_into(
+    /// independently digest alike. `inspect` sees each photo's snapshot
+    /// as it is pinned; what it makes of them comes back in their order.
+    fn pin_into<T>(
         &self,
         queue: &Mutex<Option<ExportQueue>>,
         jobs: &[String],
-    ) -> Result<Pinned, String> {
+        inspect: &dyn Fn(&PinnedPhoto) -> T,
+    ) -> Result<(Pinned, Vec<T>), String> {
+        let mut seen = Vec::with_capacity(self.paths.len());
         let mut digest = blake3::Hasher::new();
         let mut models = BTreeSet::new();
         for (chunk, paths) in self.paths.chunks(PIN_CHUNK).enumerate() {
@@ -153,6 +157,7 @@ impl ExportRequest {
             models.extend(denoise_models(
                 photos.iter().map(|photo| &photo.adjustments),
             ));
+            seen.extend(photos.iter().map(inspect));
             let snapshots = photos
                 .into_iter()
                 .map(|photo| serde_json::to_string(&photo).map_err(|e| e.to_string()))
@@ -166,10 +171,13 @@ impl ExportRequest {
                 })?;
             }
         }
-        Ok(Pinned {
-            digest: digest.finalize().to_hex().to_string(),
-            denoise_models: models,
-        })
+        Ok((
+            Pinned {
+                digest: digest.finalize().to_hex().to_string(),
+                denoise_models: models,
+            },
+            seen,
+        ))
     }
 
     /// Whether `other` reads its photos as this one does (`pin_into`).
@@ -187,8 +195,24 @@ impl ExportRequest {
 /// are queued at once, or on an error none. Blocking.
 fn queue_pinned(
     queue: &Mutex<Option<ExportQueue>>,
-    mut requests: Vec<ExportRequest>,
+    requests: Vec<ExportRequest>,
 ) -> Result<Vec<String>, String> {
+    queue_inspected(queue, requests, &|_| (), &|_| Ok(())).map(|(ids, _)| ids)
+}
+
+/// Checks what `queue_inspected`'s `inspect` made of each request's photos.
+pub(crate) type CheckInspected<'a, T> = &'a dyn Fn(&[Vec<T>]) -> Result<(), String>;
+
+/// `queue_pinned`, showing each photo's snapshot to `inspect` as it is
+/// pinned: what it makes of each request's photos is returned in their
+/// order, and an error from `check` on all of it queues none of them.
+/// What is checked is exactly what the jobs render.
+pub(crate) fn queue_inspected<T: Clone>(
+    queue: &Mutex<Option<ExportQueue>>,
+    mut requests: Vec<ExportRequest>,
+    inspect: &dyn Fn(&PinnedPhoto) -> T,
+    check: CheckInspected<'_, T>,
+) -> Result<(Vec<String>, Vec<Vec<T>>), String> {
     let labels: Vec<String> = requests.iter().map(label_for).collect();
     let staged: Vec<(&str, &[String])> = labels
         .iter()
@@ -196,18 +220,23 @@ fn queue_pinned(
         .map(|(label, request)| (label.as_str(), request.paths.as_slice()))
         .collect();
     let ids = on_queue(queue, |q| q.stage_all(&staged))?;
+    let mut seen: Vec<Vec<T>> = Vec::with_capacity(requests.len());
     let queued = (|| {
         for i in 0..requests.len() {
             if let Some(earlier) = (0..i).find(|&j| requests[j].pins_like(&requests[i])) {
                 requests[i].pinned = requests[earlier].pinned.clone();
+                seen.push(seen[earlier].clone());
                 continue;
             }
             let alike: Vec<String> = (i..requests.len())
                 .filter(|&k| requests[i].pins_like(&requests[k]))
                 .map(|k| ids[k].clone())
                 .collect();
-            requests[i].pinned = Some(requests[i].pin_into(queue, &alike)?);
+            let (pinned, photos) = requests[i].pin_into(queue, &alike, inspect)?;
+            requests[i].pinned = Some(pinned);
+            seen.push(photos);
         }
+        check(&seen)?;
         let values = requests
             .iter()
             .map(serde_json::to_value)
@@ -220,7 +249,7 @@ fn queue_pinned(
         let _ = on_queue(queue, |q| q.discard_staged(&ids));
         return Err(e);
     }
-    Ok(ids)
+    Ok((ids, seen))
 }
 
 /// A queued job's request, if it can run: pinned when it was queued. One
@@ -548,10 +577,21 @@ pub async fn enqueue_all(
     let ids = tauri::async_runtime::spawn_blocking(move || queue_pinned(&QUEUE, requests))
         .await
         .map_err(|e| e.to_string())??;
+    started(app);
+    Ok(ids)
+}
+
+/// The app's queue, for `queue_inspected` (`started` follows once it
+/// queued).
+pub(crate) fn app_queue() -> &'static Mutex<Option<ExportQueue>> {
+    &QUEUE
+}
+
+/// After jobs were queued: the queue starts if it is idle.
+pub(crate) fn started(app: &AppHandle) {
     HOLD.store(false, Ordering::SeqCst);
     notify(app);
     kick(app);
-    Ok(ids)
 }
 
 /// Whether two queued exports render the same photos with the same recipes

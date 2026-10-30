@@ -223,6 +223,7 @@
       "copy_adjustments": "Kopiuj ustawienia",
       "copy_image_path": "Kopiuj ścieżkę",
       "delete_selected": "Przenieś do kosza",
+      "edit_with": "Edytuj za pomocą…",
       "flag_pick": "Wybierz",
       "flag_reject": "Odrzuć",
       "flag_unflag": "Usuń flagę",
@@ -233,6 +234,7 @@
       "new_session": "Nowy projekt lub katalog…",
       "open_session": "Otwórz projekt lub katalog…",
       "open_settings": "Preferencje…",
+      "open_with": "Otwórz za pomocą…",
       "paste_adjustments": "Wklej ustawienia",
       "paste_from_previous": "Wklej ustawienia z poprzedniego zdjęcia",
       "rate_0": "Bez gwiazdek",
@@ -454,10 +456,32 @@
       "tagging": "Tagowanie",
       "undo": "Cofnij"
     },
+    "editWith": {
+      "failed": "Edycja za pomocą nie powiodła się: {{error}}",
+      "generatedAreas": "Edycja za pomocą nie jest jeszcze dostępna dla zdjęć z wygenerowanymi obszarami: {{names}}",
+      "label": "Edytuj za pomocą",
+      "notLinked": "Wyrenderowano, ale nie dodano do biblioteki: {{error}}",
+      "openIn": "Otwórz w",
+      "recipe": "Przepis",
+      "rendering": "Renderowanie dla {{app}}…",
+      "someFailed": "Nie udało się wyrenderować zdjęć: {{failed}} z {{total}}.",
+      "tiffAdobe": "TIFF 16-bit · Adobe RGB",
+      "tiffProPhoto": "TIFF 16-bit · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "Stosowanie ostrości (Focus Stacking)",
       "hdrPanorama": "Panorama HDR",
       "title": "Połącz"
+    },
+    "openWith": {
+      "chooseTitle": "Wybierz program",
+      "default": "Domyślny",
+      "failed": "Nie można otworzyć plików: {{error}}",
+      "label": "Otwórz za pomocą",
+      "none": "Żaden program nie otwiera tych plików",
+      "other": "Inny…",
+      "reading": "Wyszukiwanie programów…",
+      "unsupported": "Dostępne tylko w systemie macOS"
     },
     "tagging": {
       "addTagTooltip": "Dodaj tag",

@@ -216,6 +216,7 @@
       "copy_adjustments": "Copier les réglages",
       "copy_image_path": "Copier le chemin",
       "delete_selected": "Placer dans la corbeille",
+      "edit_with": "Modifier avec…",
       "flag_pick": "Retenir",
       "flag_reject": "Rejeter",
       "flag_unflag": "Sans marquage",
@@ -226,6 +227,7 @@
       "new_session": "Nouveau projet ou catalogue…",
       "open_session": "Ouvrir un projet ou un catalogue…",
       "open_settings": "Préférences…",
+      "open_with": "Ouvrir avec…",
       "paste_adjustments": "Coller les réglages",
       "paste_from_previous": "Coller les réglages de la photo précédente",
       "rate_0": "Aucune étoile",
@@ -438,10 +440,32 @@
       "tagging": "Marquage",
       "undo": "Annuler"
     },
+    "editWith": {
+      "failed": "Échec de Modifier avec : {{error}}",
+      "generatedAreas": "Modifier avec n’est pas encore disponible pour les photos comportant des zones générées : {{names}}",
+      "label": "Modifier avec",
+      "notLinked": "Rendu, mais non ajouté à la bibliothèque : {{error}}",
+      "openIn": "Ouvrir dans",
+      "recipe": "Recette",
+      "rendering": "Rendu pour {{app}}…",
+      "someFailed": "{{failed}} photos sur {{total}} n’ont pas pu être rendues.",
+      "tiffAdobe": "TIFF 16 bits · Adobe RGB",
+      "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "Empilement de mise au point",
       "hdrPanorama": "Panorama HDR",
       "title": "Fusionner"
+    },
+    "openWith": {
+      "chooseTitle": "Choisir une application",
+      "default": "Par défaut",
+      "failed": "Impossible d’ouvrir les fichiers : {{error}}",
+      "label": "Ouvrir avec",
+      "none": "Aucune application n’ouvre ces fichiers",
+      "other": "Autre…",
+      "reading": "Recherche des applications…",
+      "unsupported": "Disponible uniquement sur macOS"
     },
     "tagging": {
       "addTagTooltip": "Ajouter une étiquette",

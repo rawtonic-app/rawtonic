@@ -18,6 +18,7 @@ pub mod add;
 pub mod capture_time;
 pub mod checksum;
 pub mod companion;
+pub mod derived;
 pub mod facts;
 pub mod folder_sync;
 pub mod folders;
@@ -2582,7 +2583,7 @@ fn external_root_key(folder: &Path) -> String {
 
 /// The canonical form of a path that may no longer (or not yet) exist: its
 /// nearest existing ancestor canonicalized, the rest appended unchanged.
-fn resolve_moved(path: &Path) -> PathBuf {
+pub(crate) fn resolve_moved(path: &Path) -> PathBuf {
     if let Ok(canonical) = path.canonicalize() {
         return canonical;
     }

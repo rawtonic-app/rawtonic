@@ -216,6 +216,7 @@
       "copy_adjustments": "Copiar ajustes",
       "copy_image_path": "Copiar ruta",
       "delete_selected": "Mover a la papelera",
+      "edit_with": "Editar con…",
       "flag_pick": "Elegir",
       "flag_reject": "Rechazar",
       "flag_unflag": "Sin marca",
@@ -226,6 +227,7 @@
       "new_session": "Nuevo proyecto o catálogo…",
       "open_session": "Abrir proyecto o catálogo…",
       "open_settings": "Preferencias…",
+      "open_with": "Abrir con…",
       "paste_adjustments": "Pegar ajustes",
       "paste_from_previous": "Pegar ajustes de la foto anterior",
       "rate_0": "Sin estrellas",
@@ -438,10 +440,32 @@
       "tagging": "Etiquetado",
       "undo": "Deshacer"
     },
+    "editWith": {
+      "failed": "Error en Editar con: {{error}}",
+      "generatedAreas": "Editar con aún no está disponible para fotos con zonas generadas: {{names}}",
+      "label": "Editar con",
+      "notLinked": "Renderizado, pero no añadido a la biblioteca: {{error}}",
+      "openIn": "Abrir en",
+      "recipe": "Receta",
+      "rendering": "Renderizando para {{app}}…",
+      "someFailed": "No se pudieron renderizar {{failed}} de {{total}} fotos.",
+      "tiffAdobe": "TIFF 16 bits · Adobe RGB",
+      "tiffProPhoto": "TIFF 16 bits · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "Apilamiento de enfoque",
       "hdrPanorama": "Panorámica HDR",
       "title": "Combinar"
+    },
+    "openWith": {
+      "chooseTitle": "Elegir una aplicación",
+      "default": "Predeterminada",
+      "failed": "No se pudieron abrir los archivos: {{error}}",
+      "label": "Abrir con",
+      "none": "Ninguna aplicación abre estos archivos",
+      "other": "Otra…",
+      "reading": "Buscando aplicaciones…",
+      "unsupported": "Solo disponible en macOS"
     },
     "tagging": {
       "addTagTooltip": "Añadir etiqueta",

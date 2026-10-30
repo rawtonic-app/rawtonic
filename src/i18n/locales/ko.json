@@ -202,6 +202,7 @@
       "copy_adjustments": "설정 복사",
       "copy_image_path": "경로 복사",
       "delete_selected": "휴지통으로 이동",
+      "edit_with": "다음으로 편집…",
       "flag_pick": "선택",
       "flag_reject": "거부",
       "flag_unflag": "플래그 해제",
@@ -212,6 +213,7 @@
       "new_session": "새 프로젝트 또는 카탈로그…",
       "open_session": "프로젝트 또는 카탈로그 열기…",
       "open_settings": "환경설정…",
+      "open_with": "다음으로 열기…",
       "paste_adjustments": "설정 붙여넣기",
       "paste_from_previous": "이전 사진의 설정 붙여넣기",
       "rate_0": "별 없음",
@@ -415,10 +417,32 @@
       "tagging": "태그 지정",
       "undo": "실행 취소"
     },
+    "editWith": {
+      "failed": "다음으로 편집 실패: {{error}}",
+      "generatedAreas": "생성된 영역이 있는 사진은 아직 다음으로 편집할 수 없습니다: {{names}}",
+      "label": "다음으로 편집",
+      "notLinked": "렌더링했지만 라이브러리에 추가하지 못했습니다: {{error}}",
+      "openIn": "열 응용 프로그램",
+      "recipe": "레시피",
+      "rendering": "{{app}}용으로 렌더링 중…",
+      "someFailed": "사진 {{total}}장 중 {{failed}}장을 렌더링할 수 없습니다.",
+      "tiffAdobe": "TIFF 16비트 · Adobe RGB",
+      "tiffProPhoto": "TIFF 16비트 · ProPhoto RGB"
+    },
     "merge": {
       "focusStack": "포커스 스태킹",
       "hdrPanorama": "HDR 파노라마",
       "title": "병합"
+    },
+    "openWith": {
+      "chooseTitle": "응용 프로그램 선택",
+      "default": "기본값",
+      "failed": "파일을 열 수 없습니다: {{error}}",
+      "label": "다음으로 열기",
+      "none": "이 파일을 여는 응용 프로그램이 없습니다",
+      "other": "기타…",
+      "reading": "응용 프로그램 찾는 중…",
+      "unsupported": "macOS에서만 사용할 수 있습니다"
     },
     "tagging": {
       "addTagTooltip": "태그 추가",
