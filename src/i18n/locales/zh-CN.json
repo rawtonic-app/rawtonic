@@ -158,6 +158,7 @@
       "rotate_right": "向右旋转",
       "select_all": "全选",
       "select_none": "取消选择",
+      "shift_capture_time": "调整拍摄时间…",
       "show_in_finder": "在访达中显示",
       "sync_settings": "同步设置",
       "tether_capture": "拍摄（联机相机）",
@@ -218,6 +219,67 @@
       "recipes": "使用配方导出"
     }
   },
+  "captureTime": {
+    "applied_one": "已校正 {{count}} 张照片的拍摄时间",
+    "applied_other": "已校正 {{count}} 张照片的拍摄时间",
+    "apply_one": "应用到 {{count}} 张照片",
+    "apply_other": "应用到 {{count}} 张照片",
+    "cameraCount": "{{name}}（{{n}}）",
+    "cancel": "取消",
+    "conflict_one": "自此预览后有 {{count}} 张照片被更改。未写入任何内容；请检查新的预览后重新应用。",
+    "conflict_other": "自此预览后有 {{count}} 张照片被更改。未写入任何内容；请检查新的预览后重新应用。",
+    "correctedHelp": "YYYY-MM-DD HH:MM:SS，可带小数（.250）。不带小数时，照片保留其秒以下部分。",
+    "correctedTime": "其正确时间",
+    "direction": "方向",
+    "earlier": "提前",
+    "errors": {
+      "field": "请输入整数（秒最多可有九位小数）。",
+      "fraction": "秒的小数部分最多九位。",
+      "invalid": "日期和时间无效（YYYY-MM-DD HH:MM:SS）。",
+      "outOfRange": "时间必须在 0001 年至 9999 年之间。"
+    },
+    "excluded": {
+      "noCaptureTime": "文件没有拍摄时间",
+      "notInLibrary": "不在此项目或目录中",
+      "offline": "离线：无法读取拍摄时间",
+      "otherLibrary": "在另一个项目或目录中"
+    },
+    "excludedCount_one": "已排除 {{count}} 张照片",
+    "excludedCount_other": "已排除 {{count}} 张照片",
+    "failed": "无法更改拍摄时间：{{error}}",
+    "filesUnchanged": "照片文件及其文件日期不会更改。排序、搜索、命名和导出使用校正后的时间。",
+    "how": "校正方式",
+    "intro": "校正设置错误的相机时钟：所有照片移动相同的时间，使多台相机的照片按拍摄顺序排列。",
+    "later": "推后",
+    "modes": {
+      "reference": "设置一张照片的时间",
+      "reset_one": "恢复为文件中的时间（已校正 {{count}} 张）",
+      "reset_other": "恢复为文件中的时间（已校正 {{count}} 张）",
+      "shift": "移动"
+    },
+    "nothingToChange": "没有需要更改的内容。",
+    "notInLibrary": "调整拍摄时间适用于项目或目录中的照片。请先将这些照片添加到其中。",
+    "outOfRange_one": "{{name}} 将超出 0001–9999 年范围。无法应用。",
+    "outOfRange_other": "{{name}} 等 {{count}} 张照片将超出 0001–9999 年范围。无法应用。",
+    "parts": {
+      "days": "天",
+      "hours": "小时",
+      "minutes": "分钟",
+      "seconds": "秒"
+    },
+    "rangeChange": "从 {{from}} – {{to}} 变为 {{newFrom}} – {{newTo}}",
+    "reading": "正在读取拍摄时间…",
+    "referenceChange": "{{name}}：{{before}} → {{after}}",
+    "referencePhoto": "参考照片",
+    "shiftEarlier": "移动：提前 {{days}} 天 {{hours}} 小时 {{minutes}} 分 {{seconds}} 秒",
+    "shiftLater": "移动：推后 {{days}} 天 {{hours}} 小时 {{minutes}} 分 {{seconds}} 秒",
+    "sidecarsFailed_one": "校正已保存在资料库中；{{count}} 张照片的设置文件暂未写入，将在其下次更改时写入。",
+    "sidecarsFailed_other": "校正已保存在资料库中；{{count}} 张照片的设置文件暂未写入，将在其下次更改时写入。",
+    "summary_one": "{{count}} 张照片",
+    "summary_other": "{{count}} 张照片",
+    "title": "调整拍摄时间",
+    "unknownCamera": "未知相机"
+  },
   "commandPalette": {
     "close": "关闭命令面板",
     "empty": "没有匹配的命令。请尝试其他搜索词。",
@@ -226,6 +288,7 @@
     "search": "搜索命令…",
     "selectAtMostPhotos": "最多选择 {{max}} 张照片",
     "selectFourPhotos": "请至少选择四张照片",
+    "selectPhotos": "请选择一张或多张照片",
     "selectTwoPhotos": "请至少选择两张照片"
   },
   "contextMenus": {
@@ -329,6 +392,7 @@
       "renameImage_other": "重命名 {{count}} 张图像",
       "resetAdjustments_one": "重置调整",
       "resetAdjustments_other": "重置 {{count}} 张图像的调整",
+      "shiftCaptureTime": "调整拍摄时间…",
       "showExplorer": "在文件资源管理器中显示",
       "showFinder": "在访达中显示",
       "virtualCopy": "虚拟副本"
@@ -3570,6 +3634,7 @@
       "notInSession": "部分所选照片不属于此项目。",
       "outsideSessions": "在项目之外，描述、创作者、版权和注释随每张照片的编辑一起保存；标题和 IPTC 字段保存在项目中。",
       "selectToSee": "选择照片以查看其元数据。",
+      "shiftCaptureTime": "调整拍摄时间…",
       "title": "元数据",
       "toasts": {
         "keywordsRemoveFailed": "无法移除关键字：{{error}}",
@@ -4148,6 +4213,7 @@
         "searchLabel": "搜索照片",
         "sort": "照片排序",
         "sortBy": {
+          "captured": "拍摄时间",
           "date": "修改日期",
           "name": "文件名",
           "rating": "星级"
@@ -4250,6 +4316,7 @@
   },
   "undoHistory": {
     "apply": "应用设置",
+    "captureTime": "调整拍摄时间",
     "color": "设置颜色标签",
     "edit": "编辑",
     "file": "文件更改",

@@ -104,6 +104,7 @@ import StudioMetadataFilter from "./StudioMetadataFilter";
 import { SmartAlbumEditorHost } from "./SmartAlbumEditor";
 import { CopySettingsDialogHost } from "./CopySettingsDialog";
 import { SeriesMatchDialogHost } from "./SeriesMatchDialog";
+import { CaptureTimeDialogHost } from "./CaptureTimeDialog";
 import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
 import { clearLibrarySelection, focusWorkspaceControl, reselectForDevelop } from "./workspaceInteractions";
 import { registerAppCommands, runAppCommand } from "../../utils/appCommands";
@@ -1023,6 +1024,7 @@ export default function StudioWorkspace(props: Props) {
           }
         >
           <option value="name">{t("studio.workspace.grid.sortBy.name")}</option>
+          <option value="date_taken">{t("studio.workspace.grid.sortBy.captured")}</option>
           <option value="date">{t("studio.workspace.grid.sortBy.date")}</option>
           <option value="rating">
             {t("studio.workspace.grid.sortBy.rating")}
@@ -1142,6 +1144,7 @@ export default function StudioWorkspace(props: Props) {
       <SmartAlbumEditorHost />
       <CopySettingsDialogHost />
       <SeriesMatchDialogHost />
+      <CaptureTimeDialogHost />
       {sessionBar.center && sessionBar.end ? (
         <>
           {createPortal(modules, sessionBar.center)}

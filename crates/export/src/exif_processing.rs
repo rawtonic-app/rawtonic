@@ -901,6 +901,54 @@ pub fn copy_full_exif_from_source(
     copied_any
 }
 
+/// Marks an EXIF map whose capture time the library corrected (Shift
+/// Capture Time): its `DateTimeOriginal`, `SubSecTimeOriginal` and
+/// `OffsetTimeOriginal` are the corrected ones, an absent fraction or offset
+/// meaning none. Set only on the map an export reads, never stored.
+pub const CAPTURE_CORRECTED: &str = "RawtonicCaptureCorrected";
+
+/// The fields of a corrected capture time, as the library gives them
+/// (`DateTimeOriginal`, `SubSecTimeOriginal`, `OffsetTimeOriginal`; `None`
+/// removes one).
+pub type CaptureFields = [(&'static str, Option<String>); 3];
+
+/// Sets `fields` in a source's EXIF map and marks it corrected
+/// (`CAPTURE_CORRECTED`), for an export to write.
+pub fn mark_corrected_capture(map: &mut HashMap<String, String>, fields: &CaptureFields) {
+    for (key, value) in fields {
+        match value {
+            Some(value) => map.insert(key.to_string(), value.clone()),
+            None => map.remove(*key),
+        };
+    }
+    map.insert(CAPTURE_CORRECTED.into(), "1".into());
+}
+
+/// Writes a corrected capture time (`CAPTURE_CORRECTED`) over whatever date
+/// fields the export copied, whichever way it read them; other dates
+/// (digitized, modified) stay as the file has them.
+pub fn apply_corrected_capture_time(metadata: &mut Metadata, map: &HashMap<String, String>) {
+    if !map.contains_key(CAPTURE_CORRECTED) {
+        return;
+    }
+    let Some(original) = map.get("DateTimeOriginal") else {
+        return;
+    };
+    metadata.set_tag(ExifTag::DateTimeOriginal(exif_datetime(original)));
+    match map.get("SubSecTimeOriginal") {
+        Some(digits) => metadata.set_tag(ExifTag::SubSecTimeOriginal(digits.clone())),
+        None => {
+            metadata.remove_tag(ExifTag::SubSecTimeOriginal(String::new()));
+        }
+    }
+    match map.get("OffsetTimeOriginal") {
+        Some(offset) => metadata.set_tag(ExifTag::OffsetTimeOriginal(offset.clone())),
+        None => {
+            metadata.remove_tag(ExifTag::OffsetTimeOriginal(String::new()));
+        }
+    }
+}
+
 pub fn apply_sidecar_field_overrides(metadata: &mut Metadata, map: &HashMap<String, String>) {
     let clean_s = |s: &String| s.replace('"', "").trim().to_string();
     let is_user_edit = |s: &str| !s.is_empty() && s != "...";
@@ -1569,6 +1617,9 @@ pub fn export_metadata_with(
 
     if full_exif_copied && let Some(map) = exif_sidecar() {
         apply_sidecar_field_overrides(&mut metadata, &map);
+    }
+    if let Some(map) = exif_sidecar() {
+        apply_corrected_capture_time(&mut metadata, &map);
     }
     // Session metadata (the Metadata tool) wins over the camera's and the
     // inherited sidecar's values, as in Lightroom: Creator → Artist,
