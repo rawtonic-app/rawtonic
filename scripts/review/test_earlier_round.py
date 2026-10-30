@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""Checks for the earlier-round section of the review prompt."""
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+
+HELPER = Path(__file__).with_name("earlier_round.py").resolve()
+
+
+class EarlierRoundTest(unittest.TestCase):
+    def git(self, *args):
+        return subprocess.check_output(["git", *args], cwd=self.root).decode().strip()
+
+    def commit(self, name):
+        (self.root / name).write_text(name)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", name)
+        return self.git("rev-parse", "HEAD")
+
+    def verdict(self, sha, mtime, findings):
+        path = self.store / f"{sha}.json"
+        path.write_text(json.dumps({"verdict": "changes_requested", "findings": findings}))
+        os.utime(path, (mtime, mtime))
+
+    def run_helper(self, head):
+        return subprocess.check_output([sys.executable, str(HELPER), str(self.store), head], cwd=self.root).decode()
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / "repo"
+        self.root.mkdir()
+        self.git("init", "-q")
+        self.git("config", "user.email", "test@example.invalid")
+        self.git("config", "user.name", "test")
+        self.store = Path(self.temp.name) / "store"
+        self.store.mkdir()
+
+    def test_first_round_prints_nothing(self):
+        head = self.commit("a")
+        self.assertEqual(self.run_helper(head), "")
+
+    def test_names_the_newest_ancestor_round_and_its_findings(self):
+        a = self.commit("a")
+        b = self.commit("b")
+        head = self.commit("c")
+        self.verdict(a, 1000, [{"severity": "blocking", "file": "x.ts", "line": 1, "issue": "old"}])
+        self.verdict(b, 2000, [{"severity": "blocking", "file": "y.ts", "line": 2, "issue": "race"}])
+        self.verdict(head, 3000, [])  # HEAD's own verdict is not an earlier round
+        out = self.run_helper(head)
+        self.assertIn("review round 3", out)
+        self.assertIn(f"`{b}`", out)
+        self.assertIn("[blocking] y.ts:2 race", out)
+        self.assertIn(f"git diff {b}...HEAD", out)
+        self.assertNotIn("old", out)
+
+    def test_ignores_verdicts_of_other_branches(self):
+        base = self.commit("a")
+        self.git("checkout", "-q", "-b", "other")
+        other = self.commit("b")
+        self.git("checkout", "-q", "-")
+        head = self.commit("c")
+        self.verdict(other, 1000, [{"severity": "blocking", "file": "z", "line": 3, "issue": "elsewhere"}])
+        self.assertEqual(self.run_helper(head), "")
+        self.verdict(base, 500, [])
+        self.assertIn("review round 2", self.run_helper(head))
+
+
+if __name__ == "__main__":
+    unittest.main()

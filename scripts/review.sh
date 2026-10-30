@@ -97,6 +97,8 @@ else
     git log --format='- %s' "$BASE"..HEAD
     printf '\n'
     git diff --stat "$BASE"...HEAD
+    # A later round checks the earlier findings and the commits since then.
+    [ "$FULL" != 1 ] || python3 "$DIR/earlier_round.py" "$(git rev-parse --git-dir)/rawtonic-review" "$HEAD_SHA"
   } >"$PROMPT"
 fi
 
