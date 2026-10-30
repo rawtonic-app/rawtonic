@@ -50,6 +50,9 @@ const WRITE_NAMES: Record<string, string> = {
   exif: 'EXIF',
   text: 'Text metadata',
   snapshot: 'Snapshot',
+  useXmp: 'Use XMP',
+  useXmpUndo: 'Undo of Use XMP',
+  keepLibraryXmp: 'Keep library (XMP)',
 };
 
 const fileName = (path: string) => path.split('?vc=')[0].split(/[\\/]/).pop() ?? path;
