@@ -1,6 +1,6 @@
-import { createElement, useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import i18n from 'i18next';
-import { toast } from 'react-toastify';
+import { notify } from '../activity/notify';
 import debounce from 'lodash.debounce';
 import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
@@ -75,7 +75,7 @@ export function editAllNotSaved(): string[] {
 
 function forget(id: number) {
   failedWrites.delete(id);
-  toast.dismiss(noticeId(id));
+  notify.dismiss(noticeId(id));
 }
 
 /** Sends a failed write again, to the photographs not saved, with the
@@ -98,30 +98,18 @@ export async function tryEditAllAgain(): Promise<void> {
   await Promise.all([...failedWrites.keys()].flatMap(tryAgain));
 }
 
-/** Shows that `failed` could not be saved, with Try again: the same
- * settings again, to the photographs not saved only. */
+/** Shows that `failed` could not be saved under Needs attention, with Try
+ * again: the same settings again, to the photographs not saved only. */
 function noticeFailed(id: number, failed: FailedWrite) {
-  const names = [...failed.unsaved.keys()].map((path) => path.split(/[\\/]/).pop() ?? path);
+  const paths = [...failed.unsaved.keys()];
+  const names = paths.map((path) => path.split(/[\\/]/).pop() ?? path);
   const listed = names.slice(0, 5).join(', ') + (names.length > 5 ? ` (+${names.length - 5})` : '');
-  const content = ({ closeToast }: { closeToast: () => void }) =>
-    createElement(
-      'div',
-      { className: 'space-y-2' },
-      createElement('p', null, i18n.t('studio.multiView.editAllNotSaved', { names: listed })),
-      createElement(
-        'button',
-        {
-          type: 'button',
-          className: 'underline',
-          onClick: () => {
-            closeToast();
-            tryAgain(id);
-          },
-        },
-        i18n.t('studio.multiView.editAllTryAgain'),
-      ),
-    );
-  toast.error(content, { toastId: noticeId(id), autoClose: false, closeOnClick: false });
+  notify.error(i18n.t('studio.multiView.editAllNotSaved', { names: listed }), {
+    toastId: noticeId(id),
+    source: 'write',
+    paths,
+    actions: [{ label: i18n.t('studio.multiView.editAllTryAgain'), settles: true, run: () => tryAgain(id) }],
+  });
 }
 
 /** A processing version (`sharpenVersion`, …): it says how the settings

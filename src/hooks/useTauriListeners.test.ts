@@ -263,17 +263,23 @@ it("finds a camera's rating for a photograph listed through a symlinked folder",
   expect(useLibraryStore.getState().imageRatings).toEqual({ "/alias/a.RW2": 2, "/alias/day/b.RW2": 4 });
 });
 
-it("loads the export queue at start and points to interrupted exports", async () => {
+it("loads the export queue at start; an interrupted export waits under Needs attention with Resume", async () => {
   vi.useRealTimers();
-  const { toast } = await import("react-toastify");
-  const info = vi.spyOn(toast, "info").mockImplementation(() => 0 as never);
+  await import("../i18n");
+  const { startActivityBridges } = await import("../activity/bridges");
+  const { useActivityStore } = await import("../store/useActivityStore");
+  const stop = startActivityBridges();
   exportQueue = [{ id: "j", label: "3 photos as JPG", state: "interrupted", createdAt: "", total: 3, done: 1, failed: 0 }];
   renderHook(() => useTauriListeners({
     refreshAllFolderTrees: vi.fn(), handleSelectSubfolder: vi.fn(),
     refreshImageList: vi.fn(), markGenerated: vi.fn(),
   }));
   await vi.waitFor(() => expect(useProcessStore.getState().exportQueue).toHaveLength(1));
-  expect(info).toHaveBeenCalledWith("An export was interrupted (1 of 3 done). Resume it in the export queue.");
+  const entry = useActivityStore.getState().entries.find((e) => e.id === "export:j");
+  expect(entry).toMatchObject({ status: "warning", source: "export" });
+  expect(entry?.title).toContain("3 photos as JPG");
+  expect(entry?.actions?.map((a) => a.label)).toEqual(["Resume"]);
+  stop();
   exportQueue = [];
 });
 
@@ -538,7 +544,7 @@ it("shows a tethered capture at once: selected in the Library, opened when Devel
 });
 
 it("says tether failures app-wide, with no tether panel shown", async () => {
-  const { toast } = await import("react-toastify");
+  const { notify: toast } = await import("../activity/notify");
   const error = vi.spyOn(toast, "error").mockImplementation(() => 0 as never);
   const warning = vi.spyOn(toast, "warning").mockImplementation(() => 0 as never);
   renderHook(() => useTauriListeners({

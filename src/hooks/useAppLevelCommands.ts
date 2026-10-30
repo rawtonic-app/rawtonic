@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-shell';
-import { toast } from 'react-toastify';
+import { notify } from '../activity/notify';
 import i18n from 'i18next';
 import { Invokes } from '../components/ui/AppProperties';
 import { SOURCE_URL } from '../components/panel/AboutSettings';
@@ -52,7 +52,7 @@ export function useAppLevelCommands(): void {
             const path = finderTarget();
             if (!path) return;
             invoke(Invokes.ShowInFinder, { path }).catch((err) =>
-              toast.error(i18n.t('contextMenus.toasts.couldNotShowExplorer', { err })),
+              notify.error(i18n.t('contextMenus.toasts.couldNotShowExplorer', { err })),
             );
           },
         },

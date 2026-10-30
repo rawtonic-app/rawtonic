@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openInBrowser } from "@tauri-apps/plugin-shell";
 import { Check, X } from "lucide-react";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
 import i18n from "i18next";
 import { useTranslation } from "react-i18next";
 import { useLibraryStore } from "../../store/useLibraryStore";
@@ -123,7 +123,7 @@ export const useTextMetadataCache = create<TextMetadataCache>((set, get) => ({
       });
       if (get().session === session) set({ loaded: true, byPath: byPath ?? {} });
     } catch (e) {
-      toast.error(i18n.t("studio.metadata.toasts.readFailed", { error: String(e) }));
+      notify.error(i18n.t("studio.metadata.toasts.readFailed", { error: String(e) }));
     }
   },
   merge(written) {
@@ -288,7 +288,7 @@ export function StudioKeywords() {
       }
       setDraft("");
     } catch (e) {
-      toast.error(t("studio.metadata.toasts.keywordsSaveFailed", { error: saveFailure(e, paths).message }));
+      notify.error(t("studio.metadata.toasts.keywordsSaveFailed", { error: saveFailure(e, paths).message }));
     }
   };
   const remove = async (entry: (typeof keywords)[number]) => {
@@ -306,7 +306,7 @@ export function StudioKeywords() {
         }
       }
     } catch (e) {
-      toast.error(t("studio.metadata.toasts.keywordsRemoveFailed", { error: saveFailure(e, paths).message }));
+      notify.error(t("studio.metadata.toasts.keywordsRemoveFailed", { error: saveFailure(e, paths).message }));
     }
   };
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -575,7 +575,7 @@ export function StudioMetadataTool() {
       catalogChanged();
       cache.merge(written);
     } catch (e) {
-      toast.error(t("studio.metadata.toasts.saveFailed", { error: String(e) }));
+      notify.error(t("studio.metadata.toasts.saveFailed", { error: String(e) }));
     }
   };
   const exifRecords = useTargetExif(paths);

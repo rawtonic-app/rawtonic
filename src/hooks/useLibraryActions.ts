@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { toast } from 'react-toastify';
+import { notify } from '../activity/notify';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
@@ -122,7 +122,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
         });
         return { imageRatings: ratings };
       });
-      toast.error(`Failed to apply rating: ${message}`);
+      notify.error(`Failed to apply rating: ${message}`);
     });
   }, []);
 
@@ -172,7 +172,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
       // The photos that were saved show their new label.
       const { message, failed } = saveFailure(err, pathsWritten);
       applyLabel(pathsWritten.filter((p) => !failed.includes(p)));
-      toast.error(`Failed to set color label: ${message}`);
+      notify.error(`Failed to set color label: ${message}`);
     }
   }, []);
 
@@ -260,7 +260,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
         }
       });
     } catch (err) {
-      toast.error(`Failed to update metadata: ${err}`);
+      notify.error(`Failed to update metadata: ${err}`);
     }
   }, []);
 
@@ -466,7 +466,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
       });
       setLibrary({ pinnedFolderTrees: trees });
     } catch (err) {
-      toast.error(`Failed to refresh pinned folders: ${err}`);
+      notify.error(`Failed to refresh pinned folders: ${err}`);
     }
   }, []);
 

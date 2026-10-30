@@ -15,7 +15,7 @@ import { filterAsRule } from "../../utils/librarySearch";
 import { SESSION_ALBUMS_CHANGED } from "./StudioAlbums";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-vi.mock("react-toastify", () => ({ toast: { error: vi.fn() } }));
+vi.mock("../../activity/notify", () => ({ notify: { error: vi.fn() } }));
 const mockInvoke = vi.mocked(invoke);
 
 beforeEach(() => {

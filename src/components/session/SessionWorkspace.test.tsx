@@ -1,4 +1,5 @@
 import { useSettingsStore } from "../../store/useSettingsStore";
+import { useActivityStore } from "../../store/useActivityStore";
 import { appCommand, runAppCommand } from "../../utils/appCommands";
 import type { AppSettings } from "../ui/AppProperties";
 import "../../i18n";
@@ -9,7 +10,7 @@ import SessionWorkspace, { countHotFolderCapture, leavesTetheredLibrary, restore
 import { flattenPresets, parseKeywords } from "./nextCapture";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { invoke } from "@tauri-apps/api/core";
-import { toast } from "react-toastify";
+import { notify as toast } from "../../activity/notify";
 import { useUIStore } from "../../store/useUIStore";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
 import { PHOTO_WRITES_SETTLED } from "../../utils/photoWrites";
@@ -28,8 +29,8 @@ vi.mock("@tauri-apps/api/path", () => ({
 }));
 vi.mock("@tauri-apps/plugin-os", () => ({ platform: () => "macos" }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => {} }));
-vi.mock("react-toastify", () => ({
-  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), dismiss: vi.fn() },
+vi.mock("../../activity/notify", () => ({
+  notify: { error: vi.fn(), success: vi.fn(), info: vi.fn(), dismiss: vi.fn() },
 }));
 
 const summary: SessionSummary = {
@@ -378,15 +379,15 @@ describe("restoring the last session", () => {
       await act(async () => {
         vi.advanceTimersByTime(SLOW_RESTORE_MS + 10);
       });
-      expect(toast.info).toHaveBeenCalledWith(
-        expect.stringContaining("Opening startup-5000 (/Volumes/External/QA/startup-5000)"),
-        expect.objectContaining({ toastId: "session-restore", autoClose: false }),
-      );
+      // A running task of the activity centre, not a toast.
+      const restoring = () => useActivityStore.getState().entries.find((entry) => entry.id === "session-restore");
+      expect(restoring()).toMatchObject({ status: "running" });
+      expect(restoring()?.title).toContain("Opening startup-5000 (/Volumes/External/QA/startup-5000)");
       finish(summary);
       await act(async () => {
         await restored;
       });
-      expect(toast.dismiss).toHaveBeenCalledWith("session-restore");
+      expect(restoring()).toBeUndefined();
       expect(navigate).toHaveBeenCalledWith(summary);
     } finally {
       vi.useRealTimers();

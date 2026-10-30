@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { toast } from 'react-toastify';
+import { notify } from '../activity/notify';
 import { Invokes, SortDirection, type FolderTreeSort } from '../components/ui/AppProperties';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -89,6 +89,6 @@ export async function toggleFolder(path: string, load = true) {
       catalogTrees: state.catalogTrees.map((tree) => insertChildrenIntoTree(tree, path, children)),
     }));
   } catch (err) {
-    toast.error(`The folder could not be read: ${err}`);
+    notify.error(`The folder could not be read: ${err}`);
   }
 }

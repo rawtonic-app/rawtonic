@@ -82,7 +82,7 @@ it("ignores modified presses and presses on the stars", () => {
 });
 
 it("shows a refused drop on a row that takes no photographs and says why on the drop", async () => {
-  const { toast } = await import("react-toastify");
+  const { notify: toast } = await import("../../activity/notify");
   const info = vi.spyOn(toast, "info").mockImplementation(() => 0 as never);
   const dropped = vi.fn();
   album.removeAttribute("data-album-drop");

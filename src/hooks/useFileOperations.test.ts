@@ -9,7 +9,7 @@ import type { ReactElement } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { toast } from 'react-toastify';
+import { notify as toast } from '../activity/notify';
 import '../i18n';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
@@ -40,8 +40,8 @@ import { INITIAL_ADJUSTMENTS } from '../utils/adjustments';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(() => Promise.resolve(null)) }));
-vi.mock('react-toastify', () => ({
-  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warn: vi.fn(), update: vi.fn(), dismiss: vi.fn(), isActive: vi.fn(() => false) },
+vi.mock('../activity/notify', () => ({
+  notify: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warn: vi.fn(), update: vi.fn(), dismiss: vi.fn(), isActive: vi.fn(() => false) },
 }));
 
 const summary = (part: Partial<FileOperationSummary>): FileOperationSummary => ({

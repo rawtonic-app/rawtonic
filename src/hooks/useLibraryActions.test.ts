@@ -1,14 +1,14 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { toast } from 'react-toastify';
+import { notify as toast } from '../activity/notify';
 import { saveFailure, useLibraryActions } from './useLibraryActions';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useUIStore } from '../store/useUIStore';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
 
 it('reads which photos a batch save missed', () => {
   expect(saveFailure({ message: 'Could not save 1 of 2 photos', failed: ['/a.jpg'] }, ['/a.jpg', '/b.jpg'])).toEqual({

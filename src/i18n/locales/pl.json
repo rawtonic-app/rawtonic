@@ -1,4 +1,92 @@
 {
+  "activity": {
+    "ai": {
+      "denoise": "Odszumianie AI",
+      "depth": "Maska AI: głębia",
+      "foreground": "Maska AI: pierwszy plan",
+      "inpaint": "Wypełnienie generatywne",
+      "object": "Maska AI: obiekt",
+      "other": "Zadanie AI",
+      "people": "Maska AI: osoby",
+      "sky": "Maska AI: niebo",
+      "subject": "Maska AI: obiekt główny"
+    },
+    "batch": {
+      "auto_one": "Automatyczne korekty: {{count}} zdjęcie",
+      "auto_few": "Automatyczne korekty: {{count}} zdjęcia",
+      "auto_many": "Automatyczne korekty: {{count}} zdjęć",
+      "auto_other": "Automatyczne korekty: {{count}} zdjęć",
+      "faceRetouch_one": "Retusz twarzy: {{count}} zdjęcie",
+      "faceRetouch_few": "Retusz twarzy: {{count}} zdjęcia",
+      "faceRetouch_many": "Retusz twarzy: {{count}} zdjęć",
+      "faceRetouch_other": "Retusz twarzy: {{count}} zdjęć",
+      "other_one": "Stosowanie do {{count}} zdjęcia",
+      "other_few": "Stosowanie do {{count}} zdjęć",
+      "other_many": "Stosowanie do {{count}} zdjęć",
+      "other_other": "Stosowanie do {{count}} zdjęć"
+    },
+    "cancel": "Anuluj",
+    "clearDone": "Wyczyść",
+    "close": "Zamknij aktywność",
+    "copied": "Skopiowano",
+    "copyDetails": "Kopiuj szczegóły",
+    "dismiss": "Odrzuć: {{title}}",
+    "dismissShort": "Odrzuć",
+    "download": {
+      "model": "Pobieranie modelu AI {{name}}"
+    },
+    "empty": {
+      "attention": "Nic nie wymaga uwagi.",
+      "done": "Brak nowych wyników.",
+      "running": "Nic nie jest w toku."
+    },
+    "export": {
+      "failed_one": "{{count}} zdjęcie nie zostało wyeksportowane: {{label}}",
+      "failed_few": "{{count}} zdjęcia nie zostały wyeksportowane: {{label}}",
+      "failed_many": "{{count}} zdjęć nie zostało wyeksportowanych: {{label}}",
+      "failed_other": "{{count}} zdjęć nie zostało wyeksportowanych: {{label}}",
+      "interrupted": "Eksport przerwany: {{label}}",
+      "running": "Eksportowanie: {{label}}",
+      "waiting": "Czeka na eksport: {{label}}"
+    },
+    "import": {
+      "starting": "Rozpoczynanie importu…"
+    },
+    "indexing": "Indeksowanie biblioteki",
+    "progress": "Gotowe w {{percent}} %",
+    "resume": "Wznów",
+    "sections": {
+      "attention": "Wymaga uwagi",
+      "done": "Gotowe",
+      "running": "W toku"
+    },
+    "showPhotos": "Pokaż zdjęcia",
+    "slot": {
+      "attention_one": "{{count}} element wymaga uwagi",
+      "attention_few": "{{count}} elementy wymagają uwagi",
+      "attention_many": "{{count}} elementów wymaga uwagi",
+      "attention_other": "{{count}} elementów wymaga uwagi",
+      "running_one": "{{count}} zadanie w toku",
+      "running_few": "{{count}} zadania w toku",
+      "running_many": "{{count}} zadań w toku",
+      "running_other": "{{count}} zadań w toku"
+    },
+    "status": {
+      "failure": "Niepowodzenie",
+      "warning": "Ostrzeżenie"
+    },
+    "title": "Aktywność",
+    "tryAgain": "Spróbuj ponownie",
+    "writes": {
+      "failed_one": "Nie zapisano zmian w {{count}} zdjęciu",
+      "failed_few": "Nie zapisano zmian w {{count}} zdjęciach",
+      "failed_many": "Nie zapisano zmian w {{count}} zdjęciach",
+      "failed_other": "Nie zapisano zmian w {{count}} zdjęciach"
+    },
+    "xmp": {
+      "review": "Przejrzyj"
+    }
+  },
   "adjustments": {
     "color": {
       "ariaSelectColor": "Wybierz kolor {{name}}",
@@ -159,6 +247,7 @@
       "select_all": "Zaznacz wszystko",
       "select_none": "Odznacz wszystko",
       "shift_capture_time": "Przesuń czas wykonania…",
+      "show_activity": "Aktywność…",
       "show_in_finder": "Pokaż w Finderze",
       "sync_settings": "Synchronizuj ustawienia",
       "tether_capture": "Wyzwól (aparat podłączony)",

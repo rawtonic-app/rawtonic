@@ -1,7 +1,7 @@
 import '../i18n';
 import { fireEvent, render } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
-import { toast } from "react-toastify";
+import { notify as toast } from "../activity/notify";
 import { invoke } from "@tauri-apps/api/core";
 import { debouncedSetHistory, useEditorStore } from "../store/useEditorStore";
 import { useLibraryStore } from "../store/useLibraryStore";
@@ -24,8 +24,8 @@ import {
 } from "./appUndo";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => []) }));
-vi.mock("react-toastify", () => ({
-  toast: {
+vi.mock("../activity/notify", () => ({
+  notify: {
     error: vi.fn(),
     info: vi.fn(),
     dismiss: vi.fn(),
@@ -846,7 +846,7 @@ it("updates one persistent notice on repeated failures and dismisses it on succe
   expect(toast.error).toHaveBeenCalledTimes(1);
   expect(toast.update).toHaveBeenCalledWith(
     options!.toastId,
-    expect.objectContaining({ autoClose: false, render: expect.any(Function) }),
+    expect.objectContaining({ render: expect.any(Function) }),
   );
   await undo();
   expect(toast.dismiss).toHaveBeenCalledWith(options!.toastId);

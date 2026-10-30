@@ -1,4 +1,6 @@
 import { act, cleanup, renderHook } from '@testing-library/react';
+import { resetActivityBridges, startActivityBridges } from '../activity/bridges';
+import { resetActivityStore, useActivityStore } from '../store/useActivityStore';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import {
@@ -23,12 +25,11 @@ import { revertStyle } from '../utils/appliedStyle';
 import { AppSettings, Invokes } from '../components/ui/AppProperties';
 import { COMMIT_INTERVAL_MS, registerSliderDraftRenderer } from '../utils/sliderDraft';
 import { cropEditCancelled, cropGestureEnded, cropGestureStarted } from '../utils/cropGesture';
-import { toast } from 'react-toastify';
 
 import { PHOTO_WRITES_SETTLED } from '../utils/photoWrites';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: { error: vi.fn() } }));
 
 type Pending = { command: string; resolve(value: unknown): void; settled?: boolean };
 let pending: Pending[];
@@ -246,10 +247,18 @@ it.each([
   const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
   const message = `Could not save 1 of 2 photos: ${failed[0]}: disk full`;
   vi.mocked(invoke).mockRejectedValueOnce({ message, failed });
+  resetActivityStore();
+  resetActivityBridges();
+  const stop = startActivityBridges();
   const { result } = renderHook(useEditorActions);
   act(() => result.current.handleResetAdjustments(['/first.dng', '/other.dng']));
   await act(async () => {});
-  expect(toast.error).toHaveBeenCalledWith(`Failed to reset adjustments: ${message}`);
+  // The write queue's failure, under the activity centre's Needs attention:
+  // the photograph not saved and why.
+  const failure = useActivityStore.getState().entries.find((entry) => entry.id === 'write:not-saved');
+  expect(failure).toMatchObject({ status: 'failure', paths: failed });
+  expect(failure?.detail).toContain(`Failed to reset adjustments: ${message}`);
+  stop();
   expect(useEditorStore.getState().adjustments.exposure).toBe(exposure);
   errorLog.mockRestore();
 });

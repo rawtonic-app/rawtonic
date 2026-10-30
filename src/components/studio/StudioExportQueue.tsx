@@ -2,7 +2,7 @@ import { memo, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import i18n from "i18next";
 import { invoke } from "@tauri-apps/api/core";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
 import { ChevronDown, ChevronRight, X } from "lucide-react";
 import {
   currentExportEventSeq,
@@ -89,7 +89,7 @@ function exportFileName(path: string): string {
 }
 
 function act(command: Invokes, args: Record<string, unknown>) {
-  return invoke(command, args).catch((error) => toast.error(String(error)));
+  return invoke(command, args).catch((error) => notify.error(String(error)));
 }
 
 const readsInFlight = new Map<string, number>();

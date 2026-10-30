@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { ParseKeys, TFunction } from "i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
 import { Plus, X } from "lucide-react";
 import { create } from "zustand";
 import { useModalFocus } from "../../hooks/useModalFocus";
@@ -568,7 +568,7 @@ function SmartAlbumEditor({ draft, albums: given }: { draft: SmartAlbumDraft; al
       window.dispatchEvent(new Event(SESSION_ALBUMS_CHANGED));
       close();
     } catch (e) {
-      toast.error(t("studio.library.smartAlbums.saveFailed", { error: String(e) }));
+      notify.error(t("studio.library.smartAlbums.saveFailed", { error: String(e) }));
     }
   };
   const keys = (e: KeyboardEvent) => {

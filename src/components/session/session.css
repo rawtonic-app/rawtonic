@@ -450,26 +450,6 @@
   border-radius: 4px;
   line-height: 1.6;
 }
-.session-progress {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 9px 22px;
-  background: var(--app-bg-secondary);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-.session-progress progress {
-  height: 5px;
-  max-width: 220px;
-  flex: 1;
-  accent-color: #b4c8d3;
-}
-.session-progress button {
-  margin-left: auto;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
 .session-copy-note {
   display: flex;
   align-items: flex-start;
@@ -528,11 +508,6 @@
   }
   .session-identity {
     max-width: 200px;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .session-progress .animate-spin {
-    animation: none;
   }
 }
 

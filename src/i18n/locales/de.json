@@ -1,4 +1,78 @@
 {
+  "activity": {
+    "ai": {
+      "denoise": "KI-Entrauschen",
+      "depth": "KI-Maske: Tiefe",
+      "foreground": "KI-Maske: Vordergrund",
+      "inpaint": "Generatives Füllen",
+      "object": "KI-Maske: Objekt",
+      "other": "KI-Aufgabe",
+      "people": "KI-Maske: Personen",
+      "sky": "KI-Maske: Himmel",
+      "subject": "KI-Maske: Motiv"
+    },
+    "batch": {
+      "auto_one": "Auto-Korrekturen: {{count}} Foto",
+      "auto_other": "Auto-Korrekturen: {{count}} Fotos",
+      "faceRetouch_one": "Gesichtsretusche: {{count}} Foto",
+      "faceRetouch_other": "Gesichtsretusche: {{count}} Fotos",
+      "other_one": "Wird auf {{count}} Foto angewendet",
+      "other_other": "Wird auf {{count}} Fotos angewendet"
+    },
+    "cancel": "Abbrechen",
+    "clearDone": "Leeren",
+    "close": "Aktivität schließen",
+    "copied": "Kopiert",
+    "copyDetails": "Details kopieren",
+    "dismiss": "Ausblenden: {{title}}",
+    "dismissShort": "Ausblenden",
+    "download": {
+      "model": "KI-Modell {{name}} wird geladen"
+    },
+    "empty": {
+      "attention": "Nichts braucht deine Aufmerksamkeit.",
+      "done": "Keine neuen Ergebnisse.",
+      "running": "Nichts läuft gerade."
+    },
+    "export": {
+      "failed_one": "{{count}} Foto nicht exportiert: {{label}}",
+      "failed_other": "{{count}} Fotos nicht exportiert: {{label}}",
+      "interrupted": "Export unterbrochen: {{label}}",
+      "running": "Exportiere {{label}}",
+      "waiting": "Wartet auf Export: {{label}}"
+    },
+    "import": {
+      "starting": "Import startet …"
+    },
+    "indexing": "Bibliothek wird indiziert",
+    "progress": "{{percent}} % erledigt",
+    "resume": "Fortsetzen",
+    "sections": {
+      "attention": "Braucht Aufmerksamkeit",
+      "done": "Erledigt",
+      "running": "Läuft"
+    },
+    "showPhotos": "Fotos zeigen",
+    "slot": {
+      "attention_one": "{{count}} Eintrag braucht Aufmerksamkeit",
+      "attention_other": "{{count}} Einträge brauchen Aufmerksamkeit",
+      "running_one": "{{count}} Aufgabe läuft",
+      "running_other": "{{count}} Aufgaben laufen"
+    },
+    "status": {
+      "failure": "Fehlgeschlagen",
+      "warning": "Warnung"
+    },
+    "title": "Aktivität",
+    "tryAgain": "Erneut versuchen",
+    "writes": {
+      "failed_one": "Änderungen an {{count}} Foto wurden nicht gespeichert",
+      "failed_other": "Änderungen an {{count}} Fotos wurden nicht gespeichert"
+    },
+    "xmp": {
+      "review": "Prüfen"
+    }
+  },
   "adjustments": {
     "color": {
       "ariaSelectColor": "{{name}}-Farbe auswählen",
@@ -159,6 +233,7 @@
       "select_all": "Alles auswählen",
       "select_none": "Auswahl aufheben",
       "shift_capture_time": "Aufnahmezeit verschieben…",
+      "show_activity": "Aktivität …",
       "show_in_finder": "Im Finder zeigen",
       "sync_settings": "Einstellungen synchronisieren",
       "tether_capture": "Auslösen (Tethering-Kamera)",

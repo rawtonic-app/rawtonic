@@ -22,7 +22,7 @@ vi.mock('@tauri-apps/api/event', () => ({
     return Promise.resolve(() => listeners.delete(name));
   }),
 }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), dismiss: vi.fn(), update: vi.fn(), isActive: vi.fn(() => false) } }));
+vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), success: vi.fn(), info: vi.fn(), dismiss: vi.fn(), update: vi.fn(), isActive: vi.fn(() => false) } }));
 
 const props = {
   sortedImageList: [],
@@ -269,7 +269,7 @@ describe('the macOS menu bar', () => {
     // The rest register in their owners (appMenu.test.ts checks them).
     const owners = new Set(['command_palette', 'about', 'check_updates', 'keyboard_shortcuts', 'website', 'report_problem', 'select_none',
       'clear_recent', 'show_in_finder', 'new_session', 'open_session', 'import_photos', 'flag_pick', 'flag_unflag', 'flag_reject',
-      'view_grid', 'view_loupe', 'view_develop', 'match_light', 'shift_capture_time']);
+      'view_grid', 'view_loupe', 'view_develop', 'match_light', 'shift_capture_time', 'show_activity']);
     const missing = menuCommands().filter((command) => !owners.has(command) && !appCommand(command));
     expect(missing).toEqual([]);
   });

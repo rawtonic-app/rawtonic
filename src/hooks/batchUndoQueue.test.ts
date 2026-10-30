@@ -2,10 +2,11 @@
 // (utils/photoWrites) too: each photograph's restore joins its queue, so
 // quitting, switching and exporting wait for it and failures surface like
 // those of every other write (G26 O-01).
+import { resetActivityBridges, startActivityBridges } from '../activity/bridges';
+import { resetActivityStore, useActivityStore } from '../store/useActivityStore';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { toast } from 'react-toastify';
 import { debouncedSave, debouncedSetHistory, flushRecipeSaves, useEditorActions, waitForPendingMetadataSave } from './useEditorActions';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
@@ -15,7 +16,7 @@ import { redo, undo, useCatalogUndoStore } from '../utils/appUndo';
 import { PHOTO_WRITES_SETTLED, type PhotoWritesSettled } from '../utils/photoWrites';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), info: vi.fn(), isActive: vi.fn(), update: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), info: vi.fn(), isActive: vi.fn(), update: vi.fn() } }));
 
 type Pending = { command: string; args: unknown; resolve(value?: unknown): void; reject(error: unknown): void; settled?: boolean };
 let pending: Pending[];
@@ -119,6 +120,9 @@ it('writes the undo after a later write of one of its photographs that is still 
 });
 
 it('reports a restore that failed for one photograph and keeps it unsaved for quitting', async () => {
+  resetActivityStore();
+  resetActivityBridges();
+  const stopActivity = startActivityBridges();
   await sync();
   settled = [];
   const undone = act(() => undo());
@@ -128,7 +132,10 @@ it('reports a restore that failed for one photograph and keeps it unsaved for qu
   });
   await undone;
   expect(settled).toEqual([expect.objectContaining({ kind: 'restore', failed: ['/b.dng'] })]);
-  expect(vi.mocked(toast.error).mock.calls.map(([text]) => String(text)).join('\n')).toContain('disk full');
+  const failure = useActivityStore.getState().entries.find((entry) => entry.id === 'write:not-saved');
+  expect(failure).toMatchObject({ status: 'failure', paths: ['/b.dng'] });
+  expect(failure?.detail).toContain('disk full');
+  stopActivity();
   // The step stays to try again, and quitting names B when it still fails.
   expect(useCatalogUndoStore.getState().past).toHaveLength(1);
   let unsaved!: Promise<string[]>;

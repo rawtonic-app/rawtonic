@@ -12,7 +12,7 @@ import { Panel } from "../ui/AppProperties";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => undefined) }));
 const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
-vi.mock("react-toastify", () => ({ toast: { error: toastError } }));
+vi.mock("../../activity/notify", () => ({ notify: { error: toastError } }));
 const setAdjustments = vi.fn((update: Adjustments | ((prev: Adjustments) => Adjustments)) => {
   const prev = useEditorStore.getState().adjustments;
   useEditorStore.setState({ adjustments: typeof update === "function" ? update(prev) : update });

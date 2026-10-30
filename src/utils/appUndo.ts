@@ -2,7 +2,7 @@ import i18n from "i18next";
 import { createElement } from "react";
 import { Invokes } from "../components/ui/AppProperties";
 import { create } from "zustand";
-import { toast } from "react-toastify";
+import { notify } from "../activity/notify";
 import { debouncedSetHistory, useEditorStore } from "../store/useEditorStore";
 import { useLibraryStore } from "../store/useLibraryStore";
 import { useUIStore } from "../store/useUIStore";
@@ -579,7 +579,7 @@ async function travelXmp(
     }, "catalog", xmp.paths);
   } catch (error) {
     const detail = String((error as { message?: string })?.message ?? error);
-    toast.error(
+    notify.error(
       direction === "undo"
         ? i18n.t("studio.library.fileOperations.undoFailed", { error: detail })
         : i18n.t("studio.library.fileOperations.redoFailed", { error: detail }),
@@ -885,7 +885,7 @@ function notifyOtherPhotos(action: string, changes: CullingChange[]) {
       ),
   );
   if (offscreen.length)
-    toast.info(noticeText(action, offscreen), { autoClose: 3000 });
+    notify.info(noticeText(action, offscreen), { autoClose: 3000 });
 }
 function sameCullingTarget(left: CullingChange, right: CullingChange) {
   if (left.before.kind !== right.before.kind) return false;
@@ -1099,7 +1099,7 @@ async function travel(
         throw error;
       }
       failureTokens.delete(step);
-      toast.dismiss(failureNoticeId(direction, step));
+      notify.dismiss(failureNoticeId(direction, step));
       if (useCatalogUndoStore.getState()[from].includes(step))
         useCatalogUndoStore.setState((s) => ({
           [from]: s[from].filter((item) => item !== step),
@@ -1120,7 +1120,7 @@ async function travel(
         ? i18n.t("studio.library.fileOperations.undoFailed", { error: detail })
         : i18n.t("studio.library.fileOperations.redoFailed", { error: detail });
     if (!failed) {
-      toast.error(message);
+      notify.error(message);
       return;
     }
     const failure = Symbol();
@@ -1156,9 +1156,9 @@ async function travel(
           i18n.t("undoHistory.skipFailed"),
         ),
       );
-    if (toast.isActive(toastId))
-      toast.update(toastId, { render: content, autoClose: false });
-    else toast.error(content, { toastId, autoClose: false });
+    if (notify.isActive(toastId))
+      notify.update(toastId, { render: content });
+    else notify.error(content, { toastId, autoClose: false });
   } finally {
     useCatalogUndoStore.setState({ busy: false });
   }
@@ -1211,7 +1211,7 @@ async function travelRecipes(
     }, "catalog", currentTargets.get(step));
   } catch (error) {
     const detail = String((error as { message?: string })?.message ?? error);
-    toast.error(
+    notify.error(
       direction === "undo"
         ? i18n.t("studio.library.fileOperations.undoFailed", { error: detail })
         : i18n.t("studio.library.fileOperations.redoFailed", { error: detail }),
@@ -1235,7 +1235,7 @@ async function travelCaptureTime(
       if (applied.conflicts.length)
         throw new Error(i18n.t("captureTime.conflict", { count: applied.conflicts.length }));
       if (applied.failed.length)
-        toast.warning(i18n.t("captureTime.sidecarsFailed", { count: applied.failed.length }));
+        notify.warning(i18n.t("captureTime.sidecarsFailed", { count: applied.failed.length }));
       if (useCatalogUndoStore.getState()[from].includes(step))
         useCatalogUndoStore.setState((s) => ({
           [from]: s[from].filter((item) => item !== step),
@@ -1244,7 +1244,7 @@ async function travelCaptureTime(
     }, "catalog", currentTargets.get(step));
   } catch (error) {
     const detail = String((error as { message?: string })?.message ?? error);
-    toast.error(
+    notify.error(
       direction === "undo"
         ? i18n.t("studio.library.fileOperations.undoFailed", { error: detail })
         : i18n.t("studio.library.fileOperations.redoFailed", { error: detail }),

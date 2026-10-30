@@ -1,4 +1,6 @@
 import { act, cleanup, renderHook } from '@testing-library/react';
+import { resetActivityBridges, startActivityBridges } from '../activity/bridges';
+import { resetActivityStore, useActivityStore } from '../store/useActivityStore';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -11,11 +13,11 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { AUTO_CA_VERSION, CAMERA_CA_VERSION, CAMERA_GEOMETRY_VERSION, FRINGE_VERSION, INITIAL_ADJUSTMENTS } from '../utils/adjustments';
 import { Invokes } from '../components/ui/AppProperties';
 import { debouncedSave, waitForPendingMetadataSave } from './useEditorActions';
-import { toast } from 'react-toastify';
+import { notify as toast } from '../activity/notify';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: { error: vi.fn() } }));
 
 type Pending = {
   command: string; path: string; resolve: (value: unknown) => void;
@@ -238,6 +240,9 @@ it('serializes repeated saves of one photograph before releasing metadata reader
 
 it('preserves the unsaved recipe on reopen after a failed write and reports the error', async () => {
   const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+  resetActivityStore();
+  resetActivityBridges();
+  const stopActivity = startActivityBridges();
   useEditorStore.setState({ selectedImage: photo('/failed.dng') });
   const edited = { ...INITIAL_ADJUSTMENTS, exposure: 3.5 };
   debouncedSave('/failed.dng', edited);
@@ -246,7 +251,10 @@ it('preserves the unsaved recipe on reopen after a failed write and reports the 
   const save = pending.find((request) => request.command === Invokes.SaveMetadataAndUpdateThumbnail)!;
   save.settled = true;
   await act(async () => save.reject(new Error('disk full')));
-  expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('disk full'));
+  const failure = useActivityStore.getState().entries.find((entry) => entry.id === 'write:not-saved');
+  expect(failure).toMatchObject({ status: 'failure', paths: ['/failed.dng'] });
+  expect(failure?.detail).toContain('disk full');
+  stopActivity();
   await resolve(Invokes.LoadMetadata, '/failed.dng', { adjustments: INITIAL_ADJUSTMENTS });
   await resolve(Invokes.LoadImage, '/failed.dng', nativeResult);
   expect(useEditorStore.getState().selectedImage?.isReady).toBe(true);

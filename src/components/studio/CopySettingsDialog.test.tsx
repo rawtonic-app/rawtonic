@@ -14,7 +14,7 @@ import { undo, useCatalogUndoStore } from "../../utils/appUndo";
 import { useUIStore } from "../../store/useUIStore";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-vi.mock("react-toastify", () => ({ toast: { error: vi.fn() } }));
+vi.mock("../../activity/notify", () => ({ notify: { error: vi.fn() } }));
 
 const sky = {
   ...structuredClone(INITIAL_MASK_CONTAINER),
@@ -360,7 +360,7 @@ it("keeps the ids of the open photo's bitmaps a paste did not change, and its ow
 });
 
 it("refuses a paste onto the open photo beyond the layers the renderer applies", async () => {
-  const { toast } = await import("react-toastify");
+  const { notify: toast } = await import("../../activity/notify");
   const { result } = renderHook(useEditorActions);
   const many = Array.from({ length: 32 }, (_, i) => ({ ...dodge, id: `l${i}`, subMasks: [{ ...sky.subMasks[0], id: `c${i}`, type: "radial" }] }));
   const opened = structuredClone(INITIAL_ADJUSTMENTS);

@@ -1,5 +1,5 @@
 import i18n from 'i18next';
-import { toast } from 'react-toastify';
+import { notify } from '../activity/notify';
 
 /** Start of the backend's error when ONNX Runtime is missing or cannot be
  * loaded (`rawtonic_onnx::RUNTIME_UNAVAILABLE`). */
@@ -38,10 +38,10 @@ export function aiErrorMessage(error: unknown, fallback?: string): string {
 export function toastAiError(error: unknown, fallback: string) {
   if (isAiTaskCancelled(error)) return;
   if (isAiRuntimeError(error)) {
-    toast.error(aiErrorMessage(error), { toastId: RUNTIME_TOAST_ID });
+    notify.error(aiErrorMessage(error), { toastId: RUNTIME_TOAST_ID, source: 'ai' });
     return;
   }
-  toast.error(fallback);
+  notify.error(fallback, { source: 'ai' });
 }
 
 /** Background AI work failed: only a missing or broken runtime is worth a
@@ -49,7 +49,7 @@ export function toastAiError(error: unknown, fallback: string) {
 export function noteBackgroundAiError(error: unknown) {
   if (!isAiRuntimeError(error) || backgroundRuntimeNoticeShown) return;
   backgroundRuntimeNoticeShown = true;
-  toast.error(aiErrorMessage(error), { toastId: RUNTIME_TOAST_ID });
+  notify.error(aiErrorMessage(error), { toastId: RUNTIME_TOAST_ID, source: 'ai' });
 }
 
 /** Forgets the session's notices (tests). */

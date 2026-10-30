@@ -1,4 +1,71 @@
 {
+  "activity": {
+    "ai": {
+      "denoise": "AI 降噪",
+      "depth": "AI 蒙版：深度",
+      "foreground": "AI 蒙版：前景",
+      "inpaint": "生成式填充",
+      "object": "AI 蒙版：对象",
+      "other": "AI 任务",
+      "people": "AI 蒙版：人物",
+      "sky": "AI 蒙版：天空",
+      "subject": "AI 蒙版：主体"
+    },
+    "batch": {
+      "auto_other": "自动调整：{{count}} 张照片",
+      "faceRetouch_other": "面部修饰：{{count}} 张照片",
+      "other_other": "正在应用到 {{count}} 张照片"
+    },
+    "cancel": "取消",
+    "clearDone": "清除",
+    "close": "关闭活动",
+    "copied": "已复制",
+    "copyDetails": "复制详细信息",
+    "dismiss": "关闭：{{title}}",
+    "dismissShort": "关闭",
+    "download": {
+      "model": "正在下载 AI 模型 {{name}}"
+    },
+    "empty": {
+      "attention": "没有需要处理的项目。",
+      "done": "没有最近的结果。",
+      "running": "没有进行中的任务。"
+    },
+    "export": {
+      "failed_other": "{{count}} 张照片未能导出：{{label}}",
+      "interrupted": "导出已中断：{{label}}",
+      "running": "正在导出 {{label}}",
+      "waiting": "等待导出：{{label}}"
+    },
+    "import": {
+      "starting": "正在开始导入…"
+    },
+    "indexing": "正在为图库建立索引",
+    "progress": "已完成 {{percent}} %",
+    "resume": "继续",
+    "sections": {
+      "attention": "需要处理",
+      "done": "已完成",
+      "running": "进行中"
+    },
+    "showPhotos": "显示照片",
+    "slot": {
+      "attention_other": "{{count}} 项需要处理",
+      "running_other": "{{count}} 个任务进行中"
+    },
+    "status": {
+      "failure": "失败",
+      "warning": "警告"
+    },
+    "title": "活动",
+    "tryAgain": "重试",
+    "writes": {
+      "failed_other": "{{count}} 张照片的更改未保存"
+    },
+    "xmp": {
+      "review": "查看"
+    }
+  },
   "adjustments": {
     "color": {
       "ariaSelectColor": "选择 {{name}} 颜色",
@@ -159,6 +226,7 @@
       "select_all": "全选",
       "select_none": "取消选择",
       "shift_capture_time": "调整拍摄时间…",
+      "show_activity": "活动…",
       "show_in_finder": "在访达中显示",
       "sync_settings": "同步设置",
       "tether_capture": "拍摄（联机相机）",

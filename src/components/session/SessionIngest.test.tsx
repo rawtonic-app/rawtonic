@@ -1,9 +1,9 @@
 import "../../i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
-import { toast } from "react-toastify";
+import { notify as toast, type NotifyOptions } from "../../activity/notify";
 import SessionWorkspace, { type SessionSummary } from "./SessionWorkspace";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
@@ -37,8 +37,8 @@ vi.mock("@tauri-apps/api/event", () => ({
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null) }));
 vi.mock("@tauri-apps/api/path", () => ({ join: async (...parts: string[]) => parts.join("/") }));
 vi.mock("@tauri-apps/plugin-os", () => ({ platform: () => "macos" }));
-vi.mock("react-toastify", () => ({
-  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), dismiss: vi.fn(), warning: vi.fn() },
+vi.mock("../../activity/notify", () => ({
+  notify: { error: vi.fn(), success: vi.fn(), info: vi.fn(), dismiss: vi.fn(), warning: vi.fn(), warn: vi.fn() },
 }));
 
 const summary: SessionSummary = {
@@ -300,10 +300,11 @@ describe("Dropping photographs onto the window", () => {
         "An interrupted import was finished: 1 photos · 1 JPEGs kept with their RAWs",
       ),
     );
-    await waitFor(() => expect(toast.info).toHaveBeenCalled());
-    render(<>{vi.mocked(toast.info).mock.calls[0][0] as React.ReactNode}</>);
-    expect(screen.getByText(/3 photos of an interrupted import wait for their card or drive/)).toBeTruthy();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Forget them" }));
+    // Under the activity centre's Needs attention, with Import now and Forget.
+    await waitFor(() => expect(toast.warn).toHaveBeenCalled());
+    const [text, options] = vi.mocked(toast.warn).mock.calls[0] as [string, NotifyOptions];
+    expect(text).toMatch(/3 photos of an interrupted import wait for their card or drive/);
+    await options.actions!.find((action) => action.label === "Forget them")!.run();
     expect(invoke).toHaveBeenCalledWith("session_ingest_forget", { directory: "/jobs/Acme", id: "job-2" });
   });
 
@@ -319,11 +320,13 @@ describe("Dropping photographs onto the window", () => {
       return base(command, args);
     });
     await open();
-    await waitFor(() => expect(toast.info).toHaveBeenCalled());
+    await waitFor(() => expect(toast.warn).toHaveBeenCalled());
     expect(invoke).not.toHaveBeenCalledWith("session_ingest_resume", expect.anything());
-    render(<>{vi.mocked(toast.info).mock.calls[0][0] as React.ReactNode}</>);
+    const [, options] = vi.mocked(toast.warn).mock.calls[0] as [string, NotifyOptions];
     jobs = [{ id: "job-2", total: 3, open: 3, available: 3 }];
-    await userEvent.setup().click(screen.getByRole("button", { name: "Import now" }));
+    await act(async () => {
+      await options.actions!.find((action) => action.label === "Import now")!.run();
+    });
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("session_ingest_resume", { directory: "/jobs/Acme" }));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("An interrupted import was finished: 1 photos"));
   });
@@ -453,15 +456,17 @@ describe("Dropping photographs onto the window", () => {
     await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(3));
     hold = true;
     await user.click(screen.getByRole("button", { name: "Copy 2 photos" }));
-    const cancel = await waitFor(() => {
-      const button = document.querySelector<HTMLButtonElement>(".session-progress button");
+    // The running import is in the activity centre, with Cancel.
+    const slot = await waitFor(() => {
+      const button = document.querySelector<HTMLButtonElement>(".activity-slot-button");
       expect(button).not.toBeNull();
       return button!;
     });
-    await user.click(cancel);
+    await user.click(slot);
+    await user.click(within(screen.getByRole("dialog", { name: "Activity" })).getByRole("button", { name: "Cancel" }));
     expect(invoke).toHaveBeenCalledWith("session_cancel_ingest");
     await act(async () => arrive());
-    await waitFor(() => expect(document.querySelector(".session-progress")).toBeNull());
+    await waitFor(() => expect(document.querySelector(".activity-slot-button")).toBeNull());
     expect(ingestCall()).toBeUndefined();
   });
 

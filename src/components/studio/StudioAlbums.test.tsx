@@ -1,5 +1,5 @@
 import "../../i18n";
-import { toast } from "react-toastify";
+import { notify as toast } from "../../activity/notify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
@@ -13,7 +13,7 @@ import { FILE_OPERATIONS_CHANGED } from "../../utils/catalogEvents";
 import { CATALOG_CHANGED, catalogChanged } from "../../utils/catalogWrites";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-vi.mock("react-toastify", () => ({ toast: { error: vi.fn() } }));
+vi.mock("../../activity/notify", () => ({ notify: { error: vi.fn() } }));
 const mockInvoke = vi.mocked(invoke);
 let albums: SessionAlbum[] = [{ id: "p", name: "Picks", parent: null, count: 2 }];
 

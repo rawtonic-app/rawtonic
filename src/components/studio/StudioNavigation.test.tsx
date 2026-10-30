@@ -1,7 +1,7 @@
 import "../../i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
-import { toast } from "react-toastify";
+import { notify as toast } from "../../activity/notify";
 import { invoke } from "@tauri-apps/api/core";
 import StudioNavigation from "./StudioNavigation";
 import { useEditorStore } from "../../store/useEditorStore";
@@ -14,7 +14,7 @@ import { useLibraryActions } from "../../hooks/useLibraryActions";
 import { SortDirection, type AppSettings, type SelectedImage } from "../ui/AppProperties";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(() => Promise.resolve()) }));
-vi.mock("react-toastify", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock("../../activity/notify", () => ({ notify: { error: vi.fn(), success: vi.fn() } }));
 const mockInvoke = vi.mocked(invoke);
 
 const folder = (path: string, imageCount = 0, children: object[] = [], extra = {}) => ({

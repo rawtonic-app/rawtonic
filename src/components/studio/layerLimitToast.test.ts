@@ -10,7 +10,7 @@ import { warnIfLayerLimit } from "./layerLimitToast";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => undefined) }));
 const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
-vi.mock("react-toastify", () => ({ toast: { error: toastError } }));
+vi.mock("../../activity/notify", () => ({ notify: { error: toastError } }));
 
 const size = { width: 1000, height: 800 };
 const layer = (id: string) => ({

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { openDialog } from '../utils/fileDialog';
 import { homeDir } from '@tauri-apps/api/path';
-import { toast } from 'react-toastify';
+import { notify } from '../activity/notify';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
@@ -426,7 +426,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       } catch (err) {
         if (load.signal.aborted) return;
         console.error('Failed to load folder contents:', err);
-        toast.error('Failed to load images from the selected folder.');
+        notify.error('Failed to load images from the selected folder.');
       } finally {
         if (!load.signal.aborted) useLibraryStore.getState().setLibrary({ isViewLoading: false });
       }
@@ -484,7 +484,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       } catch (err) {
         if (load.signal.aborted) return;
         console.error('Failed to load album images:', err);
-        toast.error(`Failed to load album: ${err}`);
+        notify.error(`Failed to load album: ${err}`);
       } finally {
         if (!load.signal.aborted) setLibrary({ isViewLoading: false });
       }
@@ -554,7 +554,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
             });
             setLibrary({ folderTrees: [...folderTrees, newTree] });
           } catch (e) {
-            toast.error(`Failed to load folder tree: ${e}`);
+            notify.error(`Failed to load folder tree: ${e}`);
           } finally {
             setLibrary({ isTreeLoading: false });
           }
@@ -563,7 +563,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       }
     } catch (err) {
       console.error('Failed to open directory dialog:', err);
-      toast.error('Failed to open folder selection dialog.');
+      notify.error('Failed to open folder selection dialog.');
     }
   }, [handleSelectSubfolder]);
 

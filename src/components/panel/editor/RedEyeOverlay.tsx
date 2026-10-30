@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { toast } from "react-toastify";
+import { notify } from "../../../activity/notify";
 import { updateAdjustments } from "../../../hooks/useEditorActions";
 import { useEditorStore } from "../../../store/useEditorStore";
 import type { RedEye } from "../../../utils/adjustments";
@@ -169,7 +169,7 @@ export default function RedEyeOverlay({
       });
       if (useEditorStore.getState().selectedImage?.path !== path) return;
       if (!pupil) {
-        toast.info(
+        notify.info(
           t(
             redEyeSettings.kind === "pet"
               ? "spotRemoval.redEye.noPetEye"

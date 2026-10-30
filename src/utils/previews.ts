@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { TFunction } from 'i18next';
 import { Images } from 'lucide-react';
-import { toast } from 'react-toastify';
+import { notify } from '../activity/notify';
 import { Invokes, type Option, type PreviewBuildProgress } from '../components/ui/AppProperties';
 
 /**
@@ -43,12 +43,12 @@ export function previewsMenu(t: TFunction, paths: string[]): Option {
   const count = paths.length;
   const withCount = (label: string) => t('previews.menu.withCount', { label, n: count });
   const run = (action: () => Promise<unknown>) => () => {
-    action().catch((err) => toast.error(t('previews.toasts.failed', { err: String(err) })));
+    action().catch((err) => notify.error(t('previews.toasts.failed', { err: String(err) })));
   };
   const discard = (fullOnly: boolean) =>
     run(async () => {
       const removed = await discardPreviews(paths, fullOnly);
-      toast.info(t('previews.toasts.discarded', { files: removed }));
+      notify.info(t('previews.toasts.discarded', { files: removed }));
     });
   return {
     label: t('previews.menu.title'),

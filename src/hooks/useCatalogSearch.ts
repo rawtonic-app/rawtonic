@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import i18n from 'i18next';
-import { toast } from 'react-toastify';
+import { notify } from '../activity/notify';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { catalogChanged, onCatalogChange } from '../utils/catalogWrites';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -92,7 +92,7 @@ export function useCatalogSearch() {
             // The old answer is not this filter's: show nothing and say why.
             if (!current()) return;
             setLibrary({ catalogMatches: new Set(), catalogKnown: null });
-            toast.error(i18n.t('studio.library.searchFailed', { error: String(e) }));
+            notify.error(i18n.t('studio.library.searchFailed', { error: String(e) }));
           });
       }, delay);
     };

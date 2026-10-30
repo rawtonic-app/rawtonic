@@ -7,7 +7,7 @@ import i18n from "i18next";
 import { SESSION_ALBUMS_CHANGED, type SessionAlbum } from "./StudioAlbums";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-vi.mock("react-toastify", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock("../../activity/notify", () => ({ notify: { error: vi.fn(), success: vi.fn() } }));
 const mockInvoke = vi.mocked(invoke);
 afterEach(cleanup);
 

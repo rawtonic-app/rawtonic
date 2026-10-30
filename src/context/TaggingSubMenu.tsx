@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { toast } from 'react-toastify';
+import { notify } from '../activity/notify';
 import { X, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -100,7 +100,7 @@ export default function TaggingSubMenu({
       const { message, failed } = saveFailure(err, pathsToUpdate);
       const saved = pathsToUpdate.filter((path) => !failed.includes(path));
       if (saved.length > 0) onTagSaved(saved, tag, adds ? 'add' : 'remove');
-      toast.error(`${adds ? 'Failed to add tag' : 'Failed to remove tag'}: ${message}`);
+      notify.error(`${adds ? 'Failed to add tag' : 'Failed to remove tag'}: ${message}`);
       return false;
     }
     // Every photo saved: each shows the one tag written and keeps its other

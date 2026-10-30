@@ -1,7 +1,7 @@
 import '../i18n';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
-import { toast } from 'react-toastify';
+import { notify as toast } from '../activity/notify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_RECIPE_DRAFT, exportSettingsFromDraft } from './exportRecipes';
 import { exportJobLabel, notifyExportOutputs, outputFolder } from './exportFeedback';
@@ -34,7 +34,7 @@ describe('export queue labels', () => {
 
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
-vi.mock('react-toastify', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: { success: vi.fn(), error: vi.fn() } }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 it('shows one notification for a run with a reveal action for each output folder', () => {

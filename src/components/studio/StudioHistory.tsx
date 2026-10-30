@@ -1,6 +1,6 @@
 import { Camera, History } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { takeSnapshot } from "../../utils/snapshots";
 import { ToolGroup } from "./StudioDevelop";
@@ -67,7 +67,7 @@ export default function StudioHistory() {
               aria-label={t("studio.develop.snapshots.fromStep", { step: label })}
               onClick={() => {
                 takeSnapshot(label, entry).catch((error) =>
-                  toast.error(t("studio.develop.snapshots.failed", { error: String(error) })),
+                  notify.error(t("studio.develop.snapshots.failed", { error: String(error) })),
                 );
               }}
             >

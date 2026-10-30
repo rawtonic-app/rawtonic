@@ -20,8 +20,8 @@ import { type AppSettings } from "./AppProperties";
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve()),
 }));
-vi.mock("react-toastify", () => ({
-  toast: { error: vi.fn(), success: vi.fn() },
+vi.mock("../../activity/notify", () => ({
+  notify: { error: vi.fn(), success: vi.fn() },
 }));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({

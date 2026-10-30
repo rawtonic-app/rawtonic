@@ -1,4 +1,85 @@
 {
+  "activity": {
+    "ai": {
+      "denoise": "Reducció de soroll IA",
+      "depth": "Màscara IA: profunditat",
+      "foreground": "Màscara IA: primer pla",
+      "inpaint": "Emplenament generatiu",
+      "object": "Màscara IA: objecte",
+      "other": "Tasca d’IA",
+      "people": "Màscara IA: persones",
+      "sky": "Màscara IA: cel",
+      "subject": "Màscara IA: subjecte"
+    },
+    "batch": {
+      "auto_one": "Ajustos automàtics: {{count}} foto",
+      "auto_many": "Ajustos automàtics: {{count}} fotos",
+      "auto_other": "Ajustos automàtics: {{count}} fotos",
+      "faceRetouch_one": "Retoc facial: {{count}} foto",
+      "faceRetouch_many": "Retoc facial: {{count}} fotos",
+      "faceRetouch_other": "Retoc facial: {{count}} fotos",
+      "other_one": "S’està aplicant a {{count}} foto",
+      "other_many": "S’està aplicant a {{count}} fotos",
+      "other_other": "S’està aplicant a {{count}} fotos"
+    },
+    "cancel": "Cancel·la",
+    "clearDone": "Esborra",
+    "close": "Tanca l’activitat",
+    "copied": "Copiat",
+    "copyDetails": "Copia els detalls",
+    "dismiss": "Descarta: {{title}}",
+    "dismissShort": "Descarta",
+    "download": {
+      "model": "S’està baixant el model d’IA {{name}}"
+    },
+    "empty": {
+      "attention": "Res no requereix la teva atenció.",
+      "done": "No hi ha resultats recents.",
+      "running": "No hi ha res en curs."
+    },
+    "export": {
+      "failed_one": "{{count}} foto no s’ha exportat: {{label}}",
+      "failed_many": "{{count}} fotos no s’han exportat: {{label}}",
+      "failed_other": "{{count}} fotos no s’han exportat: {{label}}",
+      "interrupted": "Exportació interrompuda: {{label}}",
+      "running": "S’està exportant {{label}}",
+      "waiting": "Esperant per exportar {{label}}"
+    },
+    "import": {
+      "starting": "S’està iniciant la importació…"
+    },
+    "indexing": "S’està indexant la biblioteca",
+    "progress": "{{percent}} % fet",
+    "resume": "Reprèn",
+    "sections": {
+      "attention": "Requereix atenció",
+      "done": "Fet",
+      "running": "En curs"
+    },
+    "showPhotos": "Mostra les fotos",
+    "slot": {
+      "attention_one": "{{count}} element requereix atenció",
+      "attention_many": "{{count}} elements requereixen atenció",
+      "attention_other": "{{count}} elements requereixen atenció",
+      "running_one": "{{count}} tasca en curs",
+      "running_many": "{{count}} tasques en curs",
+      "running_other": "{{count}} tasques en curs"
+    },
+    "status": {
+      "failure": "Ha fallat",
+      "warning": "Avís"
+    },
+    "title": "Activitat",
+    "tryAgain": "Torna-ho a provar",
+    "writes": {
+      "failed_one": "Els canvis de {{count}} foto no s’han desat",
+      "failed_many": "Els canvis de {{count}} fotos no s’han desat",
+      "failed_other": "Els canvis de {{count}} fotos no s’han desat"
+    },
+    "xmp": {
+      "review": "Revisa"
+    }
+  },
   "adjustments": {
     "color": {
       "ariaSelectColor": "Seleccionar el color {{name}}",
@@ -159,6 +240,7 @@
       "select_all": "Selecciona-ho tot",
       "select_none": "No seleccionis res",
       "shift_capture_time": "Desplaça l'hora de captura…",
+      "show_activity": "Activitat…",
       "show_in_finder": "Mostra al Finder",
       "sync_settings": "Sincronitza els ajustos",
       "tether_capture": "Dispara (càmera connectada)",

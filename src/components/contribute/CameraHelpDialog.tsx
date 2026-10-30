@@ -11,7 +11,7 @@ import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-shell";
 import { ExternalLink } from "lucide-react";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
 import i18next from "i18next";
 import { useModalFocus } from "../../hooks/useModalFocus";
 import { useUIStore, type CameraHelpRequest } from "../../store/useUIStore";
@@ -54,7 +54,7 @@ function CameraHelpNotice({ text, request }: { text: string; request: CameraHelp
 
 /** A toast that says `text` and offers camera help for the file. */
 export const offerCameraHelp = (text: string, request: CameraHelpRequest) => {
-  const show = request.reason === "preview" ? toast.warn : toast.error;
+  const show = request.reason === "preview" ? notify.warn : notify.error;
   show(<CameraHelpNotice text={text} request={request} />, { toastId: `camera-help:${request.path}` });
 };
 
@@ -65,7 +65,7 @@ export const warnPreviewFallback = (path: string, cameraHelp: boolean) => {
   const name = path.split("?")[0].split(/[\\/]/).pop() ?? "";
   const text = i18next.t("contribute.cameraHelp.previewNotice", { name });
   if (cameraHelp) offerCameraHelp(text, { path, reason: "preview" });
-  else toast.warn(text, { toastId: `camera-help:${path}` });
+  else notify.warn(text, { toastId: `camera-help:${path}` });
 };
 
 const readCamera = async (path: string): Promise<PhotoInfo | null> => {

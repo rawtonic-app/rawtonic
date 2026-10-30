@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import i18n from 'i18next';
-import { toast } from 'react-toastify';
+import { notify } from '../activity/notify';
 import { Invokes } from '../components/ui/AppProperties';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { exportSettingsFromDraft, subfolderName, type RecipeDraft } from './exportRecipes';
@@ -33,13 +33,13 @@ export function notifyExportOutputs(outputs: string[]) {
     if (!folders.has(folder)) folders.set(folder, output);
   }
   if (!folders.size) return;
-  toast.success(
+  notify.success(
     <div>
       <div>{i18n.t('studio.export.queue.exportedTo')}</div>
       {[...folders].map(([folder, output]) => (
         <div key={folder}>
           <span>{folder}</span>{' '}
-          <button type="button" onClick={() => void invoke(Invokes.ShowInFinder, { path: output }).catch((error) => toast.error(String(error)))}>
+          <button type="button" onClick={() => void invoke(Invokes.ShowInFinder, { path: output }).catch((error) => notify.error(String(error)))}>
             {i18n.t(useSettingsStore.getState().osPlatform === 'macos' ? 'studio.library.folders.menu.showInFinder' : 'studio.library.folders.menu.showInFileManager')}
           </button>
         </div>

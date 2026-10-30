@@ -1,0 +1,183 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* The top bar's activity slot and its popover: quiet, colour only as a dot
+   (notes: agent-knowledge/ui-product-decisions.md, "Activity centre"). */
+.activity-slot {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.activity-slot-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 260px;
+  padding: 2px 6px;
+  margin: -2px 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--app-text-secondary, #9a9ca0);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.activity-slot-button:hover,
+.activity-slot-button[aria-expanded="true"] {
+  color: var(--app-text-primary, #e8e8e8);
+  background: rgb(255 255 255 / 0.08);
+}
+.activity-slot-button:focus-visible {
+  outline: 2px solid var(--app-accent, #a9bdcc);
+  outline-offset: 1px;
+}
+.activity-slot-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.activity-slot-count {
+  font-variant-numeric: tabular-nums;
+}
+.activity-ring {
+  flex-shrink: 0;
+}
+.activity-ring circle {
+  fill: none;
+  stroke-width: 2;
+}
+.activity-ring-track {
+  stroke: rgb(255 255 255 / 0.18);
+}
+.activity-ring-value {
+  stroke: currentColor;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+.activity-ring.is-indeterminate .activity-ring-value {
+  animation: activity-turn 1s linear infinite;
+}
+@keyframes activity-turn {
+  to { transform: rotate(270deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .activity-ring.is-indeterminate .activity-ring-value { animation: none; }
+}
+.activity-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.activity-dot.is-failure { background: #e06c66; }
+.activity-dot.is-warning { background: #e5bc72; }
+
+.activity-panel {
+  position: fixed;
+  z-index: 60;
+  width: min(380px, calc(100vw - 16px));
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  padding: 8px 12px 12px;
+  background: #292a2c;
+  border: 1px solid #45474b;
+  border-radius: 4px;
+  box-shadow: 0 10px 36px #0009;
+  color: #c9cbce;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.activity-panel:focus { outline: none; }
+.activity-panel-head,
+.activity-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.activity-panel-head h2 {
+  margin: 0;
+  color: #e0e1e3;
+  font-size: 12px;
+  font-weight: 600;
+}
+.activity-section { margin-top: 10px; }
+.activity-section h3 {
+  margin: 0 0 4px;
+  color: #9a9ca0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.activity-section ul { margin: 0; padding: 0; list-style: none; }
+.activity-empty { margin: 0; color: #7d7f83; }
+.activity-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid #36373a;
+}
+.activity-entry:first-child { border-top: 0; }
+.activity-entry-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 18px;
+  flex-shrink: 0;
+  color: #9a9ca0;
+}
+.activity-entry-main { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.activity-entry-title { color: #e0e1e3; }
+.activity-entry-title p { margin: 0; }
+.activity-entry-detail { margin: 2px 0 0; color: #9a9ca0; white-space: pre-line; }
+.activity-entry-progress { display: block; width: 100%; height: 4px; margin-top: 4px; }
+.activity-entry-actions { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 3px; }
+.activity-entry-actions:empty { display: none; }
+.activity-entry-actions button,
+.activity-entry-title button,
+.activity-clear {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #a9bdcc;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.activity-entry-dismiss {
+  display: inline-flex;
+  padding: 3px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: #9a9ca0;
+  cursor: pointer;
+}
+.activity-entry-dismiss:hover { color: #e0e1e3; background: rgb(255 255 255 / 0.08); }
+.activity-panel button:focus-visible {
+  outline: 2px solid var(--app-accent, #a9bdcc);
+  outline-offset: 1px;
+}
+
+/* Windows High Contrast and other forced colours: the dot keeps a shape
+   (filled for a failure, a ring for a warning) instead of its colour. */
+@media (forced-colors: active) {
+  .activity-dot { forced-color-adjust: none; border: 1px solid CanvasText; }
+  .activity-dot.is-failure { background: Mark; }
+  .activity-dot.is-warning { background: Canvas; }
+  .activity-ring-track { stroke: GrayText; }
+  .activity-ring-value { stroke: CanvasText; }
+  .activity-panel { border-color: CanvasText; }
+  .activity-entry-actions button,
+  .activity-entry-title button,
+  .activity-clear { color: LinkText; }
+  .activity-slot-button:focus-visible,
+  .activity-panel button:focus-visible { outline-color: Highlight; }
+}

@@ -10,7 +10,7 @@ const { invoke, open, toast } = vi.hoisted(() => ({
 }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open }));
-vi.mock("react-toastify", () => ({ toast }));
+vi.mock("../../activity/notify", () => ({ notify: toast }));
 
 import StudioLut from "./StudioLut";
 import { useEditorStore } from "../../store/useEditorStore";

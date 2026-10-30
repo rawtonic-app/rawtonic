@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { ParseKeys } from "i18next";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
 import { create } from "zustand";
 import { captureTimeAction } from "../../utils/appUndo";
 import {
@@ -69,7 +69,7 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
         setPreview(next);
         setReference((current) => current || next.items[0]?.assetId || "");
       })
-      .catch((error) => toast.error(t("captureTime.failed", { error: String(error) })));
+      .catch((error) => notify.error(t("captureTime.failed", { error: String(error) })));
   }, [paths, t]);
   useEffect(() => load(), [load]);
 
@@ -101,7 +101,7 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
       .catch((error) => {
         if (!current) return;
         setPlanned(null);
-        toast.error(t("captureTime.failed", { error: String(error) }));
+        notify.error(t("captureTime.failed", { error: String(error) }));
       });
     return () => {
       current = false;
@@ -140,11 +140,11 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
         load();
         return;
       }
-      toast.success(t("captureTime.applied", { count: changes.length }));
-      if (applied.failed.length) toast.warning(t("captureTime.sidecarsFailed", { count: applied.failed.length }));
+      notify.success(t("captureTime.applied", { count: changes.length }));
+      if (applied.failed.length) notify.warning(t("captureTime.sidecarsFailed", { count: applied.failed.length }));
       close();
     } catch (error) {
-      toast.error(t("captureTime.failed", { error: String(error) }));
+      notify.error(t("captureTime.failed", { error: String(error) }));
       setApplying(false);
     }
   };

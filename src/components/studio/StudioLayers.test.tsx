@@ -18,7 +18,7 @@ const { showContextMenu, setAdjustments, toastError } = vi.hoisted(() => ({
   setAdjustments: vi.fn(),
   toastError: vi.fn(),
 }));
-vi.mock("react-toastify", () => ({ toast: { error: toastError } }));
+vi.mock("../../activity/notify", () => ({ notify: { error: toastError } }));
 vi.mock("../../context/ContextMenuContext", () => ({ useContextMenu: () => ({ showContextMenu }) }));
 vi.mock("../../hooks/useEditorActions", () => ({ useEditorActions: () => ({ setAdjustments }) }));
 // The rows only read the thumbnails (useMaskThumbnails.test.ts covers updates).

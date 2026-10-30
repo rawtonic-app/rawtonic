@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Camera, Columns2, ImageOff, Pencil, Plus, RefreshCw, X } from "lucide-react";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { useSnapshotStore, type Snapshot } from "../../store/useSnapshotStore";
@@ -56,7 +56,7 @@ export default function StudioSnapshots() {
     useSnapshotStore
       .getState()
       .load(path)
-      .catch((error) => toast.error(t("studio.develop.snapshots.failed", { error: String(error) })));
+      .catch((error) => notify.error(t("studio.develop.snapshots.failed", { error: String(error) })));
   }, [path, t]);
 
   const create = async () => {
@@ -65,7 +65,7 @@ export default function StudioSnapshots() {
       const taken = await takeSnapshot(defaultSnapshotName(new Date(), i18n.language), adjustments);
       if (taken) setEditing(taken.id);
     } catch (error) {
-      toast.error(t("studio.develop.snapshots.failed", { error: String(error) }));
+      notify.error(t("studio.develop.snapshots.failed", { error: String(error) }));
     }
   };
 
@@ -158,7 +158,7 @@ function SnapshotRow({
     input.current?.select();
   }, [editing]);
   const fail = (error: unknown) =>
-    toast.error(t("studio.develop.snapshots.failed", { error: String(error) }));
+    notify.error(t("studio.develop.snapshots.failed", { error: String(error) }));
   const rename = (name: string | null) => {
     if (ended.current) return;
     ended.current = true;

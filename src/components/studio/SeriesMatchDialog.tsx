@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { ParseKeys } from "i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
 import { create } from "zustand";
 import { Star } from "lucide-react";
 import { ImageMetadata, Invokes } from "../ui/AppProperties";
@@ -206,7 +206,7 @@ function SeriesMatchDialog({ request }: { request: MatchRequest }) {
       .catch((error) => {
         if (!current) return;
         setProgress(null);
-        toast.error(t("studio.seriesMatch.failed", { error: String(error) }));
+        notify.error(t("studio.seriesMatch.failed", { error: String(error) }));
       });
     return () => {
       current = false;
@@ -246,10 +246,10 @@ function SeriesMatchDialog({ request }: { request: MatchRequest }) {
         setApplying(false);
         return;
       }
-      toast.success(t("studio.seriesMatch.applied", { count: written.length }));
+      notify.success(t("studio.seriesMatch.applied", { count: written.length }));
       close();
     } catch (error) {
-      toast.error(t("studio.seriesMatch.failed", { error: String(error) }));
+      notify.error(t("studio.seriesMatch.failed", { error: String(error) }));
       setApplying(false);
     }
   };

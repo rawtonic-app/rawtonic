@@ -14,7 +14,7 @@ import { Invokes, type AppSettings, type ImageFile } from "../ui/AppProperties";
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve(true)),
 }));
-vi.mock("react-toastify", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock("../../activity/notify", () => ({ notify: { error: vi.fn(), success: vi.fn() } }));
 
 const file = (path: string): ImageFile => ({
   path,

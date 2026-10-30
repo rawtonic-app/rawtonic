@@ -2,7 +2,8 @@ import { useCallback, type SyntheticEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import debounce from 'lodash.debounce';
 import i18next from 'i18next';
-import { toast } from 'react-toastify';
+import { notify } from '../activity/notify';
+import { noteWriteError } from '../activity/bridges';
 import { useEditorStore, debouncedSetHistory } from '../store/useEditorStore';
 export { debouncedSetHistory } from '../store/useEditorStore';
 import { isRawInLibrary, isRawPhoto, useLibraryStore } from '../store/useLibraryStore';
@@ -150,7 +151,8 @@ function saveEditorRecipe(path: string, adjustmentsToSave: Adjustments, epoch: n
           // made in, or discarded).
           if (epoch === libraryEpoch) unsavedRecipes.set(path, adjustmentsToSave);
           console.error('Auto-save failed:', err);
-          toast.error(`Failed to save changes: ${err}`);
+          // The write queue's failure (activity centre) says which photo; this says why.
+          noteWriteError(`Failed to save changes: ${err}`);
           return adjustmentsToSave;
         },
       ),
@@ -285,7 +287,7 @@ function savedBatch(command: Promise<unknown>, paths: string[], what: string, qu
       (err) => {
         console.error(`Failed to ${what}:`, err);
         const { message, failed } = saveFailure(err, paths);
-        if (!quiet) toast.error(`Failed to ${what}: ${message}`);
+        if (!quiet) noteWriteError(`Failed to ${what}: ${message}`);
         return failed;
       },
     );
@@ -306,7 +308,7 @@ function recordedBatch(
     ({ changes, failure }) => {
       if (failure) {
         console.error(`Failed to ${what}:`, failure);
-        if (!quiet) toast.error(`Failed to ${what}: ${failure.message}`);
+        if (!quiet) noteWriteError(`Failed to ${what}: ${failure.message}`);
       }
       return { failed: failure?.failed ?? [], changes };
     },
@@ -370,7 +372,7 @@ function pastedOpen(
         newEdit: paste?.newEdit ? (open.isRaw ? paste.newEdit.raw : paste.newEdit.other) : undefined,
       });
   if (!merged) {
-    toast.error(i18next.t('studio.develop.layers.limitReached', { limit: MAX_RENDERED_LAYERS }));
+    notify.error(i18next.t('studio.develop.layers.limitReached', { limit: MAX_RENDERED_LAYERS }));
     return null;
   }
   // A setting the style added goes back to not being there: the editor's
@@ -505,7 +507,7 @@ async function settingsSource(path?: string): Promise<(SettingsSource & { width?
     );
     return { path: from, adjustments, isRaw, ...size };
   } catch (err) {
-    toast.error(`Failed to load metadata for copying: ${err}`);
+    notify.error(`Failed to load metadata for copying: ${err}`);
     return null;
   }
 }
@@ -705,7 +707,7 @@ async function writeRecipeValues(values: RecipeValues[], shown?: RecipeShown): P
       }),
     { kind: 'recipeValues', failedOf: (written) => written.failure?.failed ?? [], step: shown?.order },
   );
-  if (result.failure) toast.error(i18next.t('studio.seriesMatch.notSaved', { error: result.failure.message }));
+  if (result.failure) notify.error(i18next.t('studio.seriesMatch.notSaved', { error: result.failure.message }));
   const written = result.before.map((before) => before.path);
   written.forEach((path) => unsavedRecipes.delete(path));
   for (const value of values)
@@ -913,7 +915,7 @@ export function useEditorActions() {
             : prev.curves,
       }));
     } catch (err) {
-      toast.error(`Failed to apply auto adjustments: ${err}`);
+      notify.error(`Failed to apply auto adjustments: ${err}`);
     }
   }, [setAdjustments]);
 
@@ -938,12 +940,12 @@ export function useEditorActions() {
       const balance = await autoWhiteBalance(selectedImage);
       if (!isCurrentEditorImage(selectedImage.path)) return;
       if (!balance) {
-        toast.warn(i18next.t('studio.whiteBalance.toasts.needsPreview'));
+        notify.warn(i18next.t('studio.whiteBalance.toasts.needsPreview'));
         return;
       }
       setAdjustments((prev: Adjustments) => ({ ...prev, ...balance }));
     } catch (error) {
-      toast.error(i18next.t('studio.whiteBalance.toasts.autoFailed', { error: String(error) }));
+      notify.error(i18next.t('studio.whiteBalance.toasts.autoFailed', { error: String(error) }));
     }
   }, [setAdjustments]);
 
@@ -997,7 +999,7 @@ export function useEditorActions() {
           },
         }));
       } catch (err) {
-        toast.error(`Failed to load LUT: ${err}`);
+        notify.error(`Failed to load LUT: ${err}`);
       }
     },
     [setAdjustments],
@@ -1066,7 +1068,7 @@ export function useEditorActions() {
             setEditor({ adjustments: resetData });
           }
         })
-        .catch((err) => toast.error(`Failed to reset adjustments: ${err}`));
+        .catch((err) => notify.error(`Failed to reset adjustments: ${err}`));
     },
     [setEditor],
   );
@@ -1132,7 +1134,7 @@ export function useEditorActions() {
             }
           }
         })
-        .catch((err) => toast.error(`Failed to apply auto lens correction: ${err}`));
+        .catch((err) => notify.error(`Failed to apply auto lens correction: ${err}`));
     },
     [setEditor],
   );
@@ -1304,7 +1306,7 @@ export function useEditorActions() {
           return failed;
         })
         .catch((err) => {
-          if (!quiet) toast.error(`Failed to paste adjustments: ${err}`);
+          if (!quiet) notify.error(`Failed to paste adjustments: ${err}`);
           return others;
         });
     },

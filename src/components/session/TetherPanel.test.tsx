@@ -25,7 +25,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/api/core", () => ({ invoke, isTauri: () => true }));
-vi.mock("react-toastify", () => ({ toast: { error: vi.fn(), warning: vi.fn(), success: vi.fn() } }));
+vi.mock("../../activity/notify", () => ({ notify: { error: vi.fn(), warning: vi.fn(), success: vi.fn() } }));
 
 const STATUS: TetherStatus = {
   session: "/jobs/Acme",
@@ -323,7 +323,7 @@ it("a closed (hidden) panel ends its camera test", async () => {
 });
 
 it("says a failed shot from the shortcut while the panel is closed", async () => {
-  const { toast } = await import("react-toastify");
+  const { notify: toast } = await import("../../activity/notify");
   const base = invoke.getMockImplementation()!;
   invoke.mockImplementation((command: string, args?: unknown) =>
     command === "tether_capture" ? Promise.reject("The camera's transfer queue is full.") : base(command, args),

@@ -1,4 +1,85 @@
 {
+  "activity": {
+    "ai": {
+      "denoise": "Reducción de ruido IA",
+      "depth": "Máscara IA: profundidad",
+      "foreground": "Máscara IA: primer plano",
+      "inpaint": "Relleno generativo",
+      "object": "Máscara IA: objeto",
+      "other": "Tarea de IA",
+      "people": "Máscara IA: personas",
+      "sky": "Máscara IA: cielo",
+      "subject": "Máscara IA: sujeto"
+    },
+    "batch": {
+      "auto_one": "Ajustes automáticos: {{count}} foto",
+      "auto_many": "Ajustes automáticos: {{count}} fotos",
+      "auto_other": "Ajustes automáticos: {{count}} fotos",
+      "faceRetouch_one": "Retoque facial: {{count}} foto",
+      "faceRetouch_many": "Retoque facial: {{count}} fotos",
+      "faceRetouch_other": "Retoque facial: {{count}} fotos",
+      "other_one": "Aplicando a {{count}} foto",
+      "other_many": "Aplicando a {{count}} fotos",
+      "other_other": "Aplicando a {{count}} fotos"
+    },
+    "cancel": "Cancelar",
+    "clearDone": "Borrar",
+    "close": "Cerrar actividad",
+    "copied": "Copiado",
+    "copyDetails": "Copiar detalles",
+    "dismiss": "Descartar: {{title}}",
+    "dismissShort": "Descartar",
+    "download": {
+      "model": "Descargando el modelo de IA {{name}}"
+    },
+    "empty": {
+      "attention": "Nada requiere tu atención.",
+      "done": "No hay resultados recientes.",
+      "running": "No hay nada en curso."
+    },
+    "export": {
+      "failed_one": "{{count}} foto no se exportó: {{label}}",
+      "failed_many": "{{count}} fotos no se exportaron: {{label}}",
+      "failed_other": "{{count}} fotos no se exportaron: {{label}}",
+      "interrupted": "Exportación interrumpida: {{label}}",
+      "running": "Exportando {{label}}",
+      "waiting": "Esperando para exportar {{label}}"
+    },
+    "import": {
+      "starting": "Iniciando la importación…"
+    },
+    "indexing": "Indexando la biblioteca",
+    "progress": "{{percent}} % hecho",
+    "resume": "Reanudar",
+    "sections": {
+      "attention": "Requiere atención",
+      "done": "Terminado",
+      "running": "En curso"
+    },
+    "showPhotos": "Mostrar fotos",
+    "slot": {
+      "attention_one": "{{count}} elemento requiere atención",
+      "attention_many": "{{count}} elementos requieren atención",
+      "attention_other": "{{count}} elementos requieren atención",
+      "running_one": "{{count}} tarea en curso",
+      "running_many": "{{count}} tareas en curso",
+      "running_other": "{{count}} tareas en curso"
+    },
+    "status": {
+      "failure": "Error",
+      "warning": "Advertencia"
+    },
+    "title": "Actividad",
+    "tryAgain": "Reintentar",
+    "writes": {
+      "failed_one": "Los cambios de {{count}} foto no se guardaron",
+      "failed_many": "Los cambios de {{count}} fotos no se guardaron",
+      "failed_other": "Los cambios de {{count}} fotos no se guardaron"
+    },
+    "xmp": {
+      "review": "Revisar"
+    }
+  },
   "adjustments": {
     "color": {
       "ariaSelectColor": "Seleccionar color {{name}}",
@@ -159,6 +240,7 @@
       "select_all": "Seleccionar todo",
       "select_none": "No seleccionar nada",
       "shift_capture_time": "Desplazar hora de captura…",
+      "show_activity": "Actividad…",
       "show_in_finder": "Mostrar en el Finder",
       "sync_settings": "Sincronizar ajustes",
       "tether_capture": "Disparar (cámara conectada)",

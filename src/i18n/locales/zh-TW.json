@@ -1,4 +1,71 @@
 {
+  "activity": {
+    "ai": {
+      "denoise": "AI 降噪",
+      "depth": "AI 遮罩：深度",
+      "foreground": "AI 遮罩：前景",
+      "inpaint": "生成式填色",
+      "object": "AI 遮罩：物件",
+      "other": "AI 工作",
+      "people": "AI 遮罩：人物",
+      "sky": "AI 遮罩：天空",
+      "subject": "AI 遮罩：主體"
+    },
+    "batch": {
+      "auto_other": "自動調整：{{count}} 張照片",
+      "faceRetouch_other": "臉部修飾：{{count}} 張照片",
+      "other_other": "正在套用到 {{count}} 張照片"
+    },
+    "cancel": "取消",
+    "clearDone": "清除",
+    "close": "關閉活動",
+    "copied": "已複製",
+    "copyDetails": "複製詳細資訊",
+    "dismiss": "關閉：{{title}}",
+    "dismissShort": "關閉",
+    "download": {
+      "model": "正在下載 AI 模型 {{name}}"
+    },
+    "empty": {
+      "attention": "沒有需要處理的項目。",
+      "done": "沒有最近的結果。",
+      "running": "沒有進行中的工作。"
+    },
+    "export": {
+      "failed_other": "{{count}} 張照片未能輸出：{{label}}",
+      "interrupted": "輸出已中斷：{{label}}",
+      "running": "正在輸出 {{label}}",
+      "waiting": "等待輸出：{{label}}"
+    },
+    "import": {
+      "starting": "正在開始匯入…"
+    },
+    "indexing": "正在為圖庫建立索引",
+    "progress": "已完成 {{percent}} %",
+    "resume": "繼續",
+    "sections": {
+      "attention": "需要處理",
+      "done": "已完成",
+      "running": "進行中"
+    },
+    "showPhotos": "顯示照片",
+    "slot": {
+      "attention_other": "{{count}} 項需要處理",
+      "running_other": "{{count}} 個工作進行中"
+    },
+    "status": {
+      "failure": "失敗",
+      "warning": "警告"
+    },
+    "title": "活動",
+    "tryAgain": "重試",
+    "writes": {
+      "failed_other": "{{count}} 張照片的變更未儲存"
+    },
+    "xmp": {
+      "review": "檢視"
+    }
+  },
   "adjustments": {
     "color": {
       "ariaSelectColor": "選擇 {{name}} 顏色",
@@ -159,6 +226,7 @@
       "select_all": "全選",
       "select_none": "取消選取",
       "shift_capture_time": "調整拍攝時間…",
+      "show_activity": "活動…",
       "show_in_finder": "在 Finder 中顯示",
       "sync_settings": "同步設定",
       "tether_capture": "拍攝（連線相機）",

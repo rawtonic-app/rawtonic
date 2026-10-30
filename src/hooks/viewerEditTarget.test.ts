@@ -18,7 +18,7 @@ import { Invokes, type AppSettings, type ImageFile } from '../components/ui/AppP
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
 vi.mock('@tauri-apps/api/path', () => ({ homeDir: vi.fn() }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), warn: vi.fn(), success: vi.fn() } }));
+vi.mock('../activity/notify', () => ({ notify: { error: vi.fn(), warn: vi.fn(), success: vi.fn() } }));
 vi.mock('../utils/photoFullScreen', () => ({
   followPhotoFullScreen: vi.fn(() => Promise.resolve()),
   toggleWindowFullScreen: vi.fn(() => Promise.resolve()),

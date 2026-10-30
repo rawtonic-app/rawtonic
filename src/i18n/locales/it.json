@@ -1,4 +1,85 @@
 {
+  "activity": {
+    "ai": {
+      "denoise": "Riduzione rumore IA",
+      "depth": "Maschera IA: profondità",
+      "foreground": "Maschera IA: primo piano",
+      "inpaint": "Riempimento generativo",
+      "object": "Maschera IA: oggetto",
+      "other": "Attività IA",
+      "people": "Maschera IA: persone",
+      "sky": "Maschera IA: cielo",
+      "subject": "Maschera IA: soggetto"
+    },
+    "batch": {
+      "auto_one": "Regolazioni automatiche: {{count}} foto",
+      "auto_many": "Regolazioni automatiche: {{count}} foto",
+      "auto_other": "Regolazioni automatiche: {{count}} foto",
+      "faceRetouch_one": "Ritocco del viso: {{count}} foto",
+      "faceRetouch_many": "Ritocco del viso: {{count}} foto",
+      "faceRetouch_other": "Ritocco del viso: {{count}} foto",
+      "other_one": "Applicazione a {{count}} foto",
+      "other_many": "Applicazione a {{count}} foto",
+      "other_other": "Applicazione a {{count}} foto"
+    },
+    "cancel": "Annulla",
+    "clearDone": "Cancella",
+    "close": "Chiudi attività",
+    "copied": "Copiato",
+    "copyDetails": "Copia dettagli",
+    "dismiss": "Ignora: {{title}}",
+    "dismissShort": "Ignora",
+    "download": {
+      "model": "Download del modello IA {{name}}"
+    },
+    "empty": {
+      "attention": "Niente richiede la tua attenzione.",
+      "done": "Nessun risultato recente.",
+      "running": "Nulla in corso."
+    },
+    "export": {
+      "failed_one": "{{count}} foto non esportata: {{label}}",
+      "failed_many": "{{count}} foto non esportate: {{label}}",
+      "failed_other": "{{count}} foto non esportate: {{label}}",
+      "interrupted": "Esportazione interrotta: {{label}}",
+      "running": "Esportazione di {{label}}",
+      "waiting": "In attesa di esportazione: {{label}}"
+    },
+    "import": {
+      "starting": "Avvio dell’importazione…"
+    },
+    "indexing": "Indicizzazione della libreria",
+    "progress": "{{percent}} % completato",
+    "resume": "Riprendi",
+    "sections": {
+      "attention": "Richiede attenzione",
+      "done": "Completato",
+      "running": "In corso"
+    },
+    "showPhotos": "Mostra foto",
+    "slot": {
+      "attention_one": "{{count}} elemento richiede attenzione",
+      "attention_many": "{{count}} elementi richiedono attenzione",
+      "attention_other": "{{count}} elementi richiedono attenzione",
+      "running_one": "{{count}} attività in corso",
+      "running_many": "{{count}} attività in corso",
+      "running_other": "{{count}} attività in corso"
+    },
+    "status": {
+      "failure": "Non riuscito",
+      "warning": "Avviso"
+    },
+    "title": "Attività",
+    "tryAgain": "Riprova",
+    "writes": {
+      "failed_one": "Le modifiche a {{count}} foto non sono state salvate",
+      "failed_many": "Le modifiche a {{count}} foto non sono state salvate",
+      "failed_other": "Le modifiche a {{count}} foto non sono state salvate"
+    },
+    "xmp": {
+      "review": "Esamina"
+    }
+  },
   "adjustments": {
     "color": {
       "ariaSelectColor": "Seleziona il colore {{name}}",
@@ -159,6 +240,7 @@
       "select_all": "Seleziona tutto",
       "select_none": "Deseleziona tutto",
       "shift_capture_time": "Sposta ora di scatto…",
+      "show_activity": "Attività…",
       "show_in_finder": "Mostra nel Finder",
       "sync_settings": "Sincronizza impostazioni",
       "tether_capture": "Scatta (fotocamera collegata)",

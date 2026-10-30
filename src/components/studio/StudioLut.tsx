@@ -2,7 +2,7 @@ import { Invokes } from '../ui/AppProperties';
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { toast } from "react-toastify";
+import { notify } from "../../activity/notify";
 import { useTranslation } from "react-i18next";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
@@ -141,13 +141,13 @@ export default function StudioLut({
       if (skipped.length > 0) {
         const lines = skipped.slice(0, 10).map((s) => `${s.file}: ${skipReason(s)}`);
         const files = [...lines, ...(skipped.length > 10 ? ["…"] : [])].join("\n");
-        toast.warn(t("studio.lut.toasts.skipped", { count: skipped.length, imported: result.imported, files }));
+        notify.warn(t("studio.lut.toasts.skipped", { count: skipped.length, imported: result.imported, files }));
       } else if (result && result.imported === 0) {
-        toast.info(t("studio.lut.toasts.noneFound"));
+        notify.info(t("studio.lut.toasts.noneFound"));
       }
     } catch (error) {
       console.error("Importing LUTs failed:", error);
-      toast.error(t("studio.lut.toasts.importFailed"));
+      notify.error(t("studio.lut.toasts.importFailed"));
     }
   };
 
@@ -160,7 +160,7 @@ export default function StudioLut({
       clear();
     } catch (error) {
       console.error("Removing the LUT failed:", error);
-      toast.error(t("studio.lut.toasts.removeFailed"));
+      notify.error(t("studio.lut.toasts.removeFailed"));
     }
   };
   const known = entries.some((e) => e.path === lutPath);

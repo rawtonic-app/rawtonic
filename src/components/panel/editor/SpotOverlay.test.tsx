@@ -8,7 +8,7 @@ const { invoke, listeners } = vi.hoisted(() => ({
 }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 const { toastWarn, toastInfo } = vi.hoisted(() => ({ toastWarn: vi.fn(), toastInfo: vi.fn() }));
-vi.mock("react-toastify", () => ({ toast: Object.assign(vi.fn(), { warn: toastWarn, info: toastInfo, error: vi.fn() }) }));
+vi.mock("../../../activity/notify", () => ({ notify: Object.assign(vi.fn(), { warn: toastWarn, info: toastInfo, error: vi.fn() }) }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: (name: string, handler: (event: { payload: unknown }) => void) => {
     listeners.set(name, handler);

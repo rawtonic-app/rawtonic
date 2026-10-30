@@ -1,7 +1,7 @@
 import '../../i18n';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { toast } from 'react-toastify';
+import { notify as toast } from '../../activity/notify';
 import CameraHelpDialog, {
   RAW_PIXLS_LIST_URL,
   RAW_PIXLS_URL,
@@ -11,7 +11,7 @@ import CameraHelpDialog, {
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.reject(new Error('no IPC in tests'))) }));
 vi.mock('@tauri-apps/plugin-shell', () => ({ open: vi.fn() }));
-vi.mock('react-toastify', () => ({ toast: { warn: vi.fn(), error: vi.fn() } }));
+vi.mock('../../activity/notify', () => ({ notify: { warn: vi.fn(), error: vi.fn() } }));
 
 afterEach(cleanup);
 

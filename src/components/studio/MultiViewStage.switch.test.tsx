@@ -18,7 +18,7 @@ import type { AppSettings, HistogramData, ImageFile, SelectedImage } from "../ui
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(() => Promise.resolve(true)) }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("@tauri-apps/api/path", () => ({ homeDir: vi.fn() }));
-vi.mock("react-toastify", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock("../../activity/notify", () => ({ notify: { error: vi.fn(), success: vi.fn() } }));
 vi.mock("../../hooks/useEditorActions", () => ({
   debouncedSave: { flush: vi.fn() },
   debouncedSetHistory: { cancel: vi.fn(), flush: vi.fn() },

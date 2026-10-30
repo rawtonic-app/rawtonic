@@ -1,4 +1,78 @@
 {
+  "activity": {
+    "ai": {
+      "denoise": "AI Denoise",
+      "depth": "AI mask: Depth",
+      "foreground": "AI mask: Foreground",
+      "inpaint": "Generative fill",
+      "object": "AI mask: Object",
+      "other": "AI task",
+      "people": "AI mask: People",
+      "sky": "AI mask: Sky",
+      "subject": "AI mask: Subject"
+    },
+    "batch": {
+      "auto_one": "Auto adjustments: {{count}} photo",
+      "auto_other": "Auto adjustments: {{count}} photos",
+      "faceRetouch_one": "Face retouch: {{count}} photo",
+      "faceRetouch_other": "Face retouch: {{count}} photos",
+      "other_one": "Applying to {{count}} photo",
+      "other_other": "Applying to {{count}} photos"
+    },
+    "cancel": "Cancel",
+    "clearDone": "Clear",
+    "close": "Close activity",
+    "copied": "Copied",
+    "copyDetails": "Copy details",
+    "dismiss": "Dismiss: {{title}}",
+    "dismissShort": "Dismiss",
+    "download": {
+      "model": "Downloading AI model {{name}}"
+    },
+    "empty": {
+      "attention": "Nothing needs your attention.",
+      "done": "No recent results.",
+      "running": "Nothing is running."
+    },
+    "export": {
+      "failed_one": "{{count}} photo did not export: {{label}}",
+      "failed_other": "{{count}} photos did not export: {{label}}",
+      "interrupted": "Export interrupted: {{label}}",
+      "running": "Exporting {{label}}",
+      "waiting": "Waiting to export {{label}}"
+    },
+    "import": {
+      "starting": "Starting import…"
+    },
+    "indexing": "Indexing the library",
+    "progress": "{{percent}} % done",
+    "resume": "Resume",
+    "sections": {
+      "attention": "Needs attention",
+      "done": "Done",
+      "running": "Running"
+    },
+    "showPhotos": "Show photos",
+    "slot": {
+      "attention_one": "{{count}} item needs attention",
+      "attention_other": "{{count}} items need attention",
+      "running_one": "{{count}} task running",
+      "running_other": "{{count}} tasks running"
+    },
+    "status": {
+      "failure": "Failed",
+      "warning": "Warning"
+    },
+    "title": "Activity",
+    "tryAgain": "Try again",
+    "writes": {
+      "failed_one": "Changes to {{count}} photo were not saved",
+      "failed_other": "Changes to {{count}} photos were not saved"
+    },
+    "xmp": {
+      "review": "Review"
+    }
+  },
   "adjustments": {
     "color": {
       "ariaSelectColor": "Select {{name}} color",
@@ -159,6 +233,7 @@
       "select_all": "Select All",
       "select_none": "Select None",
       "shift_capture_time": "Shift Capture Time…",
+      "show_activity": "Activity…",
       "show_in_finder": "Show in Finder",
       "sync_settings": "Sync Settings",
       "tether_capture": "Capture (Tethered Camera)",
