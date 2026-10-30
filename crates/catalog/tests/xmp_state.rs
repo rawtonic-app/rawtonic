@@ -1,7 +1,7 @@
 //! Which photographs count as "XMP not saved" in the session bar, and
 //! writing them again (O-03/C17 of the 2026-10-28 UI review).
 
-use rawtonic_catalog::{CaptureFacts, Library, Mode, XmpProblem};
+use rawtonic_catalog::{CaptureFacts, Library, Mode, SidecarStamps, XmpProblem};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -212,4 +212,127 @@ fn a_photograph_back_since_the_last_check_gets_its_sidecar() {
     fs::rename(&away, &paths[0]).unwrap();
     assert_eq!(lib.write_pending_xmp().unwrap().written, 1);
     assert!(paths[0].with_extension("xmp").is_file());
+}
+
+/// Rates the photographs and writes their sidecars: in sync, as after an edit.
+fn rated_and_written(lib: &Library, ids: &[String]) {
+    for id in ids {
+        let mut meta = lib.metadata(id).unwrap();
+        meta.rating = 3;
+        lib.set_metadata(id, &meta).unwrap();
+    }
+    assert_eq!(lib.write_pending_xmp().unwrap().written, ids.len());
+    assert_eq!(lib.summary().unwrap().xmp_pending, 0);
+}
+
+fn problems(lib: &Library) -> Vec<(PathBuf, Option<XmpProblem>)> {
+    lib.xmp_unsynced()
+        .unwrap()
+        .into_iter()
+        .map(|entry| (entry.path, entry.problem))
+        .collect()
+}
+
+#[test]
+fn a_sidecar_changed_elsewhere_is_found_without_any_write() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, paths) = session(d.path(), &["A.ARW", "B.ARW", "C.ARW", "D.ARW"]);
+    rated_and_written(&lib, &ids[..3]);
+    let originals: Vec<_> = paths.iter().map(|p| fs::read(p).unwrap()).collect();
+    // Another program rewrites A's sidecar, deletes B's and writes one
+    // beside D, which the library never had one for; C is left alone.
+    let other = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmp:Rating=\"5\"/></rdf:RDF></x:xmpmeta>";
+    fs::write(paths[0].with_extension("xmp"), other).unwrap();
+    fs::remove_file(paths[1].with_extension("xmp")).unwrap();
+    fs::write(paths[3].with_extension("xmp"), other).unwrap();
+    let kept_c = fs::read(paths[2].with_extension("xmp")).unwrap();
+
+    let mut seen = SidecarStamps::default();
+    let check = lib.check_xmp_sidecars(None, &mut seen).unwrap();
+    assert_eq!(check.changed, [ids[0].clone(), ids[1].clone(), ids[3].clone()]);
+    assert_eq!(lib.mark_changed_elsewhere(&check.changed).unwrap(), 3);
+
+    assert_eq!(lib.summary().unwrap().xmp_pending, 3);
+    assert_eq!(
+        problems(&lib),
+        [
+            (paths[0].clone(), Some(XmpProblem::ChangedElsewhere)),
+            (paths[1].clone(), Some(XmpProblem::ChangedElsewhere)),
+            (paths[3].clone(), Some(XmpProblem::ChangedElsewhere)),
+        ]
+    );
+    // Found, not written: the sidecars are as the other program left them.
+    assert_eq!(fs::read_to_string(paths[0].with_extension("xmp")).unwrap(), other);
+    assert!(!paths[1].with_extension("xmp").exists());
+    assert_eq!(fs::read(paths[2].with_extension("xmp")).unwrap(), kept_c);
+    for (path, bytes) in paths.iter().zip(&originals) {
+        assert_eq!(&fs::read(path).unwrap(), bytes);
+    }
+    // Marked once: a second check finds nothing new.
+    let again = lib.check_xmp_sidecars(None, &mut seen).unwrap();
+    assert!(again.changed.is_empty());
+    assert_eq!(lib.mark_changed_elsewhere(&check.changed).unwrap(), 0);
+}
+
+#[test]
+fn an_unchanged_sidecar_is_read_once_and_then_only_looked_at() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, paths) = session(d.path(), &["A.ARW", "B.ARW"]);
+    rated_and_written(&lib, &ids);
+    let mut seen = SidecarStamps::default();
+    let first = lib.check_xmp_sidecars(None, &mut seen).unwrap();
+    assert_eq!((first.checked, first.read, first.changed.len()), (2, 2, 0));
+    let second = lib.check_xmp_sidecars(None, &mut seen).unwrap();
+    assert_eq!((second.checked, second.read, second.changed.len()), (2, 0, 0));
+    // Rewritten by another program: read again and found.
+    let sidecar = paths[1].with_extension("xmp");
+    let mut text = fs::read_to_string(&sidecar).unwrap();
+    text.push_str("\n<!-- touched -->");
+    fs::write(&sidecar, text).unwrap();
+    let third = lib.check_xmp_sidecars(None, &mut seen).unwrap();
+    assert_eq!((third.read, &third.changed), (1, &vec![ids[1].clone()]));
+    // The library writing it again (Keep library) is in sync again.
+    lib.mark_changed_elsewhere(&third.changed).unwrap();
+    lib.keep_library_xmp(&ids[1]).unwrap();
+    let fourth = lib.check_xmp_sidecars(None, &mut seen).unwrap();
+    assert_eq!((fourth.read, fourth.changed.len()), (1, 0));
+}
+
+#[test]
+fn a_folder_check_looks_only_at_that_folder() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, paths) = session(d.path(), &["A.ARW"]);
+    let selects = lib.directory.join("Selects");
+    fs::create_dir_all(&selects).unwrap();
+    let b = selects.join("B.ARW");
+    fs::write(&b, "raw B").unwrap();
+    let ids = [ids[0].clone(), lib.add_asset(&b).unwrap().id];
+    rated_and_written(&lib, &ids);
+    fs::write(paths[0].with_extension("xmp"), "another program").unwrap();
+    fs::write(b.with_extension("xmp"), "another program").unwrap();
+    let mut seen = SidecarStamps::default();
+    let check = lib.check_xmp_sidecars(Some(&selects), &mut seen).unwrap();
+    assert_eq!((check.checked, check.changed), (1, vec![ids[1].clone()]));
+}
+
+#[test]
+fn only_what_is_still_changed_elsewhere_is_marked() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, paths) = session(d.path(), &["A.ARW", "B.ARW", "C.ARW", "C.JPG"]);
+    rated_and_written(&lib, &ids[..2]);
+    let a = paths[0].with_extension("xmp");
+    let written = fs::read(&a).unwrap();
+    fs::write(&a, "another program").unwrap();
+    fs::write(paths[1].with_extension("xmp"), "another program").unwrap();
+    fs::write(paths[2].with_extension("xmp"), "another program").unwrap();
+    let mut seen = SidecarStamps::default();
+    let check = lib.check_xmp_sidecars(None, &mut seen).unwrap();
+    assert_eq!(check.changed, [ids[0].clone(), ids[1].clone()]);
+    // Meanwhile A's sidecar is put back and B's photograph goes offline:
+    // neither is a sidecar to review now. C and its JPEG share theirs and
+    // are never written, so not found either.
+    fs::write(&a, written).unwrap();
+    fs::remove_file(&paths[1]).unwrap();
+    assert_eq!(lib.mark_changed_elsewhere(&check.changed).unwrap(), 0);
+    assert_eq!(lib.summary().unwrap().xmp_pending, 0);
 }
