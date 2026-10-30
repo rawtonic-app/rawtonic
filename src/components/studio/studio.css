@@ -758,6 +758,131 @@
 .studio-segments button:last-child {
   border: 0;
 }
+/* Levels: histogram with input handles, output ramp with its handles. */
+.studio-levels-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 6px;
+}
+.studio-levels-top .studio-segments {
+  flex: 1;
+  margin: 0;
+}
+.studio-levels-picker {
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
+  border: 1px solid #515359;
+  border-radius: 3px;
+  color: #b7bcc2;
+}
+.studio-levels-picker.is-levelsBlack svg {
+  fill: #18191b;
+}
+.studio-levels-picker.is-levelsWhite svg {
+  fill: #e6e7e9;
+}
+.studio-levels-picker[aria-pressed="true"] {
+  border-color: #7aa7d6;
+  background: #2f4153;
+  color: #e6eef7;
+}
+.studio-levels.is-disabled {
+  opacity: 0.55;
+}
+.studio-levels-histogram {
+  display: block;
+  width: 100%;
+  height: 64px;
+  background: #202123;
+}
+.studio-levels-guide {
+  stroke: #d8dadd;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.35;
+}
+.studio-levels-guide.is-midtone {
+  stroke-dasharray: 2 2;
+}
+.studio-levels-strip {
+  position: relative;
+  height: 12px;
+}
+.studio-levels-handle {
+  position: absolute;
+  top: 0;
+  width: 11px;
+  height: 11px;
+  margin-left: -5.5px;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  background: #8a8d92;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.studio-levels-handle.is-inBlack,
+.studio-levels-handle.is-outBlack {
+  background: #0d0d0e;
+  box-shadow: inset 0 0 0 1px #9ca0a5;
+}
+.studio-levels-handle.is-inWhite,
+.studio-levels-handle.is-outWhite {
+  background: #f1f2f3;
+}
+.studio-levels-handle:focus-visible {
+  outline: none;
+  filter: drop-shadow(0 0 2px #7aa7d6) drop-shadow(0 0 1px #7aa7d6);
+}
+.studio-levels.is-disabled .studio-levels-handle {
+  cursor: default;
+}
+.studio-levels-fields {
+  display: flex;
+  justify-content: space-between;
+  margin: 1px 0 2px;
+}
+.studio-levels-fields input.studio-levels-field {
+  width: 42px;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  padding: 2px 4px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: #e1e3e5;
+  text-align: center;
+}
+.studio-levels-fields input.studio-levels-field:first-child {
+  text-align: left;
+}
+.studio-levels-fields input.studio-levels-field:last-child {
+  text-align: right;
+}
+.studio-levels-fields input.studio-levels-field:hover {
+  border-color: #55575b;
+}
+.studio-levels-fields input.studio-levels-field:focus {
+  border-color: #829daf;
+  background: #1b1c1e;
+}
+.studio-levels-ramp {
+  height: 8px;
+  margin: 2px 0 1px;
+  border-radius: 1px;
+  background: linear-gradient(to right, #000, #fff);
+}
+.studio-levels-ramp.is-red {
+  background: linear-gradient(to right, #000, #e24a4a);
+}
+.studio-levels-ramp.is-green {
+  background: linear-gradient(to right, #000, #4fc45a);
+}
+.studio-levels-ramp.is-blue {
+  background: linear-gradient(to right, #000, #4a7fe2);
+}
 .studio-curve svg {
   display: block;
   width: 100%;

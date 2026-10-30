@@ -1,0 +1,215 @@
+import "../../i18n";
+import { useState } from "react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+
+import {
+  INITIAL_ADJUSTMENTS,
+  INITIAL_LEVELS,
+  type Adjustments,
+} from "../../utils/adjustments";
+import { useEditorStore } from "../../store/useEditorStore";
+import { linearFromSrgb } from "../../utils/targetedAdjustment";
+import TargetedAdjustmentOverlay from "../panel/editor/TargetedAdjustmentOverlay";
+import { StudioLevels } from "./StudioLevels";
+
+beforeAll(() => {
+  // jsdom has no pointer capture.
+  Element.prototype.setPointerCapture = () => {};
+  Element.prototype.hasPointerCapture = () => false;
+  Element.prototype.releasePointerCapture = () => {};
+});
+beforeEach(() => {
+  useEditorStore.setState({
+    selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true } as never,
+    adjustments: structuredClone(INITIAL_ADJUSTMENTS),
+    tatTarget: null,
+    levelsChannel: "rgb",
+    histogram: null,
+  });
+});
+afterEach(() => {
+  cleanup();
+  invoke.mockReset();
+});
+
+/** The tool with its values held like the panel holds them. */
+function renderLevels() {
+  const changes: Partial<Adjustments>[] = [];
+  const interactions: boolean[] = [];
+  function Harness() {
+    const [values, setValues] = useState<Partial<Adjustments>>({
+      levels: structuredClone(INITIAL_LEVELS),
+    });
+    return (
+      <StudioLevels
+        values={values}
+        disabled={false}
+        change={(patch) => {
+          changes.push(patch);
+          setValues((v) => ({ ...v, ...patch }));
+        }}
+        onInteraction={(active) => interactions.push(active)}
+      />
+    );
+  }
+  render(<Harness />);
+  const last = () => changes.at(-1)?.levels;
+  return { changes, interactions, last };
+}
+
+const handle = (name: string) => screen.getByRole("slider", { name });
+const field = (name: string) =>
+  screen.getByRole("textbox", { name: `${name} value` }) as HTMLInputElement;
+/** Handles measure their strip: 255 px wide from x = 0. */
+const strip = (el: HTMLElement) => {
+  el.parentElement!.getBoundingClientRect = () =>
+    ({ left: 0, top: 0, width: 255, height: 12 }) as DOMRect;
+};
+
+describe("Levels panel", () => {
+  it("names every handle with its value", () => {
+    renderLevels();
+    for (const [name, now] of [
+      ["Input black", 0],
+      ["Midtone", 0],
+      ["Input white", 255],
+      ["Output black", 0],
+      ["Output white", 255],
+    ] as const) {
+      expect(handle(name).getAttribute("aria-valuenow")).toBe(String(now));
+      expect(field(name).value).toBe(String(now));
+    }
+  });
+
+  it("drags a handle as one undo step and pushes the other point", () => {
+    const { changes, interactions, last } = renderLevels();
+    const black = handle("Input black");
+    strip(black);
+    fireEvent.pointerDown(black, { button: 0, clientX: 0, pointerId: 1 });
+    fireEvent.pointerMove(black, { clientX: 40, pointerId: 1 });
+    fireEvent.pointerMove(black, { clientX: 60, pointerId: 1 });
+    fireEvent.pointerUp(black, { pointerId: 1 });
+    expect(interactions).toEqual([true, false]);
+    expect(changes).toHaveLength(2);
+    expect(last()?.rgb).toMatchObject({ inBlack: 60, inWhite: 255 });
+    expect(handle("Input black").getAttribute("aria-valuenow")).toBe("60");
+    expect(field("Input black").value).toBe("60");
+  });
+
+  it("nudges with the arrow keys, Shift by ten", () => {
+    const { last } = renderLevels();
+    fireEvent.keyDown(handle("Input white"), { key: "ArrowLeft" });
+    expect(last()?.rgb.inWhite).toBe(254);
+    fireEvent.keyDown(handle("Input white"), { key: "ArrowLeft", shiftKey: true });
+    expect(last()?.rgb.inWhite).toBe(244);
+    fireEvent.keyDown(field("Midtone"), { key: "ArrowUp", shiftKey: true });
+    expect(last()?.rgb.gamma).toBe(1.149);
+  });
+
+  it("takes typed values with the sliders' clamping, Escape cancels", () => {
+    const { changes, last } = renderLevels();
+    const white = field("Input white");
+    fireEvent.focus(white);
+    fireEvent.change(white, { target: { value: "180" } });
+    fireEvent.keyDown(white, { key: "Enter" });
+    fireEvent.blur(white);
+    expect(last()?.rgb.inWhite).toBe(180);
+    const black = field("Input black");
+    fireEvent.focus(black);
+    fireEvent.change(black, { target: { value: "300" } });
+    fireEvent.blur(black);
+    expect(last()?.rgb).toMatchObject({ inBlack: 254, inWhite: 255 });
+    const count = changes.length;
+    fireEvent.focus(black);
+    fireEvent.change(black, { target: { value: "12" } });
+    fireEvent.keyDown(black, { key: "Escape" });
+    fireEvent.blur(black);
+    expect(changes).toHaveLength(count);
+    expect(field("Input black").value).toBe("254");
+  });
+
+  it("resets a value on double-click of its handle or field", () => {
+    const { last } = renderLevels();
+    fireEvent.keyDown(handle("Output black"), { key: "ArrowRight", shiftKey: true });
+    expect(last()?.rgb.outBlack).toBe(10);
+    fireEvent.doubleClick(handle("Output black"));
+    expect(last()?.rgb.outBlack).toBe(0);
+    fireEvent.keyDown(handle("Midtone"), { key: "ArrowDown" });
+    fireEvent.doubleClick(field("Midtone"));
+    expect(last()?.rgb.gamma).toBe(1);
+  });
+
+  it("edits the channel of the active tab", () => {
+    const { last } = renderLevels();
+    fireEvent.click(screen.getByRole("button", { name: "G" }));
+    expect(useEditorStore.getState().levelsChannel).toBe("green");
+    fireEvent.keyDown(handle("Input black"), { key: "ArrowRight" });
+    expect(last()?.green.inBlack).toBe(1);
+    expect(last()?.rgb).toEqual(INITIAL_LEVELS.rgb);
+  });
+
+  it("turns the pickers on and off, one at a time", () => {
+    renderLevels();
+    const black = screen.getByRole("button", { name: "Black point picker" });
+    const white = screen.getByRole("button", { name: "White point picker" });
+    fireEvent.click(black);
+    expect(useEditorStore.getState().tatTarget).toBe("levelsBlack");
+    fireEvent.click(white);
+    expect(useEditorStore.getState().tatTarget).toBe("levelsWhite");
+    fireEvent.click(white);
+    expect(useEditorStore.getState().tatTarget).toBeNull();
+  });
+});
+
+describe("Levels picker on the photo", () => {
+  it("samples what Levels receives and sets the active channel's point in one edit", async () => {
+    const adjustments = structuredClone(INITIAL_ADJUSTMENTS);
+    adjustments.levels!.rgb.inWhite = 200;
+    useEditorStore.setState({
+      adjustments,
+      tatTarget: "levelsBlack",
+      levelsChannel: "rgb",
+    });
+    const grey = linearFromSrgb([30, 30, 30]);
+    invoke.mockResolvedValue([grey, grey]);
+    render(<TargetedAdjustmentOverlay rect={{ left: 0, top: 0, width: 400, height: 300 }} />);
+    const el = screen.getByTestId("targeted-adjustment");
+    el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 300 }) as DOMRect;
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 100, clientY: 150, pointerId: 1 });
+    });
+    fireEvent.pointerUp(el, { pointerId: 1 });
+    expect(invoke).toHaveBeenCalledWith("sample_curve_input", {
+      path: "/s/a.NEF",
+      normalizedX: 0.25,
+      normalizedY: 0.5,
+      adjustments: { ...adjustments, levels: INITIAL_LEVELS },
+    });
+    const state = useEditorStore.getState();
+    expect(state.adjustments.levels?.rgb).toMatchObject({ inBlack: 30, inWhite: 200 });
+    expect(state.tatTarget).toBeNull();
+    expect(state.isSliderDragging).toBe(false);
+  });
+
+  it("leaves the levels alone without a sample", async () => {
+    useEditorStore.setState({ tatTarget: "levelsWhite", levelsChannel: "red" });
+    invoke.mockResolvedValue(null);
+    render(<TargetedAdjustmentOverlay rect={{ left: 0, top: 0, width: 400, height: 300 }} />);
+    const el = screen.getByTestId("targeted-adjustment");
+    el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 300 }) as DOMRect;
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+    });
+    expect(useEditorStore.getState().adjustments.levels).toEqual(INITIAL_LEVELS);
+  });
+});

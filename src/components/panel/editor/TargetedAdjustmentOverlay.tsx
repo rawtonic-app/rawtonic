@@ -2,9 +2,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { useRef, type PointerEvent } from "react";
 import { updateAdjustments } from "../../../hooks/useEditorActions";
 import { useEditorStore } from "../../../store/useEditorStore";
+import { INITIAL_LEVELS } from "../../../utils/adjustments";
+import { pickedLevels } from "../../../utils/levels";
 import {
   TAT_UNITS_PER_PIXEL,
   dominantChannel,
+  isLevelsPicker,
   isToneTarget,
   startTargetedAdjustment,
   targetedPatch,
@@ -26,6 +29,7 @@ interface Rect {
  * receive, at the pressed point.
  */
 export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
+  const target = useEditorStore((s) => s.tatTarget);
   const drag = useRef<{
     startY: number;
     start: TatStart | null;
@@ -67,6 +71,26 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
     drag.current = record;
     const path = selectedImage.path;
     const point = { path, normalizedX, normalizedY };
+    if (isLevelsPicker(tatTarget)) {
+      // Levels' pickers: one click, one edit; the sample is what Levels
+      // receives (rendered with Levels left out).
+      drag.current = null;
+      const pixels = await invoke<[number, number, number][] | null>(
+        Invokes.SampleCurveInput,
+        { ...point, adjustments: { ...adjustments, levels: INITIAL_LEVELS } },
+      ).catch(() => null);
+      const now = useEditorStore.getState();
+      if (now.selectedImage?.path !== path || now.tatTarget !== tatTarget) return;
+      const levels = pickedLevels(
+        now.adjustments.levels,
+        now.levelsChannel,
+        tatTarget === "levelsBlack" ? "black" : "white",
+        pixels,
+      );
+      if (levels) updateAdjustments((prev) => ({ ...prev, levels }));
+      setEditor({ tatTarget: null });
+      return;
+    }
     // Tone targets read the colour the curves receive, rendered from the
     // recipe without them and what follows (layer curves, LUTs, overlays).
     const [linear, curveInput] = await Promise.all([
@@ -128,13 +152,13 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
       aria-label="Targeted adjustment: drag up or down on the photo"
       data-testid="targeted-adjustment"
       style={{
+        cursor: target && isLevelsPicker(target) ? "crosshair" : "ns-resize",
         position: "absolute",
         left: rect.left,
         top: rect.top,
         width: rect.width,
         height: rect.height,
         zIndex: 6,
-        cursor: "ns-resize",
         touchAction: "none",
       }}
       onPointerDown={(e) => void onPointerDown(e)}

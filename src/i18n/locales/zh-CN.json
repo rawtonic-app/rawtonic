@@ -3841,14 +3841,20 @@
         "auto": "自动",
         "autoAria": "自动色阶",
         "autoTitle": "根据直方图设置黑场和白场",
-        "black": "黑",
         "channelAria": "色阶通道",
-        "highlight": "高光",
+        "fieldAria": "{{name}}数值",
+        "histogramAria": "色阶直方图",
+        "inBlack": "输入黑场",
+        "inWhite": "输入白场",
         "midtone": "中间调",
+        "outBlack": "输出黑场",
         "output": "输出",
-        "shadow": "阴影",
-        "title": "色阶",
-        "white": "白"
+        "outWhite": "输出白场",
+        "pickBlack": "黑场吸管",
+        "pickBlackTitle": "在照片中单击应为黑色的位置",
+        "pickWhite": "白场吸管",
+        "pickWhiteTitle": "在照片中单击应为白色的位置",
+        "title": "色阶"
       },
       "regionCurve": {
         "aria": {

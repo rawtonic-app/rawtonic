@@ -4028,14 +4028,20 @@
         "auto": "Auto",
         "autoAria": "Niveaux automatiques",
         "autoTitle": "Définir les points noir et blanc d'après l'histogramme",
-        "black": "Noir",
         "channelAria": "Couche des niveaux",
-        "highlight": "Hautes lumières",
+        "fieldAria": "Valeur {{name}}",
+        "histogramAria": "Histogramme des niveaux",
+        "inBlack": "Noir d'entrée",
+        "inWhite": "Blanc d'entrée",
         "midtone": "Tons moyens",
+        "outBlack": "Noir de sortie",
         "output": "Sortie",
-        "shadow": "Ombres",
-        "title": "Niveaux",
-        "white": "Blanc"
+        "outWhite": "Blanc de sortie",
+        "pickBlack": "Pipette du point noir",
+        "pickBlackTitle": "Cliquez dans la photo là où elle doit être noire",
+        "pickWhite": "Pipette du point blanc",
+        "pickWhiteTitle": "Cliquez dans la photo là où elle doit être blanche",
+        "title": "Niveaux"
       },
       "regionCurve": {
         "aria": {

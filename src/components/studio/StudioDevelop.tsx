@@ -86,11 +86,8 @@ import {
   StudioCalibration,
   StudioColorGrading,
 } from "./StudioColorTools";
-import {
-  RegionCurveControls,
-  StudioDefringe,
-  StudioLevels,
-} from "./StudioToneTools";
+import { RegionCurveControls, StudioDefringe } from "./StudioToneTools";
+import { StudioLevels } from "./StudioLevels";
 import StudioColorEditor from "./StudioColorEditor";
 import {
   isNeutralRegionCurve,

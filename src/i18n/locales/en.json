@@ -3921,14 +3921,20 @@
         "auto": "Auto",
         "autoAria": "Auto levels",
         "autoTitle": "Set black and white points from the histogram",
-        "black": "Black",
         "channelAria": "Levels channel",
-        "highlight": "Highlight",
+        "fieldAria": "{{name}} value",
+        "histogramAria": "Levels histogram",
+        "inBlack": "Input black",
+        "inWhite": "Input white",
         "midtone": "Midtone",
+        "outBlack": "Output black",
         "output": "Output",
-        "shadow": "Shadow",
-        "title": "Levels",
-        "white": "White"
+        "outWhite": "Output white",
+        "pickBlack": "Black point picker",
+        "pickBlackTitle": "Click the photo where it should be black",
+        "pickWhite": "White point picker",
+        "pickWhiteTitle": "Click the photo where it should be white",
+        "title": "Levels"
       },
       "regionCurve": {
         "aria": {

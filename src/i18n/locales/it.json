@@ -4028,14 +4028,20 @@
         "auto": "Auto",
         "autoAria": "Livelli automatici",
         "autoTitle": "Imposta i punti del nero e del bianco dall'istogramma",
-        "black": "Nero",
         "channelAria": "Canale dei livelli",
-        "highlight": "Luci",
+        "fieldAria": "Valore {{name}}",
+        "histogramAria": "Istogramma dei livelli",
+        "inBlack": "Nero in ingresso",
+        "inWhite": "Bianco in ingresso",
         "midtone": "Mezzitoni",
+        "outBlack": "Nero in uscita",
         "output": "Uscita",
-        "shadow": "Ombre",
-        "title": "Livelli",
-        "white": "Bianco"
+        "outWhite": "Bianco in uscita",
+        "pickBlack": "Contagocce del punto nero",
+        "pickBlackTitle": "Fai clic sulla foto dove deve essere nera",
+        "pickWhite": "Contagocce del punto bianco",
+        "pickWhiteTitle": "Fai clic sulla foto dove deve essere bianca",
+        "title": "Livelli"
       },
       "regionCurve": {
         "aria": {

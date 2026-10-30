@@ -3841,14 +3841,20 @@
         "auto": "自動",
         "autoAria": "自動レベル補正",
         "autoTitle": "ヒストグラムから黒点と白点を設定",
-        "black": "黒",
         "channelAria": "レベル補正のチャンネル",
-        "highlight": "ハイライト",
+        "fieldAria": "{{name}}の値",
+        "histogramAria": "レベル補正のヒストグラム",
+        "inBlack": "入力の黒",
+        "inWhite": "入力の白",
         "midtone": "中間調",
+        "outBlack": "出力の黒",
         "output": "出力",
-        "shadow": "シャドウ",
-        "title": "レベル補正",
-        "white": "白"
+        "outWhite": "出力の白",
+        "pickBlack": "黒点スポイト",
+        "pickBlackTitle": "黒にしたい場所を写真上でクリック",
+        "pickWhite": "白点スポイト",
+        "pickWhiteTitle": "白にしたい場所を写真上でクリック",
+        "title": "レベル補正"
       },
       "regionCurve": {
         "aria": {
