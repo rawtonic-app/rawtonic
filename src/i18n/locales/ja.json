@@ -4214,6 +4214,7 @@
         "searchLabel": "写真を検索",
         "sort": "写真を並べ替え",
         "sortBy": {
+          "captured": "撮影日時",
           "date": "変更日",
           "name": "ファイル名",
           "rating": "レーティング"

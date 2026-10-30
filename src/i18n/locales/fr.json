@@ -4431,6 +4431,7 @@
         "searchLabel": "Rechercher des photos",
         "sort": "Trier les photos",
         "sortBy": {
+          "captured": "Prise de vue",
           "date": "Modifiée",
           "name": "Nom de fichier",
           "rating": "Note"

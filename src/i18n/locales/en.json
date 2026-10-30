@@ -4305,6 +4305,7 @@
         "searchLabel": "Search photos",
         "sort": "Sort photos",
         "sortBy": {
+          "captured": "Capture time",
           "date": "Modified",
           "name": "Filename",
           "rating": "Rating"

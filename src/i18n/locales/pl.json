@@ -4557,6 +4557,7 @@
         "searchLabel": "Szukaj zdjęć",
         "sort": "Sortuj zdjęcia",
         "sortBy": {
+          "captured": "Czas wykonania",
           "date": "Zmodyfikowano",
           "name": "Nazwa pliku",
           "rating": "Ocena"

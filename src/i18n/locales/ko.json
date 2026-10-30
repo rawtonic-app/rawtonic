@@ -4214,6 +4214,7 @@
         "searchLabel": "사진 검색",
         "sort": "사진 정렬",
         "sortBy": {
+          "captured": "촬영 일시",
           "date": "수정일",
           "name": "파일 이름",
           "rating": "별점"

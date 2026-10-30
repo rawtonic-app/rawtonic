@@ -4214,6 +4214,7 @@
         "searchLabel": "搜索照片",
         "sort": "照片排序",
         "sortBy": {
+          "captured": "拍摄时间",
           "date": "修改日期",
           "name": "文件名",
           "rating": "星级"

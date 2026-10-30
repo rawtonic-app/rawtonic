@@ -4305,6 +4305,7 @@
         "searchLabel": "Fotos durchsuchen",
         "sort": "Fotos sortieren",
         "sortBy": {
+          "captured": "Aufnahmezeit",
           "date": "Geändert",
           "name": "Dateiname",
           "rating": "Bewertung"

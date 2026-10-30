@@ -4431,6 +4431,7 @@
         "searchLabel": "Cerca fotos",
         "sort": "Ordena les fotos",
         "sortBy": {
+          "captured": "Hora de captura",
           "date": "Modificació",
           "name": "Nom del fitxer",
           "rating": "Valoració"

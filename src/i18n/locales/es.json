@@ -4431,6 +4431,7 @@
         "searchLabel": "Buscar fotos",
         "sort": "Ordenar fotos",
         "sortBy": {
+          "captured": "Hora de captura",
           "date": "Modificación",
           "name": "Nombre de archivo",
           "rating": "Valoración"

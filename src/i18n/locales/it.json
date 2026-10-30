@@ -4431,6 +4431,7 @@
         "searchLabel": "Cerca foto",
         "sort": "Ordina foto",
         "sortBy": {
+          "captured": "Ora di scatto",
           "date": "Modifica",
           "name": "Nome file",
           "rating": "Valutazione"

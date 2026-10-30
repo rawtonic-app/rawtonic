@@ -1024,6 +1024,7 @@ export default function StudioWorkspace(props: Props) {
           }
         >
           <option value="name">{t("studio.workspace.grid.sortBy.name")}</option>
+          <option value="date_taken">{t("studio.workspace.grid.sortBy.captured")}</option>
           <option value="date">{t("studio.workspace.grid.sortBy.date")}</option>
           <option value="rating">
             {t("studio.workspace.grid.sortBy.rating")}
