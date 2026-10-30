@@ -44,6 +44,8 @@ async function openPhotosWith(program: string, paths: string[], t: TFunction) {
   }
 }
 
+const programName = (program: string) => program.split('/').pop()?.replace(/\.app$/, '') ?? program;
+
 /** Renders `paths` with `recipe` and opens the renders in `program`. */
 async function editPhotosWith(
   paths: string[],
@@ -52,8 +54,9 @@ async function editPhotosWith(
   t: TFunction,
   onRendered?: () => void | Promise<void>,
 ) {
-  const name = program.split('/').pop()?.replace(/\.app$/, '') ?? program;
-  const progress = notify.info(t('contextMenus.editWith.rendering', { app: name }), { autoClose: false });
+  const progress = notify.info(t('contextMenus.editWith.rendering', { app: programName(program) }), {
+    autoClose: false,
+  });
   try {
     const result = await runEditWith(paths, recipe, program);
     notify.dismiss(progress);
@@ -68,6 +71,38 @@ async function editPhotosWith(
     const generated = error.match(/^generated-areas: (.*)$/s);
     if (generated) notify.error(t('contextMenus.editWith.generatedAreas', { names: generated[1] }));
     else notify.error(t('contextMenus.editWith.failed', { error }));
+  }
+}
+
+/** An Edit With the last quit cut short (`export_queue::EditWithRun`). */
+interface InterruptedEditWith {
+  program: string;
+  photos: string[];
+}
+
+/** At start-up: each Edit With a quit or crash cut short waits under Needs
+ * attention with Try again, which runs Edit With again on its photographs
+ * with its program and the recipe chosen now. Its renders are never
+ * resumed; files it already wrote stay, and the new run writes new names. */
+export async function offerInterruptedEditWith(t: TFunction) {
+  const runs = await invoke<InterruptedEditWith[]>(Invokes.EditWithInterrupted).catch(() => null);
+  for (const run of Array.isArray(runs) ? runs : []) {
+    notify.warn(t('contextMenus.editWith.interrupted', { app: programName(run.program) }), {
+      toastId: `edit-with-interrupted:${run.program}:${run.photos.join('\n')}`,
+      source: 'export',
+      paths: run.photos,
+      actions: [
+        {
+          label: t('activity.tryAgain'),
+          settles: true,
+          run: async () => {
+            const recipes = editRecipes(useSettingsStore.getState().appSettings?.exportPresets);
+            const prefs = await invoke<OpenWithPrefs>(Invokes.OpenWithPrefs).catch(() => null);
+            await editPhotosWith(run.photos, chosenRecipe(recipes, prefs?.editRecipe), run.program, t);
+          },
+        },
+      ],
+    });
   }
 }
 

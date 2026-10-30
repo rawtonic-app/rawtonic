@@ -533,9 +533,16 @@ pub struct EditWithStart {
 #[tauri::command]
 pub async fn edit_with_start(
     paths: Vec<String>,
-    recipe: ExportRequest,
+    mut recipe: ExportRequest,
+    program: String,
     app: AppHandle,
 ) -> Result<EditWithStart, String> {
+    // Kept with each job: a quit ends them, and the next start offers this
+    // Edit With again (`export_queue::take_interrupted_edits`).
+    recipe.edit_with = Some(crate::export_queue::EditWithRun {
+        program,
+        photos: paths.clone(),
+    });
     let state = app.clone();
     let (targets, jobs) = tauri::async_runtime::spawn_blocking(move || {
         let state = state.state::<crate::app_state::AppState>();
@@ -554,6 +561,13 @@ pub async fn edit_with_start(
     .map_err(|e| e.to_string())??;
     crate::export_queue::started(&app);
     Ok(EditWithStart { targets, jobs })
+}
+
+/// The Edit With runs the last quit or crash cut short, each handed out
+/// once: the frontend offers "Try again" for them.
+#[tauri::command]
+pub fn edit_with_interrupted() -> Vec<crate::export_queue::EditWithRun> {
+    crate::export_queue::take_interrupted_edits()
 }
 
 /// The error `plan_edits` starts with when a photograph has areas a

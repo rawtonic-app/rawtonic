@@ -427,6 +427,7 @@
     "editWith": {
       "failed": "Edit With failed: {{error}}",
       "generatedAreas": "Edit With is not available for photos with generated areas yet: {{names}}",
+      "interrupted": "Edit With in {{app}} was interrupted when Rawtonic quit. Try again to render the photos again.",
       "label": "Edit With",
       "notLinked": "Rendered, but not added to the library: {{error}}",
       "openIn": "Open in",

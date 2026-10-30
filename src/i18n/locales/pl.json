@@ -459,6 +459,7 @@
     "editWith": {
       "failed": "Edycja za pomocą nie powiodła się: {{error}}",
       "generatedAreas": "Edycja za pomocą nie jest jeszcze dostępna dla zdjęć z wygenerowanymi obszarami: {{names}}",
+      "interrupted": "„Edytuj w” w {{app}} zostało przerwane przy zamykaniu Rawtonic. Spróbuj ponownie, aby wyrenderować zdjęcia jeszcze raz.",
       "label": "Edytuj za pomocą",
       "notLinked": "Wyrenderowano, ale nie dodano do biblioteki: {{error}}",
       "openIn": "Otwórz w",

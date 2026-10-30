@@ -854,6 +854,7 @@ pub fn run() {
             open_with::edit_with_set_recipe,
             open_with::edit_with_start,
             open_with::edit_with_finish,
+            open_with::edit_with_interrupted,
             file_management::save_metadata_and_update_thumbnail,
             file_management::apply_adjustments_to_paths,
             file_management::load_metadata,

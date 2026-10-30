@@ -3,10 +3,11 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import { EditWithSubMenu, OpenWithSubMenu } from './OpenWithMenus';
+import { EditWithSubMenu, OpenWithSubMenu, offerInterruptedEditWith } from './OpenWithMenus';
 import { runEditWith, type AppChoices } from '../../utils/editWith';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { submitPhotoWrite } from '../../utils/photoWrites';
+import i18n from 'i18next';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
@@ -132,4 +133,24 @@ it('says Edit With is not available for photographs with generated areas', async
   await vi.waitFor(() =>
     expect(notify.error).toHaveBeenCalledWith('Edit With is not available for photos with generated areas yet: B.jpg, C.jpg'),
   );
+});
+
+it('offers an Edit With a quit cut short again: Try again renders its photos for its program', async () => {
+  const { notify } = await import('../../activity/notify');
+  const run = { program: '/Applications/Paint.app', photos: [paths[0], paths[1]] };
+  mockInvoke.mockImplementation(async (command) => {
+    if (command === 'edit_with_interrupted') return [run];
+    if (command === 'open_with_prefs') return { recentApps: [], editRecipe: 'builtin-tiff16-prophoto' };
+  });
+  await offerInterruptedEditWith(i18n.t);
+  expect(vi.mocked(notify.warn)).toHaveBeenCalledTimes(1);
+  const [title, options] = vi.mocked(notify.warn).mock.lastCall!;
+  expect(title).toBe('Edit With in Paint was interrupted when Rawtonic quit. Try again to render the photos again.');
+  expect(options).toMatchObject({ paths: run.photos, source: 'export' });
+  // Not a resume of the old jobs: a new Edit With of the same photographs,
+  // with the program chosen then and the recipe chosen now.
+  await options!.actions![0].run();
+  const [renderedPaths, recipe, program] = vi.mocked(runEditWith).mock.lastCall!;
+  expect([renderedPaths, recipe.id, program]).toEqual([run.photos, 'builtin-tiff16-prophoto', run.program]);
+  expect(mockInvoke.mock.calls.map((c) => c[0])).not.toContain('export_queue_resume');
 });

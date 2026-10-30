@@ -443,6 +443,7 @@
     "editWith": {
       "failed": "Modifica con non riuscito: {{error}}",
       "generatedAreas": "Modifica con non è ancora disponibile per le foto con aree generate: {{names}}",
+      "interrupted": "«Modifica con» in {{app}} è stato interrotto alla chiusura di Rawtonic. Riprova per elaborare di nuovo le foto.",
       "label": "Modifica con",
       "notLinked": "Rendering eseguito, ma non aggiunto alla libreria: {{error}}",
       "openIn": "Apri in",

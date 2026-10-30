@@ -278,13 +278,7 @@ fn show_cells(
         crate::multi_view_prefetch::plan(app_handle, Vec::new(), None);
         return true;
     }
-    // Zoomed in: regions of new cells, or of recipes that changed.
-    if zoomed {
-        let regions = region_worker(app_handle);
-        let generation = regions.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        regions.sender.send(RegionJob { generation });
-    }
-    {
+    let file_changed = {
         let mut memory = worker.memory.lock().unwrap_or_else(|e| e.into_inner());
         memory
             .bases
@@ -302,9 +296,11 @@ fn show_cells(
             memory.interims.clear();
         }
         let paths: Vec<&str> = cells.iter().map(|cell| cell.path.as_str()).collect();
-        if memory.forget_changed(&paths) {
-            forget_regions(app_handle);
-        }
+        memory.forget_changed(&paths)
+    };
+    // Zoomed in: regions of new cells, or of recipes or files that changed.
+    if file_changed || zoomed {
+        refresh_regions(&region_worker(app_handle), file_changed, zoomed);
     }
     worker.sender.send(Job {
         generation,
@@ -1310,13 +1306,33 @@ fn snapped_scale(scale: f32) -> f32 {
 /// Stops region work and releases the kept region bases (back to fit, or
 /// the multi view ended).
 fn forget_regions(app_handle: &tauri::AppHandle) {
-    let worker = region_worker(app_handle);
-    worker.generation.fetch_add(1, Ordering::SeqCst);
-    worker
-        .bases
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clear();
+    region_worker(app_handle).forget();
+}
+
+impl RegionWorker {
+    /// Cancels the region job under way and drops the kept region bases.
+    fn forget(&self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.bases.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+
+    /// Develops the visible regions again (cancelling the job under way).
+    fn schedule(&self) {
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        self.sender.send(RegionJob { generation });
+    }
+}
+
+/// After the cells were shown again: what was kept of a file that changed
+/// is dropped *before* the regions are scheduled, so forgetting never
+/// cancels the job that replaces the old file's region.
+fn refresh_regions(regions: &RegionWorker, file_changed: bool, zoomed: bool) {
+    if file_changed {
+        regions.forget();
+    }
+    if zoomed {
+        regions.schedule();
+    }
 }
 
 /// A zoom from the webview as the display keeps it: `scale` quantized so a
@@ -1380,8 +1396,7 @@ pub(crate) async fn set_multi_view_zoom(
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .retain(|path, base| zooms.get(path).is_some_and(|z| z.scale == base.zoom_scale));
-        let generation = worker.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        worker.sender.send(RegionJob { generation });
+        worker.schedule();
     })
     .await
     .map_err(|e| format!("Multi view zoom task failed: {e}"))
@@ -3104,6 +3119,52 @@ mod tests {
         // No budget (short of memory): nothing more.
         keep_interim(&mut kept, "d", interim(), 0);
         assert!(!kept.contains_key("d"));
+    }
+
+    #[test]
+    fn a_changed_file_while_zoomed_still_gets_its_region_developed() {
+        let (sent, received) = std::sync::mpsc::channel();
+        let worker = Arc::new(RegionWorker {
+            generation: AtomicUsize::new(0),
+            sender: gpu_processing::start_latest_job_worker(move |job: RegionJob| {
+                sent.send(job.generation).unwrap();
+            }),
+            bases: Mutex::new(HashMap::new()),
+        });
+        // An Edit With save of a zoomed cell: its old region base goes…
+        worker.bases.lock().unwrap().insert(
+            "a".into(),
+            RegionBase {
+                preparation_key: 1,
+                zoom_scale: 1.0,
+                region: [0.0, 0.0, 10.0, 10.0],
+                image: Arc::new(DynamicImage::new_rgb32f(1, 1)),
+                scale: 1.0,
+                crop_offset: (0.0, 0.0),
+                facts: Facts {
+                    full_width: 10,
+                    full_height: 10,
+                    is_raw: false,
+                    measures: None,
+                },
+                mask_source: None,
+            },
+        );
+        refresh_regions(&worker, true, true);
+        assert!(worker.bases.lock().unwrap().is_empty());
+        // …and the job that develops its region again is still current, not
+        // cancelled by the forgetting (it used to run first and be dropped).
+        let job = received
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        assert_eq!(job, worker.generation.load(Ordering::SeqCst));
+        // Not zoomed: nothing to develop.
+        refresh_regions(&worker, true, false);
+        assert!(
+            received
+                .recv_timeout(std::time::Duration::from_millis(200))
+                .is_err()
+        );
     }
 
     #[test]

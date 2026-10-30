@@ -443,6 +443,7 @@
     "editWith": {
       "failed": "Editar com falhou: {{error}}",
       "generatedAreas": "Editar com ainda não está disponível para fotografias com áreas geradas: {{names}}",
+      "interrupted": "«Editar com» em {{app}} foi interrompido ao fechar o Rawtonic. Tente novamente para renderizar as fotos outra vez.",
       "label": "Editar com",
       "notLinked": "Renderizado, mas não adicionado à biblioteca: {{error}}",
       "openIn": "Abrir em",

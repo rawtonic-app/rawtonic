@@ -181,6 +181,7 @@ export async function runEditWith(paths: string[], recipe: EditRecipe, program: 
   const { targets, jobs } = await invoke<{ targets: EditTarget[]; jobs: string[] }>(Invokes.EditWithStart, {
     paths,
     recipe: request,
+    program,
   });
   const done = await waitForJobs(jobs);
   const rendered = targets.filter((_, i) => done.has(jobs[i]));

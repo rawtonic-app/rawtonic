@@ -420,6 +420,7 @@
     "editWith": {
       "failed": "다음으로 편집 실패: {{error}}",
       "generatedAreas": "생성된 영역이 있는 사진은 아직 다음으로 편집할 수 없습니다: {{names}}",
+      "interrupted": "Rawtonic이 종료되어 {{app}}에서 편집이 중단되었습니다. 다시 시도하면 사진을 다시 렌더링합니다.",
       "label": "다음으로 편집",
       "notLinked": "렌더링했지만 라이브러리에 추가하지 못했습니다: {{error}}",
       "openIn": "열 응용 프로그램",

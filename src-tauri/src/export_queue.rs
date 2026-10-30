@@ -53,6 +53,8 @@ struct ItemProgress<'a> {
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     pub jobs: Vec<Job>,
+    /// The jobs that render for Edit With: never resumed.
+    pub edit_with: Vec<String>,
     /// Waiting jobs do not start (after Cancel in the Export dialog or
     /// Hold queue) until an export, a resume or Start queue.
     pub held: bool,
@@ -85,6 +87,27 @@ pub struct ExportRequest {
     /// which are not run (`runnable`).
     #[serde(default)]
     pub pinned: Option<Pinned>,
+    /// Set on an Edit With render's job (`open_with.rs`). Such a job is
+    /// never resumed: its hand-off to the program lives only in the run
+    /// that queued it, so a resumed render would be a file nobody opens.
+    /// A quit ends it as cancelled and the next start offers Edit With
+    /// again (`take_interrupted_edits`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edit_with: Option<EditWithRun>,
+}
+
+/// What an interrupted Edit With is tried again with: the program chosen
+/// and all photographs of that Edit With (a click's jobs share it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditWithRun {
+    pub program: String,
+    pub photos: Vec<String>,
+}
+
+/// The Edit With run of a stored request, if it is one.
+fn edit_with_of(stored: &Value) -> Option<EditWithRun> {
+    serde_json::from_value(stored.get("editWith")?.clone()).ok()
 }
 
 /// The library an export was submitted from, always stated by the
@@ -523,6 +546,10 @@ pub fn open(app: &AppHandle) {
                 }
                 Err(e) => log::error!("Export queue recovery failed: {e:#}"),
             }
+            match end_interrupted_edits(&queue) {
+                Ok(runs) => *INTERRUPTED_EDITS.lock().unwrap_or_else(|e| e.into_inner()) = runs,
+                Err(e) => log::error!("Export queue: Edit With jobs not ended: {e:#}"),
+            }
             // Exports left waiting do not start by themselves after a
             // restart: the queue comes up held and offers Start.
             if queue
@@ -537,6 +564,39 @@ pub fn open(app: &AppHandle) {
         }
         Err(e) => log::error!("Export queue unavailable: {e:#}"),
     }
+}
+
+/// The Edit With runs the last quit or crash cut short, offered once.
+static INTERRUPTED_EDITS: Mutex<Vec<EditWithRun>> = Mutex::new(Vec::new());
+
+/// At start-up: the Edit With jobs a quit or crash left unfinished
+/// (interrupted, waiting or paused) end as cancelled, never resumed; the
+/// files they already rendered stay. Returns their Edit With runs, each
+/// once.
+fn end_interrupted_edits(queue: &ExportQueue) -> anyhow::Result<Vec<EditWithRun>> {
+    let mut runs = Vec::new();
+    for job in queue.jobs()? {
+        if !matches!(
+            job.state,
+            JobState::Interrupted | JobState::Queued | JobState::Paused
+        ) {
+            continue;
+        }
+        let Some(run) = edit_with_of(&job.request) else {
+            continue;
+        };
+        queue.cancel(&job.id)?;
+        if !runs.contains(&run) {
+            runs.push(run);
+        }
+    }
+    Ok(runs)
+}
+
+/// The Edit With runs the last quit cut short (each handed out once), for
+/// "Try again".
+pub(crate) fn take_interrupted_edits() -> Vec<EditWithRun> {
+    std::mem::take(&mut *INTERRUPTED_EDITS.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
 fn label_for(request: &ExportRequest) -> String {
@@ -612,7 +672,16 @@ fn same_photos(a: &Value, b: &Value) -> bool {
 /// paused job continues in its place. A waiting job held by a cancel just
 /// starts the queue again.
 pub fn resume(app: &AppHandle, job: &str) -> Result<usize, String> {
-    let state = with_queue(|q| q.job(job)).map(|j| j.state);
+    let current = with_queue(|q| q.job(job));
+    if current
+        .as_ref()
+        .is_some_and(|j| edit_with_of(&j.request).is_some())
+    {
+        return Err(
+            "An Edit With render is not resumed: choose Edit With for the photos again.".into(),
+        );
+    }
+    let state = current.map(|j| j.state);
     let count = match state {
         Some(JobState::Queued) => 0,
         Some(JobState::Paused) => {
@@ -705,8 +774,14 @@ pub fn set_held(app: &AppHandle, held: bool) {
 }
 
 pub fn snapshot() -> Snapshot {
+    let jobs = with_queue(|q| q.jobs()).unwrap_or_default();
     Snapshot {
-        jobs: with_queue(|q| q.jobs()).unwrap_or_default(),
+        edit_with: jobs
+            .iter()
+            .filter(|job| edit_with_of(&job.request).is_some())
+            .map(|job| job.id.clone())
+            .collect(),
+        jobs,
         held: HOLD.load(Ordering::SeqCst),
     }
 }
@@ -1036,6 +1111,48 @@ mod tests {
                 .map(|i| (photos.read)(i).unwrap())
                 .collect()
         }
+    }
+
+    #[test]
+    fn a_quit_ends_edit_with_jobs_as_cancelled_and_offers_their_run_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let photo = |name: &str| {
+            let path = tmp.path().join(name);
+            std::fs::write(&path, b"raw").unwrap();
+            path.to_string_lossy().into_owned()
+        };
+        let (a, b, c) = (photo("A.NEF"), photo("B.NEF"), photo("C.NEF"));
+        let run = EditWithRun {
+            program: "/Applications/Editor.app".into(),
+            photos: vec![a.clone(), b.clone()],
+        };
+        // One Edit With click (a job per photo) and a plain export.
+        let edit = |path: &String| ExportRequest {
+            edit_with: Some(run.clone()),
+            ..request(std::slice::from_ref(path), None)
+        };
+        let (_dir, queue) = test_queue();
+        let ids = queue_pinned(
+            &queue,
+            vec![edit(&a), edit(&b), request(std::slice::from_ref(&c), None)],
+        )
+        .unwrap();
+        // The quit comes while the first render runs.
+        on_queue(&queue, |q| {
+            q.start_next()?;
+            q.recover()
+        })
+        .unwrap();
+        let runs = on_queue(&queue, end_interrupted_edits).unwrap();
+        assert_eq!(runs, [run]);
+        let state = |id: &str| on_queue(&queue, |q| q.job(id)).unwrap().state;
+        // Neither render is resumed (nothing would hand it over)…
+        assert_eq!(state(&ids[0]), JobState::Cancelled);
+        assert_eq!(state(&ids[1]), JobState::Cancelled);
+        // …while the plain export waits for Start as before.
+        assert_eq!(state(&ids[2]), JobState::Queued);
+        // Offered once: the next start finds nothing more to end.
+        assert!(on_queue(&queue, end_interrupted_edits).unwrap().is_empty());
     }
 
     #[test]

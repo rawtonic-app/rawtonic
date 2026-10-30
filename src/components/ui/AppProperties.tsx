@@ -289,6 +289,7 @@ export enum Invokes {
   EditWithSetRecipe = 'edit_with_set_recipe',
   EditWithStart = 'edit_with_start',
   EditWithFinish = 'edit_with_finish',
+  EditWithInterrupted = 'edit_with_interrupted',
   StartBackgroundIndexing = 'start_background_indexing',
   MergePhotos = 'merge_photos',
   SaveMerge = 'save_merge',

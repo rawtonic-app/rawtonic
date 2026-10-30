@@ -17,7 +17,13 @@ vi.mock("@tauri-apps/api/event", () => ({
 vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string) => `asset://${path}`,
   invoke: vi.fn((command: string) =>
-    Promise.resolve(command === "export_queue_jobs" ? { jobs: exportQueue, held: false } : exportQueue),
+    Promise.resolve(
+      command === "export_queue_jobs"
+        ? { jobs: exportQueue, held: false }
+        : command === "edit_with_interrupted"
+          ? []
+          : exportQueue,
+    ),
   ),
 }));
 let exportQueue: unknown[] = [];

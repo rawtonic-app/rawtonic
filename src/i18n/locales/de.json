@@ -427,6 +427,7 @@
     "editWith": {
       "failed": "Bearbeiten mit fehlgeschlagen: {{error}}",
       "generatedAreas": "„Bearbeiten mit“ ist für Fotos mit generierten Bereichen noch nicht verfügbar: {{names}}",
+      "interrupted": "„Bearbeiten mit“ in {{app}} wurde beim Beenden von Rawtonic unterbrochen. „Erneut versuchen“ rendert die Fotos noch einmal.",
       "label": "Bearbeiten mit",
       "notLinked": "Gerendert, aber nicht zur Bibliothek hinzugefügt: {{error}}",
       "openIn": "Öffnen in",

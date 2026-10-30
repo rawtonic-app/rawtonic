@@ -420,6 +420,7 @@
     "editWith": {
       "failed": "編輯失敗：{{error}}",
       "generatedAreas": "含有生成區域的照片暫不支援編輯方式：{{names}}",
+      "interrupted": "結束 Rawtonic 時，在 {{app}} 中的「用其他應用程式編輯」被中斷。重試可再次算繪這些照片。",
       "label": "編輯方式",
       "notLinked": "已算圖，但未加入圖庫：{{error}}",
       "openIn": "打開於",

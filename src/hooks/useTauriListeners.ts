@@ -12,6 +12,7 @@ import {
   useProcessStore,
 } from '../store/useProcessStore';
 import { followsExportItems, loadExportItems } from '../components/studio/StudioExportQueue';
+import { offerInterruptedEditWith } from '../components/studio/OpenWithMenus';
 import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
 import { useLibraryStore } from '../store/useLibraryStore';
@@ -286,6 +287,8 @@ export function useTauriListeners({
         useProcessStore.getState().setExportQueue(snapshot);
       })
       .catch(() => {});
+    // An Edit With the quit cut short is not resumed but offered again.
+    void offerInterruptedEditWith(i18n.t);
   }, []);
 
   useEffect(() => {

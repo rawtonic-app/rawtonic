@@ -140,7 +140,11 @@ describe('runEditWith', () => {
     const result = await runEditWith(paths, BUILT_IN_EDIT_RECIPES[0], '/Applications/Preview.app');
     expect(result).toEqual({ rendered: 2, failed: 1, linked: 2, problems: [] });
     const calls = vi.mocked(invoke).mock.calls;
-    expect(calls[0]).toEqual(['edit_with_start', { paths, recipe: editRequest(BUILT_IN_EDIT_RECIPES[0]) }]);
+    // The program goes with the jobs: a quit offers this Edit With again.
+    expect(calls[0]).toEqual([
+      'edit_with_start',
+      { paths, recipe: editRequest(BUILT_IN_EDIT_RECIPES[0]), program: '/Applications/Preview.app' },
+    ]);
     expect(calls[1]).toEqual([
       'edit_with_finish',
       { items: [targets[0], targets[2]], program: '/Applications/Preview.app' },
@@ -218,7 +222,7 @@ describe('runEditWith', () => {
     const result = await run;
     expect(result).toMatchObject({ rendered: 1, failed: 0 });
     const calls = vi.mocked(invoke).mock.calls;
-    expect(calls[0]).toEqual(['edit_with_start', { paths: [targets[0].source], recipe: atClick }]);
+    expect(calls[0]).toEqual(['edit_with_start', { paths: [targets[0].source], recipe: atClick, program: '/P.app' }]);
     expect(calls.map((c) => c[0])).not.toContain('export_queue_cancel');
     expect(calls[1][1]).toEqual({ items: targets, program: '/P.app' });
   });
