@@ -6763,45 +6763,21 @@ pub struct HistogramData {
 const HIGHLIGHT_CLIP_THRESHOLD: f32 = 0.998;
 const SHADOW_CLIP_THRESHOLD: f32 = 0.002;
 
-/// The two clipping warnings on their own (`show_clipping`; 1 is both), like
-/// `shader.wgsl`.
-const CLIP_HIGHLIGHTS: u32 = 0x4000_0001;
-const CLIP_SHADOWS: u32 = 0x4000_0002;
-
 /// The warning overlays' colours (`HIGHLIGHT_WARNING_COLOR` /
 /// `SHADOW_WARNING_COLOR`, `shader.wgsl`): they replace the tone, so the
 /// display readback carries them as these bytes.
 const HIGHLIGHT_WARNING_PIXEL: [u8; 3] = [255, 0, 0];
 const SHADOW_WARNING_PIXEL: [u8; 3] = [0, 0, 255];
 
-/// What lit a side of the histogram.
-#[derive(Clone, Copy)]
-enum ClipReason {
-    /// A pixel's own tone.
-    Tone,
-    /// A warning's overlay colour: the warning drew it on a pixel that clips
-    /// that side, so it counts for that side alone.
-    Warning,
-}
-
-impl ClipReason {
-    fn counts(self) -> bool {
-        matches!(self, ClipReason::Tone | ClipReason::Warning)
-    }
-}
-
-/// The reason a side of the histogram clips over two samples: the first that
-/// clips it, in sample order.
-fn merge_reason(a: Option<ClipReason>, b: Option<ClipReason>) -> Option<ClipReason> {
-    a.or(b)
-}
-
 /// The `clip_overlay` of a render's analytics image: its `show_clipping`
 /// when the clipping warnings drew their overlay (the side flags, or 1 for
 /// both), else 0: no warning, or the colour editor's range view (`2 + index`,
 /// which replaces no pixel).
 pub fn clipping_overlay_value(show_clipping: u32) -> u32 {
-    if show_clipping == 1 || show_clipping == CLIP_HIGHLIGHTS || show_clipping == CLIP_SHADOWS {
+    if show_clipping == 1
+        || show_clipping == SHOW_CLIPPING_HIGHLIGHTS
+        || show_clipping == SHOW_CLIPPING_SHADOWS
+    {
         show_clipping
     } else {
         0
@@ -6816,8 +6792,8 @@ pub fn calculate_histogram_from_image(image: &DynamicImage) -> Result<HistogramD
 /// Whether the `clip_overlay` render drew each warning.
 fn drawn_warnings(clip_overlay: u32) -> (bool, bool) {
     (
-        clip_overlay == 1 || clip_overlay == CLIP_HIGHLIGHTS,
-        clip_overlay == 1 || clip_overlay == CLIP_SHADOWS,
+        clip_overlay == 1 || clip_overlay == SHOW_CLIPPING_HIGHLIGHTS,
+        clip_overlay == 1 || clip_overlay == SHOW_CLIPPING_SHADOWS,
     )
 }
 
@@ -6840,13 +6816,9 @@ pub fn calculate_histogram_from_image_with_overlay(
 ) -> Result<HistogramData, String> {
     // (counts, shadows' reason, highlights' reason): whether a side clips and
     // what lit it, carried through the parallel folds.
-    type Fold = (
-        ([u32; 256], [u32; 256], [u32; 256], [u32; 256]),
-        Option<ClipReason>,
-        Option<ClipReason>,
-    );
+    type Fold = (([u32; 256], [u32; 256], [u32; 256], [u32; 256]), bool, bool);
     let init_hist = || ([0u32; 256], [0u32; 256], [0u32; 256], [0u32; 256]);
-    let empty = || -> Fold { (init_hist(), None, None) };
+    let empty = || -> Fold { (init_hist(), false, false) };
     let merge = |mut a: ([u32; 256], [u32; 256], [u32; 256], [u32; 256]),
                  b: ([u32; 256], [u32; 256], [u32; 256], [u32; 256])| {
         for i in 0..256 {
@@ -6857,21 +6829,20 @@ pub fn calculate_histogram_from_image_with_overlay(
         }
         a
     };
-    // What lit a side over all sampled pixels
-    // ([`merge_reason`]), carried through the parallel folds.
+    // Whether a side clips anywhere, carried through the parallel folds.
     let reduce = move |(a, shadows_a, highlights_a): Fold, (b, shadows_b, highlights_b): Fold| {
         (
             merge(a, b),
-            merge_reason(shadows_a, shadows_b),
-            merge_reason(highlights_a, highlights_b),
+            shadows_a || shadows_b,
+            highlights_a || highlights_b,
         )
     };
 
     let (warn_highlights, warn_shadows) = drawn_warnings(clip_overlay);
-    // A pixel's clipping sides and why, (shadows, highlights): the shader's
+    // A pixel's clipping sides (shadows, highlights): the shader's
     // `any(final_rgb < SHADOW_CLIP_THRESHOLD)` / `>` per channel (bytes: a
     // channel exactly at 0 / at 255).
-    let sides = |r: u8, g: u8, b: u8| -> (Option<ClipReason>, Option<ClipReason>) {
+    let sides = |r: u8, g: u8, b: u8| -> (bool, bool) {
         let below = r == 0 || g == 0 || b == 0;
         let above = r == 255 || g == 255 || b == 255;
         // The warnings' colours are exact. A blue pixel that clips shadows is
@@ -6881,20 +6852,17 @@ pub fn calculate_histogram_from_image_with_overlay(
         // (its highlights only, its zero channels nothing). A warning off, the
         // colour is a pixel like any other, by the per-channel rule.
         if below && warn_shadows && [r, g, b] == SHADOW_WARNING_PIXEL {
-            return (Some(ClipReason::Warning), None);
+            return (true, false);
         }
         if above && warn_highlights && [r, g, b] == HIGHLIGHT_WARNING_PIXEL {
-            return (None, Some(ClipReason::Warning));
+            return (false, true);
         }
-        (
-            below.then_some(ClipReason::Tone),
-            above.then_some(ClipReason::Tone),
-        )
+        (below, above)
     };
     // The bins, and the sides of the sampled pixels.
     let sample = |counts: &mut ([u32; 256], [u32; 256], [u32; 256], [u32; 256]),
-                  shadows: &mut Option<ClipReason>,
-                  highlights: &mut Option<ClipReason>,
+                  shadows: &mut bool,
+                  highlights: &mut bool,
                   rgb: [u8; 3]| {
         let [r, g, b] = rgb.map(usize::from);
         counts.0[r] += 1;
@@ -6903,8 +6871,8 @@ pub fn calculate_histogram_from_image_with_overlay(
         let luma = (r * 218 + g * 732 + b * 74) >> 10;
         counts.3[luma.min(255)] += 1;
         let (below, above) = sides(rgb[0], rgb[1], rgb[2]);
-        *shadows = merge_reason(*shadows, below);
-        *highlights = merge_reason(*highlights, above);
+        *shadows = *shadows || below;
+        *highlights = *highlights || above;
     };
 
     // Chunk by the same 10,000 pixels and sample every second pixel as before,
@@ -6975,8 +6943,8 @@ pub fn calculate_histogram_from_image_with_overlay(
         green,
         blue,
         luma,
-        clipped_shadows: shadows.is_some_and(ClipReason::counts),
-        clipped_highlights: highlights.is_some_and(ClipReason::counts),
+        clipped_shadows: shadows,
+        clipped_highlights: highlights,
     })
 }
 
@@ -9855,12 +9823,12 @@ mod clipping_indicator_tests {
     #[test]
     fn highlight_overlay_pixels_light_highlights_only() {
         let red = image_with([Some(RED), Some(RED), None]);
-        assert_eq!(sides(&red, CLIP_HIGHLIGHTS), (false, true));
+        assert_eq!(sides(&red, SHOW_CLIPPING_HIGHLIGHTS), (false, true));
         assert_eq!(sides(&red, 1), (false, true));
         // A real red pixel with no warning clips both (per channel)...
         assert_eq!(sides(&red, 0), (true, true));
         // ...and with the shadows warning alone it is a pixel again.
-        assert_eq!(sides(&red, CLIP_SHADOWS), (true, true));
+        assert_eq!(sides(&red, SHOW_CLIPPING_SHADOWS), (true, true));
     }
 
     // With the shadows warning on, a black image reads back blue overlay
@@ -9868,10 +9836,10 @@ mod clipping_indicator_tests {
     #[test]
     fn shadow_overlay_pixels_light_shadows_only() {
         let blue = image_with([Some(BLUE), Some(BLUE), None]);
-        assert_eq!(sides(&blue, CLIP_SHADOWS), (true, false));
+        assert_eq!(sides(&blue, SHOW_CLIPPING_SHADOWS), (true, false));
         assert_eq!(sides(&blue, 1), (true, false));
         assert_eq!(sides(&blue, 0), (true, true));
-        assert_eq!(sides(&blue, CLIP_HIGHLIGHTS), (true, true));
+        assert_eq!(sides(&blue, SHOW_CLIPPING_HIGHLIGHTS), (true, true));
     }
 
     // (d) Without a warning, a real (255, 0, 0) pixel clips both sides.
@@ -9892,7 +9860,8 @@ mod clipping_indicator_tests {
     fn the_overlay_leaves_the_bins_alone() {
         let image = image_with([None, Some(RED), Some(BLUE)]);
         let without = calculate_histogram_from_image_with_overlay(&image, 0).unwrap();
-        let with = calculate_histogram_from_image_with_overlay(&image, CLIP_HIGHLIGHTS).unwrap();
+        let with =
+            calculate_histogram_from_image_with_overlay(&image, SHOW_CLIPPING_HIGHLIGHTS).unwrap();
         assert_eq!(without.red, with.red);
         assert_eq!(without.green, with.green);
         assert_eq!(without.blue, with.blue);
@@ -9917,7 +9886,7 @@ mod clipping_indicator_tests {
         assert_eq!(sides(&f32_rows([0.01, 0.5, 0.99], grey), 0), (false, false));
         // A float red overlay pixel with the highlight warning on.
         let red = f32_rows([1.0, 0.0, 0.0], grey);
-        assert_eq!(sides(&red, CLIP_HIGHLIGHTS), (false, true));
+        assert_eq!(sides(&red, SHOW_CLIPPING_HIGHLIGHTS), (false, true));
         assert_eq!(sides(&red, 0), (true, true));
     }
 
@@ -9925,8 +9894,14 @@ mod clipping_indicator_tests {
     fn the_overlay_value_is_zero_without_a_warning_or_range_view() {
         assert_eq!(clipping_overlay_value(0), 0);
         assert_eq!(clipping_overlay_value(1), 1);
-        assert_eq!(clipping_overlay_value(CLIP_HIGHLIGHTS), CLIP_HIGHLIGHTS);
-        assert_eq!(clipping_overlay_value(CLIP_SHADOWS), CLIP_SHADOWS);
+        assert_eq!(
+            clipping_overlay_value(SHOW_CLIPPING_HIGHLIGHTS),
+            SHOW_CLIPPING_HIGHLIGHTS
+        );
+        assert_eq!(
+            clipping_overlay_value(SHOW_CLIPPING_SHADOWS),
+            SHOW_CLIPPING_SHADOWS
+        );
         for index in 0..8 {
             assert_eq!(clipping_overlay_value(2 + index), 0);
         }
