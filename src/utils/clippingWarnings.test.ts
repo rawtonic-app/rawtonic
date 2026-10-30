@@ -39,41 +39,41 @@ it("switches both warnings on unless one is on: then both off", () => {
   });
 });
 
-it("shows a side as clipped when its end of any channel's histogram is not empty", () => {
-  const bins = (red: number[], blue = red) => ({
-    red,
-    green: [0, 0],
-    blue,
-  });
+it("lights each side from the backend's clipping flags", () => {
   expect(histogramClipping(null)).toEqual({ shadows: false, highlights: false });
   expect(histogramClipping({})).toEqual({ shadows: false, highlights: false });
-  expect(histogramClipping(bins([0, 0, 10, 3, 0]))).toEqual({
-    shadows: false,
-    highlights: false,
-  });
-  expect(histogramClipping(bins([4, 0, 0, 0, 0]))).toEqual({
+  expect(histogramClipping({ clippedShadows: true })).toEqual({
     shadows: true,
     highlights: false,
   });
-  expect(histogramClipping(bins([0, 0, 0, 0, 7]))).toEqual({
+  expect(histogramClipping({ clippedShadows: false, clippedHighlights: true })).toEqual({
     shadows: false,
     highlights: true,
   });
-  // One channel enough, and a bin too small to show in the plot still counts.
-  expect(histogramClipping({ red: [0, 0], green: [1, 0], blue: [0, 1] })).toEqual({
+  expect(histogramClipping({ clippedShadows: true, clippedHighlights: true })).toEqual({
     shadows: true,
     highlights: true,
   });
-  // The typed-array form the backend sends.
-  expect(histogramClipping({ red: { data: new Uint32Array([0, 2]) } })).toEqual({
-    shadows: false,
-    highlights: true,
-  });
-  // A one-bin histogram is both its first and its last bin.
-  expect(histogramClipping(bins([9]))).toEqual({ shadows: true, highlights: true });
-  // Not a number: no count, no warning.
-  expect(histogramClipping({ red: [null, undefined], green: ["x", NaN] })).toEqual({
+  // Only the flags count; anything else (a string, a missing flag) is off.
+  expect(histogramClipping({ clippedShadows: "yes" })).toEqual({
     shadows: false,
     highlights: false,
+  });
+});
+
+it("ignores the bins' ends, which are smoothed and carry the warning colours", () => {
+  // The smoothed histogram reaches both ends for values near them, and the
+  // clipping warnings' overlay colours fill the other end: the bins cannot
+  // say which side clips (crates/engine `clipping_indicator_tests`).
+  const nearEnds = {
+    red: [0.4, 0.6, 1, 1, 0.6, 0.2, 0, 0, 0.2, 0.7],
+    green: { data: new Uint32Array([3, 0, 0, 0, 0, 0, 0, 0, 0, 9]) },
+    blue: [1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+  };
+  expect(histogramClipping(nearEnds)).toEqual({ shadows: false, highlights: false });
+  // The backend's flags alone decide, whatever the bins show.
+  expect(histogramClipping({ ...nearEnds, clippedHighlights: true })).toEqual({
+    shadows: false,
+    highlights: true,
   });
 });

@@ -26,40 +26,18 @@ export function nextClipSides(current: { highlights: boolean; shadows: boolean }
   return { highlights: true, shadows: true };
 }
 
-const CHANNELS = ["red", "green", "blue"] as const;
-
-/** A channel's bin counts: an array, or the backend's typed array (`data`)
- * or typed array as it comes. */
-function binsOf(channel: unknown): ArrayLike<number> {
-  const raw =
-    channel && typeof channel === "object" && "data" in channel
-      ? (channel as { data?: unknown }).data
-      : channel;
-  return typeof raw === "object" &&
-    raw !== null &&
-    "length" in raw &&
-    typeof (raw as { length: unknown }).length === "number"
-    ? (raw as ArrayLike<number>)
-    : [];
-}
-
 /**
- * Which side of the histogram is clipped, from its first and last bin: a
- * photo can clip without the warnings being switched on, so the corners of
- * the histogram light up on their own. Counts too small to show in the
- * plot's height still count as clipped.
+ * Which side of the histogram is clipped, as the backend counts it
+ * (crates/engine `calculate_histogram_from_image_with_overlay`): the
+ * unsmoothed pixels under the shader's thresholds, with the clipping
+ * warnings' overlay colours left out. The bins cannot say it, as they are
+ * smoothed (a value near an end reaches the end's bin). A histogram without
+ * the flags lights neither side.
  */
 export function histogramClipping(histogram: unknown): { shadows: boolean; highlights: boolean } {
-  const counts = CHANNELS.map((channel) =>
-    binsOf((histogram as Record<string, unknown> | null | undefined)?.[channel]),
-  ).filter((bins) => bins.length > 0);
-  const clipped = (bin: (bins: ArrayLike<number>) => number | undefined) =>
-    counts.some((bins) => {
-      const value = bin(bins);
-      return typeof value === "number" && Number.isFinite(value) && value > 0;
-    });
+  const flags = (histogram ?? {}) as Record<string, unknown>;
   return {
-    shadows: clipped((bins) => bins[0]),
-    highlights: clipped((bins) => bins[bins.length - 1]),
+    shadows: flags.clippedShadows === true,
+    highlights: flags.clippedHighlights === true,
   };
 }

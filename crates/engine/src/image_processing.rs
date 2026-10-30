@@ -3090,7 +3090,7 @@ pub fn apply_crop<'a>(image: impl IntoCowImage<'a>, crop_value: &Value) -> Cow<'
 
 /// Source pixel coordinates of the frame that `apply_coarse_rotation` and
 /// `apply_flip` produce: `source = origin + x * along_x + y * along_y`.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct OrientedFrame {
     width: u32,
     height: u32,
@@ -6744,19 +6744,111 @@ fn reference_gentle_detail_enhance(
         });
 }
 
+/// A histogram's bins (smoothed, normalised counts per channel) and whether
+/// each side of the tone range clips, from the unsmoothed counts.
 #[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct HistogramData {
     red: Vec<f32>,
     green: Vec<f32>,
     blue: Vec<f32>,
     luma: Vec<f32>,
+    clipped_shadows: bool,
+    clipped_highlights: bool,
 }
 
-pub fn calculate_histogram_from_image(image: &DynamicImage) -> Result<HistogramData, String> {
-    let init_hist = || ([0u32; 256], [0u32; 256], [0u32; 256], [0u32; 256]);
+/// The shader's clipping thresholds (`shader.wgsl`): a pixel clips
+/// highlights when any channel is above `HIGHLIGHT_CLIP_THRESHOLD` and
+/// shadows when any channel is below `SHADOW_CLIP_THRESHOLD`.
+const HIGHLIGHT_CLIP_THRESHOLD: f32 = 0.998;
+const SHADOW_CLIP_THRESHOLD: f32 = 0.002;
 
-    let reduce_hist = |mut a: ([u32; 256], [u32; 256], [u32; 256], [u32; 256]),
-                       b: ([u32; 256], [u32; 256], [u32; 256], [u32; 256])| {
+/// The two clipping warnings on their own (`show_clipping`; 1 is both), like
+/// `shader.wgsl`.
+const CLIP_HIGHLIGHTS: u32 = 0x4000_0001;
+const CLIP_SHADOWS: u32 = 0x4000_0002;
+
+/// The warning overlays' colours (`HIGHLIGHT_WARNING_COLOR` /
+/// `SHADOW_WARNING_COLOR`, `shader.wgsl`): they replace the tone, so the
+/// display readback carries them as these bytes.
+const HIGHLIGHT_WARNING_PIXEL: [u8; 3] = [255, 0, 0];
+const SHADOW_WARNING_PIXEL: [u8; 3] = [0, 0, 255];
+
+/// What lit a side of the histogram.
+#[derive(Clone, Copy)]
+enum ClipReason {
+    /// A pixel's own tone.
+    Tone,
+    /// A warning's overlay colour: the warning drew it on a pixel that clips
+    /// that side, so it counts for that side alone.
+    Warning,
+}
+
+impl ClipReason {
+    fn counts(self) -> bool {
+        matches!(self, ClipReason::Tone | ClipReason::Warning)
+    }
+}
+
+/// The reason a side of the histogram clips over two samples: the first that
+/// clips it, in sample order.
+fn merge_reason(a: Option<ClipReason>, b: Option<ClipReason>) -> Option<ClipReason> {
+    a.or(b)
+}
+
+/// The `clip_overlay` of a render's analytics image: its `show_clipping`
+/// when the clipping warnings drew their overlay (the side flags, or 1 for
+/// both), else 0: no warning, or the colour editor's range view (`2 + index`,
+/// which replaces no pixel).
+pub fn clipping_overlay_value(show_clipping: u32) -> u32 {
+    if show_clipping == 1 || show_clipping == CLIP_HIGHLIGHTS || show_clipping == CLIP_SHADOWS {
+        show_clipping
+    } else {
+        0
+    }
+}
+
+/// The histogram of `image` as it renders without clipping warnings.
+pub fn calculate_histogram_from_image(image: &DynamicImage) -> Result<HistogramData, String> {
+    calculate_histogram_from_image_with_overlay(image, 0)
+}
+
+/// Whether the `clip_overlay` render drew each warning.
+fn drawn_warnings(clip_overlay: u32) -> (bool, bool) {
+    (
+        clip_overlay == 1 || clip_overlay == CLIP_HIGHLIGHTS,
+        clip_overlay == 1 || clip_overlay == CLIP_SHADOWS,
+    )
+}
+
+/// The histogram of `image`, a display readback that carries the clipping
+/// warnings' overlay colours when `clip_overlay` (that render's
+/// `show_clipping`) draws them.
+///
+/// The bins count every sampled pixel as it is, overlay colours included (the
+/// plot has always shown them). The clipping sides count the unsmoothed
+/// pixels, so a value near an end never lights a side; f32 pixels use the
+/// shader's thresholds directly. The sides also leave out the warning
+/// overlays, which replace a pixel's tone: the highlight warning colours a
+/// pixel that clips highlights red and the shadow warning colours one that
+/// clips shadows blue (`shader.wgsl`), so red counts as highlights only and
+/// blue as shadows only, and red never lights the shadow side through its
+/// zero channels.
+pub fn calculate_histogram_from_image_with_overlay(
+    image: &DynamicImage,
+    clip_overlay: u32,
+) -> Result<HistogramData, String> {
+    // (counts, shadows' reason, highlights' reason): whether a side clips and
+    // what lit it, carried through the parallel folds.
+    type Fold = (
+        ([u32; 256], [u32; 256], [u32; 256], [u32; 256]),
+        Option<ClipReason>,
+        Option<ClipReason>,
+    );
+    let init_hist = || ([0u32; 256], [0u32; 256], [0u32; 256], [0u32; 256]);
+    let empty = || -> Fold { (init_hist(), None, None) };
+    let merge = |mut a: ([u32; 256], [u32; 256], [u32; 256], [u32; 256]),
+                 b: ([u32; 256], [u32; 256], [u32; 256], [u32; 256])| {
         for i in 0..256 {
             a.0[i] += b.0[i];
             a.1[i] += b.1[i];
@@ -6765,52 +6857,102 @@ pub fn calculate_histogram_from_image(image: &DynamicImage) -> Result<HistogramD
         }
         a
     };
+    // What lit a side over all sampled pixels
+    // ([`merge_reason`]), carried through the parallel folds.
+    let reduce = move |(a, shadows_a, highlights_a): Fold, (b, shadows_b, highlights_b): Fold| {
+        (
+            merge(a, b),
+            merge_reason(shadows_a, shadows_b),
+            merge_reason(highlights_a, highlights_b),
+        )
+    };
+
+    let (warn_highlights, warn_shadows) = drawn_warnings(clip_overlay);
+    // A pixel's clipping sides and why, (shadows, highlights): the shader's
+    // `any(final_rgb < SHADOW_CLIP_THRESHOLD)` / `>` per channel (bytes: a
+    // channel exactly at 0 / at 255).
+    let sides = |r: u8, g: u8, b: u8| -> (Option<ClipReason>, Option<ClipReason>) {
+        let below = r == 0 || g == 0 || b == 0;
+        let above = r == 255 || g == 255 || b == 255;
+        // The warnings' colours are exact. A blue pixel that clips shadows is
+        // the shadow warning's mark when the warning drew it: it counts for
+        // shadows only, and its zero channels light nothing else. A red pixel
+        // that clips highlights is the highlight warning's mark the same way
+        // (its highlights only, its zero channels nothing). A warning off, the
+        // colour is a pixel like any other, by the per-channel rule.
+        if below && warn_shadows && [r, g, b] == SHADOW_WARNING_PIXEL {
+            return (Some(ClipReason::Warning), None);
+        }
+        if above && warn_highlights && [r, g, b] == HIGHLIGHT_WARNING_PIXEL {
+            return (None, Some(ClipReason::Warning));
+        }
+        (
+            below.then_some(ClipReason::Tone),
+            above.then_some(ClipReason::Tone),
+        )
+    };
+    // The bins, and the sides of the sampled pixels.
+    let sample = |counts: &mut ([u32; 256], [u32; 256], [u32; 256], [u32; 256]),
+                  shadows: &mut Option<ClipReason>,
+                  highlights: &mut Option<ClipReason>,
+                  rgb: [u8; 3]| {
+        let [r, g, b] = rgb.map(usize::from);
+        counts.0[r] += 1;
+        counts.1[g] += 1;
+        counts.2[b] += 1;
+        let luma = (r * 218 + g * 732 + b * 74) >> 10;
+        counts.3[luma.min(255)] += 1;
+        let (below, above) = sides(rgb[0], rgb[1], rgb[2]);
+        *shadows = merge_reason(*shadows, below);
+        *highlights = merge_reason(*highlights, above);
+    };
 
     // Chunk by the same 10,000 pixels and sample every second pixel as before,
     // including at row/chunk boundaries. Alpha never contributes to analytics.
-    let histogram_u8 = |raw: &[u8], channels: usize| {
+    let histogram_u8 = |raw: &[u8], channels: usize| -> Fold {
         raw.par_chunks(10_000 * channels)
-            .fold(init_hist, |mut acc, chunk| {
+            .fold(empty, |(mut counts, mut shadows, mut highlights), chunk| {
                 for pixel in chunk.chunks_exact(channels).step_by(2) {
-                    let r = pixel[0] as usize;
-                    let g = pixel[1] as usize;
-                    let b = pixel[2] as usize;
-                    acc.0[r] += 1;
-                    acc.1[g] += 1;
-                    acc.2[b] += 1;
-                    let luma = (r * 218 + g * 732 + b * 74) >> 10;
-                    acc.3[luma.min(255)] += 1;
+                    sample(
+                        &mut counts,
+                        &mut shadows,
+                        &mut highlights,
+                        [pixel[0], pixel[1], pixel[2]],
+                    );
                 }
-                acc
+                (counts, shadows, highlights)
             })
-            .reduce(init_hist, reduce_hist)
+            .reduce(empty, reduce)
     };
 
-    let (r_c, g_c, b_c, l_c) = match image {
-        DynamicImage::ImageRgb32F(f32_img) => {
-            let raw = f32_img.as_raw();
-            raw.par_chunks(30_000)
-                .fold(init_hist, |mut acc, chunk| {
-                    for pixel in chunk.as_chunks::<3>().0.iter().step_by(2) {
-                        let r = (pixel[0].clamp(0.0, 1.0) * 255.0) as usize;
-                        let g = (pixel[1].clamp(0.0, 1.0) * 255.0) as usize;
-                        let b = (pixel[2].clamp(0.0, 1.0) * 255.0) as usize;
-
-                        acc.0[r] += 1;
-                        acc.1[g] += 1;
-                        acc.2[b] += 1;
-
-                        let luma = (r * 218 + g * 732 + b * 74) >> 10;
-                        acc.3[luma.min(255)] += 1;
-                    }
-                    acc
-                })
-                .reduce(init_hist, reduce_hist)
-        }
+    let (counts, shadows, highlights) = match image {
+        DynamicImage::ImageRgb32F(f32_img) => f32_img
+            .as_raw()
+            .par_chunks(30_000)
+            .fold(empty, |(mut counts, mut shadows, mut highlights), chunk| {
+                for pixel in chunk.as_chunks::<3>().0.iter().step_by(2) {
+                    let rgb = [pixel[0], pixel[1], pixel[2]].map(|value: f32| {
+                        // The shader's thresholds, then the byte the readback
+                        // would carry (the analytics image is 8 bits).
+                        if value < SHADOW_CLIP_THRESHOLD {
+                            0
+                        } else if value > HIGHLIGHT_CLIP_THRESHOLD {
+                            255
+                        } else {
+                            (value.clamp(0.0, 1.0) * 255.0) as u8
+                        }
+                    });
+                    sample(&mut counts, &mut shadows, &mut highlights, rgb);
+                }
+                (counts, shadows, highlights)
+            })
+            .reduce(empty, reduce),
         DynamicImage::ImageRgb8(rgb) => histogram_u8(rgb.as_raw(), 3),
         DynamicImage::ImageRgba8(rgba) => histogram_u8(rgba.as_raw(), 4),
         _ => histogram_u8(image.to_rgb8().as_raw(), 3),
     };
+    let (r_c, g_c, b_c, l_c) = counts;
+    let _ = (&shadows, &highlights);
 
     let mut red: Vec<f32> = r_c.into_iter().map(|c| c as f32).collect();
     let mut green: Vec<f32> = g_c.into_iter().map(|c| c as f32).collect();
@@ -6833,6 +6975,8 @@ pub fn calculate_histogram_from_image(image: &DynamicImage) -> Result<HistogramD
         green,
         blue,
         luma,
+        clipped_shadows: shadows.is_some_and(ClipReason::counts),
+        clipped_highlights: highlights.is_some_and(ClipReason::counts),
     })
 }
 
@@ -9650,5 +9794,150 @@ mod render_version_tests {
         let (t1, _) = crate::adjustment_utils::apply_spatial_transformations(&plain, &recipe(1));
         let (t2, _) = crate::adjustment_utils::apply_spatial_transformations(&plain, &recipe(2));
         assert_eq!(t1.to_rgba32f().as_raw(), t2.to_rgba32f().as_raw());
+    }
+}
+
+#[cfg(test)]
+mod clipping_indicator_tests {
+    use super::*;
+
+    /// Middle grey: between the thresholds, lights no side.
+    const MID: [u8; 3] = [128, 128, 128];
+    const RED: [u8; 3] = [255, 0, 0];
+    const BLUE: [u8; 3] = [0, 0, 255];
+
+    /// A six-pixel image of `MID` with the pixels at the histogram's sample
+    /// positions (every second one from the first: 0, 2, 4) replaced.
+    fn image_with(sampled: [Option<[u8; 3]>; 3]) -> DynamicImage {
+        let pixels: Vec<[u8; 3]> = (0..6)
+            .map(|index| match index {
+                i if i % 2 == 0 => sampled[i / 2].unwrap_or(MID),
+                _ => MID,
+            })
+            .collect();
+        let raw: Vec<u8> = pixels.iter().flatten().copied().collect();
+        DynamicImage::ImageRgb8(image::RgbImage::from_raw(1, 6, raw).unwrap())
+    }
+
+    /// (shadows, highlights) of the histogram.
+    fn sides(image: &DynamicImage, clip_overlay: u32) -> (bool, bool) {
+        let histogram = calculate_histogram_from_image_with_overlay(image, clip_overlay).unwrap();
+        (histogram.clipped_shadows, histogram.clipped_highlights)
+    }
+
+    // (a) Counts only at bins 5 and 250: the smoothing still reaches the ends
+    // (the plot shows it), but no pixel is near an end.
+    #[test]
+    fn values_near_the_ends_are_not_clipped_through_smoothing() {
+        let image = image_with([Some([5, 5, 250]), Some([250, 5, 5]), Some([250, 250, 250])]);
+        let histogram = calculate_histogram_from_image(&image).unwrap();
+        assert!(histogram.red[0] > 0.0 && histogram.green[255] > 0.0);
+        assert_eq!(sides(&image, 0), (false, false));
+    }
+
+    // (b) One pixel at either end lights that side only.
+    #[test]
+    fn one_pixel_at_an_end_lights_that_side() {
+        assert_eq!(
+            sides(&image_with([Some([0, 0, 0]), None, None]), 0),
+            (true, false)
+        );
+        assert_eq!(
+            sides(&image_with([None, Some([255, 255, 255]), None]), 0),
+            (false, true)
+        );
+        assert_eq!(sides(&image_with([None, None, None]), 0), (false, false));
+    }
+
+    // (c) With the highlights warning on, a white image reads back red
+    // overlay pixels: they light highlights only, not shadows through their
+    // zero channels (and mid-grey beside them changes nothing).
+    #[test]
+    fn highlight_overlay_pixels_light_highlights_only() {
+        let red = image_with([Some(RED), Some(RED), None]);
+        assert_eq!(sides(&red, CLIP_HIGHLIGHTS), (false, true));
+        assert_eq!(sides(&red, 1), (false, true));
+        // A real red pixel with no warning clips both (per channel)...
+        assert_eq!(sides(&red, 0), (true, true));
+        // ...and with the shadows warning alone it is a pixel again.
+        assert_eq!(sides(&red, CLIP_SHADOWS), (true, true));
+    }
+
+    // With the shadows warning on, a black image reads back blue overlay
+    // pixels: they light shadows only.
+    #[test]
+    fn shadow_overlay_pixels_light_shadows_only() {
+        let blue = image_with([Some(BLUE), Some(BLUE), None]);
+        assert_eq!(sides(&blue, CLIP_SHADOWS), (true, false));
+        assert_eq!(sides(&blue, 1), (true, false));
+        assert_eq!(sides(&blue, 0), (true, true));
+        assert_eq!(sides(&blue, CLIP_HIGHLIGHTS), (true, true));
+    }
+
+    // (d) Without a warning, a real (255, 0, 0) pixel clips both sides.
+    #[test]
+    fn real_red_pixel_clips_both_sides_without_an_overlay() {
+        assert_eq!(sides(&image_with([None, Some(RED), None]), 0), (true, true));
+    }
+
+    // Both warnings on: a white pixel reads back red and a black one blue.
+    #[test]
+    fn both_warnings_light_their_own_sides() {
+        let image = image_with([Some([255, 255, 255]), Some(BLUE), None]);
+        assert_eq!(sides(&image, 1), (true, true));
+    }
+
+    // The overlay leaves the bins alone: the plot keeps the warning colours.
+    #[test]
+    fn the_overlay_leaves_the_bins_alone() {
+        let image = image_with([None, Some(RED), Some(BLUE)]);
+        let without = calculate_histogram_from_image_with_overlay(&image, 0).unwrap();
+        let with = calculate_histogram_from_image_with_overlay(&image, CLIP_HIGHLIGHTS).unwrap();
+        assert_eq!(without.red, with.red);
+        assert_eq!(without.green, with.green);
+        assert_eq!(without.blue, with.blue);
+        assert_eq!(without.luma, with.luma);
+    }
+
+    /// A two-wide f32 image whose row 0 holds `first` and row 1 `second`.
+    fn f32_rows(first: [f32; 3], second: [f32; 3]) -> DynamicImage {
+        DynamicImage::ImageRgb32F(image::Rgb32FImage::from_fn(1, 2, |_, y| {
+            image::Rgb(if y == 0 { first } else { second })
+        }))
+    }
+
+    // f32 images use the shader's thresholds, not the bins.
+    #[test]
+    fn f32_images_use_the_float_thresholds() {
+        let grey = [0.5, 0.5, 0.5];
+        assert_eq!(sides(&f32_rows([0.001, 0.5, 0.5], grey), 0), (true, false));
+        assert_eq!(sides(&f32_rows([0.5, 0.5, 0.999], grey), 0), (false, true));
+        // Just inside the thresholds: no clipping (the float values, not the
+        // bins, decide; 0.002 itself rounds below the threshold in f32).
+        assert_eq!(sides(&f32_rows([0.01, 0.5, 0.99], grey), 0), (false, false));
+        // A float red overlay pixel with the highlight warning on.
+        let red = f32_rows([1.0, 0.0, 0.0], grey);
+        assert_eq!(sides(&red, CLIP_HIGHLIGHTS), (false, true));
+        assert_eq!(sides(&red, 0), (true, true));
+    }
+
+    #[test]
+    fn the_overlay_value_is_zero_without_a_warning_or_range_view() {
+        assert_eq!(clipping_overlay_value(0), 0);
+        assert_eq!(clipping_overlay_value(1), 1);
+        assert_eq!(clipping_overlay_value(CLIP_HIGHLIGHTS), CLIP_HIGHLIGHTS);
+        assert_eq!(clipping_overlay_value(CLIP_SHADOWS), CLIP_SHADOWS);
+        for index in 0..8 {
+            assert_eq!(clipping_overlay_value(2 + index), 0);
+        }
+    }
+
+    #[test]
+    fn clipping_sides_are_serialized_in_camel_case() {
+        let histogram =
+            calculate_histogram_from_image(&image_with([None, Some(RED), None])).unwrap();
+        let json = serde_json::to_value(histogram).unwrap();
+        assert_eq!(json["clippedShadows"], true);
+        assert_eq!(json["clippedHighlights"], true);
     }
 }

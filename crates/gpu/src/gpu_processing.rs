@@ -1718,12 +1718,18 @@ pub struct AnalyticsJob {
     pub image: Arc<DynamicImage>,
     pub compute_waveform: bool,
     pub active_waveform_channel: Option<String>,
+    /// The `show_clipping` of the render whose readback `image` is when its
+    /// clipping warning overlay replaced pixels with the warning colours, else
+    /// 0 (crates/engine `clipping_overlay_value`): the image carries the
+    /// warning colours, which the clipping indicators leave out.
+    pub clip_overlay: u32,
 }
 
 pub struct AnalyticsConfig {
     pub path: String,
     pub compute_waveform: bool,
     pub active_waveform_channel: Option<String>,
+    pub clip_overlay: u32,
     pub sender: LatestJobSender<AnalyticsJob>,
 }
 
@@ -3747,6 +3753,7 @@ fn complete_analytics_readback(device: &wgpu::Device, job: AnalyticsReadbackJob)
             image: Arc::new(DynamicImage::ImageRgba8(image)),
             compute_waveform: job.analytics.compute_waveform,
             active_waveform_channel: job.analytics.active_waveform_channel,
+            clip_overlay: job.analytics.clip_overlay,
         });
     }
 }
@@ -9674,6 +9681,7 @@ fn render_dynamic_image(
                     image: Arc::new(DynamicImage::ImageRgba8(image)),
                     compute_waveform: analytics.compute_waveform,
                     active_waveform_channel: analytics.active_waveform_channel,
+                    clip_overlay: analytics.clip_overlay,
                 });
             }
         } else {

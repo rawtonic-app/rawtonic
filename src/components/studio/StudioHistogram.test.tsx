@@ -32,11 +32,17 @@ it("soft-proofs in a chosen colour space with an optional gamut warning", () => 
   expect(screen.queryByLabelText("Proof color space")).toBeNull();
 });
 
+/** The backend's histogram: if `lit`, a photo that clips `shadows` /
+ * `highlights`, as the engine counts it. */
 const clippedHistogram = (shadows: boolean, highlights: boolean) => {
   const bins = [0, 0, 0, 0, 5, 2, 0, 0, 0, 0];
-  if (shadows) bins[0] = 3;
-  if (highlights) bins[bins.length - 1] = 4;
-  return { red: bins, green: [...bins], blue: [...bins] };
+  return {
+    red: bins,
+    green: [...bins],
+    blue: [...bins],
+    clippedShadows: shadows,
+    clippedHighlights: highlights,
+  };
 };
 
 it("switches each clipping warning on its own with the histogram corners", () => {
@@ -91,6 +97,77 @@ it("lights the corners from the histogram even with the warnings off", () => {
     screen.getByRole("button", { name: "Highlight clipping" }).hasAttribute("data-clipping"),
   ).toBe(false);
   useEditorStore.setState({ histogram: null, clipHighlights: false, clipShadows: false });
+});
+
+it("follows the backend's clipping flags, not the bins' ends", () => {
+  // Bins that fill both ends (as a smoothed histogram with values near an end
+  // does) but no pixel at either end: neither corner lights.
+  const nearEnds = {
+    red: [0.4, 0.6, 1, 1, 0.6, 0.2, 0, 0, 0.2, 0.7],
+    green: [0.5, 0.3, 0, 0, 0, 0, 0, 0, 0, 0.9],
+    blue: [1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+    clippedShadows: false,
+    clippedHighlights: false,
+  };
+  useEditorStore.setState({ histogram: nearEnds as never });
+  render(<StudioHistogram />);
+  expect(
+    screen.getByRole("button", { name: "Shadow clipping" }).hasAttribute("data-clipping"),
+  ).toBe(false);
+  expect(
+    screen.getByRole("button", { name: "Highlight clipping" }).hasAttribute("data-clipping"),
+  ).toBe(false);
+  // Empty ends, yet the backend counts a clipped pixel: the side lights.
+  cleanup();
+  useEditorStore.setState({
+    histogram: {
+      red: [0, 0, 5],
+      green: [0, 0, 5],
+      blue: [0, 0, 5],
+      clippedHighlights: true,
+    } as never,
+  });
+  render(<StudioHistogram />);
+  expect(
+    screen.getByRole("button", { name: "Highlight clipping, clipped" }).hasAttribute(
+      "data-clipping",
+    ),
+  ).toBe(true);
+  expect(
+    screen.getByRole("button", { name: "Shadow clipping" }).hasAttribute("data-clipping"),
+  ).toBe(false);
+});
+
+it("keeps the lit state when a warning switches for the same histogram", () => {
+  useEditorStore.setState({
+    histogram: clippedHistogram(true, true) as never,
+    clipHighlights: false,
+    clipShadows: false,
+  });
+  render(<StudioHistogram />);
+  const lit = () =>
+    [
+      screen.getByRole("button", { name: /^Shadow clipping/ }),
+      screen.getByRole("button", { name: /^Highlight clipping/ }),
+    ].map((corner) => [corner.hasAttribute("data-clipping"), corner.getAttribute("aria-pressed")]);
+  const before = lit();
+  expect(before).toEqual([
+    [true, "false"],
+    [true, "false"],
+  ]);
+  fireEvent.click(screen.getByRole("button", { name: /^Shadow clipping/ }));
+  expect(useEditorStore.getState()).toMatchObject({ clipShadows: true, clipHighlights: false });
+  // The warning's state changed; the clipping verdict did not.
+  expect(lit()).toEqual([
+    [true, "true"],
+    [true, "false"],
+  ]);
+  fireEvent.click(screen.getByRole("button", { name: /^Highlight clipping/ }));
+  expect(useEditorStore.getState()).toMatchObject({ clipShadows: true, clipHighlights: true });
+  expect(lit()).toEqual([
+    [true, "true"],
+    [true, "true"],
+  ]);
 });
 
 it("keeps the corner buttons off the plot's own image role", () => {
