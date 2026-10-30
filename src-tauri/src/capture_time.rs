@@ -644,7 +644,8 @@ mod tests {
         let date = pinned[0].capture_date(&b).with_timezone(&chrono::Local);
         assert_eq!((date.day(), date.hour(), date.minute()), (31, 0, 45));
         let untouched =
-            crate::export_processing::pin_photos(&[a_path.clone()], None, None, None).unwrap();
+            crate::export_processing::pin_photos(std::slice::from_ref(&a_path), None, None, None)
+                .unwrap();
         assert!(untouched[0].capture.is_none());
 
         // A plan made before the correction conflicts and writes nothing.
