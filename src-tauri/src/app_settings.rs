@@ -1017,7 +1017,6 @@ fn read_settings_file(path: &Path) -> Result<AppSettings, String> {
 
 static SETTINGS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-#[tauri::command]
 /// The processing backend chosen in Preferences, read without
 /// `load_settings`' migrations or the keeping of an unreadable file: for a
 /// run that must leave the settings alone (`gpu_warmup`, run by the
@@ -1034,6 +1033,7 @@ fn processing_backend_in(path: &Path) -> Option<String> {
         .map(str::to_string)
 }
 
+#[tauri::command]
 pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
     let _guard = SETTINGS_LOCK
         .lock()
