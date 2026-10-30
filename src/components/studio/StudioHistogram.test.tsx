@@ -242,8 +242,8 @@ it("keeps fixed-size transparent control icons above the plot (studio.css applie
       highlight.setAttribute("class", `studio-clip-corner studio-clip-highlights ${state}`);
       expect(getComputedStyle(highlightMark).fill).toBe(fill);
     }
-    expect(getComputedStyle(shadow).justifyItems).toBe("start");
-    expect(getComputedStyle(highlight).justifyItems).toBe("end");
+    expect(getComputedStyle(shadow).justifyContent).toBe("flex-start");
+    expect(getComputedStyle(highlight).justifyContent).toBe("flex-end");
     for (const layer of corners) {
       expect(getComputedStyle(layer).backgroundColor).toMatch(
         /transparent|rgba\(0, 0, 0, 0\)/,

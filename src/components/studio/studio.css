@@ -375,8 +375,8 @@
   margin-bottom: 0;
 }
 :is(.studio-workspace, .studio-controls) .studio-clip-corner {
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
   flex: 0 0 20px;
   min-height: 20px;
   width: 20px;
@@ -402,10 +402,10 @@
 }
 /* The glyph's outer edge meets the plot edge; its hit area extends inward. */
 .studio-clip-corners .studio-clip-shadows {
-  justify-items: start;
+  justify-content: flex-start;
 }
 .studio-clip-corners .studio-clip-highlights {
-  justify-items: end;
+  justify-content: flex-end;
 }
 .studio-clip-corner > svg {
   display: block;
