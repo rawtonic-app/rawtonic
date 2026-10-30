@@ -17,10 +17,12 @@ import {
   describeCrossVolumeMove,
   describeEmptyTrash,
   describeFileOperation,
+  describeSessionMove,
   FileOperationSummary,
   formatBytes,
   type KeptCopies,
   type MovePlan,
+  type SessionMoveOffer,
   showKeptCopies,
   undoHint,
   type TrashContents,
@@ -527,6 +529,121 @@ describe('moving photos to another drive', () => {
     expect(toast.warn).toHaveBeenCalledWith('/Users/a/A.xmp changed while it was moved and was kept', {
       autoClose: false,
     });
+  });
+});
+
+describe('moving photos or a folder out of their session', () => {
+  const offer = (part: Partial<SessionMoveOffer>): SessionMoveOffer => ({
+    session: '/Users/a/Jobs/S7Job',
+    name: 'S7Job',
+    destination: '/Volumes/Archive SSD/2026',
+    crossVolume: false,
+    bytes: 0,
+    drive: '',
+    freeBytes: 0,
+    refusal: null,
+    ...part,
+  });
+  const offered = (part: Partial<SessionMoveOffer>) => ({ crossVolume: false, sessionMove: offer(part) });
+  const hook = () => renderHook(() => useFileOperations(vi.fn(), vi.fn(), vi.fn(), vi.fn(), []));
+
+  beforeEach(() => {
+    vi.mocked(invoke).mockReset();
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    vi.mocked(toast.error).mockClear();
+    vi.mocked(toast.success).mockClear();
+    useSettingsStore.setState({ osPlatform: 'macos' });
+    useUIStore.setState({ activeView: 'library', confirmModalState: { isOpen: false } });
+  });
+
+  it('offers the whole session instead, saying why in one sentence, and moves nothing until asked', async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(offered({}));
+    const { result } = hook();
+    await result.current.handleMoveToFolder(['/Users/a/Jobs/S7Job/Capture/A.RAF'], '/Volumes/Archive SSD/2026');
+    const asked = useUIStore.getState().confirmModalState;
+    expect(asked.isOpen).toBe(true);
+    expect(asked.title).toBe('Move the Whole Session “S7Job”?');
+    expect(asked.message).toBe(
+      'Photos stay inside their session “S7Job”, so it remains one self-contained folder that moves as a whole; ' +
+        'the whole session can go into “2026” instead. It moves on its drive in one step; Undo moves it back.',
+    );
+    expect(asked.confirmText).toBe('Move the Whole Session to “2026”');
+    expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(Invokes.MoveFiles, expect.anything());
+    expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(Invokes.MoveSession, expect.anything());
+
+    vi.mocked(invoke).mockImplementation(async (command) =>
+      command === Invokes.MoveSession
+        ? summary({ kind: 'moveSession', label: 'Move session S7Job to 2026', items: 1 })
+        : undefined,
+    );
+    asked.onConfirm?.();
+    await waitFor(() =>
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.MoveSession, {
+        session: '/Users/a/Jobs/S7Job',
+        destination: '/Volumes/Archive SSD/2026',
+      }),
+    );
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Moved the session “S7Job” to “2026”. ⌘Z undoes it.'),
+    );
+    expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(Invokes.MoveFiles, expect.anything());
+  });
+
+  it('names the other drive, the bytes and the free space when the session is copied', () => {
+    expect(
+      describeSessionMove(offer({ crossVolume: true, bytes: 123_400_000, drive: 'Archive SSD', freeBytes: 1_900_000_000_000 })),
+    ).toContain(
+      'It is copied to Archive SSD (123.4 MB, 1.9 TB free there) and checked byte for byte; ' +
+        'only then does the original session folder go to the Trash.',
+    );
+  });
+
+  it('says why the whole session cannot go there either, and moves nothing', async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(
+      offered({ refusal: '/Volumes/Archive SSD/2026 already holds something named S7Job; nothing was moved.' }),
+    );
+    const { result } = hook();
+    await result.current.handleMoveToFolder(['/Users/a/Jobs/S7Job/Capture/A.RAF'], '/Volumes/Archive SSD/2026');
+    expect(toast.error).toHaveBeenCalledWith(
+      'Photos stay inside their session “S7Job”, and the whole session cannot go there: ' +
+        '/Volumes/Archive SSD/2026 already holds something named S7Job; nothing was moved.',
+    );
+    expect(useUIStore.getState().confirmModalState.isOpen).toBe(false);
+    expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers the same for a folder of the session and for a cut and paste', async () => {
+    vi.mocked(invoke).mockResolvedValue(offered({}));
+    const { result } = hook();
+    await result.current.handleMoveFolder('/Users/a/Jobs/S7Job/Capture', '/Volumes/Archive SSD/2026');
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.PlanMoveFolder, {
+      path: '/Users/a/Jobs/S7Job/Capture',
+      destinationFolder: '/Volumes/Archive SSD/2026',
+    });
+    expect(useUIStore.getState().confirmModalState.title).toBe('Move the Whole Session “S7Job”?');
+    expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(Invokes.MoveFolder, expect.anything());
+
+    useUIStore.setState({ confirmModalState: { isOpen: false } });
+    useProcessStore.setState({ copiedFilePaths: ['/Users/a/Jobs/S7Job/Capture/A.RAF'] });
+    await result.current.handlePasteFiles('move', '/Volumes/Archive SSD/2026');
+    expect(useUIStore.getState().confirmModalState.title).toBe('Move the Whole Session “S7Job”?');
+    expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(Invokes.MoveFiles, expect.anything());
+  });
+
+  it('tells when the session could not be moved', async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(offered({}));
+    const { result } = hook();
+    await result.current.handleMoveToFolder(['/Users/a/Jobs/S7Job/Capture/A.RAF'], '/Volumes/Archive SSD/2026');
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === Invokes.MoveSession) throw 'The session S7Job is open in another program';
+      return undefined;
+    });
+    useUIStore.getState().confirmModalState.onConfirm?.();
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'Could not move the session “S7Job”: The session S7Job is open in another program',
+      ),
+    );
   });
 });
 

@@ -52,6 +52,22 @@ export interface MovePlan {
   freeBytes: number;
   sourceDrives: string[];
   refusal?: string | null;
+  /** The move would take photos out of their session, which is not done:
+   * the whole session can be moved there instead. */
+  sessionMove?: SessionMoveOffer | null;
+}
+
+/** Mirrors `SessionMoveOffer` in src-tauri/src/session_move.rs. */
+export interface SessionMoveOffer {
+  session: string;
+  name: string;
+  destination: string;
+  crossVolume: boolean;
+  bytes: number;
+  drive: string;
+  freeBytes: number;
+  /** Why the session cannot go there either. */
+  refusal?: string | null;
 }
 
 /** Bytes in decimal units, as file browsers show them. */
@@ -92,6 +108,72 @@ export function describeCrossVolumeFolderMove(plan: MovePlan, name: string): str
     free: formatBytes(plan.freeBytes),
     sources: plan.sourceDrives.join(', '),
   });
+}
+
+/** The question instead of moving photos out of their session: why that is
+ * not done, in one sentence, and what moving the whole session involves. */
+export function describeSessionMove(offer: SessionMoveOffer): string {
+  const t = i18next.t.bind(i18next);
+  const folder = offer.destination.split(/[\\/]/).filter(Boolean).pop() ?? offer.destination;
+  const why = t('studio.library.fileOperations.sessionMoveWhy', { name: offer.name, folder });
+  const how = offer.crossVolume
+    ? t('studio.library.fileOperations.sessionMoveOtherDrive', {
+        size: formatBytes(offer.bytes),
+        drive: offer.drive,
+        free: formatBytes(offer.freeBytes),
+      })
+    : t('studio.library.fileOperations.sessionMoveSameDrive');
+  return `${why} ${how}`;
+}
+
+/** Offers to move the whole session instead of photos or a folder out of
+ * it (G40): a session stays one self-contained folder. Says why when the
+ * session cannot go there either; moves nothing until the user agreed. */
+function offerSessionMove(offer: SessionMoveOffer) {
+  const t = i18next.t.bind(i18next);
+  const folder = offer.destination.split(/[\\/]/).filter(Boolean).pop() ?? offer.destination;
+  if (offer.refusal) {
+    notify.error(t('studio.library.fileOperations.sessionMoveRefused', { name: offer.name, error: offer.refusal }));
+    return;
+  }
+  useUIStore.getState().setUI({
+    confirmModalState: {
+      isOpen: true,
+      title: t('studio.library.fileOperations.sessionMoveTitle', { name: offer.name }),
+      message: describeSessionMove(offer),
+      confirmText: t('studio.library.fileOperations.sessionMoveConfirm', { folder }),
+      confirmVariant: 'primary',
+      onConfirm: () => void moveSession(offer, folder),
+    },
+  });
+}
+
+/** Moves the whole session (one undoable operation); the open session is
+ * opened again at its new place when the backend says it moved
+ * (`session-moved`, SessionWorkspace). */
+async function moveSession(offer: SessionMoveOffer, folder: string) {
+  const t = i18next.t.bind(i18next);
+  try {
+    if (!(await saveEditsFirst([offer.session]))) return;
+    const summary = await fileAction(
+      () =>
+        withCopyProgress(() =>
+          invoke<FileOperationSummary>(Invokes.MoveSession, {
+            session: offer.session,
+            destination: offer.destination,
+          }),
+        ),
+      'move',
+      undefined,
+      undefined,
+      [offer.session, offer.destination],
+    );
+    if (summary)
+      notify.success(t('studio.library.fileOperations.sessionMoved', { name: offer.name, folder, hint: undoHint() }));
+    warnAboutNote(summary);
+  } catch (err) {
+    notify.error(t('studio.library.fileOperations.sessionMoveFailed', { name: offer.name, error: String(err) }));
+  }
 }
 
 /** Mirrors `CopyProgress` in src-tauri/src/file_operations.rs. */
@@ -332,6 +414,10 @@ async function askBeforeOtherDrive(
     plan = await invoke<MovePlan>(Invokes.PlanMoveFiles, { sourcePaths: paths, destinationFolder: destination });
   } catch (err) {
     notify.error(ops(failed, { error: String(err) }));
+    return;
+  }
+  if (plan?.sessionMove) {
+    offerSessionMove(plan.sessionMove);
     return;
   }
   if (!plan?.crossVolume) {
@@ -694,6 +780,10 @@ export function useFileOperations(
         plan = await invoke<MovePlan>(Invokes.PlanMoveFolder, { path, destinationFolder: picked });
       } catch (err) {
         notify.error(ops('moveFolderFailed', { error: String(err) }));
+        return;
+      }
+      if (plan?.sessionMove) {
+        offerSessionMove(plan.sessionMove);
         return;
       }
       if (!plan?.crossVolume) {

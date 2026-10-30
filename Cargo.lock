@@ -5347,6 +5347,7 @@ dependencies = [
  "log",
  "proptest",
  "rawtonic-catalog",
+ "rawtonic-fileops",
  "rawtonic-metadata",
  "rusqlite",
  "same-file",

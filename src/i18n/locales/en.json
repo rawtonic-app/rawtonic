@@ -3306,7 +3306,15 @@
         "undoHint": "{{key}} undoes it.",
         "undoHintFromDevelop": "{{key}} in the Library undoes it.",
         "undone": "Undone: {{label}}. {{key}} redoes it.",
-        "unsavedEdits": "Edits of {{files}} could not be saved, so nothing was moved."
+        "unsavedEdits": "Edits of {{files}} could not be saved, so nothing was moved.",
+        "sessionMoveTitle": "Move the Whole Session “{{name}}”?",
+        "sessionMoveWhy": "Photos stay inside their session “{{name}}”, so it remains one self-contained folder that moves as a whole; the whole session can go into “{{folder}}” instead.",
+        "sessionMoveSameDrive": "It moves on its drive in one step; Undo moves it back.",
+        "sessionMoveOtherDrive": "It is copied to {{drive}} ({{size}}, {{free}} free there) and checked byte for byte; only then does the original session folder go to the Trash. Undo moves it back.",
+        "sessionMoveConfirm": "Move the Whole Session to “{{folder}}”",
+        "sessionMoved": "Moved the session “{{name}}” to “{{folder}}”. {{hint}}",
+        "sessionMoveRefused": "Photos stay inside their session “{{name}}”, and the whole session cannot go there: {{error}}",
+        "sessionMoveFailed": "Could not move the session “{{name}}”: {{error}}"
       },
       "filters": {
         "allLabels": "All labels",

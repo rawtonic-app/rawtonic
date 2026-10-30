@@ -82,6 +82,7 @@ mod qa_control;
 mod red_eye;
 mod series_match;
 mod session_bridge;
+mod session_move;
 mod snapshots;
 mod spot_removal;
 mod startup;
@@ -841,6 +842,7 @@ pub fn run() {
             file_management::plan_move_files,
             file_management::move_folder,
             file_management::plan_move_folder,
+            session_move::move_session,
             file_management::rename_folder,
             file_management::rename_files,
             file_management::preview_rename,

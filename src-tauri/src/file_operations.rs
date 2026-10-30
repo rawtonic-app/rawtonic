@@ -509,6 +509,7 @@ pub fn undo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
     let Some(last) = with_journal(app, |journal| journal.last_undoable())? else {
         return Ok(None);
     };
+    crate::session_move::before_reversal(&last, false)?;
     let progress = ProgressEvents::new(app, &last.label);
     let op = with_journal(app, |journal| {
         progress.start();
@@ -518,6 +519,7 @@ pub fn undo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
         result
     })?;
     sync_pending(app, Some(&op.id));
+    crate::session_move::followed(app, &op);
     Ok(Some(op))
 }
 
@@ -528,6 +530,7 @@ pub fn redo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
     let Some(next) = with_journal(app, |journal| journal.last_redoable())? else {
         return Ok(None);
     };
+    crate::session_move::before_reversal(&next, true)?;
     let progress = ProgressEvents::new(app, &next.label);
     let op = with_journal(app, |journal| {
         progress.start();
@@ -537,6 +540,7 @@ pub fn redo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
         result
     })?;
     sync_pending(app, Some(&op.id));
+    crate::session_move::followed(app, &op);
     Ok(Some(op))
 }
 
@@ -920,7 +924,8 @@ pub fn sync_catalog(op: &Operation, forward: bool) -> Result<(), String> {
     }
     let mut changes: Vec<(PathBuf, Change)> = Vec::new();
     for (a, b, folder) in moved(op, forward) {
-        if !(folder || is_supported_image_file(&b)) {
+        // A whole session moved keeps its records: its paths are relative.
+        if !(folder || is_supported_image_file(&b)) || op.kind == crate::session_move::KIND {
             continue;
         }
         let library = crate::session_bridge::library_dir_for(&a)

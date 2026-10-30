@@ -3415,7 +3415,15 @@
         "undoHint": "{{key}} ho desfà.",
         "undoHintFromDevelop": "{{key}} a la biblioteca ho desfà.",
         "undone": "Desfet: {{label}}. {{key}} ho refà.",
-        "unsavedEdits": "No s'han pogut desar les edicions de {{files}}, així que no s'ha mogut res."
+        "unsavedEdits": "No s'han pogut desar les edicions de {{files}}, així que no s'ha mogut res.",
+        "sessionMoveTitle": "Voleu moure tota la sessió «{{name}}»?",
+        "sessionMoveWhy": "Les fotos es queden dins de la sessió «{{name}}», perquè continuï sent una carpeta autònoma que es mou sencera; en canvi, podeu moure tota la sessió a «{{folder}}».",
+        "sessionMoveSameDrive": "Es mou dins de la seva unitat en un sol pas; Desfés la torna al seu lloc.",
+        "sessionMoveOtherDrive": "Es copia a {{drive}} ({{size}}, {{free}} lliures allà) i es comprova byte a byte; només aleshores la carpeta original de la sessió va a la Paperera. Desfés la torna al seu lloc.",
+        "sessionMoveConfirm": "Mou tota la sessió a «{{folder}}»",
+        "sessionMoved": "S'ha mogut la sessió «{{name}}» a «{{folder}}». {{hint}}",
+        "sessionMoveRefused": "Les fotos es queden dins de la sessió «{{name}}», i tota la sessió no pot anar-hi: {{error}}",
+        "sessionMoveFailed": "No s'ha pogut moure la sessió «{{name}}»: {{error}}"
       },
       "filters": {
         "allLabels": "Totes les etiquetes",

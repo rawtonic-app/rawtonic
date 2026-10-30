@@ -3228,7 +3228,15 @@
         "undoHint": "按 {{key}} 可復原。",
         "undoHintFromDevelop": "在圖庫中按 {{key}} 可復原。",
         "undone": "已還原：{{label}}。按 {{key}} 重做。",
-        "unsavedEdits": "無法儲存 {{files}} 的編輯，因此未移動任何內容。"
+        "unsavedEdits": "無法儲存 {{files}} 的編輯，因此未移動任何內容。",
+        "sessionMoveTitle": "移動整個工作階段「{{name}}」？",
+        "sessionMoveWhy": "照片保留在其工作階段「{{name}}」中，讓它始終是可整體移動的獨立資料夾；可以改為將整個工作階段移到「{{folder}}」。",
+        "sessionMoveSameDrive": "它會在所在磁碟上一步完成移動；還原即可移回。",
+        "sessionMoveOtherDrive": "它會被複製到 {{drive}}（{{size}}，那裡可用 {{free}}）並逐位元組驗證；之後原工作階段資料夾才會移到垃圾桶。還原即可移回。",
+        "sessionMoveConfirm": "將整個工作階段移到「{{folder}}」",
+        "sessionMoved": "已將工作階段「{{name}}」移到「{{folder}}」。{{hint}}",
+        "sessionMoveRefused": "照片保留在其工作階段「{{name}}」中，而整個工作階段也無法移到那裡：{{error}}",
+        "sessionMoveFailed": "無法移動工作階段「{{name}}」：{{error}}"
       },
       "filters": {
         "allLabels": "全部標籤",

@@ -664,6 +664,11 @@ pub fn set_held(app: &AppHandle, held: bool) {
     }
 }
 
+/// Whether the runner is working through the queue (reading photographs).
+pub fn is_running() -> bool {
+    RUNNING.load(Ordering::SeqCst)
+}
+
 pub fn snapshot() -> Snapshot {
     Snapshot {
         jobs: with_queue(|q| q.jobs()).unwrap_or_default(),

@@ -3228,7 +3228,15 @@
         "undoHint": "按 {{key}} 可撤销。",
         "undoHintFromDevelop": "在图库中按 {{key}} 可撤销。",
         "undone": "已撤销：{{label}}。按 {{key}} 重做。",
-        "unsavedEdits": "无法保存 {{files}} 的编辑，因此未移动任何内容。"
+        "unsavedEdits": "无法保存 {{files}} 的编辑，因此未移动任何内容。",
+        "sessionMoveTitle": "移动整个会话“{{name}}”？",
+        "sessionMoveWhy": "照片保留在其会话“{{name}}”中，使它始终是一个可整体移动的独立文件夹；可以改为将整个会话移到“{{folder}}”。",
+        "sessionMoveSameDrive": "它在所在驱动器上一步完成移动；撤销即可移回。",
+        "sessionMoveOtherDrive": "它会被复制到 {{drive}}（{{size}}，那里可用 {{free}}）并逐字节校验；之后原会话文件夹才会移到废纸篓。撤销即可移回。",
+        "sessionMoveConfirm": "将整个会话移到“{{folder}}”",
+        "sessionMoved": "已将会话“{{name}}”移到“{{folder}}”。{{hint}}",
+        "sessionMoveRefused": "照片保留在其会话“{{name}}”中，而整个会话也无法移到那里：{{error}}",
+        "sessionMoveFailed": "无法移动会话“{{name}}”：{{error}}"
       },
       "filters": {
         "allLabels": "全部标签",

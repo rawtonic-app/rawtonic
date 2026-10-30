@@ -3524,7 +3524,15 @@
         "undoHint": "{{key}} cofa tę operację.",
         "undoHintFromDevelop": "{{key}} w bibliotece cofa tę operację.",
         "undone": "Cofnięto: {{label}}. {{key}} ponawia.",
-        "unsavedEdits": "Nie udało się zapisać edycji {{files}}, więc nic nie zostało przeniesione."
+        "unsavedEdits": "Nie udało się zapisać edycji {{files}}, więc nic nie zostało przeniesione.",
+        "sessionMoveTitle": "Przenieść całą sesję „{{name}}”?",
+        "sessionMoveWhy": "Zdjęcia zostają w swojej sesji „{{name}}”, aby pozostała samodzielnym folderem przenoszonym w całości; zamiast tego można przenieść całą sesję do „{{folder}}”.",
+        "sessionMoveSameDrive": "Zostanie przeniesiona na swoim dysku w jednym kroku; Cofnij przywraca ją z powrotem.",
+        "sessionMoveOtherDrive": "Zostanie skopiowana na {{drive}} ({{size}}, wolne tam {{free}}) i sprawdzona bajt po bajcie; dopiero wtedy oryginalny folder sesji trafi do Kosza. Cofnij przywraca ją z powrotem.",
+        "sessionMoveConfirm": "Przenieś całą sesję do „{{folder}}”",
+        "sessionMoved": "Przeniesiono sesję „{{name}}” do „{{folder}}”. {{hint}}",
+        "sessionMoveRefused": "Zdjęcia zostają w swojej sesji „{{name}}”, a cała sesja nie może tam trafić: {{error}}",
+        "sessionMoveFailed": "Nie udało się przenieść sesji „{{name}}”: {{error}}"
       },
       "filters": {
         "allLabels": "Wszystkie etykiety",

@@ -24,6 +24,7 @@ pub mod folders;
 pub mod hot_folder;
 pub mod ingest_jobs;
 pub mod query;
+pub mod session_move;
 pub mod snapshots;
 pub mod volume;
 pub mod xmp_review;

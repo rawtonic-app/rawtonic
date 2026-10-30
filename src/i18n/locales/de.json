@@ -3306,7 +3306,15 @@
         "undoHint": "{{key}} macht es rückgängig.",
         "undoHintFromDevelop": "{{key}} in der Bibliothek macht es rückgängig.",
         "undone": "Widerrufen: {{label}}. {{key}} stellt es wieder her.",
-        "unsavedEdits": "Bearbeitungen von {{files}} konnten nicht gespeichert werden, daher wurde nichts verschoben."
+        "unsavedEdits": "Bearbeitungen von {{files}} konnten nicht gespeichert werden, daher wurde nichts verschoben.",
+        "sessionMoveTitle": "Die ganze Session „{{name}}“ verschieben?",
+        "sessionMoveWhy": "Fotos bleiben in ihrer Session „{{name}}“, damit sie ein in sich geschlossener Ordner bleibt, der als Ganzes umzieht; stattdessen kann die ganze Session nach „{{folder}}“.",
+        "sessionMoveSameDrive": "Sie wird auf ihrem Laufwerk in einem Schritt verschoben; Widerrufen holt sie zurück.",
+        "sessionMoveOtherDrive": "Sie wird auf {{drive}} kopiert ({{size}}, dort {{free}} frei) und Byte für Byte geprüft; erst dann kommt der ursprüngliche Session-Ordner in den Papierkorb. Widerrufen holt sie zurück.",
+        "sessionMoveConfirm": "Ganze Session nach „{{folder}}“ verschieben",
+        "sessionMoved": "Session „{{name}}“ nach „{{folder}}“ verschoben. {{hint}}",
+        "sessionMoveRefused": "Fotos bleiben in ihrer Session „{{name}}“, und die ganze Session kann nicht dorthin: {{error}}",
+        "sessionMoveFailed": "Die Session „{{name}}“ konnte nicht verschoben werden: {{error}}"
       },
       "filters": {
         "allLabels": "Alle Farben",

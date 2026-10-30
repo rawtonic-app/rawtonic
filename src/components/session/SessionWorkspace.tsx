@@ -1,5 +1,5 @@
 import { buildComboMap, normalizeCombo } from "../../utils/keyboardUtils";
-import { withRecentLibrary } from "../../utils/recentLibraries";
+import { withMovedLibrary, withRecentLibrary } from "../../utils/recentLibraries";
 import { validNamingTemplate, validSequenceStart, type NamePreview } from "../../utils/namingTemplates";
 import NamingEditor from "../ui/NamingEditor";
 import LibraryTransferDialog, { type TransferPurpose } from "./LibraryTransferDialog";
@@ -478,6 +478,33 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       restoreLastSession(navigate, setError);
     }
     return unsubscribe;
+  }, [navigate]);
+
+  // A session folder moved (Move the whole session, or its undo/redo): its
+  // recent-libraries entry follows, and the open session opens again there.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void listen<{ from: string; to: string }>("session-moved", ({ payload }) => {
+      const settings = useSettingsStore.getState();
+      if (settings.appSettings)
+        void settings.handleSettingsChange({
+          ...settings.appSettings,
+          recentLibraries: withMovedLibrary(settings.appSettings.recentLibraries, payload.from, payload.to),
+        });
+      if (useLibraryStore.getState().sessionDirectory !== payload.from) return;
+      void invoke<SessionSummary>(Invokes.SessionOpen, { directory: payload.to })
+        .then(navigate)
+        .catch((err) => setError(String(err)));
+    }).then((fn) => {
+      if (disposed) fn();
+      else stop = fn;
+    });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
   }, [navigate]);
 
   useLayoutEffect(() => {

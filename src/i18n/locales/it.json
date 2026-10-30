@@ -3415,7 +3415,15 @@
         "undoHint": "{{key}} lo annulla.",
         "undoHintFromDevelop": "{{key}} nella libreria lo annulla.",
         "undone": "Annullato: {{label}}. {{key}} lo ripristina.",
-        "unsavedEdits": "Impossibile salvare le modifiche di {{files}}, quindi non è stato spostato nulla."
+        "unsavedEdits": "Impossibile salvare le modifiche di {{files}}, quindi non è stato spostato nulla.",
+        "sessionMoveTitle": "Spostare l'intera sessione «{{name}}»?",
+        "sessionMoveWhy": "Le foto restano nella loro sessione «{{name}}», così rimane una cartella autonoma che si sposta per intero; al suo posto si può spostare l'intera sessione in «{{folder}}».",
+        "sessionMoveSameDrive": "Viene spostata sul suo disco in un solo passaggio; Annulla la riporta indietro.",
+        "sessionMoveOtherDrive": "Viene copiata su {{drive}} ({{size}}, {{free}} liberi lì) e verificata byte per byte; solo allora la cartella originale della sessione va nel Cestino. Annulla la riporta indietro.",
+        "sessionMoveConfirm": "Sposta l'intera sessione in «{{folder}}»",
+        "sessionMoved": "Sessione «{{name}}» spostata in «{{folder}}». {{hint}}",
+        "sessionMoveRefused": "Le foto restano nella loro sessione «{{name}}», e l'intera sessione non può andare lì: {{error}}",
+        "sessionMoveFailed": "Impossibile spostare la sessione «{{name}}»: {{error}}"
       },
       "filters": {
         "allLabels": "Tutte le etichette",

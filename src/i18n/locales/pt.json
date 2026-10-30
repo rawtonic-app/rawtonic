@@ -3415,7 +3415,15 @@
         "undoHint": "{{key}} desfaz.",
         "undoHintFromDevelop": "{{key}} na biblioteca desfaz.",
         "undone": "Desfeito: {{label}}. {{key}} refaz.",
-        "unsavedEdits": "Não foi possível salvar as edições de {{files}}, então nada foi movido."
+        "unsavedEdits": "Não foi possível salvar as edições de {{files}}, então nada foi movido.",
+        "sessionMoveTitle": "Mover a sessão inteira “{{name}}”?",
+        "sessionMoveWhy": "As fotos ficam dentro da sessão “{{name}}”, para que ela continue sendo uma pasta independente que se move por inteiro; em vez disso, a sessão inteira pode ir para “{{folder}}”.",
+        "sessionMoveSameDrive": "Ela é movida na própria unidade em um só passo; Desfazer a traz de volta.",
+        "sessionMoveOtherDrive": "Ela é copiada para {{drive}} ({{size}}, {{free}} livres lá) e verificada byte a byte; só então a pasta original da sessão vai para a Lixeira. Desfazer a traz de volta.",
+        "sessionMoveConfirm": "Mover a sessão inteira para “{{folder}}”",
+        "sessionMoved": "Sessão “{{name}}” movida para “{{folder}}”. {{hint}}",
+        "sessionMoveRefused": "As fotos ficam dentro da sessão “{{name}}”, e a sessão inteira não pode ir para lá: {{error}}",
+        "sessionMoveFailed": "Não foi possível mover a sessão “{{name}}”: {{error}}"
       },
       "filters": {
         "allLabels": "Todos os rótulos",

@@ -3228,7 +3228,15 @@
         "undoHint": "{{key}} で取り消せます。",
         "undoHintFromDevelop": "ライブラリで {{key}} を押すと取り消せます。",
         "undone": "取り消しました：{{label}}。{{key}} でやり直せます。",
-        "unsavedEdits": "{{files}} の編集を保存できなかったため、何も移動していません。"
+        "unsavedEdits": "{{files}} の編集を保存できなかったため、何も移動していません。",
+        "sessionMoveTitle": "セッション「{{name}}」全体を移動しますか？",
+        "sessionMoveWhy": "写真はセッション「{{name}}」の中に残り、セッションは丸ごと移動できる自己完結したフォルダのままです。代わりにセッション全体を「{{folder}}」に移動できます。",
+        "sessionMoveSameDrive": "同じドライブ内で一度に移動します。取り消すと元に戻ります。",
+        "sessionMoveOtherDrive": "{{drive}} にコピーされ（{{size}}、空き {{free}}）、1 バイトずつ検証されます。その後で初めて元のセッションフォルダがゴミ箱に移されます。取り消すと元に戻ります。",
+        "sessionMoveConfirm": "セッション全体を「{{folder}}」に移動",
+        "sessionMoved": "セッション「{{name}}」を「{{folder}}」に移動しました。{{hint}}",
+        "sessionMoveRefused": "写真はセッション「{{name}}」の中に残ります。セッション全体もそこへは移動できません: {{error}}",
+        "sessionMoveFailed": "セッション「{{name}}」を移動できませんでした: {{error}}"
       },
       "filters": {
         "allLabels": "すべてのラベル",
