@@ -2863,14 +2863,14 @@
       "graphEmpty": "打开照片后可查看直方图",
       "highlightClipping": "高光警告",
       "highlightClippingLit": "高光警告，已溢出",
-      "highlightClippingTitle": "高光警告（溢出的高光，{{shortcut}} 同时切换两侧）",
+      "highlightClippingTitle": "高光剪切警告（照片中显示为红色；{{shortcut}} 同时切换两侧）",
       "proof": "校样",
       "proofSpace": "校样色彩空间",
       "proofTitle": "软校样：按所选色彩空间导出后的效果显示照片（{{shortcut}}）",
       "selectPhoto": "选择一张照片",
       "shadowClipping": "阴影警告",
       "shadowClippingLit": "阴影警告，已压暗",
-      "shadowClippingTitle": "阴影警告（压暗的阴影，{{shortcut}} 同时切换两侧）",
+      "shadowClippingTitle": "阴影剪切警告（照片中显示为蓝色；{{shortcut}} 同时切换两侧）",
       "title": "直方图"
     },
     "layers": {

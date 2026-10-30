@@ -2992,14 +2992,14 @@
       "graphEmpty": "Histograma disponible després d'obrir una foto",
       "highlightClipping": "Avís de llums",
       "highlightClippingLit": "Avís de llums, retallades",
-      "highlightClippingTitle": "Avís de llums (llums altes retallades; {{shortcut}} activa tots dos)",
+      "highlightClippingTitle": "Avís de retall de llums (vermell a la foto; {{shortcut}} alterna tots dos)",
       "proof": "Prova",
       "proofSpace": "Espai de color de la prova",
       "proofTitle": "Prova en pantalla: mostra la foto com es veurà una exportació a l'espai de color triat ({{shortcut}})",
       "selectPhoto": "Selecciona una foto",
       "shadowClipping": "Avís d'ombres",
       "shadowClippingLit": "Avís d'ombres, retallades",
-      "shadowClippingTitle": "Avís d'ombres (ombres retallades; {{shortcut}} activa tots dos)",
+      "shadowClippingTitle": "Avís de retall d'ombres (blau a la foto; {{shortcut}} alterna tots dos)",
       "title": "Histograma"
     },
     "layers": {

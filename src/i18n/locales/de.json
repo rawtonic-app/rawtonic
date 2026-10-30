@@ -2916,14 +2916,14 @@
       "graphEmpty": "Histogramm nach dem Öffnen eines Fotos verfügbar",
       "highlightClipping": "Lichterwarnung",
       "highlightClippingLit": "Lichterwarnung, ausgefressen",
-      "highlightClippingTitle": "Lichterwarnung (ausgefressene Lichter; {{shortcut}} schaltet beide)",
+      "highlightClippingTitle": "Lichterwarnung (rot im Foto; {{shortcut}} schaltet beide)",
       "proof": "Proof",
       "proofSpace": "Proof-Farbraum",
       "proofTitle": "Softproof: das Foto so zeigen, wie ein Export im gewählten Farbraum aussieht ({{shortcut}})",
       "selectPhoto": "Wähle ein Foto",
       "shadowClipping": "Schattenwarnung",
       "shadowClippingLit": "Schattenwarnung, abgesoffen",
-      "shadowClippingTitle": "Schattenwarnung (abgesoffene Schatten; {{shortcut}} schaltet beide)",
+      "shadowClippingTitle": "Schattenwarnung (blau im Foto; {{shortcut}} schaltet beide)",
       "title": "Histogramm"
     },
     "layers": {

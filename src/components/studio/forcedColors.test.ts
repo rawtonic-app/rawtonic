@@ -21,4 +21,9 @@ it("preserves dialog borders, native checked indicators and focus in forced colo
   }
   expect(rule(".studio-dialog :focus-visible")).toContain("outline: 2px solid Highlight !important");
   expect(rule("button.studio-button:focus-visible")).toContain("outline: 2px solid Highlight !important");
+  expect(rule(".studio-clip-corner .studio-clip-corner-mark")).toContain("stroke: ButtonText");
+  expect(rule(".studio-clip-corner.is-on .studio-clip-corner-mark")).toContain("fill: ButtonText");
+  expect(rule(".studio-clip-corner.is-lit .studio-clip-corner-mark")).toContain("fill: Highlight");
+  expect(rule(".studio-clip-corner.is-on.is-lit .studio-clip-corner-mark")).toContain("stroke: ButtonText");
+  expect(rule(".studio-clip-corner:focus-visible")).toContain("outline-color: Highlight !important");
 });

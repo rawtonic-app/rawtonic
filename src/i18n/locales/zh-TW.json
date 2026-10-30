@@ -2863,14 +2863,14 @@
       "graphEmpty": "開啟照片後可查看色階分佈圖",
       "highlightClipping": "高光警告",
       "highlightClippingLit": "高光警告，已溢出",
-      "highlightClippingTitle": "高光警告（溢出的高光，{{shortcut}} 同時切換兩側）",
+      "highlightClippingTitle": "高光剪裁警告（照片中顯示為紅色；{{shortcut}} 同時切換兩側）",
       "proof": "校樣",
       "proofSpace": "校樣色彩空間",
       "proofTitle": "螢幕校樣：依所選色彩空間匯出後的效果顯示照片（{{shortcut}}）",
       "selectPhoto": "選擇一張照片",
       "shadowClipping": "陰影警告",
       "shadowClippingLit": "陰影警告，已壓暗",
-      "shadowClippingTitle": "陰影警告（壓暗的陰影，{{shortcut}} 同時切換兩側）",
+      "shadowClippingTitle": "陰影剪裁警告（照片中顯示為藍色；{{shortcut}} 同時切換兩側）",
       "title": "色階分佈圖"
     },
     "layers": {

@@ -2992,14 +2992,14 @@
       "graphEmpty": "Histograma disponível após abrir uma foto",
       "highlightClipping": "Aviso de altas-luzes",
       "highlightClippingLit": "Aviso de altas-luzes, estouradas",
-      "highlightClippingTitle": "Aviso de altas-luzes (altas-luzes estouradas; {{shortcut}} alterna ambos)",
+      "highlightClippingTitle": "Aviso de recorte de altas-luzes (vermelho na foto; {{shortcut}} alterna ambos)",
       "proof": "Prova",
       "proofSpace": "Espaço de cor da prova",
       "proofTitle": "Prova suave: mostra a foto como uma exportação no espaço de cor escolhido aparecerá ({{shortcut}})",
       "selectPhoto": "Selecione uma foto",
       "shadowClipping": "Aviso de sombras",
       "shadowClippingLit": "Aviso de sombras, esmagadas",
-      "shadowClippingTitle": "Aviso de sombras (sombras esmagadas; {{shortcut}} alterna ambos)",
+      "shadowClippingTitle": "Aviso de recorte de sombras (azul na foto; {{shortcut}} alterna ambos)",
       "title": "Histograma"
     },
     "layers": {
