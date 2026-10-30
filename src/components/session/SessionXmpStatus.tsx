@@ -1,10 +1,12 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { toast } from "react-toastify";
 import { Invokes } from "../ui/AppProperties";
 import { useLibraryStore } from "../../store/useLibraryStore";
+import { xmpReadAction, type XmpReport } from "../../utils/appUndo";
+import { invokeInOrder } from "../../utils/catalogWrites";
 
 /** Why a photograph's XMP sidecar was not written (`rawtonic_catalog::XmpProblem`). */
 type XmpProblem =
@@ -12,6 +14,14 @@ type XmpProblem =
   | { kind: "shared_name" }
   | { kind: "changed_elsewhere" }
   | { kind: "failed"; detail: string };
+
+/** A photograph of the panel's list (`XmpReviewEntry` in
+ * src-tauri/src/xmp_review.rs); no problem: Try again writes it. */
+export interface XmpReviewEntry {
+  path: string;
+  problem: XmpProblem | null;
+  volume: string | null;
+}
 
 export interface XmpRetry {
   written: number;
@@ -37,26 +47,75 @@ export async function openPendingXmpView(
   select(PENDING_XMP_VIEW_ID, name, paths, preserveEditor);
 }
 
-/** The reasons in the order they are listed, with how many photographs each. */
-function reasons(retry: XmpRetry) {
+/** The reasons in the order they are listed, with how many photographs
+ * each: the list's, where a write Try again just tried failed says why. */
+function reasons(entries: XmpReviewEntry[], retry: XmpRetry | null) {
+  const failed = new Map<string, string>();
+  for (const { path, problem } of retry?.unsaved ?? [])
+    if (problem.kind === "failed") failed.set(path, problem.detail);
   const counts = new Map<string, { count: number; detail?: string }>();
-  for (const { problem } of retry.unsaved) {
-    const entry = counts.get(problem.kind) ?? { count: 0 };
+  for (const { path, problem } of entries) {
+    const detail = !problem ? failed.get(path) : undefined;
+    const kind = detail !== undefined ? "failed" : (problem?.kind ?? "pending");
+    const entry = counts.get(kind) ?? { count: 0 };
     entry.count++;
-    if (problem.kind === "failed") entry.detail ??= problem.detail;
-    counts.set(problem.kind, entry);
+    entry.detail ??= detail;
+    counts.set(kind, entry);
   }
-  return ["changed_elsewhere", "shared_name", "offline", "failed"]
+  return ["changed_elsewhere", "shared_name", "offline", "failed", "pending"]
     .filter((kind) => counts.has(kind))
     .map((kind) => ({ kind, ...counts.get(kind)! }));
+}
+
+const fileName = (path: string) => path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1);
+
+/** Height of a conflict row and of the list's window, in pixels. */
+const ROW = 30;
+const WINDOW = 210;
+/** Rows kept above and below the window (Tab reaches them; scrolling to
+ * a focused one brings the next). */
+const OVERSCAN = 4;
+
+/** Every conflict, one row each, of which only those in view (and a few
+ * around them) are in the page, so a shoot of thousands stays light. */
+function ConflictList({
+  entries,
+  label,
+  row,
+}: {
+  entries: XmpReviewEntry[];
+  label: string;
+  row(entry: XmpReviewEntry): React.ReactNode;
+}) {
+  const [top, setTop] = useState(0);
+  const first = Math.max(0, Math.floor(top / ROW) - OVERSCAN);
+  const last = Math.min(entries.length, Math.ceil((top + WINDOW) / ROW) + OVERSCAN);
+  return (
+    <div
+      className="session-xmp-scroll"
+      style={{ height: Math.min(WINDOW, entries.length * ROW) }}
+      onScroll={(event) => setTop(event.currentTarget.scrollTop)}
+    >
+      <ul className="session-xmp-list" aria-label={label} style={{ height: entries.length * ROW }}>
+        {entries.slice(first, last).map((entry, index) => (
+          <li key={entry.path} title={entry.path} style={{ top: (first + index) * ROW, height: ROW }}>
+            {row(entry)}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 /**
  * The session bar's "XMP not updated" status: shown only while some
  * photographs' XMP sidecars lag behind the library (a write failed, a sidecar
  * was changed by another program, a RAW and JPEG share a name). It opens a
- * panel that says so in plain words, writes them again on request and shows
- * the photographs. Edits are safe in the library either way.
+ * panel that says why in plain words, writes them again on request (Try
+ * again), shows the photographs, and resolves the sidecars another program
+ * changed: Keep library writes the library's metadata into them, Use XMP
+ * reads theirs into the library (one step of Undo). Edits are safe in the
+ * library either way and never change from it.
  */
 export default function SessionXmpStatus({
   directory,
@@ -71,6 +130,8 @@ export default function SessionXmpStatus({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<XmpRetry | null>(null);
+  const [entries, setEntries] = useState<XmpReviewEntry[] | null>(null);
+  const [resolved, setResolved] = useState<XmpReport | null>(null);
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: 8, top: 40 });
@@ -112,16 +173,53 @@ export default function SessionXmpStatus({
     };
   }, [open]);
 
+  const current = useCallback(() => useLibraryStore.getState().sessionDirectory === directory, [directory]);
+  const load = useCallback(async () => {
+    const listed = await invoke<XmpReviewEntry[]>(Invokes.SessionXmpReview, { directory });
+    if (current()) setEntries(Array.isArray(listed) ? listed : []);
+  }, [current, directory]);
+  // Listed when the panel opens and again when the count changes under it
+  // (a write elsewhere, a resolution).
+  useEffect(() => {
+    if (!open) return;
+    load().catch((e) => current() && toast.error(t("session.xmp.retryFailed", { error: String(e) })));
+  }, [open, count, load, current, t]);
+
   if (count <= 0 && !open) return null;
+
+  /** Keep library or Use XMP for `paths`: through the photos' write queues
+   * (Use XMP as one step of Undo); the photographs are never touched. */
+  const resolve = async (paths: string[], keep: "library" | "xmp") => {
+    setBusy(true);
+    setResult(null);
+    try {
+      const report =
+        keep === "xmp"
+          ? await xmpReadAction(directory, paths)
+          : await invokeInOrder<XmpReport>(Invokes.SessionXmpResolve, { directory, paths, keep }, "keepLibraryXmp");
+      if (!current()) return;
+      await onChanged();
+      await load();
+      if (useLibraryStore.getState().activeAlbumId === PENDING_XMP_VIEW_ID)
+        window.dispatchEvent(new CustomEvent(SHOW_PENDING_XMP_EVENT, { detail: { refresh: true } }));
+      if (report.done.length) toast.success(t("session.xmp.resolved", { count: report.done.length }));
+      setResolved(report.failed.length || report.conflicts.length || report.offline.length ? report : null);
+    } catch (e) {
+      if (current()) toast.error(t("session.xmp.retryFailed", { error: String(e) }));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const retry = async () => {
     setBusy(true);
-    const current = () => useLibraryStore.getState().sessionDirectory === directory;
+    setResolved(null);
     try {
       const done = await invoke<XmpRetry>(Invokes.SessionWritePendingXmp, { directory });
       // Another library opened meanwhile: its bar is not this one's.
       if (!current()) return;
       await onChanged();
+      await load().catch(() => {});
       // The grid showing these photographs lists the ones still left.
       if (useLibraryStore.getState().activeAlbumId === PENDING_XMP_VIEW_ID)
         window.dispatchEvent(new CustomEvent(SHOW_PENDING_XMP_EVENT, { detail: { refresh: true } }));
@@ -145,6 +243,15 @@ export default function SessionXmpStatus({
   };
 
   const label = t("session.xmp.count", { count });
+  const conflicts = entries?.filter((entry) => entry.problem?.kind === "changed_elsewhere") ?? [];
+  const conflictPaths = () => conflicts.map((entry) => entry.path);
+  const notResolved = resolved
+    ? [
+        ...resolved.failed,
+        ...resolved.conflicts.map((path) => ({ path, reason: t("session.xmp.reason.changedElsewhere", { count: 1 }) })),
+        ...resolved.offline.map((path) => ({ path, reason: t("session.xmp.reason.offline", { count: 1 }) })),
+      ]
+    : [];
   return (
     <>
       <button
@@ -157,6 +264,8 @@ export default function SessionXmpStatus({
         title={t("session.xmp.buttonTitle")}
         onClick={() => {
           setResult(null);
+          setResolved(null);
+          setEntries(null);
           setOpen((was) => !was);
         }}
       >
@@ -166,7 +275,7 @@ export default function SessionXmpStatus({
         createPortal(
           <div
             ref={panel}
-            className="session-xmp-panel"
+            className={conflicts.length ? "session-xmp-panel has-conflicts" : "session-xmp-panel"}
             role="dialog"
             aria-label={t("session.xmp.title")}
             tabIndex={-1}
@@ -174,9 +283,10 @@ export default function SessionXmpStatus({
           >
             <p className="session-xmp-title">{t("session.xmp.heading", { count })}</p>
             <p>{t("session.xmp.explain")}</p>
-            {result && (
+            {!entries && <p className="session-xmp-hint" role="status">{t("session.xmp.loading")}</p>}
+            {entries && entries.length > 0 && (
               <ul className="session-xmp-reasons">
-                {reasons(result).map(({ kind, count: n, detail }) => (
+                {reasons(entries, result).map(({ kind, count: n, detail }) => (
                   <li key={kind}>
                     {kind === "changed_elsewhere"
                       ? t("session.xmp.reason.changedElsewhere", { count: n })
@@ -184,10 +294,84 @@ export default function SessionXmpStatus({
                         ? t("session.xmp.reason.sharedName", { count: n })
                         : kind === "offline"
                           ? t("session.xmp.reason.offline", { count: n })
-                          : t("session.xmp.reason.failed", { count: n, error: detail })}
+                          : kind === "failed"
+                            ? t("session.xmp.reason.failed", { count: n, error: detail })
+                            : t("session.xmp.reason.pending", { count: n })}
                   </li>
                 ))}
               </ul>
+            )}
+            {conflicts.length > 0 && (
+              <section className="session-xmp-conflicts" aria-labelledby="xmp-conflicts">
+                <div className="session-xmp-conflicts-header">
+                  <p id="xmp-conflicts" className="session-xmp-title">
+                    {t("session.xmp.conflictHeading", { count: conflicts.length })}
+                  </p>
+                  <span className="session-xmp-buttons">
+                    <button
+                      type="button"
+                      className="session-action"
+                      disabled={busy}
+                      title={t("session.xmp.keepLibraryTitle")}
+                      onClick={() => void resolve(conflictPaths(), "library")}
+                    >
+                      {t("session.xmp.keepLibraryAll")}
+                    </button>
+                    <button
+                      type="button"
+                      className="session-action"
+                      disabled={busy}
+                      title={t("session.xmp.useXmpTitle")}
+                      onClick={() => void resolve(conflictPaths(), "xmp")}
+                    >
+                      {t("session.xmp.useXmpAll")}
+                    </button>
+                  </span>
+                </div>
+                <p className="session-xmp-hint">{t("session.xmp.conflictHint")}</p>
+                <ConflictList
+                  entries={conflicts}
+                  label={t("session.xmp.conflictHeading", { count: conflicts.length })}
+                  row={(entry) => {
+                    const name = fileName(entry.path);
+                    return (
+                      <>
+                        <span>{name}</span>
+                        <button
+                          type="button"
+                          className="session-action"
+                          disabled={busy}
+                          aria-label={t("session.xmp.keepLibraryFor", { name })}
+                          title={t("session.xmp.keepLibraryTitle")}
+                          onClick={() => void resolve([entry.path], "library")}
+                        >
+                          {t("session.xmp.keepLibrary")}
+                        </button>
+                        <button
+                          type="button"
+                          className="session-action"
+                          disabled={busy}
+                          aria-label={t("session.xmp.useXmpFor", { name })}
+                          title={t("session.xmp.useXmpTitle")}
+                          onClick={() => void resolve([entry.path], "xmp")}
+                        >
+                          {t("session.xmp.useXmp")}
+                        </button>
+                      </>
+                    );
+                  }}
+                />
+              </section>
+            )}
+            {notResolved.length > 0 && (
+              <div className="session-xmp-failed" role="status">
+                <p>{t("session.xmp.notResolved", { count: notResolved.length })}</p>
+                <ul>
+                  {notResolved.map(({ path, reason }) => (
+                    <li key={path} title={path}>{`${fileName(path)}: ${reason}`}</li>
+                  ))}
+                </ul>
+              </div>
             )}
             <div className="session-xmp-actions">
               <button type="button" className="session-action" onClick={show}>

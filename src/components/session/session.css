@@ -741,18 +741,18 @@
   background: rgb(255 255 255 / 0.08);
 }
 
-.session-xmp-dialog { width: min(640px, calc(100vw - 40px)); }
-.session-xmp-dialog .session-dialog-header p { overflow-wrap: anywhere; }
-.session-xmp-body { display: grid; gap: 14px; padding: 24px 28px 0; }
-.session-xmp-dialog .session-dialog-footer { margin-top: 24px; padding: 0 28px 24px; }
-.session-xmp-group { border: 1px solid var(--app-border-color); border-radius: 6px; padding: 10px 12px; display: grid; gap: 8px; }
-.session-xmp-group-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.session-xmp-group h3 { font-weight: 600; }
-.session-xmp-group p, .session-xmp-note, .session-xmp-result p { margin: 4px 0 0; font-size: 11px; line-height: 1.6; color: var(--app-text-secondary); }
-.session-xmp-group-header .session-action { flex: none; }
-.session-xmp-list { display: grid; gap: 2px; max-height: 220px; overflow: auto; font-size: 11px; padding: 3px; margin: -3px; }
-.session-xmp-list li { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.session-xmp-list li span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.session-xmp-list li small { color: var(--app-text-secondary); white-space: nowrap; }
+.session-xmp-panel.has-conflicts { width: min(440px, calc(100vw - 16px)); }
+.session-xmp-conflicts { margin: 0 0 10px; padding-top: 8px; border-top: 1px solid #45474b; }
+.session-xmp-conflicts-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; margin-bottom: 6px; }
+.session-xmp-conflicts-header p { margin: 0; }
+.session-xmp-panel .session-xmp-hint { color: #a9abaf; font-size: 11px; }
+.session-xmp-buttons { display: flex; gap: 6px; }
+.session-xmp-panel .session-xmp-buttons .session-action,
 .session-xmp-list .session-action { padding: 3px 8px; font-size: 11px; }
-.session-xmp-dialog button:focus-visible { box-shadow: 0 0 0 2px var(--app-bg-secondary, #242628), 0 0 0 4px #b4c8d3; }
+.session-xmp-scroll { overflow-y: auto; }
+.session-xmp-list { position: relative; font-size: 11px; }
+.session-xmp-list li { position: absolute; left: 0; right: 0; display: flex; align-items: center; gap: 6px; min-width: 0; padding: 0 2px; }
+.session-xmp-list li span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-xmp-failed { margin: 0 0 8px; color: #e5bc72; font-size: 11px; }
+.session-xmp-failed li { overflow-wrap: anywhere; }
+.session-xmp-panel button:focus-visible { box-shadow: 0 0 0 2px #292a2c, 0 0 0 4px #b4c8d3; }

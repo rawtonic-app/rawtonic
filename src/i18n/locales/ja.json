@@ -1473,19 +1473,33 @@
     },
     "xmp": {
       "buttonTitle": "一部の XMP ファイルがライブラリの内容に追いついていません。クリックすると詳細を表示し、再書き込みできます。",
+      "conflictHeading_other": "{{count}} 件の XMP ファイルが別のプログラムで変更されました",
+      "conflictHint": "どちらのメタデータを残すか選んでください。どちらでも編集内容はそのままです。",
       "count_other": "{{count}} 件の XMP が未更新",
       "explain": "編集、レーティング、キーワードはライブラリに安全に保存されています。XMP ファイルを読むほかのプログラムには、これらの変更がまだ見えません。写真そのものが変更されることはありません。",
       "heading_other": "{{count}} 枚の写真の XMP ファイルが最新ではありません",
+      "keepLibrary": "ライブラリを保持",
+      "keepLibraryAll": "すべてライブラリを保持",
+      "keepLibraryFor": "{{name}} でライブラリを保持",
+      "keepLibraryTitle": "ライブラリのレーティング、ラベル、キーワード、IPTC を XMP ファイルに書き込みます",
+      "loading": "XMP ファイルを確認しています…",
+      "notResolved_other": "{{count}} 枚の写真は解決できませんでした:",
       "reason": {
         "changedElsewhere_other": "{{count}} 件の XMP ファイルがほかのプログラムで変更されました。Rawtonic は上書きしません。ライブラリにはあなたの内容が保持されます。",
         "failed_other": "{{count}} 件の XMP ファイルを書き込めませんでした: {{error}}",
         "offline_other": "{{count}} 枚の写真がオフラインです。ドライブを再接続すると XMP ファイルが更新されます。",
+        "pending_other": "{{count}} 件の XMP ファイルを再度書き込めます。",
         "sharedName_other": "{{count}} 枚の写真がほかの写真と同じ名前です (RAW と JPEG)。両方が同じ XMP ファイルに書き込むことになります。"
       },
+      "resolved_other": "{{count}} 枚の写真の XMP の競合を解決しました",
       "retry": "再試行",
       "retryFailed": "XMP ファイルを書き込めませんでした: {{error}}",
       "show": "写真を表示",
       "title": "更新されていない XMP ファイル",
+      "useXmp": "XMP を使用",
+      "useXmpAll": "すべて XMP を使用",
+      "useXmpFor": "{{name}} で XMP を使用",
+      "useXmpTitle": "XMP ファイルのレーティング、ラベル、キーワード、IPTC をライブラリに読み込みます(取り消しで元に戻せます)",
       "view": "未更新の XMP",
       "writing": "書き込み中…",
       "written_other": "{{count}} 枚の写真の XMP ファイルを更新しました"
@@ -4270,7 +4284,8 @@
     "style": "スタイルを適用",
     "sync": "設定を同期",
     "trash": "ゴミ箱に移動",
-    "undoAction": "{{action}}を取り消す"
+    "undoAction": "{{action}}を取り消す",
+    "useXmp": "XMP を使用"
   },
   "updates": {
     "appImage": "この AppImage は AppImageUpdate でも更新できます。",

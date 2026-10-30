@@ -8,6 +8,7 @@ import { useLibraryStore } from "../store/useLibraryStore";
 import { useUIStore } from "../store/useUIStore";
 import { movedPath, type PathMove } from "./pathKeyedState";
 import { invokeInOrder } from "./catalogWrites";
+import { xmpMetadataRead } from "./catalogEvents";
 import { photoWorkPending, reservePhotoWrites } from "./photoWrites";
 import { editUndoOrder, nextUndoOrder, onNewEdit } from "./undoOrder";
 import { registerWrittenSteps, travelKeptHistory } from "./photoHistory";
@@ -80,14 +81,30 @@ export type BatchLabel =
   | "apply";
 interface Step {
   order: number;
-  action: CullingValue["kind"] | "recipes";
+  action: CullingValue["kind"] | "recipes" | "xmp";
   changes: CullingChange[];
   /** A batch recipe change (series match): one step for all its photos. */
   recipes?: RecipeChange[];
   /** A batch edit of whole recipes (paste, sync, reset, …). */
   snapshots?: RecipeSnapshot[];
   label?: BatchLabel;
+  /** Use XMP: the photos it was asked for and what undoes each reading. */
+  xmp?: { paths: string[]; receipts: XmpReceipt[] };
   directory: string | null;
+}
+/** Opaque to the webview: what puts a photo's metadata back after Use XMP
+ * (`XmpUndo` in rawtonic_catalog), handed back to `session_xmp_undo`. */
+export type XmpReceipt = Record<string, unknown>;
+/** What resolving XMP sidecars or undoing Use XMP did (`XmpReport` in
+ * src-tauri/src/xmp_review.rs), by photo path. */
+export interface XmpReport {
+  done: string[];
+  offline: string[];
+  /** Changed again meanwhile: still to review. */
+  conflicts: string[];
+  failed: { path: string; reason: string }[];
+  /** Use XMP: what undoes it. Its undo: the readings not undone. */
+  undo: XmpReceipt[];
 }
 interface FileStep {
   order: number;
@@ -406,6 +423,109 @@ export function recipeBatchAction(
   }, "catalog", paths, true);
 }
 
+/** Use XMP of the session bar's XMP status: the sidecars of `paths` that
+ * another program changed are read into the library (rating, label, flag,
+ * keywords, text and IPTC; never the edit) as one undo step for every photo
+ * read. Its write joins the photos' write queues (`invokeInOrder`). Keep
+ * library writes only sidecars, so it is no undo step. */
+export function xmpReadAction(directory: string, paths: string[]): Promise<XmpReport> {
+  debouncedSetHistory.flush();
+  branch++;
+  const editor = useEditorStore.getState();
+  editor.setEditor({
+    history: editor.history.slice(0, editor.historyIndex + 1),
+  });
+  const step: Step = {
+    order: nextUndoOrder(),
+    action: "xmp",
+    changes: [],
+    xmp: { paths: [...paths], receipts: [] },
+    directory,
+  };
+  currentTargets.set(step, [...paths]);
+  useCatalogUndoStore.setState((s) => ({
+    past: [...s.past, step].slice(-100),
+    future: [],
+    filesFuture: [],
+    fileRedoBlocked: true,
+  }));
+  return enqueue(async () => {
+    try {
+      const report = await readXmp(directory, paths);
+      step.xmp!.receipts = report.undo;
+      return report;
+    } finally {
+      if (!step.xmp!.receipts.length)
+        useCatalogUndoStore.setState((s) => ({
+          past: s.past.filter((item) => item !== step),
+        }));
+      xmpMetadataRead(directory);
+    }
+  }, "catalog", paths);
+}
+function readXmp(directory: string, paths: string[]) {
+  return invokeInOrder<XmpReport>(
+    Invokes.SessionXmpResolve,
+    { directory, paths, keep: "xmp" },
+    "useXmp",
+  );
+}
+/** Why the photos of a report were not read or put back, for a notice. */
+function xmpFailures(report: XmpReport) {
+  return report.failed
+    .map(({ path, reason }) => `${path.split(/[\\/]/).pop()}: ${reason}`)
+    .join("; ");
+}
+/** Undo puts each photo's metadata back (unless it was edited since: those
+ * readings stay to undo); redo reads the sidecars again. */
+async function travelXmp(
+  step: Step,
+  direction: "undo" | "redo",
+  startedOnBranch: number,
+) {
+  const from = direction === "undo" ? "past" : "future";
+  const to = direction === "undo" ? "future" : "past";
+  const xmp = step.xmp!;
+  const directory = step.directory ?? "";
+  try {
+    await enqueue(async () => {
+      if (!useCatalogUndoStore.getState()[from].includes(step)) return;
+      try {
+        if (direction === "undo") {
+          const report = await invokeInOrder<XmpReport>(
+            Invokes.SessionXmpUndo,
+            { directory, steps: xmp.receipts, paths: xmp.paths },
+            "useXmpUndo",
+          );
+          if (report.undo.length) {
+            xmp.receipts = report.undo;
+            throw new Error(xmpFailures(report));
+          }
+        } else {
+          const report = await readXmp(directory, xmp.paths);
+          if (!report.undo.length)
+            throw new Error(xmpFailures(report) || i18n.t("undoHistory.recipesNotAll"));
+          xmp.receipts = report.undo;
+        }
+      } finally {
+        xmpMetadataRead(directory);
+      }
+      if (useCatalogUndoStore.getState()[from].includes(step))
+        useCatalogUndoStore.setState((s) => ({
+          [from]: s[from].filter((item) => item !== step),
+          [to]: branch === startedOnBranch ? [...s[to], step] : s[to],
+        }));
+    }, "catalog", xmp.paths);
+  } catch (error) {
+    const detail = String((error as { message?: string })?.message ?? error);
+    toast.error(
+      direction === "undo"
+        ? i18n.t("studio.library.fileOperations.undoFailed", { error: detail })
+        : i18n.t("studio.library.fileOperations.redoFailed", { error: detail }),
+    );
+  }
+}
+
 /** The batch steps (still to undo) that wrote `path`, oldest first, with
  * the recipe each wrote there; `written`: leaving out those (that had
  * written it when its History was kept), undefined: none. */
@@ -650,6 +770,7 @@ function actionLabel(direction: "undo" | "redo") {
     if (action === "color") return i18n.t("undoHistory.color");
     if (action === "recipes")
       return batchLabel(catalogStep(direction)!.label);
+    if (action === "xmp") return i18n.t("undoHistory.useXmp");
     return null;
   }
   return null;
@@ -856,6 +977,14 @@ async function travel(
   const step = useCatalogUndoStore.getState()[from].at(-1)!;
   const label = direction === "undo" ? getUndoLabel() : getRedoLabel();
   useCatalogUndoStore.setState({ busy: true });
+  if (step.xmp) {
+    try {
+      await travelXmp(step, direction, startedOnBranch);
+    } finally {
+      useCatalogUndoStore.setState({ busy: false });
+    }
+    return;
+  }
   if (step.recipes || step.snapshots) {
     try {
       await travelRecipes(step, direction, startedOnBranch);
