@@ -1,4 +1,4 @@
-import { act, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import "../../i18n";
 import { createRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -64,6 +64,8 @@ describe("Editor zoom", () => {
   });
 
   afterEach(() => {
+    // Unmount while the stubs still stand, so no React work outlives the file's jsdom.
+    cleanup();
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
