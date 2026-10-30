@@ -520,6 +520,27 @@ describe("Levels picker on the photo", () => {
     expect(useEditorStore.getState().adjustments).toBe(before);
   });
 
+  it("applies only the second of two quick presses even when the first answers first", async () => {
+    const answers: ((pixels: unknown) => void)[] = [];
+    invoke.mockImplementation(() => new Promise((resolve) => answers.push(resolve)));
+    const el = overlay();
+    const press = async (x: number) => {
+      fireEvent.pointerDown(el, { button: 0, clientX: x, clientY: 10, pointerId: 1 });
+      await act(async () => {});
+    };
+    pickerBar();
+    await press(10);
+    await press(200);
+    expect(answers).toHaveLength(2);
+    // A answers first (black 30), then B (black 90): A is void, B applies.
+    await act(async () => answers[0]([linearFromSrgb([30, 30, 30])]));
+    expect(useEditorStore.getState().adjustments.levels).toEqual(INITIAL_LEVELS);
+    await act(async () => answers[1]([linearFromSrgb([90, 90, 90])]));
+    const levels = useEditorStore.getState().adjustments.levels!;
+    for (const c of ["red", "green", "blue"] as const)
+      expect(levels[c]).toMatchObject({ inBlack: 90 });
+  });
+
   it("leaves the levels alone without a sample", async () => {
     useEditorStore.setState({ tatTarget: "levelsWhite", levelsChannel: "red" });
     invoke.mockResolvedValue(null);

@@ -152,7 +152,10 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
       // does a later press or a picker turned off and on again (only the
       // latest press applies).
       const channel = view.levelsChannel;
-      const press = levelsPickerPress;
+      // Each press takes the next value, so a second click while the first
+      // is still sampled voids the first.
+      const press = levelsPickerPress + 1;
+      useEditorStore.setState({ levelsPickerPress: press });
       const input = levelsInputKey(path, adjustments);
       const pixels = await invoke<[number, number, number][] | null>(
         Invokes.SampleCurveInput,
