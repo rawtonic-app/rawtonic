@@ -5754,12 +5754,16 @@ button.studio-button.is-destructive:hover:not(:disabled) {
     background-image: none;
     border-color: Highlight;
   }
-  .studio-dialog:focus-visible,
-  .studio-dialog :focus-visible,
-  button.studio-button:focus-visible,
-  input[type='checkbox']:focus-visible,
-  input[type='radio']:focus-visible {
-    outline: 2px solid Highlight !important;
-    outline-offset: 2px;
+  /* Important declarations must share the reset's layer to override it. */
+  @layer base {
+    .studio-dialog:focus-visible,
+    .studio-dialog :focus-visible,
+    button.studio-button:focus-visible,
+    button.studio-button.is-default:focus,
+    input[type='checkbox']:focus-visible,
+    input[type='radio']:focus-visible {
+      outline: 2px solid Highlight !important;
+      outline-offset: 2px;
+    }
   }
 }

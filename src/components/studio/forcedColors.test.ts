@@ -10,6 +10,8 @@ it("preserves dialog borders, native checked indicators and focus in forced colo
     return blocks.find(([, selectors]) => selectors.split(",").some((s) => s.trim() === selector))?.[2] ?? "";
   };
   expect(forced).toContain("@media (forced-colors: active)");
+  expect(forced).toMatch(/@layer base\s*\{[^}]*outline: 2px solid Highlight !important/s);
+  expect(rule("button.studio-button.is-default:focus")).toContain("outline: 2px solid Highlight !important");
   expect(rule(".studio-dialog")).toContain("border-color: CanvasText");
   expect(rule("button.studio-button")).toContain("border: 1px solid ButtonText");
   for (const type of ["checkbox", "radio"]) {
