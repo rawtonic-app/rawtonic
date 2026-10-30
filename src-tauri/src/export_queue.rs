@@ -1324,6 +1324,7 @@ mod tests {
         let embedded = rawtonic_export::exif_processing::export_metadata_with(
             &libs.source.to_string_lossy(),
             "tiff",
+            rawtonic_engine::output_color_space::OutputColorSpace::default(),
             true,
             false,
             false,
