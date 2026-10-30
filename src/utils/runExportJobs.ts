@@ -8,7 +8,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { currentEditForExport, useEditorStore } from '../store/useEditorStore';
-import { exportSettingsFromDraft, savedRecipes, type RecipeDraft } from './exportRecipes';
+import { exportSettingsFromDraft, savedRecipes, subfolderName, type RecipeDraft } from './exportRecipes';
 import { exportJobLabel } from './exportFeedback';
 import { noteTool } from '../components/contribute/usageStats';
 import { flushRecipeSaves } from '../hooks/useEditorActions';
@@ -26,7 +26,10 @@ export interface PlannedExport {
   outputFormat: string;
 }
 
-/** The dialog and File menu queue the same export requests and destinations. */
+/** The dialog and File menu queue the same export requests and destinations.
+ * Cancelling a folder picker cancels the whole export: no export is queued,
+ * no error is shown (the photographer meant to stop) and the request settles
+ * as 0, which returns the Export button to its normal state. */
 export async function runExportJobs(planned: PlannedExport[], paths: string[]): Promise<number> {
   if (!paths.length) return 0;
   const t = i18n.t.bind(i18n);
@@ -63,7 +66,7 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
     // Date tokens must be resolved from the source by the export engine.
     // Choosing a directory avoids saving literal {YYYY} in a single-file name.
     const needsSourceDate = /\{(?:YYYY|MM|DD|hh|mm)\}/.test(job.template);
-    if (single && !needsSourceDate && !job.preserveFolders && !job.subfolder.trim()) {
+    if (single && !needsSourceDate && !job.preserveFolders && !subfolderName(job.subfolder)) {
       const filename = paths[0]
         .split("/")
         .pop()!
@@ -111,7 +114,9 @@ export async function runExportJobs(planned: PlannedExport[], paths: string[]): 
         job.recipe?.name ?? t("studio.export.dialogs.customName"),
         paths.length === 1 && !job.recipe,
       );
-      if (!destination) continue;
+      // The photographer stopped: no export at all, and none of the later
+      // recipes' folders are asked for either, nor remembered.
+      if (!destination) return 0;
       // A recipe keeps the folder chosen for it, as Capture One's do.
       if (job.recipe && job.draft.where === "choose" && !job.draft.folder) {
         const { id } = job.recipe;
