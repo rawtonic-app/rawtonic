@@ -950,18 +950,26 @@ fn register_facts(source: &Path, header: &Header) {
 }
 
 /// For an offline `source` (its RAW cannot be read): registers the facts
-/// its previews keep (1:1 first, else Standard) for the rendering and
-/// returns the EXIF they keep. A source that can be read uses its file:
+/// its previews keep (1:1 first, else Standard; first those that record
+/// the file's frames, `source_frame::frames`, which older previews lack) for
+/// the rendering and returns the EXIF they keep. A source that can be read uses its file:
 /// anything registered for it is dropped.
 pub fn prepare_offline(source: &Path) -> Option<HashMap<String, String>> {
     if source_available(source) {
         source_facts::forget(&source.to_string_lossy());
         return None;
     }
-    let header = [ProxyKind::Full, ProxyKind::Standard]
+    let headers: Vec<Header> = [ProxyKind::Full, ProxyKind::Standard]
         .into_iter()
         .filter_map(|kind| read_header(&proxy_path_of(source, kind)?))
-        .find(|header| header.facts.is_some())?;
+        .filter(|header| header.facts.is_some())
+        .collect();
+    let framed = |header: &Header| header.facts.as_ref().is_some_and(|f| f.frames.is_some());
+    let header = headers
+        .iter()
+        .find(|header| framed(header))
+        .or(headers.first())?
+        .clone();
     register_facts(source, &header);
     header.exif
 }
@@ -2119,12 +2127,19 @@ mod tests {
     fn an_offline_copy_resolves_frames_from_the_previews() {
         use frame_fixture::{frame_one_edit, offline_cr3};
         let legacy = serde_json::json!({"exposure": 0.5, "renderVersion": 4});
-        for (frames, shared) in [(vec![0, 0], true), (vec![0, 1], false)] {
+        // A 1:1 preview from before frames were recorded beside a newer
+        // Standard one: the Standard one's frames decide.
+        for (frames, shared, full_frames) in [
+            (vec![0, 0], true, true),
+            (vec![0, 1], false, true),
+            (vec![0, 0], true, false),
+        ] {
             let dir = tempfile::tempdir().unwrap();
             let photo = offline_cr3(dir.path(), frame_one_edit(), frames[1]);
             for kind in [ProxyKind::Standard, ProxyKind::Full] {
                 edit_header(&proxy_path_of(&photo, kind).unwrap(), |header| {
-                    header.facts.as_mut().unwrap().frames = Some(frames.clone());
+                    header.facts.as_mut().unwrap().frames =
+                        (kind == ProxyKind::Standard || full_frames).then(|| frames.clone());
                 });
             }
             source_facts::forget(&photo.to_string_lossy());
