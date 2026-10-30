@@ -96,7 +96,12 @@ function CaptureTimeDialog({ paths }: { paths: string[] }) {
     let current = true;
     planCaptureTimes(items, request)
       .then((next) => current && setPlan(next))
-      .catch((error) => current && toast.error(t("captureTime.failed", { error: String(error) })));
+      .catch((error) => {
+        if (!current) return;
+        // Never leave an earlier request's plan to apply.
+        setPlan(null);
+        toast.error(t("captureTime.failed", { error: String(error) }));
+      });
     return () => {
       current = false;
     };

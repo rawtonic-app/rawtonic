@@ -159,7 +159,11 @@ pub async fn capture_time_preview(paths: Vec<String>) -> Result<CapturePreview, 
 
 /// What a plan does.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "kind")]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "kind"
+)]
 pub enum PlanRequest {
     /// Every photograph by one signed shift.
     Shift { parts: ShiftParts },
@@ -663,6 +667,38 @@ mod tests {
 
         // The camera files were never written.
         assert_eq!([sha256(&a), sha256(&b)], hashes);
+    }
+
+    #[test]
+    fn requests_read_as_the_dialog_sends_them() {
+        let read = |json: serde_json::Value| serde_json::from_value::<PlanRequest>(json).unwrap();
+        assert_eq!(
+            read(
+                serde_json::json!({"kind": "reference", "assetId": "a", "corrected": "2026-10-30 12:00:00"})
+            ),
+            PlanRequest::Reference {
+                asset_id: "a".into(),
+                corrected: "2026-10-30 12:00:00".into()
+            }
+        );
+        assert_eq!(
+            read(serde_json::json!({"kind": "reset"})),
+            PlanRequest::Reset
+        );
+        assert_eq!(
+            read(
+                serde_json::json!({"kind": "shift", "parts": {"negative": true, "days": "", "hours": "2", "minutes": "", "seconds": ""}})
+            ),
+            hours(true, "2")
+        );
+        let error = serde_json::to_value(PlanError::Field {
+            field: ShiftField::Hours,
+        })
+        .unwrap();
+        assert_eq!(
+            error,
+            serde_json::json!({"kind": "field", "field": "hours"})
+        );
     }
 
     #[test]
