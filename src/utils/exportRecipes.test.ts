@@ -6,6 +6,7 @@ import {
   exportSettingsFromPreset,
   presetFromDraft,
   savedRecipes,
+  subfolderName,
   subfolderProblem,
   type RecipeDraft,
 } from "./exportRecipes";
@@ -324,6 +325,24 @@ it("persists counter starts in recipes, including zero, and defaults older recip
 it("returns stable subfolder validation kinds", () => {
   expect(subfolderProblem("../elsewhere")).toBe("outside");
   expect(subfolderProblem("C:\\Exports")).toBe("fullPath");
+});
+
+it("treats a name of spaces only as no subfolder, shown and saved trimmed", () => {
+  expect(subfolderName(undefined)).toBe("");
+  expect(subfolderName("   ")).toBe("");
+  expect(subfolderName("\t\n ")).toBe("");
+  expect(subfolderName("  Web/small  ")).toBe("Web/small");
+  for (const subfolder of ["", " ", "   "]) {
+    const preset = presetFromDraft({ ...DEFAULT_RECIPE_DRAFT, subfolder }, "web", "Web");
+    expect(preset.subfolder).toBe("");
+    expect(draftFromPreset(preset).subfolder).toBe("");
+    expect(exportSettingsFromPreset(preset).settings.subfolder).toBe("");
+    expect(exportSettingsFromDraft({ ...DEFAULT_RECIPE_DRAFT, subfolder }).settings.subfolder).toBe("");
+  }
+  // An older saved recipe with spaces only also exports as none.
+  const older = { ...presetFromDraft(DEFAULT_RECIPE_DRAFT, "web", "Web"), subfolder: "   " };
+  expect(exportSettingsFromPreset(older).settings.subfolder).toBe("");
+  expect(presetFromDraft({ ...DEFAULT_RECIPE_DRAFT, subfolder: " Web " }, "web", "Web").subfolder).toBe("Web");
 });
 
 it("keeps explicit contact retention through recipes and export, with omission as the old default", () => {
