@@ -107,13 +107,18 @@ fn excluded(relative: &Path) -> bool {
 fn copy_file(source: &Path, to: &Path, cancel: &AtomicBool) -> Result<()> {
     check(cancel)?;
     fs::create_dir_all(to.parent().context("Missing destination parent")?)?;
-    let modified = fs::metadata(source)?.modified()?;
+    let metadata = fs::metadata(source)?;
+    let modified = metadata.modified()?;
     crate::verified_copy(source, to, cancel, |_| {})
         .with_context(|| format!("Cannot copy {}", source.display()))?;
     fs::File::options()
         .write(true)
         .open(to)?
         .set_times(fs::FileTimes::new().set_modified(modified))?;
+    // Verified copying creates a new file rather than using CopyFileW;
+    // carry the original's read-only attribute to our staged copy explicitly.
+    #[cfg(windows)]
+    fs::set_permissions(to, metadata.permissions())?;
     Ok(())
 }
 
@@ -254,7 +259,11 @@ pub fn copy_library(
                     .join(asset.path.file_name().context("Original has no filename")?),
             ),
         };
-        rawtonic_catalog::validate_relative(&relative)?;
+        // `relative` is native (a `strip_prefix` of the staged library, or a
+        // `Path::join`): validate it as the perhaps non-portable path it is,
+        // not as the stored string. Stored fields are still checked by
+        // `validate_relative` where they are read.
+        rawtonic_catalog::portable_relative(&relative)?;
         if !from.is_file() {
             missing.push(from.display().to_string());
         }
@@ -505,9 +514,51 @@ pub fn copy_library(
         .keys()
         .chain(std::iter::once(&RECEIPT.to_string()))
     {
-        fs::File::open(stage_root.join(relative))?.sync_all()?;
+        flush_staged(stage_root.join(relative))?;
     }
     check(cancel)?;
     rawtonic_fileops::rename_no_clobber(&stage_root, &destination)?;
     Ok(receipt)
+}
+
+/// Flushes a staged copy to its drive, opened for writing: Windows flushes
+/// only a handle with write access (`FlushFileBuffers` answers access
+/// denied to a read-only one, which `File::open` asks for). The staged
+/// files are this function's own copies made a moment earlier (an original
+/// is only ever read by `copy_file`), so a copy that came along read-only
+/// is made writable for the flush, and always gets its permissions back,
+/// whether the flush worked or not, before it can be published. Other
+/// systems flush a read-only handle as it is.
+#[cfg(windows)]
+fn flush_staged(path: PathBuf) -> Result<()> {
+    let kept = fs::metadata(&path)?.permissions();
+    let mut writable = kept.clone();
+    #[expect(
+        clippy::permissions_set_readonly_false,
+        reason = "Windows-only: clears our staged copy's read-only attribute, never Unix mode bits"
+    )]
+    writable.set_readonly(false);
+    let widened = writable.readonly() != kept.readonly();
+    if widened {
+        // A copy of ours: its read-only attribute protects nothing here,
+        // and it comes back below, also when the flush fails.
+        fs::set_permissions(&path, writable)
+            .with_context(|| format!("Cannot write the staged copy {}", path.display()))?;
+    }
+    let flushed = fs::File::options()
+        .write(true)
+        .open(&path)
+        .and_then(|file| file.sync_all());
+    if widened {
+        fs::set_permissions(&path, kept)
+            .with_context(|| format!("Cannot restore the permissions of {}", path.display()))?;
+    }
+    flushed.with_context(|| format!("Cannot flush {}", path.display()))
+}
+
+#[cfg(not(windows))]
+fn flush_staged(path: PathBuf) -> Result<()> {
+    fs::File::open(&path)
+        .and_then(|file| file.sync_all())
+        .with_context(|| format!("Cannot flush {}", path.display()))
 }

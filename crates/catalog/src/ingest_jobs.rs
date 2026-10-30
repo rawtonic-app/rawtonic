@@ -409,14 +409,10 @@ impl Library {
             .zip(path.file_name())
             .map(|(folder, name)| folder.join(name));
         let path = resolved.as_deref().unwrap_or(path);
-        let path = match path.strip_prefix(&self.directory) {
-            Ok(relative) => {
-                crate::validate_relative(relative)?;
-                relative
-            }
-            Err(_) => path,
-        };
-        Ok(text(path)?.to_string())
+        match path.strip_prefix(&self.directory) {
+            Ok(relative) => crate::portable_relative(relative),
+            Err(_) => Ok(text(path)?.to_string()),
+        }
     }
 
     /// A path a job stored (`stored`) as it is now.

@@ -68,10 +68,63 @@ fn download_and_verify(
     }
 }
 
+fn link_windows_test_resources() {
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+        && env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
+    {
+        // tauri-build already links this intact resource into binaries.
+        // Integration tests need it once, and lib unit tests need a cfg(test)
+        // native link: a generic link arg would duplicate the binary resource.
+        let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR not set"));
+        let resource = out.join("resource.lib");
+        let resource_name = resource.to_str().expect("Build paths must be valid UTF-8");
+        let declaration = format!(
+            "#[link(name = {resource_name:?}, kind = \"dylib\", modifiers = \"+verbatim\")]\nunsafe extern \"C\" {{}}\n"
+        );
+        fs::write(out.join("windows-test-resources.rs"), declaration)
+            .expect("Cannot generate the Windows unit-test resource link");
+        println!("cargo:rustc-link-arg-tests={}", resource.display());
+    }
+}
+
+/// Tauri's CRT override must travel with its app-only linker arguments.
+/// Cargo propagates native search paths to workspace doctests, but not those
+/// arguments: an empty msvcrt.lib in OUT_DIR hides the doctests' real CRT.
+fn build_tauri() {
+    println!("cargo:rerun-if-env-changed=STATIC_VCRUNTIME");
+    let msvc = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+        && env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+    let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR not set"));
+    let shim = out.join("msvcrt.lib");
+    if msvc {
+        // A previous build may have enabled static VC. Only a newly generated
+        // override proves that Tauri selected it for the current configuration.
+        match fs::remove_file(&shim) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => panic!("Cannot clear the generated VC runtime override: {e}"),
+        }
+    }
+    tauri_build::build();
+    if msvc && shim.exists() {
+        // Move only Tauri's generated override, keeping resource.lib intact.
+        // /LIBPATH is app-local, unlike cargo:rustc-link-search. The original
+        // static VC / dynamic UCRT selection and Tauri's architecture/config
+        // guards remain owned by tauri-build.
+        let private = out.join("app-vcruntime");
+        fs::create_dir_all(&private).expect("Cannot create the VC runtime link directory");
+        fs::copy(&shim, private.join("msvcrt.lib"))
+            .expect("Cannot relocate Tauri's VC runtime override");
+        fs::remove_file(shim).expect("Cannot remove the public VC runtime override");
+        println!("cargo:rustc-link-arg=/LIBPATH:{}", private.display());
+    }
+}
+
 fn main() {
     println!("cargo:rerun-if-env-changed=RAWTONIC_BUNDLE_ONNX");
     if std::env::var("RAWTONIC_BUNDLE_ONNX").as_deref() != Ok("1") {
-        tauri_build::build();
+        build_tauri();
+        link_windows_test_resources();
         return;
     }
 
@@ -237,5 +290,6 @@ fn main() {
 
     println!("cargo:rerun-if-changed=build.rs");
 
-    tauri_build::build()
+    build_tauri();
+    link_windows_test_resources();
 }

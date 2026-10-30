@@ -346,7 +346,13 @@ fn same_file(a: &Path, b: &Path) -> bool {
             _ => false,
         }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        // Compare volume serial and file index through open handles, rather
+        // than folding names: NTFS directories may be case-sensitive.
+        same_file::is_same_file(a, b).unwrap_or(false)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (a, b);
         false

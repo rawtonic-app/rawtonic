@@ -1489,7 +1489,10 @@ mod tests {
         let backup = Path::new("backup");
         assert_eq!(containing_dir(backup.parent().unwrap()), Path::new("."));
         assert_eq!(containing_dir(Path::new("/a")), Path::new("/a"));
-        // `.` is a directory a sync can open.
+        // `.` is a directory: one a sync opens where a directory can be
+        // opened for that (not on Windows, whose folder sync does nothing).
+        assert!(containing_dir(Path::new("")).is_dir());
+        #[cfg(unix)]
         fs::File::open(containing_dir(Path::new(""))).unwrap();
         // The real one, on this filesystem.
         create_dir_all_durable(&library.join("2027").join("2027-01-01"), &library).unwrap();

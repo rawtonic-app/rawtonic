@@ -468,7 +468,23 @@ mod window_scale_tests {
 
 #[cfg(test)]
 mod gpu_crash_flag_tests {
-    use super::{GL_BACKEND_COMPILED, GpuCrashCheck, gpu_crash_check};
+    use super::{GL_BACKEND_COMPILED, GpuCrashCheck, gpu_crash_check, process_alive};
+
+    #[test]
+    fn gpu_flag_child_waits_for_stdin() {
+        if std::env::var_os("RAWTONIC_GPU_FLAG_TEST_CHILD").is_some() {
+            use std::io::Read;
+            let _ = std::io::stdin().read(&mut [0]);
+        }
+    }
+
+    struct TestChild(std::process::Child);
+    impl Drop for TestChild {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
 
     #[test]
     fn a_flag_of_a_running_process_is_not_a_crash() {
@@ -476,11 +492,37 @@ mod gpu_crash_flag_tests {
         std::fs::create_dir_all(&dir).unwrap();
         let flag = dir.join(".gpu_init_crash_flag");
         assert_eq!(gpu_crash_check(&flag, None), GpuCrashCheck::Clean);
-        // PID 1 (launchd/init) is always running.
-        std::fs::write(&flag, "1").unwrap();
+        // Keep an actual child alive until stdin closes: Windows has no
+        // launchd/init PID 1, and a short-lived --list child could exit before
+        // the liveness query. The guard also reaps it if an assertion fails.
+        let mut child = TestChild(
+            std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "startup::gpu_crash_flag_tests::gpu_flag_child_waits_for_stdin",
+                ])
+                .env("RAWTONIC_GPU_FLAG_TEST_CHILD", "1")
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let pid = child.0.id();
+        assert!(process_alive(pid));
+        std::fs::write(&flag, pid.to_string()).unwrap();
         assert_eq!(
             gpu_crash_check(&flag, None),
             GpuCrashCheck::InProgressElsewhere
+        );
+        drop(child.0.stdin.take());
+        child.0.wait().unwrap();
+        assert!(!process_alive(pid));
+        assert_eq!(
+            gpu_crash_check(&flag, None),
+            GpuCrashCheck::Crashed {
+                fall_back_to_gl: GL_BACKEND_COMPILED,
+            }
         );
         // A legacy flag or a dead owner is a crash; OpenGL only where built.
         std::fs::write(&flag, "initializing_gpu").unwrap();

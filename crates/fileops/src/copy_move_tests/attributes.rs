@@ -17,6 +17,11 @@ pub(super) fn attribute(value: &str) -> Vec<Attribute> {
 
 /// Gives `path` the test attribute; false where its volume cannot.
 pub(super) fn tag(path: &Path, value: &str) -> bool {
+    // Platforms without kept xattrs cannot run attribute-preservation probes;
+    // in particular Windows must not try to open a directory as a plain file.
+    if !xattr::kept(NAME.as_bytes()) {
+        return false;
+    }
     xattr::write(&fs::File::open(path).unwrap(), &attribute(value)).is_ok()
 }
 

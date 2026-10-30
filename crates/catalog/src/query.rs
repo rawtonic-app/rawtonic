@@ -197,11 +197,14 @@ impl Rule {
 
     /// The rule as a library keeps it: folders inside `directory` relative
     /// to it, so a session moved while closed keeps its smart albums.
-    pub fn relative_to(&self, directory: &Path) -> Self {
-        match self {
+    pub fn relative_to(&self, directory: &Path) -> Result<Self> {
+        Ok(match self {
             Self::Group { combine, rules } => Self::Group {
                 combine: *combine,
-                rules: rules.iter().map(|r| r.relative_to(directory)).collect(),
+                rules: rules
+                    .iter()
+                    .map(|r| r.relative_to(directory))
+                    .collect::<Result<_>>()?,
             },
             Self::Condition {
                 field: Field::Folder,
@@ -216,7 +219,11 @@ impl Rule {
                         ".".to_string()
                     }
                     Ok(relative) if Path::new(folder).is_absolute() => {
-                        relative.to_string_lossy().into_owned()
+                        // A rule is read back with `directory.join`, so its
+                        // relative value is the stored `/` form (`Day 2`,
+                        // never a native `Day 2\` separator). A folder this
+                        // library cannot name is rejected before saving.
+                        crate::portable_relative(relative)?
                     }
                     _ => folder.clone(),
                 };
@@ -227,7 +234,7 @@ impl Rule {
                 }
             }
             other => other.clone(),
-        }
+        })
     }
 
     /// Every photograph.
@@ -760,12 +767,10 @@ impl<'a> Compiler<'a> {
                 _ => bail!("Search text supports contains / contains any / does not contain"),
             },
             Field::Filename => {
-                // The name after the last `/` of the path in its root.
-                let sep = self.sep;
+                // The name after the last `/` of the path in its root (the
+                // stored separator on every platform).
                 self.text_column(
-                    &format!(
-                        "replace(a.rel_path, rtrim(a.rel_path, replace(a.rel_path, '{sep}', '')), '')"
-                    ),
+                    "replace(a.rel_path, rtrim(a.rel_path, replace(a.rel_path, '/', '')), '')",
                     op,
                     value,
                 )
@@ -1147,11 +1152,17 @@ impl<'a> Compiler<'a> {
                 trimmed => trimmed.to_string(),
             }
         };
-        // Library root: the folder relative to the library directory.
+        // Library root: the folder relative to the library directory. A
+        // library's photographs store their path in it with `/`, whatever
+        // the platform, so the rule asks for that form.
         let own = match folder.strip_prefix(self.directory) {
             Ok(relative) => {
-                let relative = text(relative);
-                let directory_of = format!("rtrim(a.rel_path, replace(a.rel_path, '{sep}', ''))");
+                let relative = if relative.as_os_str().is_empty() {
+                    String::new()
+                } else {
+                    crate::portable_relative(relative)?
+                };
+                let directory_of = "rtrim(a.rel_path, replace(a.rel_path, '/', ''))";
                 if relative.is_empty() {
                     if below {
                         "a.root_id='session'".to_string()
@@ -1159,10 +1170,10 @@ impl<'a> Compiler<'a> {
                         format!("(a.root_id='session' AND {directory_of} = '')")
                     }
                 } else if below {
-                    self.push(format!("{relative}{sep}"));
+                    self.push(format!("{relative}/"));
                     "(a.root_id='session' AND instr(a.rel_path, ?) = 1)".to_string()
                 } else {
-                    self.push(format!("{relative}{sep}"));
+                    self.push(format!("{relative}/"));
                     format!("(a.root_id='session' AND {directory_of} = ?)")
                 }
             }
@@ -1665,26 +1676,38 @@ mod tests {
         assert_eq!(count("contains"), 1);
     }
 
-    /// Folder and file name rules read the stored paths with the platform's
-    /// separator: as a Windows library stores them (`Capture\Day 2\…`).
+    /// A folder rule takes a native path (on Windows `C:\\Job\\Capture`) and
+    /// a library's photographs store `Capture/…` whatever the platform; an
+    /// external root's folder stays the platform's own. File name rules
+    /// split on the stored `/`.
     #[test]
-    fn folders_and_file_names_follow_the_stored_separator() {
+    fn folder_and_file_name_rules_read_stored_paths_with_forward_slashes() {
         let d = tempfile::tempdir().unwrap();
         let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
-        let capture = lib.directory.join("Capture");
-        for name in ["A.ARW", "B.ARW"] {
-            std::fs::write(capture.join(name), name).unwrap();
-            lib.add_asset(&capture.join(name)).unwrap();
+        // Written with `Path::join`, as a native path reaches a folder.
+        for relative in ["Capture/A.ARW", "Capture/Day 2/B.ARW", "Selects/C.ARW"] {
+            let photo = relative
+                .split('/')
+                .fold(lib.directory.clone(), |path, part| path.join(part));
+            std::fs::create_dir_all(photo.parent().unwrap()).unwrap();
+            std::fs::write(&photo, b"x").unwrap();
+            lib.add_asset(&photo).unwrap();
         }
-        lib.conn
-            .execute_batch(
-                "UPDATE assets SET rel_path='Capture\\A.ARW' WHERE rel_path='Capture/A.ARW';
-                 UPDATE assets SET rel_path='Capture\\Day 2\\B.ARW' WHERE rel_path='Capture/B.ARW';",
-            )
-            .unwrap();
+        let mut rows: Vec<String> = lib
+            .assets(None)
+            .unwrap()
+            .into_iter()
+            .map(|asset| asset.rel_path)
+            .collect();
+        rows.sort();
+        assert_eq!(
+            rows,
+            ["Capture/A.ARW", "Capture/Day 2/B.ARW", "Selects/C.ARW"]
+        );
         let count = |rule: serde_json::Value| -> i64 {
             let rule: Rule = serde_json::from_value(rule).unwrap();
             let mut compiler = Compiler::new(&lib.directory, Some(&lib));
+            // The separator a Windows folder path comes with.
             compiler.sep = '\\';
             let condition = compiler.rule(&rule).unwrap();
             let params: Vec<&dyn ToSql> = compiler.params.iter().map(|p| p as &dyn ToSql).collect();
@@ -1696,23 +1719,24 @@ mod tests {
                 )
                 .unwrap()
         };
-        // On Windows the folder comes as `…\Job\Capture`; here the library
-        // directory is joined with the stored relative form.
-        let folder = lib.directory.join("Capture");
-        let value = folder.to_string_lossy();
-        assert_eq!(
-            count(serde_json::json!({"field":"folder","op":"is","value":value})),
-            1
-        );
-        assert_eq!(
-            count(serde_json::json!({"field":"folder","op":"contains","value":value})),
-            2
-        );
-        let day = format!("{value}\\Day 2");
-        assert_eq!(
-            count(serde_json::json!({"field":"folder","op":"is","value":day})),
-            1
-        );
+        let folder = |name: &str| {
+            let path = lib.directory.canonicalize().unwrap();
+            name.split('/')
+                .fold(path, |path, part| path.join(part))
+                .to_string_lossy()
+                .into_owned()
+        };
+        let in_folder = |op: &str, name: &str| {
+            count(serde_json::json!({"field":"folder","op":op,"value":folder(name)}))
+        };
+        // Each folder's own photographs; `Selects` is another folder.
+        assert_eq!(in_folder("is", "Capture"), 1);
+        assert_eq!(in_folder("is", "Capture/Day 2"), 1);
+        assert_eq!(in_folder("is", "Selects"), 1);
+        // With the subfolders below.
+        assert_eq!(in_folder("contains", "Capture"), 2);
+        assert_eq!(in_folder("contains", "Capture/Day 2"), 1);
+        // File names split on the stored `/`, never on the folder's name.
         assert_eq!(
             count(serde_json::json!({"field":"filename","op":"is","value":"b.arw"})),
             1

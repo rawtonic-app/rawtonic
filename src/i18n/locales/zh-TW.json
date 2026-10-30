@@ -1474,6 +1474,7 @@
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
         "SigLIP 2": "Automatic keywords (Google).",
         "spektrafilm": "Film emulation LUTs by Andrea Volpato (renamed, contents unchanged).",
+        "SQLite / rusqlite": "圖庫資料庫，包含 Rawtonic 對 Windows WAL 鎖定的修正。",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.)."
       },
       "credits": "Credits",
