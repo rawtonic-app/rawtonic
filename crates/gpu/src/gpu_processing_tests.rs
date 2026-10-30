@@ -15234,19 +15234,28 @@ fn edge_fringe_gpu_timing_probe() {
 /// image (`analytics_output`) is the frame without them, and its clipping
 /// marks are the warnings' own tests, the same whichever warnings are on.
 /// Pixels just inside and just outside both thresholds, and pixels that clip
-/// both sides, in display frames and CPU readbacks.
+/// both sides, in display frames and CPU readbacks. Clipping is judged in the
+/// output space (or the soft-proofed one): a green inside Display P3 but
+/// outside sRGB clips only in sRGB, one beyond Display P3 in both.
 #[test]
 #[ignore = "requires a native GPU; clipping warnings stay out of the histogram"]
 fn clipping_warnings_stay_out_of_the_analytics_image() {
     use rawtonic_engine::image_processing::{SHOW_CLIPPING_HIGHLIGHTS, SHOW_CLIPPING_SHADOWS};
     use rawtonic_engine::output_color_space::OutputColorSpace;
     const WIDTH: u32 = 512;
-    const HEIGHT: u32 = 4;
+    const HEIGHT: u32 = 6;
     let context = context();
     let processor = GpuProcessor::new(context.clone(), WIDTH, HEIGHT).unwrap();
     // Fine ramps across the highlight threshold (row 0) and the shadow
     // threshold (row 1); saturated colours with a channel beyond each end
-    // (rows 2 and 3), never exactly a warning colour.
+    // (row 2, a ProPhoto blue ramp, beyond Display P3 too; row 3), never
+    // exactly a warning colour; greens inside Display P3 but outside sRGB
+    // (row 4) and dark greens beyond Display P3 inside ProPhoto, the
+    // pipeline's gamut (row 5).
+    let linear_srgb_of = |space: OutputColorSpace, colour: [f64; 3]| {
+        let to_srgb = rawtonic_engine::output_color_space::invert(&space.from_linear_srgb());
+        to_srgb.map(|row| row.iter().zip(colour).map(|(a, b)| a * b).sum::<f64>() as f32)
+    };
     let pixels: Vec<[f32; 3]> = (0..HEIGHT)
         .flat_map(|y| {
             (0..WIDTH).map(move |x| {
@@ -15254,8 +15263,16 @@ fn clipping_warnings_stay_out_of_the_analytics_image() {
                 match y {
                     0 => [0.98 + 0.03 * t; 3],
                     1 => [0.004 * t; 3],
-                    2 => [2.0 * t, 0.0, 0.3],
-                    _ => [0.0, 0.5, 0.2 * t],
+                    2 => linear_srgb_of(OutputColorSpace::ProPhoto, [0.0, 0.0, 3.0 * f64::from(t)]),
+                    3 => [0.0, 0.5, 0.2 * t],
+                    4 => linear_srgb_of(
+                        OutputColorSpace::DisplayP3,
+                        [0.05, 0.4 + 0.3 * f64::from(t), 0.05],
+                    ),
+                    _ => linear_srgb_of(
+                        OutputColorSpace::ProPhoto,
+                        [0.0, 0.05 + 0.1 * f64::from(t), 0.0],
+                    ),
                 }
             })
         })
@@ -15277,9 +15294,15 @@ fn clipping_warnings_stay_out_of_the_analytics_image() {
         )
         .unwrap()
     };
-    for space in [OutputColorSpace::Srgb, OutputColorSpace::DisplayP3] {
+    let mut row_marks = Vec::new();
+    for (space, recipe) in [
+        (OutputColorSpace::Srgb, json!({})),
+        (OutputColorSpace::DisplayP3, json!({})),
+        (OutputColorSpace::DisplayP3, json!({ "softProof": "srgb" })),
+    ] {
+        let proofed = recipe.get("softProof").is_some();
         let adjustments = |show_clipping| {
-            let mut adjustments = get_all_adjustments_from_json(&json!({}), false, None);
+            let mut adjustments = get_all_adjustments_from_json(&recipe, false, None);
             adjustments.global.show_clipping = show_clipping;
             adjustments.global.output_space[0] = space.shader_code();
             adjustments.global.output_matrix =
@@ -15364,6 +15387,12 @@ fn clipping_warnings_stay_out_of_the_analytics_image() {
         // dithered by up to half a code): unmarked pixels in the end codes.
         let pixel = |rgba: &[u8], i: usize| [rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]];
         let row = |y: u32| (y * WIDTH) as usize..((y + 1) * WIDTH) as usize;
+        row_marks.push([4, 5].map(|y| row(y).map(|i| marks[i]).collect::<Vec<_>>()));
+        if proofed {
+            // The proofed frame's colours are sRGB's; the rows' marks are
+            // compared below.
+            continue;
+        }
         assert!(
             row(0).any(|i| marks[i] == 0 && pixel(&plain, i).iter().any(|&c| c >= 254)),
             "{space:?}: no pixel just inside the highlight threshold"
@@ -15439,5 +15468,25 @@ fn clipping_warnings_stay_out_of_the_analytics_image() {
         }
         let sides = clipped_sides(&analytics);
         assert!(sides.shadows && sides.highlights);
+    }
+    // Every pixel of the P3 greens clips the shadows in sRGB and nothing in
+    // Display P3, unless sRGB is soft-proofed; the colours beyond Display P3
+    // clip the shadows in all three, and none of them the highlights.
+    let [srgb, p3, proofed] = <[_; 3]>::try_from(row_marks).unwrap();
+    for (name, rows, inside_p3) in [
+        ("sRGB", srgb, 1),
+        ("P3", p3, 0),
+        ("P3 proofing sRGB", proofed, 1),
+    ] {
+        assert!(
+            rows[0].iter().all(|&m| m == inside_p3),
+            "{name}: P3 greens {:?}",
+            rows[0]
+        );
+        assert!(
+            rows[1].iter().all(|&m| m == 1),
+            "{name}: beyond P3 {:?}",
+            rows[1]
+        );
     }
 }

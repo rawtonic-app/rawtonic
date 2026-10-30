@@ -284,6 +284,26 @@ mod tests {
         );
     }
 
+    /// The clipping warnings (shader.wgsl `clipping_sides`) test a wide
+    /// space only where sRGB clips: every space holds sRGB, so a colour inside
+    /// sRGB's thresholds lies inside its own.
+    #[test]
+    fn colours_srgb_does_not_clip_clip_in_no_space() {
+        let srgb = TransferCurve::Srgb;
+        for space in OutputColorSpace::ALL {
+            for row in space.from_linear_srgb() {
+                assert!(row.iter().all(|&c| c > -1e-9), "{space:?} {row:?}");
+                assert!(
+                    (row.iter().sum::<f64>() - 1.0).abs() < 1e-6,
+                    "{space:?} {row:?}"
+                );
+            }
+            let t = space.transfer();
+            assert!(t.to_linear(0.998) >= srgb.to_linear(0.998), "{space:?}");
+            assert!(t.to_linear(0.002) <= srgb.to_linear(0.002), "{space:?}");
+        }
+    }
+
     #[test]
     fn transfer_curves_invert() {
         for space in OutputColorSpace::ALL {
