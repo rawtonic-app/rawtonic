@@ -17,8 +17,10 @@ interface TaggingSubMenuProps {
   /** `newTags` for `paths` and their grouped variants: every planned photo
    * saved. */
   onTagsChanged: (paths: string[], newTags: { tag: string; isUser: boolean }[]) => void;
-  /** `newTags` for exactly the photos that saved, when the rest failed. */
-  onTagsSaved: (savedPaths: string[], newTags: { tag: string; isUser: boolean }[]) => void;
+  /** The one stored tag (`user:client`, `dog`) a write saved for exactly
+   * `savedPaths`, when the rest failed: only that tag changes on those
+   * photos, every other keyword they have stays as the library saved it. */
+  onTagSaved: (savedPaths: string[], tag: string, change: 'add' | 'remove') => void;
   appSettings: AppSettings | null;
   hideContextMenu: () => void;
 }
@@ -34,7 +36,7 @@ export default function TaggingSubMenu({
   paths,
   initialTags,
   onTagsChanged,
-  onTagsSaved,
+  onTagSaved,
   appSettings,
   hideContextMenu,
 }: TaggingSubMenuProps) {
@@ -81,19 +83,16 @@ export default function TaggingSubMenu({
    *
    * Saved everywhere: the menu takes the new tags, which the library shows
    * for the selection and its variants (`onTagsChanged`). Saved for some:
-   * the photos that saved show the new tags (`onTagsSaved`, exactly them),
-   * the menu keeps its own tags (as before), and adding the tag again retries
-   * it for every photo (adding is idempotent). The XMP status follows the
-   * photos that failed (photoWrites).
+   * the photos that saved show the one tag written and keep their other
+   * keywords (`onTagSaved`, exactly them), the menu keeps its own tags (as
+   * before), and adding the tag again retries it for every photo (adding is
+   * idempotent). The XMP status follows the photos that failed (photoWrites).
    */
   const applyTags = async (
     tag: string,
     adds: boolean,
     next: (kept: { tag: string; isUser: boolean }[]) => { tag: string; isUser: boolean }[],
   ) => {
-    // A failed photo keeps the tags it could not change: a keyword it did
-    // not add, or the one it could not remove, with its other keywords.
-    const keptOnFailure = tags.filter((t) => t.isUser === adds);
     const pathsToUpdate = getPathsToUpdate();
     try {
       await invokeInOrder(
@@ -104,7 +103,7 @@ export default function TaggingSubMenu({
     } catch (err) {
       const { message, failed } = saveFailure(err, pathsToUpdate);
       const saved = pathsToUpdate.filter((path) => !failed.includes(path));
-      if (saved.length > 0) onTagsSaved(saved, next(keptOnFailure.sort((a, b) => a.tag.localeCompare(b.tag))));
+      if (saved.length > 0) onTagSaved(saved, tag, adds ? 'add' : 'remove');
       toast.error(`${adds ? 'Failed to add tag' : 'Failed to remove tag'}: ${message}`);
       return false;
     }

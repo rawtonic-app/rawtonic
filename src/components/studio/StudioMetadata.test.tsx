@@ -58,14 +58,17 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("keyword helpers", () => {
-  it("counts keywords per photograph without labels or the typed-keyword marker", () => {
+  it("counts keywords per photograph, one per exact stored form, without labels", () => {
+    // "dog" (automatic) and "user:Dog" are two tags the library keeps apart,
+    // so the tool counts and shows them apart.
     expect(
       keywordCounts([["user:beach", "dog", "color:red", "user:Dog"], ["user:beach"]]).map(
-        ({ keyword, count }) => [keyword, count],
+        ({ keyword, count, tags }) => [keyword, count, [...tags]],
       ),
     ).toEqual([
-      ["beach", 2],
-      ["dog", 1],
+      ["beach", 2, ["user:beach"]],
+      ["dog", 1, ["dog"]],
+      ["Dog", 1, ["user:Dog"]],
     ]);
   });
   it("splits typed keywords at commas and drops duplicates", () => {
@@ -89,15 +92,19 @@ describe("Keywords tool", () => {
       fireEvent.keyDown(input, { key: "Enter" });
     });
     const paths = ["/job/Capture/a.arw", "/job/Capture/b.arw"];
+    // A typed keyword takes the menu's normal form (trimmed, lowercase).
     expect(mockInvoke).toHaveBeenCalledWith("add_tag_for_paths", { paths, tag: "user:harbour" });
     // Sent again for the whole selection: a photograph of a group may have
     // saved without its variant, so the library names the failed ones among
     // all of it (adding is idempotent).
-    expect(mockInvoke).toHaveBeenCalledWith("add_tag_for_paths", { paths, tag: "user:Dog" });
+    expect(mockInvoke).toHaveBeenCalledWith("add_tag_for_paths", { paths, tag: "user:dog" });
     const tags = Object.fromEntries(useLibraryStore.getState().imageList.map((f) => [f.path, f.tags]));
-    // Each photograph keeps its own keywords; an existing keyword is not doubled.
-    expect(tags["/job/Capture/a.arw"]).toEqual(["color:red", "dog", "user:beach", "user:harbour"]);
-    expect(tags["/job/Capture/b.arw"]).toEqual(["user:Dog", "user:beach", "user:harbour"]);
+    // Each photograph keeps its own keywords, in the stored order; the exact
+    // tag already stored is not doubled. a has only the automatic "dog", so
+    // the typed "user:dog" is another tag and is written beside it, as the
+    // library does—and the display shows it as its own chip.
+    expect(tags["/job/Capture/a.arw"]).toEqual(["color:red", "dog", "user:beach", "user:dog", "user:harbour"]);
+    expect(tags["/job/Capture/b.arw"]).toEqual(["user:beach", "user:dog", "user:harbour"]);
     expect(tags["/job/Capture/c.arw"]).toBeNull();
   });
 
@@ -130,6 +137,64 @@ describe("Keywords tool", () => {
     const tags = Object.fromEntries(useLibraryStore.getState().imageList.map((f) => [f.path, f.tags]));
     expect(tags["/job/Capture/a.arw"]).toEqual(["dog"]);
     expect(tags["/job/Capture/a.jpg"]).toEqual(["dog", "user:harbour"]);
+  });
+
+  it("writes the exact tag the display compares with, so a stored Dog is not hidden behind a typed dog", async () => {
+    // a has the automatic "Dog"; b has the typed "user:dog". Typing "dog"
+    // must not skip a (the library would add "user:dog" beside "Dog" anyway)
+    // and b gets nothing new (it has that exact string): what is written is
+    // what the chips show—"Dog" and "dog" as two keywords.
+    useLibraryStore.setState({
+      imageList: [file("/job/Capture/a.arw", ["Dog"]), file("/job/Capture/b.arw", ["user:dog"])],
+      multiSelectedPaths: ["/job/Capture/a.arw", "/job/Capture/b.arw"],
+    });
+    mockInvoke.mockResolvedValue(undefined);
+    render(<StudioKeywords />);
+    // As stored strings the two are different tags, shown as two keywords.
+    expect(screen.getByText("Dog")).toBeTruthy();
+    expect(screen.getByText("dog")).toBeTruthy();
+    const input = screen.getByLabelText("Add keywords");
+    fireEvent.change(input, { target: { value: "dog" } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "Enter" });
+    });
+    const paths = ["/job/Capture/a.arw", "/job/Capture/b.arw"];
+    expect(mockInvoke).toHaveBeenCalledWith("add_tag_for_paths", { paths, tag: "user:dog" });
+    const tags = Object.fromEntries(useLibraryStore.getState().imageList.map((f) => [f.path, f.tags]));
+    // Written with the same equality the library uses, in the stored order
+    // ("D" before "b", as the sidecar sorts by byte): user:dog is there on
+    // both, and the automatic Dog of a is kept, not replaced.
+    expect(tags["/job/Capture/a.arw"]).toEqual(["Dog", "user:dog"]);
+    expect(tags["/job/Capture/b.arw"]).toEqual(["user:dog"]);
+    // The display agrees with what was written: "dog" now on both photographs,
+    // the automatic "Dog" on a only (marked partial now that it is on one of
+    // the two), as two chips—neither hidden behind the other.
+    // In the display order (by name); a keyword kept as one string is not
+    // marked partial, the automatic form a lacks is.
+    const chips = [...document.querySelectorAll(".studio-keyword")]
+      .map((chip) => [chip.firstChild?.textContent, chip.classList.contains("is-partial")] as const)
+      .filter(([keyword]) => /^dog$/i.test(keyword ?? ""));
+    expect(chips).toEqual([
+      ["dog", false],
+      ["Dog", true],
+    ]);
+  });
+
+  it("normalises a typed keyword as the tagging menu does before comparing it", async () => {
+    // The UI's existing rule (the menu lowercases and trims), applied before
+    // the exact comparison: a stored "user:dog" is the typed " Dog ".
+    mockInvoke.mockResolvedValue(undefined);
+    render(<StudioKeywords />);
+    const input = screen.getByLabelText("Add keywords");
+    fireEvent.change(input, { target: { value: " Beach " } });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "Enter" });
+    });
+    // Nothing to write: both selected photographs have that exact tag.
+    expect(mockInvoke).not.toHaveBeenCalled();
+    const tags = Object.fromEntries(useLibraryStore.getState().imageList.map((f) => [f.path, f.tags]));
+    // Unchanged, in the order the library had them.
+    expect(tags["/job/Capture/a.arw"]).toEqual(["user:beach", "dog", "color:red"]);
   });
 
   it("removes every stored form of a keyword", async () => {

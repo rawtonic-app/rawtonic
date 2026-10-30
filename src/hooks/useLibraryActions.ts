@@ -27,6 +27,43 @@ export function saveFailure(err: unknown, paths: string[]): { message: string; f
   return { message: String(err), failed: paths };
 }
 
+/** A keyword as shown, from an editor tag (`null` for labels). A typed
+ * keyword is stored with the editor's marker ("user:"). */
+export function keywordOf(tag: string): string | null {
+  if (tag.startsWith('color:')) return null;
+  return tag.startsWith(USER_TAG_PREFIX) ? tag.slice(USER_TAG_PREFIX.length) : tag;
+}
+
+/** The marker for keywords the user typed; other tags are automatic. */
+export const USER_TAG_PREFIX = 'user:';
+
+/** The stored form of a typed keyword: what a keyword write sends. */
+export function storedKeyword(keyword: string): string {
+  return `${USER_TAG_PREFIX}${keyword}`;
+}
+
+/** Tags as a sidecar keeps them (`change_tags` in src-tauri/src/tagging.rs):
+ * sorted by byte and without exact doubles, `null` when none is left. The
+ * order is the backend's, not the locale's, so the library shows what was
+ * written. */
+export function sortStoredTags(tags: string[]): string[] | null {
+  const sorted = [...new Set(tags)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return sorted.length > 0 ? sorted : null;
+}
+
+/** `tags` with `tag` added or removed by exact string, the backend's rule
+ * (`add_tag_for_paths`: added if not present as it is; `remove_tag_for_paths`:
+ * removed where it is exactly that string). Other tags are untouched. */
+export function withTagDelta(
+  tags: string[] | null | undefined,
+  tag: string,
+  change: 'add' | 'remove',
+): string[] | null {
+  const current = tags ?? [];
+  if (change === 'add') return current.includes(tag) ? sortStoredTags(current) : sortStoredTags([...current, tag]);
+  return current.includes(tag) ? sortStoredTags(current.filter((t) => t !== tag)) : sortStoredTags(current);
+}
+
 export function useLibraryActions(handleImageSelect?: (path: string, openInEditor?: boolean) => void) {
   const handleRate = useCallback((newRating: number, paths?: string[]) => {
     const { multiSelectedPaths, imageList, imageRatings, setLibrary } = useLibraryStore.getState();
@@ -143,18 +180,11 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
    * (a culling tag, not a keyword) is kept, the keywords are replaced. */
   const tagsWith = (tags: string[] | null | undefined, newTags: { tag: string; isUser: boolean }[]) => {
     const colorTags = (tags || []).filter((t) => t.startsWith('color:'));
-    const prefixedNewTags = newTags.map((t) => (t.isUser ? `user:${t.tag}` : t.tag));
-    // The prefixed keywords sort as they are stored: typed ones ("user:")
-    // before a stored tag that is not typed.
-    const finalTags = [...colorTags, ...prefixedNewTags].sort((a, b) =>
-      a.startsWith('user:') !== b.startsWith('user:') ? (a.startsWith('user:') ? -1 : 1) : a < b ? -1 : a > b ? 1 : 0,
-    );
-    return finalTags.length > 0 ? finalTags : null;
+    return sortStoredTags([...colorTags, ...newTags.map((t) => (t.isUser ? `user:${t.tag}` : t.tag))]);
   };
 
   /** `newTags` for `paths` and their grouped variants (ratings and labels
-   * spread over a group). A batch that failed for some of them has no such
-   * state: `exact` is set only for the photos that saved (`handleTagsSaved`). */
+   * spread over a group). */
   const handleTagsChanged = useCallback((changedPaths: string[], newTags: { tag: string; isUser: boolean }[]) => {
     const { imageList } = useLibraryStore.getState();
     const groupingMode = useSettingsStore.getState().appSettings?.grouping ?? 'off';
@@ -169,14 +199,17 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
     // this is; see `TaggingSubMenu`.)
   }, []);
 
-  /** `newTags` for exactly `paths`, no group expansion: the photos whose
-   * keyword write saved, after a batch that failed for the others (which
-   * keep their tags until a retry). */
-  const handleTagsSaved = useCallback((savedPaths: string[], newTags: { tag: string; isUser: boolean }[]) => {
-    const saved = new Set(savedPaths);
+  /** The one tag `tag` a keyword write saved (or removed) on exactly `paths`,
+   * no group expansion: the photos it saved for, after a batch that failed
+   * for the others. Only that tag changes; every other tag a photo has (an
+   * automatic keyword, another one typed earlier) stays, as the library
+   * saved it. `tag` is the stored form the write sent (e.g. "user:client"). */
+  const applyTagDelta = useCallback((paths: string[], tag: string, change: 'add' | 'remove') => {
+    if (paths.length === 0) return;
+    const targets = new Set(paths);
     useLibraryStore.getState().setLibrary((state) => ({
       imageList: state.imageList.map((image) =>
-        saved.has(image.path) ? { ...image, tags: tagsWith(image.tags, newTags) } : image,
+        targets.has(image.path) ? { ...image, tags: withTagDelta(image.tags, tag, change) } : image,
       ),
     }));
   }, []);
@@ -478,7 +511,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
     handleRate,
     handleSetColorLabel,
     handleTagsChanged,
-    handleTagsSaved,
+    applyTagDelta,
     handleUpdateExif,
     handleClearSelection,
     handleLibraryImageSingleClick,

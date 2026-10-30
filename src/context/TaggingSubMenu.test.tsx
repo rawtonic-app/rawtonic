@@ -7,21 +7,10 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 import TaggingSubMenu from './TaggingSubMenu';
-import { useLibraryActions } from '../hooks/useLibraryActions';
+import { useLibraryActions, withTagDelta } from '../hooks/useLibraryActions';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import type { AppSettings, ImageFile } from '../components/ui/AppProperties';
-
-/** The library's own keyword update, which the store follows. */
-const handleTagsSaved = (savedPaths: string[], newTags: { tag: string; isUser: boolean }[]) => {
-  useLibraryStore.getState().setLibrary((state) => ({
-    imageList: state.imageList.map((image) =>
-      savedPaths.includes(image.path)
-        ? { ...image, tags: newTags.map((t) => (t.isUser ? `user:${t.tag}` : t.tag)) }
-        : image,
-    ),
-  }));
-};
 
 beforeEach(() => {
   invoke.mockReset();
@@ -50,8 +39,8 @@ const menu = (
   // The photos a group adds to the menu's paths (a variant clicked inside its group).
   initialTags: { tag: string; isUser: boolean }[] = [],
   // What the library does with a partly saved write; `null`: nothing, it is
-  // spied on.
-  onTagsSaved: ((savedPaths: string[], newTags: { tag: string; isUser: boolean }[]) => void) | null = null,
+  // spied on by the caller.
+  onTagSaved: ((savedPaths: string[], tag: string, change: 'add' | 'remove') => void) | null = null,
 ) => {
   useSettingsStore.setState({ appSettings: settings });
   render(
@@ -59,13 +48,27 @@ const menu = (
       paths={paths}
       initialTags={initialTags}
       onTagsChanged={onTagsChanged}
-      onTagsSaved={onTagsSaved ?? handleTagsSaved}
+      onTagSaved={onTagSaved ?? applyDelta}
       appSettings={settings}
       hideContextMenu={() => {}}
     />,
   );
   return onTagsChanged;
 };
+
+/** The library's own update after a partly saved write: the hook's
+ * `applyTagDelta`, taken from a probe render (the callbacks work off the
+ * stores, so where they come from does not matter). */
+const applyDelta = (() => {
+  let delta: ReturnType<typeof useLibraryActions>['applyTagDelta'] | null = null;
+  const Probe = () => {
+    delta = useLibraryActions().applyTagDelta;
+    return null;
+  };
+  render(<Probe />);
+  cleanup();
+  return delta as NonNullable<typeof delta>;
+})();
 
 const add = async (tag: string) => {
   const input = screen.getByRole('textbox');
@@ -92,14 +95,14 @@ it("keeps the menu as it was when a keyword is not saved everywhere, so adding i
 
 it('shows the keyword on the photographs that were saved when the batch partly failed', async () => {
   useLibraryStore.setState({ imageList: [file('/s/a.NEF', ['dog']), file('/s/b.NEF', ['dog'])] });
-  const onTagsSaved = vi.fn();
-  const onTagsChanged = menu(vi.fn(), ['/s/a.NEF', '/s/b.NEF'], null, [{ tag: 'dog', isUser: false }], onTagsSaved);
+  const onTagSaved = vi.fn();
+  const onTagsChanged = menu(vi.fn(), ['/s/a.NEF', '/s/b.NEF'], null, [{ tag: 'dog', isUser: false }], onTagSaved);
   // b.NEF fails: the library names it in SaveFailure.failed.
   invoke.mockRejectedValueOnce({ message: '1 of 2 photos not saved', failed: ['/s/b.NEF'] });
   await add('client');
-  // Exactly the photograph that saved is reported, with the menu's tags and
-  // the keyword: not b.NEF (a group-expanding update would mark it too).
-  expect(onTagsSaved.mock.calls[0][0]).toEqual(['/s/a.NEF']);
+  // Exactly the photograph that saved is told the one keyword to add: not
+  // b.NEF (a group-expanding update would mark it too).
+  expect(onTagSaved.mock.calls[0]).toEqual([['/s/a.NEF'], 'user:client', 'add']);
   // The group-expanding callback is not asked, and the menu keeps its own
   // state, so the same attempt can be made again.
   expect(onTagsChanged).not.toHaveBeenCalled();
@@ -114,20 +117,24 @@ it('shows the keyword on the photographs that were saved when the batch partly f
   // every tag of the menu.
   expect(onTagsChanged.mock.calls[0][0]).toEqual(['/s/a.NEF', '/s/b.NEF']);
   expect(onTagsChanged.mock.calls[0][1].map((tag: { tag: string }) => tag.tag)).toEqual(['client', 'dog']);
-  expect(onTagsSaved).toHaveBeenCalledTimes(1);
+  expect(onTagSaved).toHaveBeenCalledTimes(1);
 });
 
-it('marks exactly the reported photographs in the library, without a group', () => {
-  const { result } = renderHook(() => useLibraryActions());
-  useSettingsStore.setState({ appSettings: { grouping: 'raw' } as AppSettings });
+it('keeps the automatic keyword of a saved photograph when the batch partly failed', async () => {
+  // a.NEF has the automatic "dog" and the typed "user:beach"; b.NEF likewise.
   useLibraryStore.setState({
-    imageList: [file('/s/a.NEF', ['dog'], 'g1'), file('/s/a.JPG', ['dog'], 'g1', false)],
+    imageList: [file('/s/a.NEF', ['dog', 'user:beach']), file('/s/b.NEF', ['dog', 'user:beach'])],
   });
-  result.current.handleTagsSaved(['/s/a.JPG'], [{ tag: 'client', isUser: true }]);
-  // Replaced, not added to what the store shows for that photograph.
-  expect(tagsOf()).toEqual({ '/s/a.NEF': ['dog'], '/s/a.JPG': ['user:client'] });
-  result.current.handleTagsChanged(['/s/a.JPG'], [{ tag: 'dog', isUser: true }]);
-  expect(useLibraryStore.getState().imageList[1].tags).toEqual(['user:dog']);
+  // The menu's common tags are "beach" and "dog"; a third one is added.
+  menu(vi.fn(), ['/s/a.NEF', '/s/b.NEF'], null, [
+    { tag: 'beach', isUser: true },
+    { tag: 'dog', isUser: false },
+  ]);
+  invoke.mockRejectedValueOnce({ message: '1 of 2 photos not saved', failed: ['/s/b.NEF'] });
+  await add('client');
+  // The saved photo gets the one keyword and keeps both it had: the menu's
+  // list (beach, dog) does not replace them, so "dog" cannot vanish.
+  expect(tagsOf()).toEqual({ '/s/a.NEF': ['dog', 'user:beach', 'user:client'], '/s/b.NEF': ['dog', 'user:beach'] });
 });
 
 it('shows a removed keyword gone from the photographs that were saved when the batch partly failed', async () => {
@@ -135,7 +142,7 @@ it('shows a removed keyword gone from the photographs that were saved when the b
     imageList: [file('/s/a.NEF', ['dog', 'user:client']), file('/s/b.NEF', ['dog', 'user:client'])],
   });
   useSettingsStore.setState({ appSettings: null });
-  const onTagsSaved = vi.fn();
+  const onTagSaved = vi.fn();
   const onTagsChanged = vi.fn();
   render(
     <TaggingSubMenu
@@ -145,7 +152,7 @@ it('shows a removed keyword gone from the photographs that were saved when the b
         { tag: 'dog', isUser: false },
       ]}
       onTagsChanged={onTagsChanged}
-      onTagsSaved={onTagsSaved}
+      onTagSaved={onTagSaved}
       appSettings={null}
       hideContextMenu={() => {}}
     />,
@@ -158,7 +165,7 @@ it('shows a removed keyword gone from the photographs that were saved when the b
   });
   // Exactly the photo that saved loses it; the menu keeps it, so clicking it
   // again retries.
-  expect(onTagsSaved).toHaveBeenCalledWith(['/s/a.NEF'], [{ tag: 'dog', isUser: false }]);
+  expect(onTagSaved).toHaveBeenCalledWith(['/s/a.NEF'], 'user:client', 'remove');
   expect(onTagsChanged).not.toHaveBeenCalled();
   expect(screen.queryByText('client')).not.toBeNull();
   invoke.mockResolvedValueOnce(undefined);
@@ -170,6 +177,69 @@ it('shows a removed keyword gone from the photographs that were saved when the b
     ['remove_tag_for_paths', { paths: ['/s/a.NEF', '/s/b.NEF'], tag: 'user:client' }],
   ]);
   expect(onTagsChanged).toHaveBeenCalledWith(['/s/a.NEF', '/s/b.NEF'], [{ tag: 'dog', isUser: false }]);
+});
+
+it('keeps the other keywords of a saved photograph when a keyword is removed and the batch partly failed', async () => {
+  // a.NEF: the keyword, another typed one the menu does not show, an
+  // automatic one and a label.
+  useLibraryStore.setState({
+    imageList: [
+      file('/s/a.NEF', ['color:red', 'dog', 'user:archive', 'user:client']),
+      file('/s/b.NEF', ['color:red', 'dog', 'user:archive', 'user:client']),
+    ],
+  });
+  menu(vi.fn(), ['/s/a.NEF', '/s/b.NEF'], null, [
+    { tag: 'client', isUser: true },
+    { tag: 'dog', isUser: false },
+  ]);
+  invoke.mockRejectedValueOnce({ message: '1 of 2 photos not saved', failed: ['/s/b.NEF'] });
+  await act(async () => {
+    fireEvent.click(screen.getByText('client'));
+  });
+  // Only the removed keyword goes from the saved photo: not "user:archive",
+  // the automatic "dog" or the label, which the menu does not list.
+  expect(tagsOf()).toEqual({
+    '/s/a.NEF': ['color:red', 'dog', 'user:archive'],
+    '/s/b.NEF': ['color:red', 'dog', 'user:archive', 'user:client'],
+  });
+});
+
+it('changes the one saved tag on exactly the reported photographs, without a group', () => {
+  const { result } = renderHook(() => useLibraryActions());
+  useSettingsStore.setState({ appSettings: { grouping: 'raw' } as AppSettings });
+  useLibraryStore.setState({
+    imageList: [
+      file('/s/a.NEF', ['color:red', 'dog', 'user:beach'], 'g1'),
+      file('/s/a.JPG', ['dog', 'user:beach'], 'g1', false),
+    ],
+  });
+  // The library saved "user:client" for the JPEG, not for the RAW of its group.
+  result.current.applyTagDelta(['/s/a.JPG'], 'user:client', 'add');
+  expect(tagsOf()).toEqual({
+    '/s/a.NEF': ['color:red', 'dog', 'user:beach'],
+    '/s/a.JPG': ['dog', 'user:beach', 'user:client'],
+  });
+  // And took "user:beach" off it: every other tag stays.
+  result.current.applyTagDelta(['/s/a.JPG'], 'user:beach', 'remove');
+  expect(tagsOf()).toEqual({
+    '/s/a.NEF': ['color:red', 'dog', 'user:beach'],
+    '/s/a.JPG': ['dog', 'user:client'],
+  });
+  // The menu's promise, when the whole selection saved, still replaces the
+  // keywords as the write saved the menu's list (the tagged menu's own rule).
+  result.current.handleTagsChanged(['/s/a.JPG'], [{ tag: 'dog', isUser: true }]);
+  expect(useLibraryStore.getState().imageList[1].tags).toEqual(['user:dog']);
+});
+
+it('matches tags by the exact string the library adds, so "Dog" and "dog" are two tags', () => {
+  // A stored automatic "Dog" is not the typed "user:dog": adding the second
+  // adds that exact string, beside the first, and the library shows both.
+  expect(withTagDelta(['Dog', 'user:beach'], 'user:dog', 'add')).toEqual(['Dog', 'user:beach', 'user:dog']);
+  // Adding the same exact string twice changes nothing; removing is exact too.
+  expect(withTagDelta(['Dog', 'user:dog'], 'user:dog', 'add')).toEqual(['Dog', 'user:dog']);
+  expect(withTagDelta(['Dog', 'user:dog'], 'user:dog', 'remove')).toEqual(['Dog']);
+  expect(withTagDelta(['user:dog'], 'user:Dog', 'remove')).toEqual(['user:dog']);
+  expect(withTagDelta(null, 'user:dog', 'remove')).toBeNull();
 });
 
 it('with grouping on, a saved photograph does not mark its failed variant', async () => {
@@ -187,10 +257,11 @@ it('with grouping on, a saved photograph does not mark its failed variant', asyn
   invoke.mockRejectedValueOnce({ message: '1 of 2 photos not saved', failed: ['/s/a.NEF'] });
   await add('client');
   expect(invoke).toHaveBeenCalledWith('add_tag_for_paths', { paths: ['/s/a.JPG', '/s/a.NEF'], tag: 'user:client' });
-  // The saved JPEG has it; its failed NEF does not (it keeps its own, none).
+  // The saved JPEG has it and keeps its own "dog"; its failed NEF does not
+  // (it keeps its own, none).
   expect(tagsOf()).toEqual({
     '/s/a.NEF': null,
-    '/s/a.JPG': ['user:client'],
+    '/s/a.JPG': ['dog', 'user:client'],
     '/s/c.NEF': null,
     '/s/c.JPG': null,
   });

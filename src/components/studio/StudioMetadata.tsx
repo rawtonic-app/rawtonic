@@ -9,7 +9,12 @@ import { useTranslation } from "react-i18next";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useEditorStore } from "../../store/useEditorStore";
 import { Invokes } from "../ui/AppProperties";
-import { saveFailure, useLibraryActions } from "../../hooks/useLibraryActions";
+import {
+  keywordOf,
+  saveFailure,
+  storedKeyword,
+  useLibraryActions,
+} from "../../hooks/useLibraryActions";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { expandGroupedPaths } from "../../utils/imageGrouping";
 import { COLOR_LABELS } from "../../utils/adjustments";
@@ -18,9 +23,6 @@ import { catalogChanged, invokeInOrder } from "../../utils/catalogWrites";
 import { submitPhotoWrite } from "../../utils/photoWrites";
 import { captureText } from "../../utils/captureTime";
 import { useCaptureTimeDialog } from "./CaptureTimeDialog";
-
-/** The editor's marker for keywords the user typed; other tags are automatic. */
-const USER_TAG_PREFIX = "user:";
 
 export interface TextMetadata {
   title: string;
@@ -190,13 +192,13 @@ export function useMetadataTargets() {
   );
 }
 
-/** A keyword as shown, from an editor tag (`null` for labels). */
-export function keywordOf(tag: string) {
-  if (tag.startsWith("color:")) return null;
-  return tag.startsWith(USER_TAG_PREFIX) ? tag.slice(USER_TAG_PREFIX.length) : tag;
-}
-
-/** Keywords of the targets with how many targets carry each, in name order. */
+/** Keywords of the targets with how many targets carry each, in name order.
+ * A keyword is one exact stored form, as the library keeps tags (`change_tags`
+ * in src-tauri/src/tagging.rs sort and dedup them as strings): "Dog" and
+ * "dog", "user:Dog" and "Dog", are different keywords, each written and
+ * removed as its own string, so the chips show every keyword the selection
+ * has instead of hiding a case variant behind one of them. `tags` holds the
+ * stored forms of the keyword, which a removal takes off. */
 export function keywordCounts(tagsByPath: (string[] | null | undefined)[]) {
   const counts = new Map<string, { keyword: string; tags: Set<string>; count: number }>();
   for (const tags of tagsByPath) {
@@ -204,17 +206,14 @@ export function keywordCounts(tagsByPath: (string[] | null | undefined)[]) {
     for (const tag of tags ?? []) {
       const keyword = keywordOf(tag);
       if (!keyword) continue;
-      const key = keyword.toLowerCase();
-      const entry = counts.get(key) ?? { keyword, tags: new Set<string>(), count: 0 };
+      const entry = counts.get(keyword) ?? { keyword, tags: new Set<string>(), count: 0 };
       entry.tags.add(tag);
-      if (!seen.has(key)) entry.count++;
-      seen.add(key);
-      counts.set(key, entry);
+      if (!seen.has(keyword)) entry.count++;
+      seen.add(keyword);
+      counts.set(keyword, entry);
     }
   }
-  return [...counts.values()].sort((a, b) =>
-    a.keyword.localeCompare(b.keyword, undefined, { sensitivity: "base" }),
-  );
+  return [...counts.values()].sort((a, b) => a.keyword.localeCompare(b.keyword));
 }
 
 /** Keywords typed into the field: comma-separated, trimmed, without duplicates. */
@@ -228,22 +227,11 @@ export function parseKeywords(text: string) {
   return keywords;
 }
 
-/** Shows `change` on exactly `paths` (the photos a keyword write saved). */
-function updateTags(paths: string[], change: (tags: string[]) => string[]) {
-  const targets = new Set(paths);
-  useLibraryStore.getState().setLibrary((state) => ({
-    imageList: state.imageList.map((image) => {
-      if (!targets.has(image.path)) return image;
-      const tags = change(image.tags ?? []);
-      return { ...image, tags: tags.length ? tags.sort() : null };
-    }),
-  }));
-}
-
 /** Capture One's Keywords tool / Lightroom's Keywording: the keywords of the
  * selection, partial ones marked, typed keywords added to every photograph. */
 export function StudioKeywords() {
   const { t } = useTranslation();
+  const { applyTagDelta } = useLibraryActions();
   const imageList = useLibraryStore((s) => s.imageList);
   // The photographs to keyword: the selection and, with grouping on, each
   // chosen photograph's variants too (as the tagging menu writes to a group,
@@ -270,25 +258,31 @@ export function StudioKeywords() {
     if (!paths.length || !typed.length) return;
     try {
       const tagsOf = new Map(useLibraryStore.getState().imageList.map((image) => [image.path, image.tags]));
-      for (const keyword of typed) {
-        // Only photographs without the keyword (in any case) get it; each
-        // keeps its other keywords. The catalog stores it without the marker.
-        const has = (path: string) =>
-          (tagsOf.get(path) ?? []).some((tag) => keywordOf(tag)?.toLowerCase() === keyword.toLowerCase());
+      for (const typedKeyword of typed) {
+        // The UI's existing rule, as the tagging menu applies it to a typed
+        // keyword (trimmed, lowercase): that form is compared and written.
+        const keyword = typedKeyword.trim().toLowerCase();
+        if (!keyword) continue;
+        // Only photographs without the keyword—as the exact string the
+        // library adds—get it; each keeps its other keywords. A stored form
+        // that differs only in case ("user:Dog") is another keyword, so
+        // "user:dog" written beside it shows as its own chip instead of
+        // hiding behind the one shown. The catalog stores it without the
+        // marker.
+        const tag = storedKeyword(keyword);
+        const has = (path: string) => (tagsOf.get(path) ?? []).includes(tag);
         const missing = paths.filter((path) => !has(path));
         if (!missing.length) continue;
-        const tag = `${USER_TAG_PREFIX}${keyword}`;
         // The whole selection is written (adding is idempotent), so a group's
         // variant that has the keyword already is named too. The library
-        // saved it for all but the photographs it names (`SaveFailure.failed`):
-        // only those keep their old keywords.
+        // then changes that one tag on each photograph that saved: the ones
+        // the failure names (`SaveFailure.failed`) keep their old keywords.
         try {
           await invokeInOrder(Invokes.AddTagForPaths, { paths, tag }, "keyword");
-          updateTags(missing, (tags) => [...tags, tag]);
+          applyTagDelta(missing, tag, "add");
         } catch (e) {
           const { failed } = saveFailure(e, paths);
-          const written = paths.filter((path) => !failed.includes(path));
-          updateTags(written, (tags) => (tags.includes(tag) ? tags : [...tags, tag]));
+          applyTagDelta(paths.filter((path) => !failed.includes(path)), tag, "add");
           throw e;
         }
       }
@@ -304,11 +298,10 @@ export function StudioKeywords() {
         // the keyword.
         try {
           await invokeInOrder(Invokes.RemoveTagForPaths, { paths, tag }, "keyword");
-          updateTags(paths, (tags) => tags.filter((t) => t !== tag));
+          applyTagDelta(paths, tag, "remove");
         } catch (e) {
           const { failed } = saveFailure(e, paths);
-          const written = paths.filter((path) => !failed.includes(path));
-          updateTags(written, (tags) => tags.filter((t) => t !== tag));
+          applyTagDelta(paths.filter((path) => !failed.includes(path)), tag, "remove");
           throw e;
         }
       }
@@ -339,7 +332,7 @@ export function StudioKeywords() {
               const partial = entry.count < paths.length;
               return (
                 <span
-                  key={entry.keyword.toLowerCase()}
+                  key={entry.keyword}
                   className={`studio-keyword ${partial ? "is-partial" : ""}`}
                   title={
                     partial
