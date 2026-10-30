@@ -10,7 +10,6 @@ on:
   workflow_dispatch:
   push:
     tags: ["v*"]
-    branches: [nielsfranke/wr-windows-release]  # TEMP: branch test runs, removed before merge
 jobs:
   # No release with an open advisory, unmaintained crates included (ADR 0005).
   advisories:
