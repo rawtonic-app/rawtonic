@@ -29,10 +29,10 @@ import { PhotoBatch, batchPhotoSettled, photoBatches, unsettledPhotos } from '..
 type EditorState = ReturnType<typeof useEditorStore.getState>;
 
 // No graphics backend could start the GPU (src-tauri gpu_processing.rs
-// `gpu_start_error`): no photo can be developed or exported, so it stays
-// until dismissed and names what failed.
+// `gpu_start_error`): no photo can be developed or exported, so it stays a
+// failure in the activity centre and names what failed.
 const showGpuStartError = (details: string) =>
-  toast.error(i18n.t('errors.gpuStartFailed', { details }), { autoClose: false, toastId: 'gpu-start-failed' });
+  notify.error(i18n.t('errors.gpuStartFailed', { details }), { toastId: 'gpu-start-failed' });
 
 // Event payloads, as emitted by the backend in src-tauri/src.
 interface AnalyticsUpdatePayload {
