@@ -1288,6 +1288,7 @@
       "failed": "No s’ha pogut obrir l’última biblioteca: {{error}}",
       "opening": "S’està obrint {{name}} ({{directory}})… Si el macOS demana accés a aquest volum, permet-lo."
     },
+    "switching": "S’està obrint la biblioteca…",
     "sync": {
       "applied": "Mogudes {{moved}} · Afegides {{added}} · Tretes {{removed}}",
       "apply": "Aplica ({{n}})",
@@ -1519,6 +1520,13 @@
       "verifyProgress_one": "Verificant · {{count}} fitxer comprovat",
       "verifyProgress_many": "Verificant · {{count}} fitxers comprovats",
       "verifyProgress_other": "Verificant · {{count}} fitxers comprovats"
+    },
+    "unsaved": {
+      "cancel": "Cancel·la",
+      "discard": "Descarta els canvis no desats",
+      "message": "No s’han pogut desar aquests canvis: {{files}}. Si ara obres una altra biblioteca, es perdran. Torna-ho a provar per desar-los primer, descarta’ls o cancel·la per quedar-te en aquesta biblioteca.",
+      "retry": "Torna-ho a provar",
+      "title": "Canvis no desats"
     },
     "welcome": {
       "body": "Crea un projecte portàtil per a la teva propera sessió de fotos. Mantén juntes les preses, els ajustaments i els lliuraments, des de la primera imatge fins a la selecció final.",
@@ -2858,7 +2866,8 @@
         "queuedMany_one": "S'ha afegit {{count}} exportació a la cua.",
         "queuedMany_many": "S'han afegit {{count}} exportacions a la cua.",
         "queuedMany_other": "S'han afegit {{count}} exportacions a la cua.",
-        "queuedOne": "S'ha afegit a la cua d'exportació."
+        "queuedOne": "S'ha afegit a la cua d'exportació.",
+        "unsavedEdits": "No s'han pogut desar les edicions de {{names}}, així que no s'ha exportat res. Torneu a exportar quan estiguin desades."
       },
       "watermark": {
         "add": "Afegeix una marca d'aigua",
@@ -3734,7 +3743,9 @@
     "multiView": {
       "controls": "Marca, valora o treu {{name}}",
       "editAll": "Edita totes les seleccionades",
+      "editAllNotSaved": "«Edita totes les seleccionades» no ha pogut desar aquestes fotos: {{names}}. Conserven la configuració anterior fins que ho tornis a provar.",
       "editAllTitle": "Edita totes les seleccionades: els canvis a la foto principal també van a cada altra foto mostrada (marcs taronja)",
+      "editAllTryAgain": "Torna-ho a provar",
       "makePrimary": "Edita {{name}} (fes-la la foto principal)",
       "more_one": "i {{n}} més",
       "more_many": "i {{n}} més",

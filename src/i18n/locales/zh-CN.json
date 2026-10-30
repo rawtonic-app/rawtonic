@@ -1221,6 +1221,7 @@
       "failed": "无法打开上次的图库：{{error}}",
       "opening": "正在打开 {{name}}（{{directory}}）… 如果 macOS 请求访问此宗卷，请允许。"
     },
+    "switching": "正在打开资料库…",
     "sync": {
       "applied": "已移动 {{moved}} · 已添加 {{added}} · 已移除 {{removed}}",
       "apply": "应用（{{n}}）",
@@ -1426,6 +1427,13 @@
       "transferHint": "将此项目或目录带到另一台电脑。外部原片和所需的编辑资源会汇集到副本中。",
       "unsaved": "无法保存更改：{{files}}",
       "verifyProgress_other": "正在验证 · 已检查 {{count}} 个文件"
+    },
+    "unsaved": {
+      "cancel": "取消",
+      "discard": "放弃未保存的编辑",
+      "message": "无法保存以下编辑：{{files}}。现在打开其他资料库会丢失这些编辑。请重试以先保存，或放弃这些编辑，或取消以留在此资料库。",
+      "retry": "重试",
+      "title": "编辑未保存"
     },
     "welcome": {
       "body": "为下一次拍摄创建一个可携带的项目。从第一张到最终精选，拍摄素材、调整和交付成果都放在一起。",
@@ -2735,7 +2743,8 @@
       },
       "toasts": {
         "queuedMany_other": "已将 {{count}} 个导出加入队列。",
-        "queuedOne": "已加入导出队列。"
+        "queuedOne": "已加入导出队列。",
+        "unsavedEdits": "无法保存 {{names}} 的编辑，因此未导出任何内容。保存后请重新导出。"
       },
       "watermark": {
         "add": "添加水印",
@@ -3550,7 +3559,9 @@
     "multiView": {
       "controls": "标记、评级或移除 {{name}}",
       "editAll": "编辑所有选中照片",
+      "editAllNotSaved": "“编辑所有选中照片”无法保存这些照片：{{names}}。在你重试之前，它们保留之前的设置。",
       "editAllTitle": "编辑所有选中照片：对主照片的修改也会应用到显示的每张其他照片（橙色边框）",
+      "editAllTryAgain": "重试",
       "makePrimary": "编辑 {{name}}（设为主照片）",
       "more_other": "还有 {{n}} 张",
       "pick": "留用 {{name}}",

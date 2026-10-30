@@ -1288,6 +1288,7 @@
       "failed": "Impossible d’ouvrir la dernière bibliothèque : {{error}}",
       "opening": "Ouverture de {{name}} ({{directory}})… Si macOS demande l’accès à ce volume, autorisez-le."
     },
+    "switching": "Ouverture de la bibliothèque…",
     "sync": {
       "applied": "Déplacées {{moved}} · Ajoutées {{added}} · Retirées {{removed}}",
       "apply": "Appliquer ({{n}})",
@@ -1519,6 +1520,13 @@
       "verifyProgress_one": "Vérification · {{count}} fichier vérifié",
       "verifyProgress_many": "Vérification · {{count}} fichiers vérifiés",
       "verifyProgress_other": "Vérification · {{count}} fichiers vérifiés"
+    },
+    "unsaved": {
+      "cancel": "Annuler",
+      "discard": "Abandonner les modifications",
+      "message": "Ces modifications n’ont pas pu être enregistrées : {{files}}. Ouvrir une autre bibliothèque maintenant les perd. Réessayez pour les enregistrer d’abord, abandonnez-les ou annulez pour rester dans cette bibliothèque.",
+      "retry": "Réessayer",
+      "title": "Modifications non enregistrées"
     },
     "welcome": {
       "body": "Créez un projet portable pour votre prochaine prise de vue. Gardez ensemble prises de vue, retouches et livrables, de la première image à la sélection finale.",
@@ -2858,7 +2866,8 @@
         "queuedMany_one": "{{count}} exportation ajoutée à la file.",
         "queuedMany_many": "{{count}} exportations ajoutées à la file.",
         "queuedMany_other": "{{count}} exportations ajoutées à la file.",
-        "queuedOne": "Ajouté à la file d'exportation."
+        "queuedOne": "Ajouté à la file d'exportation.",
+        "unsavedEdits": "Les modifications de {{names}} n'ont pas pu être enregistrées : rien n'a été exporté. Exportez à nouveau une fois qu'elles sont enregistrées."
       },
       "watermark": {
         "add": "Ajouter un filigrane",
@@ -3734,7 +3743,9 @@
     "multiView": {
       "controls": "Marquer, noter ou retirer {{name}}",
       "editAll": "Modifier toutes les sélectionnées",
+      "editAllNotSaved": "« Modifier toutes les sélectionnées » n’a pas pu enregistrer ces photos : {{names}}. Elles gardent leurs réglages précédents jusqu’à ce que vous réessayiez.",
       "editAllTitle": "Modifier toutes les sélectionnées : les réglages de la photo principale s’appliquent aussi à chaque autre photo affichée (cadres orange)",
+      "editAllTryAgain": "Réessayer",
       "makePrimary": "Modifier {{name}} (en faire la photo principale)",
       "more_one": "et {{n}} autre",
       "more_many": "et {{n}} autres",

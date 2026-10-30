@@ -1110,7 +1110,7 @@ fn export(args: ExportArgs) -> Result<()> {
     let mut written = Vec::new();
     let mut failed = Vec::new();
     for ((photo, output), recipe) in jobs.iter().zip(recipes) {
-        let (source, _) = parse_virtual_path(photo);
+        let (source, sidecar) = parse_virtual_path(photo);
         if let Some(resource) = recipe
             .as_ref()
             .and_then(|r| unresolved_resource(r, &source))
@@ -1127,7 +1127,7 @@ fn export(args: ExportArgs) -> Result<()> {
             recipe,
             settings: settings.clone(),
             base: rawtonic_engine::image_loader::BaseImageOptions::default(),
-            catalog: catalog_metadata(&source),
+            catalog: photo_metadata(photo, &source, &sidecar),
         });
         match result {
             Ok(()) => written.push(output.clone()),
@@ -1171,6 +1171,25 @@ fn editor_recipe(sidecar: &std::path::Path) -> serde_json::Value {
     rawtonic_export::sidecars::read_sidecar_file(sidecar)
         .0
         .adjustments
+}
+/// The metadata an export of `photo` embeds, as the app's: its session's
+/// for the source, with a virtual copy's own rating, label and keywords
+/// from its sidecar.
+fn photo_metadata(
+    photo: &str,
+    source: &std::path::Path,
+    sidecar: &std::path::Path,
+) -> Option<rawtonic_metadata::Metadata> {
+    let metadata = catalog_metadata(source)?;
+    if !photo.contains("?vc=") {
+        return Some(metadata);
+    }
+    let copy = rawtonic_export::sidecars::read_sidecar_file(sidecar).0;
+    Some(rawtonic_catalog::copy_metadata(
+        metadata,
+        copy.rating,
+        copy.tags.as_deref(),
+    ))
 }
 /// The catalog metadata of a source inside a session, as the app writes it.
 fn catalog_metadata(source: &std::path::Path) -> Option<rawtonic_metadata::Metadata> {

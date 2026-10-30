@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import Button from '../ui/Button';
+import { overlayHost } from '../../utils/topLayer';
 
 interface ConfirmModalProps {
   cancelText?: string;
@@ -10,7 +11,13 @@ interface ConfirmModalProps {
   isOpen: boolean;
   message?: string;
   onClose(): void;
+  /** Closed without a choice: Cancel, Escape or a click beside it. */
+  onCancel?(): void;
   onConfirm?(): void;
+  /** A third choice, between Cancel and the confirmation. */
+  onSecondary?(): void;
+  secondaryText?: string;
+  secondaryVariant?: string;
   title?: string;
 }
 
@@ -21,13 +28,18 @@ export default function ConfirmModal({
   isOpen,
   message,
   onClose,
+  onCancel,
   onConfirm,
+  onSecondary,
+  secondaryText,
+  secondaryVariant = 'secondary',
   title,
 }: ConfirmModalProps) {
   const { t } = useTranslation();
   const [isMounted, setIsMounted] = useState(false);
   const [show, setShow] = useState(false);
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const secondaryRef = useRef<HTMLButtonElement>(null);
   // A destructive confirmation (Delete Permanently, …) is never the default: Cancel
   // has the focus and Enter only confirms when the confirm button itself is focused,
   // as macOS alerts do for destructive actions.
@@ -59,25 +71,37 @@ export default function ConfirmModal({
     onClose();
   }, [onConfirm, onClose]);
 
+  const handleCancel = useCallback(() => {
+    onCancel?.();
+    onClose();
+  }, [onCancel, onClose]);
+
+  const handleSecondary = useCallback(() => {
+    onSecondary?.();
+    onClose();
+  }, [onSecondary, onClose]);
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
       if (e.key === 'Enter') {
         e.preventDefault();
         e.stopPropagation();
         e.nativeEvent.stopImmediatePropagation();
-        if (!destructive || e.target === confirmRef.current) {
+        if (secondaryRef.current && e.target === secondaryRef.current) {
+          handleSecondary();
+        } else if (!destructive || e.target === confirmRef.current) {
           handleConfirm();
         } else {
-          onClose();
+          handleCancel();
         }
       } else if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
         e.nativeEvent.stopImmediatePropagation();
-        onClose();
+        handleCancel();
       }
     },
-    [destructive, handleConfirm, onClose],
+    [destructive, handleConfirm, handleCancel, handleSecondary],
   );
 
   if (!isMounted) {
@@ -89,7 +113,7 @@ export default function ConfirmModal({
       aria-labelledby="confirm-modal-title"
       aria-modal="true"
       className={`studio-dialog-backdrop transition-opacity duration-300 ease-in-out ${show ? 'opacity-100' : 'opacity-0'}`}
-      onClick={onClose}
+      onClick={handleCancel}
       role="dialog"
     >
       <div
@@ -107,13 +131,18 @@ export default function ConfirmModal({
           <Button
             // The default button shows that it is: Enter cancels.
             className={destructive ? 'is-default' : undefined}
-            onClick={onClose}
+            onClick={handleCancel}
             variant="ghost"
             tabIndex={0}
             autoFocus={destructive}
           >
             {resolvedCancelText}
           </Button>
+          {secondaryText && (
+            <Button onClick={handleSecondary} variant={secondaryVariant} ref={secondaryRef}>
+              {secondaryText}
+            </Button>
+          )}
           <Button onClick={handleConfirm} variant={confirmVariant} autoFocus={!destructive} ref={confirmRef}>
             {resolvedConfirmText}
           </Button>
@@ -122,5 +151,6 @@ export default function ConfirmModal({
     </div>
   );
 
-  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
+  // Above a modal dialog it was asked from (Create library), not under it.
+  return typeof document !== 'undefined' ? createPortal(modalContent, overlayHost()) : modalContent;
 }

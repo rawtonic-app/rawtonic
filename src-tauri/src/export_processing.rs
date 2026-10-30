@@ -4,12 +4,14 @@
 pub use rawtonic_export::export_processing::*;
 
 use std::borrow::Cow;
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use image::{DynamicImage, GenericImageView, GrayImage, ImageBuffer, Luma, imageops};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::Emitter;
 use tauri::Manager;
@@ -214,13 +216,24 @@ pub(crate) async fn prepare_ai_denoise<V: std::borrow::Borrow<Value>>(
     app_handle: &tauri::AppHandle,
     recipes: impl IntoIterator<Item = V>,
 ) {
-    let models: std::collections::BTreeSet<usize> = recipes
+    load_denoise_models(app_handle, denoise_models(recipes)).await;
+}
+
+/// The AI Denoise models `recipes` use.
+pub(crate) fn denoise_models<V: std::borrow::Borrow<Value>>(
+    recipes: impl IntoIterator<Item = V>,
+) -> BTreeSet<usize> {
+    recipes
         .into_iter()
         .filter_map(|adjustments| {
             rawtonic_engine::image_loader::ai_denoise_settings(adjustments.borrow())
                 .map(|ai| ai.model())
         })
-        .collect();
+        .collect()
+}
+
+/// Loads `models` (`denoise_models`), once each.
+async fn load_denoise_models(app_handle: &tauri::AppHandle, models: BTreeSet<usize>) {
     for model in models {
         if let Err(e) = crate::ai_denoise::denoiser(app_handle, model).await {
             log::warn!("AI Denoise unavailable for this export: {e}");
@@ -235,8 +248,185 @@ fn is_open_edit(path: &str, open_path: Option<&str>) -> bool {
     open_path == Some(path)
 }
 
-fn set_timestamps_from_exif(src: &Path, dst: &Path) {
-    set_capture_file_times(dst, exif_processing::get_creation_date_from_path(src));
+/// What one photo of an export renders and embeds, read once when the
+/// export was submitted (`pin_photos`): a queued export renders this,
+/// whichever library is open when it runs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PinnedPhoto {
+    /// Its recipe (a virtual copy's own; the editor's for the open photo).
+    pub adjustments: Value,
+    /// The library metadata its files embed (a virtual copy's own rating,
+    /// label and keywords); None outside a session or catalog.
+    pub metadata: Option<rawtonic_metadata::Metadata>,
+    /// The EXIF its editor state or EXIF cache holds (`read_rrexif_sidecar`):
+    /// what its files embed of it, and its capture date for names and file
+    /// times. None when none was read yet (a photo never decoded): the
+    /// export then reads it from the original itself (`exif`).
+    #[serde(default)]
+    pub exif: Option<std::collections::BTreeMap<String, String>>,
+    /// Without `exif`: whether its export embeds the EXIF its decode reads
+    /// from the original. It does unless the library keeps the photo's
+    /// editor state beside a sidecar file, where the decode's map goes to
+    /// the file, which the library's state outranks (as on main).
+    #[serde(default)]
+    pub exif_from_original: bool,
+    /// The EXIF read from the original when it is embedded, once.
+    #[serde(skip)]
+    pub from_original: std::sync::OnceLock<Option<std::collections::HashMap<String, String>>>,
+    /// The session or catalog that owns it (None: no library), under which
+    /// its export runs (`with_culling_owner`), never the library open then.
+    #[serde(default)]
+    pub owner: Option<String>,
+}
+
+impl PinnedPhoto {
+    /// The EXIF of `source` as this snapshot has it, else as the original
+    /// file holds it (what its first decode caches), never as a sidecar or
+    /// library holds it by now.
+    pub(crate) fn exif(&self, source: &Path) -> Option<std::collections::HashMap<String, String>> {
+        match &self.exif {
+            Some(exif) => Some(exif.clone().into_iter().collect()),
+            None if !self.exif_from_original => None,
+            None => self
+                .from_original
+                .get_or_init(|| {
+                    let path = source.to_string_lossy();
+                    let exif = match read_file_mapped(source) {
+                        Ok(bytes) => exif_processing::read_exif_data_from_bytes(&path, &bytes),
+                        Err(_) => exif_processing::read_exif_data_from_bytes(
+                            &path,
+                            &fs::read(source).ok()?,
+                        ),
+                    };
+                    (!exif.is_empty()).then_some(exif)
+                })
+                .clone(),
+        }
+    }
+
+    /// The capture date of `source` (`exif`), for its files' times.
+    pub(crate) fn capture_date(&self, source: &Path) -> chrono::DateTime<chrono::Utc> {
+        exif_processing::capture_date_with(source, &|| self.exif(source))
+    }
+
+    /// The capture date of `source` before it is decoded, for its names:
+    /// the snapshot's, else the file's own (`capture_date_with`).
+    fn naming_date(&self, source: &Path) -> chrono::DateTime<chrono::Utc> {
+        exif_processing::capture_date_with(source, &|| {
+            self.exif
+                .as_ref()
+                .map(|exif| exif.clone().into_iter().collect())
+        })
+    }
+}
+
+/// The photos of an export run (`paths`).
+#[derive(Clone)]
+pub(crate) struct ExportPhotos {
+    /// The photo the editor showed, whose decoded source may be reused.
+    pub open_path: Option<String>,
+    /// The AI Denoise models their recipes use, loaded before the run.
+    pub denoise_models: BTreeSet<usize>,
+    /// What photo `i` (`paths[i]`) is exported with, read when its worker
+    /// starts it, so a run holds only its photos in progress.
+    pub read: Arc<dyn Fn(usize) -> Result<PinnedPhoto, String> + Send + Sync>,
+}
+
+/// What each of `paths` is exported with, read now and once (the point of
+/// no return of a queued export): its recipe (the editor's `open_adjustments`
+/// for `open_path`, else the saved one, a virtual copy's its own) and the
+/// metadata its files embed, both through the library that owns the photo:
+/// its own session, else `submitted_from`, the catalog the export was
+/// submitted from (`culling_library_for`). Never the library open later.
+/// Fails when an owning library cannot be read, rather than taking a
+/// sidecar file or no metadata for what it holds.
+pub(crate) fn pin_photos(
+    paths: &[String],
+    open_path: Option<&str>,
+    open_adjustments: Option<&Value>,
+    submitted_from: Option<&Path>,
+) -> Result<Vec<PinnedPhoto>, String> {
+    use rayon::prelude::*;
+    // The library it was submitted from must be there: else its photos
+    // would count as in no library and lose what it holds of them.
+    if let Some(library) = submitted_from {
+        rawtonic_catalog::Library::open(library)
+            .map_err(|e| format!("The library {} cannot be read: {e:#}", library.display()))?;
+    }
+    paths
+        .par_iter()
+        .map(|path| {
+            let (source, sidecar) = parse_virtual_path(path);
+            let owner = crate::session_bridge::culling_library_for(&source, submitted_from);
+            if let Some(owner) = &owner {
+                library_readable(owner, &source)?;
+            }
+            let owner = owner.map(|dir| dir.to_string_lossy().into_owned());
+            crate::session_bridge::with_culling_owner(owner.as_deref(), || {
+                let saved = exif_processing::load_sidecar(&sidecar);
+                let metadata = crate::session_bridge::catalog_metadata(&source);
+                // A virtual copy is rated, labelled and tagged on its own.
+                let metadata = if path.contains("?vc=") {
+                    metadata.map(|photo| {
+                        rawtonic_catalog::copy_metadata(photo, saved.rating, saved.tags.as_deref())
+                    })
+                } else {
+                    metadata
+                };
+                let adjustments = match open_adjustments {
+                    Some(adjustments) if is_open_edit(path, open_path) => adjustments.clone(),
+                    _ => saved.adjustments,
+                };
+                let exif = exif_processing::read_rrexif_sidecar(&source);
+                let primary = exif_processing::get_primary_sidecar_path(&source);
+                let library_state = || {
+                    crate::session_bridge::read_editor_sidecar(&primary).is_some_and(|state| {
+                        serde_json::from_value::<crate::image_processing::ImageMetadata>(state)
+                            .is_ok()
+                    })
+                };
+                Ok(PinnedPhoto {
+                    adjustments,
+                    metadata,
+                    exif_from_original: exif.is_none() && !(primary.exists() && library_state()),
+                    exif: exif.map(|exif| exif.into_iter().collect()),
+                    owner: owner.clone(),
+                    from_original: Default::default(),
+                })
+            })
+        })
+        .collect()
+}
+
+/// Whether the library `owner` reads what it holds of `source` (its
+/// recipe and metadata) without an error.
+fn library_readable(owner: &Path, source: &Path) -> Result<(), String> {
+    let failed = |e: anyhow::Error| {
+        format!(
+            "The library {} cannot be read for {}: {e:#}",
+            owner.display(),
+            source.display()
+        )
+    };
+    let lib = rawtonic_catalog::Library::open(owner).map_err(failed)?;
+    if let Some(asset) = lib.asset_at(source).map_err(failed)? {
+        lib.metadata(&asset.id).map_err(failed)?;
+        lib.editor_state(&asset.id).map_err(failed)?;
+    }
+    Ok(())
+}
+
+/// Why a photo gone since its export was submitted cannot be exported; it
+/// fails on its own (a cloud file not downloaded yet is there: reading it
+/// downloads it).
+pub(crate) fn missing_source(source: &Path) -> Option<String> {
+    (!source.exists()).then(|| {
+        format!(
+            "{} cannot be found: the original was moved, renamed or deleted, or its drive is not connected",
+            source.display()
+        )
+    })
 }
 
 fn save_image_with_metadata(
@@ -245,10 +435,10 @@ fn save_image_with_metadata(
     source_path_str: &str,
     export_settings: &ExportSettings,
     generated: bool,
+    pinned: &PinnedPhoto,
 ) -> Result<(), String> {
-    let source_file = Path::new(source_path_str);
-    let exif_sidecar = || exif_processing::read_rrexif_sidecar(source_file);
-    let catalog = || crate::session_bridge::catalog_metadata(source_file);
+    let exif_sidecar = || pinned.exif(Path::new(source_path_str));
+    let catalog = || pinned.metadata.clone();
     save_export_image(
         image,
         source_path_str,
@@ -286,6 +476,7 @@ fn export_masks_for_image(
     state: &tauri::State<AppState>,
     is_raw: bool,
     app_handle: &tauri::AppHandle,
+    pinned: &PinnedPhoto,
     cancellation_token: &AtomicBool,
 ) -> Result<(), String> {
     ensure_export_not_cancelled(cancellation_token)?;
@@ -384,11 +575,15 @@ fn export_masks_for_image(
                 source_path_str,
                 export_settings,
                 rawtonic_engine::image_loader::has_generated_areas(js_adjustments),
+                pinned,
             )?;
             ensure_export_not_cancelled(cancellation_token)?;
 
             if export_settings.preserve_timestamps {
-                set_timestamps_from_exif(Path::new(source_path_str), &mask_image_path);
+                set_capture_file_times(
+                    &mask_image_path,
+                    pinned.capture_date(Path::new(source_path_str)),
+                );
             }
 
             let alpha_bytes = encode_grayscale_to_png(&alpha_resized)?;
@@ -647,7 +842,7 @@ pub(crate) struct ExportTarget {
 pub(crate) async fn export_images_impl(
     paths: Vec<String>,
     targets: Vec<ExportTarget>,
-    adjustments_mode: ExportAdjustmentsMode,
+    photos: ExportPhotos,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
     completion_tx: Option<tokio::sync::oneshot::Sender<Result<(), usize>>>,
@@ -733,13 +928,7 @@ pub(crate) async fn export_images_impl(
 
     let _export_task = tokio::spawn(async move {
         let _task_guard = task_guard;
-        let recipes = paths.iter().map(|path| match &adjustments_mode {
-            ExportAdjustmentsMode::GlobalOverride(adj) => adj.clone(),
-            ExportAdjustmentsMode::UseSidecars { .. } => {
-                crate::exif_processing::load_sidecar(&parse_virtual_path(path).1).adjustments
-            }
-        });
-        prepare_ai_denoise(&app_handle, recipes).await;
+        load_denoise_models(&app_handle, photos.denoise_models.clone()).await;
         let settings = load_settings(app_handle.clone()).unwrap_or_default();
         let targets = Arc::new(targets);
 
@@ -800,29 +989,37 @@ pub(crate) async fn export_images_impl(
             let targets = Arc::clone(&targets);
             let settings = settings.clone();
             let cancellation_token_clone = Arc::clone(&cancellation_token);
-            let adjustments_mode = adjustments_mode.clone();
+            let photos = photos.clone();
             let used_paths_clone = Arc::clone(&used_paths);
             let lane = lanes.take();
 
             let handle = tokio::task::spawn_blocking(move || {
                 let results = lane.install(|| {
-                    export_photo(
-                        &app_handle_clone,
-                        &context_clone,
-                        &settings,
-                        &targets,
-                        &wanted,
-                        &adjustments_mode,
-                        &used_paths_clone,
-                        &cancellation_token_clone,
-                        PhotoItem {
-                            global_index,
-                            image_path_str: &image_path_str,
-                            appearance_count,
-                            explicit_vc,
-                            total_paths,
-                        },
-                    )
+                    // Under the library the photo was submitted with: what
+                    // its export still reads or stores (the EXIF its decode
+                    // caches) goes there, never to the library open now.
+                    let pinned = (photos.read)(global_index);
+                    let owner = pinned.as_ref().ok().and_then(|p| p.owner.clone());
+                    crate::session_bridge::with_culling_owner(owner.as_deref(), || {
+                        export_photo(
+                            &app_handle_clone,
+                            &context_clone,
+                            &settings,
+                            &targets,
+                            &wanted,
+                            photos.open_path.as_deref(),
+                            pinned,
+                            &used_paths_clone,
+                            &cancellation_token_clone,
+                            PhotoItem {
+                                global_index,
+                                image_path_str: &image_path_str,
+                                appearance_count,
+                                explicit_vc,
+                                total_paths,
+                            },
+                        )
+                    })
                 });
                 drop(lane);
 
@@ -1090,7 +1287,8 @@ fn export_photo(
     settings: &crate::app_settings::AppSettings,
     targets: &[ExportTarget],
     wanted: &[usize],
-    adjustments_mode: &ExportAdjustmentsMode,
+    open_path: Option<&str>,
+    pinned: Result<PinnedPhoto, String>,
     used_paths: &Mutex<std::collections::HashSet<std::path::PathBuf>>,
     cancellation_token: &AtomicBool,
     item: PhotoItem,
@@ -1114,32 +1312,20 @@ fn export_photo(
 
     let state = app_handle.state::<AppState>();
     let image_path_str = item.image_path_str;
-    let (source_path, sidecar_path) = parse_virtual_path(image_path_str);
+    let (source_path, _) = parse_virtual_path(image_path_str);
     let source_path_str = source_path.to_string_lossy().to_string();
+    if let Some(error) = missing_source(&source_path) {
+        return fail_all(error);
+    }
 
-    let is_current_edit = match adjustments_mode {
-        ExportAdjustmentsMode::UseSidecars { active_path, .. } => {
-            is_open_edit(image_path_str, active_path.as_deref())
-        }
-        ExportAdjustmentsMode::GlobalOverride(_) => false,
+    let is_current_edit = is_open_edit(image_path_str, open_path);
+    // Only what the export was submitted with (`pin_photos`): no recipe or
+    // metadata is read from a library now.
+    let mut pinned = match pinned {
+        Ok(pinned) => pinned,
+        Err(e) => return fail_all(e),
     };
-
-    let mut js_adjustments = match adjustments_mode {
-        ExportAdjustmentsMode::UseSidecars {
-            active_adjustments, ..
-        } => {
-            if is_current_edit {
-                if let Some(adj) = active_adjustments {
-                    adj.clone()
-                } else {
-                    crate::exif_processing::load_sidecar(&sidecar_path).adjustments
-                }
-            } else {
-                crate::exif_processing::load_sidecar(&sidecar_path).adjustments
-            }
-        }
-        ExportAdjustmentsMode::GlobalOverride(adj) => adj.clone(),
-    };
+    let mut js_adjustments = std::mem::take(&mut pinned.adjustments);
 
     hydrate_adjustments(&state, &mut js_adjustments);
     // A never-edited photo exports with the camera's lens data,
@@ -1151,7 +1337,7 @@ fn export_photo(
     }
     let is_raw = is_raw_file(&source_path_str);
     let original_path = std::path::Path::new(&source_path_str);
-    let file_date = exif_processing::get_creation_date_from_path(original_path);
+    let file_date = pinned.naming_date(original_path);
 
     // Each recipe's file is named (and recorded) right before it is
     // written, as when each recipe was its own export.
@@ -1339,9 +1525,8 @@ fn export_photo(
         .any(|&target| with_mask_files(target))
         .then_some(source);
 
-    let source_file = Path::new(&source_path_str);
-    let exif_sidecar = || exif_processing::read_rrexif_sidecar(source_file);
-    let catalog = || crate::session_bridge::catalog_metadata(source_file);
+    let exif_sidecar = || pinned.exif(original_path);
+    let catalog = || pinned.metadata.clone();
     results.extend(export_in_turn(images, plan, |target, output_path| {
         let export_settings = &targets[target].export_settings;
         {
@@ -1399,7 +1584,7 @@ fn export_photo(
             // export it again under a new name or miss its masks).
             let finish_photo = AtomicBool::new(false);
             if export_settings.preserve_timestamps {
-                set_timestamps_from_exif(Path::new(&source_path_str), output_path);
+                set_capture_file_times(output_path, pinned.capture_date(original_path));
             }
 
             if export_settings.export_masks
@@ -1419,6 +1604,7 @@ fn export_photo(
                     &state,
                     is_raw,
                     app_handle,
+                    &pinned,
                     &finish_photo,
                 )?;
             }
@@ -1447,6 +1633,7 @@ pub async fn export_images(
     output_format: String,
     current_edit_path: Option<String>,
     current_edit_adjustments: Option<Value>,
+    library: crate::export_queue::SubmittedFrom,
     app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
     if paths.is_empty() {
@@ -1465,21 +1652,28 @@ pub async fn export_images(
             output_format,
             current_edit_path,
             current_edit_adjustments,
+            library,
+            pinned: None,
         },
     )
+    .await
 }
 
 /// The exports of a photo set's ticked recipes, queued together so they run
 /// as one: each photo is developed once for all of them.
 #[tauri::command]
 pub async fn export_images_batch(
-    requests: Vec<crate::export_queue::ExportRequest>,
+    mut requests: Vec<crate::export_queue::ExportRequest>,
     app_handle: tauri::AppHandle,
 ) -> Result<Vec<String>, String> {
     if requests.iter().any(|request| request.paths.is_empty()) || requests.is_empty() {
         return Err("Nothing to export.".to_string());
     }
-    crate::export_queue::enqueue_all(&app_handle, requests)
+    for request in &mut requests {
+        // Pinned here, from the library, never as the interface says.
+        request.pinned = None;
+    }
+    crate::export_queue::enqueue_all(&app_handle, requests).await
 }
 
 /// Fails before any render when exports could not be written to `folder`
@@ -1597,13 +1791,31 @@ pub async fn run_headless_export(
 
     let (tx, rx) = tokio::sync::oneshot::channel();
 
-    let mode = if let Some(adj) = custom_adjustments {
-        ExportAdjustmentsMode::GlobalOverride(adj)
-    } else {
-        ExportAdjustmentsMode::UseSidecars {
-            active_path: None,
-            active_adjustments: None,
-        }
+    // Each photo is read when it is exported, through the library open now.
+    let library = crate::session_bridge::active_library_directory();
+    let read = {
+        let paths = paths.clone();
+        Arc::new(move |index: usize| {
+            let mut photo =
+                pin_photos(&paths[index..=index], None, None, library.as_deref())?.remove(0);
+            if let Some(adjustments) = &custom_adjustments {
+                photo.adjustments = adjustments.clone();
+            }
+            Ok(photo)
+        })
+    };
+    let denoise_models = {
+        let (read, count) = (Arc::clone(&read), paths.len());
+        tauri::async_runtime::spawn_blocking(move || {
+            denoise_models((0..count).filter_map(|i| read(i).ok().map(|p| p.adjustments)))
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    };
+    let photos = ExportPhotos {
+        open_path: None,
+        denoise_models,
+        read,
     };
 
     let recipes = match &session.recipes {
@@ -1628,7 +1840,7 @@ pub async fn run_headless_export(
     export_images_impl(
         paths,
         targets,
-        mode,
+        photos,
         state.clone(),
         app_handle.clone(),
         Some(tx),

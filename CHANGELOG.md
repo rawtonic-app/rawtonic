@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Queued exports keep to the library they were started from. Each photo's recipe, metadata and EXIF are read once, when the export is added to the queue, from the session or catalog it was started in. Opening another session or catalog while exports wait no longer changes what they render or embed. Virtual copies now embed their own rating, colour label and keywords. A photo moved or deleted before its turn fails on its own and says why. An export whose photos have edits that could not be saved is not started. Exports that an earlier version left in the queue are not run: they show as failed with "export it again".
+
 ## 0.1.0-alpha.9.1 — 2026-10-28
 
 A small update to the spot tool: it is chosen as soon as you pick what it does, and what you healed, cloned or removed can now be found, hidden and deleted without knowing a keyboard shortcut. Existing edits and exports are unchanged.

@@ -1245,6 +1245,7 @@
       "failed": "Die letzte Bibliothek konnte nicht geöffnet werden: {{error}}",
       "opening": "{{name}} wird geöffnet ({{directory}})… Wenn macOS nach dem Zugriff auf dieses Volume fragt, erlaube ihn."
     },
+    "switching": "Bibliothek wird geöffnet …",
     "sync": {
       "applied": "Verschoben {{moved}} · Hinzugefügt {{added}} · Entfernt {{removed}}",
       "apply": "Übernehmen ({{n}})",
@@ -1463,6 +1464,13 @@
       "unsaved": "Änderungen konnten nicht gespeichert werden: {{files}}",
       "verifyProgress_one": "Prüfen · {{count}} Datei geprüft",
       "verifyProgress_other": "Prüfen · {{count}} Dateien geprüft"
+    },
+    "unsaved": {
+      "cancel": "Abbrechen",
+      "discard": "Ungespeicherte Änderungen verwerfen",
+      "message": "Diese Änderungen konnten nicht gespeichert werden: {{files}}. Wenn jetzt eine andere Bibliothek geöffnet wird, gehen sie verloren. Erneut versuchen, um sie zuerst zu speichern, verwerfen oder abbrechen, um in dieser Bibliothek zu bleiben.",
+      "retry": "Erneut versuchen",
+      "title": "Änderungen nicht gespeichert"
     },
     "welcome": {
       "body": "Ein Shooting oder deine ganze Sammlung? Wähle die passende Organisation — die Bearbeitungswerkzeuge sind dieselben.",
@@ -2785,7 +2793,8 @@
       "toasts": {
         "queuedMany_one": "{{count}} Export zur Warteschlange hinzugefügt.",
         "queuedMany_other": "{{count}} Exporte zur Warteschlange hinzugefügt.",
-        "queuedOne": "Zur Exportwarteschlange hinzugefügt."
+        "queuedOne": "Zur Exportwarteschlange hinzugefügt.",
+        "unsavedEdits": "Die Bearbeitungen von {{names}} konnten nicht gespeichert werden, daher wurde nichts exportiert. Exportiere erneut, sobald sie gespeichert sind."
       },
       "watermark": {
         "add": "Wasserzeichen hinzufügen",
@@ -3630,7 +3639,9 @@
     "multiView": {
       "controls": "{{name}} markieren, bewerten oder entfernen",
       "editAll": "Alle ausgewählten bearbeiten",
+      "editAllNotSaved": "„Alle ausgewählten bearbeiten“ konnte diese Fotos nicht speichern: {{names}}. Sie behalten ihre früheren Einstellungen, bis du es erneut versuchst.",
       "editAllTitle": "Alle ausgewählten bearbeiten: Änderungen am Hauptfoto gehen auch an jedes andere gezeigte Foto (orange Rahmen)",
+      "editAllTryAgain": "Erneut versuchen",
       "makePrimary": "{{name}} bearbeiten (zum Hauptfoto machen)",
       "more_one": "und {{n}} weiteres",
       "more_other": "und {{n}} weitere",

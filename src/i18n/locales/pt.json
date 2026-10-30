@@ -1288,6 +1288,7 @@
       "failed": "Não foi possível abrir a última biblioteca: {{error}}",
       "opening": "Abrindo {{name}} ({{directory}})… Se o macOS pedir acesso a este volume, permita."
     },
+    "switching": "Abrindo a biblioteca…",
     "sync": {
       "applied": "Movidas {{moved}} · Adicionadas {{added}} · Removidas {{removed}}",
       "apply": "Aplicar ({{n}})",
@@ -1519,6 +1520,13 @@
       "verifyProgress_one": "Verificando · {{count}} arquivo conferido",
       "verifyProgress_many": "Verificando · {{count}} arquivos conferidos",
       "verifyProgress_other": "Verificando · {{count}} arquivos conferidos"
+    },
+    "unsaved": {
+      "cancel": "Cancelar",
+      "discard": "Descartar alterações não guardadas",
+      "message": "Não foi possível guardar estas alterações: {{files}}. Abrir outra biblioteca agora perde-as. Tente novamente para as guardar primeiro, descarte-as ou cancele para ficar nesta biblioteca.",
+      "retry": "Tentar novamente",
+      "title": "Alterações não guardadas"
     },
     "welcome": {
       "body": "Crie um projeto portátil para o seu próximo ensaio. Mantenha capturas, ajustes e entregas juntos, do primeiro quadro à seleção final.",
@@ -2858,7 +2866,8 @@
         "queuedMany_one": "{{count}} exportação adicionada à fila.",
         "queuedMany_many": "{{count}} exportações adicionadas à fila.",
         "queuedMany_other": "{{count}} exportações adicionadas à fila.",
-        "queuedOne": "Adicionado à fila de exportação."
+        "queuedOne": "Adicionado à fila de exportação.",
+        "unsavedEdits": "Não foi possível guardar as edições de {{names}}, por isso nada foi exportado. Exporte novamente quando estiverem guardadas."
       },
       "watermark": {
         "add": "Adicionar marca d'água",
@@ -3734,7 +3743,9 @@
     "multiView": {
       "controls": "Marcar, classificar ou remover {{name}}",
       "editAll": "Editar todas as selecionadas",
+      "editAllNotSaved": "“Editar todas as selecionadas” não conseguiu salvar estas fotos: {{names}}. Elas mantêm os ajustes anteriores até você tentar de novo.",
       "editAllTitle": "Editar todas as selecionadas: as alterações na foto principal também vão para cada outra foto mostrada (molduras laranja)",
+      "editAllTryAgain": "Tentar de novo",
       "makePrimary": "Editar {{name}} (torná-la a foto principal)",
       "more_one": "e mais {{n}}",
       "more_many": "e mais {{n}}",

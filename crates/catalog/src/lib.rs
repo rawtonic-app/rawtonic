@@ -1186,29 +1186,13 @@ impl Library {
             meta.rating = rating as u8;
         }
         if let Some(tags) = legacy.get("tags") {
-            meta.keywords.clear();
-            meta.label.clear();
-            for tag in tags
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-            {
-                if let Some(color) = tag.strip_prefix("color:") {
-                    let mut chars = color.chars();
-                    meta.label = chars
-                        .next()
-                        .map(|c| c.to_uppercase().collect::<String>() + chars.as_str())
-                        .unwrap_or_default();
-                } else {
-                    // The editor marks keywords the user typed with `user:`;
-                    // the catalog and XMP store the keyword itself.
-                    let keyword = tag.strip_prefix(USER_TAG_PREFIX).unwrap_or(tag);
-                    if !meta.keywords.iter().any(|k| k == keyword) {
-                        meta.keywords.push(keyword.to_string());
-                    }
-                }
-            }
+            set_editor_tags(
+                &mut meta,
+                tags.as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str),
+            );
         }
         // The editor changes labels through tags. A loaded state can still carry
         // the previous adapter-only colorLabel value; it must not undo that edit.
@@ -2380,6 +2364,41 @@ fn search_text(metadata: &Metadata) -> String {
 /// The editor's prefix for keywords the user typed (other tags come from
 /// automatic tagging).
 const USER_TAG_PREFIX: &str = "user:";
+
+/// Sets the colour label and keywords from an editor state's tags.
+fn set_editor_tags<'a>(meta: &mut Metadata, tags: impl IntoIterator<Item = &'a str>) {
+    meta.keywords.clear();
+    meta.label.clear();
+    for tag in tags {
+        if let Some(color) = tag.strip_prefix("color:") {
+            let mut chars = color.chars();
+            meta.label = chars
+                .next()
+                .map(|c| c.to_uppercase().collect::<String>() + chars.as_str())
+                .unwrap_or_default();
+        } else {
+            // The editor marks keywords the user typed with `user:`;
+            // the catalog and XMP store the keyword itself.
+            let keyword = tag.strip_prefix(USER_TAG_PREFIX).unwrap_or(tag);
+            if !meta.keywords.iter().any(|k| k == keyword) {
+                meta.keywords.push(keyword.to_string());
+            }
+        }
+    }
+}
+
+/// The metadata of a virtual copy: its photograph's `metadata` with the
+/// rating, colour label and keywords the copy's own editor state holds
+/// (the copy has none of them when it has no tags), as the library shows
+/// the copy.
+pub fn copy_metadata(mut metadata: Metadata, rating: u8, tags: Option<&[String]>) -> Metadata {
+    metadata.rating = rating.min(5);
+    set_editor_tags(
+        &mut metadata,
+        tags.into_iter().flatten().map(String::as_str),
+    );
+    metadata
+}
 
 /// A photograph's editor state with the library's rating, keywords and
 /// label. A photograph never edited has no state of its own; when the library

@@ -84,6 +84,7 @@ import "./session.css";
 import { noteTool } from "../contribute/usageStats";
 import { flagTargets, viewerShown } from "../../utils/viewerMode";
 import { notifyAppCommandsChanged, COMMAND_DIALOG_SELECTOR, registerAppCommands, runAppCommand } from "../../utils/appCommands";
+import { switchLibraryAfterSaves } from "../../utils/quit";
 
 export interface SessionSummary {
   directory: string;
@@ -297,10 +298,16 @@ export function restoreLastSession(
     window.clearTimeout(slow);
     toast.dismiss(notice);
   };
-  return invoke<SessionSummary | null>(Invokes.SessionLast)
-    .then((last) => {
-      done();
-      if (last) void navigate(last).catch((e) => setError(String(e)));
+  // Edits made in a folder while the library is still restoring are
+  // saved there first, as before any library switch.
+  return switchLibraryAfterSaves(async () => {
+    const last = await invoke<SessionSummary | null>(Invokes.SessionLast);
+    done();
+    if (last) await navigate(last).catch((e) => setError(String(e)));
+    return true;
+  })
+    .then((restored) => {
+      if (!restored) done();
     })
     .catch((e) => {
       done();
@@ -1053,8 +1060,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     setBusy(true);
     setError("");
     try {
-      await navigate(
-        await invoke<SessionSummary>(Invokes.SessionOpen, { directory }),
+      await switchLibraryAfterSaves(async () =>
+        navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory })),
       );
     } catch (e) {
       setError(String(e));
@@ -1084,12 +1091,15 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         parent,
         name.trim() + (asCatalog ? ".catalog" : ""),
       );
-      const summary = await invoke<SessionSummary>(Invokes.SessionCreate, {
-        directory,
-        name: name.trim(),
-        catalog: asCatalog,
+      const created = await switchLibraryAfterSaves(async () => {
+        await navigate(await invoke<SessionSummary>(Invokes.SessionCreate, {
+          directory,
+          name: name.trim(),
+          catalog: asCatalog,
+        }));
+        return true;
       });
-      await navigate(summary);
+      if (!created) return;
       if (importAfterCreate) {
         setImportAfterCreate(false);
         openImport();
@@ -1581,7 +1591,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       )}
       {transfer && <LibraryTransferDialog purpose={transfer} directory={session?.directory} name={session?.manifest.name}
         onClose={() => setTransfer(null)} onOpen={async (directory) => {
-          await navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory }));
+          await switchLibraryAfterSaves(async () =>
+            navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory })));
         }} />}
       <dialog
         ref={dialog}

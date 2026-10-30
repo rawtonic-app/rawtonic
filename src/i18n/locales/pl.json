@@ -1331,6 +1331,7 @@
       "failed": "Nie udało się otworzyć ostatniej biblioteki: {{error}}",
       "opening": "Otwieranie {{name}} ({{directory}})… Jeśli macOS poprosi o dostęp do tego woluminu, zezwól na niego."
     },
+    "switching": "Otwieranie biblioteki…",
     "sync": {
       "applied": "Przeniesione: {{moved}} · Dodane: {{added}} · Usunięte: {{removed}}",
       "apply": "Zastosuj ({{n}})",
@@ -1575,6 +1576,13 @@
       "verifyProgress_few": "Weryfikacja · sprawdzono {{count}} pliki",
       "verifyProgress_many": "Weryfikacja · sprawdzono {{count}} plików",
       "verifyProgress_other": "Weryfikacja · sprawdzono {{count}} pliku"
+    },
+    "unsaved": {
+      "cancel": "Anuluj",
+      "discard": "Odrzuć niezapisane zmiany",
+      "message": "Nie udało się zapisać tych zmian: {{files}}. Otwarcie teraz innej biblioteki spowoduje ich utratę. Spróbuj ponownie, aby najpierw je zapisać, odrzuć je lub anuluj, aby pozostać w tej bibliotece.",
+      "retry": "Spróbuj ponownie",
+      "title": "Zmiany niezapisane"
     },
     "welcome": {
       "body": "Utwórz przenośny projekt na następną sesję zdjęciową. Trzymaj ujęcia, edycje i materiały do oddania razem, od pierwszej klatki po ostateczny wybór.",
@@ -2931,7 +2939,8 @@
         "queuedMany_few": "Dodano {{count}} eksporty do kolejki.",
         "queuedMany_many": "Dodano {{count}} eksportów do kolejki.",
         "queuedMany_other": "Dodano {{count}} eksportu do kolejki.",
-        "queuedOne": "Dodano do kolejki eksportu."
+        "queuedOne": "Dodano do kolejki eksportu.",
+        "unsavedEdits": "Nie udało się zapisać edycji {{names}}, więc nic nie zostało wyeksportowane. Wyeksportuj ponownie po ich zapisaniu."
       },
       "watermark": {
         "add": "Dodaj znak wodny",
@@ -3838,7 +3847,9 @@
     "multiView": {
       "controls": "Oznacz, oceń lub usuń {{name}}",
       "editAll": "Edytuj wszystkie zaznaczone",
+      "editAllNotSaved": "„Edytuj wszystkie zaznaczone” nie mogło zapisać tych zdjęć: {{names}}. Zachowują wcześniejsze ustawienia, dopóki nie spróbujesz ponownie.",
       "editAllTitle": "Edytuj wszystkie zaznaczone: zmiany zdjęcia głównego trafiają też do każdego innego pokazanego zdjęcia (pomarańczowe ramki)",
+      "editAllTryAgain": "Spróbuj ponownie",
       "makePrimary": "Edytuj {{name}} (ustaw jako zdjęcie główne)",
       "more_one": "i {{n}} więcej",
       "more_few": "i {{n}} więcej",

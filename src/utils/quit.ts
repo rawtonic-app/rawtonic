@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import i18next from 'i18next';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Invokes } from '../components/ui/AppProperties';
 import { useUIStore } from '../store/useUIStore';
@@ -8,6 +9,9 @@ import { useUIStore } from '../store/useUIStore';
 export type QuitFlush = () => Promise<string[]>;
 
 const flushes = new Set<QuitFlush>();
+
+const listed = (failures: string[]) =>
+  failures.slice(0, 5).join(', ') + (failures.length > 5 ? `, … (${failures.length} in all)` : '');
 
 /** Registers a flush for quitting; returns its unregistration. */
 export function registerQuitFlush(flush: QuitFlush): () => void {
@@ -23,6 +27,95 @@ export async function flushBeforeQuit(): Promise<string[]> {
   return results.flatMap((result) => (result.status === 'fulfilled' ? result.value : [String(result.reason)]));
 }
 
+/** Forgets what a library's pending saves held once a switch to another
+ * library begins (its saves are written or discarded by then); returns the
+ * end of the switch. */
+export type LibrarySwitchReset = () => () => void;
+
+const resets = new Set<LibrarySwitchReset>();
+
+/** Registers a reset for library switches; returns its unregistration. */
+export function registerLibrarySwitchReset(reset: LibrarySwitchReset): () => void {
+  resets.add(reset);
+  return () => {
+    resets.delete(reset);
+  };
+}
+
+/** Saves that failed and are sent again only when the user asks: Retry
+ * in the library switch's question. */
+const retries = new Set<() => Promise<void>>();
+
+/** Registers what Retry sends again; returns its unregistration. */
+export function registerRetryAfterAsking(retry: () => Promise<void>): () => void {
+  retries.add(retry);
+  return () => {
+    retries.delete(retry);
+  };
+}
+
+/** What the user chose when saves failed before a library switch. */
+export type UnsavedChoice = 'retry' | 'discard' | 'cancel';
+export type AskBeforeSwitch = (failures: string[]) => Promise<UnsavedChoice>;
+
+/** The app's dialog for a library switch with unsaved edits. */
+export const confirmSwitchWithUnsaved: AskBeforeSwitch = (failures) =>
+  new Promise((resolve) => {
+    const t = i18next.t.bind(i18next);
+    useUIStore.getState().setUI({
+      confirmModalState: {
+        isOpen: true,
+        title: t('session.unsaved.title'),
+        message: t('session.unsaved.message', { files: listed(failures) }),
+        confirmText: t('session.unsaved.retry'),
+        secondaryText: t('session.unsaved.discard'),
+        secondaryVariant: 'destructive',
+        cancelText: t('session.unsaved.cancel'),
+        onConfirm: () => resolve('retry'),
+        onSecondary: () => resolve('discard'),
+        onCancel: () => resolve('cancel'),
+      },
+    });
+  });
+
+/**
+ * Switching library (opening or creating a session or catalog) is a
+ * barrier: every pending save is written to the library it was made in
+ * first (the same flushes as quitting). While one still fails the switch
+ * waits for the user: Retry, Discard the unsaved edits, or Cancel (null,
+ * nothing opened). Once past it, nothing pending from the old library is
+ * written through the new one (`registerLibrarySwitchReset`).
+ */
+export async function switchLibraryAfterSaves<T>(
+  open: () => Promise<T>,
+  ask: AskBeforeSwitch = confirmSwitchWithUnsaved,
+): Promise<T | null> {
+  // From the first save until the next library is open nothing can be
+  // edited: an edit made while the saves are written could miss them, and
+  // one made later could be saved in neither library. While the user is
+  // asked, the question holds the app instead.
+  const hold = (holding: boolean) => useUIStore.getState().setUI({ switchingLibrary: holding });
+  hold(true);
+  let ends: (() => void)[] = [];
+  try {
+    for (;;) {
+      const failures = await flushBeforeQuit();
+      if (!failures.length) break;
+      hold(false);
+      const choice = await ask(failures);
+      if (choice === 'cancel') return null;
+      hold(true);
+      if (choice === 'discard') break;
+      await Promise.all([...retries].map((retry) => retry()));
+    }
+    ends = [...resets].map((reset) => reset());
+    return await open();
+  } finally {
+    ends.forEach((end) => end());
+    hold(false);
+  }
+}
+
 /** Asks the user whether to quit although `failures` were not saved;
  * `quit` quits. */
 export type AskToQuitAnyway = (failures: string[], quit: () => void) => void;
@@ -32,13 +125,12 @@ export const confirmQuitWithUnsaved: AskToQuitAnyway = (failures, quit) => {
   // Quit may come from the menu while the window is minimised or hidden.
   const appWindow = getCurrentWindow();
   void appWindow.unminimize().then(() => appWindow.show()).then(() => appWindow.setFocus()).catch(() => undefined);
-  const listed = failures.slice(0, 5).join(', ') + (failures.length > 5 ? `, … (${failures.length} in all)` : '');
   useUIStore.getState().setUI({
     confirmModalState: {
       confirmText: 'Quit Anyway',
       confirmVariant: 'destructive',
       isOpen: true,
-      message: `These changes could not be saved: ${listed}. Quitting now loses them; cancel to keep Rawtonic open and try again.`,
+      message: `These changes could not be saved: ${listed(failures)}. Quitting now loses them; cancel to keep Rawtonic open and try again.`,
       onConfirm: quit,
       title: 'Changes Not Saved',
     },

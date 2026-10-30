@@ -12,7 +12,7 @@ import { Invokes } from "../ui/AppProperties";
 import { useLibraryActions } from "../../hooks/useLibraryActions";
 import { COLOR_LABELS } from "../../utils/adjustments";
 import { ToolGroup } from "./StudioDevelop";
-import { catalogChanged, invokeInOrder } from "../../utils/catalogWrites";
+import { catalogChanged, invokeInOrder, trackMetadataWrite } from "../../utils/catalogWrites";
 
 /** The editor's marker for keywords the user typed; other tags are automatic. */
 const USER_TAG_PREFIX = "user:";
@@ -536,11 +536,13 @@ export function StudioMetadataTool() {
   const save = async (field: TextField, value: string) => {
     if (!session) return;
     try {
-      const written = await invoke<Record<string, TextMetadata>>(Invokes.SessionSetTextMetadata, {
-        directory: session,
-        paths,
-        update: { [field]: value },
-      });
+      const written = await trackMetadataWrite(
+        invoke<Record<string, TextMetadata>>(Invokes.SessionSetTextMetadata, {
+          directory: session,
+          paths,
+          update: { [field]: value },
+        }),
+      );
       catalogChanged();
       cache.merge(written);
     } catch (e) {

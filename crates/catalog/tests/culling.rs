@@ -99,3 +99,45 @@ fn mixed_flag_batch_undo_restores_every_previous_value_and_marks_xmp_pending() {
     );
     assert_eq!(lib.metadata(&ids[0]).unwrap().flag, 1);
 }
+
+#[test]
+fn a_virtual_copy_keeps_its_photographs_metadata_but_its_own_rating_label_and_keywords() {
+    let photo = rawtonic_metadata::Metadata {
+        rating: 2,
+        label: "Red".into(),
+        keywords: vec!["pier".into()],
+        title: "Harbour".into(),
+        creator: "N".into(),
+        ..Default::default()
+    };
+    let tags = [
+        "color:green".to_string(),
+        "user:print".into(),
+        "boat".into(),
+    ];
+    let copy = rawtonic_catalog::copy_metadata(photo.clone(), 5, Some(&tags));
+    assert_eq!(
+        (copy.rating, copy.label.as_str(), copy.keywords.clone()),
+        (5, "Green", vec!["print".to_string(), "boat".into()])
+    );
+    assert_eq!(
+        (copy.title.as_str(), copy.creator.as_str()),
+        ("Harbour", "N")
+    );
+    // Read as the library reads a photograph's editor state.
+    let temp = tempfile::tempdir().unwrap();
+    let lib = Library::create(&temp.path().join("S"), "S", Mode::Session).unwrap();
+    let source = temp.path().join("S/Capture/a.arw");
+    std::fs::write(&source, b"synthetic original").unwrap();
+    let asset = lib.add_asset(&source).unwrap();
+    lib.save_editor_state(
+        &asset.id,
+        &json!({"rating": 5, "tags": tags, "adjustments": {}}),
+    )
+    .unwrap();
+    let stored = lib.metadata(&asset.id).unwrap();
+    assert_eq!((stored.label, stored.keywords), (copy.label, copy.keywords));
+    let untagged = rawtonic_catalog::copy_metadata(photo, 1, None);
+    assert_eq!((untagged.rating, untagged.label.as_str()), (1, ""));
+    assert!(untagged.keywords.is_empty());
+}

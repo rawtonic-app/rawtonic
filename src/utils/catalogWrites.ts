@@ -4,6 +4,27 @@ import { IMPORTS_CHANGED } from './folderSync';
 import { OFFLINE_CHANGED } from './offline';
 
 let last: Promise<unknown> = Promise.resolve();
+/** Metadata writes not settled yet (`trackMetadataWrite`). */
+const unsettled = new Set<Promise<unknown>>();
+
+/** Counts `write` (a rating, label, keyword or EXIF write, or a step that
+ * makes one) among those `metadataWritesSettled` waits for; returns it. */
+export function trackMetadataWrite<T>(write: Promise<T>): Promise<T> {
+  const settled = write.then(
+    () => undefined,
+    () => undefined,
+  );
+  unsettled.add(settled);
+  void settled.then(() => unsettled.delete(settled));
+  return write;
+}
+
+/** Resolves once every metadata write given so far has settled (also those
+ * they start meanwhile): an export takes each photo's metadata after this,
+ * so a rating set just before Export is in it. */
+export async function metadataWritesSettled(): Promise<void> {
+  while (unsettled.size > 0) await Promise.all(unsettled);
+}
 /** Photographs this window rated, with how many of those writes did not
  * fail (yet). Labels and keywords keep the stored rating; a failed write
  * changed nothing. */
@@ -42,6 +63,7 @@ export function invokeInOrder<T>(command: string, args: InvokeArgs): Promise<T> 
       else rated.delete(path);
     }
   });
+  trackMetadataWrite(run);
   last = run.catch(() => undefined);
   void run.finally(catalogChanged).catch(() => undefined);
   return run;

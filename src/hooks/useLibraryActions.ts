@@ -9,7 +9,7 @@ import { globalImageCache } from '../utils/ImageLRUCache';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { computeSortedLibrary } from './useSortedLibrary';
 import { expandGroupedPaths } from '../utils/imageGrouping';
-import { invokeInOrder } from '../utils/catalogWrites';
+import { invokeInOrder, trackMetadataWrite } from '../utils/catalogWrites';
 import { catalogAction, showCullingChanges, type CullingChange } from '../utils/appUndo';
 import type { FolderTree } from '../utils/folderTree';
 import { noteTool } from '../components/contribute/usageStats';
@@ -174,7 +174,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
     const physicalPathsArray = Array.from(physicalPathsSet);
 
     try {
-      await invoke(Invokes.UpdateExifFields, { paths: physicalPathsArray, updates });
+      await trackMetadataWrite(invoke(Invokes.UpdateExifFields, { paths: physicalPathsArray, updates }));
 
       setEditor((state) => {
         if (!state.selectedImage || !physicalPathsSet.has(state.selectedImage.path.split('?vc=')[0])) return state;

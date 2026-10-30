@@ -1245,6 +1245,7 @@
       "failed": "Last library could not open: {{error}}",
       "opening": "Opening {{name}} ({{directory}})… If macOS asks for access to this volume, allow it."
     },
+    "switching": "Opening library…",
     "sync": {
       "applied": "Moved {{moved}} · Added {{added}} · Removed {{removed}}",
       "apply": "Apply ({{n}})",
@@ -1463,6 +1464,13 @@
       "unsaved": "Changes could not be saved: {{files}}",
       "verifyProgress_one": "Verifying · {{count}} file checked",
       "verifyProgress_other": "Verifying · {{count}} files checked"
+    },
+    "unsaved": {
+      "cancel": "Cancel",
+      "discard": "Discard Unsaved Edits",
+      "message": "These edits could not be saved: {{files}}. Opening another library now loses them. Retry to save them first, discard them, or cancel to stay in this library.",
+      "retry": "Retry",
+      "title": "Edits Not Saved"
     },
     "welcome": {
       "body": "One shoot or your whole collection? Choose how to organize your photos — the editing tools are the same.",
@@ -2785,7 +2793,8 @@
       "toasts": {
         "queuedMany_one": "{{count}} export added to the queue.",
         "queuedMany_other": "{{count}} exports added to the queue.",
-        "queuedOne": "Added to the export queue."
+        "queuedOne": "Added to the export queue.",
+        "unsavedEdits": "The edits of {{names}} could not be saved, so nothing was exported. Export again once they are saved."
       },
       "watermark": {
         "add": "Add a watermark",
@@ -3630,7 +3639,9 @@
     "multiView": {
       "controls": "Flag, rate or remove {{name}}",
       "editAll": "Edit all selected",
+      "editAllNotSaved": "Edit all selected could not save these photos: {{names}}. They keep their earlier settings until you try again.",
       "editAllTitle": "Edit all selected: changes to the primary photo also go to every other photo shown (orange frames)",
+      "editAllTryAgain": "Try again",
       "makePrimary": "Edit {{name}} (make it the primary photo)",
       "more_one": "and {{n}} more",
       "more_other": "and {{n}} more",

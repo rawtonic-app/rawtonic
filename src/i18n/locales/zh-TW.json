@@ -1221,6 +1221,7 @@
       "failed": "無法開啟上次的圖庫：{{error}}",
       "opening": "正在開啟 {{name}}（{{directory}}）… 如果 macOS 要求存取此卷宗，請允許。"
     },
+    "switching": "正在開啟資料庫…",
     "sync": {
       "applied": "已移動 {{moved}} · 已加入 {{added}} · 已移除 {{removed}}",
       "apply": "套用（{{n}}）",
@@ -1426,6 +1427,13 @@
       "transferHint": "將此專案或目錄帶到另一台電腦。外部原始檔和所需的編輯資源會彙集到副本中。",
       "unsaved": "無法儲存變更：{{files}}",
       "verifyProgress_other": "正在驗證 · 已檢查 {{count}} 個檔案"
+    },
+    "unsaved": {
+      "cancel": "取消",
+      "discard": "捨棄未儲存的編輯",
+      "message": "無法儲存以下編輯：{{files}}。現在開啟其他資料庫會遺失這些編輯。請重試以先儲存，或捨棄這些編輯，或取消以留在此資料庫。",
+      "retry": "重試",
+      "title": "編輯未儲存"
     },
     "welcome": {
       "body": "為下一次拍攝建立一個可攜式專案。從第一張到最終精選，拍攝素材、調整與交付成果都放在一起。",
@@ -2735,7 +2743,8 @@
       },
       "toasts": {
         "queuedMany_other": "已將 {{count}} 個匯出加入佇列。",
-        "queuedOne": "已加入匯出佇列。"
+        "queuedOne": "已加入匯出佇列。",
+        "unsavedEdits": "無法儲存 {{names}} 的編輯，因此未匯出任何內容。儲存後請重新匯出。"
       },
       "watermark": {
         "add": "加入浮水印",
@@ -3550,7 +3559,9 @@
     "multiView": {
       "controls": "標記、評等或移除 {{name}}",
       "editAll": "編輯所有選取的照片",
+      "editAllNotSaved": "「編輯所有選取的照片」無法儲存這些照片：{{names}}。在你重試之前，它們保留先前的設定。",
       "editAllTitle": "編輯所有選取的照片：對主照片的修改也會套用到顯示的每張其他照片（橘色邊框）",
+      "editAllTryAgain": "重試",
       "makePrimary": "編輯 {{name}}（設為主照片）",
       "more_other": "還有 {{n}} 張",
       "pick": "留用 {{name}}",

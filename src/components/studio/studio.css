@@ -5767,3 +5767,28 @@ button.studio-button.is-destructive:hover:not(:disabled) {
     }
   }
 }
+
+/* A library switch opening the next library (LibrarySwitchShield): the app
+   is inert; the note shows only if opening takes a while. */
+.library-switch-shield {
+  max-width: none;
+  max-height: none;
+  margin: auto;
+  padding: 10px 16px;
+  border: 1px solid #46484c;
+  border-radius: 6px;
+  background: #242628;
+  color: #e6e7e9;
+  font-size: 12px;
+  opacity: 0;
+  animation: library-switch-shield-in 150ms ease-out 400ms forwards;
+}
+.library-switch-shield::backdrop {
+  background: transparent;
+}
+.library-switch-shield p {
+  margin: 0;
+}
+@keyframes library-switch-shield-in {
+  to { opacity: 1; }
+}

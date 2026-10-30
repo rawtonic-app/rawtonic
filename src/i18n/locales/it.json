@@ -1288,6 +1288,7 @@
       "failed": "Impossibile aprire l’ultima libreria: {{error}}",
       "opening": "Apertura di {{name}} ({{directory}})… Se macOS chiede l’accesso a questo volume, consentilo."
     },
+    "switching": "Apertura della libreria…",
     "sync": {
       "applied": "Spostate {{moved}} · Aggiunte {{added}} · Rimosse {{removed}}",
       "apply": "Applica ({{n}})",
@@ -1519,6 +1520,13 @@
       "verifyProgress_one": "Verifica · {{count}} file controllato",
       "verifyProgress_many": "Verifica · {{count}} file controllati",
       "verifyProgress_other": "Verifica · {{count}} file controllati"
+    },
+    "unsaved": {
+      "cancel": "Annulla",
+      "discard": "Scarta modifiche non salvate",
+      "message": "Queste modifiche non sono state salvate: {{files}}. Aprendo ora un’altra libreria andranno perse. Riprova per salvarle prima, scartale o annulla per restare in questa libreria.",
+      "retry": "Riprova",
+      "title": "Modifiche non salvate"
     },
     "welcome": {
       "body": "Crea un progetto portatile per il tuo prossimo servizio. Tieni insieme scatti, modifiche e consegne, dal primo fotogramma alla selezione finale.",
@@ -2858,7 +2866,8 @@
         "queuedMany_one": "{{count}} esportazione aggiunta alla coda.",
         "queuedMany_many": "{{count}} esportazioni aggiunte alla coda.",
         "queuedMany_other": "{{count}} esportazioni aggiunte alla coda.",
-        "queuedOne": "Aggiunto alla coda di esportazione."
+        "queuedOne": "Aggiunto alla coda di esportazione.",
+        "unsavedEdits": "Non è stato possibile salvare le modifiche di {{names}}, quindi non è stato esportato nulla. Esporta di nuovo quando sono salvate."
       },
       "watermark": {
         "add": "Aggiungi filigrana",
@@ -3734,7 +3743,9 @@
     "multiView": {
       "controls": "Contrassegna, valuta o rimuovi {{name}}",
       "editAll": "Modifica tutte le selezionate",
+      "editAllNotSaved": "«Modifica tutte le selezionate» non ha potuto salvare queste foto: {{names}}. Mantengono le impostazioni precedenti finché non riprovi.",
       "editAllTitle": "Modifica tutte le selezionate: le modifiche alla foto principale vanno anche a ogni altra foto mostrata (cornici arancioni)",
+      "editAllTryAgain": "Riprova",
       "makePrimary": "Modifica {{name}} (rendila la foto principale)",
       "more_one": "e {{n}} altra",
       "more_many": "e altre {{n}}",
