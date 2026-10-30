@@ -1124,6 +1124,12 @@ impl Library {
             "UPDATE versions SET head=? WHERE id=?",
             params![id, version],
         )?;
+        // The primary recipe goes into the XMP sidecar, which now lacks it.
+        tx.execute(
+            "UPDATE metadata SET xmp_status='pending'
+             WHERE asset_id=(SELECT asset_id FROM versions WHERE id=? AND is_primary=1)",
+            [version],
+        )?;
         tx.commit()?;
         Ok(id)
     }

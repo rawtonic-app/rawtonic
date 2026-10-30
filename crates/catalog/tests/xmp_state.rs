@@ -42,6 +42,22 @@ fn untouched_photographs_have_no_xmp_to_write() {
 }
 
 #[test]
+fn a_saved_recipe_is_pending_until_written() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, paths) = session(d.path(), &["A.ARW"]);
+    let version = lib.primary_version(&ids[0]).unwrap();
+    lib.save_recipe(
+        &version,
+        &serde_json::json!({"schema_version": 1, "adjustments": {"exposure": 1.0}, "layers": []}),
+        None,
+    )
+    .unwrap();
+    assert_eq!(lib.pending_xmp_paths().unwrap(), [paths[0].clone()]);
+    assert_eq!(lib.write_pending_xmp().unwrap().written, 1);
+    assert_eq!(lib.summary().unwrap().xmp_pending, 0);
+}
+
+#[test]
 fn a_rating_not_written_to_its_xmp_yet_is_pending_until_written_again() {
     let d = tempfile::tempdir().unwrap();
     let (lib, ids, paths) = session(d.path(), &["A.ARW", "B.ARW"]);
@@ -96,7 +112,7 @@ fn a_sidecar_changed_elsewhere_or_shared_is_reported_and_left_alone() {
 #[test]
 fn opening_an_older_library_clears_only_the_false_pending_states() {
     let d = tempfile::tempdir().unwrap();
-    let (lib, ids, _) = session(d.path(), &["A.ARW", "B.ARW", "C.ARW"]);
+    let (lib, ids, _) = session(d.path(), &["A.ARW", "B.ARW", "C.ARW", "D.ARW"]);
     let mut meta = lib.metadata(&ids[1]).unwrap();
     meta.rating = 5;
     lib.set_metadata(&ids[1], &meta).unwrap();
@@ -105,24 +121,36 @@ fn opening_an_older_library_clears_only_the_false_pending_states() {
         &serde_json::json!({"adjustments": {"exposure": 1.0}}),
     )
     .unwrap();
+    // A recipe saved without an editor state is an edit all the same.
+    let version = lib.primary_version(&ids[3]).unwrap();
+    lib.save_recipe(
+        &version,
+        &serde_json::json!({"schema_version": 1, "adjustments": {"exposure": 1.0}, "layers": []}),
+        None,
+    )
+    .unwrap();
     drop(lib);
     let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
     db.execute_batch(include_str!("undo_0018.sql")).unwrap();
-    // As schema 17 registered it.
-    db.execute(
-        "UPDATE metadata SET xmp_status='pending' WHERE asset_id=?",
-        [&ids[0]],
-    )
-    .unwrap();
+    // As schema 17 registered them.
+    for id in [&ids[0], &ids[3]] {
+        db.execute(
+            "UPDATE metadata SET xmp_status='pending' WHERE asset_id=?",
+            [id],
+        )
+        .unwrap();
+    }
     drop(db);
     let lib = Library::open(&d.path().join("Job")).unwrap();
-    assert_eq!(lib.summary().unwrap().xmp_pending, 2);
-    assert!(
-        lib.pending_xmp_paths()
-            .unwrap()
-            .iter()
-            .all(|p| !p.ends_with("A.ARW"))
-    );
+    let mut pending: Vec<_> = lib
+        .pending_xmp_paths()
+        .unwrap()
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    pending.sort();
+    assert_eq!(pending, ["B.ARW", "C.ARW", "D.ARW"]);
+    assert_eq!(lib.summary().unwrap().xmp_pending, 3);
 }
 
 #[test]
