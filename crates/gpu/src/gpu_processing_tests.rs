@@ -15239,6 +15239,7 @@ fn edge_fringe_gpu_timing_probe() {
 #[ignore = "requires a native GPU; clipping warnings stay out of the histogram"]
 fn clipping_warnings_stay_out_of_the_analytics_image() {
     use rawtonic_engine::image_processing::{SHOW_CLIPPING_HIGHLIGHTS, SHOW_CLIPPING_SHADOWS};
+    use rawtonic_engine::output_color_space::OutputColorSpace;
     const WIDTH: u32 = 512;
     const HEIGHT: u32 = 4;
     let context = context();
@@ -15276,149 +15277,167 @@ fn clipping_warnings_stay_out_of_the_analytics_image() {
         )
         .unwrap()
     };
-    let adjustments = |show_clipping| {
-        let mut adjustments = get_all_adjustments_from_json(&json!({}), false, None);
-        adjustments.global.show_clipping = show_clipping;
-        adjustments
-    };
-    let request = |show_clipping| RenderRequest {
-        adjustments: adjustments(show_clipping),
-        mask_bitmaps: &[],
-        lut: None,
-        roi: None,
-    };
-    // (display, analytics) of a display frame.
-    let display_frame = |show_clipping| {
-        processor
-            .run(
-                &view,
-                WIDTH,
-                HEIGHT,
-                request(show_clipping),
-                true,
-                RenderOutputPrecision::EightBit,
-            )
-            .unwrap();
-        (
-            read(&processor.test_working_texture()),
-            read(&processor.test_analytics_texture()),
-        )
-    };
-    // (display, analytics) of a CPU readback with analytics.
-    let readback = |show_clipping| {
-        let (mut rendered, ..) = processor
-            .render_window(
-                &view,
-                WIDTH,
-                HEIGHT,
-                Roi {
-                    x: 0,
-                    y: 0,
-                    width: WIDTH,
-                    height: HEIGHT,
-                },
-                request(show_clipping),
-                false,
-                RenderOutputPrecision::EightBit,
-                ReadbackShader::Display,
-                None,
-                None,
-                None,
-                &[],
-                true,
-            )
-            .unwrap();
-        let [RenderedPixels::U8(display), RenderedPixels::U8(analytics)] =
-            <[RenderedPixels; 2]>::try_from(rendered.split_off(0))
-                .ok()
-                .unwrap()
-        else {
-            unreachable!()
+    for space in [OutputColorSpace::Srgb, OutputColorSpace::DisplayP3] {
+        let adjustments = |show_clipping| {
+            let mut adjustments = get_all_adjustments_from_json(&json!({}), false, None);
+            adjustments.global.show_clipping = show_clipping;
+            adjustments.global.output_space[0] = space.shader_code();
+            adjustments.global.output_matrix =
+                crate::image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+            adjustments
         };
-        (display, analytics)
-    };
-    let (plain, analytics) = display_frame(0);
-    let rgb_of = |rgba: &[u8]| -> Vec<u8> {
-        rgba.as_chunks::<4>()
-            .0
-            .iter()
-            .flat_map(|p| [p[0], p[1], p[2]])
-            .collect()
-    };
-    // Without a warning the histogram's image is the display frame.
-    assert_eq!(rgb_of(&analytics), rgb_of(&plain));
-    let marks: Vec<u8> = analytics.as_chunks::<4>().0.iter().map(|p| p[3]).collect();
-    let marked = |bit: u8| marks.iter().filter(|&&m| m & bit != 0).count();
-    let (shadows, highlights) = (marked(1), marked(2));
-    let both = marks.iter().filter(|&&m| m == 3).count();
-    assert!(
-        shadows > 0 && highlights > 0 && both > 0,
-        "{shadows} {highlights} {both}"
-    );
-    // Just inside the thresholds (0.998 and 0.002 are 254.5 and 0.5 codes,
-    // dithered by up to half a code): unmarked pixels in the end codes.
-    let pixel = |rgba: &[u8], i: usize| [rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]];
-    let row = |y: u32| (y * WIDTH) as usize..((y + 1) * WIDTH) as usize;
-    assert!(
-        row(0).any(|i| marks[i] == 0 && pixel(&plain, i).iter().any(|&c| c >= 254)),
-        "no pixel just inside the highlight threshold"
-    );
-    assert!(row(0).any(|i| marks[i] & 2 != 0), "none just outside it");
-    assert!(
-        row(1).any(|i| marks[i] == 0 && pixel(&plain, i).iter().any(|&c| c <= 1)),
-        "no pixel just inside the shadow threshold"
-    );
-    assert!(row(1).any(|i| marks[i] & 1 != 0), "none just outside it");
-
-    let red = [255, 0, 0];
-    let blue = [0, 0, 255];
-    for show_clipping in [1, SHOW_CLIPPING_HIGHLIGHTS, SHOW_CLIPPING_SHADOWS] {
-        let warn_highlights = show_clipping != SHOW_CLIPPING_SHADOWS;
-        let warn_shadows = show_clipping != SHOW_CLIPPING_HIGHLIGHTS;
-        let (display, warned_analytics) = display_frame(show_clipping);
-        // The histogram and its clipping marks do not change.
-        assert!(
-            warned_analytics == analytics,
-            "{show_clipping:#x}: analytics changed"
-        );
-        // The display marks exactly the clipped pixels of the warnings on,
-        // highlights first, and leaves every other pixel as it was.
-        for (i, &mark) in marks.iter().enumerate() {
-            let expected = if warn_highlights && mark & 2 != 0 {
-                red
-            } else if warn_shadows && mark & 1 != 0 {
-                blue
-            } else {
-                pixel(&plain, i)
-            };
-            let shown = pixel(&display, i);
-            let off = shown
-                .iter()
-                .zip(expected)
-                .map(|(a, b)| a.abs_diff(b))
-                .max()
+        let request = |show_clipping| RenderRequest {
+            adjustments: adjustments(show_clipping),
+            mask_bitmaps: &[],
+            lut: None,
+            roi: None,
+        };
+        // (display, analytics) of a display frame.
+        let display_frame = |show_clipping| {
+            processor
+                .run(
+                    &view,
+                    WIDTH,
+                    HEIGHT,
+                    request(show_clipping),
+                    true,
+                    RenderOutputPrecision::EightBit,
+                )
                 .unwrap();
-            // The warning colours carry the dither (one code).
+            (
+                read(&processor.test_working_texture()),
+                read(&processor.test_analytics_texture()),
+            )
+        };
+        // (display, analytics) of a CPU readback with analytics.
+        let readback = |show_clipping| {
+            let (mut rendered, ..) = processor
+                .render_window(
+                    &view,
+                    WIDTH,
+                    HEIGHT,
+                    Roi {
+                        x: 0,
+                        y: 0,
+                        width: WIDTH,
+                        height: HEIGHT,
+                    },
+                    request(show_clipping),
+                    false,
+                    RenderOutputPrecision::EightBit,
+                    ReadbackShader::Display,
+                    None,
+                    None,
+                    None,
+                    &[],
+                    true,
+                )
+                .unwrap();
+            let [RenderedPixels::U8(display), RenderedPixels::U8(analytics)] =
+                <[RenderedPixels; 2]>::try_from(rendered.split_off(0))
+                    .ok()
+                    .unwrap()
+            else {
+                unreachable!()
+            };
+            (display, analytics)
+        };
+        let (plain, analytics) = display_frame(0);
+        let rgb_of = |rgba: &[u8]| -> Vec<u8> {
+            rgba.as_chunks::<4>()
+                .0
+                .iter()
+                .flat_map(|p| [p[0], p[1], p[2]])
+                .collect()
+        };
+        // Without a warning the histogram's image is the display frame.
+        assert_eq!(rgb_of(&analytics), rgb_of(&plain));
+        let marks: Vec<u8> = analytics.as_chunks::<4>().0.iter().map(|p| p[3]).collect();
+        let marked = |bit: u8| marks.iter().filter(|&&m| m & bit != 0).count();
+        let (shadows, highlights) = (marked(1), marked(2));
+        let both = marks.iter().filter(|&&m| m == 3).count();
+        assert!(
+            shadows > 0 && highlights > 0 && both > 0,
+            "{space:?}: {shadows} {highlights} {both}"
+        );
+        // Just inside the thresholds (0.998 and 0.002 are 254.5 and 0.5 codes,
+        // dithered by up to half a code): unmarked pixels in the end codes.
+        let pixel = |rgba: &[u8], i: usize| [rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]];
+        let row = |y: u32| (y * WIDTH) as usize..((y + 1) * WIDTH) as usize;
+        assert!(
+            row(0).any(|i| marks[i] == 0 && pixel(&plain, i).iter().any(|&c| c >= 254)),
+            "{space:?}: no pixel just inside the highlight threshold"
+        );
+        assert!(
+            row(0).any(|i| marks[i] & 2 != 0),
+            "{space:?}: none just outside it"
+        );
+        assert!(
+            row(1).any(|i| marks[i] == 0 && pixel(&plain, i).iter().any(|&c| c <= 1)),
+            "{space:?}: no pixel just inside the shadow threshold"
+        );
+        assert!(
+            row(1).any(|i| marks[i] & 1 != 0),
+            "{space:?}: none just outside it"
+        );
+
+        // Warning colours are sRGB primaries, encoded for the selected output.
+        let warning_colour = |linear_srgb: [f64; 3]| {
+            space.from_linear_srgb().map(|row| {
+                let linear = row.iter().zip(linear_srgb).map(|(a, b)| a * b).sum();
+                (space.transfer().from_linear(linear) * 255.0).round() as u8
+            })
+        };
+        let red = warning_colour([1.0, 0.0, 0.0]);
+        let blue = warning_colour([0.0, 0.0, 1.0]);
+        for show_clipping in [1, SHOW_CLIPPING_HIGHLIGHTS, SHOW_CLIPPING_SHADOWS] {
+            let warn_highlights = show_clipping != SHOW_CLIPPING_SHADOWS;
+            let warn_shadows = show_clipping != SHOW_CLIPPING_HIGHLIGHTS;
+            let (display, warned_analytics) = display_frame(show_clipping);
+            // The histogram and its clipping marks do not change.
             assert!(
-                off <= 1,
-                "{show_clipping:#x} pixel {i}: {shown:?} for {expected:?}"
+                warned_analytics == analytics,
+                "{space:?} {show_clipping:#x}: analytics changed"
             );
-            if expected == pixel(&plain, i) {
-                assert_eq!(shown, expected, "{show_clipping:#x} pixel {i}");
+            // The display marks exactly the clipped pixels of the warnings on,
+            // highlights first, and leaves every other pixel as it was.
+            for (i, &mark) in marks.iter().enumerate() {
+                let expected = if warn_highlights && mark & 2 != 0 {
+                    red
+                } else if warn_shadows && mark & 1 != 0 {
+                    blue
+                } else {
+                    pixel(&plain, i)
+                };
+                let shown = pixel(&display, i);
+                let off = shown
+                    .iter()
+                    .zip(expected)
+                    .map(|(a, b)| a.abs_diff(b))
+                    .max()
+                    .unwrap();
+                // The warning colours carry the dither (one code).
+                assert!(
+                    off <= 1,
+                    "{space:?} {show_clipping:#x} pixel {i}: {shown:?} for {expected:?}"
+                );
+                if expected == pixel(&plain, i) {
+                    assert_eq!(shown, expected, "{space:?} {show_clipping:#x} pixel {i}");
+                }
             }
+            // A CPU readback (Linux's browser preview) shows the same frame and
+            // reads the same analytics.
+            let (readback_display, readback_analytics) = readback(show_clipping);
+            assert!(
+                readback_display == display,
+                "{space:?} {show_clipping:#x}: readback frame"
+            );
+            assert!(
+                readback_analytics == analytics,
+                "{space:?} {show_clipping:#x}: readback analytics"
+            );
         }
-        // A CPU readback (Linux's browser preview) shows the same frame and
-        // reads the same analytics.
-        let (readback_display, readback_analytics) = readback(show_clipping);
-        assert!(
-            readback_display == display,
-            "{show_clipping:#x}: readback frame"
-        );
-        assert!(
-            readback_analytics == analytics,
-            "{show_clipping:#x}: readback analytics"
-        );
+        let sides = clipped_sides(&analytics);
+        assert!(sides.shadows && sides.highlights);
     }
-    let sides = clipped_sides(&analytics);
-    assert!(sides.shadows && sides.highlights);
 }
