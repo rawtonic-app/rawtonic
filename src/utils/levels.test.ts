@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { INITIAL_LEVELS, type Level } from "./adjustments";
+import { INITIAL_LEVELS, type Level, type Levels } from "./adjustments";
 import {
   autoLevels,
   gammaOf,
@@ -124,34 +124,59 @@ describe("levels keys", () => {
 
 describe("levels pickers", () => {
   const grey = (v: number) => linearFromSrgb([v, v, v]);
+  /** The display colour Levels give a display colour: the composite, then
+   * each channel. */
+  const shown = (levels: Levels, rgb: number[]) =>
+    (["red", "green", "blue"] as const).map((c, i) =>
+      levelOutput(levels[c], levelOutput(levels.rgb, rgb[i])),
+    );
 
-  it("sets the composite's black and white from the sampled display value", () => {
-    const black = pickedLevels(INITIAL_LEVELS, "rgb", "black", [grey(30), grey(34)]);
-    expect(black?.rgb).toMatchObject({ inBlack: 32, inWhite: 255 });
-    const white = pickedLevels(INITIAL_LEVELS, "rgb", "white", [grey(230)]);
-    expect(white?.rgb).toMatchObject({ inBlack: 0, inWhite: 230 });
-    // The other channels are kept.
-    expect(white?.red).toEqual(INITIAL_LEVELS.red);
+  it("neutralises the sample on the RGB tab through the colour channels", () => {
+    const sample = [40, 60, 80];
+    const pixel = linearFromSrgb(sample as [number, number, number]);
+    const black = pickedLevels(INITIAL_LEVELS, "rgb", "black", [pixel])!;
+    expect(black.rgb).toEqual(INITIAL_LEVELS.rgb);
+    expect([black.red.inBlack, black.green.inBlack, black.blue.inBlack]).toEqual(sample);
+    for (const v of shown(black, sample)) expect(v).toBeLessThanOrEqual(1);
+    const white = pickedLevels(INITIAL_LEVELS, "rgb", "white", [pixel])!;
+    expect(white.rgb).toEqual(INITIAL_LEVELS.rgb);
+    for (const v of shown(white, sample)) expect(v).toBeGreaterThanOrEqual(254);
   });
 
-  it("lets the darkest or brightest channel decide on the composite", () => {
-    const pixel = linearFromSrgb([40, 60, 80]);
-    expect(pickedLevels(INITIAL_LEVELS, "rgb", "black", [pixel])?.rgb.inBlack).toBe(40);
-    expect(pickedLevels(INITIAL_LEVELS, "rgb", "white", [pixel])?.rgb.inWhite).toBe(80);
+  it("neutralises through a composite that is already set", () => {
+    const levels = {
+      ...INITIAL_LEVELS,
+      rgb: { ...identity, inBlack: 10, inWhite: 230, gamma: 1.4 },
+    };
+    const dark = [40, 60, 80];
+    const black = pickedLevels(levels, "rgb", "black", [linearFromSrgb([40, 60, 80])])!;
+    expect(black.rgb).toEqual(levels.rgb);
+    for (const v of shown(black, dark)) expect(v).toBeLessThanOrEqual(1);
+    const light = [200, 180, 150];
+    const white = pickedLevels(levels, "rgb", "white", [linearFromSrgb([200, 180, 150])])!;
+    for (const v of shown(white, light)) expect(v).toBeGreaterThanOrEqual(254);
+    // Mean of the sampled area per channel.
+    const area = pickedLevels(INITIAL_LEVELS, "rgb", "black", [grey(30), grey(34)])!;
+    expect([area.red.inBlack, area.green.inBlack, area.blue.inBlack]).toEqual([32, 32, 32]);
   });
 
-  it("sets a colour channel from the composite's output", () => {
+  it("sets only that channel on a colour tab, from the composite's output", () => {
     const levels = { ...INITIAL_LEVELS, rgb: { ...identity, inBlack: 20, inWhite: 220 } };
     const pixel = linearFromSrgb([120, 60, 80]);
-    const picked = pickedLevels(levels, "red", "white", [pixel]);
-    expect(picked?.red.inWhite).toBe(Math.round(levelOutput(levels.rgb, 120)));
-    expect(picked?.rgb).toEqual(levels.rgb);
-    expect(picked?.green).toEqual(INITIAL_LEVELS.green);
+    const picked = pickedLevels(levels, "red", "white", [pixel])!;
+    expect(picked.red.inWhite).toBe(Math.round(levelOutput(levels.rgb, 120)));
+    expect(picked.rgb).toEqual(levels.rgb);
+    expect(picked.green).toEqual(INITIAL_LEVELS.green);
+    expect(picked.blue).toEqual(INITIAL_LEVELS.blue);
+    const blue = pickedLevels(levels, "blue", "black", [pixel])!;
+    expect(blue.blue.inBlack).toBe(Math.round(levelOutput(levels.rgb, 80)));
+    expect(blue.red).toEqual(INITIAL_LEVELS.red);
+    expect(blue.green).toEqual(INITIAL_LEVELS.green);
   });
 
   it("keeps the order and refuses a missing sample", () => {
-    const levels = { ...INITIAL_LEVELS, rgb: { ...identity, inWhite: 100 } };
-    expect(pickedLevels(levels, "rgb", "black", [grey(180)])?.rgb).toMatchObject({
+    const levels = { ...INITIAL_LEVELS, red: { ...identity, inWhite: 100 } };
+    expect(pickedLevels(levels, "rgb", "black", [grey(180)])?.red).toMatchObject({
       inBlack: 180,
       inWhite: 181,
     });

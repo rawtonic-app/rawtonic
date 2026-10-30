@@ -3,7 +3,7 @@ import { useEffect, useRef, type PointerEvent } from "react";
 import { updateAdjustments } from "../../../hooks/useEditorActions";
 import { useEditorStore } from "../../../store/useEditorStore";
 import { INITIAL_LEVELS } from "../../../utils/adjustments";
-import { pickedLevels } from "../../../utils/levels";
+import { levelsInputKey, pickedLevels } from "../../../utils/levels";
 import {
   TAT_UNITS_PER_PIXEL,
   curveInputMean,
@@ -140,17 +140,21 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
       // Levels' pickers: one click, one edit; the sample is what Levels
       // receives (rendered with Levels left out).
       drag.current = null;
-      // The channel clicked for: a tab switch while sampling cancels.
+      // The channel, recipe and native source clicked for: a tab switch, a
+      // recipe edit (but to the levels) or a replaced source (the full
+      // decode after the proxy) while sampling drops the sample.
       const channel = view.levelsChannel;
+      const input = levelsInputKey(path, adjustments);
       const pixels = await invoke<[number, number, number][] | null>(
         Invokes.SampleCurveInput,
         { ...point, adjustments: { ...adjustments, levels: INITIAL_LEVELS } },
       ).catch(() => null);
       const now = useEditorStore.getState();
       if (
-        now.selectedImage?.path !== path ||
+        now.selectedImage !== selectedImage ||
         now.tatTarget !== tatTarget ||
-        now.levelsChannel !== channel
+        now.levelsChannel !== channel ||
+        levelsInputKey(path, now.adjustments) !== input
       )
         return;
       const levels = pickedLevels(

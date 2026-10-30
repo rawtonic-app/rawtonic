@@ -17,7 +17,7 @@ import {
   INITIAL_LEVELS,
   type Adjustments,
 } from "../../utils/adjustments";
-import { useEditorStore } from "../../store/useEditorStore";
+import { debouncedSetHistory, useEditorStore } from "../../store/useEditorStore";
 import { linearFromSrgb } from "../../utils/targetedAdjustment";
 import TargetedAdjustmentOverlay from "../panel/editor/TargetedAdjustmentOverlay";
 import { LEVELS_HISTOGRAM_DELAY_MS, StudioLevels } from "./StudioLevels";
@@ -294,7 +294,14 @@ describe("Levels input histogram", () => {
 });
 
 describe("Levels picker on the photo", () => {
-  it("samples what Levels receives and sets the active channel's point in one edit", async () => {
+  const overlay = () => {
+    render(<TargetedAdjustmentOverlay rect={{ left: 0, top: 0, width: 400, height: 300 }} />);
+    const el = screen.getByTestId("targeted-adjustment");
+    el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 300 }) as DOMRect;
+    return el;
+  };
+
+  it("neutralises the sample through the colour channels on RGB, in one undo step", async () => {
     const adjustments = structuredClone(INITIAL_ADJUSTMENTS);
     adjustments.levels!.rgb.inWhite = 200;
     useEditorStore.setState({
@@ -302,15 +309,15 @@ describe("Levels picker on the photo", () => {
       tatTarget: "levelsBlack",
       levelsChannel: "rgb",
     });
+    useEditorStore.getState().resetHistory(adjustments);
     const grey = linearFromSrgb([30, 30, 30]);
     invoke.mockResolvedValue([grey, grey]);
-    render(<TargetedAdjustmentOverlay rect={{ left: 0, top: 0, width: 400, height: 300 }} />);
-    const el = screen.getByTestId("targeted-adjustment");
-    el.getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 300 }) as DOMRect;
+    const el = overlay();
     await act(async () => {
       fireEvent.pointerDown(el, { button: 0, clientX: 100, clientY: 150, pointerId: 1 });
     });
     fireEvent.pointerUp(el, { pointerId: 1 });
+    debouncedSetHistory.flush();
     expect(invoke).toHaveBeenCalledWith("sample_curve_input", {
       path: "/s/a.NEF",
       normalizedX: 0.25,
@@ -318,9 +325,65 @@ describe("Levels picker on the photo", () => {
       adjustments: { ...adjustments, levels: INITIAL_LEVELS },
     });
     const state = useEditorStore.getState();
-    expect(state.adjustments.levels?.rgb).toMatchObject({ inBlack: 30, inWhite: 200 });
+    // The composite stays; each channel takes the composite's output of 30.
+    expect(state.adjustments.levels?.rgb).toEqual(adjustments.levels!.rgb);
+    for (const c of ["red", "green", "blue"] as const)
+      expect(state.adjustments.levels?.[c]).toMatchObject({ inBlack: 38, inWhite: 255 });
     expect(state.tatTarget).toBeNull();
     expect(state.isSliderDragging).toBe(false);
+    expect(state.history).toHaveLength(2);
+    expect(state.history[0]).toEqual(adjustments);
+    expect(state.history[1].levels).toEqual(state.adjustments.levels);
+  });
+
+  it("sets only the active colour channel on its tab", async () => {
+    useEditorStore.setState({ tatTarget: "levelsWhite", levelsChannel: "green" });
+    invoke.mockResolvedValue([linearFromSrgb([200, 180, 150])]);
+    const el = overlay();
+    await act(async () => {
+      fireEvent.pointerDown(el, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+    });
+    const levels = useEditorStore.getState().adjustments.levels!;
+    expect(levels.green).toMatchObject({ inBlack: 0, inWhite: 180 });
+    expect(levels.rgb).toEqual(INITIAL_LEVELS.rgb);
+    expect(levels.red).toEqual(INITIAL_LEVELS.red);
+    expect(levels.blue).toEqual(INITIAL_LEVELS.blue);
+  });
+
+  it("drops a sample that arrives after the recipe or the source changed", async () => {
+    let answer: (pixels: unknown) => void = () => {};
+    invoke.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    useEditorStore.setState({ tatTarget: "levelsBlack", levelsChannel: "rgb" });
+    const el = overlay();
+    const sample = [linearFromSrgb([40, 60, 80])];
+    // The exposure changes while the photo is sampled.
+    fireEvent.pointerDown(el, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+    const exposed = { ...useEditorStore.getState().adjustments, exposure: 1 };
+    useEditorStore.setState({ adjustments: exposed });
+    await act(async () => answer(sample));
+    expect(useEditorStore.getState().adjustments.levels).toEqual(INITIAL_LEVELS);
+    expect(useEditorStore.getState().tatTarget).toBe("levelsBlack");
+    // The full decode replaces the preview proxy (same path and recipe).
+    fireEvent.pointerDown(el, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true } as never,
+    });
+    await act(async () => answer(sample));
+    expect(useEditorStore.getState().adjustments.levels).toEqual(INITIAL_LEVELS);
+    // A Levels edit meanwhile does not change what Levels receive: applied
+    // on top of it.
+    fireEvent.pointerDown(el, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+    const edited = structuredClone(useEditorStore.getState().adjustments);
+    edited.levels!.rgb.outWhite = 250;
+    useEditorStore.setState({ adjustments: edited });
+    await act(async () => answer(sample));
+    const levels = useEditorStore.getState().adjustments.levels!;
+    expect(levels.rgb.outWhite).toBe(250);
+    // The channels receive the composite's output (white output 250).
+    expect([levels.red.inBlack, levels.green.inBlack, levels.blue.inBlack]).toEqual(
+      [40, 60, 80].map((v) => Math.round((v * 250) / 255)),
+    );
+    expect(useEditorStore.getState().tatTarget).toBeNull();
   });
 
   it("cancels when the channel tab changes while the photo is sampled", async () => {

@@ -126,11 +126,13 @@ export function levelOutput(level: Level, v: number): number {
 /**
  * The levels after the black or white point picker: `pixels` are the
  * colours (linear sRGB) Levels receives around the picked point, sampled
- * with Levels left out (editor_preview.rs `sample_curve_input`). Their mean
- * display value becomes the active channel's input black or white; a
- * colour channel receives the RGB composite's output. On the composite the
- * darkest (black) or brightest (white) channel decides, so the point turns
- * black or white without clipping past it. Null without a sample.
+ * with Levels left out (editor_preview.rs `sample_curve_input`). The
+ * channels act after the RGB composite, so each sets its input black or
+ * white to the composite's output of its mean display value. On the RGB tab
+ * the picker neutralises: the red, green and blue channels each take their
+ * point, so the sample turns neutral black or white (casts removed) and the
+ * composite stays as it is (Photoshop's and Capture One's pickers); on a
+ * colour tab only that channel. Null without a sample.
  */
 export function pickedLevels(
   levels: Partial<Levels> | undefined,
@@ -139,19 +141,19 @@ export function pickedLevels(
   pixels: [number, number, number][] | null,
 ): Levels | null {
   if (!pixels?.length) return null;
-  const mean = [0, 1, 2].map(
-    (c) => pixels.reduce((sum, p) => sum + toEncoded(p[c]) * 255, 0) / pixels.length,
-  );
   const all = Object.fromEntries(
     LEVEL_CHANNELS.map((c) => [c, levelOf(levels, c)]),
   ) as Levels;
-  let value: number;
-  if (channel === "rgb") value = point === "black" ? Math.min(...mean) : Math.max(...mean);
-  else value = levelOutput(all.rgb, mean[["red", "green", "blue"].indexOf(channel)]);
-  return {
-    ...all,
-    [channel]: withLevelValue(all[channel], point === "black" ? "inBlack" : "inWhite", value),
-  };
+  const key = point === "black" ? "inBlack" : "inWhite";
+  const next = { ...all };
+  const colours = ["red", "green", "blue"] as const;
+  colours.forEach((c, i) => {
+    if (channel !== "rgb" && channel !== c) return;
+    const mean =
+      pixels.reduce((sum, p) => sum + toEncoded(p[i]) * 255, 0) / pixels.length;
+    next[c] = withLevelValue(all[c], key, levelOutput(all.rgb, mean));
+  });
+  return next;
 }
 
 /**
