@@ -438,6 +438,35 @@ describe('Edit all selected', () => {
       expect(editAllNotSaved()).toEqual([]);
     });
 
+    it('Try again keeps the processing version the remaining settings were made with', async () => {
+      act(() =>
+        useEditorStore.setState((state) => ({ adjustments: { ...state.adjustments, sharpenVersion: 6 } as Adjustments })),
+      );
+      const { rerender } = renderHook(({ on }) => useEditAllSelected(on, selection), { initialProps: { on: true } });
+      failing = true;
+      edit({ sharpness: 65 });
+      await act(async () => {
+        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+      });
+      const notice = failureNotice();
+      failing = false;
+      rerender({ on: false });
+      rerender({ on: true });
+      // A sharpening setting saved since carries the version too.
+      edit({ sharpenRadius: 1.4 } as Partial<Adjustments>);
+      await act(async () => {
+        vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+      });
+      expect(pasted().at(-1)!.adjustments.sharpenVersion).toBe(6);
+      await act(async () => {
+        fireEvent.click(notice.getByRole('button', { name: 'Try again' }));
+      });
+      const retried = pasted().at(-1)!.adjustments;
+      expect(retried.sharpness).toBe(65);
+      expect(retried.sharpenVersion).toBe(6);
+      expect(editAllNotSaved()).toEqual([]);
+    });
+
     it('Retry at a library switch sends a failed write again, into the library it was made in', async () => {
       await failedWrite();
       failing = true;

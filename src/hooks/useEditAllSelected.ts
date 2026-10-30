@@ -124,15 +124,22 @@ function noticeFailed(id: number, failed: FailedWrite) {
   toast.error(content, { toastId: noticeId(id), autoClose: false, closeOnClick: false });
 }
 
+/** A processing version (`sharpenVersion`, …): it says how the settings
+ * written with it render, so it stays with those still to be written. */
+const isVersionKey = (key: string) => key.endsWith('Version');
+
 /** Settings written since (a later edit-all write, a paste, the photo's own
  * edit saved) supersede a failed write's for that photograph: Try again
- * never writes older values over them. */
+ * never writes older values over them. The processing versions stay while
+ * a setting they belong with is still to be written. */
 onRecipeWritten((path, keys) => {
   for (const [id, failed] of failedWrites) {
     const changes = failed.unsaved.get(path);
     if (!changes) continue;
-    const rest = keys ? Object.fromEntries(Object.entries(changes).filter(([key]) => !keys.includes(key))) : {};
-    if (Object.keys(rest).length > 0) failed.unsaved.set(path, rest);
+    const rest = keys
+      ? Object.fromEntries(Object.entries(changes).filter(([key]) => isVersionKey(key) || !keys.includes(key)))
+      : {};
+    if (Object.keys(rest).some((key) => !isVersionKey(key))) failed.unsaved.set(path, rest);
     else failed.unsaved.delete(path);
     if (failed.unsaved.size === 0) forget(id);
     else noticeFailed(id, failed);
