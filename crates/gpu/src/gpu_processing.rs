@@ -64,6 +64,8 @@ pub fn processing_device_descriptor(adapter: &wgpu::Adapter) -> wgpu::DeviceDesc
     {
         required_features |= wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
     }
+    // Used only once the app opens a cache file (`pipeline_cache::open`).
+    required_features |= crate::pipeline_cache::device_features(adapter);
     wgpu::DeviceDescriptor {
         label: Some("Processing Device"),
         required_features,
@@ -79,6 +81,15 @@ impl GpuContext {
     /// outside the app. Registers the device for the GPU X-Trans demosaic
     /// and the edge-fringe pass (`fringeVersion` 5).
     pub fn headless() -> Result<Self, String> {
+        Self::headless_with_pipeline_cache(None)
+    }
+
+    /// [`Self::headless`] with the pipeline cache file kept in `cache_dir`
+    /// (as the app keeps it, [`crate::pipeline_cache`]), where the backend
+    /// has one.
+    pub fn headless_with_pipeline_cache(
+        cache_dir: Option<&std::path::Path>,
+    ) -> Result<Self, String> {
         #[allow(unused_mut)]
         let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
         #[cfg(target_os = "windows")]
@@ -92,10 +103,15 @@ impl GpuContext {
             ..Default::default()
         }))
         .map_err(|e| format!("Failed to find a wgpu adapter: {}", e))?;
+        let info = adapter.get_info();
+        log_adapter(&info);
         let limits = adapter.limits();
         let (device, queue) =
             pollster::block_on(adapter.request_device(&processing_device_descriptor(&adapter)))
                 .map_err(|e| e.to_string())?;
+        if let Some(dir) = cache_dir {
+            crate::pipeline_cache::open(&device, &info, dir);
+        }
         device.on_uncaptured_error(Arc::new(|err: wgpu::Error| {
             log::error!("[wgpu-error] {}", err);
         }));
@@ -4658,7 +4674,11 @@ fn validated<T>(
     // Linux); a log line per slow compile shows where a first start waits.
     let elapsed = started.elapsed();
     if elapsed >= std::time::Duration::from_millis(250) {
-        log::info!("GPU {what} took {:.2} s", elapsed.as_secs_f64());
+        log::info!(
+            "GPU {what} took {:.2} s (ended +{:.2} s since start)",
+            elapsed.as_secs_f64(),
+            since_start()
+        );
     }
     match validation.or(internal) {
         Some(error) => Err(format!("GPU {what} could not be created: {error}")),
@@ -4736,6 +4756,63 @@ impl BackgroundPipeline {
     }
 }
 
+/// Compiles display variant `features` on its own thread, once `gate`
+/// opens if one is given. The RAW default variant opens `start_gate` when it
+/// settles and logs its start and end (the first frame of a cold start
+/// waits for it).
+#[allow(clippy::too_many_arguments)]
+fn spawn_preview_compile(
+    device: Arc<wgpu::Device>,
+    shader: wgpu::ShaderModule,
+    layout: wgpu::PipelineLayout,
+    features: usize,
+    pipelines: Arc<[std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT]>,
+    failed: Arc<[std::sync::atomic::AtomicBool; PREVIEW_PIPELINE_COUNT]>,
+    gate: Option<Arc<StartGate>>,
+    start_gate: &Arc<StartGate>,
+) {
+    let first = features == RAW_DEFAULT_PREVIEW_FEATURES;
+    let opens = first.then(|| Arc::clone(start_gate));
+    std::thread::spawn(move || {
+        if let Some(gate) = gate {
+            gate.wait();
+        }
+        let started = std::time::Instant::now();
+        if first {
+            log::info!(
+                "GPU first display variant {features}: compile started (+{:.2} s since start)",
+                since_start()
+            );
+        }
+        // The general pipeline was validated at construction and
+        // stays in use if this variant cannot be created.
+        match create_preview_pipeline(
+            &device, &shader, &layout, features, true, true, false, false,
+        ) {
+            Ok(pipeline) => {
+                let _ = pipelines[features].set(pipeline);
+            }
+            Err(error) => {
+                log::error!(
+                    "Specialized preview variant {features} unavailable; using the general shader: {error}"
+                );
+                failed[features].store(true, std::sync::atomic::Ordering::Release);
+            }
+        }
+        if first {
+            log::info!(
+                "GPU first display variant {features}: compile ended after {:.2} s (+{:.2} s since start)",
+                started.elapsed().as_secs_f64(),
+                since_start()
+            );
+            first_display_variant_settled();
+        }
+        if let Some(gate) = opens {
+            gate.open();
+        }
+    });
+}
+
 fn create_shader(
     device: &wgpu::Device,
     label: &str,
@@ -4749,14 +4826,83 @@ fn create_shader(
     })
 }
 
+/// Creates a pipeline through the device's pipeline cache when the app
+/// registered one (`pipeline_cache::open`), and writes the cache soon after.
 fn create_compute_pipeline(
     device: &wgpu::Device,
     descriptor: &wgpu::ComputePipelineDescriptor,
 ) -> Result<wgpu::ComputePipeline, String> {
     let label = descriptor.label.unwrap_or("compute");
-    validated(device, &format!("pipeline '{label}'"), || {
-        device.create_compute_pipeline(descriptor)
-    })
+    let cache = crate::pipeline_cache::for_device(device);
+    let created = validated(device, &format!("pipeline '{label}'"), || match &cache {
+        Some(cache) => device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            cache: Some(cache.wgpu()),
+            ..descriptor.clone()
+        }),
+        None => device.create_compute_pipeline(descriptor),
+    });
+    if let Some(cache) = cache {
+        cache.save_soon();
+    }
+    created
+}
+
+/// Whether a processor's RAW default display variant settled (compiled or
+/// failed) in this process, or the app gave up on the GPU.
+static FIRST_DISPLAY_VARIANT: (Mutex<bool>, std::sync::Condvar) =
+    (Mutex::new(false), std::sync::Condvar::new());
+
+/// Marks the first display variant settled: start-up work that waits for it
+/// (`wait_for_first_display_variant`) goes on.
+pub fn first_display_variant_settled() {
+    let (settled, changed) = &FIRST_DISPLAY_VARIANT;
+    *settled.lock().unwrap_or_else(|e| e.into_inner()) = true;
+    changed.notify_all();
+}
+
+/// Waits up to `timeout` until the RAW default display variant settled.
+/// Optional start-up work (background library passes, model warm-ups) waits
+/// here so that it does not compete with that compile, which a cold first
+/// Develop frame waits for (notes: benchmark-results/
+/// windows-gpu-vfio-2026-10-30/COLD-START-OPTIONS.md, D). Returns whether
+/// it settled.
+pub fn wait_for_first_display_variant(timeout: std::time::Duration) -> bool {
+    let (settled, changed) = &FIRST_DISPLAY_VARIANT;
+    let guard = settled.lock().unwrap_or_else(|e| e.into_inner());
+    let (guard, _) = changed
+        .wait_timeout_while(guard, timeout, |settled| !*settled)
+        .unwrap_or_else(|e| e.into_inner());
+    *guard
+}
+
+static PROCESS_START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+/// Marks the process start: the start-up log lines (slow compiles, the
+/// first display variant) give their time since then.
+pub fn mark_process_start() {
+    PROCESS_START.get_or_init(std::time::Instant::now);
+}
+
+fn since_start() -> f64 {
+    PROCESS_START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_secs_f64()
+}
+
+/// One log line naming the adapter the app renders with.
+pub fn log_adapter(info: &wgpu::AdapterInfo) {
+    log::info!(
+        "GPU adapter: {} ({:?}, {:?}), driver {} {}, vendor {:#06x} device {:#06x} (+{:.2} s since start)",
+        info.name,
+        info.backend,
+        info.device_type,
+        info.driver,
+        info.driver_info,
+        info.vendor,
+        info.device,
+        since_start()
+    );
 }
 
 /// What the main pass writes: an 8-bit or a 16-bit (Rgba32Float) output, or
@@ -4989,278 +5135,7 @@ impl GpuProcessor {
         let device = &context.device;
         const MAX_MASK_BINDINGS: u32 = 1;
 
-        let blur_shader_module =
-            create_shader(device, "Blur Shader", include_str!("shaders/blur.wgsl"))?;
-
-        let blur_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Blur BGL"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: wgpu::TextureFormat::Rgba16Float,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
-
-        let blur_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Blur Pipeline Layout"),
-            bind_group_layouts: &[Some(&blur_bgl)],
-            immediate_size: 0,
-        });
-
-        let h_blur_pipeline = create_compute_pipeline(
-            device,
-            &wgpu::ComputePipelineDescriptor {
-                label: Some("Horizontal Blur Pipeline"),
-                layout: Some(&blur_pipeline_layout),
-                module: &blur_shader_module,
-                entry_point: Some("horizontal_blur"),
-                compilation_options: Default::default(),
-                cache: None,
-            },
-        )?;
-
-        let v_blur_pipeline = create_compute_pipeline(
-            device,
-            &wgpu::ComputePipelineDescriptor {
-                label: Some("Vertical Blur Pipeline"),
-                layout: Some(&blur_pipeline_layout),
-                module: &blur_shader_module,
-                entry_point: Some("vertical_blur"),
-                compilation_options: Default::default(),
-                cache: None,
-            },
-        )?;
-
-        let blur_params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Blur Params Buffer"),
-            size: std::mem::size_of::<BlurParams>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let flare_shader =
-            create_shader(device, "Flare Shader", include_str!("shaders/flare.wgsl"))?;
-
-        let flare_bgl_0 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Flare BGL 0"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: wgpu::TextureFormat::Rgba16Float,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
-
-        let flare_bgl_1 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Flare BGL 1"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: wgpu::TextureFormat::Rgba16Float,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-            ],
-        });
-
-        let flare_threshold_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Flare Threshold Layout"),
-                bind_group_layouts: &[Some(&flare_bgl_0)],
-                immediate_size: 0,
-            });
-
-        let flare_ghosts_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Flare Ghosts Layout"),
-            bind_group_layouts: &[Some(&flare_bgl_0), Some(&flare_bgl_1)],
-            immediate_size: 0,
-        });
-
-        let flare_threshold_pipeline = create_compute_pipeline(
-            device,
-            &wgpu::ComputePipelineDescriptor {
-                label: Some("Flare Threshold Pipeline"),
-                layout: Some(&flare_threshold_layout),
-                module: &flare_shader,
-                entry_point: Some("threshold_main"),
-                compilation_options: Default::default(),
-                cache: None,
-            },
-        )?;
-
-        let flare_ghosts_pipeline = create_compute_pipeline(
-            device,
-            &wgpu::ComputePipelineDescriptor {
-                label: Some("Flare Ghosts Pipeline"),
-                layout: Some(&flare_ghosts_layout),
-                module: &flare_shader,
-                entry_point: Some("ghosts_main"),
-                compilation_options: Default::default(),
-                cache: None,
-            },
-        )?;
-
-        let flare_params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Flare Params Buffer"),
-            size: std::mem::size_of::<FlareParams>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let flare_tex_desc = wgpu::TextureDescriptor {
-            label: Some("Flare Tex"),
-            size: wgpu::Extent3d {
-                width: FLARE_MAP_SIZE,
-                height: FLARE_MAP_SIZE,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba16Float,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
-            view_formats: &[],
-        };
-
-        let flare_threshold_texture = device.create_texture(&flare_tex_desc);
-        let flare_threshold_view = flare_threshold_texture.create_view(&Default::default());
-        let flare_ghosts_texture = device.create_texture(&flare_tex_desc);
-        let flare_ghosts_view = flare_ghosts_texture.create_view(&Default::default());
-        let flare_final_texture = device.create_texture(&flare_tex_desc);
-        let flare_final_view = flare_final_texture.create_view(&Default::default());
-
-        let flare_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("Flare Sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-
-        let chroma_pipelines = ChromaPipelines::new(device)
-            .inspect_err(|e| log::error!("Colour noise passes failed: {e}"))
-            .ok();
         let shader_module = create_shader(device, "Image Processing Shader", shader_source)?;
-
-        let layer_sums_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Layer sums BGL"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2Array,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                storage_entry(1, true),
-                storage_entry(2, true),
-                storage_entry(3, false),
-            ],
-        });
-        let layer_sums_pipeline = create_compute_pipeline(
-            device,
-            &wgpu::ComputePipelineDescriptor {
-                label: Some("Layer sums"),
-                layout: Some(
-                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        label: Some("Layer sums layout"),
-                        bind_group_layouts: &[Some(&layer_sums_bgl)],
-                        immediate_size: 0,
-                    }),
-                ),
-                module: &create_shader(
-                    device,
-                    "Layer sums",
-                    include_str!("shaders/layer_sums.wgsl"),
-                )?,
-                entry_point: Some("main"),
-                compilation_options: Default::default(),
-                cache: None,
-            },
-        )?;
-        let layer_sums_off = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Layer sums (none)"),
-            size: (LAYER_SUMS_HEADER * 16) as u64,
-            usage: wgpu::BufferUsages::STORAGE,
-            mapped_at_creation: false,
-        });
 
         let mut bind_group_layout_entries = vec![
             wgpu::BindGroupLayoutEntry {
@@ -5540,11 +5415,312 @@ impl GpuProcessor {
             immediate_size: 0,
         });
 
+        // A cold first start waits for the RAW default display variant
+        // (seconds on NVIDIA without its shader cache): it compiles before
+        // every other pipeline of the processor, which the start gate holds
+        // back until it is ready (notes: benchmark-results/
+        // windows-gpu-vfio-2026-10-30/COLD-START-OPTIONS.md, B2/D).
+        let start_gate = Arc::new(StartGate::default());
+        // Display variants compile on demand off the render worker; the
+        // common ones start with the processor (see the end of `new`).
+        let preview_pipelines: Arc<
+            [std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT],
+        > = Arc::new(std::array::from_fn(|_| std::sync::OnceLock::new()));
+        let preview_failed: Arc<[std::sync::atomic::AtomicBool; PREVIEW_PIPELINE_COUNT]> =
+            Arc::new(std::array::from_fn(|_| Default::default()));
+        let preview_compilation: [std::sync::OnceLock<()>; PREVIEW_PIPELINE_COUNT] =
+            std::array::from_fn(|_| std::sync::OnceLock::new());
+        if display_variants {
+            preview_compilation[RAW_DEFAULT_PREVIEW_FEATURES].get_or_init(|| {
+                spawn_preview_compile(
+                    Arc::clone(device),
+                    shader_module.clone(),
+                    pipeline_layout.clone(),
+                    RAW_DEFAULT_PREVIEW_FEATURES,
+                    Arc::clone(&preview_pipelines),
+                    Arc::clone(&preview_failed),
+                    None,
+                    &start_gate,
+                )
+            });
+        }
+
+        let blur_shader_module =
+            create_shader(device, "Blur Shader", include_str!("shaders/blur.wgsl"))?;
+
+        let blur_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Blur BGL"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::StorageTexture {
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format: wgpu::TextureFormat::Rgba16Float,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+        let blur_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Blur Pipeline Layout"),
+            bind_group_layouts: &[Some(&blur_bgl)],
+            immediate_size: 0,
+        });
+
+        let h_blur_pipeline = create_compute_pipeline(
+            device,
+            &wgpu::ComputePipelineDescriptor {
+                label: Some("Horizontal Blur Pipeline"),
+                layout: Some(&blur_pipeline_layout),
+                module: &blur_shader_module,
+                entry_point: Some("horizontal_blur"),
+                compilation_options: Default::default(),
+                cache: None,
+            },
+        )?;
+
+        let v_blur_pipeline = create_compute_pipeline(
+            device,
+            &wgpu::ComputePipelineDescriptor {
+                label: Some("Vertical Blur Pipeline"),
+                layout: Some(&blur_pipeline_layout),
+                module: &blur_shader_module,
+                entry_point: Some("vertical_blur"),
+                compilation_options: Default::default(),
+                cache: None,
+            },
+        )?;
+
+        let blur_params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Blur Params Buffer"),
+            size: std::mem::size_of::<BlurParams>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let flare_shader =
+            create_shader(device, "Flare Shader", include_str!("shaders/flare.wgsl"))?;
+
+        let flare_bgl_0 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Flare BGL 0"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::StorageTexture {
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format: wgpu::TextureFormat::Rgba16Float,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+
+        let flare_bgl_1 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Flare BGL 1"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::StorageTexture {
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format: wgpu::TextureFormat::Rgba16Float,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+        let flare_threshold_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Flare Threshold Layout"),
+                bind_group_layouts: &[Some(&flare_bgl_0)],
+                immediate_size: 0,
+            });
+
+        let flare_ghosts_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Flare Ghosts Layout"),
+            bind_group_layouts: &[Some(&flare_bgl_0), Some(&flare_bgl_1)],
+            immediate_size: 0,
+        });
+
+        let flare_threshold_pipeline = create_compute_pipeline(
+            device,
+            &wgpu::ComputePipelineDescriptor {
+                label: Some("Flare Threshold Pipeline"),
+                layout: Some(&flare_threshold_layout),
+                module: &flare_shader,
+                entry_point: Some("threshold_main"),
+                compilation_options: Default::default(),
+                cache: None,
+            },
+        )?;
+
+        let flare_ghosts_pipeline = create_compute_pipeline(
+            device,
+            &wgpu::ComputePipelineDescriptor {
+                label: Some("Flare Ghosts Pipeline"),
+                layout: Some(&flare_ghosts_layout),
+                module: &flare_shader,
+                entry_point: Some("ghosts_main"),
+                compilation_options: Default::default(),
+                cache: None,
+            },
+        )?;
+
+        let flare_params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Flare Params Buffer"),
+            size: std::mem::size_of::<FlareParams>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let flare_tex_desc = wgpu::TextureDescriptor {
+            label: Some("Flare Tex"),
+            size: wgpu::Extent3d {
+                width: FLARE_MAP_SIZE,
+                height: FLARE_MAP_SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        };
+
+        let flare_threshold_texture = device.create_texture(&flare_tex_desc);
+        let flare_threshold_view = flare_threshold_texture.create_view(&Default::default());
+        let flare_ghosts_texture = device.create_texture(&flare_tex_desc);
+        let flare_ghosts_view = flare_ghosts_texture.create_view(&Default::default());
+        let flare_final_texture = device.create_texture(&flare_tex_desc);
+        let flare_final_view = flare_final_texture.create_view(&Default::default());
+
+        let flare_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Flare Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        let chroma_pipelines = ChromaPipelines::new(device)
+            .inspect_err(|e| log::error!("Colour noise passes failed: {e}"))
+            .ok();
+
+        let layer_sums_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Layer sums BGL"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                storage_entry(1, true),
+                storage_entry(2, true),
+                storage_entry(3, false),
+            ],
+        });
+        let layer_sums_pipeline = create_compute_pipeline(
+            device,
+            &wgpu::ComputePipelineDescriptor {
+                label: Some("Layer sums"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Layer sums layout"),
+                        bind_group_layouts: &[Some(&layer_sums_bgl)],
+                        immediate_size: 0,
+                    }),
+                ),
+                module: &create_shader(
+                    device,
+                    "Layer sums",
+                    include_str!("shaders/layer_sums.wgsl"),
+                )?,
+                entry_point: Some("main"),
+                compilation_options: Default::default(),
+                cache: None,
+            },
+        )?;
+        let layer_sums_off = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Layer sums (none)"),
+            size: (LAYER_SUMS_HEADER * 16) as u64,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+
         // The large pipelines compile in parallel on their own threads, so a
         // cold driver cache (NVIDIA/Linux: 16 s for each general pipeline)
         // does not hold the processor back; a render waits only for the
         // pipeline it needs (`BackgroundPipeline::wait`, `preview_pipeline`).
-        let start_gate = Arc::new(StartGate::default());
         let main_pipeline = BackgroundPipeline::compile(device, &start_gate, {
             let module = shader_module.clone();
             let layout = pipeline_layout.clone();
@@ -5565,12 +5741,6 @@ impl GpuProcessor {
                 )
             }
         });
-
-        // Display variants compile on demand off the render worker; the
-        // common ones start with the processor (see the end of `new`).
-        let preview_pipelines: Arc<
-            [std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT],
-        > = Arc::new(std::array::from_fn(|_| std::sync::OnceLock::new()));
 
         bind_group_layout_entries[1].ty = wgpu::BindingType::StorageTexture {
             access: wgpu::StorageTextureAccess::WriteOnly,
@@ -5797,8 +5967,8 @@ impl GpuProcessor {
             detail_pipeline: Arc::new(std::sync::OnceLock::new()),
             detail_compilation: std::sync::OnceLock::new(),
             preview_pipelines,
-            preview_compilation: std::array::from_fn(|_| std::sync::OnceLock::new()),
-            preview_failed: Arc::new(std::array::from_fn(|_| Default::default())),
+            preview_compilation,
+            preview_failed,
             layer_sum_pipelines: Arc::new(std::array::from_fn(|_| std::sync::OnceLock::new())),
             layer_sum_compilation: std::array::from_fn(|_| std::sync::OnceLock::new()),
             preview_shader: shader_module,
@@ -5889,7 +6059,7 @@ impl GpuProcessor {
             layer_sum_frames: Default::default(),
         };
         // RAWs open with the default detail settings: that variant compiles
-        // first. Then edited RAWs, other photos often without any detail
+        // first (above). Then edited RAWs, other photos often without any detail
         // feature, and the all-enabled variant that renders any recipe until
         // its own variant is ready.
         // Without them nothing holds the general pipelines back.
@@ -5897,7 +6067,6 @@ impl GpuProcessor {
             processor.start_gate.open();
             return Ok(processor);
         }
-        processor.compile_preview_variant(RAW_DEFAULT_PREVIEW_FEATURES);
         for features in [
             RAW_DEFAULT_PREVIEW_FEATURES | TONE_PREVIEW_FEATURE,
             0,
@@ -6925,34 +7094,16 @@ impl GpuProcessor {
 
     fn compile_preview_variant_gated(&self, features: usize, gate: Option<Arc<StartGate>>) {
         self.preview_compilation[features].get_or_init(|| {
-            // The RAW default variant opens the gate when it settles.
-            let opens = (features == RAW_DEFAULT_PREVIEW_FEATURES).then(|| Arc::clone(&self.start_gate));
-            let pipelines = Arc::clone(&self.preview_pipelines);
-            let failed = Arc::clone(&self.preview_failed);
-            let device = Arc::clone(&self.context.device);
-            let shader = self.preview_shader.clone();
-            let layout = self.preview_layout.clone();
-            std::thread::spawn(move || {
-                if let Some(gate) = gate {
-                    gate.wait();
-                }
-                // The general pipeline was validated at construction and
-                // stays in use if this variant cannot be created.
-                match create_preview_pipeline(&device, &shader, &layout, features, true, true, false, false) {
-                    Ok(pipeline) => {
-                        let _ = pipelines[features].set(pipeline);
-                    }
-                    Err(error) => {
-                        log::error!(
-                            "Specialized preview variant {features} unavailable; using the general shader: {error}"
-                        );
-                        failed[features].store(true, std::sync::atomic::Ordering::Release);
-                    }
-                }
-                if let Some(gate) = opens {
-                    gate.open();
-                }
-            });
+            spawn_preview_compile(
+                Arc::clone(&self.context.device),
+                self.preview_shader.clone(),
+                self.preview_layout.clone(),
+                features,
+                Arc::clone(&self.preview_pipelines),
+                Arc::clone(&self.preview_failed),
+                gate,
+                &self.start_gate,
+            )
         });
     }
 

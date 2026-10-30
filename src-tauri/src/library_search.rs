@@ -258,6 +258,7 @@ pub fn start_facts_pass(directory: PathBuf) {
         .spawn(move || {
             let started = Instant::now();
             std::thread::sleep(PASS_DELAY);
+            crate::gpu_processing::after_first_display_variant();
             let announce = |_: usize, rated: &Rated| {
                 if let Some(app) = FACTS_ANNOUNCED.get() {
                     // Ratings taken from the camera show in the grid as ones

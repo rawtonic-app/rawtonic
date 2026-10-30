@@ -5,7 +5,10 @@
 //! cargo run --release -p rawtonic-gpu --example gpu_start [-- WAIT_SECONDS]
 //!
 //! For a cold driver cache on NVIDIA/Linux point `__GL_SHADER_DISK_CACHE_PATH`
-//! at a fresh empty folder (Mesa: `MESA_SHADER_CACHE_DIR`).
+//! at a fresh empty folder (Mesa: `MESA_SHADER_CACHE_DIR`). With
+//! `GPU_START_PIPELINE_CACHE=DIR` it keeps the app's own pipeline cache file
+//! in DIR (Vulkan only); give WAIT_SECONDS long enough for every compile and
+//! the file's write (2 s after the last compile).
 
 use std::time::{Duration, Instant};
 
@@ -39,7 +42,8 @@ fn main() -> Result<(), String> {
         .transpose()?
         .unwrap_or(0);
 
-    let context = GpuContext::headless()?;
+    let cache_dir = std::env::var_os("GPU_START_PIPELINE_CACHE").map(std::path::PathBuf::from);
+    let context = GpuContext::headless_with_pipeline_cache(cache_dir.as_deref())?;
     eprintln!("{:7.2} s  device ready", start.elapsed().as_secs_f64());
     let max = context.limits.max_texture_dimension_2d;
     let _processor = GpuProcessor::new(context, max, max)?;

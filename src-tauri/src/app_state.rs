@@ -492,6 +492,10 @@ pub struct AppState {
     pub cached_preview: Mutex<Option<CachedPreview>>,
     pub(crate) reusable_previews: Mutex<crate::preview_cache::PreviewBaseCache>,
     pub gpu_context: Mutex<Option<GpuContext>>,
+    /// The instance and adapter `gpu_context` was made from: the window's
+    /// surface is attached to it after the window exists
+    /// (`gpu_processing::attach_display`).
+    pub gpu_adapter: Mutex<Option<(wgpu::Instance, wgpu::Adapter)>>,
     pub gpu_image_cache: Mutex<Option<GpuImageCache>>,
     pub gpu_processor: GpuProcessorSlot,
     /// Exports' own processor: their renders pause between tiles for the
@@ -569,6 +573,7 @@ impl Default for AppState {
             cached_preview: Mutex::new(None),
             reusable_previews: Mutex::new(Default::default()),
             gpu_context: Mutex::new(None),
+            gpu_adapter: Mutex::new(None),
             gpu_image_cache: Mutex::new(None),
             gpu_processor: GpuProcessorSlot::new(None),
             export_gpu_processor: GpuProcessorSlot::background(None),

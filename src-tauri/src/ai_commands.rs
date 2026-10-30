@@ -1118,6 +1118,11 @@ pub async fn warm_up_ai_mask_models(
             None
         }
     };
+    // Asked on the first Develop visit, which a cold start's display
+    // variant compile may still hold.
+    tauri::async_runtime::spawn_blocking(crate::gpu_processing::after_first_display_variant)
+        .await
+        .map_err(|e| e.to_string())?;
     // Once for both models: masking use during Subject's warm-up keeps Sky
     // too.
     let uses = LIFECYCLE.uses();
