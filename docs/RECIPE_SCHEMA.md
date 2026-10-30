@@ -186,6 +186,18 @@ unpatterned. `relightDepth.cacheKey` names an analysis: previews send its
 bitmap and landmarks once and then only the name, as with AI patches; files
 without a key are named by a hash of the bitmap when loaded.
 
+### Two-sided linear gradient bands
+
+A `linear` mask may contain optional `parameters.band: { width, feather }`.
+Both values are nonnegative distances in the mask's image frame, before preview
+scaling. `width` is the full-width strip of 100% coverage centered on the existing
+start–end line; `feather` is the linear falloff outward from each edge to zero.
+A zero feather gives a hard edge. The existing `range`/`rangeEnd` values remain
+stored for switching back to the ordinary gradient, and are ignored while a band
+is present. Without `band`, the existing gradient calculation is unchanged.
+Frame transforms scale both band distances along the line's normal, matching the
+existing gradient ranges. Invert, opacity and mask composition apply as usual.
+
 ## Generated patch provenance
 
 `adjustments.aiPatches[].patchData.model` optionally records the model that produced the stored fill pixels: `moebius`, `mi-gan`, or `external`. It records the model actually used, including fallback; earlier patches without the field remain valid and are listed as model not recorded. It does not alter rendering. Visible model-generated patches with nonempty `patchData.color` carry the existing export Digital Source Type marking; clone, heal, liquify, retouch and patches marked `generated: false` do not. The shared predicates live in `rawtonic_metadata::provenance` and feed the catalog’s AI-edit index as well as export. A patch without pixels is indexed as an unfinished fill, not a generated area.

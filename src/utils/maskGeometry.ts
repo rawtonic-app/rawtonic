@@ -320,6 +320,8 @@ export function shapeAsShown<T extends Params>(type: string, params: T, now: Siz
     const factor = along ? map.areaScale / Math.hypot(along.x, along.y) : Math.sqrt(map.areaScale);
     shown.range = (typeof params.range === 'number' ? params.range : 50) * factor;
     if (typeof params.rangeEnd === 'number') shown.rangeEnd = params.rangeEnd * factor;
+    const band = params.band as { width: number; feather: number } | undefined;
+    if (band) shown.band = { width: band.width * factor, feather: band.feather * factor };
   }
   return shown as T;
 }

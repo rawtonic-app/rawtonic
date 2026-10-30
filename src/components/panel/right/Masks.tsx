@@ -100,6 +100,7 @@ export interface SubMaskParameters {
   endY?: number;
   range?: number;
   rangeEnd?: number;
+  band?: { width: number; feather: number };
   // Brush, flow and patch strokes
   lines?: Array<MaskStrokeLine>;
   flow?: number;

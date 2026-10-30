@@ -669,6 +669,14 @@ fn shape_as_shown<'a>(kind: &str, params: &'a Value, now: Shown, scale: f32) -> 
                             values.push(range * factor);
                         }
                     }
+                    if let Some(band) = params.get("band") {
+                        for key in ["width", "feather"] {
+                            if let Some(distance) = num(band, key) {
+                                shown["band"][key] = Value::from(distance * factor);
+                                values.push(distance * factor);
+                            }
+                        }
+                    }
                     if params.get("range").is_none() {
                         // The default range, carried along.
                         shown["range"] = Value::from(default_range() as f64 * factor);
@@ -891,6 +899,29 @@ struct LinearMaskParameters {
     /// from `range` (Capture One's Alt-drag). Absent: symmetric, as before.
     #[serde(default)]
     range_end: Option<f32>,
+    /// Optional symmetric strip: full-coverage width and outward feather in image pixels.
+    #[serde(default)]
+    band: Option<LinearBand>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct LinearBand {
+    width: f32,
+    feather: f32,
+}
+
+impl LinearBand {
+    fn coverage(&self, distance: f32, scale: f32) -> f32 {
+        let outside = distance.abs() - self.width.max(0.0) * scale * 0.5;
+        let feather = self.feather.max(0.0) * scale;
+        if outside <= 0.0 {
+            1.0
+        } else if feather > 0.0 {
+            (1.0 - outside / feather).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    }
 }
 
 fn default_range() -> f32 {
@@ -906,6 +937,7 @@ impl Default for LinearMaskParameters {
             end_y: 0.0,
             range: default_range(),
             range_end: None,
+            band: None,
         }
     }
 }
@@ -3045,7 +3077,12 @@ fn generate_linear_bitmap(
                     dist_perp / half_width
                 };
 
-                let intensity = 0.5 - t * 0.5;
+                let intensity = if let Some(band) = &params.band {
+                    band.coverage(dist_perp, scale)
+                } else {
+                    // Preserve the exact arithmetic of every existing linear mask.
+                    0.5 - t * 0.5
+                };
                 *pixel = (intensity.clamp(0.0, 1.0) * 255.0) as u8;
             }
         });
@@ -5280,6 +5317,69 @@ mod quick_erase_tests {
 #[cfg(test)]
 mod linear_tests {
     use super::*;
+
+    #[test]
+    fn band_has_full_width_and_symmetric_outward_feather() {
+        let params = serde_json::json!({"startX": 0.0, "startY": 50.0,
+            "endX": 100.0, "endY": 50.0, "range": 17.0, "rangeEnd": 23.0,
+            "band": {"width": 20.0, "feather": 10.0}});
+        let mask = generate_linear_bitmap(&params, 100, 100, 1.0, (0.0, 0.0));
+        for (distance, expected) in [(0, 255), (10, 255), (15, 127), (20, 0), (40, 0)] {
+            assert_eq!(mask.get_pixel(30, 50 + distance)[0], expected);
+            assert_eq!(mask.get_pixel(30, 50 - distance)[0], expected);
+        }
+        // Same image coordinates after a scaled preview and a crop.
+        let scaled = generate_linear_bitmap(&params, 45, 45, 0.5, (5.0, 5.0));
+        for y in 0..45 {
+            assert_eq!(
+                scaled.get_pixel(10, y)[0],
+                mask.get_pixel(30, (y + 5) * 2)[0]
+            );
+        }
+    }
+
+    #[test]
+    fn band_matches_two_existing_gradient_ramps() {
+        let (sx, sy, vx, vy) = (100.0f64, 60.0f64, 100.0f64, 40.0f64);
+        let length = vx.hypot(vy);
+        let (nx, ny) = (-vy / length, vx / length);
+        let band = serde_json::json!({"startX": sx, "startY": sy,
+            "endX": sx + vx, "endY": sy + vy, "band": {"width": 20.0, "feather": 14.0}});
+        // Each ordinary ramp has its midpoint halfway through one feather.
+        let ramp = |side: f64| {
+            serde_json::json!({
+            "startX": sx + nx * 17.0 * side, "startY": sy + ny * 17.0 * side,
+            "endX": sx + nx * 17.0 * side + vx * side,
+            "endY": sy + ny * 17.0 * side + vy * side, "range": 7.0})
+        };
+        for scale in [0.71, 1.0, 1.3] {
+            let render =
+                |params: &Value| generate_linear_bitmap(params, 231, 141, scale, (7.0, 11.0));
+            let strip = render(&band);
+            let left = render(&ramp(-1.0));
+            let right = render(&ramp(1.0));
+            for ((band, left), right) in strip.iter().zip(left.iter()).zip(right.iter()) {
+                let intersection = (*left as u16 * *right as u16 / 255) as u8;
+                // Rearranging the same ramps in f32 can cross one u8 boundary.
+                assert!(band.abs_diff(intersection) <= 1);
+            }
+        }
+    }
+
+    #[test]
+    fn band_with_zero_feather_has_hard_edges_and_zero_width_is_supported() {
+        let mut params = serde_json::json!({"startX": 0.0, "startY": 50.0,
+            "endX": 100.0, "endY": 50.0, "band": {"width": 20.0, "feather": 0.0}});
+        let mask = generate_linear_bitmap(&params, 100, 100, 1.0, (0.0, 0.0));
+        assert_eq!(mask.get_pixel(30, 40)[0], 255);
+        assert_eq!(mask.get_pixel(30, 39)[0], 0);
+        assert_eq!(mask.get_pixel(30, 61)[0], 0);
+        params["band"] = serde_json::json!({"width": 0.0, "feather": 10.0});
+        let mask = generate_linear_bitmap(&params, 100, 100, 1.0, (0.0, 0.0));
+        assert_eq!(mask.get_pixel(30, 50)[0], 255);
+        assert_eq!(mask.get_pixel(30, 45)[0], 127);
+        assert_eq!(mask.get_pixel(30, 55)[0], 127);
+    }
 
     // The linear mask before `rangeEnd` existed.
     fn former_linear(
@@ -9614,7 +9714,7 @@ mod drawn_mask_frame_tests {
         let radial = json!({"centerX": 12.0, "centerY": 31.0, "radiusX": 9.0, "radiusY": 4.0,
             "rotation": 20.0, "feather": 0.5, "frame": drawn});
         let linear = json!({"startX": 5.0, "startY": 8.0, "endX": 30.0, "endY": 50.0,
-            "range": 6.0, "rangeEnd": 2.0, "frame": drawn});
+            "range": 6.0, "rangeEnd": 2.0, "band": {"width": 12.0, "feather": 3.0}, "frame": drawn});
         let radial = shape_as_shown("radial", &radial, now, 1.0).into_owned();
         let linear = shape_as_shown("linear", &linear, now, 1.0).into_owned();
         let mut points = vec![Point {
@@ -9645,6 +9745,8 @@ mod drawn_mask_frame_tests {
             (&linear["endY"], 44.302_807),
             (&linear["range"], 7.970_568),
             (&linear["rangeEnd"], 2.656_856),
+            (&linear["band"]["width"], 15.941_136),
+            (&linear["band"]["feather"], 3.985_284),
         ];
         for (i, (value, want)) in expected.iter().enumerate() {
             let got = value.as_f64().unwrap();

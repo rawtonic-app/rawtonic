@@ -34,6 +34,7 @@ export default function StudioLayerControls({
     brushActive,
     activeBrushDraws,
     radialMask,
+    linearMask,
     brushSettings,
     paintOnLayer,
     toggleInvert,
@@ -74,6 +75,13 @@ export default function StudioLayerControls({
         return { ...sub, parameters: { ...parameters, ...patch } };
       }),
     );
+  const setBand = (band?: { width: number; feather: number }) =>
+    updateLayer((subs) => subs.map((sub) => {
+      if (sub.id !== linearMask?.id) return sub;
+      const { band: _old, ...parameters } = sub.parameters;
+      return { ...sub, parameters: band ? { ...parameters, band } : parameters };
+    }));
+  const band = linearMask?.parameters.band;
   // Where the range covers fully (accent) and fades out, over the tonal scale.
   const low = Math.min(range.rangeLow, range.rangeHigh);
   const high = Math.max(range.rangeLow, range.rangeHigh);
@@ -126,6 +134,22 @@ export default function StudioLayerControls({
           />
         </div>
       )}
+      {linearMask && <>
+        <label className="studio-inline studio-check">
+          <input type="checkbox" checked={!!band} onChange={(e) => setBand(e.target.checked
+            ? { width: (linearMask.parameters.range ?? 50) * 2, feather: linearMask.parameters.range ?? 50 }
+            : undefined)} />
+          {t("studio.layers.gradientBand")}
+        </label>
+        {band && <>
+          <AdjustmentControl label={t("studio.layers.bandWidth")} min={0} max={10000} unit="px"
+            value={band.width} onInteraction={onRangeInteraction}
+            onChange={(width) => setBand({ ...band, width })} />
+          <AdjustmentControl label={t("editor.masks.params.feather")} min={0} max={10000} unit="px"
+            value={band.feather} onInteraction={onRangeInteraction}
+            onChange={(feather) => setBand({ ...band, feather })} />
+        </>}
+      </>}
       {radialMask && (
         // Capture One sets a radial gradient's feathering on the canvas; the
         // same value is also available here as a slider.

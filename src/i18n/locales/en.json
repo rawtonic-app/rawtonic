@@ -3088,6 +3088,7 @@
       "title": "Histogram"
     },
     "layers": {
+      "bandWidth": "Band width",
       "brush": {
         "autoMask": "Auto mask",
         "brushFlow": "Brush flow",
@@ -3105,6 +3106,7 @@
       "drawTitle": "Paint onto this layer's mask (keeps gradients editable)",
       "erase": "Erase",
       "eraseTitle": "Erase from this layer's mask (keeps gradients editable)",
+      "gradientBand": "Two-sided band",
       "invert": "Invert",
       "invertTitle": "Invert this layer's mask",
       "lumaRange": {
