@@ -2,7 +2,6 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { useActivityStore } from '../store/useActivityStore';
 import { expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { notify as toast } from '../activity/notify';
 import { saveFailure, useLibraryActions } from './useLibraryActions';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
