@@ -15,6 +15,7 @@ import { followsExportItems, loadExportItems } from '../components/studio/Studio
 import { useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
 import { useLibraryStore } from '../store/useLibraryStore';
+import { followPathMoves } from '../utils/pathKeyedState';
 import { libraryImageIndex } from '../utils/libraryIndex';
 import { setMergeStateFor } from './useProductivityActions';
 import { cancelQuitRequest, confirmQuitWithUnsaved, handleQuitRequest } from '../utils/quit';
@@ -611,6 +612,18 @@ export function useTauriListeners({
       // and missing counts are read again.
       listen<string[]>('file-operations-caught-up', () => {
         if (!isEffectActive) return;
+        refs.current.refreshImageList();
+        void recountAfterFileOperation();
+      }),
+      // A session moved whose photos another open library (a catalog)
+      // holds: the catalog's records followed it (file_operations.rs
+      // `sync_catalog`); the shown folders, picks and thumbnails follow,
+      // and the list is read again. The open session itself is opened
+      // again at its new place by SessionWorkspace.
+      listen<{ from: string; to: string }>('session-moved', ({ payload }) => {
+        if (!isEffectActive || useLibraryStore.getState().sessionDirectory === payload.from) return;
+        followPathMoves([payload]);
+        void refs.current.refreshAllFolderTrees();
         refs.current.refreshImageList();
         void recountAfterFileOperation();
       }),

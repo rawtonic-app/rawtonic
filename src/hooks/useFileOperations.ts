@@ -23,6 +23,7 @@ import {
   useCatalogUndoStore,
 } from "../utils/appUndo";
 import { isBelow } from '../utils/catalogFolders';
+import { openExportQueue } from '../utils/catalogEvents';
 import type { PlannedFile } from '../components/modals/RenameFileModal';
 
 /** Mirrors `OperationSummary` in src-tauri/src/file_operations.rs. */
@@ -68,6 +69,9 @@ export interface SessionMoveOffer {
   freeBytes: number;
   /** Why the session cannot go there either. */
   refusal?: string | null;
+  /** An export of the session waits, runs or is paused: it is finished or
+   * cancelled first. */
+  exportsPending?: boolean;
 }
 
 /** Bytes in decimal units, as file browsers show them. */
@@ -132,6 +136,10 @@ export function describeSessionMove(offer: SessionMoveOffer): string {
 function offerSessionMove(offer: SessionMoveOffer) {
   const t = i18next.t.bind(i18next);
   const folder = offer.destination.split(/[\\/]/).filter(Boolean).pop() ?? offer.destination;
+  if (offer.exportsPending) {
+    askToFinishExports(offer);
+    return;
+  }
   if (offer.refusal) {
     notify.error(t('studio.library.fileOperations.sessionMoveRefused', { name: offer.name, error: offer.refusal }));
     return;
@@ -144,6 +152,27 @@ function offerSessionMove(offer: SessionMoveOffer) {
       confirmText: t('studio.library.fileOperations.sessionMoveConfirm', { folder }),
       confirmVariant: 'primary',
       onConfirm: () => void moveSession(offer, folder),
+    },
+  });
+}
+
+/** `move_session`'s refusal while an export of the session waits, runs or
+ * is paused (`EXPORTS_PENDING` in src-tauri/src/session_move.rs). */
+const EXPORTS_PENDING = 'Finish or cancel the exports of this session first';
+
+/** A session with exports waiting, running or paused does not move (the
+ * jobs would find their photos gone): finish or cancel them first, with
+ * the export queue one click away. */
+function askToFinishExports(offer: SessionMoveOffer) {
+  const t = i18next.t.bind(i18next);
+  useUIStore.getState().setUI({
+    confirmModalState: {
+      isOpen: true,
+      title: t('studio.library.fileOperations.sessionMoveTitle', { name: offer.name }),
+      message: t('studio.library.fileOperations.sessionMoveExportsPending', { name: offer.name }),
+      confirmText: t('studio.library.fileOperations.openExportQueue'),
+      confirmVariant: 'primary',
+      onConfirm: openExportQueue,
     },
   });
 }
@@ -172,6 +201,10 @@ async function moveSession(offer: SessionMoveOffer, folder: string) {
       notify.success(t('studio.library.fileOperations.sessionMoved', { name: offer.name, folder, hint: undoHint() }));
     warnAboutNote(summary);
   } catch (err) {
+    if (String(err).startsWith(EXPORTS_PENDING)) {
+      askToFinishExports(offer);
+      return;
+    }
     notify.error(t('studio.library.fileOperations.sessionMoveFailed', { name: offer.name, error: String(err) }));
   }
 }

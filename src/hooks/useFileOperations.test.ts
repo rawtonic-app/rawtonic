@@ -33,6 +33,7 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { useUIStore } from '../store/useUIStore';
+import { OPEN_EXPORT_QUEUE } from '../utils/catalogEvents';
 import { Invokes } from '../components/ui/AppProperties';
 import { OFFLINE_COUNTED } from '../utils/offline';
 import { FILE_OPERATIONS_CHANGED } from '../utils/catalogEvents';
@@ -628,6 +629,39 @@ describe('moving photos or a folder out of their session', () => {
     await result.current.handlePasteFiles('move', '/Volumes/Archive SSD/2026');
     expect(useUIStore.getState().confirmModalState.title).toBe('Move the Whole Session “S7Job”?');
     expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(Invokes.MoveFiles, expect.anything());
+  });
+
+  it('asks to finish or cancel the session’s exports first, with the export queue one click away', async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(offered({ exportsPending: true }));
+    const opened = vi.fn();
+    window.addEventListener(OPEN_EXPORT_QUEUE, opened);
+    try {
+      const { result } = hook();
+      await result.current.handleMoveToFolder(['/Users/a/Jobs/S7Job/Capture/A.RAF'], '/Volumes/Archive SSD/2026');
+      const asked = useUIStore.getState().confirmModalState;
+      expect(asked.message).toBe(
+        'Finish or cancel the exports of the session “S7Job” first: they read its photos, which the move would take away. Nothing was moved.',
+      );
+      expect(asked.confirmText).toBe('Open Export Queue');
+      asked.onConfirm?.();
+      expect(opened).toHaveBeenCalledOnce();
+      expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(Invokes.MoveSession, expect.anything());
+    } finally {
+      window.removeEventListener(OPEN_EXPORT_QUEUE, opened);
+    }
+  });
+
+  it('asks the same when an export of the session was queued after the offer', async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(offered({}));
+    const { result } = hook();
+    await result.current.handleMoveToFolder(['/Users/a/Jobs/S7Job/Capture/A.RAF'], '/Volumes/Archive SSD/2026');
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === Invokes.MoveSession) throw 'Finish or cancel the exports of this session first; nothing was moved.';
+      return undefined;
+    });
+    useUIStore.getState().confirmModalState.onConfirm?.();
+    await waitFor(() => expect(useUIStore.getState().confirmModalState.confirmText).toBe('Open Export Queue'));
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
   it('tells when the session could not be moved', async () => {

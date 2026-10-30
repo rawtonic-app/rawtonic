@@ -194,6 +194,67 @@ fn a_session_moved_on_its_drive_reopens_whole_at_its_new_place_and_undo_brings_i
     assert_opens_whole(&session);
 }
 
+/// A catalog that added a session's photographs (absolute places) follows
+/// the session's move as the app's catalog sync does for the open catalog
+/// (`Library::relocate` of the session folder): same assets, metadata and
+/// albums at the new place; undo brings the records back too.
+#[test]
+fn a_catalog_holding_a_sessions_photos_follows_its_move_and_undo() {
+    let world = World::new();
+    let session = world.session();
+    let catalog_dir = world.jobs.join("Catalog");
+    let catalog = Library::create(&catalog_dir, "Catalog", Mode::Catalog).unwrap();
+    let photos = [session.join("Capture/A.NEF"), session.join("Selects/B.NEF")];
+    catalog.add_files(&photos).unwrap();
+    let ids: Vec<String> = photos
+        .iter()
+        .map(|p| catalog.asset_at(p).unwrap().expect("added").id)
+        .collect();
+    let album = catalog.create_collection("Client picks", None).unwrap();
+    catalog.add_to_collection(&album.id, &ids).unwrap();
+    let mut meta = catalog.metadata(&ids[0]).unwrap();
+    meta.rating = 5;
+    catalog.set_metadata(&ids[0], &meta).unwrap();
+
+    let other = world.jobs.join("Done");
+    fs::create_dir(&other).unwrap();
+    let plan = plan_session_move(&session, &other).unwrap();
+    let op = world
+        .run(Step::moving(&plan.from, &plan.to).unwrap())
+        .unwrap();
+    assert_eq!(catalog.relocate(&session, &plan.to).unwrap(), 2);
+    let at = |dir: &Path| {
+        let mut places: Vec<(String, PathBuf, bool)> = catalog
+            .collection_assets(&album.id)
+            .unwrap()
+            .into_iter()
+            .map(|a| {
+                (
+                    a.id,
+                    a.path.strip_prefix(dir).unwrap().to_path_buf(),
+                    a.missing,
+                )
+            })
+            .collect();
+        places.sort();
+        places
+    };
+    let mut expected: Vec<(String, PathBuf, bool)> = ids
+        .iter()
+        .zip(["Capture/A.NEF", "Selects/B.NEF"])
+        .map(|(id, name)| (id.clone(), PathBuf::from(name), false))
+        .collect();
+    expected.sort();
+    assert_eq!(at(&plan.to), expected);
+    assert_eq!(catalog.metadata(&ids[0]).unwrap().rating, 5);
+    assert_eq!(catalog.summary().unwrap().missing, 0);
+
+    world.journal.undo(&op.id, &world.trash).unwrap();
+    assert_eq!(catalog.relocate(&plan.to, &session).unwrap(), 2);
+    assert_eq!(at(&session), expected);
+    assert_opens_whole(&session);
+}
+
 #[test]
 fn a_session_moved_to_another_drive_is_copied_verified_and_its_original_trashed() {
     let world = World::new();

@@ -47,6 +47,9 @@ pub struct SessionMoveOffer {
     pub free_bytes: u64,
     /// Why the session cannot go there either (nothing is changed then).
     pub refusal: Option<String>,
+    /// An export of the session waits, runs or is paused: it is finished
+    /// or cancelled first (`EXPORTS_PENDING`).
+    pub exports_pending: bool,
 }
 
 /// The offer to move the session `session` into `destination`, with why it
@@ -61,6 +64,7 @@ pub(crate) fn offer(session: &Path, destination: &Path) -> SessionMoveOffer {
             .to_string_lossy()
             .into_owned(),
         destination: destination.to_string_lossy().into_owned(),
+        exports_pending: crate::export_queue::has_unfinished_job_in(session),
         ..SessionMoveOffer::default()
     };
     let planned = match check_session_move(session, destination) {
@@ -89,17 +93,22 @@ pub(crate) fn offer(session: &Path, destination: &Path) -> SessionMoveOffer {
     offer
 }
 
-/// Why nothing may move a session now: an import, a watched folder, a
-/// tethered camera or a running export uses its files.
-fn busy() -> Option<&'static str> {
+/// Why moving a session is refused while an export of it is waiting,
+/// running or paused: the job would find its photographs gone (it is not
+/// moved with them). The Library offers to open the export queue.
+pub const EXPORTS_PENDING: &str =
+    "Finish or cancel the exports of this session first; nothing was moved.";
+
+/// Why nothing may move the session at `session` now: a watched folder or
+/// a tethered camera writes into the open session, or an export of it is
+/// waiting, running or paused.
+fn busy(session: &Path) -> Option<&'static str> {
     if crate::hot_folder::hot_folder_status().is_some() {
         Some("Stop the watched folder before moving the session; nothing was moved.")
     } else if crate::camera_tethering::tether_status().is_some() {
         Some("Disconnect the tethered camera before moving the session; nothing was moved.")
-    } else if crate::export_queue::is_running() {
-        Some(
-            "Wait for the exports to finish (or pause them) before moving the session; nothing was moved.",
-        )
+    } else if crate::export_queue::has_unfinished_job_in(session) {
+        Some(EXPORTS_PENDING)
     } else {
         None
     }
@@ -111,6 +120,22 @@ const IMPORT_BUSY: &str =
 /// How long a move waits for this program's own background readers of the
 /// session (content hashes, capture facts) to let go of its database.
 const RELEASE_WAIT: Duration = Duration::from_secs(3);
+
+/// Dropped after a whole-session move (or its undo/redo) that stopped the
+/// background passes (content hashes, capture facts), whether it was done,
+/// refused or failed: they run again for the open library at its place as
+/// it is now.
+#[must_use]
+pub(crate) struct ResumePasses;
+
+impl Drop for ResumePasses {
+    fn drop(&mut self) {
+        if let Some(dir) = crate::session_bridge::active_library_directory() {
+            crate::folder_sync::start_checksum_pass(dir.clone());
+            crate::library_search::start_facts_pass(dir);
+        }
+    }
+}
 
 /// Stops this program's background passes and waits until no connection
 /// holds the session's database at `dir` any more; refuses when one still
@@ -143,7 +168,7 @@ pub async fn move_session(
     app: AppHandle,
 ) -> Result<OperationSummary, String> {
     crate::file_management::blocking(move || {
-        if let Some(reason) = busy() {
+        if let Some(reason) = busy(Path::new(&session)) {
             return Err(reason.to_string());
         }
         crate::session_bridge::holding_import_gate(IMPORT_BUSY, || {
@@ -151,6 +176,7 @@ pub async fn move_session(
             let destination = Path::new(&destination);
             // Refusals other than "in use" come at once, without waiting.
             check_session_move(session, destination).map_err(|e| format!("{e:#}"))?;
+            let _resume = ResumePasses;
             let planned = wait_until_free(session, || plan_session_move(session, destination))?;
             let step = Step::moving(&planned.from, &planned.to).map_err(|e| format!("{e:#}"))?;
             let label = format!(
@@ -167,6 +193,15 @@ pub async fn move_session(
         })
     })
     .await?
+}
+
+/// The open library when it is a catalog other than the moved session (at
+/// `from` before, `to` after): its records of photographs in the session
+/// (absolute: a catalog keeps photos anywhere) follow the move. A closed
+/// catalog cannot follow; it shows them as missing until relinked.
+pub(crate) fn open_catalog_other_than(from: &Path, to: &Path) -> Option<PathBuf> {
+    crate::session_bridge::active_library_directory()
+        .filter(|dir| dir != from && dir != to && dir.join("catalog.json").is_file())
 }
 
 /// The session folder's place before and after `op` as it stands now
@@ -186,20 +221,25 @@ fn places(op: &Operation) -> Option<(PathBuf, PathBuf)> {
 
 /// Before an undo (`forward` false) or redo of the whole-session move
 /// `op`: the session must not be open anywhere, as for the move itself.
-pub(crate) fn before_reversal(op: &Operation, forward: bool) -> Result<(), String> {
+/// Keep what it returns until the undo or redo is done.
+pub(crate) fn before_reversal(
+    op: &Operation,
+    forward: bool,
+) -> Result<Option<ResumePasses>, String> {
     if op.kind != KIND {
-        return Ok(());
+        return Ok(None);
     }
     let Some(step) = op.steps.first() else {
-        return Ok(());
+        return Ok(None);
     };
     let Some(target) = step.target() else {
-        return Ok(());
+        return Ok(None);
     };
     let now = if forward { &step.from } else { target };
-    if let Some(reason) = busy() {
+    if let Some(reason) = busy(now) {
         return Err(reason.to_string());
     }
+    let resume = ResumePasses;
     wait_until_free(now, || {
         anyhow::ensure!(
             !rawtonic_catalog::session_move::in_use_elsewhere(now)?,
@@ -207,7 +247,8 @@ pub(crate) fn before_reversal(op: &Operation, forward: bool) -> Result<(), Strin
             now.display()
         );
         Ok(())
-    })
+    })?;
+    Ok(Some(resume))
 }
 
 /// After a whole-session move, undo or redo: the open session follows to

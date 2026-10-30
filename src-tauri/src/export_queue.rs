@@ -664,9 +664,44 @@ pub fn set_held(app: &AppHandle, held: bool) {
     }
 }
 
-/// Whether the runner is working through the queue (reading photographs).
-pub fn is_running() -> bool {
-    RUNNING.load(Ordering::SeqCst)
+/// Whether a waiting, running or paused job reads photographs in, writes
+/// into or was submitted from the folder `dir` (a session about to move:
+/// such a job would find its photographs gone). Finished, failed, cancelled
+/// and interrupted jobs do not count.
+pub fn has_unfinished_job_in(dir: &Path) -> bool {
+    unfinished_job_in(&QUEUE, dir)
+}
+
+fn unfinished_job_in(queue: &Mutex<Option<ExportQueue>>, dir: &Path) -> bool {
+    let jobs = on_queue(queue, |q| q.jobs()).unwrap_or_default();
+    jobs.iter()
+        .filter(|job| {
+            matches!(
+                job.state,
+                JobState::Queued | JobState::Running | JobState::Paused
+            )
+        })
+        .any(|job| request_uses(&job.request, dir))
+}
+
+/// Whether the stored request (`ExportRequest` as JSON) names a photograph,
+/// its output or its library in or at `dir`.
+fn request_uses(request: &Value, dir: &Path) -> bool {
+    let text = |key: &str| request.get(key).and_then(Value::as_str);
+    let photos = request
+        .get("paths")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str);
+    let library = request
+        .get("library")
+        .and_then(|library| library.get("library"))
+        .and_then(Value::as_str);
+    photos
+        .chain(text("outputFolderOrFile"))
+        .chain(library)
+        .any(|path| Path::new(path).starts_with(dir))
 }
 
 pub fn snapshot() -> Snapshot {
@@ -1485,5 +1520,37 @@ mod tests {
             !run.admit(&paused, &cancelled),
             "a settled job admits no photo"
         );
+    }
+
+    /// Moving a session is refused while a job of it waits, runs or is
+    /// paused (it would find its photographs gone), not for its finished
+    /// jobs or for other folders' jobs.
+    #[test]
+    fn unfinished_jobs_of_a_session_hold_its_move() {
+        let (_tmp, queue) = test_queue();
+        let session = Path::new("/jobs/S7");
+        let photo = vec!["/jobs/S7/Capture/A.RAF?vc=2".to_string()];
+        let other = vec!["/jobs/S8/Capture/B.RAF".to_string()];
+        let add = |paths: &[String], library: Option<&Path>| {
+            let request = serde_json::to_value(request(paths, library)).unwrap();
+            on_queue(&queue, |q| q.enqueue("job", &request, paths)).unwrap()
+        };
+        add(&other, Some(Path::new("/jobs/S8")));
+        assert!(!unfinished_job_in(&queue, session));
+        assert!(!unfinished_job_in(&queue, Path::new("/jobs/S")));
+
+        let waiting = add(&photo, None);
+        assert!(unfinished_job_in(&queue, session));
+        on_queue(&queue, |q| q.pause(&waiting)).unwrap();
+        assert!(unfinished_job_in(&queue, session), "paused");
+        on_queue(&queue, |q| q.cancel(&waiting)).unwrap();
+        assert!(!unfinished_job_in(&queue, session), "cancelled");
+
+        // Submitted from the session, or writing into it, counts too.
+        add(&other, Some(session));
+        assert!(unfinished_job_in(&queue, session));
+        let mut into = serde_json::to_value(request(&other, None)).unwrap();
+        into["outputFolderOrFile"] = json!("/jobs/S7/Output");
+        assert!(request_uses(&into, session));
     }
 }

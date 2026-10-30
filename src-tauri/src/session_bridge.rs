@@ -544,8 +544,7 @@ pub(crate) fn holding_import_gate<T>(
 
 /// The session folder `from` is at `to` now (moved, or its move undone or
 /// redone). When it is the open library it is remembered at its new place
-/// (the next start opens it there) and its background passes run there;
-/// returns whether it was.
+/// (the next start opens it there); returns whether it was.
 pub(crate) fn session_moved(
     app: &tauri::AppHandle,
     from: &Path,
@@ -555,8 +554,6 @@ pub(crate) fn session_moved(
         return Ok(false);
     }
     remember(app, to)?;
-    crate::folder_sync::start_checksum_pass(to.to_path_buf());
-    crate::library_search::start_facts_pass(to.to_path_buf());
     Ok(true)
 }
 #[tauri::command]

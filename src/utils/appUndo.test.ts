@@ -319,6 +319,47 @@ it.each([false, true])(
   },
 );
 
+it("keeps the history when the open session moves: rating → move → undo move → undo rating", async () => {
+  const { fileAction, fileOperationTravel, followLibraryMove } = await import("./appUndo");
+  useUIStore.setState({ activeView: "library" });
+  const rated = {
+    ...changes[0],
+    path: "/job/Capture/a.nef",
+    assetId: "asset-a",
+    directory: "/job",
+  };
+  await catalogAction("rating", async () => [rated]);
+  const moved = {
+    id: "move-session-1",
+    kind: "moveSession",
+    moves: [{ from: "/job", to: "/archive/job" }],
+  };
+  // The session reopens at its new place (SessionWorkspace, `session-moved`).
+  const reopened = (from: string, to: string) => {
+    followLibraryMove(from, to);
+    useLibraryStore.setState({ sessionDirectory: to });
+  };
+  await fileAction(async () => moved);
+  reopened("/job", "/archive/job");
+  expect(useCatalogUndoStore.getState().past).toHaveLength(1);
+  expect(useCatalogUndoStore.getState().past[0].changes[0].path).toBe("/archive/job/Capture/a.nef");
+  await undo(async () => {
+    fileOperationTravel("undo", moved);
+    reopened("/archive/job", "/job");
+  });
+  expect(useCatalogUndoStore.getState().filesFuture).toHaveLength(1);
+  await undo();
+  expect(invoke).toHaveBeenLastCalledWith("restore_culling", {
+    directory: "/job",
+    values: [{ path: "/job/Capture/a.nef", assetId: "asset-a", directory: "/job", value: rated.before }],
+  });
+  expect(useCatalogUndoStore.getState().future).toHaveLength(1);
+  // Opening another library still starts a history of its own.
+  useLibraryStore.setState({ sessionDirectory: "/another" });
+  expect(useCatalogUndoStore.getState().future).toHaveLength(0);
+  expect(useCatalogUndoStore.getState().filesFuture).toHaveLength(0);
+});
+
 it("a new metadata branch prevents the discarded native file redo from returning", async () => {
   const { fileAction, fileOperationTravel } = await import("./appUndo");
   useUIStore.setState({ activeView: "library" });
