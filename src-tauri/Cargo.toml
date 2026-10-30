@@ -58,7 +58,6 @@ tauri-plugin-fs = "2.5.1"
 rayon = "1.12.0"
 blake3 = "1.8.7"
 wgpu = "29.0" # Downgraded to prevent P3 color shifts on Apple devices
-pollster = "1.0"
 bytemuck = { version = "1.25", features = ["derive"] }
 anyhow = "1.0.104"
 kamadak-exif = "0.6.1"
@@ -145,6 +144,7 @@ turbojpeg = { version = "1.5", default-features = false, features = ["cmake", "r
 rawtonic-catalog = { path = "../crates/catalog", version = "0.1.0", features = ["test-support"] }
 rawtonic-engine = { path = "../crates/engine", version = "0.1.0", features = ["test-support"] }
 rawtonic-rawdecode = { path = "../crates/rawdecode", version = "0.1.0", features = ["test-support"] }
+pollster = "1.0"
 
 [build-dependencies]
 tauri-build = { version = "2.6", features = [] }
