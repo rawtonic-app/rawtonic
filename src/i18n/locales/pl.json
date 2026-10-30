@@ -833,6 +833,7 @@
     }
   },
   "errors": {
+    "gpuStartFailed": "Rawtonic nie mógł uruchomić procesora graficznego, więc nie można wywoływać ani eksportować zdjęć. Zaktualizuj sterownik karty graficznej i uruchom Rawtonic ponownie. Szczegóły: {{details}}",
     "operationFailed": "Nie udało się ukończyć operacji."
   },
   "library": {

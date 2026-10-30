@@ -766,6 +766,7 @@
     }
   },
   "errors": {
+    "gpuStartFailed": "Rawtonic이 그래픽 프로세서를 시작하지 못해 사진을 현상하거나 내보낼 수 없습니다. 그래픽 드라이버를 업데이트하고 Rawtonic을 다시 시작하세요. 자세한 내용: {{details}}",
     "operationFailed": "작업을 완료하지 못했습니다."
   },
   "library": {

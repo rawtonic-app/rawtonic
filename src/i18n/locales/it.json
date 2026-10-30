@@ -803,6 +803,7 @@
     }
   },
   "errors": {
+    "gpuStartFailed": "Rawtonic non è riuscito ad avviare il processore grafico, quindi non è possibile sviluppare né esportare foto. Aggiorna il driver grafico e riavvia Rawtonic. Dettagli: {{details}}",
     "operationFailed": "Non è stato possibile completare l’operazione."
   },
   "library": {

@@ -803,6 +803,7 @@
     }
   },
   "errors": {
+    "gpuStartFailed": "Rawtonic n'a pas pu démarrer le processeur graphique : les photos ne peuvent être ni développées ni exportées. Mettez à jour le pilote graphique et redémarrez Rawtonic. Détails : {{details}}",
     "operationFailed": "L’opération n’a pas pu être terminée."
   },
   "library": {

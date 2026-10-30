@@ -1017,6 +1017,22 @@ fn read_settings_file(path: &Path) -> Result<AppSettings, String> {
 
 static SETTINGS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// The processing backend chosen in Preferences, read without
+/// `load_settings`' migrations or the keeping of an unreadable file: for a
+/// run that must leave the settings alone (`gpu_warmup`, run by the
+/// installer before the first launch).
+pub fn read_processing_backend(app_handle: &AppHandle) -> Option<String> {
+    processing_backend_in(&get_settings_path(app_handle).ok()?)
+}
+
+fn processing_backend_in(path: &Path) -> Option<String> {
+    let settings: serde_json::Value = serde_json::from_slice(&fs::read(path).ok()?).ok()?;
+    settings
+        .get("processingBackend")?
+        .as_str()
+        .map(str::to_string)
+}
+
 #[tauri::command]
 pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
     let _guard = SETTINGS_LOCK
@@ -1183,6 +1199,25 @@ mod tests {
         let cleared: AppSettings =
             serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
         assert_eq!(cleared.recent_libraries, Some(Vec::new()));
+    }
+
+    #[test]
+    fn the_processing_backend_is_read_without_writing() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("settings.json");
+        assert_eq!(processing_backend_in(&path), None);
+        // Settings an older version wrote, which `load_settings` migrates.
+        let content = r#"{"lastRootPath":"/Photos","processingBackend":"dx12"}"#;
+        fs::write(&path, content).unwrap();
+        assert_eq!(processing_backend_in(&path).as_deref(), Some("dx12"));
+        fs::write(&path, "{not json").unwrap();
+        assert_eq!(processing_backend_in(&path), None);
+        let names: Vec<_> = fs::read_dir(temp.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["settings.json"]);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{not json");
     }
 
     #[test]

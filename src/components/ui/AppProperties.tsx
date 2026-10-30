@@ -147,6 +147,7 @@ export enum Invokes {
   GenerateUncroppedPreview = 'generate_uncropped_preview',
   GetFolderTree = 'get_folder_tree',
   GetFolderChildren = 'get_folder_children',
+  GetGpuStartError = 'gpu_start_error',
   GetLogFilePath = 'get_log_file_path',
   GetPinnedFolderTrees = 'get_pinned_folder_trees',
   GetSupportedFileTypes = 'get_supported_file_types',

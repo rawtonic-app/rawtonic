@@ -773,6 +773,7 @@
     }
   },
   "errors": {
+    "gpuStartFailed": "Rawtonic could not start the graphics processor, so photos cannot be developed or exported. Update the graphics driver and restart Rawtonic. Details: {{details}}",
     "operationFailed": "The operation could not be completed."
   },
   "library": {

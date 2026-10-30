@@ -39,6 +39,16 @@ pub enum LaunchRequest {
     EditSession(ExternalEditSession),
     HeadlessExport(HeadlessExportSession),
     InvalidHeadless(String),
+    /// `--warm-gpu-cache`: compile the start pipelines into the pipeline
+    /// cache file and exit, without a window (`gpu_warmup`).
+    WarmGpuCache,
+}
+
+impl LaunchRequest {
+    /// Runs without a window or the single-instance hand-over.
+    pub fn is_headless(&self) -> bool {
+        matches!(self, Self::HeadlessExport(_) | Self::WarmGpuCache)
+    }
 }
 
 #[derive(Serialize, Default)]
@@ -61,6 +71,9 @@ pub fn parse_launch_args(args: &[String], base: Option<&Path>) -> LaunchRequest 
             _ => path,
         }
     };
+    if args.first().map(|s| s.as_str()) == Some(crate::gpu_warmup::ARG) {
+        return LaunchRequest::WarmGpuCache;
+    }
     if args.first().map(|s| s.as_str()) == Some("export") {
         let mut iter = args.iter().skip(1);
 
@@ -255,7 +268,7 @@ pub fn emit_launch_request(app_handle: &tauri::AppHandle, request: LaunchRequest
         LaunchRequest::InvalidHeadless(error) => {
             log::error!("Invalid headless export request: {}", error);
         }
-        LaunchRequest::None => {}
+        LaunchRequest::WarmGpuCache | LaunchRequest::None => {}
     }
 }
 
@@ -264,6 +277,15 @@ mod tests {
     use super::*;
     #[cfg(unix)]
     use std::ffi::OsString;
+
+    #[test]
+    fn the_gpu_warm_up_runs_headless() {
+        let request = parse_launch_args(&["--warm-gpu-cache".to_string()], None);
+        assert!(matches!(request, LaunchRequest::WarmGpuCache));
+        assert!(request.is_headless());
+        let open = parse_launch_args(&["photo.nef".to_string()], Some(Path::new("/qa")));
+        assert!(!open.is_headless());
+    }
 
     #[test]
     fn headless_exports_require_explicit_contact_retention() {

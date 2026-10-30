@@ -773,6 +773,7 @@
     }
   },
   "errors": {
+    "gpuStartFailed": "Rawtonic konnte den Grafikprozessor nicht starten, daher lassen sich Fotos weder entwickeln noch exportieren. Aktualisiere den Grafiktreiber und starte Rawtonic neu. Details: {{details}}",
     "operationFailed": "Der Vorgang konnte nicht abgeschlossen werden."
   },
   "library": {

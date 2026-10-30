@@ -766,6 +766,7 @@
     }
   },
   "errors": {
+    "gpuStartFailed": "Rawtonic はグラフィックプロセッサを起動できなかったため、写真の現像も書き出しもできません。グラフィックドライバを更新して Rawtonic を再起動してください。詳細: {{details}}",
     "operationFailed": "操作を完了できませんでした。"
   },
   "library": {

@@ -73,7 +73,8 @@ pub(crate) fn flush_logs() {
     }
 }
 
-pub(crate) fn setup_logging(app_handle: &tauri::AppHandle) {
+/// Logs to `file_name` in the app's log folder (replaced on each start).
+pub(crate) fn setup_logging(app_handle: &tauri::AppHandle, file_name: &str) {
     let log_dir = match app_handle.path().app_log_dir() {
         Ok(dir) => dir,
         Err(e) => {
@@ -86,7 +87,7 @@ pub(crate) fn setup_logging(app_handle: &tauri::AppHandle) {
         eprintln!("Failed to create log directory at {:?}: {}", log_dir, e);
     }
 
-    let log_file_path = log_dir.join("app.log");
+    let log_file_path = log_dir.join(file_name);
 
     let log_file = fs::OpenOptions::new()
         .write(true)
@@ -399,6 +400,19 @@ pub(crate) fn frontend_ready(
         open_with_file,
         edit_session,
     })
+}
+
+/// The processing backend chosen in Preferences (other than "auto") for
+/// wgpu (`WGPU_BACKEND`), before the GPU starts; the fallback of
+/// `rawtonic_gpu::device_start` tries the others after it.
+pub(crate) fn apply_processing_backend(backend: Option<&str>) {
+    if let Some(backend) = backend
+        && backend != "auto"
+    {
+        // SAFETY: set in the app's setup before the GPU starts and reads it,
+        // where the app has always set it.
+        unsafe { std::env::set_var("WGPU_BACKEND", backend) };
+    }
 }
 
 #[derive(Debug, PartialEq)]
