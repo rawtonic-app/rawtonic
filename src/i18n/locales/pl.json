@@ -4140,14 +4140,20 @@
         "auto": "Auto",
         "autoAria": "Automatyczne poziomy",
         "autoTitle": "Ustaw punkty czerni i bieli na podstawie histogramu",
-        "black": "Czerń",
         "channelAria": "Kanał poziomów",
-        "highlight": "Światła",
+        "fieldAria": "Wartość: {{name}}",
+        "histogramAria": "Histogram poziomów",
+        "inBlack": "Czerń wejściowa",
+        "inWhite": "Biel wejściowa",
         "midtone": "Półtony",
+        "outBlack": "Czerń wyjściowa",
         "output": "Wyjście",
-        "shadow": "Cienie",
-        "title": "Poziomy",
-        "white": "Biel"
+        "outWhite": "Biel wyjściowa",
+        "pickBlack": "Pipeta punktu czerni",
+        "pickBlackTitle": "Kliknij w zdjęciu miejsce, które ma być czarne",
+        "pickWhite": "Pipeta punktu bieli",
+        "pickWhiteTitle": "Kliknij w zdjęciu miejsce, które ma być białe",
+        "title": "Poziomy"
       },
       "regionCurve": {
         "aria": {

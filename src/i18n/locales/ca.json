@@ -4033,14 +4033,20 @@
         "auto": "Auto",
         "autoAria": "Nivells automàtics",
         "autoTitle": "Defineix els punts de negre i blanc a partir de l'histograma",
-        "black": "Negre",
         "channelAria": "Canal dels nivells",
-        "highlight": "Altes llums",
+        "fieldAria": "Valor de {{name}}",
+        "histogramAria": "Histograma dels nivells",
+        "inBlack": "Negre d'entrada",
+        "inWhite": "Blanc d'entrada",
         "midtone": "Tons mitjans",
+        "outBlack": "Negre de sortida",
         "output": "Sortida",
-        "shadow": "Ombres",
-        "title": "Nivells",
-        "white": "Blanc"
+        "outWhite": "Blanc de sortida",
+        "pickBlack": "Comptagotes del punt negre",
+        "pickBlackTitle": "Feu clic a la foto on hauria de ser negre",
+        "pickWhite": "Comptagotes del punt blanc",
+        "pickWhiteTitle": "Feu clic a la foto on hauria de ser blanc",
+        "title": "Nivells"
       },
       "regionCurve": {
         "aria": {

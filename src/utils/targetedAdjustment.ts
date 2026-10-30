@@ -22,7 +22,19 @@ import { regionAt, regionCurveValue } from "./regionCurve";
  * parametric curve).
  */
 export type TatTarget =
-  "hue" | "saturation" | "luminance" | "grayMixer" | "curve" | "regionCurve";
+  | "hue"
+  | "saturation"
+  | "luminance"
+  | "grayMixer"
+  | "curve"
+  | "regionCurve"
+  | LevelsPicker;
+
+/** Levels' black and white point pickers: a click on the photo sets the
+ * point (utils/levels.ts `pickedLevels`) instead of a drag. */
+export type LevelsPicker = "levelsBlack" | "levelsWhite";
+export const isLevelsPicker = (target: TatTarget): target is LevelsPicker =>
+  target === "levelsBlack" || target === "levelsWhite";
 
 /** The point curve channels (the curve panel's tabs): `luma` is the RGB
  * curve, `luminance` the Luminance curve after it. */
@@ -265,6 +277,7 @@ export function targetedPatch(
   delta: number,
 ): Partial<Adjustments> {
   const { base, target } = start;
+  if (isLevelsPicker(target)) return {};
   if (target === "regionCurve") {
     const region = regionOf(base);
     const key = regionAt(region, (start.curveX ?? 128) / 255);

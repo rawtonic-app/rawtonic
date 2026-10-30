@@ -3846,14 +3846,20 @@
         "auto": "자동",
         "autoAria": "자동 레벨",
         "autoTitle": "히스토그램에서 검정점과 흰색점 설정",
-        "black": "검정",
         "channelAria": "레벨 채널",
-        "highlight": "하이라이트",
+        "fieldAria": "{{name}} 값",
+        "histogramAria": "레벨 히스토그램",
+        "inBlack": "입력 검정",
+        "inWhite": "입력 흰색",
         "midtone": "중간톤",
+        "outBlack": "출력 검정",
         "output": "출력",
-        "shadow": "섀도우",
-        "title": "레벨",
-        "white": "흰색"
+        "outWhite": "출력 흰색",
+        "pickBlack": "검정점 스포이트",
+        "pickBlackTitle": "검정이 되어야 할 곳을 사진에서 클릭",
+        "pickWhite": "흰색점 스포이트",
+        "pickWhiteTitle": "흰색이 되어야 할 곳을 사진에서 클릭",
+        "title": "레벨"
       },
       "regionCurve": {
         "aria": {

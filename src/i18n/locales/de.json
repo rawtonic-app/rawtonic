@@ -3926,14 +3926,20 @@
         "auto": "Auto",
         "autoAria": "Automatische Tonwerte",
         "autoTitle": "Schwarz- und Weißpunkt aus dem Histogramm setzen",
-        "black": "Schwarz",
         "channelAria": "Tonwertkanal",
-        "highlight": "Lichter",
+        "fieldAria": "Wert {{name}}",
+        "histogramAria": "Tonwert-Histogramm",
+        "inBlack": "Eingabe Schwarz",
+        "inWhite": "Eingabe Weiß",
         "midtone": "Mitteltöne",
+        "outBlack": "Ausgabe Schwarz",
         "output": "Ausgabe",
-        "shadow": "Tiefen",
-        "title": "Tonwerte",
-        "white": "Weiß"
+        "outWhite": "Ausgabe Weiß",
+        "pickBlack": "Schwarzpunkt-Pipette",
+        "pickBlackTitle": "Ins Foto klicken, wo es schwarz sein soll",
+        "pickWhite": "Weißpunkt-Pipette",
+        "pickWhiteTitle": "Ins Foto klicken, wo es weiß sein soll",
+        "title": "Tonwerte"
       },
       "regionCurve": {
         "aria": {

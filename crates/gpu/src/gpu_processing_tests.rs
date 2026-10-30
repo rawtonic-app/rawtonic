@@ -7875,6 +7875,158 @@ fn gamut_mapping_keeps_the_hue_outside_the_output_space_and_every_pixel_inside_i
 }
 
 #[test]
+#[ignore = "requires a native GPU; the Levels histogram's probe against the output mapping"]
+fn levels_input_probe_stores_the_clipped_base_not_the_hue_restored_output() {
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+    let context = context();
+    let (width, height) = (64u32, 32u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // Left half inside sRGB, right half colours only ProPhoto holds (as in
+    // the gamut mapping test above), where renderVersion 4 restores the hue.
+    let colour = |x: u32, y: u32| -> [f32; 3] {
+        let level = 0.04 + 0.3 * (y as f32 / height as f32);
+        let base = if x < width / 2 {
+            [
+                [0.8, 0.3, 0.02],
+                [0.02, 0.1, 0.9],
+                [0.4, 0.4, 0.4],
+                [0.05, 0.6, 0.1],
+            ][(x / 8) as usize]
+        } else {
+            [
+                [-0.12, -0.03, 1.3],
+                [1.35, 0.22, -0.09],
+                [-0.45, 1.2, -0.12],
+                [0.9, -0.08, 1.1],
+            ][((x - width / 2) / 8) as usize]
+        };
+        base.map(|v| v * level * 2.0)
+    };
+    let data: Vec<f16> = (0..height)
+        .flat_map(|y| (0..width).map(move |x| (x, y)))
+        .flat_map(|(x, y)| {
+            let [r, g, b] = colour(x, y);
+            [
+                f16::from_f32(r),
+                f16::from_f32(g),
+                f16::from_f32(b),
+                f16::ONE,
+            ]
+        })
+        .collect();
+    let view = context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Wide-gamut input"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&data),
+        )
+        .create_view(&Default::default());
+    let render = |recipe: serde_json::Value, space: OutputColorSpace, probe: bool| -> Vec<u16> {
+        let mut adjustments = get_all_adjustments_from_json(&recipe, true, Some(3));
+        adjustments.global.output_space[0] = space.shader_code();
+        adjustments.global.output_matrix =
+            crate::image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+        if probe {
+            adjustments.global.output_space[3] = crate::image_processing::LEVELS_INPUT_PROBE;
+        }
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        let RenderedPixels::U16(pixels) = pixels else {
+            unreachable!()
+        };
+        pixels
+    };
+    let recipe = json!({ "renderVersion": 4 });
+    // The base colour unclipped: the ProPhoto export holds all of them.
+    let unclipped = render(recipe.clone(), OutputColorSpace::ProPhoto, false);
+    let mapped = render(recipe.clone(), OutputColorSpace::Srgb, false);
+    let probe = render(recipe, OutputColorSpace::Srgb, true);
+    // Levels do not act on their own input.
+    let with_levels = render(
+        json!({ "renderVersion": 4, "levels": {"rgb": {"inBlack": 40, "outWhite": 200}} }),
+        OutputColorSpace::Srgb,
+        true,
+    );
+    assert_eq!(probe, with_levels);
+    let srgb = OutputColorSpace::Srgb;
+    let (mut checked, mut outside, mut restored) = (0, 0, 0);
+    for y in 0..height {
+        for x in 0..width {
+            let i = ((y * width + x) * 4) as usize;
+            let prophoto =
+                [unclipped[i], unclipped[i + 1], unclipped[i + 2]].map(|v| v as f64 / 65535.0);
+            if !prophoto.iter().all(|&v| (0.001..=0.999).contains(&v)) {
+                continue;
+            }
+            let linear_prophoto =
+                prophoto.map(|v| OutputColorSpace::ProPhoto.transfer().to_linear(v));
+            let linear = OutputColorSpace::ProPhoto.to_linear_srgb().map(|row| {
+                row[0] * linear_prophoto[0]
+                    + row[1] * linear_prophoto[1]
+                    + row[2] * linear_prophoto[2]
+            });
+            // What Levels receive: the display value clipped to the cube.
+            let wanted = linear.map(|v| srgb.transfer().from_linear(v.clamp(0.0, 1.0)));
+            let got: [f64; 3] = std::array::from_fn(|c| probe[i + c] as f64 / 65535.0);
+            for c in 0..3 {
+                assert!(
+                    (got[c] - wanted[c]).abs() < 2e-3,
+                    "{x},{y} channel {c}: probe {:.4} vs clipped base {:.4}",
+                    got[c],
+                    wanted[c]
+                );
+            }
+            checked += 1;
+            if linear.iter().any(|v| !(0.0..=1.0).contains(v)) {
+                outside += 1;
+            }
+            let output: [f64; 3] = std::array::from_fn(|c| mapped[i + c] as f64 / 65535.0);
+            if (0..3).any(|c| (output[c] - got[c]).abs() > 0.01) {
+                restored += 1;
+            }
+        }
+    }
+    // Colours outside sRGB were checked, and there the output mapping
+    // changes what the probe must not.
+    assert!(
+        checked > 500 && outside > 100,
+        "{checked} pixels checked, {outside} outside sRGB"
+    );
+    assert!(
+        restored > 100,
+        "{restored} pixels differ from the mapped output"
+    );
+}
+
+#[test]
 #[ignore = "requires a native GPU; gamut mapping of renderVersion 4 along smooth gradients"]
 fn gamut_mapping_keeps_smooth_gradients_smooth() {
     use rawtonic_engine::output_color_space::OutputColorSpace;

@@ -84,6 +84,12 @@ interface EditorState {
   tatTarget: import('../utils/targetedAdjustment').TatTarget | null;
   /** The colour mixer channel the last targeted drag acted on most. */
   tatFocus: string | null;
+  /** The Levels channel shown (its pickers set that channel's points). */
+  levelsChannel: import('../utils/levels').LevelChannel;
+  /** The latest Levels picker press (each press takes the next value;
+   * turning a picker off or on voids the presses before it). A picker's
+   * sample applies only while its press still holds this value. */
+  levelsPickerPress: number;
   /** The point curve channel the curve panel shows (and the targeted
    * curve moves). */
   curveChannel: import('../utils/targetedAdjustment').CurveChannel;
@@ -215,6 +221,10 @@ interface EditorState {
 
   // Actions
   setEditor: (updater: Partial<EditorState> | ((state: EditorState) => Partial<EditorState>)) => void;
+
+  /** Arms or turns off a Levels picker (a new `target` in `tatTarget`) and
+   * voids every sample of an earlier press: only the latest one applies. */
+  setTatTarget: (target: EditorState['tatTarget']) => void;
   pushHistory: (newAdjustments: Adjustments) => void;
   undo: () => void;
   redo: () => void;
@@ -279,6 +289,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   isWbPickerActive: false,
   tatTarget: null,
   tatFocus: null,
+  levelsChannel: 'rgb',
+  levelsPickerPress: 0,
   curveChannel: 'luma',
   tatCurveMarker: null,
   isSpotToolActive: false,
@@ -327,6 +339,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   patchesSentToBackend: new Set<string>(),
 
   setEditor: (updater) => set((state) => (typeof updater === 'function' ? updater(state) : updater)),
+
+  setTatTarget: (target) =>
+    set((state) =>
+      state.tatTarget === target ? state : { tatTarget: target, levelsPickerPress: state.levelsPickerPress + 1 },
+    ),
 
   pushHistory: (newAdj) => {
     scheduledHistory.cancel();

@@ -2,16 +2,20 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, type PointerEvent } from "react";
 import { updateAdjustments } from "../../../hooks/useEditorActions";
 import { useEditorStore } from "../../../store/useEditorStore";
+import { INITIAL_LEVELS } from "../../../utils/adjustments";
+import { levelsInputKey, pickedLevels } from "../../../utils/levels";
 import {
   TAT_UNITS_PER_PIXEL,
   curveInputMean,
   dominantChannel,
+  isLevelsPicker,
   isToneTarget,
   startTargetedAdjustment,
   targetedPatch,
   type TatStart,
 } from "../../../utils/targetedAdjustment";
 import { Invokes } from "../../ui/AppProperties";
+import { draftFor } from "../../../utils/sliderDraft";
 
 /** Pointer travel (px) a press may move and still be a click. */
 const CLICK_SLOP = 2;
@@ -32,6 +36,7 @@ interface Rect {
  * while it hovers; a click without a drag sets an anchor point.
  */
 export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
+  const target = useEditorStore((s) => s.tatTarget);
   const drag = useRef<{
     startY: number;
     start: TatStart | null;
@@ -109,8 +114,14 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
   const onPointerDown = async (e: PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const view = useEditorStore.getState();
-    const { selectedImage, adjustments, tatTarget, curveChannel, setEditor } =
-      view;
+    const {
+      selectedImage,
+      adjustments,
+      tatTarget,
+      curveChannel,
+      setEditor,
+      levelsPickerPress,
+    } = view;
     if (!selectedImage?.isReady || !tatTarget) return;
     hover.current.inside = true;
     try {
@@ -132,6 +143,48 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
     drag.current = record;
     const path = selectedImage.path;
     const point = { path, normalizedX, normalizedY };
+    if (isLevelsPicker(tatTarget)) {
+      // Levels' pickers: one click, one edit; the sample is what Levels
+      // receives (rendered with Levels left out).
+      drag.current = null;
+      // The channel, recipe and native source clicked for: a tab switch, a
+      // recipe edit (but to the levels) or a replaced source (the full
+      // decode after the proxy) while sampling drops the sample — and so
+      // does a later press or a picker turned off and on again (only the
+      // latest press applies).
+      const channel = view.levelsChannel;
+      // Each press takes the next value, so a second click while the first
+      // is still sampled voids the first.
+      const press = levelsPickerPress + 1;
+      useEditorStore.setState({ levelsPickerPress: press });
+      const input = levelsInputKey(path, adjustments);
+      const pixels = await invoke<[number, number, number][] | null>(
+        Invokes.SampleCurveInput,
+        { ...point, adjustments: { ...adjustments, levels: INITIAL_LEVELS } },
+      ).catch(() => null);
+      const now = useEditorStore.getState();
+      // A slider drag's newest values may not be committed yet (sliderDraft):
+      // check and compute against them, so a pending drag is neither undone
+      // nor answered with a sample of the values before it.
+      const current = draftFor(path) ?? now.adjustments;
+      if (
+        now.selectedImage !== selectedImage ||
+        now.tatTarget !== tatTarget ||
+        now.levelsPickerPress !== press ||
+        now.levelsChannel !== channel ||
+        levelsInputKey(path, current) !== input
+      )
+        return;
+      const levels = pickedLevels(
+        current.levels,
+        channel,
+        tatTarget === "levelsBlack" ? "black" : "white",
+        pixels,
+      );
+      if (levels) updateAdjustments((prev) => ({ ...prev, levels }));
+      setEditor({ tatTarget: null });
+      return;
+    }
     // Tone targets read the colour the curves receive, rendered from the
     // recipe without them and what follows (layer curves, LUTs, overlays).
     const [linear, curveInput] = await Promise.all([
@@ -221,13 +274,13 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
       aria-label="Targeted adjustment: drag up or down on the photo"
       data-testid="targeted-adjustment"
       style={{
+        cursor: target && isLevelsPicker(target) ? "crosshair" : "ns-resize",
         position: "absolute",
         left: rect.left,
         top: rect.top,
         width: rect.width,
         height: rect.height,
         zIndex: 6,
-        cursor: "ns-resize",
         touchAction: "none",
       }}
       onPointerDown={(e) => void onPointerDown(e)}

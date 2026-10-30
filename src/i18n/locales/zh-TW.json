@@ -3846,14 +3846,20 @@
         "auto": "自動",
         "autoAria": "自動色階",
         "autoTitle": "依據色階分佈圖設定黑點和白點",
-        "black": "黑",
         "channelAria": "色階色版",
-        "highlight": "亮部",
+        "fieldAria": "{{name}}數值",
+        "histogramAria": "色階分佈圖",
+        "inBlack": "輸入黑點",
+        "inWhite": "輸入白點",
         "midtone": "中間調",
+        "outBlack": "輸出黑點",
         "output": "輸出",
-        "shadow": "陰影",
-        "title": "色階",
-        "white": "白"
+        "outWhite": "輸出白點",
+        "pickBlack": "黑點滴管",
+        "pickBlackTitle": "在相片中按一下應為黑色的位置",
+        "pickWhite": "白點滴管",
+        "pickWhiteTitle": "在相片中按一下應為白色的位置",
+        "title": "色階"
       },
       "regionCurve": {
         "aria": {
