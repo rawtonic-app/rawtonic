@@ -372,12 +372,15 @@
   background: transparent;
   pointer-events: none;
 }
+/* The corner layers lie over the plot: transparent, not the plot's own
+   `.studio-histogram svg` background, or they would hide the histogram. */
 .studio-histogram .studio-clip-corners > svg {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   overflow: visible;
+  background: transparent;
 }
 .studio-histogram .studio-clip-corners g {
   pointer-events: auto;

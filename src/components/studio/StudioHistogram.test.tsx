@@ -177,3 +177,23 @@ it("keeps the corner buttons off the plot's own image role", () => {
   expect(within(group).getAllByRole("button")).toHaveLength(2);
   useEditorStore.setState({ softProof: false });
 });
+
+it("draws the corner layers transparent over the plot (studio.css applied)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { resolve } = await import("node:path");
+  const style = document.createElement("style");
+  style.textContent = readFileSync(resolve(__dirname, "studio.css"), "utf8");
+  document.head.appendChild(style);
+  try {
+    const { container } = render(<StudioHistogram />);
+    const plot = container.querySelector(".studio-histogram-plot > svg") as SVGElement;
+    const corners = container.querySelectorAll(".studio-clip-corners > svg");
+    expect(corners).toHaveLength(2);
+    // The plot keeps its own background; the corner layers must not repeat it.
+    expect(getComputedStyle(plot).backgroundColor).not.toMatch(/transparent|rgba\(0, 0, 0, 0\)/);
+    for (const layer of corners)
+      expect(getComputedStyle(layer).backgroundColor).toMatch(/transparent|rgba\(0, 0, 0, 0\)/);
+  } finally {
+    style.remove();
+  }
+});
