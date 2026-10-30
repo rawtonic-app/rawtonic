@@ -16,7 +16,6 @@ interface TaggingSubMenuProps {
   initialTags: { tag: string; isUser: boolean }[];
   /** `newTags` for `paths` and their grouped variants: every planned photo
    * saved. */
-  onTagsChanged: (paths: string[], newTags: { tag: string; isUser: boolean }[]) => void;
   /** The one stored tag (`user:client`, `dog`) a write saved for exactly
    * `savedPaths`, when the rest failed: only that tag changes on those
    * photos, every other keyword they have stays as the library saved it. */
@@ -35,7 +34,6 @@ const tagVariants = {
 export default function TaggingSubMenu({
   paths,
   initialTags,
-  onTagsChanged,
   onTagSaved,
   appSettings,
   hideContextMenu,
@@ -81,12 +79,10 @@ export default function TaggingSubMenu({
    * written one: adding the tag leaves every other tag as it was, removing
    * takes it out.
    *
-   * Saved everywhere: the menu takes the new tags, which the library shows
-   * for the selection and its variants (`onTagsChanged`). Saved for some:
-   * the photos that saved show the one tag written and keep their other
-   * keywords (`onTagSaved`, exactly them), the menu keeps its own tags (as
-   * before), and adding the tag again retries it for every photo (adding is
-   * idempotent). The XMP status follows the photos that failed (photoWrites).
+   * The photos that saved show the one tag written and keep their other
+   * keywords (`onTagSaved`, exactly them). Saved everywhere: the menu takes
+   * the new tags. Saved for some: the menu keeps its own tags, and adding
+   * the tag again retries it for every photo (adding is idempotent). The XMP status follows the photos that failed (photoWrites).
    */
   const applyTags = async (
     tag: string,
@@ -107,9 +103,10 @@ export default function TaggingSubMenu({
       toast.error(`${adds ? 'Failed to add tag' : 'Failed to remove tag'}: ${message}`);
       return false;
     }
-    const newTags = next(tags);
-    setTags(newTags);
-    onTagsChanged(paths, newTags);
+    // Every photo saved: each shows the one tag written and keeps its other
+    // keywords (the menu lists only the tags all photos share).
+    onTagSaved(pathsToUpdate, tag, adds ? 'add' : 'remove');
+    setTags(next(tags));
     return true;
   };
 

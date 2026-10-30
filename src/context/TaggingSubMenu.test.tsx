@@ -33,7 +33,6 @@ const file = (path: string, tags: string[] | null, group_id: string | null = nul
   }) as ImageFile;
 
 const menu = (
-  onTagsChanged = vi.fn(),
   paths = ['/s/a.NEF', '/s/b.NEF'],
   settings: AppSettings | null = null,
   // The photos a group adds to the menu's paths (a variant clicked inside its group).
@@ -47,13 +46,11 @@ const menu = (
     <TaggingSubMenu
       paths={paths}
       initialTags={initialTags}
-      onTagsChanged={onTagsChanged}
       onTagSaved={onTagSaved ?? applyDelta}
       appSettings={settings}
       hideContextMenu={() => {}}
     />,
   );
-  return onTagsChanged;
 };
 
 /** The library's own update after a partly saved write: the hook's
@@ -81,11 +78,10 @@ const add = async (tag: string) => {
 const tagsOf = () => Object.fromEntries(useLibraryStore.getState().imageList.map((image) => [image.path, image.tags]));
 
 it("keeps the menu as it was when a keyword is not saved everywhere, so adding it again retries", async () => {
-  const onTagsChanged = menu();
+  menu();
   // b.NEF fails: the library names it in SaveFailure.failed.
   invoke.mockRejectedValueOnce({ message: '1 of 2 photos not saved', failed: ['/s/b.NEF'] });
   await add('client');
-  expect(onTagsChanged).not.toHaveBeenCalled();
   expect(screen.queryByText('client')).toBeNull();
   // Retrying is not rejected as a duplicate: the batch is sent again.
   invoke.mockResolvedValueOnce(undefined);
@@ -96,7 +92,7 @@ it("keeps the menu as it was when a keyword is not saved everywhere, so adding i
 it('shows the keyword on the photographs that were saved when the batch partly failed', async () => {
   useLibraryStore.setState({ imageList: [file('/s/a.NEF', ['dog']), file('/s/b.NEF', ['dog'])] });
   const onTagSaved = vi.fn();
-  const onTagsChanged = menu(vi.fn(), ['/s/a.NEF', '/s/b.NEF'], null, [{ tag: 'dog', isUser: false }], onTagSaved);
+  menu(['/s/a.NEF', '/s/b.NEF'], null, [{ tag: 'dog', isUser: false }], onTagSaved);
   // b.NEF fails: the library names it in SaveFailure.failed.
   invoke.mockRejectedValueOnce({ message: '1 of 2 photos not saved', failed: ['/s/b.NEF'] });
   await add('client');
@@ -105,7 +101,6 @@ it('shows the keyword on the photographs that were saved when the batch partly f
   expect(onTagSaved.mock.calls[0]).toEqual([['/s/a.NEF'], 'user:client', 'add']);
   // The group-expanding callback is not asked, and the menu keeps its own
   // state, so the same attempt can be made again.
-  expect(onTagsChanged).not.toHaveBeenCalled();
   expect(screen.queryByText('client')).toBeNull();
   invoke.mockResolvedValueOnce(undefined);
   await add('client');
@@ -113,11 +108,9 @@ it('shows the keyword on the photographs that were saved when the batch partly f
     ['add_tag_for_paths', { paths: ['/s/a.NEF', '/s/b.NEF'], tag: 'user:client' }],
     ['add_tag_for_paths', { paths: ['/s/a.NEF', '/s/b.NEF'], tag: 'user:client' }],
   ]);
-  // Both saved: nothing of the batch failed, so the whole selection goes, with
-  // every tag of the menu.
-  expect(onTagsChanged.mock.calls[0][0]).toEqual(['/s/a.NEF', '/s/b.NEF']);
-  expect(onTagsChanged.mock.calls[0][1].map((tag: { tag: string }) => tag.tag)).toEqual(['client', 'dog']);
-  expect(onTagSaved).toHaveBeenCalledTimes(1);
+  // Both saved: every photo (and its variants) is told the one keyword.
+  expect(onTagSaved.mock.calls[1]).toEqual([['/s/a.NEF', '/s/b.NEF'], 'user:client', 'add']);
+  expect(onTagSaved).toHaveBeenCalledTimes(2);
 });
 
 it('keeps the automatic keyword of a saved photograph when the batch partly failed', async () => {
@@ -126,7 +119,7 @@ it('keeps the automatic keyword of a saved photograph when the batch partly fail
     imageList: [file('/s/a.NEF', ['dog', 'user:beach']), file('/s/b.NEF', ['dog', 'user:beach'])],
   });
   // The menu's common tags are "beach" and "dog"; a third one is added.
-  menu(vi.fn(), ['/s/a.NEF', '/s/b.NEF'], null, [
+  menu(['/s/a.NEF', '/s/b.NEF'], null, [
     { tag: 'beach', isUser: true },
     { tag: 'dog', isUser: false },
   ]);
@@ -143,7 +136,6 @@ it('shows a removed keyword gone from the photographs that were saved when the b
   });
   useSettingsStore.setState({ appSettings: null });
   const onTagSaved = vi.fn();
-  const onTagsChanged = vi.fn();
   render(
     <TaggingSubMenu
       paths={['/s/a.NEF', '/s/b.NEF']}
@@ -151,7 +143,6 @@ it('shows a removed keyword gone from the photographs that were saved when the b
         { tag: 'client', isUser: true },
         { tag: 'dog', isUser: false },
       ]}
-      onTagsChanged={onTagsChanged}
       onTagSaved={onTagSaved}
       appSettings={null}
       hideContextMenu={() => {}}
@@ -166,7 +157,6 @@ it('shows a removed keyword gone from the photographs that were saved when the b
   // Exactly the photo that saved loses it; the menu keeps it, so clicking it
   // again retries.
   expect(onTagSaved).toHaveBeenCalledWith(['/s/a.NEF'], 'user:client', 'remove');
-  expect(onTagsChanged).not.toHaveBeenCalled();
   expect(screen.queryByText('client')).not.toBeNull();
   invoke.mockResolvedValueOnce(undefined);
   await act(async () => {
@@ -176,7 +166,7 @@ it('shows a removed keyword gone from the photographs that were saved when the b
     ['remove_tag_for_paths', { paths: ['/s/a.NEF', '/s/b.NEF'], tag: 'user:client' }],
     ['remove_tag_for_paths', { paths: ['/s/a.NEF', '/s/b.NEF'], tag: 'user:client' }],
   ]);
-  expect(onTagsChanged).toHaveBeenCalledWith(['/s/a.NEF', '/s/b.NEF'], [{ tag: 'dog', isUser: false }]);
+  expect(onTagSaved).toHaveBeenLastCalledWith(['/s/a.NEF', '/s/b.NEF'], 'user:client', 'remove');
 });
 
 it('keeps the other keywords of a saved photograph when a keyword is removed and the batch partly failed', async () => {
@@ -188,7 +178,7 @@ it('keeps the other keywords of a saved photograph when a keyword is removed and
       file('/s/b.NEF', ['color:red', 'dog', 'user:archive', 'user:client']),
     ],
   });
-  menu(vi.fn(), ['/s/a.NEF', '/s/b.NEF'], null, [
+  menu(['/s/a.NEF', '/s/b.NEF'], null, [
     { tag: 'client', isUser: true },
     { tag: 'dog', isUser: false },
   ]);
@@ -252,7 +242,7 @@ it('with grouping on, a saved photograph does not mark its failed variant', asyn
       file('/s/c.JPG', null, 'g2', false),
     ],
   });
-  const onTagsChanged = menu(vi.fn(), ['/s/a.JPG'], settings, [{ tag: 'dog', isUser: false }]);
+  menu(['/s/a.JPG'], settings, [{ tag: 'dog', isUser: false }]);
   // The group adds its NEF, and only that one fails.
   invoke.mockRejectedValueOnce({ message: '1 of 2 photos not saved', failed: ['/s/a.NEF'] });
   await add('client');
@@ -265,5 +255,16 @@ it('with grouping on, a saved photograph does not mark its failed variant', asyn
     '/s/c.NEF': null,
     '/s/c.JPG': null,
   });
-  expect(onTagsChanged).not.toHaveBeenCalled();
+});
+
+it('keeps each photo\'s other keywords when a keyword is added to all of them', async () => {
+  // Different keywords: the menu's common list is empty.
+  useLibraryStore.setState({ imageList: [file('/s/a.NEF', ['user:beach']), file('/s/b.NEF', ['user:mountain'])] });
+  menu(['/s/a.NEF', '/s/b.NEF'], null, []);
+  invoke.mockResolvedValueOnce(undefined);
+  await add('client');
+  expect(tagsOf()).toEqual({
+    '/s/a.NEF': ['user:beach', 'user:client'],
+    '/s/b.NEF': ['user:client', 'user:mountain'],
+  });
 });
