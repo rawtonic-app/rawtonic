@@ -93,7 +93,10 @@ export default memo(function StudioHistogram() {
     ...channels.flatMap((channel) => histogramBins(histogram?.[channel])),
   );
   return (
-    <section className="studio-histogram" aria-label={t("studio.histogram.aria")}>
+    <section
+      className="studio-histogram"
+      aria-label={t("studio.histogram.aria")}
+    >
       <div className="studio-section-caption">
         <span>{t("studio.histogram.title")}</span>
         <span className="studio-histogram-toggles">
@@ -168,37 +171,54 @@ export default memo(function StudioHistogram() {
             );
           })}
         </svg>
-        <svg
+        {/* One layer per corner, aligned to its own edge, so the triangles
+            stay in the plot's corners at any plot size without stretching. */}
+        <div
           className="studio-clip-corners"
-          viewBox="0 0 256 84"
           role="group"
           aria-label={t("studio.histogram.clippingAria")}
         >
-          <ClippingCorner
-            side="shadows"
-            on={clipShadows}
-            lit={clipped.shadows}
-            label={
-              clipped.shadows
-                ? t("studio.histogram.shadowClippingLit")
-                : t("studio.histogram.shadowClipping")
-            }
-            title={t("studio.histogram.shadowClippingTitle", { shortcut: "J" })}
-            onToggle={() => setEditor({ clipShadows: !useEditorStore.getState().clipShadows })}
-          />
-          <ClippingCorner
-            side="highlights"
-            on={clipHighlights}
-            lit={clipped.highlights}
-            label={
-              clipped.highlights
-                ? t("studio.histogram.highlightClippingLit")
-                : t("studio.histogram.highlightClipping")
-            }
-            title={t("studio.histogram.highlightClippingTitle", { shortcut: "J" })}
-            onToggle={() => setEditor({ clipHighlights: !useEditorStore.getState().clipHighlights })}
-          />
-        </svg>
+          <svg viewBox="0 0 256 84" preserveAspectRatio="xMinYMin meet">
+            <ClippingCorner
+              side="shadows"
+              on={clipShadows}
+              lit={clipped.shadows}
+              label={
+                clipped.shadows
+                  ? t("studio.histogram.shadowClippingLit")
+                  : t("studio.histogram.shadowClipping")
+              }
+              title={t("studio.histogram.shadowClippingTitle", {
+                shortcut: "J",
+              })}
+              onToggle={() =>
+                setEditor({
+                  clipShadows: !useEditorStore.getState().clipShadows,
+                })
+              }
+            />
+          </svg>
+          <svg viewBox="0 0 256 84" preserveAspectRatio="xMaxYMin meet">
+            <ClippingCorner
+              side="highlights"
+              on={clipHighlights}
+              lit={clipped.highlights}
+              label={
+                clipped.highlights
+                  ? t("studio.histogram.highlightClippingLit")
+                  : t("studio.histogram.highlightClipping")
+              }
+              title={t("studio.histogram.highlightClippingTitle", {
+                shortcut: "J",
+              })}
+              onToggle={() =>
+                setEditor({
+                  clipHighlights: !useEditorStore.getState().clipHighlights,
+                })
+              }
+            />
+          </svg>
+        </div>
       </div>
       <div className="studio-exif-line">
         {image ? (

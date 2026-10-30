@@ -372,12 +372,19 @@
   background: transparent;
   pointer-events: none;
 }
-.studio-histogram .studio-clip-corners > g {
+.studio-histogram .studio-clip-corners > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.studio-histogram .studio-clip-corners g {
   pointer-events: auto;
   cursor: pointer;
   outline: none;
 }
-.studio-histogram .studio-clip-corners > g:focus-visible .studio-clip-corner-hit {
+.studio-histogram .studio-clip-corners g:focus-visible .studio-clip-corner-hit {
   stroke: #eef0f3;
   stroke-width: 1;
 }
