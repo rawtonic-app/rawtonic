@@ -50,7 +50,19 @@ fn concurrent_short_lived_connections_never_deadlock() {
     // the WAL database races with the others.
     const THREADS: usize = 4;
     const ROUNDS: u32 = 1500;
-    let (done, finished) = mpsc::channel();
+    // A deadlock stalls every thread for good, so it is detected by lack of
+    // progress, not by total wall-clock time: each thread reports every
+    // round, and the test fails only when no round finishes for this long.
+    // A busy laptop or a competing cargo build stretches the run but keeps
+    // rounds coming; the WAL-mode regression this guards (close racing with
+    // the last close) hangs within a handful of rounds, well inside the
+    // window. 10x the ~1.5 s of quiet rounds absorbs heavy load.
+    const STALL: Duration = Duration::from_secs(15);
+    // Backstop for a run that never stops completely but crawls (e.g. every
+    // round blocked for seconds on a lock): progress alone then never fails.
+    // Kept far above a loaded run (about 5 s with 12 busy cores).
+    const CEILING: Duration = Duration::from_secs(600);
+    let (done, progress) = mpsc::channel();
     let barrier = Arc::new(Barrier::new(THREADS));
     for _ in 0..THREADS {
         let directory = temp.path().to_path_buf();
@@ -64,20 +76,28 @@ fn concurrent_short_lived_connections_never_deadlock() {
                 assert!(lib.editor_state(&asset.id).unwrap().is_some());
                 barrier.wait();
                 drop(lib);
+                done.send(1).unwrap();
             }
-            done.send(ROUNDS).unwrap();
         });
     }
     drop(done);
-    let mut total = 0;
+    let rounds = THREADS as u32 * ROUNDS;
     let started = Instant::now();
-    for _ in 0..THREADS {
-        total += finished
-            .recv_timeout(Duration::from_secs(30))
-            .expect("a connection thread hung (SQLite VFS deadlock)");
+    for done_rounds in 0..rounds {
+        let remaining = CEILING.saturating_sub(started.elapsed());
+        assert!(
+            !remaining.is_zero(),
+            "only {done_rounds} of {rounds} rounds finished after {:?}: \
+             connections crawl, not just under load",
+            started.elapsed()
+        );
+        if progress.recv_timeout(STALL.min(remaining)).is_err() {
+            panic!(
+                "no connection finished for {STALL:?} ({done_rounds} of {rounds} \
+                 rounds done): a connection thread hangs (SQLite VFS deadlock)"
+            );
+        }
     }
-    assert_eq!(total, THREADS as u32 * ROUNDS);
-    assert!(started.elapsed() < Duration::from_secs(60));
 }
 
 /// Exercise the Windows VFS with literal path components and a path longer
