@@ -233,6 +233,50 @@ describe("targeted adjustment surface", () => {
     expect(history[1].curves.luma).toContainEqual({ x: 100, y: 130 });
   });
 
+  it("keeps the finished press's marker when its hover sample arrives late", async () => {
+    useEditorStore.setState({ tatTarget: "curve" });
+    // Distinct levels: the hover point reads 100, the pressed point 200.
+    const pending: { level: number; resolve: (v: unknown) => void }[] = [];
+    invoke.mockImplementation((_cmd: string, args: { normalizedX: number }) => {
+      const level = args.normalizedX > 0.5 ? 100 : 200;
+      return new Promise((r) => pending.push({ level, resolve: r }));
+    });
+    const el = surface();
+    // The hover sample is still on its way when the press starts.
+    fireEvent.pointerMove(el, { clientX: 300, clientY: 150, pointerId: 1 });
+    await act(async () => {
+      fireEvent.pointerDown(el, {
+        button: 0,
+        clientX: 10,
+        clientY: 100,
+        pointerId: 1,
+      });
+    });
+    expect(pending.map((p) => p.level)).toEqual([100, 200]);
+    const [hover, pressed] = pending;
+    // The press's reply lands first.
+    await act(async () => pressed.resolve([linearFromSrgb([200, 200, 200])]));
+    fireEvent.pointerUp(el, { pointerId: 1 });
+    expect(useEditorStore.getState().tatCurveMarker).toBe(200);
+    // The hover's reply arrives after the press finished: the marker stays.
+    await act(async () => hover.resolve([linearFromSrgb([100, 100, 100])]));
+    expect(useEditorStore.getState().tatCurveMarker).toBe(200);
+    expect(useEditorStore.getState().adjustments.curves.luma).toContainEqual({
+      x: 200,
+      y: 200,
+    });
+    // The next pointer move marks its own level.
+    useEditorStore.getState().setEditor({ tatCurveMarker: null });
+    await act(async () => {
+      fireEvent.pointerMove(el, { clientX: 300, clientY: 150, pointerId: 1 });
+    });
+    expect(pending).toHaveLength(3);
+    await act(async () =>
+      pending[2].resolve([linearFromSrgb([100, 100, 100])]),
+    );
+    expect(useEditorStore.getState().tatCurveMarker).toBe(100);
+  });
+
   it("marks the input level under the hovering pointer", async () => {
     useEditorStore.setState({ tatTarget: "curve", curveChannel: "red" });
     const lifted = structuredClone(INITIAL_ADJUSTMENTS);
