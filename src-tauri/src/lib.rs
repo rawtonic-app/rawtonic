@@ -92,6 +92,7 @@ mod upright;
 mod window_capture;
 mod window_customizer;
 mod window_state;
+mod xmp_review;
 
 // Engine layers extracted from this crate (ADR 0009). Re-exported under
 // their former module names so `crate::<module>` paths keep resolving.
@@ -679,6 +680,9 @@ pub fn run() {
             library_search::session_create_smart_album,
             library_search::session_set_smart_album_rules,
             session_bridge::session_offline,
+            xmp_review::session_xmp_review,
+            xmp_review::session_xmp_resolve,
+            xmp_review::session_xmp_undo,
             session_bridge::session_relink,
             session_bridge::session_relink_folder,
             folder_sync::folder_sync_scan,

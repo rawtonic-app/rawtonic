@@ -1537,19 +1537,33 @@
     },
     "xmp": {
       "buttonTitle": "部分 XMP 文件未与图库同步。点击查看详情并重新写入。",
+      "conflictHeading_other": "{{count}} 个 XMP 文件已被其他程序修改",
+      "conflictHint": "选择保留哪一方的元数据。无论哪种选择,你的编辑都保持不变。",
       "count_other": "{{count}} 个 XMP 未更新",
       "explain": "你的编辑、评级和关键字已安全保存在图库中。读取 XMP 文件的其他程序还看不到这些更改。照片本身永远不会被修改。",
       "heading_other": "{{count}} 张照片的 XMP 文件不是最新的",
+      "keepLibrary": "保留图库",
+      "keepLibraryAll": "全部保留图库",
+      "keepLibraryFor": "为 {{name}} 保留图库",
+      "keepLibraryTitle": "将图库的评级、标签、关键词和 IPTC 写入 XMP 文件",
+      "loading": "正在检查 XMP 文件…",
+      "notResolved_other": "{{count}} 张照片未解决:",
       "reason": {
         "changedElsewhere_other": "{{count}} 个 XMP 文件已被其他程序修改。Rawtonic 不会覆盖它们，图库保留你的版本。",
         "failed_other": "无法写入 {{count}} 个 XMP 文件：{{error}}",
         "offline_other": "{{count}} 张照片处于离线状态。重新连接驱动器后会更新其 XMP 文件。",
+        "pending_other": "{{count}} 个 XMP 文件可以重新写入。",
         "sharedName_other": "{{count}} 张照片与另一张同名（RAW 和 JPEG），两者会写入同一个 XMP 文件。"
       },
+      "resolved_other": "已为 {{count}} 张照片解决 XMP 冲突",
       "retry": "重试",
       "retryFailed": "无法写入 XMP 文件：{{error}}",
       "show": "显示照片",
       "title": "XMP 文件未更新",
+      "useXmp": "使用 XMP",
+      "useXmpAll": "全部使用 XMP",
+      "useXmpFor": "为 {{name}} 使用 XMP",
+      "useXmpTitle": "将 XMP 文件的评级、标签、关键词和 IPTC 读入图库(可撤销)",
       "view": "XMP 未更新",
       "writing": "正在写入…",
       "written_other": "已为 {{count}} 张照片更新 XMP 文件"
@@ -4336,7 +4350,8 @@
     "style": "应用样式",
     "sync": "同步设置",
     "trash": "移至回收站",
-    "undoAction": "撤销{{action}}"
+    "undoAction": "撤销{{action}}",
+    "useXmp": "使用 XMP"
   },
   "updates": {
     "appImage": "你也可以使用 AppImageUpdate 更新此 AppImage。",

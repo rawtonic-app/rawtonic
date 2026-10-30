@@ -1184,6 +1184,9 @@ fn write_text_metadata(
         if changed.contains_key(id) {
             continue;
         }
+        // An edit only in its editor sidecar is the library's first, with
+        // the rating, label and keywords the photograph shows.
+        lib.adopt_editor_sidecar(id).map_err(|e| e.to_string())?;
         let mut meta = lib.metadata(id).map_err(|e| e.to_string())?;
         for (field, value) in [
             (&mut meta.title, &update.title),
@@ -2300,6 +2303,37 @@ mod tests {
         let mut bad = TextMetadataUpdate::default();
         bad.iptc.insert("nonsense".into(), "x".into());
         assert!(write_text_metadata(&lib, vec![path], &bad).is_err());
+    }
+
+    #[test]
+    fn a_title_keeps_the_rating_label_keywords_and_look_of_an_edit_only_beside_the_photo() {
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Text", Mode::Session).unwrap();
+        let source = lib.directory.join("Capture/e.arw");
+        fs::write(&source, b"original").unwrap();
+        let id = lib.add_asset(&source).unwrap().id;
+        let source = source.canonicalize().unwrap();
+        // An edit that appeared beside it after it was registered.
+        fs::write(
+            source.with_file_name("e.arw.rrdata"),
+            br#"{"version":1,"rating":3,"tags":["color:red","user:Harbour"],"adjustments":{"exposure":1.25}}"#,
+        )
+        .unwrap();
+        let update = TextMetadataUpdate {
+            title: Some("Evening".into()),
+            ..Default::default()
+        };
+        write_text_metadata(&lib, vec![source.to_string_lossy().into_owned()], &update).unwrap();
+        let meta = lib.metadata(&id).unwrap();
+        assert_eq!(meta.title, "Evening");
+        assert_eq!(
+            (meta.rating, meta.label.as_str(), meta.keywords.clone()),
+            (3, "Red", vec!["Harbour".to_string()]),
+            "what the photo showed"
+        );
+        let state = lib.editor_state(&id).unwrap().unwrap();
+        assert_eq!(state["adjustments"]["exposure"], 1.25);
+        assert_eq!(fs::read(&source).unwrap(), b"original");
     }
 
     #[test]

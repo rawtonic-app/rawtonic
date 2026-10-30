@@ -152,6 +152,17 @@ pub(crate) fn untouched(conn: &rusqlite::Connection, id: &str) -> Result<bool> {
     )?)
 }
 
+/// Whether the photograph's primary version holds an editor state.
+fn has_editor_state(conn: &rusqlite::Connection, id: &str) -> Result<bool> {
+    Ok(conn.query_row(
+        "SELECT p.payload IS NOT NULL AND json_type(p.payload,'$.editor_state') IS NOT NULL
+         FROM versions v LEFT JOIN recipes p ON p.id=v.head
+         WHERE v.asset_id=? AND v.is_primary=1",
+        [id],
+        |r| r.get(0),
+    )?)
+}
+
 /// A new photograph read and validated, ready for `insert_planned`.
 #[derive(Debug, Clone)]
 pub struct PlannedAsset {
@@ -544,6 +555,73 @@ impl Library {
             return Ok(false);
         }
         self.write_contents(id, contents, true)
+    }
+
+    /// Before a metadata write (rating, flag, text, Use XMP, Keep library):
+    /// a photograph with no edit in the library whose edit is in the editor
+    /// sidecar beside it (`<name>.rrdata`) gets that edit first, so the
+    /// write never changes its look. Without a recipe the app shows the
+    /// sidecar's edit, and a write that left the library holding a rating
+    /// or keyword would replace it with an unedited one (and clearing that
+    /// again would bring back the sidecar's own rating). Its rating, label
+    /// and keywords come too unless the library shows its own (as
+    /// `with_library_metadata` does); an XMP conflict stays one. An editor
+    /// sidecar that cannot be read is left as it is (the app shows no edit
+    /// from it). Returns whether an edit was adopted.
+    pub fn adopt_editor_sidecar(&self, id: &str) -> Result<bool> {
+        if has_editor_state(&self.conn, id)? {
+            return Ok(false);
+        }
+        let photo = self.asset(id)?.path;
+        let name = photo.file_name().context("No filename")?;
+        let sidecar = photo.with_file_name(format!("{}.rrdata", name.to_string_lossy()));
+        if !sidecar.is_file() {
+            return Ok(false);
+        }
+        // One the editor cannot read shows no edit either (it opens with
+        // defaults): there is no look to keep, and the write goes on.
+        let Some(state) = fs::read(&sidecar)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            .filter(Value::is_object)
+        else {
+            return Ok(false);
+        };
+        let version = self.primary_version(id)?;
+        let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+        // Edited meanwhile (another connection): that edit is the library's.
+        if has_editor_state(&tx, id)? {
+            return Ok(false);
+        }
+        let library = self.metadata(id)?;
+        let shows_library =
+            library.rating > 0 || !library.label.is_empty() || !library.keywords.is_empty();
+        let (recipe, shown) = self.editor_recipe(&state, library)?;
+        write_recipe(&tx, &version, &recipe)?;
+        if !crate::snapshots::any(&tx, &version)? {
+            crate::snapshots::insert(
+                &tx,
+                &self.directory,
+                &version,
+                &crate::snapshots::in_state(&state),
+            )?;
+        }
+        if !shows_library {
+            let status: String = tx.query_row(
+                "SELECT xmp_status FROM metadata WHERE asset_id=?",
+                [id],
+                |r| r.get(0),
+            )?;
+            write_metadata(&tx, id, &shown)?;
+            if status == "conflict" {
+                tx.execute(
+                    "UPDATE metadata SET xmp_status='conflict' WHERE asset_id=?",
+                    [id],
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(true)
     }
 
     /// Whether a registered photograph was never edited nor had metadata

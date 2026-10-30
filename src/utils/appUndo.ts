@@ -8,6 +8,7 @@ import { useLibraryStore } from "../store/useLibraryStore";
 import { useUIStore } from "../store/useUIStore";
 import { movedPath, type PathMove } from "./pathKeyedState";
 import { invokeInOrder } from "./catalogWrites";
+import { xmpMetadataRead } from "./catalogEvents";
 import { photoWorkPending, reservePhotoWrites } from "./photoWrites";
 import { writeCaptureTimes, type PlannedChange } from "./captureTime";
 import { editUndoOrder, nextUndoOrder, onNewEdit } from "./undoOrder";
@@ -81,7 +82,7 @@ export type BatchLabel =
   | "apply";
 interface Step {
   order: number;
-  action: CullingValue["kind"] | "recipes" | "captureTime";
+  action: CullingValue["kind"] | "recipes" | "xmp" | "captureTime";
   changes: CullingChange[];
   /** A batch recipe change (series match): one step for all its photos. */
   recipes?: RecipeChange[];
@@ -91,7 +92,25 @@ interface Step {
   /** A batch edit of whole recipes (paste, sync, reset, …). */
   snapshots?: RecipeSnapshot[];
   label?: BatchLabel;
+  /** Use XMP: the photos it was asked for and what undoes each reading. */
+  xmp?: { paths: string[]; receipts: XmpReceipt[] };
   directory: string | null;
+}
+/** Opaque to the webview: what puts a photo's metadata back after Use XMP
+ * (`XmpUndo` in rawtonic_catalog), handed back to `session_xmp_undo`. */
+export type XmpReceipt = Record<string, unknown>;
+/** What resolving XMP sidecars or undoing Use XMP did (`XmpReport` in
+ * src-tauri/src/xmp_review.rs), by photo path. */
+export interface XmpReport {
+  done: string[];
+  offline: string[];
+  /** Changed again meanwhile: still to review. */
+  conflicts: string[];
+  failed: { path: string; reason: string }[];
+  /** Use XMP: what undoes it. Its undo: the readings not undone. */
+  undo: XmpReceipt[];
+  /** Use XMP: the photos read, one per `undo` receipt. */
+  read: string[];
 }
 interface FileStep {
   order: number;
@@ -440,6 +459,134 @@ export function recipeBatchAction(
   }, "catalog", paths, true);
 }
 
+/** Use XMP of the session bar's XMP status: the sidecars of `paths` that
+ * another program changed are read into the library (rating, label, flag,
+ * keywords, text and IPTC; never the edit) as one undo step for every photo
+ * read. Its write joins the photos' write queues (`invokeInOrder`). Keep
+ * library writes only sidecars, so it is no undo step. */
+export function xmpReadAction(directory: string, paths: string[]): Promise<XmpReport> {
+  debouncedSetHistory.flush();
+  branch++;
+  const editor = useEditorStore.getState();
+  editor.setEditor({
+    history: editor.history.slice(0, editor.historyIndex + 1),
+  });
+  const step: Step = {
+    order: nextUndoOrder(),
+    action: "xmp",
+    changes: [],
+    xmp: { paths: [...paths], receipts: [] },
+    directory,
+  };
+  currentTargets.set(step, [...paths]);
+  useCatalogUndoStore.setState((s) => ({
+    past: [...s.past, step].slice(-100),
+    future: [],
+    filesFuture: [],
+    fileRedoBlocked: true,
+  }));
+  return enqueue(async () => {
+    try {
+      const report = await readXmp(directory, paths);
+      step.xmp!.receipts = report.undo;
+      return report;
+    } finally {
+      if (!step.xmp!.receipts.length)
+        useCatalogUndoStore.setState((s) => ({
+          past: s.past.filter((item) => item !== step),
+        }));
+      xmpMetadataRead(directory);
+    }
+  }, "catalog", paths);
+}
+function readXmp(directory: string, paths: string[]) {
+  return invokeInOrder<XmpReport>(
+    Invokes.SessionXmpResolve,
+    { directory, paths, keep: "xmp" },
+    "useXmp",
+  );
+}
+/** Why the photos of a report were not read or put back, for a notice. */
+function xmpFailures(report: XmpReport) {
+  return report.failed
+    .map(({ path, reason }) => `${path.split(/[\\/]/).pop()}: ${reason}`)
+    .join("; ");
+}
+/** Undo puts each photo's metadata back (unless it was edited since);
+ * redo reads the sidecars again. Photos that travelled move to the other
+ * side as one step; those that did not (edited since, offline, a failed
+ * write) stay where they were, to try again, and a notice says why. */
+async function travelXmp(
+  step: Step,
+  direction: "undo" | "redo",
+  startedOnBranch: number,
+) {
+  const from = direction === "undo" ? "past" : "future";
+  const to = direction === "undo" ? "future" : "past";
+  const xmp = step.xmp!;
+  const directory = step.directory ?? "";
+  const part = (paths: string[], receipts: XmpReceipt[]): Step => {
+    const split = { ...step, xmp: { paths, receipts } };
+    currentTargets.set(split, paths);
+    return split;
+  };
+  try {
+    await enqueue(async () => {
+      if (!useCatalogUndoStore.getState()[from].includes(step)) return;
+      let moved: Step | null = null;
+      let left: Step | null = null;
+      let failure = "";
+      try {
+        if (direction === "undo") {
+          const report = await invokeInOrder<XmpReport>(
+            Invokes.SessionXmpUndo,
+            { directory, steps: xmp.receipts, paths: xmp.paths },
+            "useXmpUndo",
+          );
+          // Undone ones are redone by reading their sidecars again.
+          if (report.done.length) moved = part(report.done, []);
+          if (report.undo.length) {
+            left = part(report.failed.map(({ path }) => path), report.undo);
+            failure = xmpFailures(report);
+          }
+        } else {
+          const report = await readXmp(directory, xmp.paths);
+          if (report.read.length) moved = part(report.read, report.undo);
+          // Offline or failed before reading: kept to redo. Photos whose
+          // sidecar is no longer changed elsewhere have nothing to read.
+          const unread = [
+            ...report.offline,
+            ...report.failed.map(({ path }) => path),
+          ].filter((path) => !report.read.includes(path));
+          if (unread.length) {
+            left = part(unread, []);
+            failure = [
+              xmpFailures({ ...report, failed: report.failed.filter(({ path }) => !report.read.includes(path)) }),
+              ...report.offline.map((path) => `${path.split(/[\\/]/).pop()}: ${i18n.t("session.xmp.reason.offline", { count: 1 })}`),
+            ]
+              .filter(Boolean)
+              .join("; ");
+          }
+        }
+      } finally {
+        xmpMetadataRead(directory);
+      }
+      useCatalogUndoStore.setState((s) => ({
+        [from]: s[from].flatMap((item) => (item === step ? (left ? [left] : []) : [item])),
+        [to]: moved && branch === startedOnBranch ? [...s[to], moved] : s[to],
+      }));
+      if (failure) throw new Error(failure);
+    }, "catalog", xmp.paths);
+  } catch (error) {
+    const detail = String((error as { message?: string })?.message ?? error);
+    toast.error(
+      direction === "undo"
+        ? i18n.t("studio.library.fileOperations.undoFailed", { error: detail })
+        : i18n.t("studio.library.fileOperations.redoFailed", { error: detail }),
+    );
+  }
+}
+
 /** The batch steps (still to undo) that wrote `path`, oldest first, with
  * the recipe each wrote there; `written`: leaving out those (that had
  * written it when its History was kept), undefined: none. */
@@ -684,6 +831,7 @@ function actionLabel(direction: "undo" | "redo") {
     if (action === "color") return i18n.t("undoHistory.color");
     if (action === "recipes")
       return batchLabel(catalogStep(direction)!.label);
+    if (action === "xmp") return i18n.t("undoHistory.useXmp");
     if (action === "captureTime") return i18n.t("undoHistory.captureTime");
     return null;
   }
@@ -891,6 +1039,14 @@ async function travel(
   const step = useCatalogUndoStore.getState()[from].at(-1)!;
   const label = direction === "undo" ? getUndoLabel() : getRedoLabel();
   useCatalogUndoStore.setState({ busy: true });
+  if (step.xmp) {
+    try {
+      await travelXmp(step, direction, startedOnBranch);
+    } finally {
+      useCatalogUndoStore.setState({ busy: false });
+    }
+    return;
+  }
   if (step.captureTime) {
     try {
       await travelCaptureTime(step, direction, startedOnBranch);

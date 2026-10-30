@@ -1537,19 +1537,33 @@
     },
     "xmp": {
       "buttonTitle": "部分 XMP 檔案未與圖庫同步。按一下以查看詳細資訊並重新寫入。",
+      "conflictHeading_other": "{{count}} 個 XMP 檔案已被其他程式修改",
+      "conflictHint": "選擇保留哪一方的中繼資料。無論哪種選擇,你的編輯都保持不變。",
       "count_other": "{{count}} 個 XMP 未更新",
       "explain": "你的編輯、評等和關鍵字已安全儲存在圖庫中。讀取 XMP 檔案的其他程式還看不到這些變更。照片本身永遠不會被修改。",
       "heading_other": "{{count}} 張照片的 XMP 檔案不是最新的",
+      "keepLibrary": "保留圖庫",
+      "keepLibraryAll": "全部保留圖庫",
+      "keepLibraryFor": "為 {{name}} 保留圖庫",
+      "keepLibraryTitle": "將圖庫的評等、標籤、關鍵字和 IPTC 寫入 XMP 檔案",
+      "loading": "正在檢查 XMP 檔案…",
+      "notResolved_other": "{{count}} 張照片未解決:",
       "reason": {
         "changedElsewhere_other": "{{count}} 個 XMP 檔案已被其他程式修改。Rawtonic 不會覆寫它們，圖庫保留你的版本。",
         "failed_other": "無法寫入 {{count}} 個 XMP 檔案：{{error}}",
         "offline_other": "{{count}} 張照片處於離線狀態。重新連接磁碟後會更新其 XMP 檔案。",
+        "pending_other": "{{count}} 個 XMP 檔案可以重新寫入。",
         "sharedName_other": "{{count}} 張照片與另一張同名（RAW 和 JPEG），兩者會寫入同一個 XMP 檔案。"
       },
+      "resolved_other": "已為 {{count}} 張照片解決 XMP 衝突",
       "retry": "重試",
       "retryFailed": "無法寫入 XMP 檔案：{{error}}",
       "show": "顯示照片",
       "title": "XMP 檔案未更新",
+      "useXmp": "使用 XMP",
+      "useXmpAll": "全部使用 XMP",
+      "useXmpFor": "為 {{name}} 使用 XMP",
+      "useXmpTitle": "將 XMP 檔案的評等、標籤、關鍵字和 IPTC 讀入圖庫(可復原)",
       "view": "XMP 未更新",
       "writing": "正在寫入…",
       "written_other": "已為 {{count}} 張照片更新 XMP 檔案"
@@ -4336,7 +4350,8 @@
     "style": "套用樣式",
     "sync": "同步設定",
     "trash": "移至垃圾桶",
-    "undoAction": "復原{{action}}"
+    "undoAction": "復原{{action}}",
+    "useXmp": "使用 XMP"
   },
   "updates": {
     "appImage": "你也可以使用 AppImageUpdate 更新此 AppImage。",

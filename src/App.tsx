@@ -36,6 +36,8 @@ import { useSettingsStore } from './store/useSettingsStore';
 import { useUIStore } from './store/useUIStore';
 import { moduleOf, readModuleLayout } from './utils/panelLayout';
 import { reloadSessionFlags } from './utils/pathKeyedState';
+import { XMP_METADATA_READ } from './utils/catalogEvents';
+import { useTextMetadataCache } from './components/studio/StudioMetadata';
 import { useLibraryStore } from './store/useLibraryStore';
 import { useEditorStore } from './store/useEditorStore';
 import { useProcessStore } from './store/useProcessStore';
@@ -295,6 +297,20 @@ function App() {
     const changed = () => void refreshRef.current().catch(() => {});
     window.addEventListener(DRIVES_CHANGED, changed);
     return () => window.removeEventListener(DRIVES_CHANGED, changed);
+  }, []);
+
+  // Use XMP or its undo changed ratings, labels, flags, keywords and text
+  // in the library: the shown photographs and their text fields follow.
+  useEffect(() => {
+    const read = (event: Event) => {
+      const directory = (event as CustomEvent<string>).detail;
+      if (useLibraryStore.getState().sessionDirectory !== directory) return;
+      void refreshRef.current().catch(() => {});
+      const text = useTextMetadataCache.getState();
+      if (text.session === directory) void text.load(directory);
+    };
+    window.addEventListener(XMP_METADATA_READ, read);
+    return () => window.removeEventListener(XMP_METADATA_READ, read);
   }, []);
 
   // The session bar's "Show photos" for XMP files that are not up to date.

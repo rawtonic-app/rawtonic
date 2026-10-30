@@ -721,3 +721,38 @@
 .session-tools-side-options label:has(:checked) { background: var(--app-card-active); border-color: var(--app-text-secondary); }
 .session-tools-side-options label:hover { background: var(--app-bg-secondary); }
 .session-tools-side p { margin-top: 10px; font-size: 12px; }
+
+/* The session bar's pending-XMP count opens the XMP review. */
+.session-count-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.session-count-pending:hover {
+  color: var(--app-text-primary, #e8e8e8);
+  background: rgb(255 255 255 / 0.08);
+}
+
+.session-xmp-panel.has-conflicts { width: min(440px, calc(100vw - 16px)); }
+.session-xmp-conflicts { margin: 0 0 10px; padding-top: 8px; border-top: 1px solid #45474b; }
+.session-xmp-conflicts-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; margin-bottom: 6px; }
+.session-xmp-conflicts-header p { margin: 0; }
+.session-xmp-panel .session-xmp-hint { color: #a9abaf; font-size: 11px; }
+.session-xmp-buttons { display: flex; gap: 6px; }
+.session-xmp-panel .session-xmp-buttons .session-action,
+.session-xmp-list .session-action { padding: 3px 8px; font-size: 11px; }
+.session-xmp-scroll { overflow-y: auto; }
+.session-xmp-list { position: relative; font-size: 11px; }
+.session-xmp-list li { position: absolute; left: 0; right: 0; display: flex; align-items: center; gap: 6px; min-width: 0; padding: 0 2px; }
+.session-xmp-list li span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-xmp-failed { margin: 0 0 8px; color: #e5bc72; font-size: 11px; }
+.session-xmp-failed li { overflow-wrap: anywhere; }
+.session-xmp-panel button:focus-visible { box-shadow: 0 0 0 2px #292a2c, 0 0 0 4px #b4c8d3; }

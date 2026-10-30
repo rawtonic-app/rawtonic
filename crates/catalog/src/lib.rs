@@ -26,6 +26,7 @@ pub mod ingest_jobs;
 pub mod query;
 pub mod snapshots;
 pub mod volume;
+pub mod xmp_review;
 pub mod xmp_state;
 pub use add::{AddReport, Contents, ImportBatchInfo, ImportKind, PlannedAsset};
 pub use facts::{CaptureFacts, Rated};
@@ -33,6 +34,7 @@ pub use hot_folder::{HotFolderConfig, HotFolderFile};
 pub use query::{Combine, Field, Op, Rule};
 pub use snapshots::Snapshot;
 pub use volume::Volume;
+pub use xmp_review::{XmpEntry, XmpOffline, XmpUndo};
 pub use xmp_state::{UnsavedXmp, XmpProblem, XmpRetry};
 
 /// Version of the session/catalog manifest (`session.json`).
@@ -735,6 +737,9 @@ impl Library {
     /// A missing asset or invalid value rolls the whole step back. Undo follows
     /// the normal pending-XMP path and preserves all unrelated metadata.
     pub fn set_flag_values(&self, values: &[(String, i8)]) -> Result<Vec<(String, i8)>> {
+        for (id, _) in values {
+            self.adopt_editor_sidecar(id)?;
+        }
         let tx = self.conn.unchecked_transaction()?;
         let mut previous = Vec::new();
         let mut seen = HashSet::new();
@@ -753,6 +758,9 @@ impl Library {
         Ok(previous)
     }
 
+    /// Replaces the photograph's metadata. A caller that changes what it
+    /// read calls `adopt_editor_sidecar` before reading, so an edit only in
+    /// the editor sidecar (and its rating, label and keywords) is kept.
     pub fn set_metadata(&self, id: &str, metadata: &Metadata) -> Result<()> {
         metadata.validate()?;
         let tx = self.conn.unchecked_transaction()?;
@@ -1300,6 +1308,7 @@ impl Library {
 
     /// Adopt an existing sidecar only as an explicit initialization/sync action.
     pub fn adopt_xmp(&self, asset: &str) -> Result<Metadata> {
+        self.adopt_editor_sidecar(asset)?;
         let path = self.asset(asset)?.path.with_extension("xmp");
         let text = fs::read_to_string(path)?;
         let (metadata, _) = rawtonic_metadata::read_xmp(&text)?;
@@ -1360,48 +1369,23 @@ impl Library {
         Ok(count)
     }
 
+    /// Brings the photograph's XMP sidecar up to date with the library. An
+    /// offline photograph (`XmpOffline`) or a failed write (read-only
+    /// sidecar, full disk) stays pending; a sidecar changed outside Rawtonic,
+    /// or one the library never adopted, is a conflict and is not replaced.
     pub fn sync_xmp(&self, asset: &str) -> Result<()> {
-        let a = self.asset(asset)?;
-        // RAW+JPEG siblings would share a stem; refuse ambiguity rather than clobber.
-        let same_stem = self.xmp_owners(&a.path)?;
-        ensure!(
-            same_stem == 1,
-            "RAW/JPEG sidecar ownership needs pair resolution"
-        );
+        let path = self.writable_sidecar(asset)?;
         let hash: Option<String> = self.conn.query_row(
             "SELECT xmp_hash FROM metadata WHERE asset_id=?",
             [asset],
             |r| r.get(0),
         )?;
-        let recipe = self.recipe(&self.primary_version(asset)?)?;
-        if hash.is_none() && a.path.with_extension("xmp").exists() {
-            self.conn.execute(
-                "UPDATE metadata SET xmp_status='conflict' WHERE asset_id=?",
-                [asset],
-            )?;
-            anyhow::bail!("Existing XMP has not been adopted; refusing to replace its metadata");
+        if hash.is_none() && path.exists() {
+            self.mark_xmp_conflict(asset)?;
+            return Err(anyhow::Error::new(rawtonic_metadata::XmpConflict)
+                .context("Existing XMP has not been adopted; refusing to replace its metadata"));
         }
-        match rawtonic_metadata::write_xmp(
-            &a.path.with_extension("xmp"),
-            &self.metadata(asset)?,
-            recipe.as_ref(),
-            hash.as_deref(),
-        ) {
-            Ok(hash) => {
-                self.conn.execute(
-                    "UPDATE metadata SET xmp_hash=?,xmp_status='synced' WHERE asset_id=?",
-                    params![hash, asset],
-                )?;
-                Ok(())
-            }
-            Err(e) => {
-                self.conn.execute(
-                    "UPDATE metadata SET xmp_status='conflict' WHERE asset_id=?",
-                    [asset],
-                )?;
-                Err(e)
-            }
-        }
+        self.write_sidecar(asset, &path, hash.as_deref(), false)
     }
 
     pub fn undo(&self, version: &str) -> Result<bool> {

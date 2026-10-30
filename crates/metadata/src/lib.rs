@@ -211,11 +211,39 @@ fn managed(namespace: Option<&str>, name: &str) -> bool {
     }
 }
 
+/// Whether a packet says anything about the culling flag: Rawtonic's own
+/// `Flag` property, or a rejected rating (`xmp:Rating` -1). Other editors
+/// rewriting a sidecar may leave the flag out; reading such a packet back
+/// keeps the library's flag rather than taking the absent one as "unflagged".
+pub fn carries_flag(text: &str) -> Result<bool> {
+    ensure!(text.len() <= 16 * 1024 * 1024, "XMP exceeds 16 MiB limit");
+    let doc = roxmltree::Document::parse(text)?;
+    let flag = |namespace: Option<&str>, name: &str| {
+        matches!(namespace, Some(RT | FORMER_RT)) && name == "Flag"
+    };
+    let rejected = |namespace: Option<&str>, name: &str, value: &str| {
+        namespace == Some(XMP) && name == "Rating" && value.trim() == "-1"
+    };
+    Ok(doc.descendants().filter(|n| n.is_element()).any(|node| {
+        let tag = node.tag_name();
+        flag(tag.namespace(), tag.name())
+            || rejected(tag.namespace(), tag.name(), node.text().unwrap_or_default())
+            || node.attributes().any(|attr| {
+                flag(attr.namespace(), attr.name())
+                    || rejected(attr.namespace(), attr.name(), attr.value())
+            })
+    }))
+}
+
 pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
     ensure!(text.len() <= 16 * 1024 * 1024, "XMP exceeds 16 MiB limit");
     let doc = roxmltree::Document::parse(text)?;
     let mut result = Metadata::default();
     let mut recipe = None;
+    // A rejected rating (another editor's reject) wins over a flag property
+    // in any order: Rawtonic writes ratings 0–5 and its flag apart, so a -1
+    // rating beside a pick is an outside change the flag did not follow.
+    let mut rejected = false;
     for node in doc.descendants().filter(|n| n.is_element()) {
         let name = node.tag_name();
         for attr in node.attributes() {
@@ -223,9 +251,7 @@ pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
                 (Some(XMP), "Rating") => {
                     let rating: i8 = attr.value().parse()?;
                     result.rating = rating.max(0) as u8;
-                    if rating == -1 {
-                        result.flag = -1;
-                    }
+                    rejected |= rating == -1;
                 }
                 (Some(XMP), "Label") => result.label = attr.value().into(),
                 (Some(RT | FORMER_RT), "Flag") => result.flag = attr.value().parse()?,
@@ -263,9 +289,7 @@ pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
             (Some(XMP), "Rating") => {
                 let rating: i8 = value().parse()?;
                 result.rating = rating.max(0) as u8;
-                if rating == -1 {
-                    result.flag = -1;
-                }
+                rejected |= rating == -1;
             }
             (Some(XMP), "Label") => result.label = value(),
             (Some(RT | FORMER_RT), "Flag") => result.flag = value().parse()?,
@@ -298,6 +322,9 @@ pub fn read_xmp(text: &str) -> Result<(Metadata, Option<serde_json::Value>)> {
             _ => {}
         }
     }
+    if rejected {
+        result.flag = -1;
+    }
     result.validate()?;
     Ok((result, recipe))
 }
@@ -313,8 +340,101 @@ fn iptc_namespaces(metadata: &Metadata) -> String {
     )
 }
 
+/// What other applications keep inside the sidecar's creator contact
+/// structure (properties Rawtonic does not model), for the structure
+/// Rawtonic writes in its place: the start tag's namespace declarations and
+/// attributes, and the child elements, copied as they are. The declarations
+/// are those in scope at the old structure, so the copies mean the same.
+#[derive(Default)]
+struct ForeignContact {
+    start: String,
+    children: String,
+}
+
+/// Prefixes the description Rawtonic writes declares (`merge_xmp_with`).
+const OWN_PREFIXES: [(&str, &str); 8] = [
+    ("rdf", RDF),
+    ("xmp", XMP),
+    ("dc", DC),
+    ("lr", LR),
+    ("rawtonic", RT),
+    ("photoshop", PHOTOSHOP),
+    ("Iptc4xmpCore", IPTC_CORE),
+    ("xmpRights", XMP_RIGHTS),
+];
+
+fn foreign_contact(text: &str, root: roxmltree::Node) -> Result<ForeignContact> {
+    let Some(node) = root
+        .descendants()
+        .find(|n| n.has_tag_name((IPTC_CORE, "CreatorContactInfo")))
+    else {
+        return Ok(ForeignContact::default());
+    };
+    // The structure as `rdf:parseType="Resource"` or a nested description.
+    let inner = node
+        .children()
+        .find(|n| n.has_tag_name((RDF, "Description")));
+    let mut start = String::new();
+    let mut children = String::new();
+    for holder in std::iter::once(node).chain(inner) {
+        for attr in holder.attributes() {
+            if attr.namespace() != Some(RDF) && contact_key(attr.namespace(), attr.name()).is_none()
+            {
+                start.push(' ');
+                start.push_str(&text[attr.range()]);
+            }
+        }
+    }
+    for child in inner.unwrap_or(node).children().filter(|n| n.is_element()) {
+        let tag = child.tag_name();
+        if contact_key(tag.namespace(), tag.name()).is_none() {
+            children.push_str(&text[child.range()]);
+        }
+    }
+    if start.is_empty() && children.is_empty() {
+        return Ok(ForeignContact::default());
+    }
+    // Copies keep their meaning under the declarations in scope where the
+    // children are (the nested description's, when there is one); an outer
+    // attribute whose prefix the nested description redeclares would not.
+    let scope = inner.unwrap_or(node);
+    if let Some(inner) = inner {
+        for attr in node.attributes() {
+            let Some(prefix) = text[attr.range_qname()].split_once(':').map(|(p, _)| p) else {
+                continue;
+            };
+            ensure!(
+                inner.lookup_namespace_uri(Some(prefix)) == attr.namespace(),
+                "XMP prefix {prefix} is redeclared in the creator contact; refusing to rewrite it"
+            );
+        }
+    }
+    let mut declarations = String::new();
+    for ns in scope.namespaces() {
+        match ns.name() {
+            Some("xml") => {}
+            Some(prefix) => match OWN_PREFIXES.iter().find(|(own, _)| *own == prefix) {
+                Some((_, uri)) => ensure!(
+                    *uri == ns.uri(),
+                    "XMP prefix {prefix} names another namespace; refusing to rewrite the creator contact"
+                ),
+                None => declarations.push_str(&format!(" xmlns:{prefix}=\"{}\"", escape(ns.uri()))),
+            },
+            None => declarations.push_str(&format!(" xmlns=\"{}\"", escape(ns.uri()))),
+        }
+    }
+    Ok(ForeignContact {
+        start: declarations + &start,
+        children,
+    })
+}
+
 /// The IPTC fields as XMP elements (prefixes declared by the caller).
-fn iptc_elements(metadata: &Metadata, kept_contact: &BTreeMap<String, String>) -> String {
+fn iptc_elements(
+    metadata: &Metadata,
+    kept_contact: &BTreeMap<String, String>,
+    foreign: &ForeignContact,
+) -> String {
     let prefix = |ns: &str| match ns {
         PHOTOSHOP => "photoshop",
         IPTC_CORE => "Iptc4xmpCore",
@@ -343,7 +463,8 @@ fn iptc_elements(metadata: &Metadata, kept_contact: &BTreeMap<String, String>) -
     }
     if !contact.is_empty() {
         out.push_str(&format!(
-            "<Iptc4xmpCore:CreatorContactInfo rdf:parseType=\"Resource\">{contact}</Iptc4xmpCore:CreatorContactInfo>"
+            "<Iptc4xmpCore:CreatorContactInfo{} rdf:parseType=\"Resource\">{contact}{}</Iptc4xmpCore:CreatorContactInfo>",
+            foreign.start, foreign.children
         ));
     }
     out
@@ -355,6 +476,21 @@ pub fn merge_xmp(
     existing: Option<&str>,
     metadata: &Metadata,
     recipe: Option<&serde_json::Value>,
+) -> Result<String> {
+    merge_xmp_with(existing, metadata, recipe, false)
+}
+
+/// `merge_xmp`; with `replace_iptc` the IPTC fields Rawtonic models are
+/// the library's only (one the library has empty is removed from the
+/// sidecar), for resolving a conflict in the library's favour. Without it,
+/// a field the library does not hold keeps the sidecar's value. Either way
+/// a library with creator contact fields rewrites the whole contact
+/// structure, as before.
+fn merge_xmp_with(
+    existing: Option<&str>,
+    metadata: &Metadata,
+    recipe: Option<&serde_json::Value>,
+    replace_iptc: bool,
 ) -> Result<String> {
     metadata.validate()?;
     let base = existing.unwrap_or("<?xml version=\"1.0\" encoding=\"UTF-8\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"></rdf:RDF></x:xmpmeta>");
@@ -377,10 +513,15 @@ pub fn merge_xmp(
     let has_contact = IPTC_FIELDS
         .iter()
         .any(|(k, _, _, kind)| *kind == IptcKind::Contact && metadata.iptc.contains_key(*k));
+    // With contact fields the structure is rewritten as a whole (below);
+    // replacing without any, only its modelled fields go, so properties of
+    // other applications inside it stay.
     let managed = |namespace: Option<&str>, name: &str| {
         managed(namespace, name)
-            || iptc_key(namespace, name).is_some_and(|k| metadata.iptc.contains_key(k))
+            || iptc_key(namespace, name)
+                .is_some_and(|k| replace_iptc || metadata.iptc.contains_key(k))
             || (has_contact && namespace == Some(IPTC_CORE) && name == "CreatorContactInfo")
+            || (replace_iptc && !has_contact && contact_key(namespace, name).is_some())
     };
     let owned =
         |node: roxmltree::Node| managed(node.tag_name().namespace(), node.tag_name().name());
@@ -450,7 +591,7 @@ pub fn merge_xmp(
     ));
     // The contact structure is rewritten as a whole; its fields this model
     // does not set keep the sidecar's values.
-    let kept_contact: BTreeMap<String, String> = if has_contact {
+    let kept_contact: BTreeMap<String, String> = if has_contact && !replace_iptc {
         read_xmp(base)
             .map(|(old, _)| old.iptc)
             .unwrap_or_default()
@@ -460,7 +601,14 @@ pub fn merge_xmp(
     } else {
         BTreeMap::new()
     };
-    out.push_str(&iptc_elements(metadata, &kept_contact));
+    // The structure is rewritten (`has_contact`): what other applications
+    // keep in it goes along.
+    let foreign = if has_contact {
+        foreign_contact(base, root)?
+    } else {
+        ForeignContact::default()
+    };
+    out.push_str(&iptc_elements(metadata, &kept_contact, &foreign));
     for tag in ["dc:subject", "lr:hierarchicalSubject"] {
         out.push_str(&format!("<{tag}><rdf:Bag>"));
         for keyword in &metadata.keywords {
@@ -541,7 +689,11 @@ pub fn export_xmp_with_source(
             escape(&metadata.creator)
         ));
     }
-    out.push_str(&iptc_elements(metadata, &BTreeMap::new()));
+    out.push_str(&iptc_elements(
+        metadata,
+        &BTreeMap::new(),
+        &ForeignContact::default(),
+    ));
     let mut terms: Vec<&str> = Vec::new();
     for term in metadata
         .keywords
@@ -581,27 +733,71 @@ pub fn export_xmp_with_source(
     Ok(out)
 }
 
-/// expected_hash is the DB's last observed digest. Conflicts never overwrite.
+/// The sidecar changed since the library last wrote or read it (another
+/// application edited, replaced or removed it): `write_xmp` refuses to
+/// replace it until the change is reviewed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct XmpConflict;
+
+impl std::fmt::Display for XmpConflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("XMP conflict: external changes must be reviewed")
+    }
+}
+
+impl std::error::Error for XmpConflict {}
+
+/// expected_hash is the DB's last observed digest. Conflicts never overwrite
+/// (`XmpConflict`), and neither is a read-only sidecar replaced: a locked
+/// file stays as it is and the write fails.
 pub fn write_xmp(
     path: &Path,
     metadata: &Metadata,
     recipe: Option<&serde_json::Value>,
     expected_hash: Option<&str>,
 ) -> Result<String> {
+    write_xmp_with(path, metadata, recipe, expected_hash, false)
+}
+
+/// `write_xmp` for a conflict resolved in the library's favour: the IPTC
+/// fields Rawtonic models are written as the library holds them, an empty
+/// one removing the sidecar's (`merge_xmp_with`). Properties Rawtonic does
+/// not model are kept as with `write_xmp`.
+pub fn write_xmp_replacing_iptc(
+    path: &Path,
+    metadata: &Metadata,
+    recipe: Option<&serde_json::Value>,
+    expected_hash: Option<&str>,
+) -> Result<String> {
+    write_xmp_with(path, metadata, recipe, expected_hash, true)
+}
+
+fn write_xmp_with(
+    path: &Path,
+    metadata: &Metadata,
+    recipe: Option<&serde_json::Value>,
+    expected_hash: Option<&str>,
+    replace_iptc: bool,
+) -> Result<String> {
     let existing = match fs::read_to_string(path) {
         Ok(s) => Some(s),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => return Err(e.into()),
     };
-    if let Some(expected) = expected_hash {
+    if let Some(expected) = expected_hash
+        && !existing
+            .as_ref()
+            .is_some_and(|s| digest(s.as_bytes()) == expected)
+    {
+        return Err(XmpConflict.into());
+    }
+    if existing.is_some() {
         ensure!(
-            existing
-                .as_ref()
-                .is_some_and(|s| digest(s.as_bytes()) == expected),
-            "XMP conflict: external changes must be reviewed"
+            !fs::metadata(path)?.permissions().readonly(),
+            "The XMP sidecar is read-only"
         );
     }
-    let merged = merge_xmp(existing.as_deref(), metadata, recipe)?;
+    let merged = merge_xmp_with(existing.as_deref(), metadata, recipe, replace_iptc)?;
     atomic_write(path, merged.as_bytes())?;
     Ok(digest(merged.as_bytes()))
 }
@@ -623,6 +819,139 @@ mod tests {
     }
 
     use super::*;
+    #[test]
+    fn a_changed_sidecar_is_a_typed_conflict_and_stays_as_it_is() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.xmp");
+        let hash = write_xmp(&path, &Metadata::default(), None, None).unwrap();
+        std::fs::write(&path, "changed elsewhere").unwrap();
+        let error = write_xmp(&path, &Metadata::default(), None, Some(&hash)).unwrap_err();
+        assert!(error.is::<XmpConflict>(), "{error}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "changed elsewhere");
+    }
+
+    #[test]
+    fn a_packet_carries_a_flag_only_with_rawtonics_property_or_a_rejection() {
+        let packet = |attrs: &str| {
+            format!(
+                r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="{RDF}"><rdf:Description xmlns:xmp="{XMP}" xmlns:rawtonic="{RT}" {attrs}/></rdf:RDF></x:xmpmeta>"#
+            )
+        };
+        assert!(!carries_flag(&packet(r#"xmp:Rating="3""#)).unwrap());
+        assert!(carries_flag(&packet(r#"xmp:Rating="-1""#)).unwrap());
+        assert!(carries_flag(&packet(r#"xmp:Rating="3" rawtonic:Flag="0""#)).unwrap());
+        let written = merge_xmp(None, &Metadata::default(), None).unwrap();
+        assert!(carries_flag(&written).unwrap());
+    }
+
+    #[test]
+    fn replacing_iptc_keeps_foreign_properties_inside_the_contact_structure() {
+        let packet = format!(
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="{RDF}"><rdf:Description rdf:about="" xmlns:Iptc4xmpCore="{IPTC_CORE}" xmlns:other="https://example.invalid/other/"><Iptc4xmpCore:CreatorContactInfo rdf:parseType="Resource"><Iptc4xmpCore:CiEmailWork>someone@example.invalid</Iptc4xmpCore:CiEmailWork><other:Pager>123</other:Pager></Iptc4xmpCore:CreatorContactInfo></rdf:Description></rdf:RDF></x:xmpmeta>"#
+        );
+        let replaced = merge_xmp_with(Some(&packet), &Metadata::default(), None, true).unwrap();
+        assert!(!replaced.contains("someone@"), "{replaced}");
+        assert!(
+            replaced.contains("<other:Pager>123</other:Pager>"),
+            "{replaced}"
+        );
+        assert!(read_xmp(&replaced).unwrap().0.iptc.is_empty());
+        // Without replacing, the sidecar's contact field stays.
+        let kept = merge_xmp(Some(&packet), &Metadata::default(), None).unwrap();
+        assert!(kept.contains("someone@"), "{kept}");
+    }
+
+    #[test]
+    fn rewriting_the_contact_structure_keeps_foreign_properties_inside_it() {
+        for structure in [
+            r#"<Iptc4xmpCore:CreatorContactInfo rdf:parseType="Resource" other:Note="n"><Iptc4xmpCore:CiEmailWork>someone@example.invalid</Iptc4xmpCore:CiEmailWork><other:Pager>123</other:Pager></Iptc4xmpCore:CreatorContactInfo>"#,
+            r#"<Iptc4xmpCore:CreatorContactInfo><rdf:Description other:Note="n"><Iptc4xmpCore:CiEmailWork>someone@example.invalid</Iptc4xmpCore:CiEmailWork><other:Pager>123</other:Pager></rdf:Description></Iptc4xmpCore:CreatorContactInfo>"#,
+        ] {
+            let packet = format!(
+                r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="{RDF}"><rdf:Description rdf:about="" xmlns:Iptc4xmpCore="{IPTC_CORE}" xmlns:other="https://example.invalid/other/">{structure}</rdf:Description></rdf:RDF></x:xmpmeta>"#
+            );
+            // As Use XMP reads it, written back with the library's metadata.
+            let mut meta = read_xmp(&packet).unwrap().0;
+            meta.set_iptc("creatorPhone", "+1 555");
+            for replace in [false, true] {
+                let written = merge_xmp_with(Some(&packet), &meta, None, replace).unwrap();
+                let doc = roxmltree::Document::parse(&written).unwrap();
+                let pager = doc
+                    .descendants()
+                    .find(|n| n.has_tag_name(("https://example.invalid/other/", "Pager")))
+                    .unwrap_or_else(|| panic!("{written}"));
+                assert_eq!(pager.text(), Some("123"));
+                assert!(
+                    doc.descendants()
+                        .any(|n| n.attribute(("https://example.invalid/other/", "Note"))
+                            == Some("n"))
+                );
+                let read = read_xmp(&written).unwrap().0;
+                assert_eq!(
+                    read.iptc.get("creatorEmail").map(String::as_str),
+                    Some("someone@example.invalid")
+                );
+                assert_eq!(
+                    read.iptc.get("creatorPhone").map(String::as_str),
+                    Some("+1 555")
+                );
+                assert_eq!(
+                    doc.descendants()
+                        .filter(|n| n.has_tag_name((IPTC_CORE, "CreatorContactInfo")))
+                        .count(),
+                    1,
+                    "{written}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn contact_properties_keep_the_namespaces_of_a_nested_description() {
+        let packet = |inner: &str| {
+            format!(
+                r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="{RDF}"><rdf:Description rdf:about="" xmlns:Iptc4xmpCore="{IPTC_CORE}" xmlns:other="https://example.invalid/other/"><Iptc4xmpCore:CreatorContactInfo other:Note="n">{inner}</Iptc4xmpCore:CreatorContactInfo></rdf:Description></rdf:RDF></x:xmpmeta>"#
+            )
+        };
+        let mut meta = Metadata::default();
+        meta.set_iptc("creatorPhone", "+1 555");
+        // Declared on the nested description, also shadowing an outer prefix.
+        let nested = packet(
+            r#"<rdf:Description xmlns:inner="https://example.invalid/inner/"><inner:Thing>t</inner:Thing><Iptc4xmpCore:CiEmailWork>someone@example.invalid</Iptc4xmpCore:CiEmailWork></rdf:Description>"#,
+        );
+        let written = merge_xmp(Some(&nested), &meta, None).unwrap();
+        let doc = roxmltree::Document::parse(&written).unwrap();
+        assert!(
+            doc.descendants()
+                .any(|n| n.has_tag_name(("https://example.invalid/inner/", "Thing"))),
+            "{written}"
+        );
+        assert!(
+            doc.descendants()
+                .any(|n| n.attribute(("https://example.invalid/other/", "Note")) == Some("n"))
+        );
+        let shadowing = packet(
+            r#"<rdf:Description xmlns:other="https://example.invalid/elsewhere/"><other:Thing>t</other:Thing></rdf:Description>"#,
+        );
+        assert!(
+            merge_xmp(Some(&shadowing), &meta, None).is_err(),
+            "fails closed"
+        );
+    }
+
+    #[test]
+    fn a_rejected_rating_wins_over_a_pick_in_any_order() {
+        for attrs in [
+            r#"xmp:Rating="-1" rawtonic:Flag="1""#,
+            r#"rawtonic:Flag="1" xmp:Rating="-1""#,
+        ] {
+            let packet = format!(
+                r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="{RDF}"><rdf:Description xmlns:xmp="{XMP}" xmlns:rawtonic="{RT}" {attrs}/></rdf:RDF></x:xmpmeta>"#
+            );
+            assert_eq!(read_xmp(&packet).unwrap().0.flag, -1, "{attrs}");
+        }
+    }
+
     #[test]
     fn export_packet_can_mark_generated_areas() {
         let packet = export_xmp_with_source(

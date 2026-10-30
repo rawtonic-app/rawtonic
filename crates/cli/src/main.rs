@@ -527,6 +527,7 @@ fn run() -> Result<()> {
             rating,
         } => {
             let l = Library::open(&library)?;
+            l.adopt_editor_sidecar(&asset)?;
             let mut m = l.metadata(&asset)?;
             m.rating = rating;
             l.set_metadata(&asset, &m)?;
@@ -538,6 +539,7 @@ fn run() -> Result<()> {
             flag,
         } => {
             let l = Library::open(&library)?;
+            l.adopt_editor_sidecar(&asset)?;
             let mut m = l.metadata(&asset)?;
             m.flag = flag;
             l.set_metadata(&asset, &m)?;
@@ -643,7 +645,10 @@ fn run() -> Result<()> {
                 }
             }
             print(l.summary()?)?;
-            anyhow::ensure!(failed == 0, "{failed} sidecars need conflict resolution");
+            anyhow::ensure!(
+                failed == 0,
+                "{failed} sidecars are not in sync (offline, not writable or in conflict)"
+            );
             Ok(())
         }
         Command::Bench { iterations } => {
