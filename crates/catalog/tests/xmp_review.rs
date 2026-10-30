@@ -313,3 +313,93 @@ fn use_xmp_refuses_a_sidecar_that_is_no_xmp_packet() {
     assert_eq!(f.lib.xmp_unsynced().unwrap().len(), listed.len());
     assert_eq!(fs::read_to_string(&f.xmp).unwrap(), "<oops/>");
 }
+
+/// A photograph registered unedited, whose edit then appeared beside it in
+/// an editor sidecar (`.rrdata`) the library has not adopted, with a
+/// sidecar another application wrote (a conflict).
+fn unadopted_edit(external: &str) -> Fixture {
+    let tmp = tempfile::tempdir().unwrap();
+    let lib = Library::create(tmp.path(), "Xmp", Mode::Session).unwrap();
+    let photo = tmp.path().join("Capture/e.arw");
+    fs::write(&photo, b"synthetic original").unwrap();
+    let id = lib.add_asset(&photo).unwrap().id;
+    let photo = photo.canonicalize().unwrap();
+    fs::write(
+        photo.with_file_name("e.arw.rrdata"),
+        br#"{"version":1,"rating":3,"tags":["color:red"],"adjustments":{"exposure":1.25}}"#,
+    )
+    .unwrap();
+    let xmp = photo.with_extension("xmp");
+    fs::write(&xmp, external).unwrap();
+    assert!(lib.editor_state(&id).unwrap().is_none(), "not adopted yet");
+    Fixture {
+        _tmp: tmp,
+        lib,
+        id,
+        photo,
+        xmp,
+    }
+}
+
+fn exposure(f: &Fixture) -> Option<f64> {
+    f.lib.editor_state(&f.id).unwrap()?["adjustments"]["exposure"].as_f64()
+}
+
+/// A packet that clears what the edit beside it carries: no rating, no
+/// label, no keywords.
+const CLEARING: &str = r#"<?xml version="1.0" encoding="UTF-8"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="0"/></rdf:RDF></x:xmpmeta>"#;
+
+#[test]
+fn use_xmp_clearing_the_last_rating_keeps_the_edit_beside_the_photo() {
+    let f = unadopted_edit(CLEARING);
+    assert!(f.lib.sync_xmp(&f.id).is_err());
+    let undo = f.lib.use_xmp(&f.id).unwrap();
+    // The library holds the edit now, so the app never falls back to the
+    // editor sidecar's (its rating and label included).
+    assert_eq!(exposure(&f), Some(1.25));
+    let state = f.lib.editor_state(&f.id).unwrap().unwrap();
+    assert_eq!(state["rating"], 0);
+    assert_eq!(state["tags"], json!([]));
+    f.lib.undo_use_xmp(&undo).unwrap();
+    let meta = f.lib.metadata(&f.id).unwrap();
+    assert_eq!(
+        (meta.rating, meta.label.as_str()),
+        (3, "Red"),
+        "back to what the photo showed"
+    );
+    assert_eq!(exposure(&f), Some(1.25), "the edit stays");
+}
+
+#[test]
+fn every_metadata_write_adopts_an_edit_only_beside_the_photo_first() {
+    let keep = unadopted_edit(&external_packet(5));
+    keep.lib.keep_library_xmp(&keep.id).unwrap();
+    assert_eq!(exposure(&keep), Some(1.25));
+    let written = fs::read_to_string(&keep.xmp).unwrap();
+    assert!(
+        written.contains(r#"xmp:Rating="3""#),
+        "the rating the photo showed: {written}"
+    );
+    assert!(written.contains("rawtonic:Recipe"));
+
+    let flag = unadopted_edit(&external_packet(5));
+    flag.lib.set_flags(std::slice::from_ref(&flag.id), 1).unwrap();
+    assert_eq!(exposure(&flag), Some(1.25));
+    assert_eq!(flag.lib.metadata(&flag.id).unwrap().rating, 3);
+
+    let title = unadopted_edit(&external_packet(5));
+    let mut meta = title.lib.metadata(&title.id).unwrap();
+    meta.title = "Harbour".into();
+    title.lib.set_metadata(&title.id, &meta).unwrap();
+    assert_eq!(exposure(&title), Some(1.25));
+    assert_eq!(title.lib.metadata(&title.id).unwrap().title, "Harbour");
+
+    // An editor sidecar that cannot be read refuses the write: nothing
+    // changes rather than losing the edit's look.
+    let broken = unadopted_edit(&external_packet(5));
+    fs::write(broken.photo.with_file_name("e.arw.rrdata"), b"{not json").unwrap();
+    assert!(broken.lib.use_xmp(&broken.id).is_err());
+    assert_eq!(broken.lib.metadata(&broken.id).unwrap().rating, 0);
+    assert_eq!(fs::read_to_string(&broken.xmp).unwrap(), external_packet(5));
+    assert_eq!(fs::read(&broken.photo).unwrap(), b"synthetic original");
+}
