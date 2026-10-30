@@ -400,10 +400,17 @@
     outline-offset: 1px;
   }
 }
+/* The glyph's outer edge meets the plot edge; its hit area extends inward. */
+.studio-clip-corners .studio-clip-shadows {
+  justify-items: start;
+}
+.studio-clip-corners .studio-clip-highlights {
+  justify-items: end;
+}
 .studio-clip-corner > svg {
   display: block;
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
   background: transparent;
   overflow: visible;
 }
@@ -414,17 +421,22 @@
   stroke-linejoin: round;
 }
 .studio-clip-corner.is-on .studio-clip-corner-mark {
-  fill: #c8c9cc;
   stroke: #eef0f3;
+}
+.studio-clip-shadows.is-on .studio-clip-corner-mark {
+  fill: #55585d;
+}
+.studio-clip-highlights.is-on .studio-clip-corner-mark {
+  fill: #c8c9cc;
 }
 /* Clipping remains visible independently of the warning's toggle. */
 .studio-clip-shadows.is-lit .studio-clip-corner-mark {
-  fill: #3f7fe0;
-  stroke: #3f7fe0;
+  fill: #000;
+  stroke: #eef0f3;
 }
 .studio-clip-highlights.is-lit .studio-clip-corner-mark {
-  fill: #e04848;
-  stroke: #e04848;
+  fill: #fff;
+  stroke: #fff;
 }
 .studio-clip-corner.is-on.is-lit .studio-clip-corner-mark {
   stroke: #eef0f3;

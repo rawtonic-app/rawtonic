@@ -60,6 +60,8 @@ it("switches each clipping warning on its own with the histogram corners", () =>
   expect(shadows.getAttribute("aria-pressed")).toBe("false");
   expect(highlights.getAttribute("aria-pressed")).toBe("false");
   expect(shadows.querySelector("title")?.textContent).toContain("J");
+  expect(shadows.getAttribute("title")).toContain("blue in the photo");
+  expect(highlights.getAttribute("title")).toContain("red in the photo");
   expect(highlights.querySelector("title")?.textContent).toContain("J");
   fireEvent.click(shadows);
   expect(useEditorStore.getState().clipShadows).toBe(true);
@@ -217,9 +219,9 @@ it("keeps fixed-size transparent control icons above the plot (studio.css applie
     // the studio's general pressed-button styles.
     for (const [state, fill, stroke] of [
       ["", "rgba(0, 0, 0, 0)", "rgb(150, 154, 159)"],
-      ["is-on", "rgb(200, 201, 204)", "rgb(238, 240, 243)"],
-      ["is-lit", "rgb(63, 127, 224)", "rgb(63, 127, 224)"],
-      ["is-on is-lit", "rgb(63, 127, 224)", "rgb(238, 240, 243)"],
+      ["is-on", "rgb(85, 88, 93)", "rgb(238, 240, 243)"],
+      ["is-lit", "rgb(0, 0, 0)", "rgb(238, 240, 243)"],
+      ["is-on is-lit", "rgb(0, 0, 0)", "rgb(238, 240, 243)"],
     ]) {
       shadow.setAttribute(
         "class",
@@ -229,12 +231,25 @@ it("keeps fixed-size transparent control icons above the plot (studio.css applie
       expect(getComputedStyle(mark).stroke).toBe(stroke);
     }
 
+    const highlight = group.querySelector(".studio-clip-highlights")!;
+    const highlightMark = highlight.querySelector("polygon")!;
+    for (const [state, fill] of [
+      ["", "rgba(0, 0, 0, 0)"],
+      ["is-on", "rgb(200, 201, 204)"],
+      ["is-lit", "rgb(255, 255, 255)"],
+      ["is-on is-lit", "rgb(255, 255, 255)"],
+    ]) {
+      highlight.setAttribute("class", `studio-clip-corner studio-clip-highlights ${state}`);
+      expect(getComputedStyle(highlightMark).fill).toBe(fill);
+    }
+    expect(getComputedStyle(shadow).justifyItems).toBe("start");
+    expect(getComputedStyle(highlight).justifyItems).toBe("end");
     for (const layer of corners) {
       expect(getComputedStyle(layer).backgroundColor).toMatch(
         /transparent|rgba\(0, 0, 0, 0\)/,
       );
-      expect(getComputedStyle(layer).height).toBe("12px");
-      expect(getComputedStyle(layer).width).toBe("12px");
+      expect(getComputedStyle(layer).height).toBe("11px");
+      expect(getComputedStyle(layer).width).toBe("11px");
       expect(getComputedStyle(layer.parentElement!).height).toBe("20px");
       expect(getComputedStyle(layer.parentElement!).width).toBe("20px");
     }

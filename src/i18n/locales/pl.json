@@ -3068,14 +3068,14 @@
       "graphEmpty": "Histogram dostępny po otwarciu zdjęcia",
       "highlightClipping": "Ostrzeżenie o światłach",
       "highlightClippingLit": "Ostrzeżenie o światłach, prześwietlone",
-      "highlightClippingTitle": "Ostrzeżenie o światłach (prześwietlone światła; {{shortcut}} przełącza oba)",
+      "highlightClippingTitle": "Ostrzeżenie o przepalonych światłach (czerwony na zdjęciu; {{shortcut}} przełącza oba)",
       "proof": "Próba",
       "proofSpace": "Przestrzeń kolorów próby",
       "proofTitle": "Próba ekranowa: pokazuje zdjęcie tak, jak będzie wyglądał eksport w wybranej przestrzeni kolorów ({{shortcut}})",
       "selectPhoto": "Wybierz zdjęcie",
       "shadowClipping": "Ostrzeżenie o cieniach",
       "shadowClippingLit": "Ostrzeżenie o cieniach, zadarte",
-      "shadowClippingTitle": "Ostrzeżenie o cieniach (zadarte cienie; {{shortcut}} przełącza oba)",
+      "shadowClippingTitle": "Ostrzeżenie o obciętych cieniach (niebieski na zdjęciu; {{shortcut}} przełącza oba)",
       "title": "Histogram"
     },
     "layers": {

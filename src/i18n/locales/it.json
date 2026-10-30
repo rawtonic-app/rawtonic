@@ -2992,14 +2992,14 @@
       "graphEmpty": "Istogramma disponibile dopo l'apertura di una foto",
       "highlightClipping": "Avviso alte luci",
       "highlightClippingLit": "Avviso alte luci, bruciate",
-      "highlightClippingTitle": "Avviso alte luci (alte luci bruciate; {{shortcut}} attiva entrambi)",
+      "highlightClippingTitle": "Avviso di clipping delle alte luci (rosso nella foto; {{shortcut}} attiva o disattiva entrambi)",
       "proof": "Prova",
       "proofSpace": "Spazio colore di prova",
       "proofTitle": "Prova a schermo: mostra la foto come apparirà un'esportazione nello spazio colore scelto ({{shortcut}})",
       "selectPhoto": "Seleziona una foto",
       "shadowClipping": "Avviso ombre",
       "shadowClippingLit": "Avviso ombre, chiuse",
-      "shadowClippingTitle": "Avviso ombre (ombre chiuse; {{shortcut}} attiva entrambi)",
+      "shadowClippingTitle": "Avviso di clipping delle ombre (blu nella foto; {{shortcut}} attiva o disattiva entrambi)",
       "title": "Istogramma"
     },
     "layers": {

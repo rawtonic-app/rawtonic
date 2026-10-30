@@ -17,7 +17,7 @@ export function histogramBins(channel: unknown): number[] {
 type ClippingSide = "shadows" | "highlights";
 
 /** One fixed-size control above the plot that switches that
- * side's warning (left: shadows, blue; right: highlights, red). `lit` is the
+ * side's warning (left: shadows; right: highlights). `lit` is the
  * histogram's own verdict: this side clips, whatever the overlay shows. */
 function ClippingCorner({
   side,
@@ -54,7 +54,7 @@ function ClippingCorner({
     >
       <svg viewBox="0 0 12 12" aria-hidden="true">
         <title>{title}</title>
-        <polygon className="studio-clip-corner-mark" points="6,1 11,10 1,10" />
+        <polygon className="studio-clip-corner-mark" points="6,0.5 11.5,10.5 0.5,10.5" />
       </svg>
     </button>
   );
